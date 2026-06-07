@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MD Debug Window</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #171a22;
+      --line: #2a2f3a;
+      --text: #e6edf3;
+      --muted: #9ba7b8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Noto Sans JP", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+    .top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #141823;
+    }
+    input, button {
+      border: 1px solid var(--line);
+      background: #202633;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 10px;
+    }
+    #apiBase { width: 240px; }
+    .grid {
+      display: grid;
+      grid-template-columns: 420px 1fr;
+      gap: 12px;
+      padding: 12px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      padding: 10px;
+    }
+    h2 {
+      font-size: 14px;
+      margin: 0 0 8px;
+      color: var(--muted);
+    }
+    pre {
+      margin: 0;
+      max-height: 72vh;
+      overflow: auto;
+      font-size: 12px;
+      line-height: 1.35;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #11151d;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+    }
+    canvas {
+      width: 100%;
+      max-width: 640px;
+      image-rendering: pixelated;
+      border: 1px solid var(--line);
+      background: #000;
+      aspect-ratio: 320 / 224;
+    }
+    #status {
+      color: var(--muted);
+      font-size: 12px;
+      margin-left: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <label for="apiBase">API</label>
+    <input id="apiBase" type="text" value="http://127.0.0.1:8080" />
+    <button id="btnRefresh">Refresh</button>
+    <button id="btnAuto">Auto: Off</button>
+    <span id="status">idle</span>
+  </div>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Registers</h2>
+      <pre id="registers">(no data)</pre>
+    </section>
+
+    <section class="card">
+      <h2>Frame</h2>
+      <canvas id="frame" width="320" height="224"></canvas>
+      <pre id="frameInfo">(no data)</pre>
+    </section>
+  </div>
+
+  <script>
+    const el = {
+      apiBase: document.getElementById('apiBase'),
+      btnRefresh: document.getElementById('btnRefresh'),
+      btnAuto: document.getElementById('btnAuto'),
+      status: document.getElementById('status'),
+      registers: document.getElementById('registers'),
+      frame: document.getElementById('frame'),
+      frameInfo: document.getElementById('frameInfo'),
+    };
+
+    let timer = null;
+
+    function api(path) {
+      return el.apiBase.value.replace(/\/+$/, '') + path;
+    }
+
+    function setStatus(text) {
+      el.status.textContent = text;
+    }
+
+    async function getJson(path) {
+      const res = await fetch(api(path));
+      if (!res.ok) {
+        throw new Error(`${res.status} ${res.statusText}`);
+      }
+      return res.json();
+    }
+
+    function drawFrame(pixels, width, height) {
+      const ctx = el.frame.getContext('2d');
+      el.frame.width = width;
+      el.frame.height = height;
+
+      const img = ctx.createImageData(width, height);
+      for (let i = 0; i < pixels.length; i++) {
+        const c = pixels[i] >>> 0;
+        const o = i * 4;
+        img.data[o] = (c >> 16) & 0xff;
+        img.data[o + 1] = (c >> 8) & 0xff;
+        img.data[o + 2] = c & 0xff;
+        img.data[o + 3] = (c >> 24) & 0xff;
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+
+    async function refresh() {
+      setStatus('refreshing...');
+      try {
+        const [regs, frame] = await Promise.all([
+          getJson('/api/v1/vdp/registers'),
+          getJson('/api/v1/video/frame'),
+        ]);
+
+        el.registers.textContent = JSON.stringify(regs, null, 2);
+        if (frame && Array.isArray(frame.pixels_argb)) {
+          drawFrame(frame.pixels_argb, frame.width, frame.height);
+          el.frameInfo.textContent = `frame=${regs.frame} size=${frame.width}x${frame.height} pixels=${frame.pixels_argb.length}`;
+        } else {
+          el.frameInfo.textContent = '(frame unavailable)';
+        }
+
+        setStatus('ok');
+      } catch (err) {
+        setStatus(`error: ${err.message || err}`);
+      }
+    }
+
+    el.btnRefresh.addEventListener('click', refresh);
+
+    el.btnAuto.addEventListener('click', () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+        el.btnAuto.textContent = 'Auto: Off';
+      } else {
+        timer = setInterval(refresh, 1000);
+        el.btnAuto.textContent = 'Auto: On';
+      }
+    });
+
+    refresh();
+  </script>
+</body>
+</html>

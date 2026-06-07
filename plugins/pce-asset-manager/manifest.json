@@ -1,0 +1,23 @@
+{
+  "id": "pce-asset-manager",
+  "name": "PCE アセット管理",
+  "description": "PCE 用の画像・スプライト・パレット・PSG・ADPCM・CD-DA 定義を assets/pce-assets.json で管理します。",
+  "version": "0.2.0",
+  "icon": "assets",
+  "types": ["editor", "asset"],
+  "dependencies": ["image-resize-converter", "image-quantize-converter"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "project.write", "dialog.openFile", "asset.import", "asset.preview", "audio.preview"],
+  "tab": {
+    "label": "PCE Assets",
+    "icon": "assets",
+    "page": "pce-assets",
+    "order": 10
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "page": "pce-assets",
+    "capabilities": ["page", "asset-manager", "asset-type-provider", "asset-import-handler", "audio-import-handler"]
+  }
+}

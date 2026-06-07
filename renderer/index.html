@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PCE Game Editor</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <!-- SVG アイコン -->
+  <svg class="icon-sprite" aria-hidden="true" focusable="false">
+    <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-build" viewBox="0 0 24 24"><path d="M15 5.5L18.5 2 22 5.5l-3.5 3.5-3.5-3.5zM2 22l7-7 3.5 3.5-7 7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 7l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="icon-play" viewBox="0 0 24 24"><path d="M8 6l10 6-10 6z" fill="currentColor"/></symbol>
+    <symbol id="icon-bug" viewBox="0 0 24 24"><path d="M9 8V6a3 3 0 1 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="7" y="8" width="10" height="10" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 10h3m10 0h3M4 14h3m10 0h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="icon-setup" viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.67 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.67a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="icon-assets" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="14" y="3" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="3" y="14" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="14" y="14" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="icon-sprite" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M9 13l2-2 2 2 2-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="9.5" y="4" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="15" y="4" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="4" y="9.5" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="9.5" y="9.5" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="15" y="9.5" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="4" y="15" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="9.5" y="15" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="15" y="15" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="icon-music" viewBox="0 0 24 24"><path d="M9 18a3 3 0 1 1-2-2.83V5l11-2v11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 14a3 3 0 1 1-2-2.83V4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-map" viewBox="0 0 24 24"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3V6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 3v15M15 6v15" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="icon-code" viewBox="0 0 24 24"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 7l-2 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-puzzle" viewBox="0 0 24 24"><path d="M14.5 3.5c0-1.1-.9-2-2-2s-2 .9-2 2H7a1 1 0 0 0-1 1v3.5c-1.1 0-2 .9-2 2s.9 2 2 2V16a1 1 0 0 0 1 1h3.5c0 1.1.9 2 2 2s2-.9 2-2H20a1 1 0 0 0 1-1v-3.5c1.1 0 2-.9 2-2s-.9-2-2-2V4.5a1 1 0 0 0-1-1h-5.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.67 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.67a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="icon-chevron-up" viewBox="0 0 24 24"><path d="M18 15l-6-6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="10" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6 15H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-add" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="icon-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M17 21v-8H7v8M7 3v5h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></symbol>
+    <symbol id="icon-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="icon-file-plus" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 2v6h6M12 11v6M9 14h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-panel-close" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><line x1="15" y1="3" x2="15" y2="21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M18 9l-2 3 2 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-panel-open" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><line x1="15" y1="3" x2="15" y2="21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 9l2 3-2 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-folder-open" viewBox="0 0 24 24"><path d="M3 8.5A2.5 2.5 0 0 1 5.5 6H10l2 2h6.5A2.5 2.5 0 0 1 21 10.5v7A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 10l2 8h14l2-8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-folder-new" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h4.5A2.5 2.5 0 0 1 19 8.5v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 8.5v9A2.5 2.5 0 0 0 5.5 20H12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M17 14v6M14 17h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="icon-unfold" viewBox="0 0 24 24"><path d="M6 7l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 13l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-fold" viewBox="0 0 24 24"><path d="M6 17l6-6 6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16.5 16.5L21 21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="icon-replace" viewBox="0 0 24 24"><path d="M4 7h11a4 4 0 0 1 0 8H8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3L4 7l4 4M20 17h-8M16 13l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="app-logo">🎮</span>
+      <span class="app-name">PCE Game Editor</span>
+      <button class="project-name" id="projectName" type="button" title="プロジェクトを切り替え">MY GAME</button>
+      <button class="project-path-chip" id="projectDirLabel" type="button" title="プロジェクトフォルダを開く">sample</button>
+    </div>
+    <div class="topbar-actions">
+      <button class="action-btn setup-btn" id="btnSetup">
+        <svg class="icon"><use href="#icon-setup"></use></svg>
+        SetUp
+      </button>
+      <button class="action-btn build-btn" id="btnBuild">
+        <svg class="icon"><use href="#icon-build"></use></svg>
+        Build
+      </button>
+      <button class="action-btn testplay-btn" id="btnTestPlay">
+        <svg class="icon"><use href="#icon-play"></use></svg>
+        Test Play
+      </button>
+      <button class="action-btn export-btn" id="btnExport" disabled>
+        <svg class="icon"><use href="#icon-save"></use></svg>
+        Export
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN LAYOUT -->
+  <div class="main-layout">
+    <!-- SIDEBAR -->
+    <nav class="sidebar">
+      <div id="sidebarPluginTabs" class="sidebar-plugin-tabs"></div>
+      <button class="nav-btn" data-page="plugins">
+        <svg class="icon"><use href="#icon-puzzle"></use></svg>
+        <span class="nav-label">Plugins</span>
+      </button>
+      <button class="nav-btn" data-page="settings">
+        <svg class="icon"><use href="#icon-settings"></use></svg>
+        <span class="nav-label">Settings</span>
+      </button>
+    </nav>
+
+    <!-- EDITOR PANELS -->
+    <main class="editor-area">
+
+      <!-- ASSETS PAGE -->
+      <section class="editor-page active" id="page-assets">
+        <div class="assets-layout" id="assetsLayout">
+          <div class="asset-list-panel">
+            <div class="asset-list-header">
+              <h2>Rescomp アセット管理</h2>
+              <div class="asset-list-header-actions">
+                <button class="icon-btn" id="btnOpenResDir" type="button" title="res ディレクトリを開く">
+                  <svg class="icon"><use href="#icon-folder"></use></svg>
+                </button>
+                <button class="icon-btn" id="btnCreateResFile" type="button" title=".res ファイル追加">
+                  <svg class="icon"><use href="#icon-file-plus"></use></svg>
+                </button>
+                <div id="assetEditorActions" class="asset-editor-actions-inline">
+                  <button class="icon-btn danger-icon-btn" id="btnDeleteAssetEntry" type="button" title="選択中の .res ファイルを削除">
+                    <svg class="icon"><use href="#icon-trash"></use></svg>
+                  </button>
+                </div>
+                <button class="btn-primary" id="btnAddAsset" type="button">アセット登録</button>
+                <button class="icon-btn" id="btnTogglePreviewPanel" type="button" title="プレビューパネルを開閉" aria-pressed="true">
+                  <svg class="icon icon-panel-close"><use href="#icon-panel-close"></use></svg>
+                  <svg class="icon icon-panel-open" style="display:none"><use href="#icon-panel-open"></use></svg>
+                </button>
+              </div>
+            </div>
+            <div class="assets-toolbar">
+              <label class="assets-toolbar-item">
+                <span>.res ファイル</span>
+                <select id="resFileSelect" class="form-input form-input-mono"></select>
+              </label>
+              <label class="assets-toolbar-item assets-search-item">
+                <span>検索</span>
+                <input id="assetSearchInput" class="form-input" type="text" placeholder="名前 / 種別 / パスで検索" />
+              </label>
+            </div>
+            <div class="asset-table-wrap">
+              <table class="asset-table">
+                <thead>
+                  <tr><th class="asset-drag-th"></th><th>タイプ</th><th>名前</th><th>ソース</th><th>コメント</th><th></th></tr>
+                </thead>
+                <tbody id="assetTableBody"></tbody>
+              </table>
+            </div>
+            <p class="hint-text" id="assetTableHint">res/*.res を読み込み中...</p>
+          </div>
+          <div class="asset-preview-resizer" id="assetPreviewResizer" role="separator" aria-orientation="vertical" aria-label="プレビューパネル幅"></div>
+          <div class="asset-preview-panel" id="assetPreviewPanel">
+            <div id="assetEditorPanel">
+
+              <!-- アコーディオン上段: パラメータ -->
+              <div class="accordion-section" id="accordionParams">
+                <button class="accordion-header" id="btnAccordionParams" type="button" aria-expanded="true">
+                  <span class="accordion-title">パラメータ</span>
+                  <svg class="icon accordion-chevron"><use href="#icon-chevron-up"></use></svg>
+                </button>
+                <div class="accordion-body" id="accordionParamsBody">
+                  <div class="asset-editor-box">
+                    <form id="assetEditForm" class="asset-edit-form"></form>
+                    <p class="asset-no-selection-hint" id="assetNoSelectionHint">アセットを選択してください</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- アコーディオン下段: プレビュー -->
+              <div class="accordion-section" id="accordionPreview">
+                <button class="accordion-header" id="btnAccordionPreview" type="button" aria-expanded="true">
+                  <span class="accordion-title">プレビュー</span>
+                  <svg class="icon accordion-chevron"><use href="#icon-chevron-up"></use></svg>
+                </button>
+                <div class="accordion-body" id="accordionPreviewBody">
+                  <div id="inlineImagePreview" hidden>
+                    <div class="inline-preview-info" id="inlinePreviewInfo"></div>
+                    <div class="image-preview-zoom-bar">
+                      <label class="image-preview-zoom-row">
+                        <span>倍率</span>
+                        <select id="inlineImageZoom" class="form-input form-input-mono">
+                          <option value="fit">画面に合わせる</option>
+                          <option value="25">25%</option>
+                          <option value="50">50%</option>
+                          <option value="100">100%</option>
+                          <option value="200">200%</option>
+                          <option value="300">300%</option>
+                          <option value="400">400%</option>
+                          <option value="800">800%</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div class="image-preview-frame" id="inlineImageFrame">
+                      <img id="inlinePreviewImage" alt="asset preview" />
+                    </div>
+                    <div class="image-preview-palette" id="inlinePalette"></div>
+                  </div>
+                  <div id="inlineAudioPreview" hidden>
+                    <div class="audio-preview-meta" id="audioPreviewMeta"></div>
+                    <div class="audio-player" id="audioPlayer">
+                      <button class="audio-play-btn" id="btnAudioPlay" type="button" title="再生">
+                        <svg class="icon" id="audioPlayIcon"><use href="#icon-play"></use></svg>
+                      </button>
+                      <div class="audio-seek-wrap">
+                        <input class="audio-seek" id="audioSeek" type="range" min="0" max="100" step="0.1" value="0" />
+                      </div>
+                      <span class="audio-time" id="audioTime">0:00</span>
+                    </div>
+                  </div>
+                  <div id="inlineNoPreview" class="inline-no-preview">プレビューなし</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CODE PAGE -->
+      <section class="editor-page" id="page-code">
+        <div class="page-header">
+          <h2>Code Editor</h2>
+          <div class="page-actions">
+            <button class="icon-btn" id="btnCodeNewFile" title="新規ファイル">
+              <svg class="icon"><use href="#icon-file-plus"></use></svg>
+            </button>
+            <button class="icon-btn" id="btnCodeNewFolder" title="新規フォルダ">
+              <svg class="icon"><use href="#icon-folder-new"></use></svg>
+            </button>
+          </div>
+        </div>
+        <div class="code-layout">
+          <aside class="code-tree-panel">
+            <div class="code-tree-header">
+              <span>Project Tree</span>
+              <div class="code-tree-header-actions">
+                <button class="icon-btn icon-btn-xs" id="btnCodeTreeExpandAll" title="ツリーを全て開く">
+                  <svg class="icon"><use href="#icon-unfold"></use></svg>
+                </button>
+                <button class="icon-btn icon-btn-xs" id="btnCodeTreeCollapseAll" title="ツリーを全て閉じる">
+                  <svg class="icon"><use href="#icon-fold"></use></svg>
+                </button>
+              </div>
+            </div>
+            <div class="code-tree-filter-row">
+              <input id="codeTreeFilterInput" class="code-tree-filter-input" type="text" placeholder="検索語 / 正規表現 / glob" spellcheck="false" autocomplete="off" title="例: \\.(c|h)$ または src/**/main.*" />
+            </div>
+            <div id="codeTree" class="code-tree"></div>
+          </aside>
+          <div class="code-editor-panel">
+            <div class="code-area" id="codeArea">
+              <div class="code-filebar">
+                <div class="code-filename" id="codeFileName">📄 project/src/main.c</div>
+                <button class="icon-btn icon-btn-xs" id="btnCodeFindToggle" title="検索/置換 (Ctrl+F)">
+                  <svg class="icon"><use href="#icon-search"></use></svg>
+                </button>
+                <button class="icon-btn icon-btn-xs" id="btnSaveCode" title="保存 (Ctrl+S)">
+                  <svg class="icon"><use href="#icon-save"></use></svg>
+                </button>
+                <button class="icon-btn icon-btn-xs danger-icon-btn" id="btnCodeDelete" title="削除">
+                  <svg class="icon"><use href="#icon-trash"></use></svg>
+                </button>
+              </div>
+              <div class="code-find-panel" id="codeFindPanel" hidden>
+                <input id="codeFindInput" class="code-find-input" type="text" placeholder="検索" spellcheck="false" autocomplete="off" />
+                <input id="codeReplaceInput" class="code-find-input" type="text" placeholder="置換" spellcheck="false" autocomplete="off" />
+                <button class="icon-btn icon-btn-xs" id="btnCodeFindPrev" title="前を検索">↑</button>
+                <button class="icon-btn icon-btn-xs" id="btnCodeFindNext" title="次を検索">↓</button>
+                <button class="icon-btn icon-btn-xs" id="btnCodeReplaceOne" title="現在の一致を置換">
+                  <svg class="icon"><use href="#icon-replace"></use></svg>
+                </button>
+                <button class="btn-sm" id="btnCodeReplaceAll" type="button">すべて</button>
+              </div>
+              <div class="code-editor-body">
+                <div class="code-line-numbers" id="codeLineNumbers" aria-hidden="true">1</div>
+                <div class="code-scroller" id="codeScroller">
+                  <pre class="code-highlight" id="codeHighlight" aria-hidden="true"></pre>
+                  <textarea id="codeEditor" class="code-editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" wrap="off"></textarea>
+                  <div class="code-completion-panel" id="codeCompletionPanel" hidden></div>
+                </div>
+              </div>
+              <div class="code-media-preview" id="codeMediaPreview" hidden></div>
+              <div class="code-editor-footer">
+                <select id="codeEncodingSelect" class="code-encoding-select" title="文字コード">
+                  <option value="auto">自動判定</option>
+                  <option value="utf8">UTF-8</option>
+                  <option value="shift_jis">SJIS / CP932</option>
+                </select>
+                <div class="code-status" id="codeStatus">プロジェクト内のファイルを選択してください。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="app-modal" id="codeEntryModal" aria-hidden="true">
+        <div class="app-backdrop" data-modal-close="codeEntryModal"></div>
+        <section class="app-panel app-panel-sm" role="dialog" aria-modal="true" aria-labelledby="codeEntryModalTitle">
+          <div class="page-header modal-header">
+            <h2 id="codeEntryModalTitle">ファイル名</h2>
+            <button class="icon-btn" id="btnCodeEntryModalClose" type="button">✕</button>
+          </div>
+          <div class="settings-form compact-form">
+            <div class="form-group">
+              <label class="form-label" for="codeEntryNameInput">名前</label>
+              <input class="form-input form-input-mono" id="codeEntryNameInput" type="text" autocomplete="off" />
+              <p class="form-error" id="codeEntryNameError"></p>
+            </div>
+            <div class="form-actions-inline">
+              <button class="btn-primary" id="btnCodeEntryConfirm" type="button">OK</button>
+              <button class="btn-sm" id="btnCodeEntryCancel" type="button">キャンセル</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- PLUGINS PAGE -->
+      <section class="editor-page" id="page-plugins">
+        <div class="page-header">
+          <h2>プラグイン</h2>
+          <div class="page-actions">
+            <button class="btn-sm" id="btnReloadPlugins" type="button">🔄 再スキャン</button>
+            <button class="btn-sm btn-sm-icon" id="btnOpenPluginsFolder" type="button" title="プラグインフォルダを開く">
+              <svg class="icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M1.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5V5.5a.5.5 0 0 0-.5-.5H7.414L5.707 3.293A1 1 0 0 0 5 3H2a.5.5 0 0 0-.5-.5z"/></svg>
+              フォルダを開く
+            </button>
+          </div>
+        </div>
+        <section class="plugin-filter-bar">
+          <label class="plugin-filter-item">
+            <span>検索</span>
+            <input id="pluginSearchInput" class="form-input" type="text" placeholder="名前 / 説明 / ID" />
+          </label>
+          <label class="plugin-filter-item">
+            <span>種別</span>
+            <select id="pluginTypeFilter" class="form-input">
+              <option value="all">すべて</option>
+              <option value="core">core</option>
+              <option value="build">build</option>
+              <option value="editor">editor</option>
+              <option value="asset">asset</option>
+              <option value="emulator">emulator</option>
+              <option value="converter">converter</option>
+            </select>
+          </label>
+          <label class="plugin-filter-item plugin-filter-check">
+            <span>Core</span>
+            <label class="form-check-inline">
+              <input id="pluginCoreFilterToggle" type="checkbox" />
+              <span>非対応も表示</span>
+            </label>
+          </label>
+        </section>
+        <section class="plugin-role-settings" id="pluginRoleSettings">
+          <div class="plugin-role-card plugin-role-card-accordion plugin-role-card-group">
+            <button class="accordion-header" id="btnPluginRoleAccordion" type="button" aria-expanded="false">
+              <span class="accordion-title">Build / Emulator プラグイン（単一選択）</span>
+              <svg class="icon accordion-chevron"><use href="#icon-chevron-up"></use></svg>
+            </button>
+            <div class="accordion-body is-collapsed" id="pluginRoleBody">
+              <div class="plugin-role-card">
+                <h3>Build プラグイン（単一選択）</h3>
+                <div class="plugin-role-row">
+                  <select id="pluginBuilderSelect" class="form-input"></select>
+                </div>
+                <p class="form-hint">Build ボタン実行時のコード生成とビルドフックに使用します。</p>
+              </div>
+
+              <div class="plugin-role-card">
+                <h3>Emulator プラグイン（単一選択）</h3>
+                <div class="plugin-role-row">
+                  <select id="pluginEmulatorSelect" class="form-input"></select>
+                </div>
+                <p class="form-hint">Test Play ボタン実行時の起動フックに使用します。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+        <p id="pluginRoleStatus" class="plugin-role-status" aria-live="polite"></p>
+        <div id="pluginList" class="plugin-list">
+          <p class="hint-text">読み込み中...</p>
+        </div>
+      </section>
+
+      <!-- SETTINGS PAGE -->
+      <section class="editor-page" id="page-settings">
+        <div class="page-header">
+          <h2>プロジェクト設定</h2>
+        </div>
+        <div class="settings-form project-settings-grid">
+          <section class="settings-column">
+            <h3 class="settings-column-title">プロジェクト</h3>
+            <div class="form-group">
+              <label class="form-label">現在のプロジェクト</label>
+              <input type="text" class="form-input form-input-mono" id="currentProjectDir" readonly />
+              <div class="form-actions-inline">
+                <button class="btn-sm" id="btnOpenProjectDir" type="button">プロジェクトフォルダを開く</button>
+                <button class="btn-sm" id="btnSettingsProjectPicker" type="button">プロジェクト選択</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">タイトル</label>
+              <input type="text" class="form-input" id="settingTitle" value="MY GAME" maxlength="48" />
+              <p class="form-hint">PC Engine ROM ヘッダの Domestic/International Name（ASCII、最大 48 文字）</p>
+              <p class="form-error" id="settingTitleError"></p>
+            </div>
+            <div class="form-group">
+              <label class="form-label">作者名</label>
+              <input type="text" class="form-input" id="settingAuthor" value="AUTHOR" maxlength="16" />
+              <p class="form-error" id="settingAuthorError"></p>
+            </div>
+            <div class="form-group">
+              <label class="form-label">シリアルナンバー</label>
+              <input type="text" class="form-input form-input-mono" id="settingSerial" value="GM 00000000-00" maxlength="14" />
+              <p class="form-hint">例: GM 00000000-00（ASCII、14 文字固定）</p>
+              <p class="form-error" id="settingSerialError"></p>
+            </div>
+          </section>
+
+          <section class="settings-column export-settings-column">
+            <h3 class="settings-column-title">エクスポート設定</h3>
+            <div class="form-group">
+              <label class="form-label">出力 ROM パス</label>
+              <input type="text" class="form-input form-input-mono" id="settingOutputPath" readonly />
+              <p class="form-hint">ビルド後に <code>out/rom.bin</code> へ出力されます</p>
+            </div>
+            <div class="form-actions-inline">
+              <button class="btn-sm" id="btnOpenOutputFolder" type="button">出力フォルダを開く</button>
+              <button class="btn-sm" id="btnDownloadRom" type="button" disabled>ROM を保存</button>
+            </div>
+          </section>
+
+          <div class="form-actions settings-grid-actions">
+            <button class="btn-primary" id="btnSaveSettings">プロジェクト設定を保存</button>
+            <button class="btn-sm" id="btnOpenSetup" type="button">初期設定</button>
+          </div>
+          <div class="form-saved settings-grid-status" id="settingsSavedMsg"></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- BUILD LOG (bottom fixed) -->
+  <div class="build-log-resizer" id="buildLogResizer" title="ドラッグして高さを調整"></div>
+  <div class="build-log-bar" id="buildLogBar">
+    <div class="build-log-header" id="buildLogHeader">
+      <div class="build-log-title-row">
+        <span class="build-log-title">Log</span>
+        <span class="build-status-badge" id="buildStatusBadge"></span>
+      </div>
+      <div class="build-log-controls">
+        <span class="rom-size-label" id="buildRomSize"></span>
+        <button class="icon-btn-flat" id="btnCopyLog" title="ログをコピー">
+          <svg class="icon"><use href="#icon-copy"></use></svg>
+        </button>
+        <button class="icon-btn-flat" id="btnPopoutLog" title="ログを別ウィンドウで開く">□</button>
+        <button class="icon-btn-flat" id="btnClearLog" title="クリア">✕</button>
+        <button class="icon-btn-flat" id="btnToggleLog" title="展開/折り畳み">
+          <svg class="icon"><use href="#icon-chevron-up"></use></svg>
+        </button>
+      </div>
+    </div>
+    <div class="build-log-body" id="buildLogBody">
+      <div class="build-log-toolbar">
+        <select id="logLevelFilter" class="log-level-select" title="レベルフィルタ">
+          <option value="all">all</option>
+          <option value="debug">debug+</option>
+          <option value="info">info+</option>
+          <option value="warn">warn+</option>
+          <option value="error">error</option>
+        </select>
+        <input id="logSearchInput" class="log-search-input" type="text" placeholder="🔍 ログを検索..." />
+      </div>
+      <div id="logSourceFilters" class="log-source-filters"></div>
+      <div class="build-log-entries" id="buildLog"></div>
+    </div>
+  </div>
+
+  <div class="app-modal" id="resFileModal" aria-hidden="true">
+    <div class="app-backdrop" data-modal-close="resFileModal"></div>
+    <section class="app-panel app-panel-sm" role="dialog" aria-modal="true" aria-labelledby="resFileModalTitle">
+      <div class="page-header modal-header">
+        <h2 id="resFileModalTitle">.res ファイル追加</h2>
+        <button class="icon-btn" id="btnResFileModalClose" type="button">✕</button>
+      </div>
+      <div class="settings-form compact-form">
+        <div class="form-group">
+          <label class="form-label">作成先（res 配下）</label>
+          <input type="text" class="form-input form-input-mono" id="resFileNameInput" placeholder="stage1/resources.res" />
+          <p class="form-hint">`.res` 拡張子を含む相対パスを指定します。</p>
+        </div>
+        <div class="form-actions-inline modal-actions-end">
+          <button class="btn-sm" id="btnResFileCancel" type="button">キャンセル</button>
+          <button class="btn-primary" id="btnResFileCreate" type="button">作成</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="app-modal" id="assetModal" aria-hidden="true">
+    <div class="app-backdrop" data-modal-close="assetModal"></div>
+    <section class="app-panel" role="dialog" aria-modal="true" aria-labelledby="assetModalTitle">
+      <div class="page-header modal-header">
+        <h2 id="assetModalTitle">アセット登録</h2>
+        <button class="icon-btn" id="btnAssetModalClose" type="button">✕</button>
+      </div>
+      <div class="settings-form compact-form">
+        <div class="app-grid-2">
+          <div class="form-group app-grid-span-2">
+            <label class="form-label">入力ファイル</label>
+            <input type="text" class="form-input form-input-mono" id="assetSourcePathInput" readonly />
+          </div>
+          <div class="form-group">
+            <label class="form-label">リソースタイプ</label>
+            <select class="form-input" id="assetTypeInput"></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">定義追加先 .res</label>
+            <select class="form-input form-input-mono" id="assetResFileInput"></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">保存先サブディレクトリ</label>
+            <input type="text" class="form-input form-input-mono" id="assetTargetSubdirInput" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">保存ファイル名</label>
+            <input type="text" class="form-input form-input-mono" id="assetTargetFileNameInput" />
+          </div>
+          <div class="form-group app-grid-span-2">
+            <label class="form-label">シンボル名</label>
+            <input type="text" class="form-input form-input-mono" id="assetSymbolNameInput" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">変換ターゲット幅（任意）</label>
+            <input type="number" class="form-input form-input-mono" id="assetResizeTargetWidth" min="1" step="1" placeholder="未指定で任意" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">変換ターゲット高さ（任意）</label>
+            <input type="number" class="form-input form-input-mono" id="assetResizeTargetHeight" min="1" step="1" placeholder="未指定で任意" />
+          </div>
+          <div class="form-group app-grid-span-2">
+            <label class="form-label">コメント</label>
+            <textarea class="form-input form-input-mono" id="assetCommentInput" rows="3" placeholder=".res に `// comment` として保存されます"></textarea>
+          </div>
+        </div>
+        <div class="form-actions-inline modal-actions-end">
+          <button class="btn-sm" id="btnAssetModalCancel" type="button">キャンセル</button>
+          <button class="btn-primary" id="btnAssetModalCreate" type="button">追加</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="app-modal" id="audioConvertModal" aria-hidden="true">
+    <div class="app-backdrop" id="audioConvertBackdrop"></div>
+    <section class="app-panel app-panel-lg" role="dialog" aria-modal="true" aria-labelledby="audioConvertTitle">
+      <div class="page-header modal-header">
+        <h2 id="audioConvertTitle">音声変換コンバーター</h2>
+        <button class="icon-btn" id="btnAudioConvertClose" type="button">✕</button>
+      </div>
+      <div class="audio-convert-layout">
+        <div class="audio-convert-preview">
+          <div class="hint-text" id="audioConvertSourceLabel">-</div>
+          <canvas id="audioConvertWaveCanvas" width="960" height="220"></canvas>
+          <div class="audio-convert-zoom-bar">
+            <button class="btn-icon" id="btnAudioConvertZoomOut" type="button" title="縮小">−</button>
+            <input type="range" id="audioConvertZoomSlider" min="1" max="32" step="0.1" value="1" style="flex:1;min-width:0" />
+            <button class="btn-icon" id="btnAudioConvertZoomIn" type="button" title="拡大">＋</button>
+            <span id="audioConvertZoomLabel" style="min-width:40px;text-align:right;font-size:11px;color:var(--muted)">×1.0</span>
+            <button class="btn-icon" id="btnAudioConvertZoomReset" type="button" title="ズームリセット">↺</button>
+          </div>
+          <input type="range" id="audioConvertScrollSlider" class="audio-convert-scroll-slider" min="0" max="1000" step="1" value="0" />
+          <div class="audio-convert-time-row">
+            <span>開始: <strong id="audioConvertStartLabel">0.00s</strong></span>
+            <span>終了: <strong id="audioConvertEndLabel">0.00s</strong></span>
+            <span>全長: <strong id="audioConvertDurationLabel">0.00s</strong></span>
+            <span>周波数: <strong id="audioConvertSampleRateLabel">-</strong></span>
+            <span>レベル: <strong id="audioConvertLevelLabel">-</strong></span>
+          </div>
+          <div class="audio-convert-slider-grid">
+            <label>開始位置</label>
+            <input type="range" id="audioConvertStartSlider" min="0" max="1000" value="0" step="1" />
+            <label>終了位置</label>
+            <input type="range" id="audioConvertEndSlider" min="0" max="1000" value="1000" step="1" />
+          </div>
+          <div class="audio-convert-controls">
+            <button class="icon-btn" id="btnAudioConvertRewind" type="button" title="開始位置へ巻き戻し" aria-label="開始位置へ巻き戻し">⏮</button>
+            <button class="icon-btn" id="btnAudioConvertPreview" type="button" title="選択範囲を再生" aria-label="選択範囲を再生">▶</button>
+            <button class="icon-btn" id="btnAudioConvertPause" type="button" title="一時停止" aria-label="一時停止">⏸</button>
+            <button class="icon-btn" id="btnAudioConvertStop" type="button" title="停止" aria-label="停止">⏹</button>
+            <button class="icon-btn" id="btnAudioConvertLoop" type="button" title="選択範囲をループ再生" aria-label="選択範囲をループ再生">🔁</button>
+            <audio id="audioConvertPlayer" preload="auto"></audio>
+          </div>
+          <div class="audio-convert-playhead-row">
+            <span class="audio-convert-playhead-time">再生位置: <strong id="audioConvertPlayheadLabel">0.00s</strong></span>
+            <button class="icon-btn" id="btnAudioConvertSetStart" type="button" title="現在位置を開始位置にセット" aria-label="開始位置にセット">⟸</button>
+            <button class="icon-btn" id="btnAudioConvertSetEnd" type="button" title="現在位置を終了位置にセット" aria-label="終了位置にセット">⟹</button>
+          </div>
+        </div>
+        <div class="audio-convert-options settings-form compact-form">
+          <div class="form-group">
+            <label class="form-label">開始位置（秒）</label>
+            <input type="number" class="form-input form-input-mono" id="audioConvertStartInput" min="0" step="0.01" placeholder="0.00" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">終了位置（秒）</label>
+            <input type="number" class="form-input form-input-mono" id="audioConvertEndInput" min="0" step="0.01" placeholder="末尾まで" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">正規化</label>
+            <select class="form-input form-input-mono" id="audioConvertNormalizeInput">
+              <option value="FALSE">FALSE</option>
+              <option value="TRUE">TRUE</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ボリューム調整（dB）</label>
+            <input type="number" class="form-input form-input-mono" id="audioConvertVolumeDbInput" step="0.1" placeholder="0.0" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">モノラル変換</label>
+            <select class="form-input form-input-mono" id="audioConvertMonoInput">
+              <option value="FALSE">FALSE</option>
+              <option value="TRUE" selected>TRUE</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">出力周波数（Hz）</label>
+            <select class="form-input form-input-mono" id="audioConvertSampleRateInput">
+              <option value="">変換なし（元の周波数）</option>
+              <option value="44100">44100 Hz</option>
+              <option value="32000">32000 Hz</option>
+              <option value="22050" selected>22050 Hz</option>
+              <option value="16000">16000 Hz</option>
+              <option value="11025">11025 Hz</option>
+              <option value="8000">8000 Hz</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <button class="btn-sm" id="btnAudioConvertNormalizeApply" type="button" style="width:100%">正規化/ボリュームをプレビューに適用</button>
+          </div>
+          <div class="hint-text" id="audioConvertHint">選択範囲を確認してから「変換して追加」を実行してください。</div>
+        </div>
+      </div>
+      <div class="form-actions-inline modal-actions-end">
+        <button class="btn-sm" id="btnAudioConvertCancel" type="button">キャンセル</button>
+        <button class="btn-sm" id="btnAudioConvertSkip" type="button" style="display:none">WAVのままコピー（変換なし）</button>
+        <button class="btn-primary" id="btnAudioConvertApply" type="button">変換して追加</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="app-modal" id="projectModal" aria-hidden="true">
+    <div class="app-backdrop" data-modal-close="projectModal"></div>
+    <section class="app-panel app-panel-lg" role="dialog" aria-modal="true" aria-labelledby="projectModalTitle">
+      <div class="page-header modal-header">
+        <h2 id="projectModalTitle">新規プロジェクト</h2>
+        <button class="icon-btn" id="btnProjectModalClose" type="button">✕</button>
+      </div>
+      <div class="settings-form compact-form">
+        <div class="app-grid-2">
+          <div class="form-group app-grid-span-2">
+            <label class="form-label">作成場所</label>
+            <div class="project-path-picker">
+              <input type="text" class="form-input form-input-mono" id="projectParentDirInput" readonly />
+              <button class="btn-sm" id="btnProjectParentDirBrowse" type="button">フォルダを選択</button>
+            </div>
+            <p class="form-hint">未変更の場合は既定の projects フォルダ配下に作成します。</p>
+          </div>
+          <div class="form-group app-grid-span-2">
+            <label class="form-label">対象コア</label>
+            <select class="form-input" id="projectCoreSelect"></select>
+          </div>
+          <div class="form-group app-grid-span-2">
+            <label class="form-label">プロジェクトフォルダ名</label>
+            <input type="text" class="form-input form-input-mono" id="projectSystemNameInput" placeholder="my_md_game" />
+          </div>
+          <div class="form-group app-grid-span-2">
+            <label class="form-label">タイトル</label>
+            <input type="text" class="form-input" id="projectTitleInput" maxlength="48" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">作者名</label>
+            <input type="text" class="form-input" id="projectAuthorInput" maxlength="16" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">シリアル</label>
+            <input type="text" class="form-input form-input-mono" id="projectSerialInput" maxlength="14" />
+          </div>
+          <div class="form-group app-grid-span-2">
+            <label class="form-label">ゲームタイプ</label>
+            <select class="form-input" id="projectTemplateSelect"></select>
+            <p class="form-hint" id="projectTemplateHint">テンプレート未選択の場合は空のプロジェクトを作成します。</p>
+          </div>
+        </div>
+        <div class="form-actions-inline modal-actions-end">
+          <button class="btn-sm" id="btnProjectModalCancel" type="button">キャンセル</button>
+          <button class="btn-primary" id="btnProjectModalCreate" type="button">作成</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="app-modal" id="projectPickerModal" aria-hidden="true">
+    <div class="app-backdrop" data-modal-close="projectPickerModal"></div>
+    <section class="app-panel app-panel-lg" role="dialog" aria-modal="true" aria-labelledby="projectPickerTitle">
+      <div class="page-header modal-header">
+        <h2 id="projectPickerTitle">プロジェクト選択</h2>
+        <button class="icon-btn" id="btnProjectPickerClose" type="button">✕</button>
+      </div>
+      <div class="settings-form compact-form">
+        <div class="project-picker-actions">
+          <button class="btn-sm" id="btnProjectPickerOpenFolder" type="button">フォルダを開く</button>
+          <button class="btn-primary" id="btnProjectPickerNew" type="button">新規プロジェクト</button>
+        </div>
+        <p class="form-hint">最近開いたプロジェクト、または既定の projects フォルダ配下のプロジェクトを選択します。</p>
+        <div class="project-picker-root" id="projectPickerRoot">-</div>
+        <div class="project-picker-list" id="projectPickerList"></div>
+        <div class="form-actions-inline modal-actions-end">
+          <button class="btn-sm" id="btnProjectPickerCancel" type="button">キャンセル</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="app-modal" id="exportModal" aria-hidden="true">
+    <div class="app-backdrop" data-modal-close="exportModal"></div>
+    <section class="app-panel app-panel-sm" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle">
+      <div class="page-header modal-header">
+        <h2 id="exportModalTitle">Export</h2>
+        <button class="icon-btn" id="btnExportModalClose" type="button">✕</button>
+      </div>
+      <div class="settings-form compact-form">
+        <p class="form-hint">最後にビルドされた ROM を出力します。必要に応じて先に Build を実行してください。</p>
+        <div class="export-choice-grid">
+          <button class="export-choice-btn" id="btnExportRom" type="button">
+            <span class="export-choice-title">ROM ファイル</span>
+            <span class="export-choice-desc">ビルド済み ROM を .bin として保存</span>
+          </button>
+          <button class="export-choice-btn" id="btnExportHtml" type="button">
+            <span class="export-choice-title">HTML</span>
+            <span class="export-choice-desc">単体で遊べる HTML として保存</span>
+          </button>
+        </div>
+        <div class="form-actions-inline modal-actions-end">
+          <button class="btn-sm" id="btnExportModalCancel" type="button">キャンセル</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="app-modal" id="resizeModal" aria-hidden="true">
+    <div class="app-backdrop"></div>
+    <section class="app-panel app-panel-md" role="dialog" aria-modal="true" aria-labelledby="resizeModalTitle">
+      <div class="page-header modal-header">
+        <h2 id="resizeModalTitle">リサイズ / クリッピング</h2>
+        <button class="icon-btn" id="btnResizeModalClose" type="button">✕</button>
+      </div>
+      <div class="resize-modal-layout">
+        <div class="resize-controls">
+          <div class="form-group">
+            <label class="form-label">元のサイズ</label>
+            <span id="resizeOriginalSize" class="hint-text">-</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">モード</label>
+            <select id="resizeMode" class="form-input">
+              <option value="resize">リサイズ（縮小 / 拡大）</option>
+              <option value="clip">クリッピング（切り出し）</option>
+            </select>
+          </div>
+          <div id="resizeDimGroup" class="form-group">
+            <label class="form-label">幅</label>
+            <input id="resizeWidth" class="form-input" type="number" min="1" step="1" value="256" />
+            <label class="form-label" style="margin-top:6px">高さ</label>
+            <input id="resizeHeight" class="form-input" type="number" min="1" step="1" value="256" />
+            <p id="resizeValidationMessage" class="form-error"></p>
+            <p class="form-hint">※ 未指定ターゲット時は任意サイズを許可します。クリッピングではこの縦横比で切り出します。</p>
+          </div>
+        </div>
+        <div class="resize-preview-area">
+          <canvas id="resizePreviewCanvas"></canvas>
+        </div>
+      </div>
+      <div class="form-actions modal-actions-end">
+        <button class="btn-sm" id="btnResizeCancel" type="button">キャンセル</button>
+        <button class="btn-sm" id="btnResizeSkip" type="button" disabled>変換をスキップ</button>
+        <button class="btn-primary" id="btnResizeApply" type="button">適用して進む</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="quantize-modal" id="quantizeModal" aria-hidden="true">
+    <div class="quantize-backdrop" id="quantizeBackdrop"></div>
+    <section class="quantize-panel" role="dialog" aria-modal="true" aria-labelledby="quantizeTitle">
+      <div class="page-header quantize-header">
+        <h2 id="quantizeTitle">16色減色変換</h2>
+        <button class="icon-btn" id="btnQuantizeClose" title="閉じる">✕</button>
+      </div>
+      <div class="quantize-layout">
+        <div class="quantize-controls">
+          <div class="form-group">
+            <label class="form-label">透明色（パレット0）</label>
+            <select id="quantizeTransparencyMode" class="form-input">
+              <option value="none">指定なし（単純に16色変換）</option>
+              <option value="source">画像の透明色を利用</option>
+              <option value="custom">指定色を透明色として利用</option>
+            </select>
+            <div class="quantize-color-picker-row" id="quantizeColorPickerRow">
+              <input id="quantizeTransparencyColor" class="form-input quantize-color-input" type="color" value="#ff00ff" />
+              <span id="quantizeTransparencyColorValue" class="quantize-color-value">#ff00ff</span>
+              <span id="quantizeTransparencyColorSwatch" class="quantize-color-swatch" aria-hidden="true"></span>
+            </div>
+            <label class="checkbox-row" id="quantizeSharedColorRow">
+              <input id="quantizeUseSharedCustomColor" type="checkbox" />
+              <span>指定色を共有カラーとして予約（残り15色に減色）</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ディザリング</label>
+            <select id="quantizeDitherMode" class="form-input">
+              <option value="none">Disabled</option>
+              <option value="fast" selected>Fast</option>
+              <option value="slow">Slow</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ディザリングウェイト</label>
+            <input id="quantizeDitheringWeight" class="form-input" type="range" min="0" max="1" step="0.05" value="0.45" />
+            <div class="hint-text" id="quantizeWeightLabel">0.45</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ディザリングパターン</label>
+            <select id="quantizePattern" class="form-input">
+              <option value="diagonal4">diagonal4</option>
+              <option value="diagonal2">diagonal2</option>
+              <option value="horizontal4">horizontal4</option>
+              <option value="horizontal2">horizontal2</option>
+              <option value="vertical4">vertical4</option>
+              <option value="vertical2">vertical2</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">明るさ</label>
+            <input id="quantizeBrightness" class="form-input" type="range" min="-96" max="96" step="4" value="0" />
+            <div class="hint-text" id="quantizeBrightnessLabel">0</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">彩度</label>
+            <input id="quantizeSaturation" class="form-input" type="range" min="0.25" max="1.75" step="0.05" value="1" />
+            <div class="hint-text" id="quantizeSaturationLabel">1.00</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">参照パレット（16色画像アセット）</label>
+            <select id="quantizePaletteAsset" class="form-input">
+              <option value="">指定なし（自動パレット）</option>
+            </select>
+            <div class="hint-text" id="quantizePaletteHint">指定した画像アセットの16色パレットに揃えます。</div>
+            <div id="quantizeReferencePreview" class="quantize-reference-preview" hidden>
+              <div class="quantize-reference-header">
+                <span class="hint-text">参照画像プレビュー</span>
+                <span id="quantizeReferenceSize" class="quantize-reference-size"></span>
+              </div>
+              <div class="quantize-reference-thumb-wrap">
+                <img id="quantizeReferenceThumb" class="quantize-reference-thumb" alt="参照パレット画像" />
+              </div>
+              <div id="quantizeReferencePalette" class="quantize-reference-palette" aria-label="参照パレット"></div>
+            </div>
+          </div>
+        </div>
+        <div class="quantize-preview">
+          <div class="quantize-preview-panel">
+            <h3>変換前</h3>
+            <canvas id="quantizeBeforeCanvas"></canvas>
+          </div>
+          <div class="quantize-preview-panel">
+            <h3>変換後</h3>
+            <canvas id="quantizeAfterCanvas"></canvas>
+            <div id="quantizeResultPalette" class="quantize-result-palette" aria-label="変換後パレット"></div>
+          </div>
+        </div>
+      </div>
+      <div class="quantize-footer">
+        <div class="hint-text" id="quantizeStats">colors: -</div>
+        <div class="form-actions-inline">
+          <button class="btn-sm" id="btnQuantizeCancel" type="button">キャンセル</button>
+          <button class="btn-primary" id="btnQuantizeApply" type="button">この変換結果を使う</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="about-modal" id="aboutModal" aria-hidden="true">
+    <div class="about-backdrop" id="aboutBackdrop"></div>
+    <section class="about-panel" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+      <button class="about-close" id="btnAboutClose" aria-label="閉じる">✕</button>
+      <div class="about-header">
+        <img class="about-app-icon" src="../build/icon.png" alt="PCE Game Editor icon" />
+        <div class="about-heading">
+          <h2 id="aboutTitle">PCE Game Editor</h2>
+          <p id="aboutDescription">Embedded emulator information</p>
+        </div>
+      </div>
+      <div class="about-section">
+        <h3>バージョン情報</h3>
+        <dl class="about-list">
+          <div class="about-row"><dt>アプリ</dt><dd id="aboutAppVersion">-</dd></div>
+          <div class="about-row"><dt>内蔵 WASM (build)</dt><dd id="aboutWasmBuildVersion">-</dd></div>
+          <div class="about-row"><dt>内蔵 WASM (package)</dt><dd id="aboutWasmPackageVersion">-</dd></div>
+          <div class="about-row"><dt>Electron</dt><dd id="aboutElectronVersion">-</dd></div>
+          <div class="about-row"><dt>Chrome</dt><dd id="aboutChromeVersion">-</dd></div>
+          <div class="about-row"><dt>Node.js</dt><dd id="aboutNodeVersion">-</dd></div>
+        </dl>
+      </div>
+      <div class="about-section">
+        <h3>パッケージ情報</h3>
+        <dl class="about-list">
+          <div class="about-row"><dt>Platform</dt><dd id="aboutPlatform">-</dd></div>
+          <div class="about-row"><dt>Architecture</dt><dd id="aboutArch">-</dd></div>
+          <div class="about-row"><dt>App Path</dt><dd id="aboutAppPath">-</dd></div>
+        </dl>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="./renderer.js"></script>
+</body>
+</html>

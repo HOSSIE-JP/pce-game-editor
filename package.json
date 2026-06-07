@@ -1,0 +1,26 @@
+{
+  "name": "pce-game-editor",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Electron shell for PC Engine game development",
+  "main": "main.js",
+  "scripts": {
+    "inject-build-meta": "node scripts/inject-build-meta.js",
+    "mcp": "node scripts/md-game-editor-mcp.js",
+    "prepare:dist": "node scripts/prepare-dist.js",
+    "test": "node tests/run-tests.js",
+    "start": "node scripts/start-electron.js",
+    "dev": "npm run start",
+    "build:mac": "npm run prepare:dist && electron-builder --mac",
+    "build:win": "npm run prepare:dist && electron-builder --win zip",
+    "build:win:installer": "npm run prepare:dist && electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "41.3.0",
+    "electron-builder": "26.8.1"
+  },
+  "dependencies": {
+    "iconv-lite": "0.6.3",
+    "game-editor-common": "file:../game-editor-common"
+  }
+}

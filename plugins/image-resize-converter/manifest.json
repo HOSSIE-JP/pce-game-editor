@@ -1,0 +1,15 @@
+{
+  "id": "image-resize-converter",
+  "name": "画像リサイズコンバーター",
+  "description": "画像の8ドット境界リサイズ/クリッピング機能を提供する標準コンバータープラグインです。",
+  "version": "1.0.0",
+  "icon": "assets",
+  "types": ["converter"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read"],
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "capabilities": ["image-resize"]
+  }
+}

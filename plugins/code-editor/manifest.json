@@ -1,0 +1,27 @@
+{
+  "id": "code-editor",
+  "name": "コードエディタ",
+  "description": "プロジェクト配下のファイルをツリー表示して編集・新規作成・削除できる標準エディタプラグインです。",
+  "version": "0.1.0",
+  "icon": "code",
+  "types": ["editor"],
+  "supportedCores": ["*"],
+  "permissions": ["project.read", "project.write"],
+  "hooks": [
+    "getTab",
+    "onActivate",
+    "onDeactivate"
+  ],
+  "tab": {
+    "label": "コード",
+    "icon": "code",
+    "page": "code",
+    "order": 30
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "page": "code",
+    "capabilities": ["page", "code-editor"]
+  }
+}

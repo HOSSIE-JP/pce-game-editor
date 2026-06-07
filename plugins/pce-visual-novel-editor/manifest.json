@@ -1,0 +1,22 @@
+{
+  "id": "pce-visual-novel-editor",
+  "name": "PCE ビジュアルノベル",
+  "description": "SUPER CD-ROM2 向けの背景・立ち絵・メッセージ・CD-DA/ADPCM cue を scenes JSON として編集します。",
+  "version": "0.1.0",
+  "icon": "book",
+  "types": ["editor", "asset"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "project.write", "asset.preview"],
+  "tab": {
+    "label": "PCE VN",
+    "icon": "book",
+    "page": "pce-visual-novel-editor",
+    "order": 9
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "page": "pce-visual-novel-editor",
+    "capabilities": ["page", "visual-novel-editor"]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "pce-font-editor",
+  "name": "PCE フォント",
+  "description": "フォントファイルから PCE VN 用の 16x16 ビットマップフォントを生成し、18文字x4行の表示イメージを確認します。",
+  "version": "0.1.0",
+  "icon": "text",
+  "types": ["editor", "asset"],
+  "supportedCores": ["pc-engine"],
+  "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont"],
+  "permissions": ["project.read", "project.write", "dialog.openFile", "main.invokeHook"],
+  "mainApi": {
+    "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont"],
+    "capabilities": ["font-editor"]
+  },
+  "tab": {
+    "label": "PCE Font",
+    "icon": "text",
+    "page": "pce-font-editor",
+    "order": 8
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "page": "pce-font-editor",
+    "capabilities": ["page", "font-editor"]
+  }
+}

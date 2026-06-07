@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>テストプレイ設定</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", sans-serif; background: #0b0f16; color: #e6edf3; }
+    .page { padding: 20px; max-width: 980px; margin: 0 auto; }
+    h1 { margin: 0 0 16px; font-size: 22px; color: #7cc3ff; }
+    h2 { margin: 0 0 10px; font-size: 16px; color: #9ad0ff; }
+    p { color: #9ba7b8; font-size: 13px; }
+    .section { background: #111827; border: 1px solid #22304a; border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 10px; align-items: center; }
+    .head { color: #8ea0b8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .label { font-weight: 600; }
+    .binding { display: flex; gap: 8px; align-items: center; }
+    .binding-value, select, input[type="range"] { flex: 1; min-width: 0; }
+    .binding-value, select { background: #0d1420; color: #e6edf3; border: 1px solid #29405f; border-radius: 8px; padding: 8px 10px; }
+    button { background: #18314f; color: #e6edf3; border: 1px solid #2f5f95; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+    button:hover { border-color: #7cc3ff; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 18px; }
+    .toolbar .actions { display: flex; gap: 10px; }
+    .status { font-size: 12px; color: #8ea0b8; min-height: 18px; }
+    .inline { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .note { font-size: 12px; color: #7f90a4; }
+    .capture { color: #ffd580; }
+    .strong { color: #7cc3ff; font-weight: 600; }
+    @media (max-width: 720px) {
+      .grid { grid-template-columns: 1fr; }
+      .head { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>テストプレイ設定</h1>
+    <p>キーボードとゲームコントローラーの割り当て、およびデバッグビューアーの初期値を保存します。</p>
+
+    <div class="section">
+      <h2>デバッグビューアー</h2>
+      <div class="inline" style="margin-top:12px;">
+        <label><input id="autoRefresh" type="checkbox" /> Auto Refresh を初期状態で ON にする</label>
+        <label>VRAM Tiles 初期レイアウト:
+          <select id="vramLayout">
+            <option value="256x512">256x512</option>
+            <option value="512x256">512x256</option>
+            <option value="128x1024">128x1024</option>
+            <option value="1024x128">1024x128</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>キーボード割り当て</h2>
+      <div id="keyboardGrid" class="grid"></div>
+      <div class="note" style="margin-top:12px;">Assign を押したあとキーを1つ入力すると、その操作に割り当てます。</div>
+    </div>
+
+    <div class="section">
+      <h2>ゲームコントローラー割り当て</h2>
+      <div id="gamepadGrid" class="grid"></div>
+      <div class="inline" style="margin-top:12px;">
+        <label style="min-width:300px;">アナログスティックのデッドゾーン:
+          <input id="gamepadDeadzone" type="range" min="0.05" max="0.95" step="0.05" />
+        </label>
+        <span id="deadzoneValue" class="strong"></span>
+      </div>
+      <div id="gamepadInfo" class="note" style="margin-top:12px;"></div>
+      <div class="note">Assign を押したあと、コントローラーのボタンかスティックを動かしてください。軸入力は axis:index:direction 形式で保存されます。</div>
+    </div>
+
+    <div class="toolbar">
+      <div>
+        <div id="status" class="status">設定を読み込み中...</div>
+        <div id="captureStatus" class="status capture"></div>
+      </div>
+      <div class="actions">
+        <button id="btnReset">既定値に戻す</button>
+        <button id="btnSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const ACTIONS = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'A', 'B', 'C', 'START'];
+    const LABELS = {
+      UP: 'Up', DOWN: 'Down', LEFT: 'Left', RIGHT: 'Right',
+      A: 'A', B: 'B', C: 'C', START: 'Start',
+    };
+
+    let defaults = null;
+    let draft = null;
+    let captureState = null;
+    let gamepadCaptureRaf = 0;
+    let dirty = false;
+
+    const statusEl = document.getElementById('status');
+    const captureStatusEl = document.getElementById('captureStatus');
+    const keyboardGrid = document.getElementById('keyboardGrid');
+    const gamepadGrid = document.getElementById('gamepadGrid');
+    const deadzoneEl = document.getElementById('gamepadDeadzone');
+    const deadzoneValueEl = document.getElementById('deadzoneValue');
+    const gamepadInfoEl = document.getElementById('gamepadInfo');
+
+    function setStatus(text) {
+      statusEl.textContent = dirty ? `${text} / 未保存の変更あり` : text;
+    }
+
+    function setCaptureStatus(text) {
+      captureStatusEl.textContent = text || '';
+    }
+
+    function clone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function markDirty(next = true) {
+      dirty = next;
+      setStatus(next ? '編集中' : '保存済み');
+    }
+
+    function renderRows(root, type) {
+      root.innerHTML = '';
+
+      const head = document.createElement('div');
+      head.className = 'head';
+      head.textContent = 'Action';
+      root.appendChild(head);
+      const headValue = document.createElement('div');
+      headValue.className = 'head';
+      headValue.textContent = 'Binding';
+      root.appendChild(headValue);
+      const headAction = document.createElement('div');
+      headAction.className = 'head';
+      headAction.textContent = 'Edit';
+      root.appendChild(headAction);
+
+      for (const action of ACTIONS) {
+        const label = document.createElement('div');
+        label.className = 'label';
+        label.textContent = LABELS[action];
+        root.appendChild(label);
+
+        const binding = document.createElement('div');
+        binding.className = 'binding-value';
+        binding.textContent = draft[type][action] || '(none)';
+        root.appendChild(binding);
+
+        const controls = document.createElement('div');
+        controls.className = 'binding';
+
+        const assignBtn = document.createElement('button');
+        assignBtn.textContent = 'Assign';
+        assignBtn.addEventListener('click', () => beginCapture(type, action));
+        controls.appendChild(assignBtn);
+
+        const clearBtn = document.createElement('button');
+        clearBtn.textContent = 'Clear';
+        clearBtn.addEventListener('click', () => {
+          draft[type][action] = '';
+          render();
+          markDirty(true);
+        });
+        controls.appendChild(clearBtn);
+
+        root.appendChild(controls);
+      }
+    }
+
+    function render() {
+      document.getElementById('autoRefresh').checked = !!draft.debug.autoRefresh;
+      document.getElementById('vramLayout').value = draft.debug.vramTileLayout;
+      deadzoneEl.value = String(draft.gamepadDeadzone);
+      deadzoneValueEl.textContent = Number(draft.gamepadDeadzone).toFixed(2);
+      renderRows(keyboardGrid, 'keyboard');
+      renderRows(gamepadGrid, 'gamepad');
+    }
+
+    function stopGamepadCapture() {
+      if (gamepadCaptureRaf) {
+        cancelAnimationFrame(gamepadCaptureRaf);
+        gamepadCaptureRaf = 0;
+      }
+    }
+
+    function finishCapture(bindingText) {
+      if (!captureState) {
+        return;
+      }
+      draft[captureState.type][captureState.action] = bindingText;
+      captureState = null;
+      stopGamepadCapture();
+      setCaptureStatus(`割り当て完了: ${bindingText}`);
+      render();
+      markDirty(true);
+    }
+
+    function pollGamepadCapture() {
+      if (!captureState || captureState.type !== 'gamepad') {
+        stopGamepadCapture();
+        return;
+      }
+
+      const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
+      for (const pad of pads) {
+        for (let index = 0; index < pad.buttons.length; index += 1) {
+          if ((pad.buttons[index]?.value || 0) > 0.5) {
+            finishCapture(`button:${index}`);
+            return;
+          }
+        }
+        for (let index = 0; index < pad.axes.length; index += 1) {
+          const value = pad.axes[index] || 0;
+          if (Math.abs(value) > 0.6) {
+            finishCapture(`axis:${index}:${value < 0 ? -1 : 1}`);
+            return;
+          }
+        }
+      }
+      gamepadCaptureRaf = requestAnimationFrame(pollGamepadCapture);
+    }
+
+    function beginCapture(type, action) {
+      captureState = { type, action };
+      setCaptureStatus(`${LABELS[action]} の ${type === 'keyboard' ? 'キー' : 'ゲームパッド'}入力を待機中...`);
+      stopGamepadCapture();
+      if (type === 'gamepad') {
+        gamepadCaptureRaf = requestAnimationFrame(pollGamepadCapture);
+      }
+    }
+
+    async function save() {
+      const saved = await window.testPlaySettingsAPI.saveSettings(draft);
+      draft = clone(saved);
+      render();
+      markDirty(false);
+      setStatus('保存済み');
+    }
+
+    function updateGamepadInfo() {
+      const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
+      if (!pads.length) {
+        gamepadInfoEl.textContent = '接続中のゲームコントローラーはありません。';
+        return;
+      }
+      gamepadInfoEl.textContent = pads.map((pad) => `#${pad.index}: ${pad.id}`).join(' / ');
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (!captureState || captureState.type !== 'keyboard') {
+        return;
+      }
+      event.preventDefault();
+      finishCapture(event.code);
+    });
+
+    document.getElementById('autoRefresh').addEventListener('change', (event) => {
+      draft.debug.autoRefresh = event.target.checked;
+      markDirty(true);
+    });
+
+    document.getElementById('vramLayout').addEventListener('change', (event) => {
+      draft.debug.vramTileLayout = event.target.value;
+      markDirty(true);
+    });
+
+    deadzoneEl.addEventListener('input', (event) => {
+      draft.gamepadDeadzone = Number(event.target.value);
+      deadzoneValueEl.textContent = Number(draft.gamepadDeadzone).toFixed(2);
+      markDirty(true);
+    });
+
+    document.getElementById('btnSave').addEventListener('click', () => {
+      save().catch((error) => setStatus(`保存失敗: ${String(error?.message || error)}`));
+    });
+
+    document.getElementById('btnReset').addEventListener('click', () => {
+      draft = clone(defaults);
+      render();
+      stopGamepadCapture();
+      captureState = null;
+      setCaptureStatus('既定値を読み込みました。保存すると反映されます。');
+      markDirty(true);
+    });
+
+    window.testPlaySettingsAPI.onSettingsChanged((settings) => {
+      defaults = defaults || clone(settings);
+      draft = clone(settings);
+      render();
+      markDirty(false);
+      setCaptureStatus('別ウィンドウの変更を反映しました。');
+    });
+
+    Promise.all([
+      window.testPlaySettingsAPI.getDefaultSettings(),
+      window.testPlaySettingsAPI.getSettings(),
+    ]).then(([defaultSettings, currentSettings]) => {
+      defaults = clone(defaultSettings);
+      draft = clone(currentSettings);
+      render();
+      markDirty(false);
+      updateGamepadInfo();
+      setStatus('設定を読み込みました');
+      setInterval(updateGamepadInfo, 1000);
+    }).catch((error) => {
+      setStatus(`設定の読み込みに失敗しました: ${String(error?.message || error)}`);
+    });
+  </script>
+</body>
+</html>

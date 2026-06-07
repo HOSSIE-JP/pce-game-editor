@@ -1,0 +1,675 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "slide_01_seaside",
+      "type": "image",
+      "name": "Seaside Platform",
+      "source": "assets/images/slides/slide_01_seaside.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_01_seaside/palette.bin",
+          "tilesFile": "assets/generated/slide_01_seaside/tiles.bin",
+          "mapFile": "assets/generated/slide_01_seaside/map.bin",
+          "previewFile": "assets/generated/slide_01_seaside/preview.json",
+          "tileCount": 871,
+          "paletteCount": 1,
+          "vramBytes": 29664,
+          "warnings": [],
+          "paletteColors": [
+            "#496d49",
+            "#000000",
+            "#242424",
+            "#244924",
+            "#6d926d",
+            "#49db6d",
+            "#6ddb92",
+            "#246d49",
+            "#24b66d",
+            "#6db692",
+            "#24ff92",
+            "#49ffb6",
+            "#92ffdb",
+            "#492424",
+            "#924949",
+            "#494924"
+          ]
+        },
+        "import": {
+          "originalFileName": "slide_01_seaside.png",
+          "importedAt": "2026-05-23T00:00:00.000Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    },
+    {
+      "id": "slide_02_arcade",
+      "type": "image",
+      "name": "Rainy Arcade",
+      "source": "assets/images/slides/slide_02_arcade.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_02_arcade/palette.bin",
+          "tilesFile": "assets/generated/slide_02_arcade/tiles.bin",
+          "mapFile": "assets/generated/slide_02_arcade/map.bin",
+          "previewFile": "assets/generated/slide_02_arcade/preview.json",
+          "tileCount": 888,
+          "paletteCount": 1,
+          "vramBytes": 30208,
+          "warnings": [],
+          "paletteColors": [
+            "#000000",
+            "#244924",
+            "#499249",
+            "#b6dbb6",
+            "#49db6d",
+            "#246d49",
+            "#6dffb6",
+            "#49ffb6",
+            "#240000",
+            "#6d2424",
+            "#924949",
+            "#b69292",
+            "#6d4924",
+            "#6d6d49",
+            "#b6db6d",
+            "#000000"
+          ]
+        },
+        "import": {
+          "originalFileName": "slide_02_arcade.png",
+          "importedAt": "2026-05-23T00:00:00.000Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    },
+    {
+      "id": "slide_03_music",
+      "type": "image",
+      "name": "Music Studio",
+      "source": "assets/images/slides/slide_03_music.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_03_music/palette.bin",
+          "tilesFile": "assets/generated/slide_03_music/tiles.bin",
+          "mapFile": "assets/generated/slide_03_music/map.bin",
+          "previewFile": "assets/generated/slide_03_music/preview.json",
+          "tileCount": 880,
+          "paletteCount": 1,
+          "vramBytes": 29952,
+          "warnings": [],
+          "paletteColors": [
+            "#6db66d",
+            "#000000",
+            "#242424",
+            "#244924",
+            "#496d49",
+            "#499249",
+            "#6d6d6d",
+            "#92ffb6",
+            "#6db692",
+            "#92dbb6",
+            "#6d9292",
+            "#dbffff",
+            "#240000",
+            "#492424",
+            "#6d4949",
+            "#000000"
+          ]
+        },
+        "import": {
+          "originalFileName": "slide_03_music.png",
+          "importedAt": "2026-05-23T00:00:00.000Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    },
+    {
+      "id": "slide_04_festival",
+      "type": "image",
+      "name": "Shrine Festival",
+      "source": "assets/images/slides/slide_04_festival.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_04_festival/palette.bin",
+          "tilesFile": "assets/generated/slide_04_festival/tiles.bin",
+          "mapFile": "assets/generated/slide_04_festival/map.bin",
+          "previewFile": "assets/generated/slide_04_festival/preview.json",
+          "tileCount": 894,
+          "paletteCount": 1,
+          "vramBytes": 30400,
+          "warnings": [],
+          "paletteColors": [
+            "#000000",
+            "#244924",
+            "#246d24",
+            "#6d926d",
+            "#24db49",
+            "#6dff92",
+            "#249249",
+            "#49db92",
+            "#6dffb6",
+            "#6d0024",
+            "#240000",
+            "#492424",
+            "#6d4924",
+            "#6d6d49",
+            "#b6b692",
+            "#000000"
+          ]
+        },
+        "import": {
+          "originalFileName": "slide_04_festival.png",
+          "importedAt": "2026-05-23T00:00:00.000Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    },
+    {
+      "id": "slide_05_cockpit",
+      "type": "image",
+      "name": "Starship Cockpit",
+      "source": "assets/images/slides/slide_05_cockpit.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_05_cockpit/palette.bin",
+          "tilesFile": "assets/generated/slide_05_cockpit/tiles.bin",
+          "mapFile": "assets/generated/slide_05_cockpit/map.bin",
+          "previewFile": "assets/generated/slide_05_cockpit/preview.json",
+          "tileCount": 892,
+          "paletteCount": 1,
+          "vramBytes": 30336,
+          "warnings": [],
+          "paletteColors": [
+            "#240000",
+            "#000000",
+            "#242424",
+            "#246d24",
+            "#494949",
+            "#6d6d6d",
+            "#929292",
+            "#dbdbdb",
+            "#6ddb92",
+            "#49926d",
+            "#244949",
+            "#240024",
+            "#db2492",
+            "#6d2449",
+            "#492424",
+            "#000000"
+          ]
+        },
+        "import": {
+          "originalFileName": "slide_05_cockpit.png",
+          "importedAt": "2026-05-23T00:00:00.000Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    },
+    {
+      "id": "slideshow_bgm",
+      "type": "psg-song",
+      "name": "Slideshow PSG BGM",
+      "source": "assets/sound/slideshow_bgm.json",
+      "options": {
+        "kind": "song",
+        "bpm": 132,
+        "speed": 6,
+        "period": 512,
+        "channels": 3,
+        "steps": 32,
+        "pattern": [
+          {
+            "step": 0,
+            "channel": 0,
+            "period": 512,
+            "volume": 20
+          },
+          {
+            "step": 0,
+            "channel": 1,
+            "period": 1024,
+            "volume": 12
+          },
+          {
+            "step": 0,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 1,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 2,
+            "channel": 0,
+            "period": 406,
+            "volume": 16
+          },
+          {
+            "step": 2,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 3,
+            "channel": 1,
+            "period": 768,
+            "volume": 9
+          },
+          {
+            "step": 3,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 4,
+            "channel": 0,
+            "period": 456,
+            "volume": 20
+          },
+          {
+            "step": 4,
+            "channel": 1,
+            "period": 1024,
+            "volume": 12
+          },
+          {
+            "step": 4,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 5,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 6,
+            "channel": 0,
+            "period": 384,
+            "volume": 16
+          },
+          {
+            "step": 6,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 7,
+            "channel": 1,
+            "period": 768,
+            "volume": 9
+          },
+          {
+            "step": 7,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 8,
+            "channel": 0,
+            "period": 406,
+            "volume": 20
+          },
+          {
+            "step": 8,
+            "channel": 1,
+            "period": 912,
+            "volume": 12
+          },
+          {
+            "step": 8,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 9,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 10,
+            "channel": 0,
+            "period": 342,
+            "volume": 16
+          },
+          {
+            "step": 10,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 11,
+            "channel": 1,
+            "period": 684,
+            "volume": 9
+          },
+          {
+            "step": 11,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 12,
+            "channel": 0,
+            "period": 384,
+            "volume": 20
+          },
+          {
+            "step": 12,
+            "channel": 1,
+            "period": 912,
+            "volume": 12
+          },
+          {
+            "step": 12,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 13,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 14,
+            "channel": 0,
+            "period": 304,
+            "volume": 16
+          },
+          {
+            "step": 14,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 15,
+            "channel": 1,
+            "period": 684,
+            "volume": 9
+          },
+          {
+            "step": 15,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 16,
+            "channel": 0,
+            "period": 342,
+            "volume": 20
+          },
+          {
+            "step": 16,
+            "channel": 1,
+            "period": 812,
+            "volume": 12
+          },
+          {
+            "step": 16,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 17,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 18,
+            "channel": 0,
+            "period": 342,
+            "volume": 16
+          },
+          {
+            "step": 18,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 19,
+            "channel": 1,
+            "period": 608,
+            "volume": 9
+          },
+          {
+            "step": 19,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 20,
+            "channel": 0,
+            "period": 304,
+            "volume": 20
+          },
+          {
+            "step": 20,
+            "channel": 1,
+            "period": 812,
+            "volume": 12
+          },
+          {
+            "step": 20,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 21,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 22,
+            "channel": 0,
+            "period": 384,
+            "volume": 16
+          },
+          {
+            "step": 22,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 23,
+            "channel": 1,
+            "period": 608,
+            "volume": 9
+          },
+          {
+            "step": 23,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 24,
+            "channel": 0,
+            "period": 342,
+            "volume": 20
+          },
+          {
+            "step": 24,
+            "channel": 1,
+            "period": 768,
+            "volume": 12
+          },
+          {
+            "step": 24,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 25,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 26,
+            "channel": 0,
+            "period": 512,
+            "volume": 16
+          },
+          {
+            "step": 26,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 27,
+            "channel": 1,
+            "period": 684,
+            "volume": 9
+          },
+          {
+            "step": 27,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 28,
+            "channel": 0,
+            "period": 384,
+            "volume": 20
+          },
+          {
+            "step": 28,
+            "channel": 1,
+            "period": 768,
+            "volume": 12
+          },
+          {
+            "step": 28,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 29,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 30,
+            "channel": 0,
+            "period": 456,
+            "volume": 16
+          },
+          {
+            "step": 30,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 31,
+            "channel": 1,
+            "period": 684,
+            "volume": 9
+          },
+          {
+            "step": 31,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "pce-sample-builder",
+  "name": "PCE サンプルゲームビルダー",
+  "description": "PCE サンプルプロジェクトのアセット生成と HuCard ROM ビルドを担当します。",
+  "version": "0.1.0",
+  "icon": "build",
+  "types": ["build"],
+  "generator": false,
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "project.write", "build.configure"],
+  "roles": [{ "id": "builder", "label": "Build", "exclusive": true, "order": 10 }],
+  "hooks": ["onBuildStart", "onBuildLog", "onBuildEnd", "onBuildError"]
+}

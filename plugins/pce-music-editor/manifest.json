@@ -1,0 +1,22 @@
+{
+  "id": "pce-music-editor",
+  "name": "PCE ミュージックエディター",
+  "description": "PCE PSG の song / SFX パターンを簡易トラッカーで編集します。",
+  "version": "0.1.0",
+  "icon": "music",
+  "types": ["editor", "asset"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "project.write", "audio.preview"],
+  "tab": {
+    "label": "PCE Music",
+    "icon": "music",
+    "page": "pce-music-editor",
+    "order": 20
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "page": "pce-music-editor",
+    "capabilities": ["page", "psg-music-editor"]
+  }
+}

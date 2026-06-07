@@ -1,0 +1,15 @@
+{
+  "id": "pc-engine-core",
+  "name": "PC Engine Core",
+  "description": "llvm-mos-sdk / EmulatorJS を使う PC Engine HuCard / CD-ROM2 プロジェクトコアです。",
+  "version": "0.1.0",
+  "icon": "settings",
+  "types": ["core"],
+  "supportedCores": ["pc-engine"],
+  "core": {
+    "id": "pc-engine",
+    "label": "PC Engine",
+    "platform": "pce"
+  },
+  "permissions": ["project.read", "project.write", "build.configure", "setup.manage"]
+}

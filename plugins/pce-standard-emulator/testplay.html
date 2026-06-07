@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PCE Test Play</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #0d1117; color: #e8eef6; font-family: system-ui, sans-serif; }
+    #game { width: 100%; height: calc(100% - 44px); }
+    header { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid #2c3440; }
+    .meta { color: #98a4b3; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .status { margin-left: auto; color: #78d6ff; font-size: 12px; white-space: nowrap; }
+    .error { color: #ff9b9b; padding: 18px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>PCE Test Play</strong>
+    <span id="meta" class="meta"></span>
+    <span id="status" class="status"></span>
+  </header>
+  <div id="game"></div>
+  <script>
+    (async () => {
+      const result = await window.pceTestPlay.getContext();
+      const ctx = result && result.context;
+      const meta = document.getElementById('meta');
+      const status = document.getElementById('status');
+      const setStatus = (text, isError = false) => {
+        status.textContent = text;
+        status.style.color = isError ? '#ff9b9b' : '#78d6ff';
+      };
+      window.addEventListener('error', (event) => setStatus(`Error: ${event.message || 'runtime error'}`, true));
+      window.addEventListener('unhandledrejection', (event) => setStatus(`Error: ${event.reason?.message || event.reason || 'runtime error'}`, true));
+      function installRuntimeGlobalBridge() {
+        const NativeBlob = window.Blob;
+        const NativeAppendChild = Element.prototype.appendChild;
+        const bridgeCode = ';try{if(typeof EJS_Runtime!=="undefined"){globalThis.EJS_Runtime=EJS_Runtime;}}catch(_e){}';
+        Element.prototype.appendChild = function appendChildWithRuntimeBridge(child) {
+          if (
+            child instanceof HTMLScriptElement
+            && child.src
+            && /\/emulator(?:\.min)?\.js(?:[?#].*)?$/.test(child.src)
+          ) {
+            const script = child;
+            fetch(script.src)
+              .then((response) => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.text();
+              })
+              .then((source) => {
+                const options = { type: script.type || 'application/javascript' };
+                const bridgedParts = [source, '\n', bridgeCode, '\n'];
+                const bridgedUrl = URL.createObjectURL(new NativeBlob(bridgedParts, options));
+                script.addEventListener('load', () => URL.revokeObjectURL(bridgedUrl), { once: true });
+                script.src = bridgedUrl;
+                NativeAppendChild.call(this, script);
+              })
+              .catch(() => NativeAppendChild.call(this, script));
+            return script;
+          }
+          return NativeAppendChild.call(this, child);
+        };
+      }
+      installRuntimeGlobalBridge();
+      if (!ctx || !ctx.romPath || !ctx.emulatorJsDir) {
+        document.getElementById('game').innerHTML = '<div class="error">ROM または EmulatorJS が未設定です。</div>';
+        return;
+      }
+      meta.textContent = ctx.romPath;
+      setStatus('Ready');
+      window.EJS_player = '#game';
+      window.EJS_DEBUG_XX = !!ctx.debug;
+      window.EJS_core = 'pce';
+      window.EJS_gameName = ctx.cdBundleEntryName || (ctx.romPath || 'pce_sample.pce').split(/[\\/]/).pop();
+      window.EJS_gameID = ctx.gameId || ctx.romPath;
+      window.EJS_color = '#23a7ff';
+      window.EJS_backgroundColor = '#000000';
+      window.EJS_startOnLoaded = true;
+      window.EJS_disableDatabases = true;
+      window.EJS_disableLocalStorage = true;
+      if (ctx.isCdMedia) {
+        window.EJS_forceExtract = true;
+      }
+      window.EJS_cacheConfig = { enabled: false, cacheMaxSizeMB: 1, cacheMaxAgeMins: 1 };
+      window.EJS_ready = () => setStatus('Emulator ready');
+      window.EJS_onGameStart = () => setStatus('Running');
+      const baseUrl = ctx.emulatorJsUrl || ctx.emulatorJsDir;
+      window.EJS_pathtodata = ctx.emulatorJsDataUrl || (baseUrl.endsWith('/data/') ? baseUrl : baseUrl.replace(/\/$/, '') + '/data/');
+      window.EJS_gameUrl = ctx.romUrl || ctx.romPath;
+      if (ctx.systemCardUrl) {
+        window.EJS_biosUrl = ctx.systemCardUrl;
+      }
+      const loader = document.createElement('script');
+      loader.src = ctx.emulatorJsLoaderUrl || (baseUrl.endsWith('/loader.js') ? baseUrl : window.EJS_pathtodata.replace(/\/$/, '') + '/loader.js');
+      loader.onerror = () => {
+        document.getElementById('game').innerHTML = '<div class="error">EmulatorJS loader.js を読み込めませんでした。Setup のパスを確認してください。</div>';
+      };
+      document.body.appendChild(loader);
+    })();
+  </script>
+</body>
+</html>

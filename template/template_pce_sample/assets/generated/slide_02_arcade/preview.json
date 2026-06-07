@@ -1,0 +1,10 @@
+{
+  "source": "assets/images/slides/slide_02_arcade.png",
+  "kind": "background",
+  "width": 256,
+  "height": 224,
+  "tileCount": 888,
+  "paletteCount": 1,
+  "vramBytes": 30208,
+  "warnings": []
+}

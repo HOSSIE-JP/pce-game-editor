@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WASM Debug Viewer</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 12px; margin: 0; }
+    h1 { font-size: 16px; margin: 0 0 8px; color: #7ec8e3; }
+    h2 { font-size: 14px; margin: 0; color: #8bc6ec; }
+    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    .toolbar button, .toolbar select { font-family: monospace; padding: 4px 10px; background: #2a2a4a; color: #e0e0e0; border: 1px solid #555; }
+    .toolbar button { cursor: pointer; }
+    #status { font-size: 11px; color: #aaa; margin-bottom: 8px; }
+    .tab-bar { display: flex; gap: 2px; margin-bottom: 8px; flex-wrap: wrap; }
+    .tab-bar button { padding: 6px 14px; background: #2a2a4a; border: 1px solid #555; border-bottom: none; color: #aaa; cursor: pointer; }
+    .tab-bar button.active { background: #222244; color: #fff; border-bottom: 1px solid #222244; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .panels { display: flex; flex-wrap: wrap; gap: 12px; }
+    .panel { background: #222244; border: 1px solid #444; padding: 8px; }
+    .panel canvas { image-rendering: pixelated; border: 1px solid #333; display: block; }
+    .panel-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .pre-block { font-size: 11px; max-height: 420px; overflow: auto; background: #16162a; border: 1px solid #333; padding: 8px; min-width: 420px; }
+    .info-block { font-size: 11px; margin-top: 4px; white-space: pre-wrap; }
+    .cram-grid { display: grid; grid-template-columns: repeat(16, 24px); gap: 1px; }
+    .cram-cell { width: 24px; height: 24px; border: 1px solid #555; cursor: pointer; }
+    .picker-row { display: flex; gap: 10px; align-items: center; margin-top: 8px; font-size: 11px; }
+    .picker-row input[type="color"] { width: 48px; height: 32px; padding: 0; border: none; background: transparent; }
+    table.sprite-table { font-size: 11px; border-collapse: collapse; }
+    table.sprite-table th, table.sprite-table td { border: 1px solid #444; padding: 2px 6px; text-align: right; }
+    table.sprite-table th { background: #2a2a4a; }
+    table.sprite-table tr:nth-child(even) { background: #1e1e3a; }
+    .sprite-entry { display: flex; align-items: flex-start; gap: 10px; padding: 6px; border-bottom: 1px solid #333; }
+    .sprite-entry canvas { image-rendering: pixelated; border: 1px solid #555; flex-shrink: 0; }
+    .sprite-entry-info { font-size: 11px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <h1>WASM Debug Viewer</h1>
+  <div class="toolbar">
+    <button id="btnRefresh">Refresh All</button>
+    <button id="btnAutoRefresh">Auto Refresh: OFF</button>
+  </div>
+  <div id="status">idle</div>
+
+  <div class="tab-bar">
+    <button class="active" data-tab="planes">Scroll Planes</button>
+    <button data-tab="sprites">Sprites</button>
+    <button data-tab="frame">Frame</button>
+    <button data-tab="registers">Registers</button>
+  </div>
+
+  <div id="tab-planes" class="tab-content active">
+    <div class="panels">
+      <div class="panel"><div class="panel-header"><h2>Plane A</h2></div><canvas id="canvasPlaneA" width="512" height="512"></canvas><div id="planeAInfo" class="info-block"></div></div>
+      <div class="panel"><div class="panel-header"><h2>Plane B</h2></div><canvas id="canvasPlaneB" width="512" height="512"></canvas><div id="planeBInfo" class="info-block"></div></div>
+      <div class="panel"><div class="panel-header"><h2>Window</h2></div><canvas id="canvasWindow" width="512" height="256"></canvas><div id="planeWInfo" class="info-block"></div></div>
+    </div>
+    <div class="panels" style="margin-top:12px;">
+      <div class="panel">
+        <div class="panel-header">
+          <h2>VRAM Tiles</h2>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11px;">
+            <label>Palette:
+              <select id="tilePalette" style="font-family:monospace;background:#2a2a4a;color:#e0e0e0;border:1px solid #555;">
+                <option value="0">0</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
+            </label>
+            <label>Layout:
+              <select id="tileLayout" style="font-family:monospace;background:#2a2a4a;color:#e0e0e0;border:1px solid #555;">
+                <option value="256x512">256x512</option>
+                <option value="512x256">512x256</option>
+                <option value="128x1024">128x1024</option>
+                <option value="1024x128">1024x128</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <canvas id="canvasTiles" width="256" height="512" style="width:512px;height:1024px;"></canvas>
+        <div id="tilesInfo" class="info-block"></div>
+      </div>
+      <div class="panel"><h2>CRAM Palette</h2><div id="cramGrid" class="cram-grid"></div><div class="picker-row"><input id="cramPicker" type="color" value="#000000" disabled /><div id="cramHoverInfo">hover a color</div></div><div id="cramInfo" class="info-block"></div></div>
+    </div>
+  </div>
+
+  <div id="tab-sprites" class="tab-content">
+    <div class="panel">
+      <h2>Sprite Attribute Table</h2>
+      <div id="spriteList"></div>
+      <div id="spriteInfo" class="info-block"></div>
+    </div>
+  </div>
+
+  <div id="tab-frame" class="tab-content">
+    <div class="panel"><h2>Composited Frame</h2><canvas id="canvasFrame" width="320" height="224" style="width:640px;height:448px;"></canvas><div id="frameInfo" class="info-block"></div></div>
+  </div>
+
+  <div id="tab-registers" class="tab-content">
+    <div class="panel"><h2>VDP Registers</h2><pre id="registersPre" class="pre-block"></pre></div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const VRAM_LAYOUTS = {
+      '128x1024': 16,
+      '256x512': 32,
+      '512x256': 64,
+      '1024x128': 128,
+    };
+    const DEFAULT_SETTINGS = {
+      debug: {
+        autoRefresh: true,
+        vramTileLayout: '256x512',
+      },
+    };
+    const state = {
+      autoTimer: null,
+      settings: structuredClone(DEFAULT_SETTINGS),
+      tilesData: null,
+      tileLayout: '256x512',
+      tileHoverIndex: null,
+    };
+
+    function setStatus(text) { statusEl.textContent = text; }
+
+    function mergeSettings(next) {
+      return {
+        debug: { ...DEFAULT_SETTINGS.debug, ...(next?.debug || {}) },
+      };
+    }
+
+    function setAutoRefreshEnabled(enabled) {
+      const button = document.getElementById('btnAutoRefresh');
+      if (state.autoTimer) {
+        clearInterval(state.autoTimer);
+        state.autoTimer = null;
+      }
+      if (enabled) {
+        state.autoTimer = setInterval(refreshAll, 500);
+      }
+      button.textContent = `Auto Refresh: ${enabled ? 'ON' : 'OFF'}`;
+    }
+
+    function drawArgbToCanvas(canvas, width, height, pixelsArgb) {
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      const img = ctx.createImageData(width, height);
+      const dst = img.data;
+      const len = Math.min(pixelsArgb.length, width * height);
+      for (let i = 0; i < len; i++) {
+        const c = pixelsArgb[i] >>> 0;
+        const o = i * 4;
+        dst[o] = (c >> 16) & 0xff;
+        dst[o + 1] = (c >> 8) & 0xff;
+        dst[o + 2] = c & 0xff;
+        dst[o + 3] = (c >> 24) & 0xff;
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+
+    function summarizeImage(data) {
+      if (!data) return null;
+      return { width: data.width, height: data.height, pixels: Array.isArray(data.pixels_argb) ? data.pixels_argb.length : 0 };
+    }
+
+    function toCssColor(argb) {
+      const c = argb >>> 0;
+      const r = (c >> 16) & 0xff;
+      const g = (c >> 8) & 0xff;
+      const b = c & 0xff;
+      return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+    }
+
+    function relayoutTiles(data, layout) {
+      if (!data?.pixels_argb || !VRAM_LAYOUTS[layout]) {
+        return data;
+      }
+      const tileSize = 8;
+      const srcTileCols = Math.max(1, Math.floor(data.width / tileSize));
+      const srcTileRows = Math.max(1, Math.floor(data.height / tileSize));
+      const tileCount = srcTileCols * srcTileRows;
+      const dstTileCols = VRAM_LAYOUTS[layout];
+      const dstTileRows = Math.ceil(tileCount / dstTileCols);
+      const dstWidth = dstTileCols * tileSize;
+      const dstHeight = dstTileRows * tileSize;
+      const dstPixels = new Array(dstWidth * dstHeight).fill(0xff000000);
+
+      for (let tileIndex = 0; tileIndex < tileCount; tileIndex += 1) {
+        const srcTileX = tileIndex % srcTileCols;
+        const srcTileY = Math.floor(tileIndex / srcTileCols);
+        const dstTileX = tileIndex % dstTileCols;
+        const dstTileY = Math.floor(tileIndex / dstTileCols);
+        for (let py = 0; py < tileSize; py += 1) {
+          for (let px = 0; px < tileSize; px += 1) {
+            const srcX = srcTileX * tileSize + px;
+            const srcY = srcTileY * tileSize + py;
+            const dstX = dstTileX * tileSize + px;
+            const dstY = dstTileY * tileSize + py;
+            dstPixels[dstY * dstWidth + dstX] = data.pixels_argb[srcY * data.width + srcX] >>> 0;
+          }
+        }
+      }
+
+      return { width: dstWidth, height: dstHeight, pixels_argb: dstPixels, tileCount };
+    }
+
+    function renderTiles(data) {
+      state.tilesData = data;
+      const layout = document.getElementById('tileLayout').value;
+      state.tileLayout = layout;
+      const relaid = relayoutTiles(data, layout);
+      const canvas = document.getElementById('canvasTiles');
+      drawArgbToCanvas(canvas, relaid.width, relaid.height, relaid.pixels_argb);
+      const cssScale = 2;
+      canvas.style.width = `${relaid.width * cssScale}px`;
+      canvas.style.height = `${relaid.height * cssScale}px`;
+      const summary = summarizeImage(relaid);
+      const palette = Number(document.getElementById('tilePalette').value || 0);
+      const hoverText = state.tileHoverIndex == null ? 'hover=none' : `hoverTile=${state.tileHoverIndex}`;
+      document.getElementById('tilesInfo').textContent = `palette=${palette}\nlayout=${layout}\npixels=${summary.pixels}\n${hoverText}`;
+    }
+
+    function updateTileHover(event) {
+      if (!state.tilesData) {
+        return;
+      }
+      const canvas = document.getElementById('canvasTiles');
+      const rect = canvas.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width) * canvas.width;
+      const y = ((event.clientY - rect.top) / rect.height) * canvas.height;
+      const tileX = Math.floor(x / 8);
+      const tileY = Math.floor(y / 8);
+      const tileCols = VRAM_LAYOUTS[state.tileLayout] || 32;
+      const tileIndex = tileY * tileCols + tileX;
+      const maxTiles = Math.floor((canvas.width / 8) * (canvas.height / 8));
+      state.tileHoverIndex = tileIndex >= 0 && tileIndex < maxTiles ? tileIndex : null;
+      renderTiles(state.tilesData);
+    }
+
+    function clearTileHover() {
+      state.tileHoverIndex = null;
+      if (state.tilesData) {
+        renderTiles(state.tilesData);
+      }
+    }
+
+    function renderCram(colors) {
+      const grid = document.getElementById('cramGrid');
+      grid.innerHTML = '';
+      for (let i = 0; i < colors.length; i++) {
+        const c = colors[i] >>> 0;
+        const cell = document.createElement('div');
+        cell.className = 'cram-cell';
+        cell.style.backgroundColor = toCssColor(c);
+        cell.addEventListener('mouseenter', () => {
+          document.getElementById('cramPicker').value = toCssColor(c);
+          document.getElementById('cramHoverInfo').textContent = `index=${i} palette=${(i >> 4) & 3} color=${i & 15} argb=0x${c.toString(16).padStart(8, '0')}`;
+        });
+        grid.appendChild(cell);
+      }
+      document.getElementById('cramInfo').textContent = `colors=${colors.length}`;
+    }
+
+    // タイルシートからスプライト画像を抽出して canvas に描画する
+    // tiles: { pixels_argb, width, height } / tileIdx: 開始タイルインデックス
+    // cols: スプライト幅(セル数), rows: スプライト高さ(セル数)
+    // hflip, vflip: 反転フラグ
+    function drawSpriteToCanvas(canvas, tilesData, tileIdx, cols, rows, hflip, vflip) {
+      const cellW = 8;
+      const cellH = 8;
+      const imgW = cols * cellW;
+      const imgH = rows * cellH;
+      canvas.width = imgW;
+      canvas.height = imgH;
+      const ctx = canvas.getContext('2d');
+      const out = ctx.createImageData(imgW, imgH);
+      const dst = out.data;
+
+      if (!tilesData || !tilesData.pixels_argb) {
+        ctx.putImageData(out, 0, 0);
+        return;
+      }
+
+      const sheetW = tilesData.width;   // ピクセル単位 (通常256)
+      const sheetCols = Math.max(1, Math.floor(sheetW / cellW)); // タイルシートの列数
+      const src = tilesData.pixels_argb;
+
+      // VDP: スプライトタイルはカラム優先 (先にY方向にインクリメント)
+      for (let cx = 0; cx < cols; cx++) {
+        for (let cy = 0; cy < rows; cy++) {
+          const tileNo = tileIdx + cx * rows + cy;
+          const sheetTileX = tileNo % sheetCols;
+          const sheetTileY = Math.floor(tileNo / sheetCols);
+          // スプライト内の出力セル位置 (フリップ考慮)
+          const outCx = hflip ? (cols - 1 - cx) : cx;
+          const outCy = vflip ? (rows - 1 - cy) : cy;
+          for (let py = 0; py < cellH; py++) {
+            for (let px = 0; px < cellW; px++) {
+              const srcX = sheetTileX * cellW + (hflip ? (cellW - 1 - px) : px);
+              const srcY = sheetTileY * cellH + (vflip ? (cellH - 1 - py) : py);
+              const srcIdx = srcY * sheetW + srcX;
+              const c = (src[srcIdx] || 0) >>> 0;
+              const dstX = outCx * cellW + px;
+              const dstY = outCy * cellH + py;
+              const dstIdx = (dstY * imgW + dstX) * 4;
+              dst[dstIdx]     = (c >> 16) & 0xff;
+              dst[dstIdx + 1] = (c >> 8) & 0xff;
+              dst[dstIdx + 2] = c & 0xff;
+              dst[dstIdx + 3] = (c >> 24) & 0xff;
+            }
+          }
+        }
+      }
+      ctx.putImageData(out, 0, 0);
+    }
+
+    function renderSprites(sprites, tilesData) {
+      const list = document.getElementById('spriteList');
+      list.innerHTML = '';
+
+      (sprites || []).forEach((sprite, index) => {
+        const cols = Number(sprite.width) || 1;
+        const rows = Number(sprite.height) || 1;
+        const tileIdx = Number(sprite.tile || 0);
+        const scale = 4;
+
+        const entry = document.createElement('div');
+        entry.className = 'sprite-entry';
+
+        // タイル画像
+        const cvs = document.createElement('canvas');
+        cvs.style.width  = `${cols * 8 * scale}px`;
+        cvs.style.height = `${rows * 8 * scale}px`;
+        drawSpriteToCanvas(cvs, tilesData, tileIdx, cols, rows, !!sprite.hflip, !!sprite.vflip);
+
+        // テキスト情報
+        const info = document.createElement('div');
+        info.className = 'sprite-entry-info';
+        info.innerHTML = [
+          `<b>#${index}</b>`,
+          `X=${sprite.x}  Y=${sprite.y}`,
+          `Size=${cols}x${rows}cell`,
+          `Tile=$${tileIdx.toString(16).toUpperCase()}`,
+          `Pal=${sprite.palette ?? 0}  Pri=${sprite.priority ? 1 : 0}`,
+          `HF=${sprite.hflip ? 'Y' : 'N'}  VF=${sprite.vflip ? 'Y' : 'N'}`,
+          `Link=${sprite.link ?? 0}`,
+        ].join('<br>');
+
+        entry.appendChild(cvs);
+        entry.appendChild(info);
+        list.appendChild(entry);
+      });
+
+      document.getElementById('spriteInfo').textContent = `sprites=${(sprites || []).length}`;
+    }
+
+    async function refreshAll() {
+      const palette = Number(document.getElementById('tilePalette').value || 0);
+      setStatus('refreshing...');
+      const snapshot = await window.electronDebug.getWasmSnapshot({ palette });
+      if (!snapshot?.ok) {
+        setStatus(`error: ${snapshot?.error || 'unknown'}`);
+        return;
+      }
+
+      document.getElementById('registersPre').textContent = JSON.stringify(snapshot.registers, null, 2);
+
+      drawArgbToCanvas(document.getElementById('canvasPlaneA'), snapshot.planes.A.width, snapshot.planes.A.height, snapshot.planes.A.pixels_argb);
+      drawArgbToCanvas(document.getElementById('canvasPlaneB'), snapshot.planes.B.width, snapshot.planes.B.height, snapshot.planes.B.pixels_argb);
+      drawArgbToCanvas(document.getElementById('canvasWindow'), snapshot.planes.W.width, snapshot.planes.W.height, snapshot.planes.W.pixels_argb);
+      document.getElementById('planeAInfo').textContent = JSON.stringify(summarizeImage(snapshot.planes.A));
+      document.getElementById('planeBInfo').textContent = JSON.stringify(summarizeImage(snapshot.planes.B));
+      document.getElementById('planeWInfo').textContent = JSON.stringify(summarizeImage(snapshot.planes.W));
+
+      renderTiles(snapshot.tiles);
+
+      renderCram(snapshot.cram.colors_argb || []);
+      renderSprites(snapshot.sprites.sprites || [], snapshot.tiles);
+
+      drawArgbToCanvas(document.getElementById('canvasFrame'), snapshot.frame.width, snapshot.frame.height, snapshot.frame.pixels_argb || []);
+      document.getElementById('frameInfo').textContent = JSON.stringify(summarizeImage(snapshot.frame));
+
+      setStatus('ok');
+    }
+
+    document.querySelectorAll('.tab-bar button').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.tab-bar button').forEach((item) => item.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+        document.getElementById('tab-' + button.dataset.tab).classList.add('active');
+      });
+    });
+
+    document.getElementById('btnRefresh').addEventListener('click', refreshAll);
+    document.getElementById('tilePalette').addEventListener('change', refreshAll);
+    document.getElementById('tileLayout').addEventListener('change', () => {
+      if (state.tilesData) {
+        renderTiles(state.tilesData);
+      }
+    });
+
+    document.getElementById('canvasTiles').addEventListener('mousemove', updateTileHover);
+    document.getElementById('canvasTiles').addEventListener('mouseleave', clearTileHover);
+
+    document.getElementById('btnAutoRefresh').addEventListener('click', () => {
+      setAutoRefreshEnabled(!state.autoTimer);
+    });
+
+    window.electronDebug.onTestPlaySettingsChanged((nextSettings) => {
+      state.settings = mergeSettings(nextSettings);
+      document.getElementById('tileLayout').value = state.settings.debug.vramTileLayout;
+      setAutoRefreshEnabled(!!state.settings.debug.autoRefresh);
+      if (state.tilesData) {
+        renderTiles(state.tilesData);
+      }
+    });
+
+    window.electronDebug.getTestPlaySettings().then((nextSettings) => {
+      state.settings = mergeSettings(nextSettings);
+      document.getElementById('tileLayout').value = state.settings.debug.vramTileLayout;
+      setAutoRefreshEnabled(!!state.settings.debug.autoRefresh);
+      return refreshAll();
+    }).catch((error) => setStatus('initial fetch failed: ' + String(error)));
+  </script>
+</body>
+</html>

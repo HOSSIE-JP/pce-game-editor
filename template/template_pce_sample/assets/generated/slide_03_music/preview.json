@@ -1,0 +1,10 @@
+{
+  "source": "assets/images/slides/slide_03_music.png",
+  "kind": "background",
+  "width": 256,
+  "height": 224,
+  "tileCount": 880,
+  "paletteCount": 1,
+  "vramBytes": 29952,
+  "warnings": []
+}

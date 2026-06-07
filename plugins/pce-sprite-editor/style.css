@@ -1,0 +1,97 @@
+.pce-sprite-editor-shell,
+.pce-music-editor-shell,
+.pce-palette-editor-shell {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  background: var(--panel);
+}
+
+.pce-plugin-list {
+  min-width: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.pce-plugin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pce-plugin-header h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.pce-plugin-items {
+  overflow: auto;
+  padding: 8px;
+}
+
+.pce-plugin-items button {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pce-plugin-items button.active,
+.pce-plugin-items button:hover {
+  background: var(--surface-hover);
+  border-color: var(--border);
+}
+
+.pce-plugin-items span {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pce-plugin-main {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(280px, 360px);
+  gap: 16px;
+}
+
+.pce-plugin-preview {
+  min-height: 280px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #05070a;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.pce-plugin-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  image-rendering: pixelated;
+}
+
+.pce-plugin-form {
+  align-self: start;
+}
+
+.pce-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}

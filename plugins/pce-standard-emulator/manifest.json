@@ -1,0 +1,12 @@
+{
+  "id": "pce-standard-emulator",
+  "name": "PCE 標準エミュレーター (EmulatorJS)",
+  "description": "Setup で取得した EmulatorJS mednafen_pce core を使って Test Play を起動します。",
+  "version": "0.1.0",
+  "icon": "play",
+  "types": ["emulator"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "testplay.launch"],
+  "roles": [{ "id": "testplay", "label": "Test Play", "exclusive": true, "order": 20 }],
+  "hooks": ["onTestPlay"]
+}

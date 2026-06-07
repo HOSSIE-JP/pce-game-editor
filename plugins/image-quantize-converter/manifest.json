@@ -1,0 +1,15 @@
+{
+  "id": "image-quantize-converter",
+  "name": "画像減色コンバーター",
+  "description": "画像を16色へ減色変換する標準コンバータープラグインです。",
+  "version": "1.1.0",
+  "icon": "assets",
+  "types": ["converter"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read"],
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "capabilities": ["image-quantize"]
+  }
+}

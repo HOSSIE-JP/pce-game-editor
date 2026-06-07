@@ -1,0 +1,39 @@
+appId: jp.co.geroneko.pce.editor.desktop
+productName: PCEGameEditor
+files:
+  - "*.js"
+  - renderer/**
+  - build/icon.png
+  - build/icon.ico
+extraResources:
+  - from: plugins
+    to: plugins
+    filter:
+      - "**/*"
+  - from: template
+    to: template
+    filter:
+      - "**/*"
+      - "!**/out/**"
+extraFiles:
+  - from: build/portable
+    to: portable
+extraMetadata:
+  main: main.js
+mac:
+  icon: build/icon.icns
+  target:
+    - dmg
+win:
+  icon: build/icon.ico
+  target:
+    - zip
+  artifactName: "${productName}-${version}-${arch}.${ext}"
+directories:
+  output: dist
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  # installerのアイコンも指定したい場合
+  installerIcon: ./build/icon.ico

@@ -1,0 +1,22 @@
+{
+  "id": "pce-palette-editor",
+  "name": "PCE パレットエディター",
+  "description": "BG / Sprite 用の16色パレットを編集し、画像アセット由来の色も確認します。",
+  "version": "0.1.0",
+  "icon": "grid",
+  "types": ["editor", "asset"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "project.write"],
+  "tab": {
+    "label": "PCE Palette",
+    "icon": "grid",
+    "page": "pce-palette-editor",
+    "order": 12
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "page": "pce-palette-editor",
+    "capabilities": ["page", "palette-editor"]
+  }
+}

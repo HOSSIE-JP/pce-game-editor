@@ -1,0 +1,246 @@
+.pce-assets-layout {
+  --asset-preview-width: 430px;
+}
+
+.pce-assets-subtitle,
+.pce-assets-muted {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.pce-assets-editor {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 0;
+}
+
+.pce-assets-form {
+  padding: 2px 0 10px;
+}
+
+.pce-assets-inline-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.pce-assets-preview-frame {
+  height: 240px;
+  flex: none;
+}
+
+.pce-assets-preview-frame audio {
+  width: 100%;
+  align-self: center;
+}
+
+.pce-assets-sound-preview {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 160px;
+}
+
+.pce-assets-sound-preview[hidden] {
+  display: none;
+}
+
+.pce-assets-sound-meter {
+  width: min(240px, 84%);
+  height: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pce-assets-sound-meter span {
+  display: block;
+  width: 0%;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.18s ease-out;
+}
+
+.pce-assets-preview-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.pce-assets-preview-caption {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.pce-assets-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 6px 0 8px;
+}
+
+.pce-assets-stat {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  min-width: 0;
+}
+
+.pce-assets-stat span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+
+.pce-assets-stat strong {
+  display: block;
+  color: var(--text);
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pce-assets-generated-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0 10px;
+}
+
+.pce-assets-generated-files div {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pce-assets-generated-files code {
+  color: var(--text);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pce-assets-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.pce-assets-check input {
+  width: 14px;
+  height: 14px;
+}
+
+.pce-assets-waveform {
+  display: flex;
+  align-items: end;
+  gap: 2px;
+  height: 36px;
+  padding: 6px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.pce-assets-waveform span {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  opacity: 0.8;
+}
+
+.pce-assets-sequence {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.pce-assets-sequence div {
+  display: grid;
+  grid-template-columns: 28px 1fr 72px;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pce-assets-sequence code,
+.pce-assets-sequence strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.pce-assets-modal p {
+  color: var(--text);
+  margin: 0 0 10px;
+}
+
+.pce-assets-import-panel {
+  width: min(760px, 94vw);
+  max-height: min(86vh, 780px);
+  overflow: auto;
+}
+
+.pce-assets-import-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pce-assets-import-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pce-assets-import-source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pce-assets-import-source code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pce-assets-import-preview {
+  height: 260px;
+  flex: none;
+}
+
+@media (max-width: 980px) {
+  .pce-assets-layout {
+    --asset-preview-width: 360px;
+  }
+
+  .pce-assets-import-grid {
+    grid-template-columns: 1fr;
+  }
+}

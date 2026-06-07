@@ -1,0 +1,14 @@
+{
+  "id": "pce-audio-converter",
+  "name": "PCE 音声コンバーター",
+  "description": "WAV を PCE ADPCM / CD-DA / PSG アセットとして取り込む変換ワークフローを提供します。",
+  "version": "0.1.0",
+  "icon": "music",
+  "types": ["converter"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "project.write", "asset.import", "audio.preview"],
+  "renderer": {
+    "entry": "renderer.js",
+    "capabilities": ["audio-convert-ui", "pce-audio-converter"]
+  }
+}

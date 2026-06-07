@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>環境セットアップ</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", "Noto Sans JP", sans-serif; background: #0f1117; color: #e6edf3; }
+    h1 { font-size: 18px; margin: 0 0 4px; color: #4aa3ff; }
+    .subtitle { font-size: 12px; color: #9ba7b8; margin: 0 0 20px; }
+    .container { max-width: 680px; margin: 0 auto; padding: 24px 24px 96px; }
+    .card { background: #171a22; border: 1px solid #2a2f3a; border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; }
+    .card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .card-title { font-size: 15px; font-weight: 600; }
+    .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 3px 10px; border-radius: 20px; font-weight: 500; }
+    .badge.ok { background: rgba(63,185,80,0.15); color: #3fb950; border: 1px solid rgba(63,185,80,0.3); }
+    .badge.ng { background: rgba(226,109,92,0.15); color: #e26d5c; border: 1px solid rgba(226,109,92,0.3); }
+    .badge.warn { background: rgba(210,153,34,0.15); color: #d2991e; border: 1px solid rgba(210,153,34,0.3); }
+    .path-text { font-size: 11px; font-family: monospace; color: #9ba7b8; word-break: break-all; margin: 4px 0 8px; }
+    .desc { font-size: 12px; color: #9ba7b8; margin-bottom: 12px; line-height: 1.6; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .btn { padding: 8px 16px; border-radius: 7px; border: 1px solid #2a2f3a; background: #202633; color: #e6edf3; cursor: pointer; font-size: 13px; }
+    .btn:hover { border-color: #4aa3ff; }
+    .btn.primary { background: #1a3a5c; border-color: #2d5a8a; color: #4aa3ff; font-weight: 600; }
+    .btn.primary:hover { background: #204470; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .input-path { flex: 1; padding: 7px 10px; border-radius: 7px; border: 1px solid #2a2f3a; background: #11151d; color: #e6edf3; font-family: monospace; font-size: 12px; }
+    .progress-wrap { margin-top: 10px; display: none; }
+    .progress-wrap.visible { display: block; }
+    .progress-bar-bg { background: #1d2333; border-radius: 4px; height: 8px; overflow: hidden; }
+    .progress-bar { height: 100%; width: 0%; background: #4aa3ff; border-radius: 4px; transition: width 0.2s; }
+    .progress-msg { font-size: 11px; color: #9ba7b8; margin-top: 4px; }
+    .platform-note { background: rgba(210,153,34,0.07); border: 1px solid rgba(210,153,34,0.25); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #d2991e; margin-top: 10px; }
+    .pce-tool-list { display: grid; gap: 12px; margin-top: 12px; }
+    .pce-tool-card { border: 1px solid #2a2f3a; border-radius: 9px; background: #121721; padding: 14px; }
+    .pce-tool-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    .pce-tool-title { font-size: 14px; font-weight: 700; }
+    .pce-tool-status { margin: 0 0 10px; }
+    .pce-tool-actions { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 8px; align-items: center; }
+    .pce-tool-url { margin-top: 8px; }
+    .pce-tool-empty { border: 1px dashed #2a2f3a; border-radius: 9px; padding: 14px; color: #9ba7b8; font-size: 12px; }
+    .pce-cd-settings { border: 1px solid rgba(74,163,255,0.22); border-radius: 9px; background: rgba(74,163,255,0.04); padding: 14px; margin-top: 14px; }
+    .pce-cd-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+    .pce-ipl-wizard { border: 1px solid #2a2f3a; border-radius: 9px; background: #10151f; padding: 12px; margin-top: 10px; }
+    .pce-ipl-wizard.is-hidden { display: none; }
+    .pce-ipl-wizard-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+    @media (max-width: 640px) {
+      .pce-tool-actions { grid-template-columns: 1fr; }
+    }
+    .footer { position: sticky; bottom: 0; z-index: 20; display: flex; justify-content: flex-end; gap: 8px; margin: 20px -24px -96px; padding: 14px 24px 24px; background: linear-gradient(180deg, rgba(15,17,23,0.72), #0f1117 38%); border-top: 1px solid rgba(42,47,58,0.9); backdrop-filter: blur(8px); }
+    #statusMsg { font-size: 12px; color: #3fb950; margin-top: 10px; min-height: 18px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>環境セットアップ</h1>
+    <p class="subtitle">PCE Game Editor の動作に必要なツールをセットアップします</p>
+
+    <div class="card" id="pceSetupCard" style="display:none;">
+      <div class="card-header">
+        <span class="card-title">PC Engine Core セットアップ</span>
+        <span id="pceSetupBadge" class="badge warn">確認待ち</span>
+      </div>
+      <p class="desc">PCE Game Editor は llvm-mos-sdk に絞って HuCard / CD-ROM2 を扱います。画像インポートはエディター内蔵の PCE 変換を使用します。EmulatorJS は Test Play 用です。PCE-CD の IPL / System Card はライセンス上同梱せず、ユーザーが所有するファイルを指定します。</p>
+      <div id="pceToolsList" class="pce-tool-list"></div>
+      <section class="pce-cd-settings">
+        <div class="pce-cd-title">CD-ROM2 設定</div>
+        <p class="desc">CD-ROM2 Test Play / ビルド補助に使う IPL と System Card ROM を設定します。どちらも同梱できないため、所有するファイルを指定してください。</p>
+        <div class="row">
+          <input type="text" class="input-path" id="pceCdIplPath" placeholder="PCE-CD IPL (ipl.bin) のパス..." />
+          <button class="btn" id="btnSetPceCdIpl">IPL適用</button>
+          <button class="btn primary" id="btnOpenPceCdIplWizard">IPL抽出</button>
+        </div>
+        <div class="pce-ipl-wizard is-hidden" id="pceCdIplWizard">
+          <div class="platform-note">
+            IPL は System Card BIOS ではありません。所有する PCE-CD / CD-ROM2 の ISO/CUE/BIN から先頭データセクタを抽出し、<code>data/tools/pce-cd/ipl/</code> に保存します。
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <input type="text" class="input-path" id="pceCdImagePath" placeholder="所有する PCE-CD ISO/CUE/BIN のパス..." readonly />
+            <button class="btn" id="btnPickPceCdImage">CDイメージ選択</button>
+          </div>
+          <label class="desc" style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+            <input type="checkbox" id="pceCdOwnSourceConfirm" />
+            所有する CD-ROM / ディスクイメージから、個人利用目的で IPL を抽出します。
+          </label>
+          <div class="pce-ipl-wizard-actions">
+            <button class="btn" id="btnCancelPceCdIplWizard">キャンセル</button>
+            <button class="btn primary" id="btnExtractPceCdIpl">抽出して適用</button>
+          </div>
+        </div>
+        <div class="path-text" id="pceCdExtractResult">IPL 抽出結果: -</div>
+        <div class="row" style="margin-top:8px;">
+          <input type="text" class="input-path" id="pceCdSystemCardPath" placeholder="System Card ROM を選択..." readonly />
+          <button class="btn" id="btnSetPceCdSystemCard">System Card選択</button>
+        </div>
+      </section>
+      <div id="pceSetupStatus"></div>
+    </div>
+
+    <!-- SGDK -->
+    <div class="card" id="sgdkCard">
+      <div class="card-header">
+        <span class="card-title">SGDK (Sega Genesis Development Kit)</span>
+        <span id="sgdkBadge" class="badge ng">未インストール</span>
+      </div>
+      <p class="path-text" id="sgdkPath">-</p>
+      <p class="desc">メガドライブ用 C 言語ゲーム開発ライブラリです。ビルドに必要です。<br>
+        GitHub (MIT License): <code>Stephane-D/SGDK</code></p>
+      <div class="row">
+        <select class="input-path" id="sgdkVersionSelect" style="max-width:220px;flex:0 0 220px;"></select>
+        <button class="btn" id="btnReloadVersions">一覧更新</button>
+        <button class="btn primary" id="btnDownloadSgdk">選択バージョンをダウンロード</button>
+        <input type="text" class="input-path" id="sgdkCustomPath" placeholder="または SGDK フォルダのパスを入力..." />
+        <button class="btn" id="btnSetSgdkPath">適用</button>
+      </div>
+      <div class="progress-wrap" id="sgdkProgress">
+        <div class="progress-bar-bg"><div class="progress-bar" id="sgdkBar"></div></div>
+        <div class="progress-msg" id="sgdkMsg">...</div>
+      </div>
+    </div>
+
+    <!-- Marsdev (macOS/Linux only) -->
+    <div class="card" id="marsdevCard" style="display:none;">
+      <div class="card-header">
+        <span class="card-title">Marsdev (クロスコンパイラ)</span>
+        <span id="marsdevBadge" class="badge ng">未インストール</span>
+      </div>
+      <p class="path-text" id="marsdevPath">-</p>
+      <p class="desc">macOS/Linux で推奨されるメガドライブ開発ツール。m68k-elf-gcc を含みます。<br>
+        GitHub (MIT License): <code>andwn/marsdev</code></p>
+      <div class="row">
+        <select class="input-path" id="marsdevVersionSelect" style="max-width:220px;flex:0 0 220px;"></select>
+        <button class="btn" id="btnReloadMarsdevVersions">一覧更新</button>
+        <button class="btn primary" id="btnDownloadMarsdev">選択バージョンをダウンロード</button>
+        <input type="text" class="input-path" id="marsdevCustomPath" placeholder="または Marsdev フォルダのパスを入力..." />
+        <button class="btn" id="btnSetMarsdevPath">適用</button>
+      </div>
+      <div class="progress-wrap" id="marsdevProgress">
+        <div class="progress-bar-bg"><div class="progress-bar" id="marsdevBar"></div></div>
+        <div class="progress-msg" id="marsdevMsg">...</div>
+      </div>
+    </div>
+
+    <!-- Java -->
+    <div class="card" id="javaCard">
+      <div class="card-header">
+        <span class="card-title">Java (rescomp 実行用)</span>
+        <span id="javaBadge" class="badge ng">未検出</span>
+      </div>
+      <p class="path-text" id="javaPath">-</p>
+      <p class="desc" id="javaDesc">SGDK の rescomp.jar (リソースコンパイラ) の実行に必要です。</p>
+      <div id="javaActions"></div>
+      <div class="progress-wrap" id="javaProgress">
+        <div class="progress-bar-bg"><div class="progress-bar" id="javaBar"></div></div>
+        <div class="progress-msg" id="javaMsg">...</div>
+      </div>
+    </div>
+
+    <!-- Toolchain -->
+    <div class="card" id="gccCard">
+      <div class="card-header">
+        <span class="card-title" id="gccTitle">ツールチェーン</span>
+        <span id="gccBadge" class="badge warn">確認待ち</span>
+      </div>
+      <p class="path-text" id="gccPath">-</p>
+      <p class="desc" id="gccDesc">環境に応じて利用するツールチェーンが異なります。</p>
+    </div>
+
+    <!-- Emscripten SDK -->
+    <div class="card" id="emsdkCard">
+      <div class="card-header">
+        <span class="card-title">Emscripten SDK (WASM C コンパイラ)</span>
+        <span id="emsdkBadge" class="badge warn">任意</span>
+      </div>
+      <p class="path-text" id="emsdkPath">-</p>
+      <p class="desc" id="emsdkDesc">
+        Nuked-OPN2 を WASM にビルドするための任意コンポーネントです。アプリ本体には同梱せず、ユーザー操作で公式 GitHub から取得します。<br>
+        GitHub (MIT / University of Illinois/NCSA): <code>emscripten-core/emsdk</code>
+      </p>
+      <div class="row">
+        <button class="btn primary" id="btnDownloadEmsdk">emsdk latest を取得して有効化</button>
+      </div>
+      <div class="progress-wrap" id="emsdkProgress">
+        <div class="progress-bar-bg"><div class="progress-bar" id="emsdkBar"></div></div>
+        <div class="progress-msg" id="emsdkMsg">...</div>
+      </div>
+    </div>
+
+    <!-- Optional audio engine -->
+    <div class="card" id="nukedOpn2Card">
+      <div class="card-header">
+        <span class="card-title">Nuked-OPN2 (高精度 YM2612 プレビュー候補)</span>
+        <span id="nukedOpn2Badge" class="badge warn">任意</span>
+      </div>
+      <p class="path-text" id="nukedOpn2Path">-</p>
+      <p class="desc" id="nukedOpn2Desc">
+        BGM/VGM プレビュー精度向上のための任意コンポーネントです。アプリ本体には同梱せず、ユーザー操作で公式 GitHub から取得します。<br>
+        GitHub (LGPL-2.1-or-later): <code>nukeykt/Nuked-OPN2</code>
+      </p>
+      <div class="row">
+        <button class="btn primary" id="btnDownloadNukedOpn2">Nuked-OPN2 ソースを取得</button>
+        <button class="btn" id="btnBuildNukedOpn2">Nuked-OPN2 WASM をビルド</button>
+      </div>
+      <div class="platform-note">
+        WASM ビルドには Emscripten SDK と Nuked-OPN2 ソースが必要です。生成物は userData/tools 配下に作成され、アプリ本体には同梱されません。
+      </div>
+      <div class="progress-wrap" id="nukedOpn2Progress">
+        <div class="progress-bar-bg"><div class="progress-bar" id="nukedOpn2Bar"></div></div>
+        <div class="progress-msg" id="nukedOpn2Msg">...</div>
+      </div>
+    </div>
+
+    <div id="statusMsg"></div>
+
+    <div class="footer">
+      <button class="btn" id="btnClose">閉じる</button>
+      <button class="btn primary" id="btnRefresh">状態を再確認</button>
+    </div>
+  </div>
+
+  <script>
+    const isWin = navigator.platform.toLowerCase().includes('win');
+    let activeCoreId = 'mega-drive';
+    let pceCatalog = null;
+    let pceStatus = null;
+    let activePceDownloadKind = '';
+    const pceVersions = {};
+    const pceVersionLoading = {};
+
+    function setMdSetupVisible(visible) {
+      ['sgdkCard', 'marsdevCard', 'javaCard', 'gccCard', 'emsdkCard', 'nukedOpn2Card'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = visible ? '' : 'none';
+      });
+      const pce = document.getElementById('pceSetupCard');
+      if (pce) pce.style.display = visible ? 'none' : '';
+    }
+
+    function formatBytes(value) {
+      const n = Number(value || 0);
+      if (!Number.isFinite(n) || n <= 0) return '';
+      if (n > 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+      if (n > 1024) return `${(n / 1024).toFixed(1)} KB`;
+      return `${n} B`;
+    }
+
+    function escHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[ch]));
+    }
+
+    function setPceCdExtractResult(text, isError = false) {
+      const el = document.getElementById('pceCdExtractResult');
+      if (!el) return;
+      el.textContent = text;
+      el.style.color = isError ? '#ff7b72' : '#9ba7b8';
+    }
+
+    function pceStatusItemForKind(kind) {
+      if (!pceStatus) return null;
+      if (kind === 'llvmMos') return pceStatus.llvmMos;
+      if (kind === 'emulatorJs') return pceStatus.emulatorJs;
+      return null;
+    }
+
+    function pceStatusPath(item) {
+      return item?.path || item?.runtimeDir || item?.sourcePath || item?.wasmPath || '';
+    }
+
+    function isPceItemReady(item) {
+      return Boolean(item?.installed || item?.configured);
+    }
+
+    async function initActiveCore() {
+      try {
+        const result = await window.electronSetup.getActiveCore?.();
+        activeCoreId = result?.coreId || 'mega-drive';
+      } catch (_) {
+        activeCoreId = 'mega-drive';
+      }
+      setMdSetupVisible(activeCoreId !== 'pc-engine');
+    }
+
+    async function loadPceCatalog() {
+      const result = await window.electronSetup.getCatalog();
+      if (!result?.ok) throw new Error(result?.error || 'PCE setup catalog を取得できませんでした');
+      pceCatalog = result;
+      renderPceTools();
+      await Promise.all((result.tools || []).map(async (tool) => {
+        const versions = await window.electronSetup.listVersions(tool.kind);
+        pceVersions[tool.kind] = versions?.versions || [];
+      }));
+      renderPceTools();
+    }
+
+    function selectedPceVersion(kind) {
+      const id = document.getElementById(`pceToolVersion-${kind}`)?.value || '';
+      return (pceVersions[kind] || []).find((item) => item.id === id) || null;
+    }
+
+    function updatePceToolVersionInfo(kind) {
+      const version = selectedPceVersion(kind);
+      const el = document.getElementById(`pceToolUrl-${kind}`);
+      if (el) el.textContent = version?.downloadUrl || 'ダウンロード候補が未選択です';
+    }
+
+    function renderPceTools() {
+      const root = document.getElementById('pceToolsList');
+      const tools = pceCatalog?.tools || [];
+      if (!root) return;
+      if (tools.length === 0) {
+        root.innerHTML = '<div class="pce-tool-empty">PCE ツールカタログを読み込み中です...</div>';
+        return;
+      }
+      root.innerHTML = tools.map((tool) => {
+        const statusItem = pceStatusItemForKind(tool.kind);
+        const ready = isPceItemReady(statusItem);
+        const versions = pceVersions[tool.kind] || [];
+        const loading = pceVersionLoading[tool.kind];
+        const selectedVersion = versions[0] || null;
+        const versionOptions = loading
+          ? '<option value="">候補取得中...</option>'
+          : versions.length > 0
+            ? versions.map((version, index) => (
+              `<option value="${escHtml(version.id)}" ${index === 0 ? 'selected' : ''}>${escHtml(version.label || version.version || version.id)}</option>`
+            )).join('')
+            : '<option value="">候補なし</option>';
+        const statusText = ready ? `OK - ${pceStatusPath(statusItem)}` : '未設定';
+        return `
+          <section class="pce-tool-card" data-tool-kind="${escHtml(tool.kind)}">
+            <div class="pce-tool-header">
+              <span class="pce-tool-title">${escHtml(tool.label)}</span>
+              <span class="badge ${ready ? 'ok' : 'warn'}">${ready ? '設定済み' : '未設定'}</span>
+            </div>
+            <p class="path-text pce-tool-status">${escHtml(statusText)}</p>
+            <p class="desc">
+              ${escHtml(tool.description || '')}<br>
+              ${tool.license ? `License: <code>${escHtml(tool.license)}</code><br>` : ''}
+              ${tool.note ? escHtml(tool.note) : ''}
+            </p>
+            <div class="pce-tool-actions">
+              <select class="input-path" id="pceToolVersion-${escHtml(tool.kind)}">${versionOptions}</select>
+              <button class="btn" data-pce-action="reload" data-kind="${escHtml(tool.kind)}">候補更新</button>
+              <button class="btn primary" data-pce-action="download" data-kind="${escHtml(tool.kind)}">DL</button>
+            </div>
+            <p class="path-text pce-tool-url" id="pceToolUrl-${escHtml(tool.kind)}">${escHtml(selectedVersion?.downloadUrl || 'ダウンロード候補が未選択です')}</p>
+            <div class="progress-wrap" id="pceProgress-${escHtml(tool.kind)}">
+              <div class="progress-bar-bg"><div class="progress-bar" id="pceBar-${escHtml(tool.kind)}"></div></div>
+              <div class="progress-msg" id="pceMsg-${escHtml(tool.kind)}">...</div>
+            </div>
+          </section>
+        `;
+      }).join('');
+      bindPceToolEvents();
+    }
+
+    function bindPceToolEvents() {
+      document.querySelectorAll('[data-pce-action="reload"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const kind = btn.dataset.kind;
+          loadPceVersions(kind).catch((err) => {
+            document.getElementById('statusMsg').textContent = `候補更新失敗: ${err.message || err}`;
+          });
+        });
+      });
+      document.querySelectorAll('[data-pce-action="download"]').forEach((btn) => {
+        btn.addEventListener('click', () => downloadPceTool(btn.dataset.kind));
+      });
+      (pceCatalog?.tools || []).forEach((tool) => {
+        document.getElementById(`pceToolVersion-${tool.kind}`)?.addEventListener('change', () => updatePceToolVersionInfo(tool.kind));
+      });
+    }
+
+    async function loadPceVersions(kind) {
+      pceVersionLoading[kind] = true;
+      renderPceTools();
+      try {
+        const result = await window.electronSetup.listVersions(kind);
+        pceVersions[kind] = result?.versions || [];
+      } finally {
+        pceVersionLoading[kind] = false;
+        renderPceTools();
+      }
+    }
+
+    function updatePceProgress(entry = {}) {
+      const received = Number(entry.receivedBytes || entry.received || 0);
+      const total = Number(entry.totalBytes || entry.total || 0);
+      const percent = Number.isFinite(Number(entry.percent)) ? Number(entry.percent) : (total > 0 ? (received / total) * 100 : 8);
+      const safePercent = Math.max(0, Math.min(100, percent));
+      const kind = activePceDownloadKind || 'llvmMos';
+      setProgress(`pceProgress-${kind}`, `pceBar-${kind}`, `pceMsg-${kind}`, safePercent, `${entry.message || '受信中...'} ${formatBytes(received)}${total ? ` / ${formatBytes(total)}` : ''}`);
+    }
+
+    async function loadPceStatus() {
+      const status = await window.electronSetup.getStatus();
+      pceStatus = status;
+      const rows = [
+        ['llvmMosPceCd', 'mos-pce-cd-clang', status.llvmMosPceCd],
+        ['pceMkcd', 'pce-mkcd', status.pceMkcd],
+      ];
+      document.getElementById('pceSetupStatus').innerHTML = rows.map(([, label, item]) => `
+        <div class="path-text">${label}: ${item?.installed || item?.configured ? `OK - ${item.path || item.runtimeDir || ''}` : '未設定'}</div>
+      `).join('');
+      const isReady = (item) => Boolean(item?.installed || item?.configured);
+      document.getElementById('pceCdIplPath').value = status.pceCdIpl?.path || '';
+      document.getElementById('pceCdSystemCardPath').value = status.pceCdSystemCard?.path || '';
+      const allRequired = isReady(status.llvmMos) && isReady(status.llvmMosPceCd) && isReady(status.pceMkcd) && isReady(status.emulatorJs);
+      const badge = document.getElementById('pceSetupBadge');
+      badge.textContent = allRequired ? '✓ セットアップ済み' : '未完了';
+      badge.className = allRequired ? 'badge ok' : 'badge warn';
+      renderPceTools();
+    }
+
+    async function downloadPceTool(kind) {
+      const btn = document.querySelector(`[data-pce-action="download"][data-kind="${kind}"]`);
+      const version = selectedPceVersion(kind);
+      if (!version?.downloadUrl) {
+        document.getElementById('statusMsg').textContent = 'DL 可能な候補を選択してください';
+        return;
+      }
+      if (btn) btn.disabled = true;
+      activePceDownloadKind = kind;
+      try {
+        window.electronSetup.onProgress(updatePceProgress);
+        updatePceProgress({ message: `${version.label || kind} を開始しています`, percent: 0 });
+        const result = await window.electronSetup.downloadTool({
+          kind,
+          settingKind: kind,
+          url: version.downloadUrl,
+          destName: version.fileName || version.label || kind,
+        });
+        document.getElementById('statusMsg').textContent = result?.ok
+          ? `${version.label || kind} のセットアップが完了しました`
+          : `エラー: ${result?.error || 'unknown'}`;
+        await loadPceStatus();
+      } catch (err) {
+        document.getElementById('statusMsg').textContent = `エラー: ${err.message || err}`;
+      } finally {
+        if (btn) btn.disabled = false;
+        activePceDownloadKind = '';
+      }
+    }
+
+    function setPceCdIplWizardVisible(visible) {
+      const wizard = document.getElementById('pceCdIplWizard');
+      if (!wizard) return;
+      wizard.classList.toggle('is-hidden', !visible);
+      if (visible) {
+        setPceCdExtractResult('IPL 抽出結果: CDイメージを選択してください');
+      }
+    }
+
+    async function pickPceCdImage() {
+      const result = await window.electronSetup.selectPceCdImage();
+      if (!result?.ok) {
+        setPceCdExtractResult(`IPL 抽出結果: ${result?.error || 'CDイメージ選択に失敗しました'}`, true);
+        return;
+      }
+      if (result.canceled) return;
+      document.getElementById('pceCdImagePath').value = result.sourcePath || '';
+      setPceCdExtractResult(`IPL 抽出対象: ${result.fileName || result.sourcePath || '-'}`);
+    }
+
+    async function extractPceCdIpl() {
+      const btn = document.getElementById('btnExtractPceCdIpl');
+      const sourcePath = document.getElementById('pceCdImagePath').value.trim();
+      const confirmOwnedSource = document.getElementById('pceCdOwnSourceConfirm').checked;
+      if (!sourcePath) {
+        setPceCdExtractResult('IPL 抽出結果: ISO/CUE/BIN ファイルを選択してください', true);
+        return;
+      }
+      if (!confirmOwnedSource) {
+        setPceCdExtractResult('IPL 抽出結果: 所有ソースからの抽出確認が必要です', true);
+        return;
+      }
+      btn.disabled = true;
+      setPceCdExtractResult('IPL 抽出中...');
+      try {
+        const result = await window.electronSetup.extractPceCdIpl({ sourcePath, confirmOwnedSource });
+        if (!result?.ok) {
+          setPceCdExtractResult(`IPL 抽出結果: ${result?.error || 'unknown error'}`, true);
+          return;
+        }
+        const meta = result.metadata || {};
+        const hash = meta.sha256 ? `${meta.sha256.slice(0, 12)}...` : '-';
+        document.getElementById('pceCdIplPath').value = result.path || '';
+        setPceCdExtractResult(`IPL 抽出完了: ${result.path || '-'} / ${meta.trackMode || '-'} / sha256 ${hash}`);
+        setPceCdIplWizardVisible(false);
+        await loadPceStatus();
+        document.getElementById('statusMsg').textContent = 'PCE-CD IPL を抽出して設定しました';
+      } catch (err) {
+        setPceCdExtractResult(`IPL 抽出結果: ${err.message || err}`, true);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function loadSgdkVersions() {
+      const select = document.getElementById('sgdkVersionSelect');
+      select.innerHTML = '';
+      const loading = document.createElement('option');
+      loading.value = '';
+      loading.textContent = '読込中...';
+      select.appendChild(loading);
+
+      try {
+        const result = await window.electronSetup.listSgdkVersions();
+        const releases = (result && result.releases) ? result.releases : [];
+        select.innerHTML = '';
+
+        if (releases.length === 0) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = '最新 (自動選択)';
+          select.appendChild(opt);
+          return;
+        }
+
+        releases.forEach((r, index) => {
+          const opt = document.createElement('option');
+          opt.value = r.tag;
+          opt.textContent = `${r.tag}${index === 0 ? ' (latest)' : ''}${r.prerelease ? ' [pre]' : ''}`;
+          if (index === 0) {
+            opt.selected = true;
+          }
+          select.appendChild(opt);
+        });
+      } catch (_err) {
+        select.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '最新 (取得失敗時は自動)';
+        select.appendChild(opt);
+      }
+    }
+
+    async function loadMarsdevVersions() {
+      const select = document.getElementById('marsdevVersionSelect');
+      select.innerHTML = '';
+      const loading = document.createElement('option');
+      loading.value = '';
+      loading.textContent = '読込中...';
+      select.appendChild(loading);
+
+      try {
+        const result = await window.electronSetup.listMarsdevVersions();
+        const releases = (result && result.releases) ? result.releases : [];
+        select.innerHTML = '';
+
+        if (releases.length === 0) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = '最新 (自動選択)';
+          select.appendChild(opt);
+          return;
+        }
+
+        releases.forEach((r, index) => {
+          const opt = document.createElement('option');
+          opt.value = r.tag;
+          opt.textContent = `${r.tag}${index === 0 ? ' (latest)' : ''}${r.prerelease ? ' [pre]' : ''}`;
+          if (index === 0) {
+            opt.selected = true;
+          }
+          select.appendChild(opt);
+        });
+      } catch (_err) {
+        select.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '最新 (取得失敗時は自動)';
+        select.appendChild(opt);
+      }
+    }
+
+    async function loadStatus() {
+      const s = await window.electronSetup.getStatus();
+      updateUI(s);
+    }
+
+    function updateUI(s) {
+      // SGDK
+      const sgdkCard = document.getElementById('sgdkCard');
+      const sgdkBadge = document.getElementById('sgdkBadge');
+      const sgdkPath = document.getElementById('sgdkPath');
+      if (s.sgdk.installed) {
+        sgdkBadge.textContent = `✓ インストール済み (${s.sgdk.version})`;
+        sgdkBadge.className = 'badge ok';
+        sgdkPath.textContent = s.sgdk.path;
+        document.getElementById('sgdkCustomPath').value = s.sgdk.path;
+      } else {
+        sgdkBadge.textContent = '✕ 未インストール';
+        sgdkBadge.className = 'badge ng';
+        sgdkPath.textContent = '—';
+      }
+
+      // Marsdev (platform-specific)
+      const marsdevCard = document.getElementById('marsdevCard');
+      const marsdevBadge = document.getElementById('marsdevBadge');
+      const marsdevPath = document.getElementById('marsdevPath');
+      if (isWin) {
+        marsdevCard.style.display = 'none';
+      } else {
+        marsdevCard.style.display = '';
+        if (s.marsdev && s.marsdev.installed) {
+          marsdevBadge.textContent = `✓ インストール済み (${s.marsdev.version})`;
+          marsdevBadge.className = 'badge ok';
+          marsdevPath.textContent = s.marsdev.path;
+          document.getElementById('marsdevCustomPath').value = s.marsdev.path;
+        } else {
+          marsdevBadge.textContent = '✕ 未インストール';
+          marsdevBadge.className = 'badge ng';
+          marsdevPath.textContent = '—';
+        }
+      }
+
+      // Java
+      const javaBadge = document.getElementById('javaBadge');
+      const javaPathEl = document.getElementById('javaPath');
+      const javaActions = document.getElementById('javaActions');
+      const javaDesc = document.getElementById('javaDesc');
+      if (s.java.installed) {
+        javaBadge.textContent = s.java.system ? '✓ システム Java 検出' : '✓ インストール済み';
+        javaBadge.className = 'badge ok';
+        javaPathEl.textContent = s.java.path;
+      } else {
+        javaBadge.textContent = '✕ 未検出';
+        javaBadge.className = 'badge ng';
+        javaPathEl.textContent = '—';
+      }
+
+      javaActions.innerHTML = '';
+      if (isWin && !s.java.installed) {
+        javaDesc.textContent = 'Windows では Java JRE が必要です。自動インストール可能です (Adoptium Temurin 21 LTS)。';
+        const btn = document.createElement('button');
+        btn.className = 'btn primary';
+        btn.textContent = 'Java JRE を自動インストール';
+        btn.id = 'btnDownloadJava';
+        btn.addEventListener('click', installJava);
+        javaActions.appendChild(btn);
+      } else if (!isWin && !s.java.installed) {
+        javaDesc.textContent = 'Java が見つかりませんでした。Homebrew または公式サイトからインストールしてください。';
+        javaActions.innerHTML = `<div class="platform-note">macOS: <code>brew install temurin</code><br>または <a href="#" style="color:#4aa3ff">adoptium.net</a> から手動インストール</div>`;
+      } else {
+        javaDesc.textContent = 'SGDK の rescomp.jar (リソースコンパイラ) の実行に必要です。';
+      }
+
+      // Toolchain (platform specific)
+      const gccCard = document.getElementById('gccCard');
+      const gccTitle = document.getElementById('gccTitle');
+      const gccBadge = document.getElementById('gccBadge');
+      const gccPathEl = document.getElementById('gccPath');
+      const gccDesc = document.getElementById('gccDesc');
+      gccCard.style.display = '';
+
+      if (s.platform === 'win32') {
+        gccTitle.textContent = 'SGDK 同梱ツールチェーン (Windows)';
+        if (s.gcc.installed) {
+          gccBadge.textContent = '✓ SGDK 内コンパイラ検出';
+          gccBadge.className = 'badge ok';
+          gccPathEl.textContent = s.gcc.path || 'SGDK/bin';
+          gccDesc.textContent = 'Windows は SGDK 同梱コンパイラを使用します。';
+        } else {
+          gccBadge.textContent = '✕ SGDK 内コンパイラ未検出';
+          gccBadge.className = 'badge ng';
+          gccPathEl.textContent = '—';
+          gccDesc.textContent = 'SGDK の再ダウンロード、または SGDK パス設定を確認してください。';
+        }
+      } else {
+        gccTitle.textContent = 'クロスコンパイラ (macOS/Linux)';
+        if (s.gcc.installed) {
+          let sourceLabel = 'システム検出';
+          if (s.gcc.source === 'marsdev') sourceLabel = '✓ Marsdev';
+          else if (s.gcc.source === 'sgdk') sourceLabel = '✓ SGDK ネイティブ';
+          else if (s.gcc.source === 'system') sourceLabel = '✓ システム';
+          gccBadge.textContent = sourceLabel;
+          gccBadge.className = 'badge ok';
+          gccPathEl.textContent = s.gcc.path || 'm68k-elf-gcc';
+          const sourceDesc = s.gcc.source === 'marsdev'
+            ? 'Marsdev のクロスコンパイラを使用しています。'
+            : (s.gcc.source === 'sgdk'
+              ? 'SGDK 内のネイティブツールを使用しています。'
+              : 'システムの m68k-elf-gcc を使用しています。');
+          gccDesc.textContent = sourceDesc;
+        } else {
+          gccBadge.textContent = '✕ 未検出';
+          gccBadge.className = 'badge ng';
+          gccPathEl.textContent = '—';
+          gccDesc.innerHTML = 'Marsdev をセットアップするか、システムのクロスコンパイラをインストールしてください。<br><code style="color:#4aa3ff">brew install gcc-m68k-elf binutils-m68k-elf</code>';
+        }
+      }
+
+      // Optional audio engines
+      const emsdk = s.emsdk || {};
+      const emsdkBadge = document.getElementById('emsdkBadge');
+      const emsdkPath = document.getElementById('emsdkPath');
+      const emsdkDesc = document.getElementById('emsdkDesc');
+      if (emsdk.emccInstalled) {
+        emsdkBadge.textContent = '✓ emcc 利用可';
+        emsdkBadge.className = 'badge ok';
+        emsdkPath.textContent = emsdk.emccPath;
+        emsdkDesc.innerHTML = `Nuked-OPN2 を WASM にビルドするための任意コンポーネントです。<br>emcc: <code>${emsdk.emccVersion || 'detected'}</code>`;
+      } else if (emsdk.installed) {
+        emsdkBadge.textContent = 'SDK 取得済み / emcc 未検出';
+        emsdkBadge.className = 'badge warn';
+        emsdkPath.textContent = emsdk.path;
+        emsdkDesc.innerHTML = 'emsdk は取得済みですが emcc が見つかりません。再度取得・有効化してください。';
+      } else {
+        emsdkBadge.textContent = '任意 / 未取得';
+        emsdkBadge.className = 'badge warn';
+        emsdkPath.textContent = '—';
+        emsdkDesc.innerHTML = 'Nuked-OPN2 を WASM にビルドするための任意コンポーネントです。アプリ本体には同梱せず、ユーザー操作で公式 GitHub から取得します。<br>GitHub (MIT / University of Illinois/NCSA): <code>emscripten-core/emsdk</code>';
+      }
+
+      const nuked = s.audioEngines && s.audioEngines.nukedOpn2 ? s.audioEngines.nukedOpn2 : {};
+      const nukedWasm = s.audioEngines && s.audioEngines.nukedOpn2Wasm ? s.audioEngines.nukedOpn2Wasm : {};
+      const nukedBadge = document.getElementById('nukedOpn2Badge');
+      const nukedPath = document.getElementById('nukedOpn2Path');
+      const nukedDesc = document.getElementById('nukedOpn2Desc');
+      const buildBtn = document.getElementById('btnBuildNukedOpn2');
+      if (nuked.installed) {
+        nukedBadge.textContent = nukedWasm.installed ? '✓ WASM 検出' : '✓ ソース取得済み';
+        nukedBadge.className = nukedWasm.installed ? 'badge ok' : 'badge warn';
+        nukedPath.textContent = nukedWasm.installed ? nukedWasm.wasmPath : nuked.sourcePath;
+        nukedDesc.innerHTML = `BGM/VGM プレビュー精度向上のための任意コンポーネントです。<br>取得元: <code>${nuked.source || 'nukeykt/Nuked-OPN2'}</code> / License: <code>${nuked.license || 'LGPL-2.1-or-later'}</code>`;
+      } else {
+        nukedBadge.textContent = '任意 / 未取得';
+        nukedBadge.className = 'badge warn';
+        nukedPath.textContent = '—';
+        nukedDesc.innerHTML = 'BGM/VGM プレビュー精度向上のための任意コンポーネントです。アプリ本体には同梱せず、ユーザー操作で公式 GitHub から取得します。<br>GitHub (LGPL-2.1-or-later): <code>nukeykt/Nuked-OPN2</code>';
+      }
+      buildBtn.disabled = !(nuked.installed && emsdk.emccInstalled);
+    }
+
+    function setProgress(id, barId, msgId, pct, msg) {
+      const wrap = document.getElementById(id);
+      wrap.classList.add('visible');
+      document.getElementById(barId).style.width = `${pct}%`;
+      document.getElementById(msgId).textContent = msg;
+    }
+
+    async function installSgdk() {
+      const btn = document.getElementById('btnDownloadSgdk');
+      const selectedTag = document.getElementById('sgdkVersionSelect').value || null;
+      btn.disabled = true;
+      document.getElementById('statusMsg').textContent = '';
+      try {
+        window.electronSetup.onProgress((p) => {
+          setProgress('sgdkProgress', 'sgdkBar', 'sgdkMsg', p.percent, p.message);
+        });
+        const result = await window.electronSetup.downloadSgdk(selectedTag);
+        if (result.ok) {
+          document.getElementById('statusMsg').textContent = `SGDK ${result.tag} のインストールが完了しました`;
+          await loadStatus();
+        } else {
+          document.getElementById('statusMsg').textContent = `エラー: ${result.error}`;
+        }
+      } catch (e) {
+        document.getElementById('statusMsg').textContent = `エラー: ${e.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function installJava() {
+      const btn = document.getElementById('btnDownloadJava');
+      if (btn) btn.disabled = true;
+      try {
+        window.electronSetup.onProgress((p) => {
+          setProgress('javaProgress', 'javaBar', 'javaMsg', p.percent, p.message);
+        });
+        const result = await window.electronSetup.downloadJava();
+        if (result.ok) {
+          document.getElementById('statusMsg').textContent = 'Java JRE のインストールが完了しました';
+          await loadStatus();
+        } else {
+          document.getElementById('statusMsg').textContent = `エラー: ${result.error}`;
+        }
+      } catch (e) {
+        document.getElementById('statusMsg').textContent = `エラー: ${e.message}`;
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function installMarsdev() {
+      const btn = document.getElementById('btnDownloadMarsdev');
+      const selectedTag = document.getElementById('marsdevVersionSelect').value || null;
+      btn.disabled = true;
+      document.getElementById('statusMsg').textContent = '';
+      try {
+        window.electronSetup.onProgress((p) => {
+          setProgress('marsdevProgress', 'marsdevBar', 'marsdevMsg', p.percent, p.message);
+        });
+        const result = await window.electronSetup.downloadMarsdev(selectedTag);
+        if (result.ok) {
+          document.getElementById('statusMsg').textContent = `Marsdev ${result.tag} のインストールが完了しました`;
+          await loadStatus();
+        } else {
+          document.getElementById('statusMsg').textContent = `エラー: ${result.error}`;
+        }
+      } catch (e) {
+        document.getElementById('statusMsg').textContent = `エラー: ${e.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function installEmsdk() {
+      const btn = document.getElementById('btnDownloadEmsdk');
+      btn.disabled = true;
+      document.getElementById('statusMsg').textContent = '';
+      try {
+        window.electronSetup.onProgress((p) => {
+          setProgress('emsdkProgress', 'emsdkBar', 'emsdkMsg', p.percent, p.message);
+        });
+        const result = await window.electronSetup.downloadEmsdk();
+        if (result.ok) {
+          document.getElementById('statusMsg').textContent = 'Emscripten SDK の取得と有効化が完了しました';
+          await loadStatus();
+        } else {
+          document.getElementById('statusMsg').textContent = `エラー: ${result.error}`;
+        }
+      } catch (e) {
+        document.getElementById('statusMsg').textContent = `エラー: ${e.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function installNukedOpn2() {
+      const btn = document.getElementById('btnDownloadNukedOpn2');
+      btn.disabled = true;
+      document.getElementById('statusMsg').textContent = '';
+      try {
+        window.electronSetup.onProgress((p) => {
+          setProgress('nukedOpn2Progress', 'nukedOpn2Bar', 'nukedOpn2Msg', p.percent, p.message);
+        });
+        const result = await window.electronSetup.downloadNukedOpn2();
+        if (result.ok) {
+          document.getElementById('statusMsg').textContent = `Nuked-OPN2 ソースの取得が完了しました (${result.license})`;
+          await loadStatus();
+        } else {
+          document.getElementById('statusMsg').textContent = `エラー: ${result.error}`;
+        }
+      } catch (e) {
+        document.getElementById('statusMsg').textContent = `エラー: ${e.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function buildNukedOpn2() {
+      const btn = document.getElementById('btnBuildNukedOpn2');
+      btn.disabled = true;
+      document.getElementById('statusMsg').textContent = '';
+      try {
+        window.electronSetup.onProgress((p) => {
+          setProgress('nukedOpn2Progress', 'nukedOpn2Bar', 'nukedOpn2Msg', p.percent, p.message);
+        });
+        const result = await window.electronSetup.buildNukedOpn2Wasm();
+        if (result.ok) {
+          document.getElementById('statusMsg').textContent = 'Nuked-OPN2 WASM のビルドが完了しました';
+          await loadStatus();
+        } else {
+          document.getElementById('statusMsg').textContent = `エラー: ${result.error}`;
+        }
+      } catch (e) {
+        document.getElementById('statusMsg').textContent = `エラー: ${e.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('btnDownloadSgdk').addEventListener('click', installSgdk);
+    document.getElementById('btnDownloadEmsdk').addEventListener('click', installEmsdk);
+    document.getElementById('btnDownloadNukedOpn2').addEventListener('click', installNukedOpn2);
+    document.getElementById('btnBuildNukedOpn2').addEventListener('click', buildNukedOpn2);
+    document.getElementById('btnReloadVersions').addEventListener('click', async () => {
+      await loadSgdkVersions();
+      document.getElementById('statusMsg').textContent = 'SGDK バージョン一覧を更新しました';
+    });
+
+    document.getElementById('btnSetSgdkPath').addEventListener('click', async () => {
+      const p = document.getElementById('sgdkCustomPath').value.trim();
+      if (!p) return;
+      await window.electronSetup.setSgdkPath(p);
+      await loadStatus();
+      document.getElementById('statusMsg').textContent = 'SGDK パスを更新しました';
+    });
+
+    // Marsdev handlers (macOS/Linux only)
+    const btnDownloadMarsdev = document.getElementById('btnDownloadMarsdev');
+    if (btnDownloadMarsdev) {
+      btnDownloadMarsdev.addEventListener('click', installMarsdev);
+    }
+    const btnReloadMarsdev = document.getElementById('btnReloadMarsdevVersions');
+    if (btnReloadMarsdev) {
+      btnReloadMarsdev.addEventListener('click', async () => {
+        await loadMarsdevVersions();
+        document.getElementById('statusMsg').textContent = 'Marsdev バージョン一覧を更新しました';
+      });
+    }
+    const btnSetMarsdevPath = document.getElementById('btnSetMarsdevPath');
+    if (btnSetMarsdevPath) {
+      btnSetMarsdevPath.addEventListener('click', async () => {
+        const p = document.getElementById('marsdevCustomPath').value.trim();
+        if (!p) return;
+        await window.electronSetup.setMarsdevPath(p);
+        await loadStatus();
+        document.getElementById('statusMsg').textContent = 'Marsdev パスを更新しました';
+      });
+    }
+
+    document.getElementById('btnClose').addEventListener('click', () => window.close());
+    document.getElementById('btnRefresh').addEventListener('click', async () => {
+      document.getElementById('statusMsg').textContent = '確認中...';
+      if (activeCoreId === 'pc-engine') await loadPceStatus();
+      else await loadStatus();
+      document.getElementById('statusMsg').textContent = '状態を更新しました';
+    });
+    document.getElementById('btnOpenPceCdIplWizard').addEventListener('click', () => setPceCdIplWizardVisible(true));
+    document.getElementById('btnCancelPceCdIplWizard').addEventListener('click', () => setPceCdIplWizardVisible(false));
+    document.getElementById('btnPickPceCdImage').addEventListener('click', pickPceCdImage);
+    document.getElementById('btnExtractPceCdIpl').addEventListener('click', extractPceCdIpl);
+    document.getElementById('btnSetPceCdIpl').addEventListener('click', async () => {
+      const p = document.getElementById('pceCdIplPath').value.trim();
+      await window.electronSetup.setToolPath('pceCdIpl', p);
+      await loadPceStatus();
+      document.getElementById('statusMsg').textContent = 'PCE-CD IPL パスを更新しました';
+    });
+    document.getElementById('btnSetPceCdSystemCard').addEventListener('click', async () => {
+      const result = await window.electronSetup.selectPceSystemCard();
+      if (!result?.ok) {
+        document.getElementById('statusMsg').textContent = `System Card 選択失敗: ${result?.error || 'unknown'}`;
+        return;
+      }
+      if (result.canceled) return;
+      const p = result.sourcePath || '';
+      document.getElementById('pceCdSystemCardPath').value = p;
+      await window.electronSetup.setToolPath('pceCdSystemCard', p);
+      await loadPceStatus();
+      document.getElementById('statusMsg').textContent = 'System Card パスを更新しました';
+    });
+
+    (async () => {
+      await initActiveCore();
+      if (activeCoreId === 'pc-engine') {
+        await loadPceCatalog();
+        await loadPceStatus();
+        return;
+      }
+      await loadSgdkVersions();
+      if (!isWin) await loadMarsdevVersions();
+      await loadStatus();
+    })();
+  </script>
+</body>
+</html>

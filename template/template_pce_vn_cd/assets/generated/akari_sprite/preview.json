@@ -1,0 +1,10 @@
+{
+  "source": "assets/sprites/akari_sprite.png",
+  "kind": "sprite",
+  "width": 64,
+  "height": 128,
+  "tileCount": 32,
+  "paletteCount": 1,
+  "vramBytes": 4096,
+  "warnings": []
+}
