@@ -23,6 +23,11 @@ function asNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function safeId(value, fallback = 'asset') {
+  const id = String(value || '').trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  return id || fallback;
+}
+
 function imageKind(asset = {}) {
   return asset.type === 'sprite' || asset.options?.kind === 'sprite' ? 'sprite' : 'background';
 }
@@ -127,8 +132,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             <p class="pce-assets-subtitle">BG / Sprite / Palette / PSG / ADPCM / CD-DA を PC Engine 向けに管理します</p>
           </div>
           <div class="asset-list-header-actions">
-            <button class="icon-btn" data-action="import" type="button" title="画像を取り込み" aria-label="画像を取り込み">▧</button>
-            <button class="icon-btn" data-action="import-audio" type="button" title="音声を取り込み" aria-label="音声を取り込み">♪</button>
+            <button class="icon-btn" data-action="import-bg" type="button" title="BGを追加" aria-label="BGを追加">BG+</button>
+            <button class="icon-btn" data-action="import-sprite" type="button" title="スプライトを追加" aria-label="スプライトを追加">SPR+</button>
+            <button class="icon-btn" data-action="import-adpcm" type="button" title="ADPCMを追加" aria-label="ADPCMを追加">AD+</button>
+            <button class="icon-btn" data-action="import-cdda" type="button" title="CD-DAを追加" aria-label="CD-DAを追加">CD+</button>
             <button class="icon-btn" data-action="new-psg" type="button" title="PSG SFX を追加" aria-label="PSG SFX を追加">♪+</button>
             <button class="icon-btn" data-action="new-palette" type="button" title="Palette を追加" aria-label="Palette を追加">▦</button>
             <button class="icon-btn" data-action="refresh" type="button" title="更新" aria-label="更新">↻</button>
@@ -244,6 +251,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
                     <span>繰り返し再生</span>
                   </label>
                 </div>
+                <div class="pce-assets-animation-editor" data-role="animation-editor" hidden></div>
                 <div class="form-actions-inline">
                   <button class="btn-primary" data-action="save" type="submit" disabled>保存</button>
                   <button class="icon-btn" data-action="delete" type="button" title="削除" aria-label="削除" disabled>✕</button>
@@ -317,6 +325,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   const generatedFilesEl = root.querySelector('[data-role="generated-files"]');
   const paletteEl = root.querySelector('[data-role="palette"]');
   const diagnosticsEl = root.querySelector('[data-role="diagnostics"]');
+  const animationEditorEl = root.querySelector('[data-role="animation-editor"]');
   const saveButton = root.querySelector('[data-action="save"]');
   const deleteButton = root.querySelector('[data-action="delete"]');
   const fields = {
@@ -527,6 +536,104 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       loop: isAudio || asset?.type === 'psg-song',
     };
     Object.entries(visibility).forEach(([key, show]) => setVisible(key, show));
+    if (animationEditorEl) animationEditorEl.hidden = !isSprite;
+  }
+
+  function spriteAnimationDefaults(asset = {}) {
+    const options = asset.options || {};
+    const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
+    const positiveNumber = (value, fallback = 0) => {
+      const parsed = asNumber(value, fallback);
+      return parsed > 0 ? parsed : fallback;
+    };
+    const cellWidth = Math.max(16, positiveNumber(options.cellWidth ?? generated.cellWidth, 16));
+    const cellHeight = Math.max(16, positiveNumber(options.cellHeight ?? generated.cellHeight, 16));
+    const generatedColumns = Math.max(0, positiveNumber(generated.cellColumns ?? generated.columns, 0));
+    const generatedRows = Math.max(0, positiveNumber(generated.cellRows ?? generated.rows, 0));
+    const generatedWidth = Math.max(0, positiveNumber(generated.width, generatedColumns ? generatedColumns * cellWidth : 0));
+    const generatedHeight = Math.max(0, positiveNumber(generated.height, generatedRows ? generatedRows * cellHeight : 0));
+    const width = Math.max(cellWidth, positiveNumber(options.width, generatedWidth || cellWidth));
+    const height = Math.max(cellHeight, positiveNumber(options.height, generatedHeight || cellHeight));
+    return {
+      id: 'default',
+      name: 'Default',
+      frameWidth: width,
+      frameHeight: height,
+      firstCell: 0,
+      frameCount: 1,
+      frameDelay: 8,
+      frameStrideCells: Math.max(1, Math.ceil(width / cellWidth) * Math.ceil(height / cellHeight)),
+      loop: true,
+    };
+  }
+
+  function animationRowHtml(animation = {}, index = 0) {
+    const item = { ...spriteAnimationDefaults(selectedAsset() || {}), ...animation };
+    return `
+      <section class="pce-assets-animation-row" data-animation-row>
+        <div class="pce-assets-animation-head">
+          <strong>Animation ${index + 1}</strong>
+          <button class="icon-btn-xs" type="button" data-animation-delete title="アニメーション削除" aria-label="アニメーション削除">✕</button>
+        </div>
+        <label class="form-group"><span class="form-label">ID</span><input class="form-input form-input-mono" data-animation-field="id" value="${esc(item.id)}" /></label>
+        <label class="form-group"><span class="form-label">Name</span><input class="form-input" data-animation-field="name" value="${esc(item.name)}" /></label>
+        <div class="pce-assets-inline-fields">
+          <label class="form-group"><span class="form-label">Frame W</span><input class="form-input" data-animation-field="frameWidth" type="number" min="16" max="256" value="${esc(item.frameWidth)}" /></label>
+          <label class="form-group"><span class="form-label">Frame H</span><input class="form-input" data-animation-field="frameHeight" type="number" min="16" max="256" value="${esc(item.frameHeight)}" /></label>
+        </div>
+        <div class="pce-assets-inline-fields">
+          <label class="form-group"><span class="form-label">First cell</span><input class="form-input" data-animation-field="firstCell" type="number" min="0" max="255" value="${esc(item.firstCell)}" /></label>
+          <label class="form-group"><span class="form-label">Frames</span><input class="form-input" data-animation-field="frameCount" type="number" min="1" max="64" value="${esc(item.frameCount)}" /></label>
+        </div>
+        <div class="pce-assets-inline-fields">
+          <label class="form-group"><span class="form-label">Delay</span><input class="form-input" data-animation-field="frameDelay" type="number" min="1" max="60" value="${esc(item.frameDelay)}" /></label>
+          <label class="form-group"><span class="form-label">Stride</span><input class="form-input" data-animation-field="frameStrideCells" type="number" min="1" max="255" value="${esc(item.frameStrideCells)}" /></label>
+        </div>
+        <label class="pce-assets-check">
+          <input data-animation-field="loop" type="checkbox" ${item.loop !== false ? 'checked' : ''} />
+          <span>Loop</span>
+        </label>
+      </section>
+    `;
+  }
+
+  function collectAnimationRows() {
+    if (!animationEditorEl || animationEditorEl.hidden) return [];
+    return Array.from(animationEditorEl.querySelectorAll('[data-animation-row]')).map((row, index) => {
+      const value = (name) => row.querySelector(`[data-animation-field="${name}"]`);
+      const id = safeId(value('id')?.value, index === 0 ? 'default' : `anim_${index + 1}`);
+      return {
+        id,
+        name: String(value('name')?.value || id).trim(),
+        frameWidth: asNumber(value('frameWidth')?.value, 16),
+        frameHeight: asNumber(value('frameHeight')?.value, 16),
+        firstCell: asNumber(value('firstCell')?.value, 0),
+        frameCount: asNumber(value('frameCount')?.value, 1),
+        frameDelay: asNumber(value('frameDelay')?.value, 8),
+        frameStrideCells: asNumber(value('frameStrideCells')?.value, 1),
+        loop: Boolean(value('loop')?.checked),
+      };
+    });
+  }
+
+  function renderAnimationEditor(asset) {
+    if (!animationEditorEl) return;
+    const isSprite = asset?.type === 'sprite' || asset?.options?.kind === 'sprite';
+    animationEditorEl.hidden = !isSprite;
+    if (!isSprite) {
+      animationEditorEl.innerHTML = '';
+      return;
+    }
+    const animations = Array.isArray(asset.options?.animations) && asset.options.animations.length
+      ? asset.options.animations
+      : [spriteAnimationDefaults(asset)];
+    animationEditorEl.innerHTML = `
+      <div class="pce-assets-animation-title">
+        <span>Sprite animations</span>
+        <button class="btn-sm" type="button" data-animation-add>追加</button>
+      </div>
+      ${animations.map(animationRowHtml).join('')}
+    `;
   }
 
   function fillForm(asset) {
@@ -549,6 +656,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       paletteEl.innerHTML = '';
       paletteEl.hidden = false;
       diagnosticsEl.innerHTML = '<p class="asset-no-selection-hint">診断対象がありません</p>';
+      renderAnimationEditor(null);
       return;
     }
     fields.id.value = asset.id || '';
@@ -571,6 +679,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     fields.track.value = options.track ?? 2;
     fields.loop.checked = Boolean(options.loop);
     setFieldVisibility(asset);
+    renderAnimationEditor(asset);
     renderGenerated(asset);
     void loadPreview(asset);
   }
@@ -619,6 +728,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           cellWidth,
           cellHeight,
           transparentIndex: asNumber(fields.transparentIndex.value, 0),
+          animations: type === 'sprite' ? collectAnimationRows() : [],
         };
     return {
       ...current,
@@ -1290,8 +1400,28 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   root.querySelector('[data-action="preview-play"]').addEventListener('click', () => playPsgPreview());
   root.querySelector('[data-action="preview-stop"]').addEventListener('click', stopPsgPreview);
   root.querySelector('[data-action="refresh"]').addEventListener('click', reload);
-  root.querySelector('[data-action="import"]').addEventListener('click', () => openImportWizard('background'));
-  root.querySelector('[data-action="import-audio"]').addEventListener('click', () => openAudioImportWizard('adpcm'));
+  animationEditorEl?.addEventListener('click', (event) => {
+    const add = event.target?.closest?.('[data-animation-add]');
+    if (add) {
+      const rows = collectAnimationRows();
+      rows.push({
+        ...spriteAnimationDefaults(selectedAsset() || collectFormAsset()),
+        id: `anim_${rows.length + 1}`,
+        name: `Animation ${rows.length + 1}`,
+      });
+      const draft = { ...collectFormAsset(), options: { ...collectFormAsset().options, animations: rows } };
+      renderAnimationEditor(draft);
+      return;
+    }
+    const del = event.target?.closest?.('[data-animation-delete]');
+    if (del) {
+      del.closest('[data-animation-row]')?.remove();
+    }
+  });
+  root.querySelector('[data-action="import-bg"]').addEventListener('click', () => openImportWizard('background'));
+  root.querySelector('[data-action="import-sprite"]').addEventListener('click', () => openImportWizard('sprite'));
+  root.querySelector('[data-action="import-adpcm"]').addEventListener('click', () => openAudioImportWizard('adpcm'));
+  root.querySelector('[data-action="import-cdda"]').addEventListener('click', () => openAudioImportWizard('cdda-track'));
   root.querySelector('[data-action="new-psg"]').addEventListener('click', () => {
     const id = `beep_${Date.now()}`;
     assets.push({

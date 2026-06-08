@@ -40,6 +40,18 @@ const DEFAULT_SPRITE_OPTIONS = Object.freeze({
   cellWidth: 16,
   cellHeight: 16,
   transparentIndex: 0,
+  animations: [],
+});
+const DEFAULT_SPRITE_ANIMATION = Object.freeze({
+  id: 'default',
+  name: 'Default',
+  frameWidth: 0,
+  frameHeight: 0,
+  firstCell: 0,
+  frameCount: 1,
+  frameDelay: 8,
+  frameStrideCells: 0,
+  loop: true,
 });
 const DEFAULT_PALETTE_OPTIONS = Object.freeze({
   target: 'bg',
@@ -92,6 +104,12 @@ function clampInt(value, min, max, fallback) {
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
 }
 
+function clampPositiveInt(value, min, max, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
 function sanitizeAssetId(value, fallback = 'asset') {
   const base = String(value || fallback)
     .replace(/\.[^.]+$/, '')
@@ -112,6 +130,60 @@ function normalizeAssetSource(source = '') {
     throw new Error(`project relative asset path is required: ${raw}`);
   }
   return cleaned;
+}
+
+function normalizeSpriteAnimations(options = {}, asset = {}) {
+  const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
+  const cellWidth = clampPositiveInt(options.cellWidth ?? generated.cellWidth, 16, 32, DEFAULT_SPRITE_OPTIONS.cellWidth);
+  const cellHeight = clampPositiveInt(options.cellHeight ?? generated.cellHeight, 16, 64, DEFAULT_SPRITE_OPTIONS.cellHeight);
+  const generatedColumns = clampPositiveInt(generated.cellColumns ?? generated.columns, 1, 64, 0);
+  const generatedRows = clampPositiveInt(generated.cellRows ?? generated.rows, 1, 64, 0);
+  const generatedWidth = clampPositiveInt(generated.width, cellWidth, 1024, generatedColumns ? generatedColumns * cellWidth : 0);
+  const generatedHeight = clampPositiveInt(generated.height, cellHeight, 1024, generatedRows ? generatedRows * cellHeight : 0);
+  const width = clampPositiveInt(options.width, cellWidth, 1024, generatedWidth || cellWidth);
+  const height = clampPositiveInt(options.height, cellHeight, 1024, generatedHeight || cellHeight);
+  const sheetColumns = Math.max(1, Math.ceil(width / cellWidth));
+  const sheetRows = Math.max(1, Math.ceil(height / cellHeight));
+  const totalCells = Math.max(1, sheetColumns * sheetRows);
+  const rawAnimations = Array.isArray(options.animations) ? options.animations : [];
+
+  const normalizeOne = (entry, index) => {
+    const raw = entry && typeof entry === 'object' ? entry : {};
+    const fallbackFrameWidth = index === 0 ? width : cellWidth;
+    const fallbackFrameHeight = index === 0 ? height : cellHeight;
+    const frameWidth = clampPositiveInt(raw.frameWidth, cellWidth, 256, fallbackFrameWidth);
+    const frameHeight = clampPositiveInt(raw.frameHeight, cellHeight, 256, fallbackFrameHeight);
+    const frameCellsX = Math.max(1, Math.ceil(frameWidth / cellWidth));
+    const frameCellsY = Math.max(1, Math.ceil(frameHeight / cellHeight));
+    const frameCells = Math.max(1, frameCellsX * frameCellsY);
+    const firstCell = clampInt(raw.firstCell, 0, totalCells - 1, 0);
+    const maxFrames = Math.max(1, Math.floor((totalCells - firstCell + frameCells - 1) / frameCells));
+    const frameCount = clampPositiveInt(raw.frameCount, 1, 64, Math.min(1, maxFrames));
+    const frameStrideCells = clampPositiveInt(raw.frameStrideCells, 1, totalCells, frameCells);
+    return {
+      id: sanitizeAssetId(raw.id, index === 0 ? 'default' : `anim_${index + 1}`).slice(0, 32),
+      name: String(raw.name || raw.id || (index === 0 ? 'Default' : `Animation ${index + 1}`)).trim().slice(0, 48),
+      frameWidth: frameCellsX * cellWidth,
+      frameHeight: frameCellsY * cellHeight,
+      firstCell,
+      frameCount: Math.min(frameCount, Math.max(1, Math.floor((totalCells - firstCell + frameStrideCells - 1) / frameStrideCells))),
+      frameDelay: clampInt(raw.frameDelay, 1, 60, DEFAULT_SPRITE_ANIMATION.frameDelay),
+      frameStrideCells,
+      loop: raw.loop !== false,
+    };
+  };
+
+  const normalized = (rawAnimations.length ? rawAnimations : [DEFAULT_SPRITE_ANIMATION])
+    .map(normalizeOne)
+    .filter((entry) => entry.id)
+    .slice(0, 16);
+  const seen = new Set();
+  return normalized.map((entry, index) => {
+    let id = entry.id;
+    if (seen.has(id)) id = `${id}_${index + 1}`.slice(0, 32);
+    seen.add(id);
+    return { ...entry, id };
+  });
 }
 
 function normalizeImageOptions(asset = {}) {
@@ -138,9 +210,11 @@ function normalizeImageOptions(asset = {}) {
     }
     options.cellWidth = cellWidth;
     options.cellHeight = cellHeight;
+    options.animations = normalizeSpriteAnimations(options, asset);
   } else {
     options.cellWidth = 8;
     options.cellHeight = 8;
+    delete options.animations;
   }
   return options;
 }
@@ -241,6 +315,7 @@ function normalizeAsset(asset = {}) {
     source: normalizeAssetSource(asset.source || ''),
     options: asset.options && typeof asset.options === 'object' ? { ...asset.options } : {},
   };
+  if (asset.data && typeof asset.data === 'object') normalized.data = normalizeGeneratedData(asset.data);
   if (type === 'image' || type === 'sprite') {
     normalized.options = normalizeImageOptions({ ...normalized, type });
   } else if (type === 'palette') {
@@ -252,7 +327,6 @@ function normalizeAsset(asset = {}) {
   } else if (type === 'cdda-track') {
     normalized.options = normalizeCddaOptions({ ...normalized, type });
   }
-  if (asset.data && typeof asset.data === 'object') normalized.data = normalizeGeneratedData(asset.data);
   return normalized;
 }
 
@@ -1205,7 +1279,7 @@ function createCdRamBankAllocator() {
   return {
     kind: 'ram',
     nextBank: 129,
-    maxBank: 135,
+    maxBank: 132,
     sectionPrefix: 'ram_bank',
     banks: [],
   };
@@ -1215,7 +1289,7 @@ function allocateAssetBank(allocator) {
   if (!allocator) throw new Error('ROM bank allocator is required');
   if (allocator.nextBank > allocator.maxBank) {
     throw new Error(allocator.kind === 'ram'
-      ? 'PCE-CD banked asset data exceeds available RAM banks 129-135'
+      ? 'PCE-CD banked asset data exceeds loadable RAM banks 129-132'
       : 'PCE HuCard banked asset data exceeds 127 ROM banks');
   }
   const bank = allocator.nextBank;
@@ -1645,6 +1719,7 @@ module.exports = {
   DEFAULT_PALETTE_OPTIONS,
   DEFAULT_PSG_OPTIONS,
   DEFAULT_SPRITE_OPTIONS,
+  DEFAULT_SPRITE_ANIMATION,
   SPRITE_CELL_SIZES,
   SUPPORTED_TYPES,
   buildInternalPceConversionPlan,

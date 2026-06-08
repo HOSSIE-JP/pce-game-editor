@@ -235,6 +235,40 @@
   flex: none;
 }
 
+.pce-assets-animation-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.pce-assets-animation-title,
+.pce-assets-animation-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.pce-assets-animation-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pce-assets-animation-row {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.pce-assets-animation-row .form-group {
+  margin: 0;
+}
+
 @media (max-width: 980px) {
   .pce-assets-layout {
     --asset-preview-width: 360px;

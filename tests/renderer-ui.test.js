@@ -155,8 +155,12 @@ test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', 
   assert.match(renderer, /isPsgAsset\(asset\)[\s\S]*Sound[\s\S]*Period \/ Hz[\s\S]*Steps/);
   assert.match(renderer, /palette-swatch/);
   assert.match(renderer, /id="pceAssetEditorPanel"/);
-  assert.match(renderer, /data-action="import"[\s\S]*title="画像を取り込み"/);
-  assert.match(renderer, /data-action="import-audio"[\s\S]*title="音声を取り込み"/);
+  assert.match(renderer, /data-action="import-bg"[\s\S]*title="BGを追加"/);
+  assert.match(renderer, /data-action="import-sprite"[\s\S]*title="スプライトを追加"/);
+  assert.match(renderer, /data-action="import-adpcm"[\s\S]*title="ADPCMを追加"/);
+  assert.match(renderer, /data-action="import-cdda"[\s\S]*title="CD-DAを追加"/);
+  assert.match(renderer, /data-role="animation-editor"/);
+  assert.match(renderer, /data-animation-add/);
   assert.doesNotMatch(renderer, /data-row-delete="[^"]*"[\s\S]*>Del<\/button>/);
   assert.doesNotMatch(renderer, /id="assetEditorPanel"/);
   assert.match(renderer, /api\.createModal/);
@@ -165,11 +169,13 @@ test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', 
   assert.match(renderer, /previewAssetSource/);
   assert.match(renderer, /reorderAssets/);
   assert.match(renderer, /asset-import-handler/);
-  assert.match(renderer, /pce_sprite/);
+  assert.match(renderer, /openImportWizard\('sprite'\)/);
+  assert.match(renderer, /asset\.type === 'sprite'/);
   assert.doesNotMatch(renderer, /mini-btn|class="input"|class="select"|pane-header|confirm\(/);
   assert.doesNotMatch(renderer, /window\.electronAPI|listResDefinitions|addResEntry|writeAssetFile|state\.rescomp/);
   assert.match(renderer, /role="separator" aria-orientation="vertical"/);
   assert.match(css, /\.pce-assets-layout/);
+  assert.match(css, /\.pce-assets-animation-editor/);
   assert.doesNotMatch(css, /\.asset-table\s*\{|\.form-input\s*\{/);
 });
 

@@ -1,6 +1,14 @@
+#if defined(__PCE_CD__)
+#include <pce-cd.h>
+PCE_RAM_BANK_AT(132, 6);
+#define PCE_VN_FONT_SECTION __attribute__((section(".ram_bank132")))
+#else
+#define PCE_VN_FONT_SECTION
+#endif
+
 #include "vn.h"
 
-const unsigned char pce_vn_font_tiles[] = {
+const unsigned char PCE_VN_FONT_SECTION pce_vn_font_tiles[] = {
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -169,6 +177,13 @@ const unsigned char pce_vn_font_tiles[] = {
 };
 const unsigned char pce_vn_font_glyph_count = 18;
 
+void pce_vn_font_tiles_map(void)
+{
+#if defined(__PCE_CD__)
+  pce_ram_bank132_map();
+#endif
+}
+
 static const unsigned char pce_vn_message_0_glyphs[] = {
   0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xff
 };
@@ -177,18 +192,28 @@ static const unsigned char pce_vn_message_1_glyphs[] = {
   0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0xff
 };
 
-static const pce_vn_character_t pce_vn_scene_0_characters[] = {
-  { 0u, 128u, 24u }
+const pce_vn_sprite_anim_t pce_vn_sprite_animations[] = {
+  { 0u, 0u, 1u, 8u, 4u, 8u, 32u, 1u }
 };
+const unsigned char pce_vn_sprite_animation_count = 1;
 
 const pce_vn_message_t pce_vn_messages[] = {
-  { pce_vn_message_0_glyphs, 8u, 0 },
-  { pce_vn_message_1_glyphs, 9u, -1 }
+  { pce_vn_message_0_glyphs, 8u, -1, 2u, 0u, 60u, -1, 0u },
+  { pce_vn_message_1_glyphs, 9u, -1, 2u, 0u, 60u, -1, 0u }
 };
 const unsigned char pce_vn_message_count = 2;
 
+const pce_vn_command_t pce_vn_commands[] = {
+  { 0u, 0, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1 },
+  { 1u, 0, 0u, 1u, 0u, 0u, 128u, 24u, -1, 0 },
+  { 2u, -1, 0u, 0u, 0u, 0u, 0u, 0u, 0, -1 },
+  { 3u, 0, 0u, 17u, 0u, 0u, 0u, 0u, -1, -1 },
+  { 2u, -1, 0u, 0u, 0u, 0u, 0u, 0u, 1, -1 }
+};
+const unsigned char pce_vn_command_count = 5;
+
 const pce_vn_scene_t pce_vn_scenes[] = {
-  { 0u, pce_vn_scene_0_characters, 1u, 0u, 2u, 2u, -1 }
+  { 0u, 5u, -1 }
 };
 const unsigned char pce_vn_scene_count = 1;
 const unsigned char pce_vn_start_scene = 0u;

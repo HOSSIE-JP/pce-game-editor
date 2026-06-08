@@ -701,6 +701,34 @@ await window.electronAPI.reorderAssets(['title_bg', 'hero_sprite']);
 
 `assets/pce-assets.json` の v2 画像/音声タイプは `image` (BG), `sprite`, `palette`, `psg-song`, `psg-sfx`, `adpcm`, `cdda-track` です。旧 `psg-sequence` は読み込み時に `psg-sfx` として正規化されます。PCE/CD-ROM2 は `llvm-mos-sdk` 固定で扱い、IPL / System Card は Setup でユーザー所有ファイルを指定します。
 
+Sprite asset は `options.animations` で VN runtime 向けの差分アニメーションを定義できます。各 entry は `id`, `name`, `frameWidth`, `frameHeight`, `firstCell`, `frameCount`, `frameDelay`, `frameStrideCells`, `loop` を持ちます。未指定時は sprite sheet 全体を 1 frame とする `default` animation が生成時に補われます。`firstCell` と `frameStrideCells` は、PCE 16x16/16x32/32x32 などの sprite cell を左上から数えた index です。
+
+### PCE VN scene schema
+
+`assets/pce-vn-scenes.json` は v2 から `commands` を正式形式にします。旧 `backgroundAssetId` / `characters` / `messages` / `bgmAssetId` を持つ scene は読み込み時に commands へ正規化されます。
+
+```jsonc
+{
+  "version": 2,
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "nextSceneId": "",
+      "commands": [
+        { "type": "background", "assetId": "classroom", "transition": "fade", "fadeOutFrames": 8, "fadeInFrames": 16 },
+        { "type": "sprite", "slot": 0, "assetId": "akari", "x": 128, "y": 24, "animationId": "default", "visible": true },
+        { "type": "audio", "kind": "cdda", "action": "play", "assetId": "opening_theme" },
+        { "type": "message", "speaker": "アカリ", "text": "こんにちは", "voiceAssetId": "voice_01", "textSpeedFrames": 2, "advanceMode": "button", "autoWaitFrames": 60, "mouthSlot": 0, "mouthAnimationId": "mouth" },
+        { "type": "audio", "kind": "adpcm", "action": "stop", "assetId": "" }
+      ]
+    }
+  ]
+}
+```
+
+VN build では `src/generated/vn.h` / `vn.c` に `pce_vn_command_t`, `pce_vn_message_t`, `pce_vn_sprite_anim_t` を出力します。runtime は command を順に実行し、`message` command で停止します。メッセージ中の入力は typewriter 表示を即時完了し、完了後の入力または `advanceMode: "auto"` の待ち時間経過で次 command へ進みます。CD-DA 停止は `pce_cdb_cdda_pause()`、ADPCM 停止は `pce_cdb_adpcm_stop()` を使います。
+
 ### `PluginInfo` の型
 
 ```ts

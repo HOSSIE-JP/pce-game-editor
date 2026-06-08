@@ -11,6 +11,20 @@ const GLYPH_END = 0xff;
 const DEFAULT_FONT_TILE_BASE = 712;
 const PCE_SCREEN_WIDTH = 320;
 const DEFAULT_CHARACTER_Y = 24;
+const VN_VERSION = 2;
+const VN_COMMAND_BACKGROUND = 0;
+const VN_COMMAND_SPRITE = 1;
+const VN_COMMAND_MESSAGE = 2;
+const VN_COMMAND_AUDIO = 3;
+const VN_BG_TRANSITION_CUT = 0;
+const VN_BG_TRANSITION_FADE = 1;
+const VN_SPRITE_VISIBLE = 1;
+const VN_AUDIO_KIND_ADPCM = 0;
+const VN_AUDIO_KIND_CDDA = 1;
+const VN_AUDIO_ACTION_PLAY = 0x10;
+const VN_AUDIO_ACTION_STOP = 0x20;
+const VN_ADVANCE_BUTTON = 0;
+const VN_ADVANCE_AUTO = 1;
 const DEFAULT_FONT_CONFIG = {
   version: 1,
   fontPath: '',
@@ -41,6 +55,12 @@ function getFontFilePath(projectDir) {
 function clampInt(value, min, max, fallback) {
   const parsed = Math.round(Number(value));
   if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function clampPositiveInt(value, min, max, fallback) {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.max(min, Math.min(max, parsed));
 }
 
@@ -92,10 +112,11 @@ function findAsset(assetDoc = { assets: [] }, id = '') {
 
 function spritePixelWidth(asset = {}) {
   const options = asset.options && typeof asset.options === 'object' ? asset.options : {};
-  const width = Number(options.width);
+  const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
+  const width = Number(options.width || generated.width);
   if (Number.isFinite(width) && width > 0) return Math.min(PCE_SCREEN_WIDTH, Math.round(width));
-  const cellWidth = Number(options.cellWidth);
-  const columns = Number(options.cellColumns);
+  const cellWidth = Number(options.cellWidth || generated.cellWidth);
+  const columns = Number(options.cellColumns || generated.cellColumns || generated.columns);
   if (Number.isFinite(cellWidth) && cellWidth > 0 && Number.isFinite(columns) && columns > 0) {
     return Math.min(PCE_SCREEN_WIDTH, Math.round(cellWidth * columns));
   }
@@ -112,30 +133,54 @@ function defaultSceneDocument(assetDoc = { assets: [] }) {
   const backgroundAssetId = firstAssetId(assets, 'image');
   const bgmAssetId = firstAssetId(assets, 'cdda-track') || firstAssetId(assets, 'psg-song');
   const voiceAssetId = firstAssetId(assets, 'adpcm');
+  const commands = [];
+  if (backgroundAssetId) {
+    commands.push({
+      type: 'background',
+      assetId: backgroundAssetId,
+      transition: 'fade',
+      fadeOutFrames: 0,
+      fadeInFrames: 16,
+    });
+  }
+  if (bgmAssetId) {
+    commands.push({
+      type: 'audio',
+      kind: 'cdda',
+      action: 'play',
+      assetId: bgmAssetId,
+    });
+  }
+  commands.push({
+    type: 'message',
+    speaker: 'アカリ',
+    text: '320がめんです',
+    voiceAssetId,
+    textSpeedFrames: 2,
+    advanceMode: 'button',
+    autoWaitFrames: 60,
+    mouthSlot: 0,
+    mouthAnimationId: '',
+  });
+  commands.push({
+    type: 'message',
+    speaker: 'アカリ',
+    text: '18もじx4ぎょう',
+    voiceAssetId: '',
+    textSpeedFrames: 2,
+    advanceMode: 'button',
+    autoWaitFrames: 60,
+    mouthSlot: 0,
+    mouthAnimationId: '',
+  });
   return {
-    version: 1,
+    version: VN_VERSION,
     startScene: 'opening',
     scenes: [
       {
         id: 'opening',
-        backgroundAssetId,
-        characters: [],
-        bgmAssetId,
+        commands,
         nextSceneId: '',
-        messages: [
-          {
-            speaker: 'アカリ',
-            text: '320がめんです',
-            voiceAssetId,
-            advanceMode: 'button',
-          },
-          {
-            speaker: 'アカリ',
-            text: '18もじx4ぎょう',
-            voiceAssetId: '',
-            advanceMode: 'button',
-          },
-        ],
       },
     ],
   };
@@ -156,49 +201,127 @@ function assetIdsByType(assetDoc = { assets: [] }) {
   return result;
 }
 
-function normalizeMessage(message = {}, index = 0, valid = assetIdsByType()) {
+function assetTypeForId(assetDoc = { assets: [] }, assetId = '') {
+  return findAsset(assetDoc, assetId)?.type || '';
+}
+
+function normalizeMessageCommand(message = {}, index = 0, valid = assetIdsByType()) {
   const raw = message && typeof message === 'object' ? message : {};
   const voiceAssetId = String(raw.voiceAssetId || '').trim();
   return {
+    type: 'message',
     speaker: String(raw.speaker || '').trim().slice(0, 16),
     text: String(raw.text || (index === 0 ? 'メッセージを入力してください。' : '')).trim().slice(0, 96),
     voiceAssetId: valid.adpcm?.has(voiceAssetId) ? voiceAssetId : '',
+    textSpeedFrames: clampInt(raw.textSpeedFrames ?? raw.speed, 0, 30, 2),
     advanceMode: String(raw.advanceMode || 'button') === 'auto' ? 'auto' : 'button',
+    autoWaitFrames: clampInt(raw.autoWaitFrames, 0, 255, 60),
+    mouthSlot: clampInt(raw.mouthSlot, 0, 3, 0),
+    mouthAnimationId: String(raw.mouthAnimationId || '').trim().slice(0, 32),
   };
 }
 
-function normalizeCharacter(character = {}, valid = assetIdsByType(), assetDoc = { assets: [] }) {
+function normalizeLegacyCharacterCommand(character = {}, index = 0, valid = assetIdsByType(), assetDoc = { assets: [] }) {
   const raw = character && typeof character === 'object' ? character : {};
   const assetId = String(raw.assetId || '').trim();
   if (!valid.sprite?.has(assetId)) return null;
-  const x = clampInt(raw.x, 0, 319, defaultCharacterX(assetDoc, assetId));
-  const y = clampInt(raw.y, 0, 223, DEFAULT_CHARACTER_Y);
   return {
+    type: 'sprite',
+    slot: clampInt(raw.slot, 0, 3, index),
     assetId,
-    x,
-    y,
-    pose: String(raw.pose || 'default').trim().slice(0, 32) || 'default',
+    x: clampInt(raw.x, 0, 319, defaultCharacterX(assetDoc, assetId)),
+    y: clampInt(raw.y, 0, 223, DEFAULT_CHARACTER_Y),
+    animationId: String(raw.animationId || raw.pose || 'default').trim().slice(0, 32) || 'default',
+    visible: raw.visible !== false,
   };
+}
+
+function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), assetDoc = { assets: [] }) {
+  const raw = command && typeof command === 'object' ? command : {};
+  const type = String(raw.type || '').trim();
+  if (type === 'background') {
+    const assetId = String(raw.assetId || raw.backgroundAssetId || '').trim();
+    const fallbackAssetId = firstAssetId(assetDoc.assets || [], 'image') || '';
+    return {
+      type: 'background',
+      assetId: valid.image?.has(assetId) ? assetId : fallbackAssetId,
+      transition: String(raw.transition || 'cut') === 'fade' ? 'fade' : 'cut',
+      fadeOutFrames: clampInt(raw.fadeOutFrames, 0, 60, 0),
+      fadeInFrames: clampInt(raw.fadeInFrames, 0, 60, String(raw.transition || '') === 'fade' ? 16 : 0),
+    };
+  }
+  if (type === 'sprite') {
+    const assetId = String(raw.assetId || '').trim();
+    const visible = raw.visible !== false;
+    if (visible && !valid.sprite?.has(assetId)) return null;
+    return {
+      type: 'sprite',
+      slot: clampInt(raw.slot, 0, 3, 0),
+      assetId: valid.sprite?.has(assetId) ? assetId : '',
+      x: clampInt(raw.x, 0, 319, defaultCharacterX(assetDoc, assetId)),
+      y: clampInt(raw.y, 0, 223, DEFAULT_CHARACTER_Y),
+      animationId: String(raw.animationId || 'default').trim().slice(0, 32) || 'default',
+      visible,
+    };
+  }
+  if (type === 'message') {
+    return normalizeMessageCommand(raw, index, valid);
+  }
+  if (type === 'audio') {
+    const action = String(raw.action || 'play') === 'stop' ? 'stop' : 'play';
+    const assetId = String(raw.assetId || raw.bgmAssetId || raw.voiceAssetId || '').trim();
+    const actualType = assetTypeForId(assetDoc, assetId);
+    const kind = String(raw.kind || (actualType === 'adpcm' ? 'adpcm' : 'cdda')) === 'adpcm' ? 'adpcm' : 'cdda';
+    const validAsset = kind === 'adpcm' ? valid.adpcm?.has(assetId) : valid['cdda-track']?.has(assetId);
+    return {
+      type: 'audio',
+      kind,
+      action,
+      assetId: action === 'play' && validAsset ? assetId : '',
+    };
+  }
+  return null;
+}
+
+function legacyCommandsForScene(raw = {}, valid = assetIdsByType(), assetDoc = { assets: [] }) {
+  const commands = [];
+  const backgroundAssetId = String(raw.backgroundAssetId || '').trim();
+  const bgmAssetId = String(raw.bgmAssetId || '').trim();
+  if (valid.image?.has(backgroundAssetId)) {
+    commands.push(normalizeCommand({
+      type: 'background',
+      assetId: backgroundAssetId,
+      transition: raw.backgroundTransition || 'cut',
+      fadeOutFrames: raw.fadeOutFrames,
+      fadeInFrames: raw.fadeInFrames,
+    }, commands.length, valid, assetDoc));
+  }
+  (Array.isArray(raw.characters) ? raw.characters : [])
+    .map((character, index) => normalizeLegacyCharacterCommand(character, index, valid, assetDoc))
+    .filter(Boolean)
+    .slice(0, 4)
+    .forEach((command) => commands.push(command));
+  if (valid['cdda-track']?.has(bgmAssetId)) {
+    commands.push(normalizeCommand({ type: 'audio', kind: 'cdda', action: 'play', assetId: bgmAssetId }, commands.length, valid, assetDoc));
+  }
+  const messages = Array.isArray(raw.messages) && raw.messages.length
+    ? raw.messages
+    : defaultSceneDocument(assetDoc).scenes[0].commands.filter((command) => command.type === 'message');
+  messages
+    .map((message, index) => normalizeMessageCommand(message, index, valid))
+    .filter((message) => message.text)
+    .forEach((command) => commands.push(command));
+  return commands.filter(Boolean);
 }
 
 function normalizeScene(scene = {}, index = 0, valid = assetIdsByType(), assetDoc = { assets: [] }) {
   const raw = scene && typeof scene === 'object' ? scene : {};
-  const backgroundAssetId = String(raw.backgroundAssetId || '').trim();
-  const bgmAssetId = String(raw.bgmAssetId || '').trim();
-  const fallback = defaultSceneDocument(assetDoc).scenes[0];
-  const messages = Array.isArray(raw.messages) && raw.messages.length
-    ? raw.messages.map((message, msgIndex) => normalizeMessage(message, msgIndex, valid)).filter((message) => message.text)
-    : fallback.messages.map((message, msgIndex) => normalizeMessage(message, msgIndex, valid));
-  const characters = (Array.isArray(raw.characters) ? raw.characters : fallback.characters)
-    .map((character) => normalizeCharacter(character, valid, assetDoc))
-    .filter(Boolean)
-    .slice(0, 4);
+  const commands = Array.isArray(raw.commands) && raw.commands.length
+    ? raw.commands.map((command, commandIndex) => normalizeCommand(command, commandIndex, valid, assetDoc)).filter(Boolean)
+    : legacyCommandsForScene(raw, valid, assetDoc);
   return {
     id: safeId(raw.id, index === 0 ? 'opening' : `scene_${index + 1}`),
-    backgroundAssetId: valid.image?.has(backgroundAssetId) ? backgroundAssetId : firstAssetId(assetDoc.assets || [], 'image'),
-    characters,
-    messages,
-    bgmAssetId: valid['cdda-track']?.has(bgmAssetId) || valid['psg-song']?.has(bgmAssetId) ? bgmAssetId : firstAssetId(assetDoc.assets || [], 'cdda-track'),
+    commands,
     nextSceneId: safeId(raw.nextSceneId, ''),
   };
 }
@@ -225,7 +348,7 @@ function normalizeSceneDocument(doc = {}, assetDoc = { assets: [] }) {
     nextSceneId: scene.nextSceneId && sceneIds.has(scene.nextSceneId) ? scene.nextSceneId : '',
   }));
   return {
-    version: 1,
+    version: VN_VERSION,
     startScene,
     scenes: normalizedScenes,
   };
@@ -267,8 +390,9 @@ function collectGlyphs(doc) {
   const glyphs = [' '];
   const seen = new Set(glyphs);
   (doc.scenes || []).forEach((scene) => {
-    (scene.messages || []).forEach((message) => {
-      for (const char of messageDisplayText(message)) {
+    (scene.commands || []).forEach((command) => {
+      if (command.type !== 'message') return;
+      for (const char of messageDisplayText(command)) {
         if (!seen.has(char)) {
           seen.add(char);
           glyphs.push(char);
@@ -515,11 +639,73 @@ function indexAssets(assets, type) {
   return map;
 }
 
-function psgOrCddaTrack(assetDoc, assetId) {
-  const asset = (assetDoc.assets || []).find((entry) => entry.id === assetId);
-  if (!asset) return 0;
-  if (asset.type === 'cdda-track') return Math.max(2, Math.min(99, Number(asset.options?.track) || 2));
-  return 0;
+function buildSpriteAnimationIndex(assetDoc = { assets: [] }, spriteIndex = new Map()) {
+  const meta = [];
+  const index = new Map();
+  (assetDoc.assets || [])
+    .filter((asset) => asset.type === 'sprite' && spriteIndex.has(asset.id))
+    .forEach((asset) => {
+      const options = asset.options || {};
+      const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
+      const cellWidth = clampPositiveInt(options.cellWidth ?? generated.cellWidth, 16, 32, 16);
+      const cellHeight = clampPositiveInt(options.cellHeight ?? generated.cellHeight, 16, 64, 16);
+      const generatedColumns = clampPositiveInt(generated.cellColumns ?? generated.columns, 1, 64, 0);
+      const generatedRows = clampPositiveInt(generated.cellRows ?? generated.rows, 1, 64, 0);
+      const generatedWidth = clampPositiveInt(generated.width, cellWidth, 1024, generatedColumns ? generatedColumns * cellWidth : 0);
+      const generatedHeight = clampPositiveInt(generated.height, cellHeight, 1024, generatedRows ? generatedRows * cellHeight : 0);
+      const width = clampPositiveInt(options.width, cellWidth, 1024, generatedWidth || cellWidth);
+      const height = clampPositiveInt(options.height, cellHeight, 1024, generatedHeight || cellHeight);
+      const defaultAnimation = {
+        id: 'default',
+        frameWidth: width,
+        frameHeight: height,
+        firstCell: 0,
+        frameCount: 1,
+        frameDelay: 8,
+        frameStrideCells: Math.max(1, Math.ceil(width / cellWidth) * Math.ceil(height / cellHeight)),
+        loop: true,
+      };
+      let animations = Array.isArray(options.animations) && options.animations.length ? options.animations : [defaultAnimation];
+      if (animations.length === 1) {
+        const only = animations[0] && typeof animations[0] === 'object' ? animations[0] : {};
+        const onlyId = String(only.id || 'default').trim() || 'default';
+        const looksLikeLegacyDefault = onlyId === 'default'
+          && width > cellWidth
+          && height > cellHeight
+          && clampPositiveInt(only.frameWidth, 1, 1024, 0) <= cellWidth
+          && clampPositiveInt(only.frameHeight, 1, 1024, 0) <= cellHeight
+          && clampPositiveInt(only.frameStrideCells, 1, 255, 0) <= 1;
+        if (looksLikeLegacyDefault) {
+          animations = [{
+            ...only,
+            frameWidth: width,
+            frameHeight: height,
+            frameStrideCells: defaultAnimation.frameStrideCells,
+          }];
+        }
+      }
+      animations.forEach((animation) => {
+        const animId = String(animation.id || 'default').trim() || 'default';
+        const frameWidth = clampPositiveInt(animation.frameWidth, cellWidth, 256, width);
+        const frameHeight = clampPositiveInt(animation.frameHeight, cellHeight, 256, height);
+        const frameWidthCells = Math.max(1, Math.ceil(frameWidth / cellWidth));
+        const frameHeightCells = Math.max(1, Math.ceil(frameHeight / cellHeight));
+        const animIndex = meta.length;
+        index.set(`${asset.id}:${animId}`, animIndex);
+        if (animId === 'default' && !index.has(`${asset.id}:`)) index.set(`${asset.id}:`, animIndex);
+        meta.push({
+          spriteIndex: spriteIndex.get(asset.id),
+          firstCell: clampInt(animation.firstCell, 0, 255, 0),
+          frameCount: clampInt(animation.frameCount, 1, 64, 1),
+          frameDelay: clampInt(animation.frameDelay, 1, 60, 8),
+          frameWidthCells: clampInt(frameWidthCells, 1, 16, 1),
+          frameHeightCells: clampInt(frameHeightCells, 1, 16, 1),
+          frameStrideCells: clampPositiveInt(animation.frameStrideCells, 1, 255, frameWidthCells * frameHeightCells),
+          loop: animation.loop !== false,
+        });
+      });
+    });
+  return { index, meta };
 }
 
 function generateVnSources(projectDir, options = {}) {
@@ -537,49 +723,84 @@ function generateVnSources(projectDir, options = {}) {
   const imageIndex = indexAssets(assetDoc.assets || [], 'image');
   const spriteIndex = indexAssets(assetDoc.assets || [], 'sprite');
   const adpcmIndex = indexAssets(assetDoc.assets || [], 'adpcm');
+  const cddaIndex = indexAssets(assetDoc.assets || [], 'cdda-track');
+  const spriteAnimations = buildSpriteAnimationIndex(assetDoc, spriteIndex);
   const sceneIndex = new Map(doc.scenes.map((scene, index) => [scene.id, index]));
   const generatedDir = path.join(projectDir, 'src', 'generated');
   ensureDirSync(generatedDir);
 
   const messageArrays = [];
   const messageMeta = [];
-  const characterArrays = [];
+  const commandMeta = [];
   const sceneMeta = [];
   let messageCount = 0;
+  let commandCount = 0;
 
   doc.scenes.forEach((scene, sceneIdx) => {
-    const sceneMessages = scene.messages || [];
-    const firstMessage = messageCount;
-    sceneMessages.forEach((message) => {
-      const bytes = [];
-      for (const glyph of messageDisplayText(message)) {
-        bytes.push(glyphIndex.get(glyph) ?? 0);
+    const firstCommand = commandCount;
+    const slotSpriteAssets = ['', '', '', ''];
+    (scene.commands || []).forEach((command) => {
+      if (commandCount >= 255) throw new Error('PCE VN supports up to 255 commands');
+      if (command.type === 'background') {
+        const bgIndex = imageIndex.has(command.assetId) ? imageIndex.get(command.assetId) : -1;
+        commandMeta.push(`  { ${VN_COMMAND_BACKGROUND}u, ${bgIndex}, 0u, ${command.transition === 'fade' ? VN_BG_TRANSITION_FADE : VN_BG_TRANSITION_CUT}u, ${command.fadeOutFrames}u, ${command.fadeInFrames}u, 0u, 0u, -1, -1 }`);
+        commandCount += 1;
+        return;
       }
-      bytes.push(GLYPH_END);
-      const name = `pce_vn_message_${messageCount}_glyphs`;
-      messageArrays.push(...bytesToCArray(name, Buffer.from(bytes)));
-      messageArrays.push('');
-      const voiceIndex = message.voiceAssetId && adpcmIndex.has(message.voiceAssetId)
-        ? adpcmIndex.get(message.voiceAssetId)
-        : -1;
-      messageMeta.push(`  { ${name}, ${Math.max(0, bytes.length - 1)}u, ${voiceIndex} }${messageCount + 1 < 255 ? ',' : ''}`);
-      messageCount += 1;
+      if (command.type === 'sprite') {
+        const slot = clampInt(command.slot, 0, 3, 0);
+        const spriteAssetId = command.assetId || '';
+        const spriteAssetIndex = command.visible && spriteIndex.has(spriteAssetId) ? spriteIndex.get(spriteAssetId) : -1;
+        const animationIndex = spriteAssetIndex >= 0
+          ? (spriteAnimations.index.get(`${spriteAssetId}:${command.animationId || 'default'}`) ?? spriteAnimations.index.get(`${spriteAssetId}:default`) ?? -1)
+          : -1;
+        slotSpriteAssets[slot] = spriteAssetIndex >= 0 ? spriteAssetId : '';
+        commandMeta.push(`  { ${VN_COMMAND_SPRITE}u, ${spriteAssetIndex}, ${slot}u, ${command.visible ? VN_SPRITE_VISIBLE : 0}u, 0u, 0u, ${command.x}u, ${command.y}u, -1, ${animationIndex} }`);
+        commandCount += 1;
+        return;
+      }
+      if (command.type === 'message') {
+        if (messageCount >= 255) throw new Error('PCE VN supports up to 255 messages');
+        const bytes = [];
+        for (const glyph of messageDisplayText(command)) {
+          bytes.push(glyphIndex.get(glyph) ?? 0);
+        }
+        bytes.push(GLYPH_END);
+        const name = `pce_vn_message_${messageCount}_glyphs`;
+        const mouthSlot = clampInt(command.mouthSlot, 0, 3, 0);
+        const mouthSpriteId = slotSpriteAssets[mouthSlot] || '';
+        const mouthAnimationIndex = command.mouthAnimationId && mouthSpriteId
+          ? (spriteAnimations.index.get(`${mouthSpriteId}:${command.mouthAnimationId}`) ?? -1)
+          : -1;
+        messageArrays.push(...bytesToCArray(name, Buffer.from(bytes)));
+        messageArrays.push('');
+        const voiceIndex = command.voiceAssetId && adpcmIndex.has(command.voiceAssetId)
+          ? adpcmIndex.get(command.voiceAssetId)
+          : -1;
+        messageMeta.push(`  { ${name}, ${Math.max(0, bytes.length - 1)}u, ${voiceIndex}, ${command.textSpeedFrames}u, ${command.advanceMode === 'auto' ? VN_ADVANCE_AUTO : VN_ADVANCE_BUTTON}u, ${command.autoWaitFrames}u, ${mouthAnimationIndex}, ${mouthSlot}u }`);
+        commandMeta.push(`  { ${VN_COMMAND_MESSAGE}u, -1, 0u, 0u, 0u, 0u, 0u, 0u, ${messageCount}, -1 }`);
+        messageCount += 1;
+        commandCount += 1;
+        return;
+      }
+      if (command.type === 'audio') {
+        const isAdpcm = command.kind === 'adpcm';
+        const action = command.action === 'stop' ? VN_AUDIO_ACTION_STOP : VN_AUDIO_ACTION_PLAY;
+        const assetIndex = command.action === 'play'
+          ? (isAdpcm ? (adpcmIndex.get(command.assetId) ?? -1) : (cddaIndex.get(command.assetId) ?? -1))
+          : -1;
+        const flags = (isAdpcm ? VN_AUDIO_KIND_ADPCM : VN_AUDIO_KIND_CDDA) | action;
+        commandMeta.push(`  { ${VN_COMMAND_AUDIO}u, ${assetIndex}, 0u, ${flags}u, 0u, 0u, 0u, 0u, -1, -1 }`);
+        commandCount += 1;
+      }
     });
-    const chars = (scene.characters || []).filter((character) => spriteIndex.has(character.assetId)).slice(0, 4);
-    const charArrayName = `pce_vn_scene_${sceneIdx}_characters`;
-    if (chars.length) {
-      characterArrays.push(`static const pce_vn_character_t ${charArrayName}[] = {`);
-      chars.forEach((character, index) => {
-        characterArrays.push(`  { ${spriteIndex.get(character.assetId)}u, ${character.x}u, ${character.y}u }${index + 1 < chars.length ? ',' : ''}`);
-      });
-      characterArrays.push('};');
-      characterArrays.push('');
-    }
     const next = scene.nextSceneId && sceneIndex.has(scene.nextSceneId) ? sceneIndex.get(scene.nextSceneId) : -1;
-    const bgIndex = imageIndex.has(scene.backgroundAssetId) ? imageIndex.get(scene.backgroundAssetId) : 0;
-    const cddaTrack = psgOrCddaTrack(assetDoc, scene.bgmAssetId);
-    sceneMeta.push(`  { ${bgIndex}u, ${chars.length ? charArrayName : '(const pce_vn_character_t *)0'}, ${chars.length}u, ${firstMessage}u, ${sceneMessages.length}u, ${cddaTrack}u, ${next} }${sceneIdx + 1 < doc.scenes.length ? ',' : ''}`);
+    sceneMeta.push(`  { ${firstCommand}u, ${commandCount - firstCommand}u, ${next} }${sceneIdx + 1 < doc.scenes.length ? ',' : ''}`);
   });
+
+  const animationMeta = spriteAnimations.meta.map((animation, index) => (
+    `  { ${animation.spriteIndex}u, ${animation.firstCell}u, ${animation.frameCount}u, ${animation.frameDelay}u, ${animation.frameWidthCells}u, ${animation.frameHeightCells}u, ${animation.frameStrideCells}u, ${animation.loop ? '1u' : '0u'} }${index + 1 < spriteAnimations.meta.length ? ',' : ''}`
+  ));
 
   const headerPath = path.join(generatedDir, 'vn.h');
   const sourcePath = path.join(generatedDir, 'vn.c');
@@ -587,25 +808,58 @@ function generateVnSources(projectDir, options = {}) {
     '#ifndef PCE_EDITOR_GENERATED_VN_H',
     '#define PCE_EDITOR_GENERATED_VN_H',
     '',
+    `#define PCE_VN_COMMAND_BACKGROUND ${VN_COMMAND_BACKGROUND}u`,
+    `#define PCE_VN_COMMAND_SPRITE ${VN_COMMAND_SPRITE}u`,
+    `#define PCE_VN_COMMAND_MESSAGE ${VN_COMMAND_MESSAGE}u`,
+    `#define PCE_VN_COMMAND_AUDIO ${VN_COMMAND_AUDIO}u`,
+    `#define PCE_VN_BG_TRANSITION_CUT ${VN_BG_TRANSITION_CUT}u`,
+    `#define PCE_VN_BG_TRANSITION_FADE ${VN_BG_TRANSITION_FADE}u`,
+    `#define PCE_VN_SPRITE_VISIBLE ${VN_SPRITE_VISIBLE}u`,
+    `#define PCE_VN_AUDIO_KIND_ADPCM ${VN_AUDIO_KIND_ADPCM}u`,
+    `#define PCE_VN_AUDIO_KIND_CDDA ${VN_AUDIO_KIND_CDDA}u`,
+    `#define PCE_VN_AUDIO_ACTION_PLAY ${VN_AUDIO_ACTION_PLAY}u`,
+    `#define PCE_VN_AUDIO_ACTION_STOP ${VN_AUDIO_ACTION_STOP}u`,
+    `#define PCE_VN_ADVANCE_BUTTON ${VN_ADVANCE_BUTTON}u`,
+    `#define PCE_VN_ADVANCE_AUTO ${VN_ADVANCE_AUTO}u`,
+    '',
     'typedef struct {',
     '  unsigned char sprite_index;',
-    '  unsigned int x;',
-    '  unsigned int y;',
-    '} pce_vn_character_t;',
+    '  unsigned char first_cell;',
+    '  unsigned char frame_count;',
+    '  unsigned char frame_delay;',
+    '  unsigned char frame_width_cells;',
+    '  unsigned char frame_height_cells;',
+    '  unsigned char frame_stride_cells;',
+    '  unsigned char loop;',
+    '} pce_vn_sprite_anim_t;',
     '',
     'typedef struct {',
     '  const unsigned char *glyphs;',
     '  unsigned char glyph_count;',
     '  signed char voice_index;',
+    '  unsigned char text_speed_frames;',
+    '  unsigned char advance_mode;',
+    '  unsigned char auto_wait_frames;',
+    '  signed char mouth_animation_index;',
+    '  unsigned char mouth_slot;',
     '} pce_vn_message_t;',
     '',
     'typedef struct {',
-    '  unsigned char bg_index;',
-    '  const pce_vn_character_t *characters;',
-    '  unsigned char character_count;',
-    '  unsigned char message_start;',
-    '  unsigned char message_count;',
-    '  unsigned char cdda_track;',
+    '  unsigned char type;',
+    '  signed char asset_index;',
+    '  unsigned char slot;',
+    '  unsigned char flags;',
+    '  unsigned char arg0;',
+    '  unsigned char arg1;',
+    '  unsigned int x;',
+    '  unsigned int y;',
+    '  signed char message_index;',
+    '  signed char animation_index;',
+    '} pce_vn_command_t;',
+    '',
+    'typedef struct {',
+    '  unsigned char command_start;',
+    '  unsigned char command_count;',
     '  signed char next_scene;',
     '} pce_vn_scene_t;',
     '',
@@ -614,8 +868,13 @@ function generateVnSources(projectDir, options = {}) {
     '',
     'extern const unsigned char pce_vn_font_tiles[];',
     'extern const unsigned char pce_vn_font_glyph_count;',
+    'void pce_vn_font_tiles_map(void);',
+    'extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];',
+    'extern const unsigned char pce_vn_sprite_animation_count;',
     'extern const pce_vn_message_t pce_vn_messages[];',
     'extern const unsigned char pce_vn_message_count;',
+    'extern const pce_vn_command_t pce_vn_commands[];',
+    'extern const unsigned char pce_vn_command_count;',
     'extern const pce_vn_scene_t pce_vn_scenes[];',
     'extern const unsigned char pce_vn_scene_count;',
     'extern const unsigned char pce_vn_start_scene;',
@@ -625,17 +884,41 @@ function generateVnSources(projectDir, options = {}) {
   ];
   const startScene = sceneIndex.get(doc.startScene) || 0;
   const source = [
+    '#if defined(__PCE_CD__)',
+    '#include <pce-cd.h>',
+    'PCE_RAM_BANK_AT(132, 6);',
+    '#define PCE_VN_FONT_SECTION __attribute__((section(".ram_bank132")))',
+    '#else',
+    '#define PCE_VN_FONT_SECTION',
+    '#endif',
+    '',
     '#include "vn.h"',
     '',
-    ...bytesToCArray('pce_vn_font_tiles', fontTiles, 'const unsigned char'),
+    ...bytesToCArray('PCE_VN_FONT_SECTION pce_vn_font_tiles', fontTiles, 'const unsigned char'),
     `const unsigned char pce_vn_font_glyph_count = ${glyphs.length};`,
     '',
+    'void pce_vn_font_tiles_map(void)',
+    '{',
+    '#if defined(__PCE_CD__)',
+    '  pce_ram_bank132_map();',
+    '#endif',
+    '}',
+    '',
     ...messageArrays,
-    ...characterArrays,
+    'const pce_vn_sprite_anim_t pce_vn_sprite_animations[] = {',
+    ...(animationMeta.length ? animationMeta : ['  { 0u, 0u, 1u, 8u, 1u, 1u, 1u, 1u }']),
+    '};',
+    `const unsigned char pce_vn_sprite_animation_count = ${spriteAnimations.meta.length};`,
+    '',
     'const pce_vn_message_t pce_vn_messages[] = {',
-    ...(messageMeta.length ? messageMeta.map((line, index) => line.replace(/,$/, index + 1 < messageMeta.length ? ',' : '')) : ['  { (const unsigned char *)0, 0u, -1 }']),
+    ...(messageMeta.length ? messageMeta.map((line, index) => `${line}${index + 1 < messageMeta.length ? ',' : ''}`) : ['  { (const unsigned char *)0, 0u, -1, 0u, 0u, 0u, -1, 0u }']),
     '};',
     `const unsigned char pce_vn_message_count = ${messageCount};`,
+    '',
+    'const pce_vn_command_t pce_vn_commands[] = {',
+    ...(commandMeta.length ? commandMeta.map((line, index) => `${line}${index + 1 < commandMeta.length ? ',' : ''}`) : ['  { 0u, -1, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1 }']),
+    '};',
+    `const unsigned char pce_vn_command_count = ${commandCount};`,
     '',
     'const pce_vn_scene_t pce_vn_scenes[] = {',
     ...sceneMeta,
@@ -652,6 +935,8 @@ function generateVnSources(projectDir, options = {}) {
     sourcePath,
     glyphCount: glyphs.length,
     messageCount,
+    commandCount,
+    spriteAnimationCount: spriteAnimations.meta.length,
     sceneCount: doc.scenes.length,
     fontRenderer: fontRender.renderer,
     fontPath: fontRender.fontPath,
@@ -739,6 +1024,11 @@ module.exports = {
   DEFAULT_FONT_TILE_BASE,
   DEFAULT_FONT_CONFIG,
   GLYPH_END,
+  VN_VERSION,
+  VN_COMMAND_BACKGROUND,
+  VN_COMMAND_SPRITE,
+  VN_COMMAND_MESSAGE,
+  VN_COMMAND_AUDIO,
   collectGlyphs,
   defaultSceneDocument,
   encodeGlyphTileData,

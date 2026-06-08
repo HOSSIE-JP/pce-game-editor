@@ -5,6 +5,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { app } = require('electron');
 const assetManager = require('./pce-asset-manager');
+const vnManager = require('./pce-vn-manager');
 const setupManager = require('./pce-setup-manager');
 
 const DEFAULT_PROJECT_NAME = 'sample_pce_game';
@@ -383,6 +384,28 @@ function collectSourceFiles(projectDir) {
   return sourceFiles.filter((filePath) => fs.existsSync(filePath));
 }
 
+function isVisualNovelProject(projectDir, config = {}) {
+  const sample = config.pluginSettings?.['pce-sample-builder']?.sample;
+  return sample === 'visual-novel-cd' ||
+    fs.existsSync(vnManager.getSceneFilePath(projectDir)) ||
+    fs.existsSync(path.join(projectDir, 'src', 'generated', 'vn.c'));
+}
+
+function mergeVisualNovelConfig(config, patch = {}) {
+  return normalizeProjectConfig({
+    ...config,
+    ...patch,
+    cd: {
+      ...(config.cd || {}),
+      ...(patch.cd || {}),
+    },
+    pluginSettings: {
+      ...(config.pluginSettings || {}),
+      ...(patch.pluginSettings || {}),
+    },
+  });
+}
+
 function resolveProjectRelativeFile(projectDir, relativePath) {
   const raw = String(relativePath || '').trim();
   if (!raw) return null;
@@ -548,6 +571,21 @@ function buildProject(onLog, options = {}) {
     } catch (err) {
       resolve({ success: false, error: `asset generation failed: ${err.message || err}` });
       return;
+    }
+
+    if (isVisualNovelProject(projectDir, config)) {
+      try {
+        const prepared = vnManager.prepareVisualNovelBuild(projectDir, config);
+        if (prepared?.generated) {
+          generated = { ...generated, visualNovel: prepared.generated };
+        }
+        if (prepared?.configPatch) {
+          config = mergeVisualNovelConfig(config, prepared.configPatch);
+        }
+      } catch (err) {
+        resolve({ success: false, error: `visual novel generation failed: ${err.message || err}` });
+        return;
+      }
     }
 
 

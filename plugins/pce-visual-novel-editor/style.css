@@ -81,7 +81,7 @@
 }
 
 .pce-vn-form,
-.pce-vn-messages {
+.pce-vn-commands {
   padding: 14px;
   display: grid;
   gap: 12px;
@@ -97,7 +97,7 @@
   grid-template-columns: 120px 120px;
 }
 
-.pce-vn-message-row {
+.pce-vn-command-row {
   border: 1px solid var(--border);
   border-radius: 7px;
   padding: 12px;
@@ -106,10 +106,30 @@
   background: var(--surface);
 }
 
-.pce-vn-message-head {
+.pce-vn-command-head {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 10px;
+}
+
+.pce-vn-command-head strong {
+  min-width: 32px;
+}
+
+.pce-vn-command-head > .form-select {
+  max-width: 160px;
+}
+
+.pce-vn-command-head .pce-vn-actions {
+  margin-left: auto;
+}
+
+.pce-vn-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 12px;
 }
 
 .pce-vn-preview {
@@ -124,7 +144,7 @@
 .pce-vn-stage {
   position: relative;
   width: 100%;
-  aspect-ratio: 256 / 224;
+  aspect-ratio: 320 / 224;
   background: #05070a;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -140,7 +160,12 @@
   image-rendering: pixelated;
 }
 
-.pce-vn-stage img[data-role="character-preview"] {
+.pce-vn-sprite-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.pce-vn-sprite-layer img {
   position: absolute;
   width: 25%;
   max-height: 58%;

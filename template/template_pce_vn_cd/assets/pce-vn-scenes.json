@@ -1,33 +1,55 @@
 {
-  "version": 1,
+  "version": 2,
   "startScene": "opening",
   "scenes": [
     {
       "id": "opening",
-      "backgroundAssetId": "vn_classroom_bg",
-      "characters": [
+      "commands": [
         {
+          "type": "background",
+          "assetId": "vn_classroom_bg",
+          "transition": "cut",
+          "fadeOutFrames": 0,
+          "fadeInFrames": 0
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
           "assetId": "akari_sprite",
           "x": 128,
           "y": 24,
-          "pose": "default"
-        }
-      ],
-      "messages": [
-        {
-          "speaker": "",
-          "text": "320がめんです",
-          "voiceAssetId": "akari_voice",
-          "advanceMode": "button"
+          "animationId": "default",
+          "visible": true
         },
         {
+          "type": "message",
+          "speaker": "",
+          "text": "320がめんです",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "audio",
+          "kind": "cdda",
+          "action": "play",
+          "assetId": "opening_cdda"
+        },
+        {
+          "type": "message",
           "speaker": "",
           "text": "18もじx4ぎょう",
           "voiceAssetId": "",
-          "advanceMode": "button"
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
         }
       ],
-      "bgmAssetId": "opening_cdda",
       "nextSceneId": ""
     }
   ]

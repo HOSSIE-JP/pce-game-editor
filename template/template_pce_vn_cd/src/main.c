@@ -44,12 +44,31 @@ PCE_CDB_USE_GRAPHICS_DRIVER(1);
 #define VN_VDC_CONTROL_BASE (VDC_CONTROL_IRQ_VBLANK | VDC_CONTROL_DRAM_REFRESH | VDC_CONTROL_VRAM_ADD_1)
 #define VN_VDC_DISPLAY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG | VDC_CONTROL_ENABLE_SPRITE)
 #define VN_VDC_BLANK_CONTROL VN_VDC_CONTROL_BASE
+#define VN_SPRITE_SLOT_COUNT 4u
 
 static uint8_t current_scene = 0;
-static uint8_t current_message = 0;
+static uint8_t current_command = 0;
 static uint8_t pending_sprite_refresh = 0;
-static uint8_t pending_cdda_track = 0;
 static uint8_t pending_display_enable = 0;
+static signed char current_bg_index = -1;
+static signed char active_message_index = -1;
+static uint8_t message_glyph_pos = 0;
+static uint8_t message_frame_timer = 0;
+static uint8_t message_col = 0;
+static uint8_t message_row = 0;
+static uint8_t message_complete = 0;
+static uint8_t message_auto_wait = 0;
+typedef struct
+{
+    signed char sprite_index;
+    signed char animation_index;
+    uint16_t x;
+    uint16_t y;
+    uint8_t visible;
+    uint8_t frame;
+    uint8_t timer;
+} vn_sprite_slot_t;
+static vn_sprite_slot_t sprite_slots[VN_SPRITE_SLOT_COUNT];
 #if defined(__PCE__)
 static vdc_sprite_t sprite_shadow[64];
 #endif
@@ -180,13 +199,47 @@ static void upload_palette(const pce_editor_data_ref_t *palette, uint16_t base_i
     }
 }
 
+static uint16_t scale_vce_color(uint16_t raw, uint8_t step, uint8_t frames)
+{
+    uint16_t b;
+    uint16_t r;
+    uint16_t g;
+    if (!frames) return raw;
+    b = (uint16_t)(((raw & 0x0007u) * step) / frames);
+    r = (uint16_t)((((raw >> 3) & 0x0007u) * step) / frames);
+    g = (uint16_t)((((raw >> 6) & 0x0007u) * step) / frames);
+    return (uint16_t)((g << 6) | (r << 3) | b);
+}
+
+static void fade_palette(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t frames, uint8_t fade_in)
+{
+    uint8_t step;
+    uint8_t i;
+    uint16_t color_count;
+    const uint8_t *data;
+    if (!frames || !palette || !palette->size) return;
+    data = data_ref_ptr(palette);
+    if (!data) return;
+    color_count = (uint16_t)(palette->size / 2u);
+    if (color_count > 16u) color_count = 16u;
+    for (step = 0u; step <= frames; step++)
+    {
+        const uint8_t scale = fade_in ? step : (uint8_t)(frames - step);
+        for (i = 0u; i < color_count; i++)
+        {
+            const uint16_t raw = (uint16_t)(data[i * 2u] | ((uint16_t)data[(i * 2u) + 1u] << 8));
+            vce_write_color((uint16_t)(base_index + i), scale_vce_color(raw, scale, frames));
+        }
+        delay_frame();
+    }
+}
+
 static void upload_ui_palette(void)
 {
     uint8_t i;
     uint16_t base = (uint16_t)(VN_UI_PALETTE * 16u);
     vce_write_color((uint16_t)(base + 0u), 0x0000u);
-    vce_write_color((uint16_t)(base + 1u), 0x0000u);
-    for (i = 2u; i < 16u; i++)
+    for (i = 1u; i < 16u; i++)
     {
         vce_write_color((uint16_t)(base + i), 0x01ffu);
     }
@@ -194,6 +247,7 @@ static void upload_ui_palette(void)
 
 static void upload_font_tiles(void)
 {
+    pce_vn_font_tiles_map();
     pce_editor_vram_copy((uint16_t)(PCE_VN_FONT_TILE_BASE * 16u), pce_vn_font_tiles, (uint16_t)(pce_vn_font_glyph_count * 128u));
 }
 
@@ -279,6 +333,31 @@ static void draw_glyph(uint8_t glyph, uint8_t x, uint8_t y)
     write_map_words((uint16_t)(((y + 1u) * VN_MAP_WIDTH) + x), bottom, 2u);
 }
 
+static void draw_message_glyph_at(uint8_t glyph, uint8_t col, uint8_t row)
+{
+    const uint8_t x = (uint8_t)(VN_TEXT_X + (col * 2u));
+    const uint8_t y = (uint8_t)(VN_TEXT_Y + (row * 2u));
+    if (glyph == 0u) draw_blank_cell(x, y);
+    else draw_glyph(glyph, x, y);
+}
+
+static uint8_t draw_message_next_glyph(const pce_vn_message_t *message)
+{
+    uint8_t glyph;
+    if (!message || !message->glyphs || message_glyph_pos >= message->glyph_count) return 1u;
+    glyph = message->glyphs[message_glyph_pos++];
+    if (glyph == PCE_VN_GLYPH_END) return 1u;
+    draw_message_glyph_at(glyph, message_col, message_row);
+    message_col++;
+    if (message_col >= VN_TEXT_COLS)
+    {
+        message_col = 0u;
+        message_row++;
+        if (message_row >= VN_TEXT_ROWS) return 1u;
+    }
+    return message_glyph_pos >= message->glyph_count ? 1u : 0u;
+}
+
 static void draw_message_text(const pce_vn_message_t *message)
 {
     uint8_t i;
@@ -289,16 +368,8 @@ static void draw_message_text(const pce_vn_message_t *message)
     {
         const uint8_t glyph = message->glyphs[i];
         if (glyph == PCE_VN_GLYPH_END) break;
-        if (glyph == 0u)
-        {
-            draw_blank_cell((uint8_t)(VN_TEXT_X + (col * 2u)), (uint8_t)(VN_TEXT_Y + (row * 2u)));
-            col++;
-        }
-        else
-        {
-            draw_glyph(glyph, (uint8_t)(VN_TEXT_X + (col * 2u)), (uint8_t)(VN_TEXT_Y + (row * 2u)));
-            col++;
-        }
+        draw_message_glyph_at(glyph, col, row);
+        col++;
         if (col >= VN_TEXT_COLS)
         {
             col = 0;
@@ -371,31 +442,39 @@ static uint8_t sprite_patterns_per_cell(const pce_editor_sprite_asset_t *sprite)
     return (uint8_t)(pattern_cols * pattern_rows * 2u);
 }
 
-static uint8_t show_character_sprite(uint8_t satb_index, const pce_editor_sprite_asset_t *sprite, uint16_t x, uint16_t y)
+static uint8_t show_character_sprite_frame(uint8_t satb_index, const pce_editor_sprite_asset_t *sprite, const pce_vn_sprite_anim_t *animation, uint8_t frame, uint16_t x, uint16_t y)
 {
     uint8_t row;
     uint8_t col;
-    uint8_t columns;
-    uint8_t rows;
+    uint8_t frame_columns;
+    uint8_t frame_rows;
     uint8_t written = 0u;
     uint8_t pattern_step;
+    uint16_t first_cell;
+    uint16_t total_cells;
     if (!sprite || !sprite->patterns.size) return 0u;
     upload_palette(&sprite->palette, (uint16_t)(256u + (sprite->palette_bank * 16u)), 1);
     copy_data_ref_to_vram((uint16_t)(sprite->pattern_base * 32u), &sprite->patterns, 16u);
-    columns = sprite->cell_columns ? sprite->cell_columns : 1u;
-    rows = sprite->cell_rows ? sprite->cell_rows : 1u;
+    frame_columns = animation && animation->frame_width_cells ? animation->frame_width_cells : (sprite->cell_columns ? sprite->cell_columns : 1u);
+    frame_rows = animation && animation->frame_height_cells ? animation->frame_height_cells : (sprite->cell_rows ? sprite->cell_rows : 1u);
+    first_cell = animation
+        ? (uint16_t)(animation->first_cell + ((uint16_t)frame * animation->frame_stride_cells))
+        : 0u;
+    total_cells = (uint16_t)((sprite->cell_columns ? sprite->cell_columns : 1u) * (sprite->cell_rows ? sprite->cell_rows : 1u));
     pattern_step = sprite_patterns_per_cell(sprite);
 #if defined(__PCE__)
-    for (row = 0u; row < rows; row++)
+    for (row = 0u; row < frame_rows; row++)
     {
-        for (col = 0u; col < columns; col++)
+        for (col = 0u; col < frame_columns; col++)
         {
             vdc_sprite_t *entry;
+            uint16_t source_cell = (uint16_t)(first_cell + ((uint16_t)row * sprite->cell_columns) + col);
+            if (source_cell >= total_cells) continue;
             if ((uint8_t)(satb_index + written) >= 64u) return written;
             entry = &sprite_shadow[(uint8_t)(satb_index + written)];
             entry->y = (uint16_t)(y + ((uint16_t)row * sprite->cell_height) + 64u);
             entry->x = (uint16_t)(x + ((uint16_t)col * sprite->cell_width) + 32u);
-            entry->pattern = (uint16_t)(sprite->pattern_base + ((uint16_t)written * pattern_step));
+            entry->pattern = (uint16_t)(sprite->pattern_base + (source_cell * pattern_step));
             entry->attr = sprite_attr_for_size(sprite);
             written++;
         }
@@ -418,9 +497,16 @@ static void play_cdda_track(uint8_t track)
     start.track_end = track;
     end.track = track;
     end.track_end = track;
-    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_TRACK, start, PCE_CDB_LOCATION_TYPE_UNTIL_END, end, PCE_CDB_CDDA_PLAY_REPEAT);
+    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_TRACK, start, PCE_CDB_LOCATION_TYPE_UNTIL_END, end, PCE_CDB_CDDA_PLAY_ONE_SHOT);
 #else
     (void)track;
+#endif
+}
+
+static void stop_cdda_track(void)
+{
+#if defined(__PCE_CD__)
+    (void)pce_cdb_cdda_pause();
 #endif
 }
 
@@ -439,59 +525,244 @@ static void play_adpcm_voice(signed char voice_index)
 #endif
 }
 
+static void stop_adpcm_voice(void)
+{
+#if defined(__PCE_CD__)
+    pce_cdb_adpcm_stop();
+#endif
+}
+
 static void show_scene(uint8_t scene_index)
 {
-    const pce_vn_scene_t *scene;
+    uint8_t i;
     if (!pce_vn_scene_count) return;
     if (scene_index >= pce_vn_scene_count) scene_index = pce_vn_start_scene;
     display_disable();
     pending_display_enable = 1;
     current_scene = scene_index;
-    current_message = 0;
-    scene = &pce_vn_scenes[current_scene];
-    clear_screen_map();
-    if (scene->bg_index < pce_editor_bg_asset_count)
+    current_command = 0;
+    active_message_index = -1;
+    message_complete = 1u;
+    for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
     {
-        upload_bg_graphics(&pce_editor_bg_assets[scene->bg_index]);
+        sprite_slots[i].sprite_index = -1;
+        sprite_slots[i].animation_index = -1;
+        sprite_slots[i].visible = 0u;
+        sprite_slots[i].frame = 0u;
+        sprite_slots[i].timer = 0u;
     }
+    clear_screen_map();
     pending_sprite_refresh = 1;
-    pending_cdda_track = scene->cdda_track;
 }
 
 static void refresh_scene_sprites(void)
 {
     uint8_t i;
     uint8_t satb_index = 0u;
-    const pce_vn_scene_t *scene = &pce_vn_scenes[current_scene];
     clear_sprites();
-    for (i = 0; i < scene->character_count; i++)
+    for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
     {
-        const pce_vn_character_t *character = &scene->characters[i];
-        if (character->sprite_index < pce_editor_sprite_asset_count)
+        vn_sprite_slot_t *slot = &sprite_slots[i];
+        const pce_vn_sprite_anim_t *animation = 0;
+        if (!slot->visible || slot->sprite_index < 0) continue;
+        if ((uint8_t)slot->sprite_index >= pce_editor_sprite_asset_count) continue;
+        if (slot->animation_index >= 0 && (uint8_t)slot->animation_index < pce_vn_sprite_animation_count)
         {
-            satb_index = (uint8_t)(satb_index + show_character_sprite(satb_index, &pce_editor_sprite_assets[character->sprite_index], character->x, character->y));
+            animation = &pce_vn_sprite_animations[(uint8_t)slot->animation_index];
         }
+        satb_index = (uint8_t)(satb_index + show_character_sprite_frame(satb_index, &pce_editor_sprite_assets[(uint8_t)slot->sprite_index], animation, slot->frame, slot->x, slot->y));
     }
     upload_sprite_table();
     if (!pending_display_enable) delay_frame();
     pending_sprite_refresh = 0;
 }
 
-static void show_current_message(void)
+static void tick_sprite_animations(void)
 {
-    const pce_vn_scene_t *scene = &pce_vn_scenes[current_scene];
-    uint8_t message_index;
-    if (current_message >= scene->message_count) current_message = 0;
-    message_index = (uint8_t)(scene->message_start + current_message);
+    uint8_t i;
+    uint8_t changed = 0u;
+    for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
+    {
+        vn_sprite_slot_t *slot = &sprite_slots[i];
+        const pce_vn_sprite_anim_t *animation;
+        if (!slot->visible || slot->animation_index < 0) continue;
+        if ((uint8_t)slot->animation_index >= pce_vn_sprite_animation_count) continue;
+        animation = &pce_vn_sprite_animations[(uint8_t)slot->animation_index];
+        if (animation->frame_count <= 1u) continue;
+        slot->timer++;
+        if (slot->timer < animation->frame_delay) continue;
+        slot->timer = 0u;
+        if (slot->frame + 1u < animation->frame_count)
+        {
+            slot->frame++;
+        }
+        else if (animation->loop)
+        {
+            slot->frame = 0u;
+        }
+        changed = 1u;
+    }
+    if (changed) pending_sprite_refresh = 1u;
+}
+
+static void start_message(uint8_t message_index)
+{
+    const pce_vn_message_t *message;
     clear_window_cells();
     if (message_index < pce_vn_message_count)
     {
-        const pce_vn_message_t *message = &pce_vn_messages[message_index];
+        message = &pce_vn_messages[message_index];
+        active_message_index = (signed char)message_index;
+        message_glyph_pos = 0u;
+        message_frame_timer = 0u;
+        message_col = 0u;
+        message_row = 0u;
+        message_complete = 0u;
+        message_auto_wait = message->auto_wait_frames;
+        if (message->mouth_animation_index >= 0 && message->mouth_slot < VN_SPRITE_SLOT_COUNT)
+        {
+            sprite_slots[message->mouth_slot].animation_index = message->mouth_animation_index;
+            sprite_slots[message->mouth_slot].frame = 0u;
+            sprite_slots[message->mouth_slot].timer = 0u;
+            pending_sprite_refresh = 1u;
+        }
+        if (!message->text_speed_frames)
+        {
+            draw_message_text(message);
+            message_complete = 1u;
+        }
+        else
+        {
+            message_complete = draw_message_next_glyph(message);
+        }
         play_adpcm_voice(message->voice_index);
-        clear_window_cells();
-        draw_message_text(message);
         if (!pending_display_enable) delay_frame();
     }
+}
+
+static void finish_active_message(void)
+{
+    if (active_message_index < 0) return;
+    if ((uint8_t)active_message_index >= pce_vn_message_count) return;
+    draw_message_text(&pce_vn_messages[(uint8_t)active_message_index]);
+    message_complete = 1u;
+}
+
+static void tick_active_message(void)
+{
+    const pce_vn_message_t *message;
+    if (active_message_index < 0 || message_complete) return;
+    if ((uint8_t)active_message_index >= pce_vn_message_count) return;
+    message = &pce_vn_messages[(uint8_t)active_message_index];
+    if (!message->text_speed_frames)
+    {
+        finish_active_message();
+        return;
+    }
+    message_frame_timer++;
+    if (message_frame_timer < message->text_speed_frames) return;
+    message_frame_timer = 0u;
+    message_complete = draw_message_next_glyph(message);
+}
+
+static void set_background(signed char bg_index, uint8_t transition, uint8_t fade_out_frames, uint8_t fade_in_frames)
+{
+    const pce_editor_bg_asset_t *next_bg;
+    if (bg_index < 0 || (uint8_t)bg_index >= pce_editor_bg_asset_count) return;
+    next_bg = &pce_editor_bg_assets[(uint8_t)bg_index];
+    if (transition == PCE_VN_BG_TRANSITION_FADE && current_bg_index >= 0 && !pending_display_enable)
+    {
+        fade_palette(&pce_editor_bg_assets[(uint8_t)current_bg_index].palette, (uint16_t)(pce_editor_bg_assets[(uint8_t)current_bg_index].palette_bank * 16u), fade_out_frames, 0u);
+    }
+    clear_screen_map();
+    upload_bg_graphics(next_bg);
+    current_bg_index = bg_index;
+    if (transition == PCE_VN_BG_TRANSITION_FADE && pending_display_enable)
+    {
+        display_enable();
+        pending_display_enable = 0u;
+        delay_frame();
+    }
+    if (transition == PCE_VN_BG_TRANSITION_FADE)
+    {
+        fade_palette(&next_bg->palette, (uint16_t)(next_bg->palette_bank * 16u), fade_in_frames, 1u);
+    }
+}
+
+static void execute_command(const pce_vn_command_t *command)
+{
+    uint8_t slot;
+    if (!command) return;
+    if (command->type == PCE_VN_COMMAND_BACKGROUND)
+    {
+        set_background(command->asset_index, command->flags, command->arg0, command->arg1);
+    }
+    else if (command->type == PCE_VN_COMMAND_SPRITE)
+    {
+        slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
+        sprite_slots[slot].sprite_index = command->asset_index;
+        sprite_slots[slot].animation_index = command->animation_index;
+        sprite_slots[slot].x = command->x;
+        sprite_slots[slot].y = command->y;
+        sprite_slots[slot].visible = (uint8_t)((command->flags & PCE_VN_SPRITE_VISIBLE) && command->asset_index >= 0);
+        sprite_slots[slot].frame = 0u;
+        sprite_slots[slot].timer = 0u;
+        pending_sprite_refresh = 1u;
+    }
+    else if (command->type == PCE_VN_COMMAND_AUDIO)
+    {
+        const uint8_t kind = (uint8_t)(command->flags & 0x0fu);
+        const uint8_t action = (uint8_t)(command->flags & 0xf0u);
+        if (kind == PCE_VN_AUDIO_KIND_ADPCM)
+        {
+            if (action == PCE_VN_AUDIO_ACTION_STOP) stop_adpcm_voice();
+            else play_adpcm_voice(command->asset_index);
+        }
+        else
+        {
+            if (action == PCE_VN_AUDIO_ACTION_STOP) stop_cdda_track();
+            else if (command->asset_index >= 0 && (uint8_t)command->asset_index < pce_editor_cdda_asset_count)
+            {
+                play_cdda_track(pce_editor_cdda_assets[(uint8_t)command->asset_index].track);
+            }
+        }
+    }
+    else if (command->type == PCE_VN_COMMAND_MESSAGE)
+    {
+        if (command->message_index >= 0) start_message((uint8_t)command->message_index);
+    }
+}
+
+static uint8_t run_commands_until_wait(void)
+{
+    const pce_vn_scene_t *scene = &pce_vn_scenes[current_scene];
+    active_message_index = -1;
+    message_complete = 1u;
+    while (current_command < scene->command_count)
+    {
+        const uint8_t command_index = (uint8_t)(scene->command_start + current_command);
+        current_command++;
+        if (command_index < pce_vn_command_count)
+        {
+            const pce_vn_command_t *command = &pce_vn_commands[command_index];
+            execute_command(command);
+            if (command->type == PCE_VN_COMMAND_MESSAGE) return 1u;
+        }
+    }
+    return 0u;
+}
+
+static void advance_story(void)
+{
+    const pce_vn_scene_t *scene = &pce_vn_scenes[current_scene];
+    if (!run_commands_until_wait())
+    {
+        if (scene->next_scene >= 0) show_scene((uint8_t)scene->next_scene);
+        else current_command = 0u;
+        run_commands_until_wait();
+    }
+    if (pending_sprite_refresh) refresh_scene_sprites();
+    enable_display_if_pending();
 }
 
 static void init_video(void)
@@ -518,23 +789,13 @@ static void init_video(void)
 
 int main(void)
 {
-    uint8_t i;
     uint8_t pad;
     uint8_t last_pad;
     uint8_t pressed;
 
     init_video();
     show_scene(pce_vn_start_scene);
-    show_current_message();
-    if (pending_sprite_refresh) refresh_scene_sprites();
-    enable_display_if_pending();
-    for (i = 0; i < 4u; i++) delay_frame();
-    for (i = 0; i < 30u; i++) delay_frame();
-    if (pending_cdda_track >= 2u)
-    {
-        play_cdda_track(pending_cdda_track);
-        pending_cdda_track = 0;
-    }
+    advance_story();
     last_pad = read_pad_raw();
 
     while (1)
@@ -543,32 +804,27 @@ int main(void)
         pressed = (uint8_t)(pad & (uint8_t)~last_pad);
         if (pressed & (PAD_I | PAD_II | PAD_RUN | PAD_RIGHT | PAD_DOWN))
         {
-            const pce_vn_scene_t *scene = &pce_vn_scenes[current_scene];
-            current_message++;
-            if (current_message >= scene->message_count)
+            if (active_message_index >= 0 && !message_complete)
             {
-                if (scene->next_scene >= 0)
-                {
-                    show_scene((uint8_t)scene->next_scene);
-                }
-                else
-                {
-                    current_message = 0;
-                }
+                finish_active_message();
             }
-            show_current_message();
-            if (pending_sprite_refresh)
+            else
             {
-                refresh_scene_sprites();
-            }
-            enable_display_if_pending();
-            if (pending_cdda_track >= 2u)
-            {
-                for (i = 0; i < 8u; i++) delay_frame();
-                play_cdda_track(pending_cdda_track);
-                pending_cdda_track = 0;
+                advance_story();
             }
         }
+        tick_active_message();
+        if (active_message_index >= 0 && message_complete)
+        {
+            const pce_vn_message_t *message = &pce_vn_messages[(uint8_t)active_message_index];
+            if (message->advance_mode == PCE_VN_ADVANCE_AUTO)
+            {
+                if (message_auto_wait) message_auto_wait--;
+                else advance_story();
+            }
+        }
+        tick_sprite_animations();
+        if (pending_sprite_refresh) refresh_scene_sprites();
         last_pad = pad;
         delay_frame();
     }
