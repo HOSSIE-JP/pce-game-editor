@@ -8,10 +8,22 @@ typedef struct {
 } pce_editor_data_chunk_t;
 
 typedef struct {
+  unsigned char lo;
+  unsigned char md;
+  unsigned char hi;
+} pce_editor_cd_sector_t;
+
+typedef struct {
+  pce_editor_cd_sector_t sector;
+  unsigned int sector_count;
+} pce_editor_cd_data_ref_t;
+
+typedef struct {
   const unsigned char *data;
   unsigned int size;
   const pce_editor_data_chunk_t *chunks;
   unsigned char chunk_count;
+  const pce_editor_cd_data_ref_t *cd;
 } pce_editor_data_ref_t;
 
 typedef struct {
@@ -63,6 +75,7 @@ typedef struct {
   unsigned int adpcm_address;
   unsigned char divider;
   unsigned char loop;
+  const pce_editor_cd_data_ref_t *cd;
 } pce_editor_adpcm_asset_t;
 
 typedef struct {

@@ -16,6 +16,11 @@ const VN_COMMAND_BACKGROUND = 0;
 const VN_COMMAND_SPRITE = 1;
 const VN_COMMAND_MESSAGE = 2;
 const VN_COMMAND_AUDIO = 3;
+const VN_COMMAND_PRELOAD = 4;
+const VN_COMMAND_CHOICE = 5;
+const VN_COMMAND_JUMP = 6;
+const VN_COMMAND_WAIT = 7;
+const VN_COMMAND_EFFECT = 8;
 const VN_BG_TRANSITION_CUT = 0;
 const VN_BG_TRANSITION_FADE = 1;
 const VN_SPRITE_VISIBLE = 1;
@@ -23,6 +28,9 @@ const VN_AUDIO_KIND_ADPCM = 0;
 const VN_AUDIO_KIND_CDDA = 1;
 const VN_AUDIO_ACTION_PLAY = 0x10;
 const VN_AUDIO_ACTION_STOP = 0x20;
+const VN_EFFECT_FADE_OUT = 0;
+const VN_EFFECT_FADE_IN = 1;
+const VN_EFFECT_BLANK = 2;
 const VN_ADVANCE_BUTTON = 0;
 const VN_ADVANCE_AUTO = 1;
 const DEFAULT_FONT_CONFIG = {
@@ -38,6 +46,19 @@ const DEFAULT_FONT_CONFIG = {
 
 function ensureDirSync(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function templateRuntimeDir() {
+  return path.join(__dirname, 'template', 'template_pce_vn_cd', 'src');
+}
+
+function copyIfChanged(sourcePath, targetPath) {
+  const source = fs.readFileSync(sourcePath);
+  const current = fs.existsSync(targetPath) ? fs.readFileSync(targetPath) : null;
+  if (current && Buffer.compare(source, current) === 0) return false;
+  ensureDirSync(path.dirname(targetPath));
+  fs.copyFileSync(sourcePath, targetPath);
+  return true;
 }
 
 function normalizeRelativePath(value) {
@@ -236,6 +257,38 @@ function normalizeLegacyCharacterCommand(character = {}, index = 0, valid = asse
   };
 }
 
+function normalizeSceneRef(value = '') {
+  return safeId(value, '');
+}
+
+function normalizeChoiceCommand(choice = {}) {
+  const raw = choice && typeof choice === 'object' ? choice : {};
+  const rawChoices = Array.isArray(raw.choices) ? raw.choices : [];
+  const choices = rawChoices
+    .map((entry, index) => {
+      const item = entry && typeof entry === 'object' ? entry : {};
+      const label = String(item.label || item.text || `選択肢${index + 1}`).trim().slice(0, 24);
+      const targetSceneId = normalizeSceneRef(item.targetSceneId || item.sceneId || item.nextSceneId || item.target || '');
+      if (!label) return null;
+      return { label, targetSceneId };
+    })
+    .filter(Boolean)
+    .slice(0, 4);
+  if (!choices.length) return null;
+  return {
+    type: 'choice',
+    choices,
+    defaultIndex: clampInt(raw.defaultIndex ?? raw.initialIndex, 0, choices.length - 1, 0),
+  };
+}
+
+function normalizeEffectKind(value = '') {
+  const raw = String(value || '').trim();
+  if (raw === 'fadeIn' || raw === 'fade-in' || raw === 'in') return 'fadeIn';
+  if (raw === 'blank' || raw === 'black') return 'blank';
+  return 'fadeOut';
+}
+
 function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), assetDoc = { assets: [] }) {
   const raw = command && typeof command === 'object' ? command : {};
   const type = String(raw.type || '').trim();
@@ -278,6 +331,34 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
       kind,
       action,
       assetId: action === 'play' && validAsset ? assetId : '',
+    };
+  }
+  if (type === 'preload') {
+    return {
+      type: 'preload',
+      sceneId: normalizeSceneRef(raw.sceneId || raw.nextSceneId || raw.targetSceneId || ''),
+    };
+  }
+  if (type === 'choice') {
+    return normalizeChoiceCommand(raw);
+  }
+  if (type === 'jump') {
+    return {
+      type: 'jump',
+      sceneId: normalizeSceneRef(raw.sceneId || raw.targetSceneId || raw.nextSceneId || ''),
+    };
+  }
+  if (type === 'wait') {
+    return {
+      type: 'wait',
+      frames: clampInt(raw.frames ?? raw.durationFrames, 0, 65535, 30),
+    };
+  }
+  if (type === 'effect') {
+    return {
+      type: 'effect',
+      effect: normalizeEffectKind(raw.effect || raw.kind || raw.name),
+      frames: clampInt(raw.frames ?? raw.durationFrames, 0, 255, 16),
     };
   }
   return null;
@@ -346,6 +427,24 @@ function normalizeSceneDocument(doc = {}, assetDoc = { assets: [] }) {
   const normalizedScenes = deduped.map((scene) => ({
     ...scene,
     nextSceneId: scene.nextSceneId && sceneIds.has(scene.nextSceneId) ? scene.nextSceneId : '',
+    commands: (scene.commands || []).map((command) => {
+      if (command.type === 'preload' || command.type === 'jump') {
+        return {
+          ...command,
+          sceneId: command.sceneId && sceneIds.has(command.sceneId) ? command.sceneId : '',
+        };
+      }
+      if (command.type === 'choice') {
+        return {
+          ...command,
+          choices: (command.choices || []).map((choice) => ({
+            ...choice,
+            targetSceneId: choice.targetSceneId && sceneIds.has(choice.targetSceneId) ? choice.targetSceneId : '',
+          })),
+        };
+      }
+      return command;
+    }),
   }));
   return {
     version: VN_VERSION,
@@ -387,12 +486,15 @@ function messageDisplayText(message) {
 }
 
 function collectGlyphs(doc) {
-  const glyphs = [' '];
+  const glyphs = [' ', '>'];
   const seen = new Set(glyphs);
   (doc.scenes || []).forEach((scene) => {
     (scene.commands || []).forEach((command) => {
-      if (command.type !== 'message') return;
-      for (const char of messageDisplayText(command)) {
+      const text = command.type === 'message'
+        ? messageDisplayText(command)
+        : (command.type === 'choice' ? (command.choices || []).map((choice) => choice.label || '').join('') : '');
+      if (!text) return;
+      for (const char of text) {
         if (!seen.has(char)) {
           seen.add(char);
           glyphs.push(char);
@@ -731,9 +833,12 @@ function generateVnSources(projectDir, options = {}) {
 
   const messageArrays = [];
   const messageMeta = [];
+  const choiceArrays = [];
+  const choiceMeta = [];
   const commandMeta = [];
   const sceneMeta = [];
   let messageCount = 0;
+  let choiceCount = 0;
   let commandCount = 0;
 
   doc.scenes.forEach((scene, sceneIdx) => {
@@ -743,7 +848,7 @@ function generateVnSources(projectDir, options = {}) {
       if (commandCount >= 255) throw new Error('PCE VN supports up to 255 commands');
       if (command.type === 'background') {
         const bgIndex = imageIndex.has(command.assetId) ? imageIndex.get(command.assetId) : -1;
-        commandMeta.push(`  { ${VN_COMMAND_BACKGROUND}u, ${bgIndex}, 0u, ${command.transition === 'fade' ? VN_BG_TRANSITION_FADE : VN_BG_TRANSITION_CUT}u, ${command.fadeOutFrames}u, ${command.fadeInFrames}u, 0u, 0u, -1, -1 }`);
+        commandMeta.push(`  { ${VN_COMMAND_BACKGROUND}u, ${bgIndex}, 0u, ${command.transition === 'fade' ? VN_BG_TRANSITION_FADE : VN_BG_TRANSITION_CUT}u, ${command.fadeOutFrames}u, ${command.fadeInFrames}u, 0u, 0u, -1, -1, -1, -1 }`);
         commandCount += 1;
         return;
       }
@@ -755,7 +860,7 @@ function generateVnSources(projectDir, options = {}) {
           ? (spriteAnimations.index.get(`${spriteAssetId}:${command.animationId || 'default'}`) ?? spriteAnimations.index.get(`${spriteAssetId}:default`) ?? -1)
           : -1;
         slotSpriteAssets[slot] = spriteAssetIndex >= 0 ? spriteAssetId : '';
-        commandMeta.push(`  { ${VN_COMMAND_SPRITE}u, ${spriteAssetIndex}, ${slot}u, ${command.visible ? VN_SPRITE_VISIBLE : 0}u, 0u, 0u, ${command.x}u, ${command.y}u, -1, ${animationIndex} }`);
+        commandMeta.push(`  { ${VN_COMMAND_SPRITE}u, ${spriteAssetIndex}, ${slot}u, ${command.visible ? VN_SPRITE_VISIBLE : 0}u, 0u, 0u, ${command.x}u, ${command.y}u, -1, ${animationIndex}, -1, -1 }`);
         commandCount += 1;
         return;
       }
@@ -778,7 +883,7 @@ function generateVnSources(projectDir, options = {}) {
           ? adpcmIndex.get(command.voiceAssetId)
           : -1;
         messageMeta.push(`  { ${name}, ${Math.max(0, bytes.length - 1)}u, ${voiceIndex}, ${command.textSpeedFrames}u, ${command.advanceMode === 'auto' ? VN_ADVANCE_AUTO : VN_ADVANCE_BUTTON}u, ${command.autoWaitFrames}u, ${mouthAnimationIndex}, ${mouthSlot}u }`);
-        commandMeta.push(`  { ${VN_COMMAND_MESSAGE}u, -1, 0u, 0u, 0u, 0u, 0u, 0u, ${messageCount}, -1 }`);
+        commandMeta.push(`  { ${VN_COMMAND_MESSAGE}u, -1, 0u, 0u, 0u, 0u, 0u, 0u, ${messageCount}, -1, -1, -1 }`);
         messageCount += 1;
         commandCount += 1;
         return;
@@ -790,7 +895,62 @@ function generateVnSources(projectDir, options = {}) {
           ? (isAdpcm ? (adpcmIndex.get(command.assetId) ?? -1) : (cddaIndex.get(command.assetId) ?? -1))
           : -1;
         const flags = (isAdpcm ? VN_AUDIO_KIND_ADPCM : VN_AUDIO_KIND_CDDA) | action;
-        commandMeta.push(`  { ${VN_COMMAND_AUDIO}u, ${assetIndex}, 0u, ${flags}u, 0u, 0u, 0u, 0u, -1, -1 }`);
+        commandMeta.push(`  { ${VN_COMMAND_AUDIO}u, ${assetIndex}, 0u, ${flags}u, 0u, 0u, 0u, 0u, -1, -1, -1, -1 }`);
+        commandCount += 1;
+        return;
+      }
+      if (command.type === 'preload') {
+        const target = command.sceneId && sceneIndex.has(command.sceneId) ? sceneIndex.get(command.sceneId) : -1;
+        commandMeta.push(`  { ${VN_COMMAND_PRELOAD}u, -1, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, ${target}, -1 }`);
+        commandCount += 1;
+        return;
+      }
+      if (command.type === 'choice') {
+        if (choiceCount >= 255) throw new Error('PCE VN supports up to 255 choices');
+        const choiceName = `pce_vn_choice_${choiceCount}`;
+        const options = (command.choices || []).slice(0, 4);
+        options.forEach((option, optionIndex) => {
+          const bytes = [];
+          for (const glyph of String(option.label || '')) {
+            bytes.push(glyphIndex.get(glyph) ?? 0);
+          }
+          bytes.push(GLYPH_END);
+          choiceArrays.push(...bytesToCArray(`${choiceName}_option_${optionIndex}_glyphs`, Buffer.from(bytes)));
+          choiceArrays.push('');
+        });
+        choiceArrays.push(`static const pce_vn_choice_option_t ${choiceName}_options[] = {`);
+        options.forEach((option, optionIndex) => {
+          let glyphCount = 0;
+          for (const _glyph of String(option.label || '')) glyphCount += 1;
+          const target = option.targetSceneId && sceneIndex.has(option.targetSceneId) ? sceneIndex.get(option.targetSceneId) : -1;
+          const suffix = optionIndex + 1 < options.length ? ',' : '';
+          choiceArrays.push(`  { ${choiceName}_option_${optionIndex}_glyphs, ${glyphCount}u, ${target} }${suffix}`);
+        });
+        choiceArrays.push('};');
+        choiceArrays.push('');
+        choiceMeta.push(`  { ${choiceName}_options, ${options.length}u, ${clampInt(command.defaultIndex, 0, Math.max(0, options.length - 1), 0)}u }`);
+        commandMeta.push(`  { ${VN_COMMAND_CHOICE}u, -1, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, -1, ${choiceCount} }`);
+        choiceCount += 1;
+        commandCount += 1;
+        return;
+      }
+      if (command.type === 'jump') {
+        const target = command.sceneId && sceneIndex.has(command.sceneId) ? sceneIndex.get(command.sceneId) : -1;
+        commandMeta.push(`  { ${VN_COMMAND_JUMP}u, -1, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, ${target}, -1 }`);
+        commandCount += 1;
+        return;
+      }
+      if (command.type === 'wait') {
+        const frames = clampInt(command.frames, 0, 65535, 30);
+        commandMeta.push(`  { ${VN_COMMAND_WAIT}u, -1, 0u, 0u, ${frames & 0xff}u, ${(frames >> 8) & 0xff}u, 0u, 0u, -1, -1, -1, -1 }`);
+        commandCount += 1;
+        return;
+      }
+      if (command.type === 'effect') {
+        const effect = command.effect === 'fadeIn'
+          ? VN_EFFECT_FADE_IN
+          : (command.effect === 'blank' ? VN_EFFECT_BLANK : VN_EFFECT_FADE_OUT);
+        commandMeta.push(`  { ${VN_COMMAND_EFFECT}u, -1, 0u, ${effect}u, ${clampInt(command.frames, 0, 255, 16)}u, 0u, 0u, 0u, -1, -1, -1, -1 }`);
         commandCount += 1;
       }
     });
@@ -812,6 +972,11 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_COMMAND_SPRITE ${VN_COMMAND_SPRITE}u`,
     `#define PCE_VN_COMMAND_MESSAGE ${VN_COMMAND_MESSAGE}u`,
     `#define PCE_VN_COMMAND_AUDIO ${VN_COMMAND_AUDIO}u`,
+    `#define PCE_VN_COMMAND_PRELOAD ${VN_COMMAND_PRELOAD}u`,
+    `#define PCE_VN_COMMAND_CHOICE ${VN_COMMAND_CHOICE}u`,
+    `#define PCE_VN_COMMAND_JUMP ${VN_COMMAND_JUMP}u`,
+    `#define PCE_VN_COMMAND_WAIT ${VN_COMMAND_WAIT}u`,
+    `#define PCE_VN_COMMAND_EFFECT ${VN_COMMAND_EFFECT}u`,
     `#define PCE_VN_BG_TRANSITION_CUT ${VN_BG_TRANSITION_CUT}u`,
     `#define PCE_VN_BG_TRANSITION_FADE ${VN_BG_TRANSITION_FADE}u`,
     `#define PCE_VN_SPRITE_VISIBLE ${VN_SPRITE_VISIBLE}u`,
@@ -819,6 +984,9 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_AUDIO_KIND_CDDA ${VN_AUDIO_KIND_CDDA}u`,
     `#define PCE_VN_AUDIO_ACTION_PLAY ${VN_AUDIO_ACTION_PLAY}u`,
     `#define PCE_VN_AUDIO_ACTION_STOP ${VN_AUDIO_ACTION_STOP}u`,
+    `#define PCE_VN_EFFECT_FADE_OUT ${VN_EFFECT_FADE_OUT}u`,
+    `#define PCE_VN_EFFECT_FADE_IN ${VN_EFFECT_FADE_IN}u`,
+    `#define PCE_VN_EFFECT_BLANK ${VN_EFFECT_BLANK}u`,
     `#define PCE_VN_ADVANCE_BUTTON ${VN_ADVANCE_BUTTON}u`,
     `#define PCE_VN_ADVANCE_AUTO ${VN_ADVANCE_AUTO}u`,
     '',
@@ -845,6 +1013,18 @@ function generateVnSources(projectDir, options = {}) {
     '} pce_vn_message_t;',
     '',
     'typedef struct {',
+    '  const unsigned char *glyphs;',
+    '  unsigned char glyph_count;',
+    '  signed char target_scene;',
+    '} pce_vn_choice_option_t;',
+    '',
+    'typedef struct {',
+    '  const pce_vn_choice_option_t *options;',
+    '  unsigned char option_count;',
+    '  unsigned char default_index;',
+    '} pce_vn_choice_t;',
+    '',
+    'typedef struct {',
     '  unsigned char type;',
     '  signed char asset_index;',
     '  unsigned char slot;',
@@ -855,6 +1035,8 @@ function generateVnSources(projectDir, options = {}) {
     '  unsigned int y;',
     '  signed char message_index;',
     '  signed char animation_index;',
+    '  signed char scene_index;',
+    '  signed char choice_index;',
     '} pce_vn_command_t;',
     '',
     'typedef struct {',
@@ -864,6 +1046,7 @@ function generateVnSources(projectDir, options = {}) {
     '} pce_vn_scene_t;',
     '',
     `#define PCE_VN_FONT_TILE_BASE ${Number(fontConfig.tileBase || DEFAULT_FONT_TILE_BASE)}u`,
+    `#define PCE_VN_CHOICE_CURSOR_GLYPH ${glyphIndex.get('>') ?? 0}u`,
     '#define PCE_VN_GLYPH_END 0xffu',
     '',
     'extern const unsigned char pce_vn_font_tiles[];',
@@ -873,6 +1056,8 @@ function generateVnSources(projectDir, options = {}) {
     'extern const unsigned char pce_vn_sprite_animation_count;',
     'extern const pce_vn_message_t pce_vn_messages[];',
     'extern const unsigned char pce_vn_message_count;',
+    'extern const pce_vn_choice_t pce_vn_choices[];',
+    'extern const unsigned char pce_vn_choice_count;',
     'extern const pce_vn_command_t pce_vn_commands[];',
     'extern const unsigned char pce_vn_command_count;',
     'extern const pce_vn_scene_t pce_vn_scenes[];',
@@ -915,8 +1100,14 @@ function generateVnSources(projectDir, options = {}) {
     '};',
     `const unsigned char pce_vn_message_count = ${messageCount};`,
     '',
+    ...choiceArrays,
+    'const pce_vn_choice_t pce_vn_choices[] = {',
+    ...(choiceMeta.length ? choiceMeta.map((line, index) => `${line}${index + 1 < choiceMeta.length ? ',' : ''}`) : ['  { (const pce_vn_choice_option_t *)0, 0u, 0u }']),
+    '};',
+    `const unsigned char pce_vn_choice_count = ${choiceCount};`,
+    '',
     'const pce_vn_command_t pce_vn_commands[] = {',
-    ...(commandMeta.length ? commandMeta.map((line, index) => `${line}${index + 1 < commandMeta.length ? ',' : ''}`) : ['  { 0u, -1, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1 }']),
+    ...(commandMeta.length ? commandMeta.map((line, index) => `${line}${index + 1 < commandMeta.length ? ',' : ''}`) : ['  { 0u, -1, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, -1, -1 }']),
     '};',
     `const unsigned char pce_vn_command_count = ${commandCount};`,
     '',
@@ -935,6 +1126,7 @@ function generateVnSources(projectDir, options = {}) {
     sourcePath,
     glyphCount: glyphs.length,
     messageCount,
+    choiceCount,
     commandCount,
     spriteAnimationCount: spriteAnimations.meta.length,
     sceneCount: doc.scenes.length,
@@ -970,13 +1162,78 @@ function previewFontText(projectDir, payload = {}) {
   };
 }
 
+function assetById(assetDoc = { assets: [] }) {
+  const map = new Map();
+  (assetDoc.assets || []).forEach((asset) => {
+    if (asset?.id) map.set(asset.id, asset);
+  });
+  return map;
+}
+
+function addExistingCdDataFile(projectDir, files, seen, relativePath) {
+  const normalized = normalizeRelativePath(relativePath || '');
+  if (!normalized || seen.has(normalized)) return;
+  if (!fs.existsSync(path.join(projectDir, normalized))) return;
+  seen.add(normalized);
+  files.push(normalized);
+}
+
+function addAssetCdDataFiles(projectDir, files, seen, asset) {
+  if (!asset) return;
+  const generated = asset.data?.generated || {};
+  if (asset.type === 'image') {
+    addExistingCdDataFile(projectDir, files, seen, generated.tilesFile);
+    addExistingCdDataFile(projectDir, files, seen, generated.mapVramFile);
+  } else if (asset.type === 'sprite') {
+    addExistingCdDataFile(projectDir, files, seen, generated.tilesFile);
+  } else if (asset.type === 'adpcm') {
+    addExistingCdDataFile(projectDir, files, seen, generated.outputFile);
+  }
+}
+
+function collectSceneCommandAssetIds(scene = {}) {
+  const ids = [];
+  (scene.commands || []).forEach((command) => {
+    if (command.type === 'background' || command.type === 'sprite') {
+      if (command.assetId) ids.push(command.assetId);
+    } else if (command.type === 'message') {
+      if (command.voiceAssetId) ids.push(command.voiceAssetId);
+    } else if (command.type === 'audio' && command.kind === 'adpcm' && command.action === 'play') {
+      if (command.assetId) ids.push(command.assetId);
+    }
+  });
+  return ids;
+}
+
 function collectCdDataFiles(projectDir) {
-  const doc = assetManager.readAssetDocument(projectDir);
-  return (doc.assets || [])
-    .filter((asset) => asset.type === 'adpcm')
-    .map((asset) => normalizeRelativePath(asset.data?.generated?.outputFile || ''))
-    .filter(Boolean)
-    .filter((relativePath) => fs.existsSync(path.join(projectDir, relativePath)));
+  const assetDoc = assetManager.readAssetDocument(projectDir);
+  const doc = readSceneDocument(projectDir);
+  const assets = assetById(assetDoc);
+  const files = [];
+  const seen = new Set();
+  (doc.scenes || []).forEach((scene) => {
+    collectSceneCommandAssetIds(scene).forEach((assetId) => {
+      addAssetCdDataFiles(projectDir, files, seen, assets.get(assetId));
+    });
+  });
+  const fallback = typeof assetManager.collectCdDataFiles === 'function'
+    ? assetManager.collectCdDataFiles(projectDir)
+    : [];
+  fallback.forEach((relativePath) => addExistingCdDataFile(projectDir, files, seen, relativePath));
+  return files;
+}
+
+function syncVisualNovelRuntime(projectDir, logger) {
+  const sourceDir = templateRuntimeDir();
+  const targets = [
+    ['main.c', path.join(projectDir, 'src', 'main.c')],
+    ['pce_vn_runtime.c', path.join(projectDir, 'src', 'pce_vn_runtime.c')],
+  ];
+  const changed = targets
+    .map(([fileName, targetPath]) => copyIfChanged(path.join(sourceDir, fileName), targetPath))
+    .some(Boolean);
+  if (changed) logger?.info?.('PCE visual novel runtime を src/ に同期しました');
+  return { changed };
 }
 
 function collectCddaTracks(projectDir) {
@@ -989,12 +1246,13 @@ function collectCddaTracks(projectDir) {
 }
 
 function prepareVisualNovelBuild(projectDir, config = {}) {
+  syncVisualNovelRuntime(projectDir);
   ensureSceneFile(projectDir);
   const generated = generateVnSources(projectDir);
   const dataFiles = collectCdDataFiles(projectDir);
   const cddaTracks = collectCddaTracks(projectDir);
   const cd = config.cd && typeof config.cd === 'object' ? config.cd : {};
-  const mergedDataFiles = Array.from(new Set([...(Array.isArray(cd.dataFiles) ? cd.dataFiles : []), ...dataFiles]));
+  const mergedDataFiles = Array.from(new Set([...dataFiles, ...(Array.isArray(cd.dataFiles) ? cd.dataFiles : [])]));
   const mergedCddaTracks = Array.from(new Set([...(Array.isArray(cd.cddaTracks) ? cd.cddaTracks : []), ...cddaTracks]));
   return {
     ok: true,
@@ -1029,6 +1287,12 @@ module.exports = {
   VN_COMMAND_SPRITE,
   VN_COMMAND_MESSAGE,
   VN_COMMAND_AUDIO,
+  VN_COMMAND_PRELOAD,
+  VN_COMMAND_CHOICE,
+  VN_COMMAND_JUMP,
+  VN_COMMAND_WAIT,
+  VN_COMMAND_EFFECT,
+  collectCdDataFiles,
   collectGlyphs,
   defaultSceneDocument,
   encodeGlyphTileData,
@@ -1044,6 +1308,7 @@ module.exports = {
   readSceneDocument,
   renderGlyphBitmaps,
   renderGlyphTileData,
+  syncVisualNovelRuntime,
   writeFontConfig,
   writeSceneDocument,
 };

@@ -1,16 +1,17 @@
 {
   "coreId": "pc-engine",
   "platform": "pce",
-  "title": "PCE Visual Novel CD Sample",
+  "title": "MY NEW GAME",
   "author": "PCE Game Editor",
   "serial": "PCEVNCD00001",
   "region": "JUE",
-  "romName": "pce_vn_cd_sample",
+  "romName": "MY NEW GAME",
   "toolchain": "llvm-mos",
   "targetMedia": "cd",
   "cd": {
     "iplPath": "",
     "systemCardPath": "",
+    "isoName": "",
     "dataFiles": [],
     "cddaTracks": [
       "assets/generated/opening_cdda/cdda.wav"

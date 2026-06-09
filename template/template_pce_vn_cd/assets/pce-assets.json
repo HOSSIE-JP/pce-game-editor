@@ -24,10 +24,11 @@
           "paletteFile": "assets/generated/vn_classroom_bg/palette.bin",
           "tilesFile": "assets/generated/vn_classroom_bg/tiles.bin",
           "mapFile": "assets/generated/vn_classroom_bg/map.bin",
+          "mapVramFile": "assets/generated/vn_classroom_bg/map_vram.bin",
           "previewFile": "assets/generated/vn_classroom_bg/preview.json",
-          "tileCount": 498,
+          "tileCount": 576,
           "paletteCount": 1,
-          "vramBytes": 17088,
+          "vramBytes": 20480,
           "warnings": [],
           "paletteColors": [
             "#000000",
@@ -151,7 +152,8 @@
           "tileCount": 0,
           "paletteCount": 0,
           "vramBytes": 0,
-          "paletteColors": []
+          "paletteColors": [],
+          "mapVramFile": ""
         },
         "import": {
           "originalFileName": "opening_theme.wav",
@@ -216,7 +218,20 @@
         "height": 128,
         "cellWidth": 16,
         "cellHeight": 16,
-        "transparentIndex": 0
+        "transparentIndex": 0,
+        "animations": [
+          {
+            "id": "default",
+            "name": "Default",
+            "frameWidth": 64,
+            "frameHeight": 128,
+            "firstCell": 0,
+            "frameCount": 1,
+            "frameDelay": 8,
+            "frameStrideCells": 32,
+            "loop": true
+          }
+        ]
       },
       "data": {
         "generated": {
@@ -251,7 +266,8 @@
           "sampleRate": 0,
           "channels": 0,
           "durationSeconds": 0,
-          "waveform": []
+          "waveform": [],
+          "mapVramFile": ""
         },
         "import": {
           "originalFileName": "akari_sprite.png",
@@ -352,12 +368,150 @@
           "tileCount": 0,
           "paletteCount": 0,
           "vramBytes": 0,
-          "paletteColors": []
+          "paletteColors": [],
+          "mapVramFile": ""
         },
         "import": {
           "originalFileName": "akari_voice.wav",
           "importedAt": "2026-06-07T02:48:20.298Z",
           "converter": "Internal WAV/ADPCM encoder"
+        }
+      }
+    },
+    {
+      "id": "rooftop_dusk_bg",
+      "type": "image",
+      "name": "288x128 夕暮れ屋上背景",
+      "source": "assets/images/rooftop_dusk_bg.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 128,
+        "mapBase": 130,
+        "x": 16,
+        "y": 16,
+        "width": 288,
+        "height": 128,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/rooftop_dusk_bg/palette.bin",
+          "tilesFile": "assets/generated/rooftop_dusk_bg/tiles.bin",
+          "mapFile": "assets/generated/rooftop_dusk_bg/map.bin",
+          "mapVramFile": "assets/generated/rooftop_dusk_bg/map_vram.bin",
+          "previewFile": "assets/generated/rooftop_dusk_bg/preview.json",
+          "tileCount": 576,
+          "paletteCount": 1,
+          "vramBytes": 20480,
+          "warnings": [],
+          "paletteColors": [
+            "#000000",
+            "#492449",
+            "#242449",
+            "#6d496d",
+            "#b6496d",
+            "#ff9249",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "rooftop_dusk_bg.png",
+          "importedAt": "2026-06-08T01:12:50.736Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    },
+    {
+      "id": "mika_sprite",
+      "type": "sprite",
+      "name": "64x128 ミカ立ち絵",
+      "source": "assets/sprites/mika_sprite.png",
+      "options": {
+        "kind": "sprite",
+        "paletteBank": 1,
+        "tileBase": 880,
+        "mapBase": 0,
+        "x": 128,
+        "y": 24,
+        "width": 64,
+        "height": 128,
+        "cellWidth": 16,
+        "cellHeight": 16,
+        "transparentIndex": 0,
+        "animations": [
+          {
+            "id": "default",
+            "name": "Default",
+            "frameWidth": 64,
+            "frameHeight": 128,
+            "firstCell": 0,
+            "frameCount": 1,
+            "frameDelay": 8,
+            "frameStrideCells": 32,
+            "loop": true
+          }
+        ]
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/mika_sprite/palette.bin",
+          "tilesFile": "assets/generated/mika_sprite/patterns.bin",
+          "mapFile": "",
+          "previewFile": "assets/generated/mika_sprite/preview.json",
+          "tileCount": 32,
+          "paletteCount": 1,
+          "vramBytes": 4096,
+          "warnings": [
+            "Image uses 85 PCE colors; remapped to 15 opaque color slots"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#249292",
+            "#b64924",
+            "#004949",
+            "#24926d",
+            "#246d6d",
+            "#ffb692",
+            "#6d2424",
+            "#006d6d",
+            "#922424",
+            "#492424",
+            "#924924",
+            "#006d49",
+            "#ffffdb",
+            "#b64949",
+            "#db6d49"
+          ],
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": [],
+          "mapVramFile": ""
+        },
+        "import": {
+          "originalFileName": "mika_sprite.png",
+          "importedAt": "2026-06-08T01:00:48.320Z",
+          "converter": "Internal PCE image converter"
         }
       }
     }

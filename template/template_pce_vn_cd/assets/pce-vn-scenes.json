@@ -50,6 +50,50 @@
           "mouthAnimationId": ""
         }
       ],
+      "nextSceneId": "rooftop"
+    },
+    {
+      "id": "rooftop",
+      "commands": [
+        {
+          "type": "background",
+          "assetId": "rooftop_dusk_bg",
+          "transition": "fade",
+          "fadeOutFrames": 16,
+          "fadeInFrames": 16
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
+          "assetId": "mika_sprite",
+          "x": 128,
+          "y": 24,
+          "animationId": "default",
+          "visible": true
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "ゆうやけの おくじょうです",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "ばしょと ひとを きりかえ",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        }
+      ],
       "nextSceneId": ""
     }
   ]

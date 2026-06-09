@@ -15,6 +15,8 @@ const AUDIO_EXTENSIONS = new Set(['.wav']);
 const SPRITE_CELL_SIZES = new Set(['16x16', '16x32', '16x64', '32x16', '32x32', '32x64']);
 const ROM_BANKED_CHUNK_SIZE = 8192;
 const BANKED_DATA_THRESHOLD = 1024;
+const CD_DATA_BASE_SECTOR = 64;
+const CD_SECTOR_BYTES = 2048;
 const DEFAULT_BG_OPTIONS = Object.freeze({
   kind: 'background',
   paletteBank: 0,
@@ -227,6 +229,7 @@ function normalizeGeneratedData(data = {}) {
         paletteFile: normalizeAssetSource(data.generated.paletteFile || ''),
         tilesFile: normalizeAssetSource(data.generated.tilesFile || ''),
         mapFile: normalizeAssetSource(data.generated.mapFile || ''),
+        mapVramFile: normalizeAssetSource(data.generated.mapVramFile || ''),
         outputFile: normalizeAssetSource(data.generated.outputFile || ''),
         previewFile: normalizeAssetSource(data.generated.previewFile || ''),
         tileCount: clampInt(data.generated.tileCount, 0, 65535, 0),
@@ -573,17 +576,19 @@ function buildInternalPceConversionPlan(projectDir, asset) {
   const paletteFile = relativeGeneratedPath(normalized.id, 'palette.bin');
   const tilesFile = relativeGeneratedPath(normalized.id, kind === 'sprite' ? 'patterns.bin' : 'tiles.bin');
   const mapFile = kind === 'sprite' ? '' : relativeGeneratedPath(normalized.id, 'map.bin');
+  const mapVramFile = kind === 'sprite' ? '' : relativeGeneratedPath(normalized.id, 'map_vram.bin');
   const previewFile = relativeGeneratedPath(normalized.id, 'preview.json');
   const paletteAbs = path.join(projectDir, paletteFile);
   const tilesAbs = path.join(projectDir, tilesFile);
   const mapAbs = mapFile ? path.join(projectDir, mapFile) : '';
+  const mapVramAbs = mapVramFile ? path.join(projectDir, mapVramFile) : '';
   return {
     kind,
     command: PCE_INTERNAL_IMAGE_CONVERTER,
     args: [],
     cwd: projectDir,
-    files: { paletteFile, tilesFile, mapFile, previewFile },
-    absFiles: { paletteAbs, tilesAbs, mapAbs, previewAbs: path.join(projectDir, previewFile) },
+    files: { paletteFile, tilesFile, mapFile, mapVramFile, previewFile },
+    absFiles: { paletteAbs, tilesAbs, mapAbs, mapVramAbs, previewAbs: path.join(projectDir, previewFile) },
     generatedDir,
   };
 }
@@ -940,27 +945,26 @@ function encodePceBackground(indexed, asset) {
   const options = normalizeImageOptions(asset);
   if (indexed.width % 8 || indexed.height % 8) throw new Error('BG image size must be aligned to 8px tiles');
   const tiles = [];
-  const tileIndexes = new Map();
-  const map = Buffer.alloc((indexed.width / 8) * (indexed.height / 8) * 2);
+  const widthTiles = indexed.width / 8;
+  const heightTiles = indexed.height / 8;
+  const map = Buffer.alloc(widthTiles * heightTiles * 2);
+  const vramMap = Buffer.alloc(64 * heightTiles * 2);
   let mapOffset = 0;
   for (let tileY = 0; tileY < indexed.height; tileY += 8) {
     for (let tileX = 0; tileX < indexed.width; tileX += 8) {
       const tile = encodePceBgTile(indexed.indices, indexed.width, tileX, tileY);
-      const key = tile.toString('hex');
-      let tileIndex = tileIndexes.get(key);
-      if (tileIndex === undefined) {
-        tileIndex = tiles.length;
-        tiles.push(tile);
-        tileIndexes.set(key, tileIndex);
-      }
+      const tileIndex = tiles.length;
+      tiles.push(tile);
       const word = ((options.paletteBank & 0x0f) << 12) | ((options.tileBase + tileIndex) & 0x0fff);
       map.writeUInt16LE(word, mapOffset);
+      vramMap.writeUInt16LE(word, (((tileY / 8) * 64) + (tileX / 8)) * 2);
       mapOffset += 2;
     }
   }
   return {
     tiles: Buffer.concat(tiles),
     map,
+    vramMap,
   };
 }
 
@@ -987,6 +991,7 @@ function runInternalPceImageConversion(plan, sourceAbs, asset, options = {}) {
     const encoded = encodePceBackground(indexed, asset);
     fs.writeFileSync(plan.absFiles.tilesAbs, encoded.tiles);
     fs.writeFileSync(plan.absFiles.mapAbs, encoded.map);
+    fs.writeFileSync(plan.absFiles.mapVramAbs, encoded.vramMap);
   } else {
     fs.writeFileSync(plan.absFiles.tilesAbs, encodePceSprites(indexed));
   }
@@ -1007,12 +1012,13 @@ function createGeneratedMetadata(projectDir, asset, plan, sourceRel, imageSize, 
   const palette = fs.existsSync(plan.absFiles.paletteAbs) ? fs.readFileSync(plan.absFiles.paletteAbs) : Buffer.alloc(0);
   const tiles = fs.existsSync(plan.absFiles.tilesAbs) ? fs.readFileSync(plan.absFiles.tilesAbs) : Buffer.alloc(0);
   const map = plan.absFiles.mapAbs && fs.existsSync(plan.absFiles.mapAbs) ? fs.readFileSync(plan.absFiles.mapAbs) : Buffer.alloc(0);
+  const vramMap = plan.absFiles.mapVramAbs && fs.existsSync(plan.absFiles.mapVramAbs) ? fs.readFileSync(plan.absFiles.mapVramAbs) : Buffer.alloc(0);
   const isSprite = asset.type === 'sprite';
   const generated = {
     ...plan.files,
     tileCount: isSprite ? Math.floor(tiles.length / 128) : Math.floor(tiles.length / 32),
     paletteCount: Math.ceil(palette.length / 32),
-    vramBytes: tiles.length + map.length,
+    vramBytes: tiles.length + (isSprite ? 0 : (vramMap.length || map.length)),
     warnings: [],
     paletteColors: readPaletteColors(palette),
   };
@@ -1336,6 +1342,7 @@ function emitDataRef(name, buffer, allocator, options = {}) {
       size: 0,
       chunks: '(const pce_editor_data_chunk_t *)0',
       chunkCount: 0,
+      cd: '(const pce_editor_cd_data_ref_t *)0',
     };
   }
   const threshold = Number.isFinite(Number(options.threshold)) ? Number(options.threshold) : BANKED_DATA_THRESHOLD;
@@ -1347,6 +1354,7 @@ function emitDataRef(name, buffer, allocator, options = {}) {
       size: buffer.length,
       chunks: banked.chunksName,
       chunkCount: banked.chunkCount,
+      cd: '(const pce_editor_cd_data_ref_t *)0',
     };
   }
   return {
@@ -1355,11 +1363,34 @@ function emitDataRef(name, buffer, allocator, options = {}) {
     size: buffer.length,
     chunks: '(const pce_editor_data_chunk_t *)0',
     chunkCount: 0,
+    cd: '(const pce_editor_cd_data_ref_t *)0',
+  };
+}
+
+function emitCdFileRef(name, buffer, relativePath = '', options = {}) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0 || !relativePath) {
+    return emitDataRef(name, buffer, null, { allowBanking: false });
+  }
+  const layout = options.cdLayout?.get(normalizeRelativePath(relativePath));
+  const sector = layout?.sector || 0;
+  const sectorCount = layout?.sectorCount || Math.ceil(buffer.length / CD_SECTOR_BYTES);
+  const cdRefName = `${name}_cd`;
+  return {
+    lines: [
+      '#if defined(__PCE_CD__)',
+      `static const pce_editor_cd_data_ref_t ${cdRefName} = { { ${(sector & 0xff)}u, ${((sector >> 8) & 0xff)}u, ${((sector >> 16) & 0xff)}u }, ${sectorCount}u };`,
+      '#endif',
+    ],
+    pointer: '(const unsigned char *)0',
+    size: buffer.length,
+    chunks: '(const pce_editor_data_chunk_t *)0',
+    chunkCount: 0,
+    cd: `&${cdRefName}`,
   };
 }
 
 function dataRefLiteral(ref) {
-  return `{ ${ref.pointer}, ${ref.size}u, ${ref.chunks}, ${ref.chunkCount}u }`;
+  return `{ ${ref.pointer}, ${ref.size}u, ${ref.chunks}, ${ref.chunkCount}u, ${ref.cd || '(const pce_editor_cd_data_ref_t *)0'} }`;
 }
 
 function readGeneratedBuffer(projectDir, relativePath) {
@@ -1382,6 +1413,7 @@ function numeric(value, min, max, fallback = 0) {
 
 function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, generationOptions = {}) {
   const isSprite = type === 'sprite';
+  const useCdFiles = generationOptions.targetsCd && generationOptions.useCdDataFiles;
   const converted = assets.filter((asset) => asset.type === type && asset.data?.generated);
   const arrayLines = [];
   const metaLines = [];
@@ -1390,12 +1422,17 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
     const generated = asset.data.generated || {};
     const palette = readGeneratedBuffer(projectDir, generated.paletteFile);
     const tiles = readGeneratedBuffer(projectDir, generated.tilesFile);
-    const map = isSprite ? Buffer.alloc(0) : readGeneratedBuffer(projectDir, generated.mapFile);
+    const mapFile = useCdFiles && !isSprite && generated.mapVramFile ? generated.mapVramFile : generated.mapFile;
+    const map = isSprite ? Buffer.alloc(0) : readGeneratedBuffer(projectDir, mapFile);
     const paletteRef = emitDataRef(`${ident}_palette`, palette, bankAllocator, { threshold: Number.MAX_SAFE_INTEGER, allowBanking: generationOptions.allowBanking });
-    const tilesRef = emitDataRef(`${ident}_${isSprite ? 'patterns' : 'tiles'}`, tiles, bankAllocator, { allowBanking: generationOptions.allowBanking });
+    const tilesRef = useCdFiles
+      ? emitCdFileRef(`${ident}_${isSprite ? 'patterns' : 'tiles'}`, tiles, generated.tilesFile, { cdLayout: generationOptions.cdLayout })
+      : emitDataRef(`${ident}_${isSprite ? 'patterns' : 'tiles'}`, tiles, bankAllocator, { allowBanking: generationOptions.allowBanking });
     const mapRef = isSprite
       ? emitDataRef(`${ident}_map`, map, bankAllocator, { allowBanking: generationOptions.allowBanking })
-      : emitDataRef(`${ident}_map`, map, bankAllocator, { allowBanking: generationOptions.allowBanking });
+      : (useCdFiles && generated.mapVramFile
+          ? emitCdFileRef(`${ident}_map`, map, generated.mapVramFile, { cdLayout: generationOptions.cdLayout })
+          : emitDataRef(`${ident}_map`, map, bankAllocator, { allowBanking: generationOptions.allowBanking }));
     arrayLines.push(...paletteRef.lines);
     arrayLines.push(...tilesRef.lines);
     if (!isSprite) arrayLines.push(...mapRef.lines);
@@ -1476,7 +1513,7 @@ function generatePsgMetadata(assets) {
   return { psgAssets, arrayLines, metaLines };
 }
 
-function generateAdpcmMetadata(projectDir, assets) {
+function generateAdpcmMetadata(projectDir, assets, generationOptions = {}) {
   const adpcmAssets = assets.filter((asset) => asset.type === 'adpcm');
   const arrayLines = [];
   const metaLines = [];
@@ -1484,10 +1521,13 @@ function generateAdpcmMetadata(projectDir, assets) {
     const ident = toCIdentifier(`pce_editor_adpcm_${asset.id}`);
     const generated = asset.data?.generated || {};
     const data = readGeneratedBuffer(projectDir, generated.outputFile);
-    arrayLines.push(...bufferToCArray(`${ident}_data`, data));
+    const dataRef = generationOptions.targetsCd
+      ? emitCdFileRef(`${ident}_data`, data, generated.outputFile, { cdLayout: generationOptions.cdLayout })
+      : emitDataRef(`${ident}_data`, data, null, { allowBanking: false });
+    arrayLines.push(...dataRef.lines);
     if (arrayLines[arrayLines.length - 1] !== '') arrayLines.push('');
     const options = normalizeAdpcmOptions(asset);
-    metaLines.push(`  { "${String(asset.id).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}", ${cPointer(`${ident}_data`, data)}, ${data.length}u, ${options.sampleRate}u, ${options.adpcmAddress}u, ${options.divider}u, ${options.loop ? '1u' : '0u'} }${index + 1 < adpcmAssets.length ? ',' : ''}`);
+    metaLines.push(`  { "${String(asset.id).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}", ${dataRef.pointer}, ${data.length}u, ${options.sampleRate}u, ${options.adpcmAddress}u, ${options.divider}u, ${options.loop ? '1u' : '0u'}, ${dataRef.cd} }${index + 1 < adpcmAssets.length ? ',' : ''}`);
   });
   return { adpcmAssets, arrayLines, metaLines };
 }
@@ -1501,21 +1541,66 @@ function generateCddaMetadata(assets) {
   return { cddaAssets, metaLines };
 }
 
-function generateAssetSources(projectDir) {
+function collectCdDataFiles(projectDir) {
+  const doc = readAssetDocument(projectDir);
+  const files = [];
+  (doc.assets || []).forEach((asset) => {
+    const generated = asset.data?.generated || {};
+    if (asset.type === 'image' || asset.type === 'sprite') {
+      files.push(generated.tilesFile || '');
+      if (asset.type === 'image') files.push(generated.mapVramFile || '');
+    } else if (asset.type === 'adpcm') {
+      files.push(generated.outputFile || '');
+    }
+  });
+  return Array.from(new Set(files
+    .map((entry) => normalizeRelativePath(entry || ''))
+    .filter(Boolean)
+    .filter((relativePath) => fs.existsSync(path.join(projectDir, relativePath)))));
+}
+
+function buildCdDataLayout(projectDir, dataFiles) {
+  const layout = new Map();
+  let sector = CD_DATA_BASE_SECTOR;
+  (dataFiles || []).forEach((relativePath) => {
+    const normalized = normalizeRelativePath(relativePath || '');
+    if (!normalized || layout.has(normalized)) return;
+    const absPath = path.join(projectDir, normalized);
+    const size = fs.existsSync(absPath) ? fs.statSync(absPath).size : 0;
+    const sectorCount = Math.max(1, Math.ceil(size / CD_SECTOR_BYTES));
+    layout.set(normalized, { sector, sectorCount });
+    sector += sectorCount;
+  });
+  return layout;
+}
+
+function normalizeCdDataFileList(projectDir, entries = []) {
+  return Array.from(new Set((Array.isArray(entries) ? entries : [])
+    .map((entry) => normalizeRelativePath(entry || ''))
+    .filter(Boolean)
+    .filter((relativePath) => fs.existsSync(path.join(projectDir, relativePath)))));
+}
+
+function generateAssetSources(projectDir, options = {}) {
   const doc = readAssetDocument(projectDir);
   const image = doc.assets.find((asset) => asset.type === 'image');
   const sound = doc.assets.find((asset) => asset.type === 'psg-sfx' || asset.type === 'psg-song');
-  const rows = image ? generateTextMosaicForImage(projectDir, image).slice(0, 14) : ['NO IMAGE ASSET'];
-  const tonePeriod = firstPsgPeriod(sound || {});
   const targetsCd = projectTargetsCd(projectDir);
+  const rows = targetsCd ? [] : (image ? generateTextMosaicForImage(projectDir, image).slice(0, 14) : ['NO IMAGE ASSET']);
+  const tonePeriod = firstPsgPeriod(sound || {});
   const allowBanking = true;
   const bankAllocator = targetsCd ? createCdRamBankAllocator() : createRomBankAllocator();
-  const bgGenerated = generateConvertedAssetArrays(projectDir, doc.assets, 'image', bankAllocator, { allowBanking });
-  const spriteGenerated = generateConvertedAssetArrays(projectDir, doc.assets, 'sprite', bankAllocator, { allowBanking });
+  const requestedCdDataFiles = Array.isArray(options.cdDataFiles) ? options.cdDataFiles : null;
+  const cdDataFiles = targetsCd
+    ? normalizeCdDataFileList(projectDir, requestedCdDataFiles || collectCdDataFiles(projectDir))
+    : [];
+  const cdLayout = targetsCd ? buildCdDataLayout(projectDir, cdDataFiles) : new Map();
+  const bgGenerated = generateConvertedAssetArrays(projectDir, doc.assets, 'image', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
+  const spriteGenerated = generateConvertedAssetArrays(projectDir, doc.assets, 'sprite', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
   const psgGenerated = generatePsgMetadata(doc.assets);
-  const adpcmGenerated = generateAdpcmMetadata(projectDir, doc.assets);
+  const adpcmGenerated = generateAdpcmMetadata(projectDir, doc.assets, { targetsCd, cdLayout });
   const cddaGenerated = generateCddaMetadata(doc.assets);
-  const emptyDataRef = '{ (const unsigned char *)0, 0u, (const pce_editor_data_chunk_t *)0, 0u }';
+  const emptyDataRef = '{ (const unsigned char *)0, 0u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }';
 
   const linesH = [
     '#ifndef PCE_EDITOR_GENERATED_ASSETS_H',
@@ -1528,10 +1613,22 @@ function generateAssetSources(projectDir) {
     '} pce_editor_data_chunk_t;',
     '',
     'typedef struct {',
+    '  unsigned char lo;',
+    '  unsigned char md;',
+    '  unsigned char hi;',
+    '} pce_editor_cd_sector_t;',
+    '',
+    'typedef struct {',
+    '  pce_editor_cd_sector_t sector;',
+    '  unsigned int sector_count;',
+    '} pce_editor_cd_data_ref_t;',
+    '',
+    'typedef struct {',
     '  const unsigned char *data;',
     '  unsigned int size;',
     '  const pce_editor_data_chunk_t *chunks;',
     '  unsigned char chunk_count;',
+    '  const pce_editor_cd_data_ref_t *cd;',
     '} pce_editor_data_ref_t;',
     '',
     'typedef struct {',
@@ -1583,6 +1680,7 @@ function generateAssetSources(projectDir) {
     '  unsigned int adpcm_address;',
     '  unsigned char divider;',
     '  unsigned char loop;',
+    '  const pce_editor_cd_data_ref_t *cd;',
     '} pce_editor_adpcm_asset_t;',
     '',
     'typedef struct {',
@@ -1660,7 +1758,7 @@ function generateAssetSources(projectDir) {
     `const unsigned char pce_editor_psg_asset_count = ${psgGenerated.psgAssets.length};`,
     '',
     'const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] = {',
-    ...(adpcmGenerated.metaLines.length ? adpcmGenerated.metaLines : ['  { "", (const unsigned char *)0, 0u, 0u, 0u, 0u, 0u }']),
+    ...(adpcmGenerated.metaLines.length ? adpcmGenerated.metaLines : ['  { "", (const unsigned char *)0, 0u, 0u, 0u, 0u, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
     '};',
     `const unsigned char pce_editor_adpcm_asset_count = ${adpcmGenerated.adpcmAssets.length};`,
     '',
@@ -1723,6 +1821,7 @@ module.exports = {
   SPRITE_CELL_SIZES,
   SUPPORTED_TYPES,
   buildInternalPceConversionPlan,
+  collectCdDataFiles,
   defaultAssets,
   deleteAsset,
   decodePngImage,

@@ -16,15 +16,6 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf-8');
 }
 
-function copyIfChanged(sourcePath, targetPath) {
-  const source = fs.readFileSync(sourcePath);
-  const current = fs.existsSync(targetPath) ? fs.readFileSync(targetPath) : null;
-  if (current && Buffer.compare(source, current) === 0) return false;
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.copyFileSync(sourcePath, targetPath);
-  return true;
-}
-
 function shouldUseVisualNovelRuntime(projectDir, config = {}) {
   const settings = config.pluginSettings?.['pce-sample-builder'] || {};
   return settings.sample === 'visual-novel-cd'
@@ -33,10 +24,7 @@ function shouldUseVisualNovelRuntime(projectDir, config = {}) {
 }
 
 function syncVisualNovelRuntime(projectDir, logger) {
-  const runtimeSource = path.join(__dirname, 'template-vn', 'src', 'main.c');
-  const runtimeTarget = path.join(projectDir, 'src', 'main.c');
-  const changed = copyIfChanged(runtimeSource, runtimeTarget);
-  if (changed) logger?.info?.('PCE visual novel runtime を src/main.c に同期しました');
+  vnManager.syncVisualNovelRuntime(projectDir, logger);
 }
 
 function mergeProjectConfig(projectDir, patch = {}) {

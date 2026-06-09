@@ -663,6 +663,8 @@ const preview = await window.electronAPI.readTempFileAsDataUrl(tempWavPath, { de
 
 PC Engine core のプロジェクトでは、PCE asset manager 用の安全な project-local IPC を利用できます。
 
+画像表示、スプライト表示、ADPCM 再生、CD-DA 再生を実装する場合は、より実装寄りの流れを `docs/pce-media-programming-guide.md` にまとめています。ここでは IPC の入口だけを示します。
+
 ```js
 // assets/pce-assets.json を取得
 const assets = await window.electronAPI.listAssets();
@@ -701,7 +703,13 @@ await window.electronAPI.reorderAssets(['title_bg', 'hero_sprite']);
 
 `assets/pce-assets.json` の v2 画像/音声タイプは `image` (BG), `sprite`, `palette`, `psg-song`, `psg-sfx`, `adpcm`, `cdda-track` です。旧 `psg-sequence` は読み込み時に `psg-sfx` として正規化されます。PCE/CD-ROM2 は `llvm-mos-sdk` 固定で扱い、IPL / System Card は Setup でユーザー所有ファイルを指定します。
 
+`targetMedia: "cd"` の PCE VN build では、generated image の tile data、VRAM 幅へ展開した BG map、sprite pattern、ADPCM 本体を RAM bank へ詰め込まず、project 相対パスのまま `cd.dataFiles` へ登録します。VN build は scene command から必要 asset を解決し、scene pack 順を優先して `cd.dataFiles` を並べます。build は IPL program の後ろへ padding file を挟み、最初の visual/audio data file が固定の CD sector 64 から始まるように配置します。runtime は起動時と scene 切替時に黒画面/fade-out/blank 中の `preload_scene_assets()` で背景 tiles/map、sprite pattern、ADPCM を固定領域へ詰め替え、表示 command 側では preload/cache hit なら CD 読み込みを繰り返しません。RAM bank 129-132 はフォント/文字列など、実行時に CPU から直接参照する小さな生成データ用に限定してください。
+
+PCE background conversion は、入力画像の各 8x8 cell を表示順の tile としてそのまま出力します。同一内容の tile を dedupe しないため、VN の背景切替では絵が過度に共通タイル化されず、CD 上の `tiles.bin` は `width / 8 * height / 8 * 32` bytes を基準に扱われます。sprite pattern VRAM を別 asset へ差し替える場合は、runtime が sprite layer を一度無効化して空 SATB を反映し、その後に pattern を読み直してから SATB と sprite layer を戻します。同一 sprite sheet 内の目パチ・口パク frame 変更では pattern を再転送せず、SATB の frame 参照だけを更新します。
+
 Sprite asset は `options.animations` で VN runtime 向けの差分アニメーションを定義できます。各 entry は `id`, `name`, `frameWidth`, `frameHeight`, `firstCell`, `frameCount`, `frameDelay`, `frameStrideCells`, `loop` を持ちます。未指定時は sprite sheet 全体を 1 frame とする `default` animation が生成時に補われます。`firstCell` と `frameStrideCells` は、PCE 16x16/16x32/32x32 などの sprite cell を左上から数えた index です。
+
+VN runtime は `template/template_pce_vn_cd/src/pce_vn_runtime.c` を共通実体とし、各 project の `src/main.c` は `#include "pce_vn_runtime.c"` の薄い wrapper です。`pce-vn-manager.prepareVisualNovelBuild()` と `plugins/pce-sample-builder` は build 前に `main.c` と `pce_vn_runtime.c` を project `src/` へ同期します。runtime の変更はこの共通 source を更新してください。
 
 ### PCE VN scene schema
 
@@ -718,8 +726,13 @@ Sprite asset は `options.animations` で VN runtime 向けの差分アニメー
       "commands": [
         { "type": "background", "assetId": "classroom", "transition": "fade", "fadeOutFrames": 8, "fadeInFrames": 16 },
         { "type": "sprite", "slot": 0, "assetId": "akari", "x": 128, "y": 24, "animationId": "default", "visible": true },
+        { "type": "preload", "sceneId": "next_scene" },
         { "type": "audio", "kind": "cdda", "action": "play", "assetId": "opening_theme" },
         { "type": "message", "speaker": "アカリ", "text": "こんにちは", "voiceAssetId": "voice_01", "textSpeedFrames": 2, "advanceMode": "button", "autoWaitFrames": 60, "mouthSlot": 0, "mouthAnimationId": "mouth" },
+        { "type": "choice", "defaultIndex": 0, "choices": [{ "label": "進む", "targetSceneId": "next_scene" }, { "label": "待つ", "targetSceneId": "opening" }] },
+        { "type": "wait", "frames": 30 },
+        { "type": "effect", "effect": "fadeOut", "frames": 16 },
+        { "type": "jump", "sceneId": "next_scene" },
         { "type": "audio", "kind": "adpcm", "action": "stop", "assetId": "" }
       ]
     }
@@ -727,7 +740,7 @@ Sprite asset は `options.animations` で VN runtime 向けの差分アニメー
 }
 ```
 
-VN build では `src/generated/vn.h` / `vn.c` に `pce_vn_command_t`, `pce_vn_message_t`, `pce_vn_sprite_anim_t` を出力します。runtime は command を順に実行し、`message` command で停止します。メッセージ中の入力は typewriter 表示を即時完了し、完了後の入力または `advanceMode: "auto"` の待ち時間経過で次 command へ進みます。CD-DA 停止は `pce_cdb_cdda_pause()`、ADPCM 停止は `pce_cdb_adpcm_stop()` を使います。
+VN build では `src/generated/vn.h` / `vn.c` に `pce_vn_command_t`, `pce_vn_message_t`, `pce_vn_choice_t`, `pce_vn_sprite_anim_t` を出力します。runtime は command を順に実行し、`message`, `choice`, `wait` command で停止します。メッセージ中の入力は typewriter 表示を即時完了し、完了後の入力または `advanceMode: "auto"` の待ち時間経過で次 command へ進みます。`choice` は上下で選択、I/II/RUN で `targetSceneId` へ遷移します。`preload` は暗転中に次 scene の必要 asset を固定 VRAM/ADPCM RAM へ詰め替える用途に限定してください。CD-DA 再生は `cdda-track.options.loop` に応じて `PCE_CDB_CDDA_PLAY_REPEAT` / `PCE_CDB_CDDA_PLAY_ONE_SHOT` を切り替えます。CD-DA 停止は `pce_cdb_cdda_pause()`、ADPCM 停止は `pce_cdb_adpcm_stop()` を使います。
 
 ### `PluginInfo` の型
 

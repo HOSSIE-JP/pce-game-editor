@@ -11,6 +11,9 @@ const setupManager = require('./pce-setup-manager');
 const DEFAULT_PROJECT_NAME = 'sample_pce_game';
 const TEMPLATE_PROJECT_PREFIX = 'template_';
 const DEFAULT_TOOLCHAIN = 'llvm-mos';
+const PCE_CD_SECTOR_BYTES = 2048;
+const PCE_CD_IPL_PROGRAM_SECTORS = 20;
+const PCE_CD_DATA_BASE_SECTOR = 64;
 
 function ensureDirSync(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -414,12 +417,24 @@ function resolveProjectRelativeFile(projectDir, relativePath) {
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
     throw new Error(`CD data file must be under project root: ${raw}`);
   }
-  return fs.existsSync(resolved) ? resolved : null;
+  return fs.existsSync(resolved) ? rel.replace(/\\/g, '/') : null;
 }
 
 function resolveOptionalExternalFile(value) {
   const raw = String(value || '').trim();
   return raw && fs.existsSync(raw) ? path.resolve(raw) : null;
+}
+
+function ensurePceCdDataPaddingFile(commandInfo) {
+  const paddingSectors = PCE_CD_DATA_BASE_SECTOR - 1 - PCE_CD_IPL_PROGRAM_SECTORS;
+  if (paddingSectors <= 0) return null;
+  const paddingPath = path.join(path.dirname(commandInfo.isoPath), 'pce_cd_data_padding.bin');
+  const byteLength = paddingSectors * PCE_CD_SECTOR_BYTES;
+  ensureDirSync(path.dirname(paddingPath));
+  if (!fs.existsSync(paddingPath) || fs.statSync(paddingPath).size !== byteLength) {
+    fs.writeFileSync(paddingPath, Buffer.alloc(byteLength));
+  }
+  return paddingPath;
 }
 
 function buildPceMkcdArgs(projectDir, config, commandInfo) {
@@ -431,10 +446,14 @@ function buildPceMkcdArgs(projectDir, config, commandInfo) {
   }
   args.push(commandInfo.isoPath);
   args.push(commandInfo.elfPath);
-  cdConfig.dataFiles
+  const dataFiles = cdConfig.dataFiles
     .map((entry) => resolveProjectRelativeFile(projectDir, entry))
-    .filter(Boolean)
-    .forEach((filePath) => args.push(filePath));
+    .filter(Boolean);
+  if (dataFiles.length) {
+    const paddingPath = ensurePceCdDataPaddingFile(commandInfo);
+    if (paddingPath) args.push(paddingPath);
+  }
+  dataFiles.forEach((filePath) => args.push(filePath));
   return { args, iplPath };
 }
 
@@ -565,19 +584,13 @@ function buildProject(onLog, options = {}) {
     ensureProjectStructure(projectDir, loadProjectConfigFromDir(projectDir));
     let config = normalizeProjectConfig({ ...loadProjectConfigFromDir(projectDir), ...options.config });
     const log = (message, level = 'info') => onLog?.(String(message), level);
-    let generated;
-    try {
-      generated = assetManager.generateAssetSources(projectDir);
-    } catch (err) {
-      resolve({ success: false, error: `asset generation failed: ${err.message || err}` });
-      return;
-    }
+    let generated = {};
 
     if (isVisualNovelProject(projectDir, config)) {
       try {
         const prepared = vnManager.prepareVisualNovelBuild(projectDir, config);
         if (prepared?.generated) {
-          generated = { ...generated, visualNovel: prepared.generated };
+          generated.visualNovel = prepared.generated;
         }
         if (prepared?.configPatch) {
           config = mergeVisualNovelConfig(config, prepared.configPatch);
@@ -586,6 +599,19 @@ function buildProject(onLog, options = {}) {
         resolve({ success: false, error: `visual novel generation failed: ${err.message || err}` });
         return;
       }
+    }
+
+    try {
+      const assetSourceOptions = Array.isArray(config.cd?.dataFiles) && config.cd.dataFiles.length
+        ? { cdDataFiles: config.cd.dataFiles }
+        : {};
+      generated = {
+        ...assetManager.generateAssetSources(projectDir, assetSourceOptions),
+        ...generated,
+      };
+    } catch (err) {
+      resolve({ success: false, error: `asset generation failed: ${err.message || err}` });
+      return;
     }
 
 

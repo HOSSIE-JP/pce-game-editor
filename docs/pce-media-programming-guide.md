@@ -1,0 +1,599 @@
+# PCE 画像・スプライト・ADPCM・CD-DA プログラミングガイド
+
+このガイドは、PCE Game Editor の現行実装における背景画像、スプライト表示、ADPCM 再生、CD-DA 再生の API を、開発者が実装に使える形でまとめたものです。
+
+対象は PC Engine / Super CD-ROM2 project です。特に Visual Novel runtime (`template/template_pce_vn_cd/src/pce_vn_runtime.c`) と、そこへ渡される asset / scene 生成物を中心に説明します。
+
+## API の全体像
+
+現行 API は、1 つの高水準 C 関数を直接呼ぶ形ではなく、次の 5 層に分かれています。
+
+```mermaid
+flowchart LR
+  A["Renderer plugin / editor UI"] --> B["window.electronAPI<br/>importAssetImage / importAssetAudio"]
+  B --> C["assets/pce-assets.json<br/>asset 定義 + generated metadata"]
+  D["assets/pce-vn-scenes.json<br/>scene command"] --> E["pce-vn-manager.js<br/>generateVnSources"]
+  C --> F["pce-asset-manager.js<br/>generateAssetSources"]
+  E --> G["src/generated/vn.h / vn.c"]
+  F --> H["src/generated/assets.h / assets.c"]
+  G --> I["pce_vn_runtime.c"]
+  H --> I
+  I --> J["VDC / VRAM / SATB<br/>ADPCM RAM / CD-DA"]
+```
+
+| 層 | 主なファイル/API | 役割 |
+|---|---|---|
+| Renderer IPC | `window.electronAPI.importAssetImage()` / `importAssetAudio()` / `listAssets()` | エディタや plugin から安全に asset を登録する |
+| Asset schema | `assets/pce-assets.json` | 画像、スプライト、ADPCM、CD-DA の source/options/generated を保存する |
+| Scene schema | `assets/pce-vn-scenes.json` | 背景表示、スプライト表示、音声再生を command として記述する |
+| Generated C API | `src/generated/assets.h` / `vn.h` | runtime が参照する C struct / 配列へ変換する |
+| Runtime | `src/pce_vn_runtime.c` | VRAM 転送、SATB 更新、ADPCM/CD-DA 再生を実行する |
+
+## どの API を使うか
+
+| やりたいこと | 登録 API | Asset type | Scene command | 生成 C struct | Runtime 側の主処理 |
+|---|---|---|---|---|---|
+| 背景画像を表示する | `importAssetImage({ kind: "background" })` | `image` | `background` | `pce_editor_bg_asset_t` | `set_background()` / `upload_bg_graphics()` |
+| スプライトを表示する | `importAssetImage({ kind: "sprite" })` | `sprite` | `sprite` | `pce_editor_sprite_asset_t`, `pce_vn_sprite_anim_t` | `refresh_scene_sprites()` / `show_character_sprite_frame()` |
+| ADPCM を鳴らす | `importAssetAudio({ kind: "adpcm" })` | `adpcm` | `audio` または `message.voiceAssetId` | `pce_editor_adpcm_asset_t` | `play_adpcm_voice()` / `stop_adpcm_voice()` |
+| CD-DA を鳴らす | `importAssetAudio({ kind: "cdda-track" })` | `cdda-track` | `audio` | `pce_editor_cdda_asset_t` | `play_cdda_track()` / `stop_cdda_track()` |
+
+## Renderer IPC API
+
+PC Engine project では、renderer から次の project-local IPC を使えます。
+
+```js
+const assets = await window.electronAPI.listAssets();
+
+const bg = await window.electronAPI.importAssetImage({
+  sourcePath: "/absolute/path/title.png",
+  kind: "background",
+  id: "title_bg",
+  paletteBank: 0,
+  tileBase: 128,
+  mapBase: 130,
+  transparentIndex: 0
+});
+
+const sprite = await window.electronAPI.importAssetImage({
+  sourcePath: "/absolute/path/akari.png",
+  kind: "sprite",
+  id: "akari_sprite",
+  paletteBank: 1,
+  tileBase: 880,
+  cellWidth: 16,
+  cellHeight: 16,
+  transparentIndex: 0
+});
+
+const voice = await window.electronAPI.importAssetAudio({
+  sourcePath: "/absolute/path/voice.wav",
+  kind: "adpcm",
+  id: "voice_01",
+  sampleRate: 16000,
+  loop: false
+});
+
+const cdda = await window.electronAPI.importAssetAudio({
+  sourcePath: "/absolute/path/opening.wav",
+  kind: "cdda-track",
+  id: "opening_theme",
+  track: 2,
+  loop: false
+});
+```
+
+| API | 戻り値の要点 | 注意 |
+|---|---|---|
+| `listAssets()` | `{ ok, file, assets }` | PC Engine core 専用 |
+| `importAssetImage(payload)` | `{ ok, asset, assets, commandInfo, conversion }` | `sourcePath` は dialog 由来の絶対パス。保存先は project 相対に正規化 |
+| `importAssetAudio(payload)` | `{ ok, asset, assets, conversion }` | WAV のみ対応。ADPCM は `adpcm.bin`、CD-DA は 44.1kHz/16bit/stereo WAV へ正規化 |
+| `previewAssetSource(relativePath)` | `{ ok, dataUrl, mime, size }` | project root 内の相対パスのみ |
+| `reorderAssets(ids)` | `{ ok, version, assets }` | `assets/pce-assets.json` の順序を保存 |
+| `upsertAsset(asset)` / `deleteAsset(id)` | `{ ok, version, assets }` | 直接編集用。生成ファイル作成は import API が担当 |
+
+`previewAssetSource()` と `reorderAssets()` は絶対パス、`..`、project root 外 escape を拒否します。`importAssetImage()` / `importAssetAudio()` の `sourcePath` は読み取り元として絶対パスを受けますが、保存される `source` と generated file path は project 相対です。
+
+## Asset Schema
+
+全 asset は `assets/pce-assets.json` に保存されます。
+
+```jsonc
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "title_bg",
+      "type": "image",
+      "name": "Title BG",
+      "source": "assets/images/title_bg.png",
+      "options": {},
+      "data": {
+        "generated": {},
+        "import": {}
+      }
+    }
+  ]
+}
+```
+
+### 共通フィールド
+
+| field | 型 | 説明 |
+|---|---|---|
+| `id` | `string` | scene command から参照する asset ID |
+| `type` | `string` | `image`, `sprite`, `adpcm`, `cdda-track` など |
+| `name` | `string` | UI 表示名 |
+| `source` | `string` | project 相対の元ファイル |
+| `options` | `object` | asset type ごとの設定 |
+| `data.generated` | `object` | 変換済みファイル、サイズ、警告など |
+| `data.import` | `object` | 元ファイル名、import 時刻、converter 名 |
+
+### 背景画像 `image`
+
+背景画像は 8x8 BG tile と BAT map に変換されます。CD-ROM2 target では、`tiles.bin` と `map_vram.bin` が CD data file として扱われます。
+
+```jsonc
+{
+  "id": "classroom_bg",
+  "type": "image",
+  "source": "assets/images/classroom_bg.png",
+  "options": {
+    "kind": "background",
+    "paletteBank": 0,
+    "tileBase": 128,
+    "mapBase": 130,
+    "x": 16,
+    "y": 16,
+    "width": 288,
+    "height": 128,
+    "cellWidth": 8,
+    "cellHeight": 8,
+    "transparentIndex": 0
+  }
+}
+```
+
+| option | 範囲/既定 | 説明 |
+|---|---:|---|
+| `kind` | `"background"` | `image` では background 固定 |
+| `paletteBank` | `0..15` | BG palette bank |
+| `tileBase` | `0..2047` | BG tile を置く tile index |
+| `mapBase` | `0..2047` | BAT map 転送先 word address |
+| `x`, `y` | `0..255` | UI/preview 用の配置情報。現行 VN runtime の BG 転送先には使われない |
+| `width`, `height` | `0..1024` | 画像サイズ。8px 単位推奨 |
+| `cellWidth`, `cellHeight` | `8` | BG は 8x8 tile 固定 |
+| `transparentIndex` | `0..15` | indexed/transparent 変換時の透明 index |
+
+| generated field | 説明 |
+|---|---|
+| `paletteFile` | VCE color 16 色分の `palette.bin` |
+| `tilesFile` | BG tile data `tiles.bin` |
+| `mapFile` | compact map data |
+| `mapVramFile` | VN runtime が CD から直接 VRAM 転送しやすい 64 幅展開 map |
+| `tileCount` | 8x8 tile 数 |
+| `vramBytes` | tiles + map の概算 VRAM byte 数 |
+| `warnings` | VRAM overlap やサイズ警告 |
+
+### スプライト `sprite`
+
+スプライトは PCE sprite pattern と sprite palette に変換されます。表示は VN scene の `sprite` command で行います。
+
+```jsonc
+{
+  "id": "akari_sprite",
+  "type": "sprite",
+  "source": "assets/sprites/akari_sprite.png",
+  "options": {
+    "kind": "sprite",
+    "paletteBank": 1,
+    "tileBase": 880,
+    "x": 128,
+    "y": 24,
+    "width": 64,
+    "height": 128,
+    "cellWidth": 16,
+    "cellHeight": 16,
+    "transparentIndex": 0,
+    "animations": [
+      {
+        "id": "default",
+        "name": "Default",
+        "frameWidth": 64,
+        "frameHeight": 128,
+        "firstCell": 0,
+        "frameCount": 1,
+        "frameDelay": 8,
+        "frameStrideCells": 32,
+        "loop": true
+      }
+    ]
+  }
+}
+```
+
+| option | 範囲/既定 | 説明 |
+|---|---:|---|
+| `paletteBank` | `0..15` | sprite palette bank。runtime は sprite palette 領域 `256 + paletteBank * 16` へ転送 |
+| `tileBase` | `0..2047`, 既定 `880` | C 生成後は `pattern_base`。sprite pattern の基準 index |
+| `x`, `y` | `0..255` | 既定表示位置。scene command の `x`, `y` が実表示に使われる |
+| `width`, `height` | `0..1024` | sheet 全体サイズ |
+| `cellWidth`, `cellHeight` | `16x16`, `16x32`, `16x64`, `32x16`, `32x32`, `32x64` | PCE sprite cell size |
+| `transparentIndex` | `0..15` | 透明 index |
+| `animations` | 最大 16 件 | VN runtime 用 animation 定義 |
+
+| animation field | 説明 |
+|---|---|
+| `id` | scene command の `animationId` で参照する ID |
+| `frameWidth`, `frameHeight` | 1 frame の表示サイズ。cell size の倍数へ正規化 |
+| `firstCell` | sheet 左上から数えた開始 cell index |
+| `frameCount` | frame 数。最大 64 |
+| `frameDelay` | 何 frame ごとに次 animation frame へ進めるか |
+| `frameStrideCells` | 次 frame まで何 cell 進むか |
+| `loop` | 最終 frame 後に先頭へ戻すか |
+
+### ADPCM `adpcm`
+
+ADPCM は WAV から `assets/generated/<id>/adpcm.bin` へ変換されます。CD-ROM2 target では CD data file として配置され、runtime が ADPCM RAM へ読み込みます。
+
+```jsonc
+{
+  "id": "voice_01",
+  "type": "adpcm",
+  "source": "assets/adpcm/voice_01.wav",
+  "options": {
+    "sampleRate": 16000,
+    "loop": false,
+    "adpcmAddress": 0,
+    "divider": 0
+  }
+}
+```
+
+| option | 範囲/既定 | 説明 |
+|---|---:|---|
+| `sampleRate` | `4000..32000`, 既定 `16000` | ADPCM 変換時の目標 sample rate |
+| `loop` | `false` | runtime の `pce_cdb_adpcm_play()` に repeat/one-shot として渡る |
+| `adpcmAddress` | `0..65535` | ADPCM RAM 上の読み込み先 address |
+| `divider` | `0..255` | `pce_cdb_adpcm_play()` に渡す divider |
+
+### CD-DA `cdda-track`
+
+CD-DA は WAV から `assets/generated/<id>/cdda.wav` へ正規化され、CD の audio track として bundle されます。
+
+```jsonc
+{
+  "id": "opening_theme",
+  "type": "cdda-track",
+  "source": "assets/cdda/opening_theme.wav",
+  "options": {
+    "track": 2,
+    "loop": false
+  }
+}
+```
+
+| option | 範囲/既定 | 説明 |
+|---|---:|---|
+| `track` | `2..99`, 既定 `2` | CD-DA track 番号。track 1 は data track なので使わない |
+| `loop` | `false` | `true` の場合、現行 VN runtime は `PCE_CDB_CDDA_PLAY_REPEAT` で再生する |
+
+## Scene Command API
+
+Visual Novel project では `assets/pce-vn-scenes.json` の `commands` が表示/再生のプログラミング API です。
+
+```jsonc
+{
+  "version": 2,
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "commands": [
+        { "type": "background", "assetId": "classroom_bg", "transition": "fade", "fadeOutFrames": 8, "fadeInFrames": 16 },
+        { "type": "sprite", "slot": 0, "assetId": "akari_sprite", "x": 128, "y": 24, "animationId": "default", "visible": true },
+        { "type": "audio", "kind": "cdda", "action": "play", "assetId": "opening_theme" },
+        { "type": "message", "speaker": "アカリ", "text": "こんにちは", "voiceAssetId": "voice_01", "textSpeedFrames": 2 },
+        { "type": "audio", "kind": "adpcm", "action": "stop", "assetId": "" }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}
+```
+
+### 背景表示 command
+
+```jsonc
+{ "type": "background", "assetId": "classroom_bg", "transition": "fade", "fadeOutFrames": 8, "fadeInFrames": 16 }
+```
+
+| field | 値 | 説明 |
+|---|---|---|
+| `type` | `"background"` | 背景切替 |
+| `assetId` | `image` asset ID | 無効な ID は最初の `image` asset へ fallback される |
+| `transition` | `"cut"` / `"fade"` | `fade` は palette fade を使う |
+| `fadeOutFrames` | `0..60` | 現背景を暗転する frame 数 |
+| `fadeInFrames` | `0..60` | 次背景を表示する frame 数 |
+
+### スプライト表示 command
+
+```jsonc
+{ "type": "sprite", "slot": 0, "assetId": "akari_sprite", "x": 128, "y": 24, "animationId": "default", "visible": true }
+```
+
+| field | 値 | 説明 |
+|---|---|---|
+| `type` | `"sprite"` | sprite slot の表示状態を更新 |
+| `slot` | `0..3` | VN runtime の論理 slot。最大 4 slot |
+| `assetId` | `sprite` asset ID | `visible: true` で無効な ID の場合 command 自体が正規化で除外される |
+| `x`, `y` | `0..319`, `0..223` | 画面座標。runtime は PCE SATB 用に `x + 32`, `y + 64` へ補正 |
+| `animationId` | animation ID | 未指定時は `default` |
+| `visible` | `boolean` | `false` なら slot を非表示にする |
+
+### ADPCM 再生 command
+
+```jsonc
+{ "type": "audio", "kind": "adpcm", "action": "play", "assetId": "voice_01" }
+{ "type": "audio", "kind": "adpcm", "action": "stop", "assetId": "" }
+```
+
+| field | 値 | 説明 |
+|---|---|---|
+| `type` | `"audio"` | 音声 command |
+| `kind` | `"adpcm"` | ADPCM を対象にする |
+| `action` | `"play"` / `"stop"` | 再生または停止 |
+| `assetId` | `adpcm` asset ID | `play` のときだけ参照 |
+
+`message` command の `voiceAssetId` でも ADPCM を再生できます。
+
+```jsonc
+{
+  "type": "message",
+  "text": "こんにちは",
+  "voiceAssetId": "voice_01",
+  "textSpeedFrames": 2,
+  "advanceMode": "button"
+}
+```
+
+### CD-DA 再生 command
+
+```jsonc
+{ "type": "audio", "kind": "cdda", "action": "play", "assetId": "opening_theme" }
+{ "type": "audio", "kind": "cdda", "action": "stop", "assetId": "" }
+```
+
+| field | 値 | 説明 |
+|---|---|---|
+| `kind` | `"cdda"` | CD-DA track を対象にする |
+| `action` | `"play"` / `"stop"` | `play` は track 再生、`stop` は pause |
+| `assetId` | `cdda-track` asset ID | `play` のとき `options.track` が runtime へ渡る |
+
+現行 VN runtime の CD-DA 再生は、`cdda-track.options.loop` に応じて `PCE_CDB_CDDA_PLAY_REPEAT` / `PCE_CDB_CDDA_PLAY_ONE_SHOT` を切り替えます。
+
+### Preload command
+
+```jsonc
+{ "type": "preload", "sceneId": "next_scene" }
+```
+
+`preload` は暗転中や scene 切替前に、指定 scene で必要になる背景 tiles/map、sprite patterns、ADPCM data を先読みするための command です。CD-DA は audio track なので CD data file の preload 対象ではありません。
+
+現行 runtime は ADPCM の preload/cache 状態を `loaded_adpcm_valid` / `loaded_adpcm_index` で管理します。音声の確実な再生制御をしたい場合は、まず `audio` command または `message.voiceAssetId` を主 API として使い、`preload` は表示データの読み込みタイミング調整を主目的にしてください。
+
+## Generated C API
+
+Build 時に `pce-asset-manager.js` と `pce-vn-manager.js` が `src/generated/assets.h` / `assets.c` / `vn.h` / `vn.c` を生成します。
+
+```mermaid
+classDiagram
+  class pce_editor_bg_asset_t {
+    palette
+    tiles
+    map
+    width_tiles
+    height_tiles
+    tile_base
+    map_base
+    palette_bank
+  }
+  class pce_editor_sprite_asset_t {
+    palette
+    patterns
+    cell_width
+    cell_height
+    cell_columns
+    cell_rows
+    pattern_base
+    palette_bank
+    x
+    y
+  }
+  class pce_editor_adpcm_asset_t {
+    id
+    data
+    data_size
+    sample_rate
+    adpcm_address
+    divider
+    loop
+    cd
+  }
+  class pce_editor_cdda_asset_t {
+    id
+    track
+    loop
+  }
+  class pce_vn_command_t {
+    type
+    asset_index
+    slot
+    flags
+    arg0
+    arg1
+    x
+    y
+    message_index
+    animation_index
+    scene_index
+    choice_index
+  }
+```
+
+| C symbol | 内容 |
+|---|---|
+| `pce_editor_bg_assets[]` / `_count` | `image` asset の generated palette/tile/map metadata |
+| `pce_editor_sprite_assets[]` / `_count` | `sprite` asset の generated palette/pattern metadata |
+| `pce_editor_adpcm_assets[]` / `_count` | `adpcm` asset の data size, address, divider, loop, CD sector metadata |
+| `pce_editor_cdda_assets[]` / `_count` | `cdda-track` asset の track/loop metadata |
+| `pce_vn_sprite_animations[]` / `_count` | `sprite.options.animations` を cell 単位へ正規化した metadata |
+| `pce_vn_messages[]` / `_count` | message glyphs と voice index |
+| `pce_vn_commands[]` / `_count` | scene command を runtime 用に packed した配列 |
+| `pce_vn_scenes[]` / `_count` | scene ごとの command 範囲と next scene |
+
+`pce_vn_runtime.c` 内の `set_background()`、`play_adpcm_voice()` などは現状 `static` な内部実装です。外部 plugin や game code から直接呼ぶ公開 C API ではなく、公開面は scene JSON と generated C struct / 配列です。
+
+## Runtime の動き
+
+### 背景画像
+
+```mermaid
+sequenceDiagram
+  participant Scene as background command
+  participant RT as pce_vn_runtime.c
+  participant CD as CD data file
+  participant VDC as VDC / VRAM / VCE
+  Scene->>RT: set_background(asset_index, transition)
+  RT->>VDC: fade out / display disable as needed
+  RT->>CD: read tiles.bin / map_vram.bin when CD ref exists
+  RT->>VDC: upload palette, tiles, map
+  RT->>VDC: display enable / fade in
+```
+
+背景は `upload_bg_graphics()` で palette、tiles、map を転送します。BG map は `VN_MAP_WIDTH = 64` の BAT として扱われます。CD-ROM2 target では `pce_cdb_cd_read(..., PCE_CDB_VRAM_BYTES, ...)` で CD data sector から VRAM へ直接読み込みます。
+
+### スプライト
+
+```mermaid
+sequenceDiagram
+  participant Scene as sprite command
+  participant RT as runtime sprite slot
+  participant VRAM as Sprite pattern VRAM
+  participant SATB as SATB
+  Scene->>RT: slot, asset_index, animation_index, x, y, visible
+  RT->>VRAM: ensure_sprite_patterns_loaded()
+  RT->>SATB: show_character_sprite_frame()
+  RT->>SATB: upload_sprite_table()
+```
+
+runtime は 4 つの論理 sprite slot を持ちます。1 slot の animation frame は `frameWidth` / `frameHeight` に応じて複数の hardware sprite entry を消費します。SATB 全体は 64 entry です。
+
+複数の sprite asset を同時表示する場合は、`tileBase` が同じだと pattern VRAM を上書きし合います。複数 actor を同時に出したい場合は、asset ごとに重ならない `tileBase` を割り当ててください。
+
+### ADPCM
+
+```mermaid
+sequenceDiagram
+  participant Scene as audio/message command
+  participant RT as pce_vn_runtime.c
+  participant CD as CD data file
+  participant AD as ADPCM RAM
+  Scene->>RT: play_adpcm_voice(asset_index)
+  RT->>AD: reset
+  alt CD ref exists
+    RT->>CD: pce_cdb_adpcm_read_from_cd(sector, count, address)
+  else RAM data exists
+    RT->>AD: pce_cdb_adpcm_read_from_ram(...)
+  end
+  RT->>AD: pce_cdb_adpcm_play(address, data_size, divider, repeat/one-shot)
+```
+
+`adpcm.options.loop` は `PCE_CDB_ADPCM_REPEAT` / `PCE_CDB_ADPCM_ONE_SHOT` の選択に使われます。停止は `pce_cdb_adpcm_stop()` です。
+
+### CD-DA
+
+```mermaid
+sequenceDiagram
+  participant Scene as audio command
+  participant RT as pce_vn_runtime.c
+  participant CDB as CD block
+  Scene->>RT: kind=cdda, action=play, asset_index
+  RT->>CDB: pce_cdb_cdda_play(track, until end, loop ? REPEAT : ONE_SHOT)
+  Scene->>RT: kind=cdda, action=stop
+  RT->>CDB: pce_cdb_cdda_pause()
+```
+
+CD-DA は `cdda-track.options.track` を使って track 番号で再生されます。現行 runtime では track が 2 未満なら再生しません。
+
+## 音量とフェード
+
+ADPCM / CD-DA の任意 volume 値を asset や scene command から直接指定する API は、現行実装にはありません。
+
+CD BIOS には `pce_cdb_fader()` があり、CD-DA 側は `PCE_CDB_FADER_PCM_2_5_SEC` / `PCE_CDB_FADER_PCM_6_SEC`、ADPCM 側は `PCE_CDB_FADER_ADPCM_2_5_SEC` / `PCE_CDB_FADER_ADPCM_6_SEC` を選べます。これは任意音量のミキサーというより、CD unit の fader mode を起動する API です。フェードアウト用途は追加しやすい一方で、フレーム単位の volume curve や汎用 fade-in は現行 scene API だけでは表現できません。
+
+ADPCM の `divider` は再生周波数/速度側の値で、音量ではありません。
+
+## スプライトのフェード
+
+背景 fade は `fade_palette()` が BG palette bank を段階的に暗く/明るくすることで実現しています。スプライトは VCE の sprite palette 領域 (`256 + paletteBank * 16`) を使うため、現行 runtime の背景 fade だけでは一緒にフェードしません。
+
+スプライト fade 自体は palette fade と同じ考え方で実装可能です。visible slot の `pce_editor_sprite_asset_t.palette` を集め、sprite palette 領域に対して `fade_palette()` 相当の処理を行えば、立ち絵を背景と同じように暗転できます。ただし現行 API には sprite command ごとの `transition` や `fadeFrames` はまだありません。
+
+## 実装レシピ
+
+### 背景を追加して表示する
+
+1. `importAssetImage({ kind: "background", id: "classroom_bg", ... })` で登録する。
+2. `assets/pce-vn-scenes.json` の command に `{ "type": "background", "assetId": "classroom_bg" }` を追加する。
+3. build 時に `pce_editor_bg_assets[]` と `pce_vn_commands[]` が生成される。
+4. runtime が command 実行時に VRAM と palette を転送する。
+
+### スプライトを追加して表示する
+
+1. `importAssetImage({ kind: "sprite", id: "akari_sprite", cellWidth: 16, cellHeight: 16 })` で登録する。
+2. 必要なら `options.animations` に `mouth`、`blink` などを定義する。
+3. scene に `{ "type": "sprite", "slot": 0, "assetId": "akari_sprite", "animationId": "default", "visible": true }` を追加する。
+4. 口パクなどは `message.mouthSlot` と `message.mouthAnimationId` で message 中に animation を切り替える。
+
+### ADPCM ボイスを message に付ける
+
+1. `importAssetAudio({ kind: "adpcm", id: "voice_01", sampleRate: 16000 })` で登録する。
+2. message command に `"voiceAssetId": "voice_01"` を指定する。
+3. 通常経路では、message 開始時に runtime が ADPCM を読み込み、`pce_cdb_adpcm_play()` を呼ぶ。
+
+### CD-DA BGM を再生する
+
+1. `importAssetAudio({ kind: "cdda-track", id: "opening_theme", track: 2 })` で登録する。
+2. scene に `{ "type": "audio", "kind": "cdda", "action": "play", "assetId": "opening_theme" }` を追加する。
+3. 停止したい位置に `{ "type": "audio", "kind": "cdda", "action": "stop", "assetId": "" }` を追加する。
+
+## 現行仕様の制約と注意
+
+| 項目 | 現行仕様 |
+|---|---|
+| PC Engine core 限定 | asset IPC は active core が `pc-engine` のときだけ成功する |
+| 画像変換 | PNG/BMP 対応。BMP は renderer 側で PNG Data URL 化してから import |
+| BG tile dedupe | 背景は 8x8 cell を表示順に出力し、同一 tile の dedupe はしない |
+| Sprite cell size | `16x16`, `16x32`, `16x64`, `32x16`, `32x32`, `32x64` のみ |
+| VN sprite slot | 論理 slot は 4。hardware SATB は 64 entry |
+| Sprite pattern VRAM | 同時表示する sprite asset は `tileBase` の衝突に注意 |
+| ADPCM loop | `adpcm.options.loop` は runtime 再生に反映される |
+| ADPCM preload | `preload` は読み込みタイミング調整用。再生制御は `audio` command または `message.voiceAssetId` を主 API にする |
+| CD-DA loop | `cdda-track.options.loop` は `PCE_CDB_CDDA_PLAY_REPEAT` / `ONE_SHOT` に反映される |
+| ADPCM/CD-DA volume | 任意 volume API は未実装。SDK には `pce_cdb_fader()` による fader mode がある |
+| Sprite fade | 現行背景 fade は BG palette のみ。sprite palette fade は実装可能だが scene API は未定義 |
+| CD data sector | VN build は visual/audio data file を CD sector 64 以降へ配置する |
+| Public C API | 現状は generated struct/array が公開面。runtime 関数は `static` 内部関数 |
+
+## 参照する実装ファイル
+
+| ファイル | 見る内容 |
+|---|---|
+| `pce-asset-manager.js` | asset schema 正規化、画像/音声 import、generated assets C 出力 |
+| `pce-vn-manager.js` | scene schema 正規化、VN command / message / animation C 出力 |
+| `template/template_pce_vn_cd/src/pce_vn_runtime.c` | 実機側 runtime の表示/再生処理 |
+| `template/template_pce_vn_cd/assets/pce-assets.json` | 現行 asset schema のサンプル |
+| `template/template_pce_vn_cd/assets/pce-vn-scenes.json` | 現行 scene command schema のサンプル |
+| `template/template_pce_vn_cd/src/generated/assets.h` | generated asset C API のサンプル |
+| `template/template_pce_vn_cd/src/generated/vn.h` | generated VN command C API のサンプル |
