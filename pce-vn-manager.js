@@ -24,6 +24,8 @@ const VN_COMMAND_EFFECT = 8;
 const VN_BG_TRANSITION_CUT = 0;
 const VN_BG_TRANSITION_FADE = 1;
 const VN_SPRITE_VISIBLE = 1;
+const VN_SPRITE_FLIP_X = 2;
+const VN_SPRITE_FLIP_Y = 4;
 const VN_AUDIO_KIND_ADPCM = 0;
 const VN_AUDIO_KIND_CDDA = 1;
 const VN_AUDIO_ACTION_PLAY = 0x10;
@@ -31,6 +33,7 @@ const VN_AUDIO_ACTION_STOP = 0x20;
 const VN_EFFECT_FADE_OUT = 0;
 const VN_EFFECT_FADE_IN = 1;
 const VN_EFFECT_BLANK = 2;
+const VN_EFFECT_SHAKE = 3;
 const VN_ADVANCE_BUTTON = 0;
 const VN_ADVANCE_AUTO = 1;
 const DEFAULT_FONT_CONFIG = {
@@ -253,6 +256,9 @@ function normalizeLegacyCharacterCommand(character = {}, index = 0, valid = asse
     x: clampInt(raw.x, 0, 319, defaultCharacterX(assetDoc, assetId)),
     y: clampInt(raw.y, 0, 223, DEFAULT_CHARACTER_Y),
     animationId: String(raw.animationId || raw.pose || 'default').trim().slice(0, 32) || 'default',
+    flipX: Boolean(raw.flipX ?? raw.flippedX ?? raw.hflip),
+    flipY: Boolean(raw.flipY ?? raw.flippedY ?? raw.vflip),
+    durationFrames: clampInt(raw.durationFrames ?? raw.moveFrames ?? raw.frames, 0, 255, 0),
     visible: raw.visible !== false,
   };
 }
@@ -286,6 +292,7 @@ function normalizeEffectKind(value = '') {
   const raw = String(value || '').trim();
   if (raw === 'fadeIn' || raw === 'fade-in' || raw === 'in') return 'fadeIn';
   if (raw === 'blank' || raw === 'black') return 'blank';
+  if (raw === 'shake' || raw === 'screenShake' || raw === 'screen-shake') return 'shake';
   return 'fadeOut';
 }
 
@@ -314,6 +321,9 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
       x: clampInt(raw.x, 0, 319, defaultCharacterX(assetDoc, assetId)),
       y: clampInt(raw.y, 0, 223, DEFAULT_CHARACTER_Y),
       animationId: String(raw.animationId || 'default').trim().slice(0, 32) || 'default',
+      flipX: Boolean(raw.flipX ?? raw.flippedX ?? raw.hflip),
+      flipY: Boolean(raw.flipY ?? raw.flippedY ?? raw.vflip),
+      durationFrames: clampInt(raw.durationFrames ?? raw.moveFrames ?? raw.frames, 0, 255, 0),
       visible,
     };
   }
@@ -355,10 +365,12 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
     };
   }
   if (type === 'effect') {
+    const effect = normalizeEffectKind(raw.effect || raw.kind || raw.name);
     return {
       type: 'effect',
-      effect: normalizeEffectKind(raw.effect || raw.kind || raw.name),
+      effect,
       frames: clampInt(raw.frames ?? raw.durationFrames, 0, 255, 16),
+      intensity: effect === 'shake' ? clampInt(raw.intensity ?? raw.power ?? raw.amplitude, 1, 16, 4) : 0,
     };
   }
   return null;
@@ -830,6 +842,7 @@ function generateVnSources(projectDir, options = {}) {
   const sceneIndex = new Map(doc.scenes.map((scene, index) => [scene.id, index]));
   const generatedDir = path.join(projectDir, 'src', 'generated');
   ensureDirSync(generatedDir);
+  const vnDataSection = 'PCE_VN_DATA_SECTION';
 
   const messageArrays = [];
   const messageMeta = [];
@@ -859,8 +872,11 @@ function generateVnSources(projectDir, options = {}) {
         const animationIndex = spriteAssetIndex >= 0
           ? (spriteAnimations.index.get(`${spriteAssetId}:${command.animationId || 'default'}`) ?? spriteAnimations.index.get(`${spriteAssetId}:default`) ?? -1)
           : -1;
+        const flags = (command.visible ? VN_SPRITE_VISIBLE : 0)
+          | (command.flipX ? VN_SPRITE_FLIP_X : 0)
+          | (command.flipY ? VN_SPRITE_FLIP_Y : 0);
         slotSpriteAssets[slot] = spriteAssetIndex >= 0 ? spriteAssetId : '';
-        commandMeta.push(`  { ${VN_COMMAND_SPRITE}u, ${spriteAssetIndex}, ${slot}u, ${command.visible ? VN_SPRITE_VISIBLE : 0}u, 0u, 0u, ${command.x}u, ${command.y}u, -1, ${animationIndex}, -1, -1 }`);
+        commandMeta.push(`  { ${VN_COMMAND_SPRITE}u, ${spriteAssetIndex}, ${slot}u, ${flags}u, ${command.durationFrames}u, 0u, ${command.x}u, ${command.y}u, -1, ${animationIndex}, -1, -1 }`);
         commandCount += 1;
         return;
       }
@@ -877,7 +893,7 @@ function generateVnSources(projectDir, options = {}) {
         const mouthAnimationIndex = command.mouthAnimationId && mouthSpriteId
           ? (spriteAnimations.index.get(`${mouthSpriteId}:${command.mouthAnimationId}`) ?? -1)
           : -1;
-        messageArrays.push(...bytesToCArray(name, Buffer.from(bytes)));
+        messageArrays.push(...bytesToCArray(`${vnDataSection} ${name}`, Buffer.from(bytes)));
         messageArrays.push('');
         const voiceIndex = command.voiceAssetId && adpcmIndex.has(command.voiceAssetId)
           ? adpcmIndex.get(command.voiceAssetId)
@@ -915,10 +931,10 @@ function generateVnSources(projectDir, options = {}) {
             bytes.push(glyphIndex.get(glyph) ?? 0);
           }
           bytes.push(GLYPH_END);
-          choiceArrays.push(...bytesToCArray(`${choiceName}_option_${optionIndex}_glyphs`, Buffer.from(bytes)));
+          choiceArrays.push(...bytesToCArray(`${vnDataSection} ${choiceName}_option_${optionIndex}_glyphs`, Buffer.from(bytes)));
           choiceArrays.push('');
         });
-        choiceArrays.push(`static const pce_vn_choice_option_t ${choiceName}_options[] = {`);
+        choiceArrays.push(`static const pce_vn_choice_option_t ${vnDataSection} ${choiceName}_options[] = {`);
         options.forEach((option, optionIndex) => {
           let glyphCount = 0;
           for (const _glyph of String(option.label || '')) glyphCount += 1;
@@ -949,8 +965,8 @@ function generateVnSources(projectDir, options = {}) {
       if (command.type === 'effect') {
         const effect = command.effect === 'fadeIn'
           ? VN_EFFECT_FADE_IN
-          : (command.effect === 'blank' ? VN_EFFECT_BLANK : VN_EFFECT_FADE_OUT);
-        commandMeta.push(`  { ${VN_COMMAND_EFFECT}u, -1, 0u, ${effect}u, ${clampInt(command.frames, 0, 255, 16)}u, 0u, 0u, 0u, -1, -1, -1, -1 }`);
+          : (command.effect === 'blank' ? VN_EFFECT_BLANK : (command.effect === 'shake' ? VN_EFFECT_SHAKE : VN_EFFECT_FADE_OUT));
+        commandMeta.push(`  { ${VN_COMMAND_EFFECT}u, -1, 0u, ${effect}u, ${clampInt(command.frames, 0, 255, 16)}u, ${clampInt(command.intensity, 0, 16, 0)}u, 0u, 0u, -1, -1, -1, -1 }`);
         commandCount += 1;
       }
     });
@@ -980,6 +996,8 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_BG_TRANSITION_CUT ${VN_BG_TRANSITION_CUT}u`,
     `#define PCE_VN_BG_TRANSITION_FADE ${VN_BG_TRANSITION_FADE}u`,
     `#define PCE_VN_SPRITE_VISIBLE ${VN_SPRITE_VISIBLE}u`,
+    `#define PCE_VN_SPRITE_FLIP_X ${VN_SPRITE_FLIP_X}u`,
+    `#define PCE_VN_SPRITE_FLIP_Y ${VN_SPRITE_FLIP_Y}u`,
     `#define PCE_VN_AUDIO_KIND_ADPCM ${VN_AUDIO_KIND_ADPCM}u`,
     `#define PCE_VN_AUDIO_KIND_CDDA ${VN_AUDIO_KIND_CDDA}u`,
     `#define PCE_VN_AUDIO_ACTION_PLAY ${VN_AUDIO_ACTION_PLAY}u`,
@@ -987,6 +1005,7 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_EFFECT_FADE_OUT ${VN_EFFECT_FADE_OUT}u`,
     `#define PCE_VN_EFFECT_FADE_IN ${VN_EFFECT_FADE_IN}u`,
     `#define PCE_VN_EFFECT_BLANK ${VN_EFFECT_BLANK}u`,
+    `#define PCE_VN_EFFECT_SHAKE ${VN_EFFECT_SHAKE}u`,
     `#define PCE_VN_ADVANCE_BUTTON ${VN_ADVANCE_BUTTON}u`,
     `#define PCE_VN_ADVANCE_AUTO ${VN_ADVANCE_AUTO}u`,
     '',
@@ -1073,14 +1092,16 @@ function generateVnSources(projectDir, options = {}) {
     '#include <pce-cd.h>',
     'PCE_RAM_BANK_AT(132, 6);',
     '#define PCE_VN_FONT_SECTION __attribute__((section(".ram_bank132")))',
+    '#define PCE_VN_DATA_SECTION __attribute__((section(".ram_bank132")))',
     '#else',
     '#define PCE_VN_FONT_SECTION',
+    '#define PCE_VN_DATA_SECTION',
     '#endif',
     '',
     '#include "vn.h"',
     '',
     ...bytesToCArray('PCE_VN_FONT_SECTION pce_vn_font_tiles', fontTiles, 'const unsigned char'),
-    `const unsigned char pce_vn_font_glyph_count = ${glyphs.length};`,
+    `const unsigned char PCE_VN_DATA_SECTION pce_vn_font_glyph_count = ${glyphs.length};`,
     '',
     'void pce_vn_font_tiles_map(void)',
     '{',
@@ -1090,32 +1111,32 @@ function generateVnSources(projectDir, options = {}) {
     '}',
     '',
     ...messageArrays,
-    'const pce_vn_sprite_anim_t pce_vn_sprite_animations[] = {',
+    'const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations[] = {',
     ...(animationMeta.length ? animationMeta : ['  { 0u, 0u, 1u, 8u, 1u, 1u, 1u, 1u }']),
     '};',
-    `const unsigned char pce_vn_sprite_animation_count = ${spriteAnimations.meta.length};`,
+    `const unsigned char PCE_VN_DATA_SECTION pce_vn_sprite_animation_count = ${spriteAnimations.meta.length};`,
     '',
-    'const pce_vn_message_t pce_vn_messages[] = {',
+    'const pce_vn_message_t PCE_VN_DATA_SECTION pce_vn_messages[] = {',
     ...(messageMeta.length ? messageMeta.map((line, index) => `${line}${index + 1 < messageMeta.length ? ',' : ''}`) : ['  { (const unsigned char *)0, 0u, -1, 0u, 0u, 0u, -1, 0u }']),
     '};',
-    `const unsigned char pce_vn_message_count = ${messageCount};`,
+    `const unsigned char PCE_VN_DATA_SECTION pce_vn_message_count = ${messageCount};`,
     '',
     ...choiceArrays,
-    'const pce_vn_choice_t pce_vn_choices[] = {',
+    'const pce_vn_choice_t PCE_VN_DATA_SECTION pce_vn_choices[] = {',
     ...(choiceMeta.length ? choiceMeta.map((line, index) => `${line}${index + 1 < choiceMeta.length ? ',' : ''}`) : ['  { (const pce_vn_choice_option_t *)0, 0u, 0u }']),
     '};',
-    `const unsigned char pce_vn_choice_count = ${choiceCount};`,
+    `const unsigned char PCE_VN_DATA_SECTION pce_vn_choice_count = ${choiceCount};`,
     '',
-    'const pce_vn_command_t pce_vn_commands[] = {',
+    'const pce_vn_command_t PCE_VN_DATA_SECTION pce_vn_commands[] = {',
     ...(commandMeta.length ? commandMeta.map((line, index) => `${line}${index + 1 < commandMeta.length ? ',' : ''}`) : ['  { 0u, -1, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, -1, -1 }']),
     '};',
-    `const unsigned char pce_vn_command_count = ${commandCount};`,
+    `const unsigned char PCE_VN_DATA_SECTION pce_vn_command_count = ${commandCount};`,
     '',
-    'const pce_vn_scene_t pce_vn_scenes[] = {',
+    'const pce_vn_scene_t PCE_VN_DATA_SECTION pce_vn_scenes[] = {',
     ...sceneMeta,
     '};',
-    `const unsigned char pce_vn_scene_count = ${doc.scenes.length};`,
-    `const unsigned char pce_vn_start_scene = ${startScene}u;`,
+    `const unsigned char PCE_VN_DATA_SECTION pce_vn_scene_count = ${doc.scenes.length};`,
+    `const unsigned char PCE_VN_DATA_SECTION pce_vn_start_scene = ${startScene}u;`,
     '',
   ];
   fs.writeFileSync(headerPath, header.join('\n'), 'utf-8');

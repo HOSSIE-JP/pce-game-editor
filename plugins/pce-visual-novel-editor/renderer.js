@@ -69,10 +69,13 @@ function defaultCommand(type, assets = []) {
   }
   if (type === 'sprite') {
     const assetId = first('sprite');
-    return { type: 'sprite', slot: 0, assetId, x: 128, y: DEFAULT_CHARACTER_Y, animationId: 'default', visible: true };
+    return { type: 'sprite', slot: 0, assetId, x: 128, y: DEFAULT_CHARACTER_Y, animationId: 'default', flipX: false, flipY: false, durationFrames: 0, visible: true };
   }
   if (type === 'audio') {
     return { type: 'audio', kind: 'cdda', action: 'play', assetId: first('cdda-track') };
+  }
+  if (type === 'effect') {
+    return { type: 'effect', effect: 'shake', frames: 16, intensity: 4 };
   }
   return {
     type: 'message',
@@ -128,6 +131,9 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       x: clamp(raw.x, 0, 319, defaults.x),
       y: clamp(raw.y, 0, 223, defaults.y),
       animationId: String(raw.animationId || 'default').trim() || 'default',
+      flipX: Boolean(raw.flipX ?? raw.flippedX ?? raw.hflip),
+      flipY: Boolean(raw.flipY ?? raw.flippedY ?? raw.vflip),
+      durationFrames: clamp(raw.durationFrames ?? raw.moveFrames ?? raw.frames, 0, 255, 0),
       visible: raw.visible !== false,
     };
   }
@@ -137,6 +143,21 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
     const asset = byId(raw.assetId);
     const valid = kind === 'adpcm' ? asset?.type === 'adpcm' : asset?.type === 'cdda-track';
     return { type: 'audio', kind, action, assetId: action === 'play' && valid ? asset.id : '' };
+  }
+  if (raw.type === 'effect') {
+    const effect = (() => {
+      const value = String(raw.effect || raw.kind || raw.name || '').trim();
+      if (value === 'fadeIn' || value === 'fade-in' || value === 'in') return 'fadeIn';
+      if (value === 'blank' || value === 'black') return 'blank';
+      if (value === 'shake' || value === 'screenShake' || value === 'screen-shake') return 'shake';
+      return 'fadeOut';
+    })();
+    return {
+      type: 'effect',
+      effect,
+      frames: clamp(raw.frames ?? raw.durationFrames, 0, 255, 16),
+      intensity: effect === 'shake' ? clamp(raw.intensity ?? raw.power ?? raw.amplitude, 1, 16, 4) : 0,
+    };
   }
   return {
     type: 'message',
@@ -215,6 +236,7 @@ export function activatePlugin({ root, api, registerCapability }) {
               <button class="btn-sm" type="button" data-add-command="sprite">Sprite</button>
               <button class="btn-sm" type="button" data-add-command="message">Message</button>
               <button class="btn-sm" type="button" data-add-command="audio">Audio</button>
+              <button class="btn-sm" type="button" data-add-command="effect">Effect</button>
               <button class="icon-btn danger" type="button" data-action="delete-scene" title="シーン削除" aria-label="シーン削除">×</button>
               <button class="btn-primary" type="button" data-action="save">保存</button>
             </div>
@@ -273,6 +295,9 @@ export function activatePlugin({ root, api, registerCapability }) {
         x: row.querySelector('[name="x"]').value,
         y: row.querySelector('[name="y"]').value,
         animationId: row.querySelector('[name="animationId"]').value,
+        flipX: row.querySelector('[name="flipX"]').checked,
+        flipY: row.querySelector('[name="flipY"]').checked,
+        durationFrames: row.querySelector('[name="durationFrames"]').value,
         visible: row.querySelector('[name="visible"]').checked,
       }, assets);
     }
@@ -282,6 +307,14 @@ export function activatePlugin({ root, api, registerCapability }) {
         kind: row.querySelector('[name="kind"]').value,
         action: row.querySelector('[name="action"]').value,
         assetId: row.querySelector('[name="assetId"]').value,
+      }, assets);
+    }
+    if (type === 'effect') {
+      return normalizeCommand({
+        type,
+        effect: row.querySelector('[name="effect"]').value,
+        frames: row.querySelector('[name="frames"]').value,
+        intensity: row.querySelector('[name="intensity"]').value,
       }, assets);
     }
     return normalizeCommand({
@@ -342,7 +375,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   }
 
   function typeOptions(current) {
-    return ['background', 'sprite', 'message', 'audio']
+    return ['background', 'sprite', 'message', 'audio', 'effect']
       .map((type) => `<option value="${type}" ${type === current ? 'selected' : ''}>${type}</option>`)
       .join('');
   }
@@ -371,6 +404,9 @@ export function activatePlugin({ root, api, registerCapability }) {
           <label class="form-group"><span class="form-label">Slot</span><input class="form-input" name="slot" type="number" min="0" max="3" value="${esc(command.slot)}" /></label>
           <label class="form-group"><span class="form-label">X</span><input class="form-input" name="x" type="number" min="0" max="319" value="${esc(command.x)}" /></label>
           <label class="form-group"><span class="form-label">Y</span><input class="form-input" name="y" type="number" min="0" max="223" value="${esc(command.y)}" /></label>
+          <label class="form-group"><span class="form-label">Move</span><input class="form-input" name="durationFrames" type="number" min="0" max="255" value="${esc(command.durationFrames || 0)}" /></label>
+          <label class="pce-vn-check"><input name="flipX" type="checkbox" ${command.flipX ? 'checked' : ''} /><span>flip X</span></label>
+          <label class="pce-vn-check"><input name="flipY" type="checkbox" ${command.flipY ? 'checked' : ''} /><span>flip Y</span></label>
           <label class="pce-vn-check"><input name="visible" type="checkbox" ${command.visible !== false ? 'checked' : ''} /><span>visible</span></label>
         </div>
       `;
@@ -383,6 +419,15 @@ export function activatePlugin({ root, api, registerCapability }) {
           <label class="form-group"><span class="form-label">Action</span><select class="form-select" name="action"><option value="play" ${command.action !== 'stop' ? 'selected' : ''}>play</option><option value="stop" ${command.action === 'stop' ? 'selected' : ''}>stop</option></select></label>
         </div>
         <label class="form-group"><span class="form-label">Asset</span><select class="form-select" name="assetId">${optionsFor(audioAssets, command.assetId, 'なし')}</select></label>
+      `;
+    }
+    if (command.type === 'effect') {
+      return `
+        <div class="pce-vn-grid tight">
+          <label class="form-group"><span class="form-label">Effect</span><select class="form-select" name="effect"><option value="fadeOut" ${command.effect === 'fadeOut' ? 'selected' : ''}>fade out</option><option value="fadeIn" ${command.effect === 'fadeIn' ? 'selected' : ''}>fade in</option><option value="blank" ${command.effect === 'blank' ? 'selected' : ''}>blank</option><option value="shake" ${command.effect === 'shake' ? 'selected' : ''}>shake</option></select></label>
+          <label class="form-group"><span class="form-label">Frames</span><input class="form-input" name="frames" type="number" min="0" max="255" value="${esc(command.frames)}" /></label>
+          <label class="form-group"><span class="form-label">Power</span><input class="form-input" name="intensity" type="number" min="1" max="16" value="${esc(command.intensity || 4)}" /></label>
+        </div>
       `;
     }
     return `
@@ -477,6 +522,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       img.alt = asset.name || asset.id;
       img.style.left = `${(command.x / PCE_SCREEN_WIDTH) * 100}%`;
       img.style.top = `${(command.y / PCE_SCREEN_HEIGHT) * 100}%`;
+      img.style.transform = `scale(${command.flipX ? -1 : 1}, ${command.flipY ? -1 : 1})`;
       spriteLayer.appendChild(img);
       const result = await api.electronAPI.previewAssetSource(asset.source);
       if (result?.dataUrl) img.src = result.dataUrl;

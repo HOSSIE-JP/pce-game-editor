@@ -19,6 +19,9 @@
           "x": 128,
           "y": 24,
           "animationId": "default",
+          "flipX": false,
+          "flipY": false,
+          "durationFrames": 0,
           "visible": true
         },
         {
@@ -69,6 +72,9 @@
           "x": 128,
           "y": 24,
           "animationId": "default",
+          "flipX": false,
+          "flipY": false,
+          "durationFrames": 0,
           "visible": true
         },
         {
