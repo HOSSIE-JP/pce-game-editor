@@ -1,11 +1,11 @@
 {
   "id": "pce-image-converter",
   "name": "PCE 画像コンバーター",
-  "description": "PNG/BMP を PCE BG / Sprite 用の 内蔵 PCE 変換ワークフローへルーティングします。",
+  "description": "PNG/BMP/WebP を PCE BG / Sprite 用の内蔵 PCE 変換ワークフローへルーティングします。",
   "version": "0.1.0",
   "icon": "assets",
   "types": ["converter"],
-  "dependencies": ["image-resize-converter", "image-quantize-converter", "pce-asset-manager"],
+  "dependencies": ["image-resize-converter", "image-quantize-converter"],
   "supportedCores": ["pc-engine"],
   "permissions": ["project.read", "project.write", "asset.import"],
   "renderer": {

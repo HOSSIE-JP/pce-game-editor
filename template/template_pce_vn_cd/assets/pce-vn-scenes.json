@@ -36,12 +36,6 @@
           "mouthAnimationId": ""
         },
         {
-          "type": "audio",
-          "kind": "cdda",
-          "action": "play",
-          "assetId": "opening_cdda"
-        },
-        {
           "type": "message",
           "speaker": "",
           "text": "18もじx4ぎょう",

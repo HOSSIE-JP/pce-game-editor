@@ -33,10 +33,10 @@ static const unsigned char pce_editor_image_rooftop_dusk_bg_palette[] = {
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 #if defined(__PCE_CD__)
-static const pce_editor_cd_data_ref_t pce_editor_image_rooftop_dusk_bg_tiles_cd = { { 76u, 0u, 0u }, 9u };
+static const pce_editor_cd_data_ref_t pce_editor_image_rooftop_dusk_bg_tiles_cd = { { 78u, 0u, 0u }, 9u };
 #endif
 #if defined(__PCE_CD__)
-static const pce_editor_cd_data_ref_t pce_editor_image_rooftop_dusk_bg_map_cd = { { 85u, 0u, 0u }, 1u };
+static const pce_editor_cd_data_ref_t pce_editor_image_rooftop_dusk_bg_map_cd = { { 87u, 0u, 0u }, 1u };
 #endif
 
 static const unsigned char pce_editor_sprite_akari_sprite_palette[] = {
@@ -54,7 +54,7 @@ static const unsigned char pce_editor_sprite_mika_sprite_palette[] = {
   0xc2, 0x00, 0xfe, 0x01, 0xaa, 0x00, 0xf2, 0x00
 };
 #if defined(__PCE_CD__)
-static const pce_editor_cd_data_ref_t pce_editor_sprite_mika_sprite_patterns_cd = { { 86u, 0u, 0u }, 2u };
+static const pce_editor_cd_data_ref_t pce_editor_sprite_mika_sprite_patterns_cd = { { 88u, 0u, 0u }, 2u };
 #endif
 
 static const pce_editor_psg_step_t pce_editor_psg_vn_psg_chime_pattern[] = {
@@ -65,18 +65,22 @@ static const pce_editor_psg_step_t pce_editor_psg_vn_psg_chime_pattern[] = {
 };
 
 #if defined(__PCE_CD__)
-static const pce_editor_cd_data_ref_t pce_editor_adpcm_akari_voice_data_cd = { { 88u, 0u, 0u }, 2u };
+static const pce_editor_cd_data_ref_t pce_editor_adpcm_akari_voice_data_cd = { { 76u, 0u, 0u }, 2u };
 #endif
 
 const pce_editor_bg_asset_t pce_editor_bg_assets[] = {
-  { { pce_editor_image_vn_classroom_bg_palette, 32u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }, { (const unsigned char *)0, 18432u, (const pce_editor_data_chunk_t *)0, 0u, &pce_editor_image_vn_classroom_bg_tiles_cd }, { (const unsigned char *)0, 2048u, (const pce_editor_data_chunk_t *)0, 0u, &pce_editor_image_vn_classroom_bg_map_cd }, 36u, 16u, 128u, 130u, 0u },
-  { { pce_editor_image_rooftop_dusk_bg_palette, 32u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }, { (const unsigned char *)0, 18432u, (const pce_editor_data_chunk_t *)0, 0u, &pce_editor_image_rooftop_dusk_bg_tiles_cd }, { (const unsigned char *)0, 2048u, (const pce_editor_data_chunk_t *)0, 0u, &pce_editor_image_rooftop_dusk_bg_map_cd }, 36u, 16u, 128u, 130u, 0u }
+  { { pce_editor_image_vn_classroom_bg_palette, 32u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }, { (const unsigned char *)0, 18432u, (const pce_editor_data_chunk_t *)0, 0u, &pce_editor_image_vn_classroom_bg_tiles_cd }, { (const unsigned char *)0, 2048u, (const pce_editor_data_chunk_t *)0, 0u, &pce_editor_image_vn_classroom_bg_map_cd }, 36u, 16u, 128u, 0u, 0u },
+  { { pce_editor_image_rooftop_dusk_bg_palette, 32u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }, { (const unsigned char *)0, 18432u, (const pce_editor_data_chunk_t *)0, 0u, &pce_editor_image_rooftop_dusk_bg_tiles_cd }, { (const unsigned char *)0, 2048u, (const pce_editor_data_chunk_t *)0, 0u, &pce_editor_image_rooftop_dusk_bg_map_cd }, 36u, 16u, 128u, 0u, 0u }
 };
 const unsigned char pce_editor_bg_asset_count = 2;
 
 const pce_editor_sprite_asset_t pce_editor_sprite_assets[] = {
   { { pce_editor_sprite_akari_sprite_palette, 32u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }, { (const unsigned char *)0, 4096u, (const pce_editor_data_chunk_t *)0, 0u, &pce_editor_sprite_akari_sprite_patterns_cd }, 16u, 16u, 4u, 8u, 880u, 1u, 128u, 24u },
   { { pce_editor_sprite_mika_sprite_palette, 32u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }, { (const unsigned char *)0, 4096u, (const pce_editor_data_chunk_t *)0, 0u, &pce_editor_sprite_mika_sprite_patterns_cd }, 16u, 16u, 4u, 8u, 880u, 1u, 128u, 24u }
+};
+const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[] = {
+  { 16u, 16u, 4u, 8u, 880u, 1u },
+  { 16u, 16u, 4u, 8u, 880u, 1u }
 };
 const unsigned char pce_editor_sprite_asset_count = 2;
 

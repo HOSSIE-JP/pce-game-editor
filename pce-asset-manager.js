@@ -10,18 +10,22 @@ const ASSET_FILE = path.join('assets', 'pce-assets.json');
 const PCE_INTERNAL_IMAGE_CONVERTER = 'Internal PCE image converter';
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const SUPPORTED_TYPES = new Set(['image', 'sprite', 'psg-sequence', 'psg-song', 'psg-sfx', 'adpcm', 'cdda-track', 'tileset', 'tilemap', 'palette']);
-const IMAGE_EXTENSIONS = new Set(['.png', '.bmp']);
+const IMAGE_EXTENSIONS = new Set(['.png', '.bmp', '.webp']);
 const AUDIO_EXTENSIONS = new Set(['.wav', '.mp3']);
 const SPRITE_CELL_SIZES = new Set(['16x16', '16x32', '16x64', '32x16', '32x32', '32x64']);
 const ROM_BANKED_CHUNK_SIZE = 8192;
 const BANKED_DATA_THRESHOLD = 1024;
 const CD_DATA_BASE_SECTOR = 64;
 const CD_SECTOR_BYTES = 2048;
+const PCE_BG_MAP_WIDTH_TILES = 64;
+const PCE_BG_MAP_HEIGHT_TILES = 32;
+const PCE_BG_AUTO_MAP_BASE = 0;
+const PCE_BG_AUTO_TILE_BASE = Math.ceil((PCE_BG_MAP_WIDTH_TILES * PCE_BG_MAP_HEIGHT_TILES) / 16);
 const DEFAULT_BG_OPTIONS = Object.freeze({
   kind: 'background',
   paletteBank: 0,
-  tileBase: 64,
-  mapBase: 0,
+  tileBase: PCE_BG_AUTO_TILE_BASE,
+  mapBase: PCE_BG_AUTO_MAP_BASE,
   x: 0,
   y: 0,
   width: 0,
@@ -188,6 +192,13 @@ function normalizeSpriteAnimations(options = {}, asset = {}) {
   });
 }
 
+function autoBackgroundVramOptions() {
+  return {
+    tileBase: PCE_BG_AUTO_TILE_BASE,
+    mapBase: PCE_BG_AUTO_MAP_BASE,
+  };
+}
+
 function normalizeImageOptions(asset = {}) {
   const rawOptions = asset.options && typeof asset.options === 'object' ? { ...asset.options } : {};
   const isSprite = asset.type === 'sprite' || rawOptions.kind === 'sprite';
@@ -214,6 +225,9 @@ function normalizeImageOptions(asset = {}) {
     options.cellHeight = cellHeight;
     options.animations = normalizeSpriteAnimations(options, asset);
   } else {
+    const autoVram = autoBackgroundVramOptions(options.width, options.height);
+    options.tileBase = autoVram.tileBase;
+    options.mapBase = autoVram.mapBase;
     options.cellWidth = 8;
     options.cellHeight = 8;
     delete options.animations;
@@ -385,6 +399,7 @@ function getMimeForPath(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.png') return 'image/png';
   if (ext === '.bmp') return 'image/bmp';
+  if (ext === '.webp') return 'image/webp';
   if (ext === '.wav') return 'audio/wav';
   if (ext === '.json') return 'application/json';
   if (ext === '.bin') return 'application/octet-stream';
@@ -541,10 +556,10 @@ function buildImageWarnings(asset, imageSize, generated = {}) {
     const tileStartWord = options.tileBase * 16;
     const tileEndWord = tileStartWord + (tileCount * 16);
     const batStartWord = 0;
-    const batWords = width > 256 || options.mapBase >= 1024 || options.tileBase >= 128 ? 2048 : 1024;
+    const batWords = PCE_BG_MAP_WIDTH_TILES * PCE_BG_MAP_HEIGHT_TILES;
     const batEndWord = batStartWord + batWords;
     if (tileCount && tileStartWord < batEndWord && tileEndWord > batStartWord) {
-      warnings.push(`BG tiles overlap the BAT VRAM area; use tileBase ${Math.ceil(batWords / 16)} or higher for this map size`);
+      warnings.push(`BG tiles overlap the BAT VRAM area; use tileBase ${PCE_BG_AUTO_TILE_BASE} or higher for this map size`);
     }
     if (tileCount && options.tileBase < 704 && options.tileBase + tileCount > 704) {
       warnings.push('BG tiles overlap the sample UI/font VRAM area at tile 704');
@@ -1051,10 +1066,10 @@ function importImage(projectDir, payload = {}, options = {}) {
   const sourceName = String(payload.sourceFileName || (sourceAbs ? path.basename(sourceAbs) : 'asset.png'));
   const sourceExt = path.extname(sourceName || sourceAbs || '').toLowerCase();
   if (!IMAGE_EXTENSIONS.has(sourceExt)) {
-    throw new Error('PNG/BMP image files are supported');
+    throw new Error('PNG/BMP/WebP image files are supported');
   }
-  if (sourceExt === '.bmp' && !payload.convertedDataUrl) {
-    throw new Error('BMP import requires renderer-side PNG conversion before PCE image conversion');
+  if (sourceExt !== '.png' && !payload.convertedDataUrl) {
+    throw new Error('BMP/WebP import requires renderer-side PNG conversion before PCE image conversion');
   }
   const id = sanitizeAssetId(payload.id || sourceName, kind === 'sprite' ? 'sprite_asset' : 'bg_asset');
   const assetType = kind === 'sprite' ? 'sprite' : 'image';

@@ -760,7 +760,7 @@ static void play_cdda_track(uint8_t track, uint8_t loop)
     start.track_end = track;
     end.track = track;
     end.track_end = track;
-    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_TRACK, start, PCE_CDB_LOCATION_TYPE_UNTIL_END, end, mode);
+    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_TRACK, start, PCE_CDB_LOCATION_TYPE_TRACK, end, mode);
 #else
     (void)track;
     (void)loop;
@@ -788,6 +788,26 @@ static uint8_t adpcm_play_divider(const pce_editor_adpcm_asset_t *voice)
     return (uint8_t)computed;
 }
 
+static uint8_t adpcm_playback_active(void)
+{
+#if defined(__PCE_CD__)
+    return (pce_cdb_adpcm_status() & ADPCM_STOPPED) ? 0u : 1u;
+#else
+    return 0u;
+#endif
+}
+
+static void wait_adpcm_transfer_ready(void)
+{
+#if defined(__PCE_CD__)
+    uint16_t guard = 65535u;
+    while (guard && (pce_cdb_adpcm_status() & ADPCM_BUSY))
+    {
+        guard--;
+    }
+#endif
+}
+
 static void play_adpcm_voice(signed char voice_index)
 {
 #if defined(__PCE_CD__)
@@ -798,6 +818,7 @@ static void play_adpcm_voice(signed char voice_index)
     if ((!voice->data && !voice->cd) || !voice->data_size) return;
     if (!loaded_adpcm_valid || loaded_adpcm_index != (uint8_t)voice_index)
     {
+        if (adpcm_playback_active()) pce_cdb_adpcm_stop();
         pce_cdb_adpcm_reset();
         if (voice->cd && voice->cd->sector_count)
         {
@@ -811,6 +832,7 @@ static void play_adpcm_voice(signed char voice_index)
         {
             (void)pce_cdb_adpcm_read_from_ram(PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)voice->data, voice->adpcm_address, (uint16_t)voice->data_size);
         }
+        wait_adpcm_transfer_ready();
         loaded_adpcm_valid = 1u;
         loaded_adpcm_index = (uint8_t)voice_index;
     }
@@ -825,6 +847,7 @@ static void stop_adpcm_voice(void)
 {
 #if defined(__PCE_CD__)
     pce_cdb_adpcm_stop();
+    loaded_adpcm_valid = 0u;
 #endif
 }
 
@@ -1112,6 +1135,8 @@ static void preload_adpcm_voice(signed char voice_index)
 #if defined(__PCE_CD__)
     const pce_editor_adpcm_asset_t *voice;
     if (voice_index < 0 || (uint8_t)voice_index >= pce_editor_adpcm_asset_count) return;
+    if (loaded_adpcm_valid && loaded_adpcm_index == (uint8_t)voice_index) return;
+    if (adpcm_playback_active()) return;
     voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
     if ((!voice->data && !voice->cd) || !voice->data_size) return;
     pce_cdb_adpcm_reset();
@@ -1127,6 +1152,7 @@ static void preload_adpcm_voice(signed char voice_index)
     {
         (void)pce_cdb_adpcm_read_from_ram(PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)voice->data, voice->adpcm_address, (uint16_t)voice->data_size);
     }
+    wait_adpcm_transfer_ready();
     loaded_adpcm_valid = 1u;
     loaded_adpcm_index = (uint8_t)voice_index;
 #else

@@ -1,0 +1,23 @@
+{
+  "id": "pce-adpcm-manager",
+  "name": "PCE ADPCM 管理",
+  "description": "PCE / CD-ROM2 の ADPCM 音声アセットを assets/pce-assets.json の adpcm として追加・編集します。",
+  "version": "0.1.0",
+  "icon": "music",
+  "types": ["editor", "asset"],
+  "dependencies": ["pce-audio-converter"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "project.write", "dialog.openFile", "asset.import", "asset.preview", "audio.preview"],
+  "tab": {
+    "label": "PCE ADPCM",
+    "icon": "music",
+    "page": "pce-adpcm-manager",
+    "order": 14
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "page": "pce-adpcm-manager",
+    "capabilities": ["page", "adpcm-manager"]
+  }
+}

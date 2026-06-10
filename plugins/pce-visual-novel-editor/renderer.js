@@ -2,6 +2,26 @@ const SCENE_FILE = 'assets/pce-vn-scenes.json';
 const PCE_SCREEN_WIDTH = 320;
 const PCE_SCREEN_HEIGHT = 224;
 const DEFAULT_CHARACTER_Y = 24;
+const COLUMN_LAYOUT_KEY = 'pce-vn-editor.columnLayout.v1';
+const DEFAULT_COLUMN_LAYOUT = { left: 320, right: 440 };
+const MIN_LEFT_WIDTH = 240;
+const MAX_LEFT_WIDTH = 520;
+const MIN_CENTER_WIDTH = 340;
+const MIN_RIGHT_WIDTH = 320;
+const MAX_RIGHT_WIDTH = 720;
+
+const COMMAND_DEFINITIONS = [
+  { type: 'background', label: 'BG', category: '表示', description: '背景画像と切替' },
+  { type: 'sprite', label: 'Sprite', category: '表示', description: '立ち絵の表示/非表示' },
+  { type: 'message', label: 'Message', category: 'テキスト', description: '話者、本文、送り設定' },
+  { type: 'choice', label: 'Choice', category: '分岐', description: '選択肢でシーン分岐' },
+  { type: 'jump', label: 'Jump', category: '分岐', description: '別シーンへ移動' },
+  { type: 'preload', label: 'Preload', category: '分岐', description: '次シーンを先読み' },
+  { type: 'wait', label: 'Wait', category: '制御', description: '指定フレーム待機' },
+  { type: 'audio', label: 'Audio', category: '音声', description: 'CD-DA/ADPCM再生停止' },
+  { type: 'effect', label: 'Effect', category: '演出', description: 'フェード/揺れ' },
+];
+const COMMAND_CATEGORIES = [...new Set(COMMAND_DEFINITIONS.map((item) => item.category))];
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -25,6 +45,10 @@ function clamp(value, min, max, fallback = min) {
 function safeId(value, fallback) {
   const id = String(value || '').trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
   return id || fallback;
+}
+
+function commandDefinition(type) {
+  return COMMAND_DEFINITIONS.find((item) => item.type === type) || COMMAND_DEFINITIONS.find((item) => item.type === 'message');
 }
 
 function optionsFor(assets, current, label) {
@@ -77,6 +101,18 @@ function defaultCommand(type, assets = []) {
   if (type === 'effect') {
     return { type: 'effect', effect: 'shake', frames: 16, intensity: 4 };
   }
+  if (type === 'preload') {
+    return { type: 'preload', sceneId: '' };
+  }
+  if (type === 'choice') {
+    return { type: 'choice', defaultIndex: 0, choices: [{ label: '進む', targetSceneId: '' }] };
+  }
+  if (type === 'jump') {
+    return { type: 'jump', sceneId: '' };
+  }
+  if (type === 'wait') {
+    return { type: 'wait', frames: 30 };
+  }
   return {
     type: 'message',
     speaker: '',
@@ -99,10 +135,9 @@ function defaultDoc(assets = []) {
       commands: [
         defaultCommand('background', assets),
         defaultCommand('sprite', assets),
-        { ...defaultCommand('audio', assets), assetId: assets.find((asset) => asset.type === 'cdda-track')?.id || '' },
         { ...defaultCommand('message', assets), text: '320がめんです' },
         { ...defaultCommand('message', assets), text: '18もじx4ぎょう', voiceAssetId: '' },
-      ].filter((command) => command.type !== 'audio' || command.assetId),
+      ],
       nextSceneId: '',
     }],
   };
@@ -130,7 +165,7 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       assetId: asset?.type === 'sprite' ? asset.id : assets.find((entry) => entry.type === 'sprite')?.id || '',
       x: clamp(raw.x, 0, 319, defaults.x),
       y: clamp(raw.y, 0, 223, defaults.y),
-      animationId: String(raw.animationId || 'default').trim() || 'default',
+      animationId: String(raw.animationId || 'default').trim().slice(0, 32) || 'default',
       flipX: Boolean(raw.flipX ?? raw.flippedX ?? raw.hflip),
       flipY: Boolean(raw.flipY ?? raw.flippedY ?? raw.vflip),
       durationFrames: clamp(raw.durationFrames ?? raw.moveFrames ?? raw.frames, 0, 255, 0),
@@ -143,6 +178,32 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
     const asset = byId(raw.assetId);
     const valid = kind === 'adpcm' ? asset?.type === 'adpcm' : asset?.type === 'cdda-track';
     return { type: 'audio', kind, action, assetId: action === 'play' && valid ? asset.id : '' };
+  }
+  if (raw.type === 'preload') {
+    return { type: 'preload', sceneId: safeId(raw.sceneId || raw.nextSceneId || raw.targetSceneId, '') };
+  }
+  if (raw.type === 'choice') {
+    const choices = (Array.isArray(raw.choices) ? raw.choices : [])
+      .map((choice, choiceIndex) => {
+        const item = choice && typeof choice === 'object' ? choice : {};
+        const label = String(item.label || item.text || `選択肢${choiceIndex + 1}`).trim().slice(0, 24);
+        if (!label) return null;
+        return { label, targetSceneId: safeId(item.targetSceneId || item.sceneId || item.nextSceneId || item.target, '') };
+      })
+      .filter(Boolean)
+      .slice(0, 4);
+    const normalizedChoices = choices.length ? choices : [{ label: '進む', targetSceneId: '' }];
+    return {
+      type: 'choice',
+      choices: normalizedChoices,
+      defaultIndex: clamp(raw.defaultIndex ?? raw.initialIndex, 0, normalizedChoices.length - 1, 0),
+    };
+  }
+  if (raw.type === 'jump') {
+    return { type: 'jump', sceneId: safeId(raw.sceneId || raw.targetSceneId || raw.nextSceneId, '') };
+  }
+  if (raw.type === 'wait') {
+    return { type: 'wait', frames: clamp(raw.frames ?? raw.durationFrames, 0, 65535, 30) };
   }
   if (raw.type === 'effect') {
     const effect = (() => {
@@ -210,6 +271,21 @@ function normalizeDoc(doc, assets) {
     scenes: deduped.map((scene) => ({
       ...scene,
       nextSceneId: scene.nextSceneId && sceneIds.has(scene.nextSceneId) ? scene.nextSceneId : '',
+      commands: (scene.commands || []).map((command) => {
+        if (command.type === 'preload' || command.type === 'jump') {
+          return { ...command, sceneId: command.sceneId && sceneIds.has(command.sceneId) ? command.sceneId : '' };
+        }
+        if (command.type === 'choice') {
+          return {
+            ...command,
+            choices: (command.choices || []).map((choice) => ({
+              ...choice,
+              targetSceneId: choice.targetSceneId && sceneIds.has(choice.targetSceneId) ? choice.targetSceneId : '',
+            })),
+          };
+        }
+        return command;
+      }),
     })),
   };
 }
@@ -218,51 +294,62 @@ export function activatePlugin({ root, api, registerCapability }) {
   root.innerHTML = `
     <div class="pce-vn-shell">
       <aside class="pce-vn-list">
-        <div class="pce-vn-header">
-          <h2>Scenes</h2>
-          <div class="pce-vn-actions">
-            <button class="icon-btn" type="button" data-action="add-scene" title="シーン追加" aria-label="シーン追加">＋</button>
-            <button class="icon-btn" type="button" data-action="reload" title="再読み込み" aria-label="再読み込み">↻</button>
-          </div>
-        </div>
-        <div class="pce-vn-items" data-role="scene-list"></div>
-      </aside>
-      <main class="pce-vn-main">
-        <section class="pce-vn-edit">
-          <div class="pce-vn-edit-title">
-            <h2 data-role="scene-title">Scene</h2>
+        <section class="pce-vn-sidebar-section">
+          <div class="pce-vn-header">
+            <h2>Scenes</h2>
             <div class="pce-vn-actions">
-              <button class="btn-sm" type="button" data-add-command="background">BG</button>
-              <button class="btn-sm" type="button" data-add-command="sprite">Sprite</button>
-              <button class="btn-sm" type="button" data-add-command="message">Message</button>
-              <button class="btn-sm" type="button" data-add-command="audio">Audio</button>
-              <button class="btn-sm" type="button" data-add-command="effect">Effect</button>
-              <button class="icon-btn danger" type="button" data-action="delete-scene" title="シーン削除" aria-label="シーン削除">×</button>
-              <button class="btn-primary" type="button" data-action="save">保存</button>
+              <button class="icon-btn" type="button" data-action="add-scene" title="シーン追加" aria-label="シーン追加">＋</button>
+              <button class="icon-btn" type="button" data-action="reload" title="再読み込み" aria-label="再読み込み">↻</button>
             </div>
           </div>
-          <form class="pce-vn-form" data-role="scene-form">
-            <label class="form-group"><span class="form-label">Scene ID</span><input class="form-input" name="id" /></label>
-            <label class="form-group"><span class="form-label">次シーン</span><select class="form-select" name="nextSceneId"></select></label>
-          </form>
-          <div class="pce-vn-commands" data-role="commands"></div>
-          <div class="form-error" data-role="error"></div>
+          <div class="pce-vn-items" data-role="scene-list"></div>
         </section>
-        <aside class="pce-vn-preview">
-          <div class="pce-vn-stage">
-            <img data-role="bg-preview" alt="background preview" hidden />
-            <div class="pce-vn-sprite-layer" data-role="sprite-layer"></div>
-            <div class="pce-vn-message-preview" data-role="message-preview"></div>
+        <section class="pce-vn-sidebar-section pce-vn-command-library">
+          <div class="pce-vn-header">
+            <h2>Commands</h2>
           </div>
-          <dl class="pce-vn-meta" data-role="meta"></dl>
-        </aside>
-      </main>
+          <div class="pce-vn-command-search">
+            <input class="form-input" data-role="command-search" placeholder="コマンド検索" aria-label="コマンド検索" />
+          </div>
+          <div class="pce-vn-command-palette" data-role="command-palette"></div>
+        </section>
+      </aside>
+      <div class="pce-vn-column-resizer" data-column-resizer="left" role="separator" aria-orientation="vertical" aria-label="左列幅"></div>
+      <section class="pce-vn-edit">
+        <div class="pce-vn-edit-title">
+          <h2 data-role="scene-title">Scene</h2>
+          <div class="pce-vn-actions">
+            <button class="icon-btn danger" type="button" data-action="delete-scene" title="シーン削除" aria-label="シーン削除">×</button>
+            <button class="btn-primary" type="button" data-action="save">保存</button>
+          </div>
+        </div>
+        <form class="pce-vn-form" data-role="scene-form">
+          <label class="form-group"><span class="form-label">Scene ID</span><input class="form-input" name="id" /></label>
+          <label class="form-group"><span class="form-label">次シーン</span><select class="form-select" name="nextSceneId"></select></label>
+        </form>
+        <div class="pce-vn-commands" data-role="commands"></div>
+        <div class="form-error" data-role="error"></div>
+      </section>
+      <div class="pce-vn-column-resizer" data-column-resizer="right" role="separator" aria-orientation="vertical" aria-label="右列幅"></div>
+      <aside class="pce-vn-preview">
+        <div class="pce-vn-stage">
+          <img data-role="bg-preview" alt="background preview" hidden />
+          <div class="pce-vn-sprite-layer" data-role="sprite-layer"></div>
+          <div class="pce-vn-message-preview" data-role="message-preview"></div>
+        </div>
+        <form class="pce-vn-detail-form" data-role="command-detail"></form>
+        <dl class="pce-vn-meta" data-role="meta"></dl>
+      </aside>
     </div>
   `;
 
+  const shell = root.querySelector('.pce-vn-shell');
   const sceneList = root.querySelector('[data-role="scene-list"]');
   const form = root.querySelector('[data-role="scene-form"]');
   const commandsEl = root.querySelector('[data-role="commands"]');
+  const detailForm = root.querySelector('[data-role="command-detail"]');
+  const commandSearchInput = root.querySelector('[data-role="command-search"]');
+  const commandPaletteEl = root.querySelector('[data-role="command-palette"]');
   const errorEl = root.querySelector('[data-role="error"]');
   const bgPreview = root.querySelector('[data-role="bg-preview"]');
   const spriteLayer = root.querySelector('[data-role="sprite-layer"]');
@@ -271,86 +358,227 @@ export function activatePlugin({ root, api, registerCapability }) {
   let assets = [];
   let doc = defaultDoc();
   let selectedId = 'opening';
+  let selectedCommandIndex = 0;
+  let commandSearch = '';
+  let columnLayout = loadColumnLayout();
+  let pointerDrag = null;
+  let suppressCommandClick = false;
 
   const byType = (types) => assets.filter((asset) => types.includes(asset.type));
   const scene = () => doc.scenes.find((item) => item.id === selectedId) || doc.scenes[0] || null;
   const assetById = (id) => assets.find((asset) => asset.id === id) || null;
 
-  function commandFromRow(row) {
-    const type = row.querySelector('[name="type"]').value;
+  applyColumnLayout();
+
+  function loadColumnLayout() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(COLUMN_LAYOUT_KEY) || 'null');
+      if (parsed && typeof parsed === 'object') {
+        return {
+          left: clamp(parsed.left, MIN_LEFT_WIDTH, MAX_LEFT_WIDTH, DEFAULT_COLUMN_LAYOUT.left),
+          right: clamp(parsed.right, MIN_RIGHT_WIDTH, MAX_RIGHT_WIDTH, DEFAULT_COLUMN_LAYOUT.right),
+        };
+      }
+    } catch (_) {}
+    return { ...DEFAULT_COLUMN_LAYOUT };
+  }
+
+  function saveColumnLayout() {
+    try {
+      localStorage.setItem(COLUMN_LAYOUT_KEY, JSON.stringify(columnLayout));
+    } catch (_) {}
+  }
+
+  function applyColumnLayout() {
+    shell.style.setProperty('--pce-vn-left-width', `${columnLayout.left}px`);
+    shell.style.setProperty('--pce-vn-right-width', `${columnLayout.right}px`);
+  }
+
+  function resizeColumns(event) {
+    const side = event.currentTarget?.dataset?.columnResizer;
+    if (!side) return;
+    event.preventDefault();
+    const resizer = event.currentTarget;
+    const shellRect = shell.getBoundingClientRect();
+    const maxLeft = Math.min(MAX_LEFT_WIDTH, Math.max(MIN_LEFT_WIDTH, shellRect.width - columnLayout.right - MIN_CENTER_WIDTH - 10));
+    const maxRight = Math.min(MAX_RIGHT_WIDTH, Math.max(MIN_RIGHT_WIDTH, shellRect.width - columnLayout.left - MIN_CENTER_WIDTH - 10));
+    resizer.classList.add('is-dragging');
+
+    const move = (moveEvent) => {
+      if (side === 'left') {
+        columnLayout.left = clamp(moveEvent.clientX - shellRect.left, MIN_LEFT_WIDTH, maxLeft, columnLayout.left);
+      } else {
+        columnLayout.right = clamp(shellRect.right - moveEvent.clientX, MIN_RIGHT_WIDTH, maxRight, columnLayout.right);
+      }
+      applyColumnLayout();
+    };
+    const finish = () => {
+      resizer.classList.remove('is-dragging');
+      saveColumnLayout();
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish, { once: true });
+    window.addEventListener('pointercancel', finish, { once: true });
+  }
+
+  function ensureSelectedCommand(current = scene()) {
+    if (!current) return null;
+    if (!Array.isArray(current.commands)) current.commands = [];
+    if (!current.commands.length) current.commands.push(defaultCommand('message', assets));
+    selectedCommandIndex = clamp(selectedCommandIndex, 0, current.commands.length - 1, 0);
+    return current.commands[selectedCommandIndex] || null;
+  }
+
+  function typeOptions(current) {
+    return COMMAND_DEFINITIONS
+      .map((item) => `<option value="${item.type}" ${item.type === current ? 'selected' : ''}>${esc(item.label)}</option>`)
+      .join('');
+  }
+
+  function sceneOptions(current, label = 'なし') {
+    return optionsFor(doc.scenes.map((item) => ({ id: item.id, name: item.id })), current, label);
+  }
+
+  function commandSummary(command) {
+    if (!command) return '';
+    if (command.type === 'background') return assetById(command.assetId)?.name || command.assetId || '背景なし';
+    if (command.type === 'sprite') {
+      const name = assetById(command.assetId)?.name || command.assetId || 'spriteなし';
+      return `${name} slot ${command.slot} (${command.x}, ${command.y})`;
+    }
+    if (command.type === 'message') return `${command.speaker ? `${command.speaker}: ` : ''}${command.text || '本文なし'}`;
+    if (command.type === 'audio') return `${command.kind}:${command.action}${command.assetId ? ` ${command.assetId}` : ''}`;
+    if (command.type === 'effect') return command.effect === 'shake' ? `shake ${command.frames}f / ${command.intensity}` : `${command.effect} ${command.frames}f`;
+    if (command.type === 'preload') return command.sceneId ? `scene ${command.sceneId}` : 'scene未指定';
+    if (command.type === 'choice') return (command.choices || []).map((choice) => choice.label).join(' / ') || '選択肢なし';
+    if (command.type === 'jump') return command.sceneId ? `scene ${command.sceneId}` : 'scene未指定';
+    if (command.type === 'wait') return `${command.frames} frames`;
+    return command.type;
+  }
+
+  function selectedCommandFromDetail(existing) {
+    if (!detailForm.elements.type) return existing;
+    const type = detailForm.elements.type.value;
+    if (type !== existing.type) return defaultCommand(type, assets);
     if (type === 'background') {
       return normalizeCommand({
         type,
-        assetId: row.querySelector('[name="assetId"]').value,
-        transition: row.querySelector('[name="transition"]').value,
-        fadeOutFrames: row.querySelector('[name="fadeOutFrames"]').value,
-        fadeInFrames: row.querySelector('[name="fadeInFrames"]').value,
+        assetId: detailForm.elements.assetId.value,
+        transition: detailForm.elements.transition.value,
+        fadeOutFrames: detailForm.elements.fadeOutFrames.value,
+        fadeInFrames: detailForm.elements.fadeInFrames.value,
       }, assets);
     }
     if (type === 'sprite') {
       return normalizeCommand({
         type,
-        slot: row.querySelector('[name="slot"]').value,
-        assetId: row.querySelector('[name="assetId"]').value,
-        x: row.querySelector('[name="x"]').value,
-        y: row.querySelector('[name="y"]').value,
-        animationId: row.querySelector('[name="animationId"]').value,
-        flipX: row.querySelector('[name="flipX"]').checked,
-        flipY: row.querySelector('[name="flipY"]').checked,
-        durationFrames: row.querySelector('[name="durationFrames"]').value,
-        visible: row.querySelector('[name="visible"]').checked,
+        slot: detailForm.elements.slot.value,
+        assetId: detailForm.elements.assetId.value,
+        x: detailForm.elements.x.value,
+        y: detailForm.elements.y.value,
+        animationId: detailForm.elements.animationId.value,
+        flipX: detailForm.elements.flipX.checked,
+        flipY: detailForm.elements.flipY.checked,
+        durationFrames: detailForm.elements.durationFrames.value,
+        visible: detailForm.elements.visible.checked,
       }, assets);
     }
     if (type === 'audio') {
       return normalizeCommand({
         type,
-        kind: row.querySelector('[name="kind"]').value,
-        action: row.querySelector('[name="action"]').value,
-        assetId: row.querySelector('[name="assetId"]').value,
+        kind: detailForm.elements.kind.value,
+        action: detailForm.elements.action.value,
+        assetId: detailForm.elements.assetId.value,
       }, assets);
     }
     if (type === 'effect') {
       return normalizeCommand({
         type,
-        effect: row.querySelector('[name="effect"]').value,
-        frames: row.querySelector('[name="frames"]').value,
-        intensity: row.querySelector('[name="intensity"]').value,
+        effect: detailForm.elements.effect.value,
+        frames: detailForm.elements.frames.value,
+        intensity: detailForm.elements.intensity.value,
       }, assets);
+    }
+    if (type === 'preload' || type === 'jump') {
+      return normalizeCommand({ type, sceneId: detailForm.elements.sceneId.value }, assets);
+    }
+    if (type === 'wait') {
+      return normalizeCommand({ type, frames: detailForm.elements.frames.value }, assets);
+    }
+    if (type === 'choice') {
+      const choices = Array.from(detailForm.querySelectorAll('[data-choice-row]')).map((row) => ({
+        label: row.querySelector('[data-choice-field="label"]')?.value || '',
+        targetSceneId: row.querySelector('[data-choice-field="targetSceneId"]')?.value || '',
+      }));
+      return normalizeCommand({ type, defaultIndex: detailForm.elements.defaultIndex.value, choices }, assets);
     }
     return normalizeCommand({
       type,
-      speaker: row.querySelector('[name="speaker"]').value,
-      text: row.querySelector('[name="text"]').value,
-      voiceAssetId: row.querySelector('[name="voiceAssetId"]').value,
-      textSpeedFrames: row.querySelector('[name="textSpeedFrames"]').value,
-      advanceMode: row.querySelector('[name="advanceMode"]').value,
-      autoWaitFrames: row.querySelector('[name="autoWaitFrames"]').value,
-      mouthSlot: row.querySelector('[name="mouthSlot"]').value,
-      mouthAnimationId: row.querySelector('[name="mouthAnimationId"]').value,
+      speaker: detailForm.elements.speaker.value,
+      text: detailForm.elements.text.value,
+      voiceAssetId: detailForm.elements.voiceAssetId.value,
+      textSpeedFrames: detailForm.elements.textSpeedFrames.value,
+      advanceMode: detailForm.elements.advanceMode.value,
+      autoWaitFrames: detailForm.elements.autoWaitFrames.value,
+      mouthSlot: detailForm.elements.mouthSlot.value,
+      mouthAnimationId: detailForm.elements.mouthAnimationId.value,
     }, assets);
   }
 
-  function selectedSceneFromForm() {
-    const current = scene() || {};
-    return {
-      ...current,
-      id: safeId(form.elements.id.value, current.id || 'scene'),
-      nextSceneId: form.elements.nextSceneId.value,
-      commands: Array.from(commandsEl.querySelectorAll('[data-command]')).map(commandFromRow).filter(Boolean),
-    };
+  function updateSelectedCommandFromDetail(options = {}) {
+    const {
+      rerenderDetail = false,
+      rerenderCommands = true,
+      updatePreview = true,
+    } = options;
+    const current = scene();
+    const existing = ensureSelectedCommand(current);
+    if (!current || !existing || !detailForm.elements.type) return;
+    current.commands[selectedCommandIndex] = selectedCommandFromDetail(existing);
+    if (rerenderCommands) renderCommands(current);
+    if (rerenderDetail) renderCommandDetail(current);
+    if (updatePreview) void renderPreview();
   }
 
-  function commitFormToDoc() {
+  function commitCurrentUiToDoc() {
+    updateSelectedCommandFromDetail({ rerenderCommands: false, updatePreview: false });
+    commitSceneMetaToDoc();
+  }
+
+  function commitSceneMetaToDoc() {
     const current = scene();
     if (!current) return;
     const index = doc.scenes.indexOf(current);
-    const next = selectedSceneFromForm();
+    const next = {
+      ...current,
+      id: safeId(form.elements.id.value, current.id || 'scene'),
+      nextSceneId: form.elements.nextSceneId.value,
+    };
     const oldId = current.id;
     doc.scenes[index] = next;
     if (doc.startScene === oldId) doc.startScene = next.id;
     doc.scenes = doc.scenes.map((item) => ({
       ...item,
       nextSceneId: item.nextSceneId === oldId ? next.id : item.nextSceneId,
+      commands: (item.commands || []).map((command) => {
+        if ((command.type === 'preload' || command.type === 'jump') && command.sceneId === oldId) {
+          return { ...command, sceneId: next.id };
+        }
+        if (command.type === 'choice') {
+          return {
+            ...command,
+            choices: (command.choices || []).map((choice) => ({
+              ...choice,
+              targetSceneId: choice.targetSceneId === oldId ? next.id : choice.targetSceneId,
+            })),
+          };
+        }
+        return command;
+      }),
     }));
     selectedId = next.id;
   }
@@ -367,17 +595,42 @@ export function activatePlugin({ root, api, registerCapability }) {
     }).join('');
     sceneList.querySelectorAll('[data-scene-id]').forEach((button) => {
       button.addEventListener('click', () => {
-        commitFormToDoc();
+        commitCurrentUiToDoc();
         selectedId = button.dataset.sceneId;
+        selectedCommandIndex = 0;
         render();
       });
     });
   }
 
-  function typeOptions(current) {
-    return ['background', 'sprite', 'message', 'audio', 'effect']
-      .map((type) => `<option value="${type}" ${type === current ? 'selected' : ''}>${type}</option>`)
-      .join('');
+  function renderCommandPalette() {
+    const query = commandSearch.trim().toLowerCase();
+    const matches = COMMAND_DEFINITIONS.filter((item) => {
+      if (!query) return true;
+      return `${item.type} ${item.label} ${item.category} ${item.description}`.toLowerCase().includes(query);
+    });
+    if (!matches.length) {
+      commandPaletteEl.innerHTML = '<p class="pce-vn-empty">該当コマンドがありません</p>';
+      return;
+    }
+    commandPaletteEl.innerHTML = COMMAND_CATEGORIES.map((category) => {
+      const items = matches.filter((item) => item.category === category);
+      if (!items.length) return '';
+      return `
+        <section class="pce-vn-palette-category">
+          <h3>${esc(category)}</h3>
+          ${items.map((item) => `
+            <div class="pce-vn-palette-command" draggable="true" data-palette-command="${item.type}">
+              <span>
+                <strong>${esc(item.label)}</strong>
+                <small>${esc(item.description)}</small>
+              </span>
+              <button class="icon-btn" type="button" data-palette-add="${item.type}" title="${esc(item.label)}を追加" aria-label="${esc(item.label)}を追加">＋</button>
+            </div>
+          `).join('')}
+        </section>
+      `;
+    }).join('');
   }
 
   function commandFields(command) {
@@ -430,12 +683,37 @@ export function activatePlugin({ root, api, registerCapability }) {
         </div>
       `;
     }
+    if (command.type === 'preload' || command.type === 'jump') {
+      return `
+        <label class="form-group"><span class="form-label">Scene</span><select class="form-select" name="sceneId">${sceneOptions(command.sceneId, 'なし')}</select></label>
+      `;
+    }
+    if (command.type === 'wait') {
+      return `
+        <label class="form-group"><span class="form-label">Frames</span><input class="form-input" name="frames" type="number" min="0" max="65535" value="${esc(command.frames)}" /></label>
+      `;
+    }
+    if (command.type === 'choice') {
+      return `
+        <label class="form-group"><span class="form-label">Default</span><input class="form-input" name="defaultIndex" type="number" min="0" max="${Math.max(0, (command.choices || []).length - 1)}" value="${esc(command.defaultIndex || 0)}" /></label>
+        <div class="pce-vn-choice-list" data-role="choice-list">
+          ${(command.choices || []).map((choice, index) => `
+            <div class="pce-vn-choice-row" data-choice-row>
+              <label class="form-group"><span class="form-label">Label ${index + 1}</span><input class="form-input" data-choice-field="label" value="${esc(choice.label || '')}" /></label>
+              <label class="form-group"><span class="form-label">Target</span><select class="form-select" data-choice-field="targetSceneId">${sceneOptions(choice.targetSceneId, 'なし')}</select></label>
+              <button class="icon-btn danger" type="button" data-choice-remove="${index}" title="選択肢削除" aria-label="選択肢削除">×</button>
+            </div>
+          `).join('')}
+        </div>
+        <button class="btn-sm" type="button" data-choice-add>選択肢追加</button>
+      `;
+    }
     return `
       <div class="pce-vn-grid">
         <label class="form-group"><span class="form-label">話者</span><input class="form-input" name="speaker" value="${esc(command.speaker || '')}" /></label>
         <label class="form-group"><span class="form-label">ADPCM</span><select class="form-select" name="voiceAssetId">${optionsFor(byType(['adpcm']), command.voiceAssetId, 'なし')}</select></label>
       </div>
-      <label class="form-group"><span class="form-label">本文</span><textarea class="form-input" name="text" rows="2">${esc(command.text || '')}</textarea></label>
+      <label class="form-group"><span class="form-label">本文</span><textarea class="form-input" name="text" rows="3">${esc(command.text || '')}</textarea></label>
       <div class="pce-vn-grid tight">
         <label class="form-group"><span class="form-label">Speed</span><input class="form-input" name="textSpeedFrames" type="number" min="0" max="30" value="${esc(command.textSpeedFrames)}" /></label>
         <label class="form-group"><span class="form-label">Advance</span><select class="form-select" name="advanceMode"><option value="button" ${command.advanceMode !== 'auto' ? 'selected' : ''}>button</option><option value="auto" ${command.advanceMode === 'auto' ? 'selected' : ''}>auto</option></select></label>
@@ -446,46 +724,44 @@ export function activatePlugin({ root, api, registerCapability }) {
     `;
   }
 
+  function renderCommandDetail(current) {
+    const command = ensureSelectedCommand(current);
+    if (!command) {
+      detailForm.innerHTML = '<p class="pce-vn-empty">コマンドを選択してください</p>';
+      return;
+    }
+    const definition = commandDefinition(command.type);
+    detailForm.innerHTML = `
+      <div class="pce-vn-detail-head">
+        <span>#${selectedCommandIndex + 1}</span>
+        <strong>${esc(definition.label)}</strong>
+      </div>
+      <label class="form-group"><span class="form-label">Type</span><select class="form-select" name="type">${typeOptions(command.type)}</select></label>
+      ${commandFields(command)}
+    `;
+  }
+
   function renderCommands(current) {
-    commandsEl.innerHTML = current.commands.map((command, index) => `
-      <section class="pce-vn-command-row" data-command>
-        <div class="pce-vn-command-head">
-          <strong>#${index + 1}</strong>
-          <select class="form-select" name="type">${typeOptions(command.type)}</select>
-          <div class="pce-vn-actions">
-            <button class="icon-btn" type="button" data-command-up="${index}" title="上へ" aria-label="上へ">↑</button>
-            <button class="icon-btn" type="button" data-command-down="${index}" title="下へ" aria-label="下へ">↓</button>
-            <button class="icon-btn danger" type="button" data-command-remove="${index}" title="削除" aria-label="削除">×</button>
-          </div>
-        </div>
-        ${commandFields(command)}
-      </section>
-    `).join('');
-    commandsEl.querySelectorAll('input, textarea, select').forEach((input) => {
-      input.addEventListener('input', renderPreview);
-      input.addEventListener('change', (event) => {
-        if (event.target.name === 'type') {
-          const rows = Array.from(commandsEl.querySelectorAll('[data-command]'));
-          const rowIndex = rows.indexOf(event.target.closest('[data-command]'));
-          const base = scene() || {};
-          const currentScene = {
-            ...base,
-            id: safeId(form.elements.id.value, base.id || 'scene'),
-            nextSceneId: form.elements.nextSceneId.value,
-            commands: Array.isArray(base.commands) ? base.commands.slice() : [],
-          };
-          if (rowIndex >= 0) currentScene.commands[rowIndex] = defaultCommand(event.target.value, assets);
-          const sceneIndex = doc.scenes.findIndex((item) => item.id === selectedId);
-          doc.scenes[sceneIndex] = currentScene;
-          render();
-        } else if (event.target.name === 'kind' || event.target.name === 'assetId') {
-          commitFormToDoc();
-          render();
-        } else {
-          renderPreview();
-        }
-      });
-    });
+    ensureSelectedCommand(current);
+    const pieces = ['<div class="pce-vn-command-dropzone" data-drop-index="0"></div>'];
+    pieces.push(...current.commands.map((command, index) => {
+      const definition = commandDefinition(command.type);
+      return `
+        <section class="pce-vn-command-row ${index === selectedCommandIndex ? 'active' : ''}" data-command data-command-index="${index}" draggable="true">
+          <button class="pce-vn-command-select" type="button" data-command-select="${index}">
+            <span class="pce-vn-drag-handle" aria-hidden="true">::</span>
+            <span class="pce-vn-command-index">#${index + 1}</span>
+            <span class="pce-vn-command-text">
+              <strong>${esc(definition.label)}</strong>
+              <small>${esc(commandSummary(command))}</small>
+            </span>
+          </button>
+          <button class="icon-btn danger" type="button" data-command-remove="${index}" title="削除" aria-label="削除">×</button>
+        </section>
+        <div class="pce-vn-command-dropzone" data-drop-index="${index + 1}"></div>
+      `;
+    }));
+    commandsEl.innerHTML = pieces.join('');
   }
 
   async function setPreviewImage(img, asset) {
@@ -500,7 +776,8 @@ export function activatePlugin({ root, api, registerCapability }) {
   }
 
   async function renderPreview() {
-    const current = selectedSceneFromForm();
+    const current = scene();
+    if (!current) return;
     const slots = new Map();
     let background = null;
     let message = null;
@@ -530,11 +807,13 @@ export function activatePlugin({ root, api, registerCapability }) {
     messagePreview.textContent = message
       ? `${message.speaker ? `${message.speaker}: ` : ''}${message.text}`
       : '';
+    const selected = ensureSelectedCommand(current);
     metaEl.innerHTML = `
       <dt>target</dt><dd>SUPER CD-ROM2 / llvm-mos</dd>
       <dt>background</dt><dd>${esc(background?.name || background?.id || '-')}</dd>
       <dt>sprites</dt><dd>${esc(String(slots.size))}</dd>
       <dt>commands</dt><dd>${esc(String(current.commands.length))}</dd>
+      <dt>selected</dt><dd>${esc(selected ? `#${selectedCommandIndex + 1} ${commandDefinition(selected.type).label}` : '-')}</dd>
       <dt>audio</dt><dd>${esc(audio || '-')}</dd>
     `;
   }
@@ -542,19 +821,22 @@ export function activatePlugin({ root, api, registerCapability }) {
   function renderForm() {
     const current = scene();
     if (!current) return;
+    ensureSelectedCommand(current);
     root.querySelector('[data-role="scene-title"]').textContent = current.id;
     form.elements.id.value = current.id;
-    form.elements.nextSceneId.innerHTML = optionsFor(doc.scenes.filter((item) => item.id !== current.id).map((item) => ({ id: item.id, name: item.id })), current.nextSceneId, '終端');
+    form.elements.nextSceneId.innerHTML = optionsFor(
+      doc.scenes.filter((item) => item.id !== current.id).map((item) => ({ id: item.id, name: item.id })),
+      current.nextSceneId,
+      '終端',
+    );
     renderCommands(current);
-    form.querySelectorAll('input, select').forEach((input) => {
-      input.addEventListener('input', renderPreview);
-      input.addEventListener('change', renderPreview);
-    });
+    renderCommandDetail(current);
     void renderPreview();
   }
 
   function render() {
     renderSceneList();
+    renderCommandPalette();
     renderForm();
   }
 
@@ -574,12 +856,13 @@ export function activatePlugin({ root, api, registerCapability }) {
       await api.electronAPI.writeCodeFile({ path: SCENE_FILE, content: JSON.stringify(doc, null, 2), encoding: 'utf8' });
     }
     if (!doc.scenes.some((item) => item.id === selectedId)) selectedId = doc.startScene || doc.scenes[0]?.id || 'opening';
+    selectedCommandIndex = 0;
     render();
   }
 
   async function save() {
     try {
-      commitFormToDoc();
+      commitCurrentUiToDoc();
       doc = normalizeDoc(doc, assets);
       await api.electronAPI.writeCodeFile({ path: SCENE_FILE, content: JSON.stringify(doc, null, 2), encoding: 'utf8' });
       errorEl.textContent = '保存しました';
@@ -589,13 +872,231 @@ export function activatePlugin({ root, api, registerCapability }) {
     }
   }
 
+  function insertCommand(type, rawIndex) {
+    commitCurrentUiToDoc();
+    const current = scene();
+    if (!current) return;
+    const index = clamp(rawIndex, 0, current.commands.length, current.commands.length);
+    current.commands.splice(index, 0, defaultCommand(type, assets));
+    selectedCommandIndex = index;
+    render();
+  }
+
+  function removeCommand(index) {
+    const current = scene();
+    if (!current) return;
+    current.commands.splice(index, 1);
+    if (!current.commands.length) current.commands.push(defaultCommand('message', assets));
+    selectedCommandIndex = clamp(Math.min(index, current.commands.length - 1), 0, current.commands.length - 1, 0);
+    render();
+  }
+
+  function moveCommand(fromIndex, rawToIndex) {
+    commitCurrentUiToDoc();
+    const current = scene();
+    if (!current || fromIndex < 0 || fromIndex >= current.commands.length) return;
+    let toIndex = clamp(rawToIndex, 0, current.commands.length, current.commands.length);
+    const [command] = current.commands.splice(fromIndex, 1);
+    if (fromIndex < toIndex) toIndex -= 1;
+    current.commands.splice(toIndex, 0, command);
+    selectedCommandIndex = toIndex;
+    render();
+  }
+
+  function clearDropState() {
+    commandsEl.querySelectorAll('.is-drop-target').forEach((item) => item.classList.remove('is-drop-target'));
+  }
+
+  function resolveDropIndexFromElement(element, clientY) {
+    const zone = element?.closest?.('[data-drop-index]');
+    if (zone) return Number(zone.dataset.dropIndex);
+    const row = element?.closest?.('[data-command-index]');
+    if (!row) return null;
+    const rowIndex = Number(row.dataset.commandIndex);
+    const rect = row.getBoundingClientRect();
+    return clientY > rect.top + rect.height / 2 ? rowIndex + 1 : rowIndex;
+  }
+
+  function resolveDropIndex(event) {
+    const directIndex = resolveDropIndexFromElement(event.target, event.clientY);
+    if (directIndex != null) return directIndex;
+    return resolveDropIndexFromElement(document.elementFromPoint(event.clientX, event.clientY), event.clientY);
+  }
+
+  function showDropTarget(index) {
+    clearDropState();
+    commandsEl.querySelector(`[data-drop-index="${index}"]`)?.classList.add('is-drop-target');
+  }
+
+  root.querySelectorAll('[data-column-resizer]').forEach((resizer) => {
+    resizer.addEventListener('pointerdown', resizeColumns);
+  });
+
+  commandSearchInput.addEventListener('input', () => {
+    commandSearch = commandSearchInput.value;
+    renderCommandPalette();
+  });
+
+  commandPaletteEl.addEventListener('click', (event) => {
+    const add = event.target?.closest?.('[data-palette-add]');
+    if (!add) return;
+    const current = scene();
+    const insertIndex = current?.commands?.length ? selectedCommandIndex + 1 : 0;
+    insertCommand(add.dataset.paletteAdd, insertIndex);
+  });
+
+  commandPaletteEl.addEventListener('dragstart', (event) => {
+    const item = event.target?.closest?.('[data-palette-command]');
+    if (!item) return;
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData('application/x-pce-vn-new-command', item.dataset.paletteCommand);
+    event.dataTransfer.setData('text/plain', item.dataset.paletteCommand);
+  });
+
+  commandsEl.addEventListener('click', (event) => {
+    if (suppressCommandClick) {
+      suppressCommandClick = false;
+      event.preventDefault();
+      return;
+    }
+    const remove = event.target?.closest?.('[data-command-remove]');
+    if (remove) {
+      removeCommand(Number(remove.dataset.commandRemove));
+      return;
+    }
+    const select = event.target?.closest?.('[data-command-select]');
+    if (!select) return;
+    updateSelectedCommandFromDetail({ rerenderCommands: false, updatePreview: false });
+    selectedCommandIndex = Number(select.dataset.commandSelect);
+    const current = scene();
+    renderCommands(current);
+    renderCommandDetail(current);
+    void renderPreview();
+  });
+
+  commandsEl.addEventListener('dragstart', (event) => {
+    const row = event.target?.closest?.('[data-command-index]');
+    if (!row) return;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-pce-vn-command-index', row.dataset.commandIndex);
+    event.dataTransfer.setData('text/plain', row.dataset.commandIndex);
+    row.classList.add('is-dragging');
+  });
+
+  commandsEl.addEventListener('dragend', (event) => {
+    event.target?.closest?.('[data-command-index]')?.classList.remove('is-dragging');
+    clearDropState();
+  });
+
+  commandsEl.addEventListener('dragover', (event) => {
+    const index = resolveDropIndex(event);
+    if (index == null) return;
+    event.preventDefault();
+    const transferTypes = Array.from(event.dataTransfer.types || []);
+    event.dataTransfer.dropEffect = transferTypes.includes('application/x-pce-vn-new-command') ? 'copy' : 'move';
+    showDropTarget(index);
+  });
+
+  commandsEl.addEventListener('dragleave', (event) => {
+    if (!commandsEl.contains(event.relatedTarget)) clearDropState();
+  });
+
+  commandsEl.addEventListener('drop', (event) => {
+    const index = resolveDropIndex(event);
+    if (index == null) return;
+    event.preventDefault();
+    clearDropState();
+    const newType = event.dataTransfer.getData('application/x-pce-vn-new-command');
+    if (newType) {
+      insertCommand(newType, index);
+      return;
+    }
+    const fromText = event.dataTransfer.getData('application/x-pce-vn-command-index');
+    if (fromText !== '') moveCommand(Number(fromText), index);
+  });
+
+  commandsEl.addEventListener('pointerdown', (event) => {
+    const row = event.target?.closest?.('[data-command-index]');
+    if (!row || event.target?.closest?.('[data-command-remove]')) return;
+    pointerDrag = {
+      row,
+      index: Number(row.dataset.commandIndex),
+      startX: event.clientX,
+      startY: event.clientY,
+      lastIndex: Number(row.dataset.commandIndex),
+      active: false,
+    };
+  });
+
+  commandsEl.addEventListener('pointermove', (event) => {
+    if (!pointerDrag) return;
+    const distance = Math.abs(event.clientX - pointerDrag.startX) + Math.abs(event.clientY - pointerDrag.startY);
+    if (!pointerDrag.active && distance < 8) return;
+    pointerDrag.active = true;
+    event.preventDefault();
+    pointerDrag.row.classList.add('is-dragging');
+    const index = resolveDropIndexFromElement(document.elementFromPoint(event.clientX, event.clientY), event.clientY);
+    if (index != null) {
+      pointerDrag.lastIndex = index;
+      showDropTarget(index);
+    }
+  });
+
+  const finishPointerDrag = () => {
+    if (!pointerDrag) return;
+    const drag = pointerDrag;
+    pointerDrag = null;
+    drag.row.classList.remove('is-dragging');
+    clearDropState();
+    if (drag.active) {
+      suppressCommandClick = true;
+      moveCommand(drag.index, drag.lastIndex);
+    }
+  };
+
+  commandsEl.addEventListener('pointerup', finishPointerDrag);
+  commandsEl.addEventListener('pointercancel', finishPointerDrag);
+
+  detailForm.addEventListener('input', (event) => {
+    if (event.target?.name === 'type') return;
+    updateSelectedCommandFromDetail({ rerenderCommands: true, updatePreview: true });
+  });
+
+  detailForm.addEventListener('change', (event) => {
+    const name = event.target?.name || '';
+    const rerenderDetail = name === 'type' || name === 'kind' || name === 'assetId';
+    updateSelectedCommandFromDetail({ rerenderDetail, rerenderCommands: true, updatePreview: true });
+  });
+
+  detailForm.addEventListener('click', (event) => {
+    const add = event.target?.closest?.('[data-choice-add]');
+    const remove = event.target?.closest?.('[data-choice-remove]');
+    if (!add && !remove) return;
+    updateSelectedCommandFromDetail({ rerenderCommands: false, updatePreview: false });
+    const current = scene();
+    const command = ensureSelectedCommand(current);
+    if (!command || command.type !== 'choice') return;
+    if (add && command.choices.length < 4) command.choices.push({ label: `選択肢${command.choices.length + 1}`, targetSceneId: '' });
+    if (remove) command.choices.splice(Number(remove.dataset.choiceRemove), 1);
+    if (!command.choices.length) command.choices.push({ label: '進む', targetSceneId: '' });
+    command.defaultIndex = clamp(command.defaultIndex, 0, command.choices.length - 1, 0);
+    renderCommands(current);
+    renderCommandDetail(current);
+    void renderPreview();
+  });
+
+  form.addEventListener('input', () => {
+    root.querySelector('[data-role="scene-title"]').textContent = safeId(form.elements.id.value, scene()?.id || 'scene');
+  });
+
   root.querySelector('[data-action="reload"]').addEventListener('click', load);
   root.querySelector('[data-action="save"]').addEventListener('click', save);
   root.querySelector('[data-action="add-scene"]').addEventListener('click', () => {
-    commitFormToDoc();
+    commitCurrentUiToDoc();
     const id = safeId(`scene_${doc.scenes.length + 1}`, 'scene');
     doc.scenes.push({ id, commands: [defaultCommand('message', assets)], nextSceneId: '' });
     selectedId = id;
+    selectedCommandIndex = 0;
     render();
   });
   root.querySelector('[data-action="delete-scene"]').addEventListener('click', () => {
@@ -603,30 +1104,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     doc.scenes = doc.scenes.filter((item) => item.id !== selectedId);
     selectedId = doc.scenes[0]?.id || 'opening';
     doc.startScene = selectedId;
-    render();
-  });
-  root.querySelectorAll('[data-add-command]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const current = selectedSceneFromForm();
-      current.commands.push(defaultCommand(button.dataset.addCommand, assets));
-      const index = doc.scenes.findIndex((item) => item.id === selectedId);
-      doc.scenes[index] = current;
-      render();
-    });
-  });
-  commandsEl.addEventListener('click', (event) => {
-    const remove = event.target?.closest?.('[data-command-remove]');
-    const up = event.target?.closest?.('[data-command-up]');
-    const down = event.target?.closest?.('[data-command-down]');
-    if (!remove && !up && !down) return;
-    const current = selectedSceneFromForm();
-    const index = Number((remove || up || down).dataset.commandRemove ?? (remove || up || down).dataset.commandUp ?? (remove || up || down).dataset.commandDown);
-    if (remove) current.commands.splice(index, 1);
-    if (up && index > 0) current.commands.splice(index - 1, 0, current.commands.splice(index, 1)[0]);
-    if (down && index + 1 < current.commands.length) current.commands.splice(index + 1, 0, current.commands.splice(index, 1)[0]);
-    if (!current.commands.length) current.commands.push(defaultCommand('message', assets));
-    const sceneIndex = doc.scenes.findIndex((item) => item.id === selectedId);
-    doc.scenes[sceneIndex] = current;
+    selectedCommandIndex = 0;
     render();
   });
 

@@ -1,7 +1,9 @@
-const IMAGE_EXTS = ['.png', '.bmp'];
+const IMAGE_EXTS = ['.png', '.bmp', '.webp'];
 const AUDIO_EXTS = ['.wav', '.mp3'];
 const SPRITE_CELL_SIZES = ['16x16', '16x32', '16x64', '32x16', '32x32', '32x64'];
 const PCE_PSG_CLOCK = 3579545;
+const PCE_BG_AUTO_TILE_BASE = 128;
+const PCE_BG_AUTO_MAP_BASE = 0;
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -138,7 +140,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             <button class="icon-btn" data-action="import-cdda" type="button" title="CD-DAを追加" aria-label="CD-DAを追加">CD+</button>
             <button class="icon-btn" data-action="new-psg" type="button" title="PSG SFX を追加" aria-label="PSG SFX を追加">♪+</button>
             <button class="icon-btn" data-action="new-palette" type="button" title="Palette を追加" aria-label="Palette を追加">▦</button>
-            <button class="icon-btn" data-action="refresh" type="button" title="更新" aria-label="更新">↻</button>
           </div>
         </div>
 
@@ -520,8 +521,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     }
     const visibility = {
       paletteBank: isImage || isPalette,
-      tileBase: isImage,
-      mapBase: isImage && !isSprite,
+      tileBase: isImage && isSprite,
+      mapBase: false,
       x: isImage,
       y: isImage,
       width: isImage,
@@ -664,8 +665,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     fields.name.value = asset.name || '';
     fields.source.value = asset.source || '';
     fields.paletteBank.value = options.paletteBank ?? 0;
-    fields.tileBase.value = options.tileBase ?? (asset.type === 'sprite' ? 384 : 32);
-    fields.mapBase.value = options.mapBase ?? 0;
+    fields.tileBase.value = options.tileBase ?? (asset.type === 'sprite' ? 384 : PCE_BG_AUTO_TILE_BASE);
+    fields.mapBase.value = options.mapBase ?? PCE_BG_AUTO_MAP_BASE;
     fields.x.value = options.x ?? 0;
     fields.y.value = options.y ?? 0;
     fields.width.value = options.width ?? 0;
@@ -719,8 +720,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           ...(current.options || {}),
           kind: type === 'sprite' ? 'sprite' : 'background',
           paletteBank: asNumber(fields.paletteBank.value, 0),
-          tileBase: asNumber(fields.tileBase.value, type === 'sprite' ? 384 : 32),
-          mapBase: asNumber(fields.mapBase.value, 0),
+          tileBase: type === 'sprite' ? asNumber(fields.tileBase.value, 384) : PCE_BG_AUTO_TILE_BASE,
+          mapBase: PCE_BG_AUTO_MAP_BASE,
           x: asNumber(fields.x.value, 0),
           y: asNumber(fields.y.value, 0),
           width: asNumber(fields.width.value, 0),
@@ -1016,9 +1017,13 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     }
 
     const finalImage = await loadImageFromDataUrl(workingDataUrl);
+    const shouldStorePng = workingDataUrl !== sourceDataUrl || sourceExt === '.bmp' || sourceExt === '.webp';
+    const convertedDataUrl = shouldStorePng && !String(workingDataUrl).startsWith('data:image/png')
+      ? await dataUrlToPng(workingDataUrl)
+      : shouldStorePng ? workingDataUrl : '';
     return {
       canceled: false,
-      convertedDataUrl: workingDataUrl !== sourceDataUrl || sourceExt === '.bmp' ? workingDataUrl : '',
+      convertedDataUrl,
       targetExtension: '.png',
       width: finalImage.naturalWidth || finalImage.width || image.naturalWidth || image.width || 0,
       height: finalImage.naturalHeight || finalImage.height || image.naturalHeight || image.height || 0,
@@ -1026,7 +1031,24 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     };
   }
 
+  async function pickImageInputFile() {
+    const picked = await api.electronAPI.pickFile({
+      properties: ['openFile'],
+      filters: [{ name: 'PNG / BMP / WebP', extensions: ['png', 'bmp', 'webp'] }],
+    });
+    const filePath = picked?.sourcePath || picked?.filePath || picked?.filePaths?.[0] || '';
+    if (picked?.canceled || !filePath) return null;
+    return {
+      sourcePath: filePath,
+      fileName: filePath.split(/[\\/]/).pop() || '',
+    };
+  }
+
   async function openImportWizard(defaultKind = 'background', importFile = null) {
+    const initialFile = importFile?.sourcePath || importFile?.path
+      ? importFile
+      : await pickImageInputFile();
+    if (!initialFile) return null;
     return new Promise((resolve) => {
       const modal = api.createModal({
         id: `${plugin.id}-import-modal-${Date.now()}`,
@@ -1057,14 +1079,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
                 <span class="form-label">Palette bank</span>
                 <input class="form-input" name="paletteBank" type="number" min="0" max="15" value="0" />
               </label>
-              <label class="form-group">
-                <span class="form-label">Tile base</span>
-                <input class="form-input" name="tileBase" type="number" min="0" max="2047" value="${defaultKind === 'sprite' ? '384' : '32'}" />
-              </label>
-              <label class="form-group">
-                <span class="form-label">Map base</span>
-                <input class="form-input" name="mapBase" type="number" min="0" max="2047" value="0" />
-              </label>
+              <input name="tileBase" type="hidden" value="${defaultKind === 'sprite' ? '384' : PCE_BG_AUTO_TILE_BASE}" />
+              <input name="mapBase" type="hidden" value="${PCE_BG_AUTO_MAP_BASE}" />
               <label class="form-group">
                 <span class="form-label">Cell size</span>
                 <select class="form-select" name="cellSize">
@@ -1090,7 +1106,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             </div>
             <div class="image-preview-frame pce-assets-import-preview">
               <img data-import-preview alt="Import preview" hidden />
-              <div class="inline-no-preview" data-import-no-preview>PNG / BMP を選択してください</div>
+              <div class="inline-no-preview" data-import-no-preview>PNG / BMP / WebP を選択してください</div>
             </div>
             <div class="form-hint" data-import-hint>リサイズ/クリッピング後に16色へ減色し、最後にPCE BG/Sprite形式へ変換します。</div>
             <div class="form-error" data-import-error></div>
@@ -1108,19 +1124,17 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       const error = modal.panel.querySelector('[data-import-error]');
       const kindSelect = form.elements.kind;
       const tileBaseInput = form.elements.tileBase;
-      const mapBaseInput = form.elements.mapBase;
       const cellSizeSelect = form.elements.cellSize;
       const outputWidthInput = form.elements.outputWidth;
       const outputHeightInput = form.elements.outputHeight;
-      let sourcePath = importFile?.sourcePath || '';
-      let sourceFileName = importFile?.fileName || '';
+      let sourcePath = initialFile?.sourcePath || initialFile?.path || '';
+      let sourceFileName = initialFile?.fileName || '';
       let sourceDataUrl = '';
 
       function syncKind() {
         const isSprite = kindSelect.value === 'sprite';
         cellSizeSelect.disabled = !isSprite;
-        mapBaseInput.disabled = isSprite;
-        if (!tileBaseInput.dataset.touched) tileBaseInput.value = isSprite ? '384' : '32';
+        if (!tileBaseInput.dataset.touched) tileBaseInput.value = isSprite ? '384' : String(PCE_BG_AUTO_TILE_BASE);
         if (!outputWidthInput.dataset.touched) outputWidthInput.value = isSprite ? '64' : '288';
         if (!outputHeightInput.dataset.touched) outputHeightInput.value = '128';
       }
@@ -1148,13 +1162,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
 
       modal.panel.querySelector('[data-pick-image]').addEventListener('click', async () => {
         error.textContent = '';
-        const picked = await api.electronAPI.pickFile({
-          properties: ['openFile'],
-          filters: [{ name: 'PNG / BMP', extensions: ['png', 'bmp'] }],
-        });
-        const filePath = picked?.sourcePath || picked?.filePath || picked?.filePaths?.[0] || '';
-        if (picked?.canceled || !filePath) return;
-        await setSource(filePath);
+        const picked = await pickImageInputFile();
+        if (!picked) return;
+        await setSource(picked.sourcePath);
       });
       tileBaseInput.addEventListener('input', () => { tileBaseInput.dataset.touched = '1'; });
       outputWidthInput.addEventListener('input', () => { outputWidthInput.dataset.touched = '1'; });
@@ -1206,8 +1216,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             id: form.elements.id.value,
             name: form.elements.name.value,
             paletteBank: asNumber(form.elements.paletteBank.value, 0),
-            tileBase: asNumber(form.elements.tileBase.value, form.elements.kind.value === 'sprite' ? 384 : 32),
-            mapBase: asNumber(form.elements.mapBase.value, 0),
+            tileBase: form.elements.kind.value === 'sprite' ? asNumber(form.elements.tileBase.value, 384) : PCE_BG_AUTO_TILE_BASE,
+            mapBase: PCE_BG_AUTO_MAP_BASE,
             cellWidth,
             cellHeight,
             transparentIndex: asNumber(form.elements.transparentIndex.value, 0),
@@ -1215,6 +1225,16 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             height: finalHeight,
           });
           if (!result?.ok) throw new Error(result?.error || '取り込みに失敗しました');
+          if (Array.isArray(result.assets)) {
+            assets = result.assets;
+          } else if (result.asset) {
+            const index = assets.findIndex((asset) => asset.id === result.asset.id);
+            if (index >= 0) assets[index] = result.asset;
+            else assets.push(result.asset);
+          }
+          selectedId = result.asset?.id || form.elements.id.value;
+          renderRows();
+          fillForm(selectedAsset());
           logger.info(`PCE image imported: ${result.asset?.id || form.elements.id.value}${converted.warning ? ` (${converted.warning})` : ''}`);
           modal.close();
           modal.destroy?.();
@@ -1223,7 +1243,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           const message = err.message || String(err);
           if (modal.panel?.isConnected) error.textContent = message;
           else {
-            logger.error(`PCE audio import failed: ${message}`);
+            logger.error(`PCE image import failed: ${message}`);
             resolve(null);
           }
         }
@@ -1240,7 +1260,24 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     });
   }
 
+  async function pickAudioInputFile() {
+    const picked = await api.electronAPI.pickFile({
+      properties: ['openFile'],
+      filters: [{ name: 'WAV / MP3', extensions: ['wav', 'mp3'] }],
+    });
+    const filePath = picked?.sourcePath || picked?.filePath || picked?.filePaths?.[0] || '';
+    if (picked?.canceled || !filePath) return null;
+    return {
+      sourcePath: filePath,
+      fileName: filePath.split(/[\\/]/).pop() || '',
+    };
+  }
+
   async function openAudioImportWizard(defaultKind = 'adpcm', importFile = null) {
+    const initialFile = importFile?.sourcePath || importFile?.path
+      ? importFile
+      : await pickAudioInputFile();
+    if (!initialFile) return null;
     return new Promise((resolve) => {
       const modal = api.createModal({
         id: `${plugin.id}-audio-import-modal-${Date.now()}`,
@@ -1299,8 +1336,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       const preview = modal.panel.querySelector('[data-audio-preview]');
       const error = modal.panel.querySelector('[data-import-error]');
       const kindSelect = form.elements.kind;
-      let sourcePath = importFile?.sourcePath || '';
-      let sourceFileName = importFile?.fileName || '';
+      let sourcePath = initialFile?.sourcePath || initialFile?.path || '';
+      let sourceFileName = initialFile?.fileName || '';
 
       function syncKind() {
         const isCdda = kindSelect.value === 'cdda-track';
@@ -1327,13 +1364,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
 
       modal.panel.querySelector('[data-pick-audio]').addEventListener('click', async () => {
         error.textContent = '';
-        const picked = await api.electronAPI.pickFile({
-          properties: ['openFile'],
-          filters: [{ name: 'WAV / MP3', extensions: ['wav', 'mp3'] }],
-        });
-        const filePath = picked?.sourcePath || picked?.filePath || picked?.filePaths?.[0] || '';
-        if (picked?.canceled || !filePath) return;
-        await setSource(filePath);
+        const picked = await pickAudioInputFile();
+        if (!picked) return;
+        await setSource(picked.sourcePath);
       });
       kindSelect.addEventListener('change', syncKind);
       modal.panel.querySelectorAll('[data-import-cancel]').forEach((button) => {
@@ -1434,7 +1467,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   deleteButton.addEventListener('click', () => deleteAsset());
   root.querySelector('[data-action="preview-play"]').addEventListener('click', () => playPsgPreview());
   root.querySelector('[data-action="preview-stop"]').addEventListener('click', stopPsgPreview);
-  root.querySelector('[data-action="refresh"]').addEventListener('click', reload);
   animationEditorEl?.addEventListener('click', (event) => {
     const add = event.target?.closest?.('[data-animation-add]');
     if (add) {
@@ -1545,6 +1577,43 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     },
   });
 
+  function isPluginPageVisible() {
+    const page = root.closest?.('.editor-page');
+    if (page) return page.classList.contains('active');
+    return !root.hidden;
+  }
+
+  function setupReloadOnVisible() {
+    const page = root.closest?.('.editor-page') || root;
+    let wasVisible = isPluginPageVisible();
+    const reloadIfVisible = () => {
+      const visible = isPluginPageVisible();
+      if (visible && !wasVisible) void reload();
+      wasVisible = visible;
+    };
+    const observer = new MutationObserver(reloadIfVisible);
+    observer.observe(page, { attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
+    const pageId = page?.id ? page.id.replace(/^page-/, '') : '';
+    const handleNavClick = (event) => {
+      const button = event.target?.closest?.('.nav-btn[data-page]');
+      if (!button || button.dataset.page !== pageId) return;
+      window.setTimeout(() => {
+        if (isPluginPageVisible()) void reload();
+      }, 0);
+    };
+    document.addEventListener('click', handleNavClick);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('click', handleNavClick);
+    };
+  }
+
+  const teardownReloadOnVisible = setupReloadOnVisible();
   void reload();
-  return { deactivate: stopPsgPreview };
+  return {
+    deactivate() {
+      teardownReloadOnVisible();
+      stopPsgPreview();
+    },
+  };
 }

@@ -371,18 +371,17 @@ const pce_vn_command_t PCE_VN_DATA_SECTION pce_vn_commands[] = {
   { 0u, 0, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, -1, -1 },
   { 1u, 0, 0u, 1u, 0u, 0u, 128u, 24u, -1, 0, -1, -1 },
   { 2u, -1, 0u, 0u, 0u, 0u, 0u, 0u, 0, -1, -1, -1 },
-  { 3u, 0, 0u, 17u, 0u, 0u, 0u, 0u, -1, -1, -1, -1 },
   { 2u, -1, 0u, 0u, 0u, 0u, 0u, 0u, 1, -1, -1, -1 },
   { 0u, 1, 0u, 1u, 16u, 16u, 0u, 0u, -1, -1, -1, -1 },
   { 1u, 1, 0u, 1u, 0u, 0u, 128u, 24u, -1, 1, -1, -1 },
   { 2u, -1, 0u, 0u, 0u, 0u, 0u, 0u, 2, -1, -1, -1 },
   { 2u, -1, 0u, 0u, 0u, 0u, 0u, 0u, 3, -1, -1, -1 }
 };
-const unsigned char PCE_VN_DATA_SECTION pce_vn_command_count = 9;
+const unsigned char PCE_VN_DATA_SECTION pce_vn_command_count = 8;
 
 const pce_vn_scene_t PCE_VN_DATA_SECTION pce_vn_scenes[] = {
-  { 0u, 5u, 1 },
-  { 5u, 4u, -1 }
+  { 0u, 4u, 1 },
+  { 4u, 4u, -1 }
 };
 const unsigned char PCE_VN_DATA_SECTION pce_vn_scene_count = 2;
 const unsigned char PCE_VN_DATA_SECTION pce_vn_start_scene = 0u;

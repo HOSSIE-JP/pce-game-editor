@@ -155,7 +155,6 @@ function defaultCharacterX(assetDoc, assetId) {
 function defaultSceneDocument(assetDoc = { assets: [] }) {
   const assets = Array.isArray(assetDoc.assets) ? assetDoc.assets : [];
   const backgroundAssetId = firstAssetId(assets, 'image');
-  const bgmAssetId = firstAssetId(assets, 'cdda-track') || firstAssetId(assets, 'psg-song');
   const voiceAssetId = firstAssetId(assets, 'adpcm');
   const commands = [];
   if (backgroundAssetId) {
@@ -165,14 +164,6 @@ function defaultSceneDocument(assetDoc = { assets: [] }) {
       transition: 'fade',
       fadeOutFrames: 0,
       fadeInFrames: 16,
-    });
-  }
-  if (bgmAssetId) {
-    commands.push({
-      type: 'audio',
-      kind: 'cdda',
-      action: 'play',
-      assetId: bgmAssetId,
     });
   }
   commands.push({

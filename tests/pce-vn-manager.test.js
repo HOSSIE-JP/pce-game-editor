@@ -117,6 +117,19 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.match(source, /\{ 2u, -1, 0u, 0u, 0u, 0u, 0u, 0u, 0, -1, -1, -1 \}/);
 });
 
+test('PCE VN manager default scene does not auto-play the first CD-DA asset', () => {
+  const vnManager = loadVnManager();
+  const doc = vnManager.defaultSceneDocument({
+    assets: [
+      { id: 'bg', type: 'image', source: 'assets/images/bg.png' },
+      { id: 'track2', type: 'cdda-track', source: 'assets/cdda/track2.wav', options: { track: 2 } },
+    ],
+  });
+
+  assert.equal(doc.scenes[0].commands[0].type, 'background');
+  assert.equal(doc.scenes[0].commands.some((command) => command.type === 'audio'), false);
+});
+
 test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD order', () => {
   const projectDir = makeTempDir('pce-vn-scene-vm-');
   const vnManager = loadVnManager();
@@ -351,13 +364,18 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /cd_sector_from_ref\(&sector, &ref->cd->sector\);/);
   assert.match(source, /voice->cd && voice->cd->sector_count/);
   assert.match(source, /static uint8_t adpcm_play_divider\(const pce_editor_adpcm_asset_t \*voice\)/);
-  assert.doesNotMatch(source, /if \(loaded_adpcm_valid && loaded_adpcm_index == \(uint8_t\)voice_index\) return;/);
+  assert.match(source, /static uint8_t adpcm_playback_active\(void\)/);
+  assert.match(source, /static void wait_adpcm_transfer_ready\(void\)/);
+  assert.match(source, /while \(guard && \(pce_cdb_adpcm_status\(\) & ADPCM_BUSY\)\)/);
+  assert.match(source, /if \(adpcm_playback_active\(\)\) pce_cdb_adpcm_stop\(\);/);
   assert.match(source, /const uint16_t sector_count = voice->cd->sector_count;/);
   assert.match(source, /const uint8_t read_count = sector_count > 255u \? 255u : \(uint8_t\)sector_count;/);
   assert.match(source, /pce_cdb_adpcm_read_from_cd\(sector, read_count, voice->adpcm_address\);/);
+  assert.match(source, /wait_adpcm_transfer_ready\(\);\n        loaded_adpcm_valid = 1u;/);
   assert.match(source, /loaded_adpcm_valid = 1u;/);
   assert.match(source, /divider = adpcm_play_divider\(voice\);/);
   assert.match(source, /pce_cdb_adpcm_play\(voice->adpcm_address, \(uint16_t\)voice->data_size, divider,/);
+  assert.match(source, /static void preload_adpcm_voice\(signed char voice_index\)[\s\S]*if \(loaded_adpcm_valid && loaded_adpcm_index == \(uint8_t\)voice_index\) return;[\s\S]*if \(adpcm_playback_active\(\)\) return;/);
   assert.match(source, /return \(uint8_t\)\(pattern_cols \* pattern_rows \* 2u\);/);
   assert.match(source, /static uint8_t ensure_sprite_patterns_loaded\(uint8_t sprite_index, const pce_editor_sprite_asset_t \*sprite\)/);
   assert.match(source, /if \(loaded_sprite_pattern_valid && loaded_sprite_pattern_index == sprite_index\) return 0u;/);
@@ -403,7 +421,9 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /pce_sector_t end = \{0\};/);
   assert.match(source, /static void play_cdda_track\(uint8_t track, uint8_t loop\)/);
   assert.match(source, /const uint8_t mode = loop \? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT;/);
+  assert.match(source, /pce_cdb_cdda_play\(PCE_CDB_LOCATION_TYPE_TRACK, start, PCE_CDB_LOCATION_TYPE_TRACK, end, mode\);/);
   assert.match(source, /play_cdda_track\(cdda->track, cdda->loop\);/);
+  assert.doesNotMatch(source, /PCE_CDB_LOCATION_TYPE_UNTIL_END/);
   assert.match(source, /pce_ram_bank129_map\(\);\n    pce_cdb_irq_enable\(\(uint8_t\)\(PCE_CDB_MASK_IRQ_EXTERNAL \| PCE_CDB_MASK_VBLANK\)\);/);
   assert.match(source, /init_runtime_state\(\);\n    init_video\(\);\n    map_vn_data\(\);\n    start_scene = pce_vn_start_scene;\n    show_scene\(start_scene\);\n    preload_scene_assets\(\(signed char\)start_scene\);/);
   assert.doesNotMatch(source, /PCE_CDB_CDDA_PLAY_NOT_BUSY/);

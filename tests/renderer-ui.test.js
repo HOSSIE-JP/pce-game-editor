@@ -138,8 +138,10 @@ test('asset manager res file delete and preview resize are wired', () => {
 
 test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', () => {
   const manifest = readPluginManifest('pce-asset-manager');
+  const imageManifest = readPluginManifest('pce-image-converter');
   const audioManifest = readPluginManifest('pce-audio-converter');
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-asset-manager', 'renderer.js'), 'utf-8');
+  const imageRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-image-converter', 'renderer.js'), 'utf-8');
   const audioRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-audio-converter', 'renderer.js'), 'utf-8');
   const html = readRendererFile('index.html');
   const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-asset-manager', 'style.css'), 'utf-8');
@@ -148,7 +150,15 @@ test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', 
   assert.equal(manifest.renderer.page, 'pce-assets');
   assert.ok(manifest.dependencies.includes('pce-audio-converter'));
   assert.ok(manifest.renderer.capabilities.includes('asset-import-handler'));
+  assert.ok(imageManifest.dependencies.includes('image-resize-converter'));
+  assert.ok(imageManifest.dependencies.includes('image-quantize-converter'));
+  assert.equal(imageManifest.dependencies.includes('pce-asset-manager'), false);
+  assert.ok(imageManifest.renderer.capabilities.includes('image-import-pipeline'));
   assert.ok(audioManifest.renderer.capabilities.includes('audio-convert-ui'));
+  assert.match(imageRenderer, /const IMAGE_EXTS = \['\.png', '\.bmp', '\.webp'\]/);
+  assert.match(imageRenderer, /sourceExt === '\.webp'/);
+  assert.match(imageRenderer, /dataUrlToPng\(workingDataUrl\)/);
+  assert.match(imageRenderer, /priority:\s*30/);
   assert.match(audioRenderer, /openAudioConvertModal:\s*api\.openAudioConvertModal/);
   assert.match(renderer, /assets-layout/);
   assert.match(renderer, /asset-table/);
@@ -165,6 +175,7 @@ test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', 
   assert.match(renderer, /data-action="import-sprite"[\s\S]*title="スプライトを追加"/);
   assert.match(renderer, /data-action="import-adpcm"[\s\S]*title="ADPCMを追加"/);
   assert.match(renderer, /data-action="import-cdda"[\s\S]*title="CD-DAを追加"/);
+  assert.doesNotMatch(renderer, /data-action="refresh"/);
   assert.match(renderer, /data-role="animation-editor"/);
   assert.match(renderer, /data-animation-add/);
   assert.doesNotMatch(renderer, /data-row-delete="[^"]*"[\s\S]*>Del<\/button>/);
@@ -172,6 +183,24 @@ test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', 
   assert.match(renderer, /api\.createModal/);
   assert.match(renderer, /picked\?\.sourcePath/);
   assert.match(renderer, /importAssetImage/);
+  assert.match(renderer, /async function pickImageInputFile\(\)/);
+  assert.match(renderer, /const initialFile = importFile\?\.sourcePath[\s\S]*await pickImageInputFile\(\)/);
+  assert.match(renderer, /assets = result\.assets/);
+  assert.match(renderer, /renderRows\(\);\s*fillForm\(selectedAsset\(\)\)/);
+  assert.match(renderer, /const IMAGE_EXTS = \['\.png', '\.bmp', '\.webp'\]/);
+  assert.match(renderer, /PNG \/ BMP \/ WebP/);
+  assert.match(renderer, /extensions:\s*\['png', 'bmp', 'webp'\]/);
+  assert.match(renderer, /const PCE_BG_AUTO_TILE_BASE = 128/);
+  assert.match(renderer, /const PCE_BG_AUTO_MAP_BASE = 0/);
+  assert.match(renderer, /tileBase:\s*type === 'sprite' \? asNumber\(fields\.tileBase\.value, 384\) : PCE_BG_AUTO_TILE_BASE/);
+  assert.match(renderer, /mapBase:\s*PCE_BG_AUTO_MAP_BASE/);
+  assert.match(renderer, /sourceExt === '\.webp'/);
+  assert.match(renderer, /dataUrlToPng\(workingDataUrl\)/);
+  assert.match(renderer, /setupReloadOnVisible/);
+  assert.match(renderer, /new MutationObserver/);
+  assert.match(renderer, /nav-btn\[data-page\]/);
+  assert.match(renderer, /async function pickAudioInputFile\(\)/);
+  assert.match(renderer, /const initialFile = importFile\?\.sourcePath[\s\S]*await pickAudioInputFile\(\)/);
   assert.match(renderer, /audio-convert-ui/);
   assert.match(renderer, /openAudioConvertModal/);
   assert.match(renderer, /WAV \/ MP3/);
@@ -192,6 +221,164 @@ test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', 
   assert.match(css, /\.pce-assets-layout/);
   assert.match(css, /\.pce-assets-animation-editor/);
   assert.doesNotMatch(css, /\.asset-table\s*\{|\.form-input\s*\{/);
+});
+
+test('PCE background and sprite managers expose file-first image import and asset list editing', () => {
+  const bgManifest = readPluginManifest('pce-background-manager');
+  const spriteManifest = readPluginManifest('pce-sprite-manager');
+  const bgRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-background-manager', 'renderer.js'), 'utf-8');
+  const spriteRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-sprite-manager', 'renderer.js'), 'utf-8');
+  const commonRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-image-converter', 'image-asset-manager-page.js'), 'utf-8');
+  const bgCss = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-background-manager', 'style.css'), 'utf-8');
+  const spriteCss = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-sprite-manager', 'style.css'), 'utf-8');
+  const appCss = readRendererFile('style.css');
+
+  assert.equal(bgManifest.tab.page, 'pce-background-manager');
+  assert.equal(bgManifest.renderer.page, 'pce-background-manager');
+  assert.ok(bgManifest.dependencies.includes('pce-image-converter'));
+  assert.ok(bgManifest.renderer.capabilities.includes('background-manager'));
+  assert.equal(spriteManifest.tab.page, 'pce-sprite-manager');
+  assert.equal(spriteManifest.renderer.page, 'pce-sprite-manager');
+  assert.ok(spriteManifest.dependencies.includes('pce-image-converter'));
+  assert.ok(spriteManifest.renderer.capabilities.includes('sprite-manager'));
+  assert.match(bgRenderer, /createImageAssetManagerPlugin/);
+  assert.match(bgRenderer, /kind:\s*'background'/);
+  assert.match(spriteRenderer, /createImageAssetManagerPlugin/);
+  assert.match(spriteRenderer, /kind:\s*'sprite'/);
+  assert.match(commonRenderer, /async function pickImageFile\(\)/);
+  assert.match(commonRenderer, /filters:\s*\[\{ name: 'PNG \/ BMP \/ WebP'/);
+  assert.match(commonRenderer, /const PCE_BG_AUTO_TILE_BASE = 128/);
+  assert.match(commonRenderer, /const PCE_BG_AUTO_MAP_BASE = 0/);
+  assert.match(commonRenderer, /kind === 'sprite' \? 384 : PCE_BG_AUTO_TILE_BASE/);
+  assert.match(commonRenderer, /tileBase:\s*kind === 'sprite' \? clampInt\(formEl\.elements\.tileBase\.value, 0, 2047, defaultTileBase\) : PCE_BG_AUTO_TILE_BASE/);
+  assert.match(commonRenderer, /mapBase:\s*PCE_BG_AUTO_MAP_BASE/);
+  assert.match(commonRenderer, /name="tileBase" type="hidden" value="\$\{PCE_BG_AUTO_TILE_BASE\}"/);
+  assert.match(commonRenderer, /openImportSettingsModal/);
+  assert.match(commonRenderer, /getImagePipeline/);
+  assert.match(commonRenderer, /convertToIndexed16/);
+  assert.match(commonRenderer, /importAssetImage/);
+  assert.match(commonRenderer, /assets = result\.assets \|\| assets/);
+  assert.match(commonRenderer, /renderRows\(\);\s*fillForm\(selectedAsset\(\), \{ preview: true \}\)/);
+  assert.match(commonRenderer, /previewAssetSource/);
+  assert.match(commonRenderer, /data-role="sprite-preview"/);
+  assert.match(commonRenderer, /data-role="animation-editor"/);
+  assert.match(commonRenderer, /data-animation-field="frameDelay"/);
+  assert.match(commonRenderer, /data-animation-field="loop"/);
+  assert.match(commonRenderer, /function drawSpritePreviewFrame\(\)/);
+  assert.match(commonRenderer, /function toggleSpritePlayback\(\)/);
+  assert.match(commonRenderer, /animations:\s*collectAnimationRows\(\)/);
+  assert.match(commonRenderer, /options:\s*kind === 'sprite' \? \{ animations: details\.animations \|\| \[\] \} : \{\}/);
+  assert.match(commonRenderer, /upsertAsset/);
+  assert.match(commonRenderer, /deleteAsset/);
+  assert.match(commonRenderer, /registerCapability\(capabilityName/);
+  assert.match(commonRenderer, /kind === 'sprite'[\s\S]*Sprite sheet の出力サイズは16px単位/);
+  assert.match(commonRenderer, /BG image の出力サイズは8px単位/);
+  assert.match(bgCss, /\.pce-image-manager-layout/);
+  assert.match(bgCss, /\.pce-image-manager-table/);
+  assert.match(spriteCss, /\.pce-image-manager-layout/);
+  assert.match(spriteCss, /\.pce-image-manager-table/);
+  assert.match(spriteCss, /\.pce-image-manager-animation-editor/);
+  assert.match(spriteCss, /\.pce-image-manager-sprite-preview/);
+  assert.match(appCss, /\.inline-no-preview\[hidden\]\s*\{[\s\S]*display:\s*none !important/);
+});
+
+test('PCE visual novel editor does not auto-insert CD-DA playback into new scenes', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+
+  assert.match(renderer, /function defaultDoc\(assets = \[\]\)/);
+  assert.doesNotMatch(renderer, /\{\s*\.\.\.defaultCommand\('audio', assets\)/);
+  assert.match(renderer, /return \{ type: 'audio', kind: 'cdda', action: 'play', assetId: first\('cdda-track'\) \};/);
+});
+
+test('PCE visual novel editor exposes resizable panes, command palette, detail editor, and drag ordering', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'style.css'), 'utf-8');
+
+  assert.match(renderer, /data-column-resizer="left"/);
+  assert.match(renderer, /data-column-resizer="right"/);
+  assert.match(renderer, /function resizeColumns\(event\)/);
+  assert.match(renderer, /addEventListener\('pointerdown', resizeColumns\)/);
+  assert.match(renderer, /data-role="command-search"/);
+  assert.match(renderer, /data-palette-command="\$\{item\.type\}"/);
+  assert.match(renderer, /data-palette-add="\$\{item\.type\}"/);
+  assert.match(renderer, /data-role="command-detail"/);
+  assert.match(renderer, /function selectedCommandFromDetail\(existing\)/);
+  assert.match(renderer, /draggable="true"[\s\S]*data-command-index/);
+  assert.match(renderer, /application\/x-pce-vn-command-index/);
+  assert.match(renderer, /application\/x-pce-vn-new-command/);
+  assert.match(renderer, /function moveCommand\(fromIndex, rawToIndex\)/);
+  assert.match(renderer, /type === 'preload'/);
+  assert.match(renderer, /type === 'choice'/);
+  assert.match(renderer, /type === 'jump'/);
+  assert.match(renderer, /type === 'wait'/);
+  assert.doesNotMatch(renderer, /data-add-command/);
+  assert.doesNotMatch(renderer, /data-command-up|data-command-down|pce-vn-command-head/);
+  assert.match(renderer, /<label class="form-group"><span class="form-label">Type<\/span><select class="form-select" name="type"/);
+  assert.match(css, /grid-template-columns:\s*var\(--pce-vn-left-width\)\s*5px\s*minmax\(340px,\s*1fr\)\s*5px\s*var\(--pce-vn-right-width\)/);
+  assert.match(css, /\.pce-vn-column-resizer/);
+  assert.match(css, /\.pce-vn-command-palette/);
+  assert.match(css, /\.pce-vn-detail-form/);
+  assert.match(css, /\.pce-vn-command-dropzone\s*\{[\s\S]*min-height:\s*12px/);
+  assert.match(css, /\.pce-vn-command-dropzone\.is-drop-target/);
+});
+
+test('PCE CD-DA manager exposes track-only import, edit, preview, and reorder UI', () => {
+  const manifest = readPluginManifest('pce-cdda-manager');
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-cdda-manager', 'renderer.js'), 'utf-8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-cdda-manager', 'style.css'), 'utf-8');
+
+  assert.equal(manifest.tab.page, 'pce-cdda-manager');
+  assert.equal(manifest.renderer.page, 'pce-cdda-manager');
+  assert.ok(manifest.dependencies.includes('pce-audio-converter'));
+  assert.ok(manifest.renderer.capabilities.includes('cdda-manager'));
+  assert.match(renderer, /CD-DA Tracks/);
+  assert.match(renderer, /async function pickAudioFile\(\)/);
+  assert.match(renderer, /filters:\s*\[\{ name: 'WAV \/ MP3'/);
+  assert.match(renderer, /openImportSettingsModal/);
+  assert.match(renderer, /openAudioConvertModal/);
+  assert.match(renderer, /kind:\s*'cdda-track'/);
+  assert.match(renderer, /importAssetAudio/);
+  assert.match(renderer, /previewAssetSource/);
+  assert.match(renderer, /data-row-play/);
+  assert.match(renderer, /data-row-delete/);
+  assert.match(renderer, /draggable="true"/);
+  assert.match(renderer, /function saveTrackOrder/);
+  assert.match(renderer, /track:\s*nextTrack/);
+  assert.match(renderer, /index \+ 2/);
+  assert.match(renderer, /registerCapability\('cdda-manager'/);
+  assert.match(css, /\.pce-cdda-layout/);
+  assert.match(css, /\.pce-cdda-table/);
+  assert.match(css, /\.pce-cdda-stats/);
+});
+
+test('PCE ADPCM manager exposes sample-only import, property edit, preview, and delete UI', () => {
+  const manifest = readPluginManifest('pce-adpcm-manager');
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-adpcm-manager', 'renderer.js'), 'utf-8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-adpcm-manager', 'style.css'), 'utf-8');
+
+  assert.equal(manifest.tab.page, 'pce-adpcm-manager');
+  assert.equal(manifest.renderer.page, 'pce-adpcm-manager');
+  assert.ok(manifest.dependencies.includes('pce-audio-converter'));
+  assert.ok(manifest.renderer.capabilities.includes('adpcm-manager'));
+  assert.match(renderer, /ADPCM Samples/);
+  assert.match(renderer, /async function pickAudioFile\(\)/);
+  assert.match(renderer, /filters:\s*\[\{ name: 'WAV \/ MP3'/);
+  assert.match(renderer, /openImportSettingsModal/);
+  assert.match(renderer, /sampleRateToDivider/);
+  assert.match(renderer, /name="adpcmAddress"/);
+  assert.match(renderer, /name="divider"/);
+  assert.match(renderer, /name="splitPolicy"/);
+  assert.match(renderer, /openAudioConvertModal/);
+  assert.match(renderer, /kind:\s*'adpcm'/);
+  assert.match(renderer, /importAssetAudio/);
+  assert.match(renderer, /splitPolicy:\s*details\.splitPolicy \? 'auto' : ''/);
+  assert.match(renderer, /previewAssetSource/);
+  assert.match(renderer, /data-row-play/);
+  assert.match(renderer, /data-row-delete/);
+  assert.match(renderer, /registerCapability\('adpcm-manager'/);
+  assert.match(css, /\.pce-adpcm-layout/);
+  assert.match(css, /\.pce-adpcm-table/);
+  assert.match(css, /\.pce-adpcm-waveform/);
 });
 
 test('code editor exposes advanced tree, preview, encoding, rename, and completion controls', () => {

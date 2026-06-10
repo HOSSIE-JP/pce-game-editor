@@ -51,6 +51,15 @@ typedef struct {
 } pce_editor_sprite_asset_t;
 
 typedef struct {
+  unsigned char cell_width;
+  unsigned char cell_height;
+  unsigned char cell_columns;
+  unsigned char cell_rows;
+  unsigned int pattern_base;
+  unsigned char palette_bank;
+} pce_editor_sprite_draw_meta_t;
+
+typedef struct {
   unsigned char step;
   unsigned char channel;
   unsigned int period;
@@ -87,6 +96,7 @@ typedef struct {
 extern const pce_editor_bg_asset_t pce_editor_bg_assets[];
 extern const unsigned char pce_editor_bg_asset_count;
 extern const pce_editor_sprite_asset_t pce_editor_sprite_assets[];
+extern const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[];
 extern const unsigned char pce_editor_sprite_asset_count;
 extern const pce_editor_psg_asset_t pce_editor_psg_assets[];
 extern const unsigned char pce_editor_psg_asset_count;

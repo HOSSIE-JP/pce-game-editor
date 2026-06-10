@@ -1,0 +1,23 @@
+{
+  "id": "pce-cdda-manager",
+  "name": "PCE CD-DA 管理",
+  "description": "CD-ROM2 の CD-DA 音声トラックを assets/pce-assets.json の cdda-track として追加・編集します。",
+  "version": "0.1.0",
+  "icon": "music",
+  "types": ["editor", "asset"],
+  "dependencies": ["pce-audio-converter"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "project.write", "dialog.openFile", "asset.import", "asset.preview", "audio.preview"],
+  "tab": {
+    "label": "PCE CD-DA",
+    "icon": "music",
+    "page": "pce-cdda-manager",
+    "order": 13
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "page": "pce-cdda-manager",
+    "capabilities": ["page", "cdda-manager"]
+  }
+}

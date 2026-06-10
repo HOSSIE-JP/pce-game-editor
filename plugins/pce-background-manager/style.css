@@ -1,0 +1,251 @@
+.pce-image-manager-layout {
+  display: grid;
+  grid-template-columns: minmax(460px, 1fr) 430px;
+  height: 100%;
+  min-height: 0;
+  background: var(--panel);
+}
+
+.pce-image-manager-list-panel,
+.pce-image-manager-detail-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pce-image-manager-list-panel {
+  border-right: 1px solid var(--border);
+}
+
+.pce-image-manager-header,
+.pce-image-manager-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pce-image-manager-header h2,
+.pce-image-manager-detail-head h2 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
+.pce-image-manager-summary,
+.pce-image-manager-muted,
+.pce-image-manager-detail-head code {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pce-image-manager-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pce-image-manager-table-wrap {
+  overflow: auto;
+  min-height: 0;
+}
+
+.pce-image-manager-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.pce-image-manager-table th,
+.pce-image-manager-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.pce-image-manager-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--muted);
+  background: var(--panel);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.pce-image-manager-table th:nth-child(2),
+.pce-image-manager-table td:nth-child(2),
+.pce-image-manager-table th:nth-child(3),
+.pce-image-manager-table td:nth-child(3),
+.pce-image-manager-table th:nth-child(4),
+.pce-image-manager-table td:nth-child(4) {
+  width: 70px;
+}
+
+.pce-image-manager-row {
+  cursor: pointer;
+}
+
+.pce-image-manager-row.active,
+.pce-image-manager-row:hover {
+  background: var(--surface-hover);
+}
+
+.pce-image-manager-row td:first-child span,
+.pce-image-manager-row td:first-child code,
+.pce-image-manager-row td:nth-child(5) code {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pce-image-manager-row td:first-child code,
+.pce-image-manager-row td:nth-child(5) code {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pce-image-manager-row-actions {
+  width: 72px;
+  text-align: right;
+}
+
+.pce-image-manager-row-actions button + button {
+  margin-left: 4px;
+}
+
+.pce-image-manager-empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 24px;
+}
+
+.pce-image-manager-status {
+  min-height: 24px;
+  margin: 0;
+  padding: 6px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.pce-image-manager-status[data-kind="ok"] {
+  color: var(--green);
+}
+
+.pce-image-manager-detail-panel {
+  overflow: auto;
+}
+
+.pce-image-manager-detail-head code {
+  display: block;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pce-image-manager-form {
+  padding: 0 14px 14px;
+}
+
+.pce-image-manager-preview {
+  height: 220px;
+  margin: 14px 0;
+}
+
+.pce-image-manager-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 0 0 14px;
+}
+
+.pce-image-manager-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.pce-image-manager-stats div {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.pce-image-manager-stats span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.pce-image-manager-stats strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+
+.pce-image-manager-palette {
+  margin-bottom: 10px;
+}
+
+.pce-image-manager-files {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.pce-image-manager-files div {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pce-image-manager-files code,
+.pce-image-manager-picked-file {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pce-image-manager-diagnostics {
+  margin-bottom: 12px;
+}
+
+.pce-image-manager-import-panel {
+  width: min(760px, 94vw);
+  max-height: min(86vh, 780px);
+  overflow: auto;
+}
+
+.pce-image-manager-import-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pce-image-manager-import-preview {
+  height: 220px;
+}
+
+.pce-image-manager-delete-modal p {
+  margin: 0 0 10px;
+  color: var(--text);
+}

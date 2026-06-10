@@ -518,7 +518,7 @@ function createPluginLogger(pluginId) {
 }
 
 const DEFAULT_ASSET_FILE_FILTERS = [
-  { name: 'Assets', extensions: ['png', 'bmp', 'pal', 'tsx', 'tmx', 'vgm', 'xgm', 'mid', 'midi', 'wav', 'mp3', 'ogg'] },
+  { name: 'Assets', extensions: ['png', 'bmp', 'webp', 'pal', 'tsx', 'tmx', 'vgm', 'xgm', 'mid', 'midi', 'wav', 'mp3', 'ogg'] },
   { name: 'All Files', extensions: ['*'] },
 ];
 
@@ -587,6 +587,7 @@ function getMimeForPath(filePath) {
   const ext = path.extname(filePath || '').toLowerCase();
   if (ext === '.png') return 'image/png';
   if (ext === '.bmp') return 'image/bmp';
+  if (ext === '.webp') return 'image/webp';
   if (ext === '.wav') return 'audio/wav';
   if (ext === '.mp3') return 'audio/mpeg';
   if (ext === '.ogg') return 'audio/ogg';
