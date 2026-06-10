@@ -5,7 +5,7 @@
   "version": "0.2.0",
   "icon": "assets",
   "types": ["editor", "asset"],
-  "dependencies": ["image-resize-converter", "image-quantize-converter"],
+  "dependencies": ["image-resize-converter", "image-quantize-converter", "pce-audio-converter"],
   "supportedCores": ["pc-engine"],
   "permissions": ["project.read", "project.write", "dialog.openFile", "asset.import", "asset.preview", "audio.preview"],
   "tab": {

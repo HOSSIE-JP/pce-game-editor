@@ -138,12 +138,18 @@ test('asset manager res file delete and preview resize are wired', () => {
 
 test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', () => {
   const manifest = readPluginManifest('pce-asset-manager');
+  const audioManifest = readPluginManifest('pce-audio-converter');
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-asset-manager', 'renderer.js'), 'utf-8');
+  const audioRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-audio-converter', 'renderer.js'), 'utf-8');
+  const html = readRendererFile('index.html');
   const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-asset-manager', 'style.css'), 'utf-8');
 
   assert.equal(manifest.tab.page, 'pce-assets');
   assert.equal(manifest.renderer.page, 'pce-assets');
+  assert.ok(manifest.dependencies.includes('pce-audio-converter'));
   assert.ok(manifest.renderer.capabilities.includes('asset-import-handler'));
+  assert.ok(audioManifest.renderer.capabilities.includes('audio-convert-ui'));
+  assert.match(audioRenderer, /openAudioConvertModal:\s*api\.openAudioConvertModal/);
   assert.match(renderer, /assets-layout/);
   assert.match(renderer, /asset-table/);
   assert.match(renderer, /asset-preview-panel/);
@@ -166,6 +172,9 @@ test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', 
   assert.match(renderer, /api\.createModal/);
   assert.match(renderer, /picked\?\.sourcePath/);
   assert.match(renderer, /importAssetImage/);
+  assert.match(renderer, /audio-convert-ui/);
+  assert.match(renderer, /openAudioConvertModal/);
+  assert.match(renderer, /WAV \/ MP3/);
   assert.match(renderer, /previewAssetSource/);
   assert.match(renderer, /reorderAssets/);
   assert.match(renderer, /asset-import-handler/);
@@ -174,6 +183,12 @@ test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', 
   assert.doesNotMatch(renderer, /mini-btn|class="input"|class="select"|pane-header|confirm\(/);
   assert.doesNotMatch(renderer, /window\.electronAPI|listResDefinitions|addResEntry|writeAssetFile|state\.rescomp/);
   assert.match(renderer, /role="separator" aria-orientation="vertical"/);
+  assert.match(html, /id="audioConvertFadeInInput"/);
+  assert.match(html, /id="audioConvertFadeOutInput"/);
+  assert.match(html, /id="audioConvertVolumeDbInput"/);
+  assert.match(html, /id="audioConvertNormalizeInput"/);
+  assert.match(html, /id="audioConvertStartSlider"[\s\S]*id="audioConvertEndSlider"/);
+  assert.match(html, /id="btnAudioConvertPreview"/);
   assert.match(css, /\.pce-assets-layout/);
   assert.match(css, /\.pce-assets-animation-editor/);
   assert.doesNotMatch(css, /\.asset-table\s*\{|\.form-input\s*\{/);

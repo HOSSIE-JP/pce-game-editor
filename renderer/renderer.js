@@ -278,6 +278,7 @@ const quantizeState = {
 const audioConvertState = {
   active: false,
   pending: null,
+  resolve: null,
   dataUrl: '',
   audioBuffer: null,
   originalAudioBuffer: null,
@@ -508,6 +509,8 @@ const el = {
   audioConvertEndInput: $('audioConvertEndInput'),
   audioConvertNormalizeInput: $('audioConvertNormalizeInput'),
   audioConvertVolumeDbInput: $('audioConvertVolumeDbInput'),
+  audioConvertFadeInInput: $('audioConvertFadeInInput'),
+  audioConvertFadeOutInput: $('audioConvertFadeOutInput'),
   audioConvertMonoInput: $('audioConvertMonoInput'),
   audioConvertSampleRateInput: $('audioConvertSampleRateInput'),
   audioConvertHint: $('audioConvertHint'),
@@ -7247,7 +7250,186 @@ function setAudioConvertRange(startSec, endSec) {
   syncAudioConvertInputsFromState();
 }
 
-function closeAudioConvertModal(clearPending = true) {
+function audioArrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+function writeAudioWavDataUrl(channels, sampleRate) {
+  const channelCount = Math.max(1, Math.min(2, channels.length || 1));
+  const frameCount = Math.max(1, channels[0]?.length || 1);
+  const dataSize = frameCount * channelCount * 2;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  let offset = 0;
+
+  function writeAscii(text) {
+    for (let i = 0; i < text.length; i += 1) {
+      view.setUint8(offset + i, text.charCodeAt(i));
+    }
+    offset += text.length;
+  }
+
+  writeAscii('RIFF');
+  view.setUint32(offset, 36 + dataSize, true); offset += 4;
+  writeAscii('WAVE');
+  writeAscii('fmt ');
+  view.setUint32(offset, 16, true); offset += 4;
+  view.setUint16(offset, 1, true); offset += 2;
+  view.setUint16(offset, channelCount, true); offset += 2;
+  view.setUint32(offset, sampleRate, true); offset += 4;
+  view.setUint32(offset, sampleRate * channelCount * 2, true); offset += 4;
+  view.setUint16(offset, channelCount * 2, true); offset += 2;
+  view.setUint16(offset, 16, true); offset += 2;
+  writeAscii('data');
+  view.setUint32(offset, dataSize, true); offset += 4;
+
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    for (let ch = 0; ch < channelCount; ch += 1) {
+      const value = Math.max(-1, Math.min(1, channels[ch]?.[frame] ?? channels[0]?.[frame] ?? 0));
+      const pcm = value < 0 ? Math.round(value * 32768) : Math.round(value * 32767);
+      view.setInt16(offset, pcm, true);
+      offset += 2;
+    }
+  }
+
+  return `data:audio/wav;base64,${audioArrayBufferToBase64(buffer)}`;
+}
+
+function readAudioConvertOptions(options = {}) {
+  const sampleRate = Number(options.sampleRate ?? el.audioConvertSampleRateInput?.value ?? 0);
+  return {
+    trimStartSec: options.trimStartSec,
+    trimEndSec: options.trimEndSec,
+    normalize: Boolean(options.normalize ?? (String(el.audioConvertNormalizeInput?.value || 'FALSE').toUpperCase() === 'TRUE')),
+    volumeDb: Number(options.volumeDb ?? el.audioConvertVolumeDbInput?.value ?? 0) || 0,
+    fadeInSec: Math.max(0, Number(options.fadeInSec ?? el.audioConvertFadeInInput?.value ?? 0) || 0),
+    fadeOutSec: Math.max(0, Number(options.fadeOutSec ?? el.audioConvertFadeOutInput?.value ?? 0) || 0),
+    mono: Boolean(options.mono ?? (String(el.audioConvertMonoInput?.value || 'FALSE').toUpperCase() === 'TRUE')),
+    sampleRate: Number.isFinite(sampleRate) && sampleRate > 0 ? Math.round(sampleRate) : null,
+  };
+}
+
+function sampleAudioBuffer(buffer, channelIndex, position, startFrame, endFrame) {
+  const channelCount = Math.max(1, buffer.numberOfChannels || 1);
+  const ch = Math.max(0, Math.min(channelCount - 1, channelIndex));
+  const data = buffer.getChannelData(ch);
+  const p = Math.max(startFrame, Math.min(endFrame - 1, position));
+  const i0 = Math.max(startFrame, Math.min(endFrame - 1, Math.floor(p)));
+  const i1 = Math.max(startFrame, Math.min(endFrame - 1, i0 + 1));
+  const t = p - i0;
+  return (data[i0] * (1 - t)) + (data[i1] * t);
+}
+
+function mixAudioBufferSample(buffer, position, startFrame, endFrame) {
+  const channelCount = Math.max(1, buffer.numberOfChannels || 1);
+  let sum = 0;
+  for (let ch = 0; ch < channelCount; ch += 1) {
+    sum += sampleAudioBuffer(buffer, ch, position, startFrame, endFrame);
+  }
+  return sum / channelCount;
+}
+
+function computeSelectedAudioPeak(buffer, startFrame, endFrame, mono) {
+  let peak = 0;
+  const channelCount = Math.max(1, buffer.numberOfChannels || 1);
+  const step = Math.max(1, Math.floor((endFrame - startFrame) / 96000));
+  for (let frame = startFrame; frame < endFrame; frame += step) {
+    if (mono) {
+      peak = Math.max(peak, Math.abs(mixAudioBufferSample(buffer, frame, startFrame, endFrame)));
+    } else {
+      for (let ch = 0; ch < Math.min(2, channelCount); ch += 1) {
+        peak = Math.max(peak, Math.abs(sampleAudioBuffer(buffer, ch, frame, startFrame, endFrame)));
+      }
+    }
+  }
+  return peak;
+}
+
+function processAudioBufferToWavDataUrl(buffer, options = {}) {
+  if (!buffer) throw new Error('音声が読み込まれていません');
+  const parsed = readAudioConvertOptions(options);
+  const sourceRate = Math.max(1, Math.round(buffer.sampleRate || 44100));
+  const duration = Math.max(0, Number(buffer.duration) || 0);
+  const startSec = Math.max(0, Number(parsed.trimStartSec ?? 0) || 0);
+  const endSec = Math.max(startSec + 0.001, Number(parsed.trimEndSec ?? duration) || duration);
+  const clampedStartSec = clamp(startSec, 0, duration);
+  const clampedEndSec = clamp(endSec, clampedStartSec + 0.001, duration || clampedStartSec + 0.001);
+  const startFrame = Math.max(0, Math.min(buffer.length - 1, Math.floor(clampedStartSec * sourceRate)));
+  const endFrame = Math.max(startFrame + 1, Math.min(buffer.length, Math.ceil(clampedEndSec * sourceRate)));
+  const outRate = Math.max(4000, Math.min(96000, parsed.sampleRate || sourceRate));
+  const outChannelCount = parsed.mono ? 1 : Math.max(1, Math.min(2, buffer.numberOfChannels || 1));
+  const outDuration = (endFrame - startFrame) / sourceRate;
+  const outFrames = Math.max(1, Math.ceil(outDuration * outRate));
+  const output = Array.from({ length: outChannelCount }, () => new Float32Array(outFrames));
+  const peak = computeSelectedAudioPeak(buffer, startFrame, endFrame, parsed.mono);
+  const normalizeGain = parsed.normalize && peak > 0 ? Math.min(32, 0.98 / peak) : 1;
+  const volumeGain = Math.pow(10, parsed.volumeDb / 20);
+  const fadeInFrames = Math.max(0, Math.min(outFrames, Math.round(parsed.fadeInSec * outRate)));
+  const fadeOutFrames = Math.max(0, Math.min(outFrames, Math.round(parsed.fadeOutSec * outRate)));
+
+  for (let frame = 0; frame < outFrames; frame += 1) {
+    const srcPos = startFrame + ((frame / outRate) * sourceRate);
+    const fadeInGain = fadeInFrames > 0 ? Math.min(1, frame / fadeInFrames) : 1;
+    const fadeOutGain = fadeOutFrames > 0 ? Math.min(1, (outFrames - frame - 1) / fadeOutFrames) : 1;
+    const gain = normalizeGain * volumeGain * Math.max(0, Math.min(fadeInGain, fadeOutGain));
+    if (parsed.mono) {
+      output[0][frame] = Math.max(-1, Math.min(1, mixAudioBufferSample(buffer, srcPos, startFrame, endFrame) * gain));
+    } else {
+      for (let ch = 0; ch < outChannelCount; ch += 1) {
+        output[ch][frame] = Math.max(-1, Math.min(1, sampleAudioBuffer(buffer, ch, srcPos, startFrame, endFrame) * gain));
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    dataUrl: writeAudioWavDataUrl(output, outRate),
+    sampleRate: outRate,
+    channels: outChannelCount,
+    durationSeconds: outFrames / outRate,
+    processing: {
+      trimStartSec: clampedStartSec,
+      trimEndSec: clampedEndSec,
+      normalize: parsed.normalize,
+      volumeDb: parsed.volumeDb,
+      fadeInSec: parsed.fadeInSec,
+      fadeOutSec: parsed.fadeOutSec,
+      mono: parsed.mono,
+      sampleRate: outRate,
+      channels: outChannelCount,
+    },
+  };
+}
+
+async function decodeAudioDataUrl(dataUrl) {
+  const resp = await fetch(dataUrl);
+  const buf = await resp.arrayBuffer();
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  try {
+    return await ctx.decodeAudioData(buf.slice(0));
+  } finally {
+    await ctx.close();
+  }
+}
+
+function settleAudioConvertModal(result) {
+  const resolve = audioConvertState.resolve;
+  audioConvertState.resolve = null;
+  if (resolve) resolve(result);
+}
+
+function shouldReturnAudioConvertResult(pending = audioConvertState.pending) {
+  return Boolean(pending?.returnResult || pending?.mode === 'pce-asset' || pending?.target === 'pce-asset');
+}
+
+function closeAudioConvertModal(clearPending = true, result = null) {
   stopAudioConvertPreview();
   closeModal(el.audioConvertModal);
   audioConvertState.active = false;
@@ -7259,6 +7441,7 @@ function closeAudioConvertModal(clearPending = true) {
   audioConvertState.startSec = 0;
   audioConvertState.endSec = 0;
   if (clearPending) {
+    settleAudioConvertModal(result || { ok: false, canceled: true });
     audioConvertState.pending = null;
     state.rescomp.pendingAssetPick = null;
   }
@@ -7305,61 +7488,72 @@ async function finalizeAssetRegistration({
 }
 
 async function openAudioConvertModal(pending) {
-  audioConvertState.pending = pending;
-  audioConvertState.active = true;
-  openModal(el.audioConvertModal);
+  return new Promise(async (resolve) => {
+    const picked = pending?.picked || {
+      sourcePath: pending?.sourcePath || pending?.path || '',
+      fileName: pending?.fileName || String(pending?.sourcePath || '').split(/[\\/]/).pop() || 'audio.wav',
+      ext: String(pending?.ext || pending?.sourcePath || '').toLowerCase().match(/(\.[^.\\/]+)$/)?.[1] || '',
+    };
+    const kind = String(pending?.kind || pending?.assetKind || '').trim();
+    const defaults = pending?.defaults || {};
+    const defaultSampleRate = defaults.sampleRate || (kind === 'cdda-track' ? 44100 : kind === 'adpcm' ? 16000 : 22050);
+    const defaultMono = defaults.mono ?? (kind !== 'cdda-track');
 
-  if (el.audioConvertSourceLabel) {
-    el.audioConvertSourceLabel.textContent = `${pending.picked.fileName} -> ${pending.targetFileName}`;
-  }
-  if (el.audioConvertNormalizeInput) el.audioConvertNormalizeInput.value = 'FALSE';
-  if (el.audioConvertMonoInput) el.audioConvertMonoInput.value = 'TRUE';
-  if (el.audioConvertVolumeDbInput) el.audioConvertVolumeDbInput.value = '';
-  if (el.audioConvertSampleRateInput) el.audioConvertSampleRateInput.value = '22050';
-  if (el.audioConvertHint) el.audioConvertHint.textContent = '音声を解析中...';
-  audioConvertState.waveZoom = 1;
-  audioConvertState.waveScroll = 0;
-  audioConvertState.playheadSec = 0;
-  audioConvertState.loopPlayback = false;
-  syncAudioConvertZoomUI();
-  syncPlayheadLabel();
-  syncAudioConvertLoopButton();
+    audioConvertState.pending = { ...pending, picked };
+    audioConvertState.resolve = resolve;
+    audioConvertState.active = true;
+    openModal(el.audioConvertModal);
 
-  const isSourceWav = (pending.picked.ext || '').toLowerCase() === '.wav';
-  if (el.btnAudioConvertSkip) {
-    el.btnAudioConvertSkip.style.display = isSourceWav ? '' : 'none';
-  }
-
-  const read = await window.electronAPI.readFileAsDataUrl(pending.picked.sourcePath);
-  if (!read?.ok || !read?.dataUrl) {
-    if (el.audioConvertHint) el.audioConvertHint.textContent = `音声読み込み失敗: ${read?.error || 'unknown'}`;
-    return;
-  }
-
-  audioConvertState.dataUrl = read.dataUrl;
-  if (el.audioConvertPlayer) {
-    el.audioConvertPlayer.src = read.dataUrl;
-  }
-
-  try {
-    const resp = await fetch(read.dataUrl);
-    const buf = await resp.arrayBuffer();
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const decoded = await ctx.decodeAudioData(buf.slice(0));
-    await ctx.close();
-
-    audioConvertState.audioBuffer = decoded;
-    audioConvertState.originalAudioBuffer = decoded;
-    audioConvertState.durationSec = Number(decoded.duration) || 0;
-    audioConvertState.sampleRate = Number(decoded.sampleRate) || 0;
-    audioConvertState.startSec = 0;
-    audioConvertState.endSec = audioConvertState.durationSec;
+    if (el.audioConvertSourceLabel) {
+      el.audioConvertSourceLabel.textContent = `${picked.fileName || '-'} -> ${pending?.targetFileName || picked.fileName || 'audio.wav'}`;
+    }
+    if (el.audioConvertNormalizeInput) el.audioConvertNormalizeInput.value = defaults.normalize ? 'TRUE' : 'FALSE';
+    if (el.audioConvertMonoInput) el.audioConvertMonoInput.value = defaultMono ? 'TRUE' : 'FALSE';
+    if (el.audioConvertVolumeDbInput) el.audioConvertVolumeDbInput.value = defaults.volumeDb ?? '';
+    if (el.audioConvertFadeInInput) el.audioConvertFadeInInput.value = defaults.fadeInSec ?? '';
+    if (el.audioConvertFadeOutInput) el.audioConvertFadeOutInput.value = defaults.fadeOutSec ?? '';
+    if (el.audioConvertSampleRateInput) el.audioConvertSampleRateInput.value = defaultSampleRate ? String(defaultSampleRate) : '';
+    if (el.audioConvertHint) el.audioConvertHint.textContent = '音声を解析中...';
+    if (el.btnAudioConvertApply) el.btnAudioConvertApply.textContent = pending?.returnResult || pending?.mode === 'pce-asset' ? '変換して戻る' : '変換して追加';
+    audioConvertState.waveZoom = 1;
+    audioConvertState.waveScroll = 0;
     audioConvertState.playheadSec = 0;
-    syncAudioConvertInputsFromState();
-    if (el.audioConvertHint) el.audioConvertHint.textContent = '範囲を指定してプレビューできます。';
-  } catch (err) {
-    if (el.audioConvertHint) el.audioConvertHint.textContent = `音声解析失敗: ${String(err?.message || err)}`;
-  }
+    audioConvertState.loopPlayback = false;
+    syncAudioConvertZoomUI();
+    syncPlayheadLabel();
+    syncAudioConvertLoopButton();
+
+    const isSourceWav = (picked.ext || '').toLowerCase() === '.wav';
+    if (el.btnAudioConvertSkip) {
+      el.btnAudioConvertSkip.style.display = isSourceWav ? '' : 'none';
+    }
+
+    const read = await window.electronAPI.readFileAsDataUrl(picked.sourcePath);
+    if (!read?.ok || !read?.dataUrl) {
+      if (el.audioConvertHint) el.audioConvertHint.textContent = `音声読み込み失敗: ${read?.error || 'unknown'}`;
+      return;
+    }
+
+    audioConvertState.dataUrl = read.dataUrl;
+    if (el.audioConvertPlayer) {
+      el.audioConvertPlayer.src = read.dataUrl;
+    }
+
+    try {
+      const decoded = await decodeAudioDataUrl(read.dataUrl);
+      audioConvertState.audioBuffer = decoded;
+      audioConvertState.originalAudioBuffer = decoded;
+      audioConvertState.durationSec = Number(decoded.duration) || 0;
+      audioConvertState.sampleRate = Number(decoded.sampleRate) || 0;
+      audioConvertState.startSec = 0;
+      audioConvertState.endSec = audioConvertState.durationSec;
+      audioConvertState.playheadSec = 0;
+      syncAudioConvertInputsFromState();
+      if (el.audioConvertHint) el.audioConvertHint.textContent = '範囲を指定してプレビューできます。';
+    } catch (err) {
+      if (el.audioConvertHint) el.audioConvertHint.textContent = `音声解析失敗: ${String(err?.message || err)}`;
+    }
+  });
 }
 
 async function applyAudioConvertNormalizePreview() {
@@ -7368,8 +7562,10 @@ async function applyAudioConvertNormalizePreview() {
 
   const normalize = String(el.audioConvertNormalizeInput?.value || 'FALSE').toUpperCase() === 'TRUE';
   const volumeDb = Number(el.audioConvertVolumeDbInput?.value || 0) || 0;
-  if (!normalize && volumeDb === 0) {
-    if (el.audioConvertHint) el.audioConvertHint.textContent = '正規化が FALSE かつボリューム調整が 0 のため適用不要です。';
+  const fadeInSec = Math.max(0, Number(el.audioConvertFadeInInput?.value || 0) || 0);
+  const fadeOutSec = Math.max(0, Number(el.audioConvertFadeOutInput?.value || 0) || 0);
+  if (!normalize && volumeDb === 0 && fadeInSec === 0 && fadeOutSec === 0) {
+    if (el.audioConvertHint) el.audioConvertHint.textContent = '正規化/ボリューム/フェードの指定がないため適用不要です。';
     return;
   }
 
@@ -7377,16 +7573,15 @@ async function applyAudioConvertNormalizePreview() {
   if (el.btnAudioConvertNormalizeApply) el.btnAudioConvertNormalizeApply.disabled = true;
 
   try {
-    const result = await pending.previewAudioDataUrl({
-      sourcePath: pending.picked.sourcePath,
-      options: {
-        trimStartSec: null,
-        trimEndSec: null,
-        normalize,
-        volumeDb,
-        mono: false,
-        sampleRate: null,
-      },
+    const result = processAudioBufferToWavDataUrl(audioConvertState.originalAudioBuffer, {
+      trimStartSec: 0,
+      trimEndSec: audioConvertState.originalAudioBuffer?.duration || audioConvertState.durationSec,
+      normalize,
+      volumeDb,
+      fadeInSec,
+      fadeOutSec,
+      mono: false,
+      sampleRate: null,
     });
 
     if (!result?.ok || !result?.dataUrl) {
@@ -7398,12 +7593,7 @@ async function applyAudioConvertNormalizePreview() {
     audioConvertState.dataUrl = result.dataUrl;
     if (el.audioConvertPlayer) el.audioConvertPlayer.src = result.dataUrl;
 
-    const resp = await fetch(result.dataUrl);
-    const buf = await resp.arrayBuffer();
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const decoded = await ctx.decodeAudioData(buf.slice(0));
-    await ctx.close();
-
+    const decoded = await decodeAudioDataUrl(result.dataUrl);
     audioConvertState.audioBuffer = decoded;
     audioConvertState.durationSec = Number(decoded.duration) || 0;
     audioConvertState.sampleRate = Number(decoded.sampleRate) || 0;
@@ -7428,6 +7618,22 @@ async function skipAudioConvertModal() {
   }
 
   if (el.audioConvertHint) el.audioConvertHint.textContent = 'ファイルをコピー中...';
+
+  if (shouldReturnAudioConvertResult(pending)) {
+    const result = {
+      ok: true,
+      skipped: true,
+      dataUrl: audioConvertState.dataUrl,
+      originalFileName: pending.picked?.fileName || '',
+      sourceFileName: pending.targetFileName || pending.picked?.fileName || 'audio.wav',
+      sampleRate: audioConvertState.sampleRate,
+      channels: audioConvertState.audioBuffer?.numberOfChannels || 0,
+      durationSeconds: audioConvertState.durationSec,
+      processing: { skipped: true },
+    };
+    closeAudioConvertModal(true, result);
+    return;
+  }
 
   const copyResult = await window.electronAPI.writeAssetFile({
     sourcePath: pending.picked.sourcePath,
@@ -7492,7 +7698,34 @@ async function applyAudioConvertModal() {
   };
 
   if (el.audioConvertHint) el.audioConvertHint.textContent = '音声を変換しています...';
-  const copyResult = await pending.convertAndWriteAsset(payload);
+  let processed;
+  try {
+    processed = processAudioBufferToWavDataUrl(audioConvertState.originalAudioBuffer, payload.options);
+  } catch (err) {
+    if (el.audioConvertHint) el.audioConvertHint.textContent = `変換失敗: ${String(err?.message || err)}`;
+    return;
+  }
+
+  if (shouldReturnAudioConvertResult(pending)) {
+    closeAudioConvertModal(true, {
+      ok: true,
+      dataUrl: processed.dataUrl,
+      originalFileName: pending.picked?.fileName || '',
+      sourceFileName: pending.targetFileName || `${String(pending.picked?.fileName || 'audio').replace(/\.[^.]+$/, '')}.wav`,
+      sampleRate: processed.sampleRate,
+      channels: processed.channels,
+      durationSeconds: processed.durationSeconds,
+      processing: processed.processing,
+    });
+    return;
+  }
+
+  const copyResult = await window.electronAPI.writeAssetFile({
+    sourcePath: pending.picked.sourcePath,
+    targetSubdir: pending.targetSubdir,
+    targetFileName: pending.targetFileName,
+    dataUrl: processed.dataUrl,
+  });
   if (!copyResult?.ok) {
     if (el.audioConvertHint) el.audioConvertHint.textContent = `変換失敗: ${copyResult?.error || 'unknown'}`;
     return;
@@ -7509,7 +7742,7 @@ async function applyAudioConvertModal() {
   });
   if (!added) return;
 
-  closeAudioConvertModal(true);
+  closeAudioConvertModal(true, { ok: true, copyResult });
 }
 
 async function tryHandleAssetImport(payload) {

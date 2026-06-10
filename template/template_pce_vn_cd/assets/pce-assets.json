@@ -285,7 +285,7 @@
         "sampleRate": 16000,
         "loop": false,
         "adpcmAddress": 0,
-        "divider": 0
+        "divider": 1
       },
       "data": {
         "generated": {

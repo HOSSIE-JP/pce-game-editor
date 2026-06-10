@@ -11,7 +11,7 @@ const PCE_INTERNAL_IMAGE_CONVERTER = 'Internal PCE image converter';
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const SUPPORTED_TYPES = new Set(['image', 'sprite', 'psg-sequence', 'psg-song', 'psg-sfx', 'adpcm', 'cdda-track', 'tileset', 'tilemap', 'palette']);
 const IMAGE_EXTENSIONS = new Set(['.png', '.bmp']);
-const AUDIO_EXTENSIONS = new Set(['.wav']);
+const AUDIO_EXTENSIONS = new Set(['.wav', '.mp3']);
 const SPRITE_CELL_SIZES = new Set(['16x16', '16x32', '16x64', '32x16', '32x32', '32x64']);
 const ROM_BANKED_CHUNK_SIZE = 8192;
 const BANKED_DATA_THRESHOLD = 1024;
@@ -285,13 +285,20 @@ function normalizePsgOptions(asset = {}) {
 
 function normalizeAdpcmOptions(asset = {}) {
   const rawOptions = asset.options && typeof asset.options === 'object' ? { ...asset.options } : {};
+  const sampleRate = clampInt(rawOptions.sampleRate, 4000, 32000, DEFAULT_ADPCM_OPTIONS.sampleRate);
+  const autoDivider = audioConverter.sampleRateToAdpcmDivider(sampleRate);
+  const rawDivider = rawOptions.divider;
+  const normalizedDivider = clampInt(rawDivider, 0, 255, autoDivider);
+  const divider = rawDivider == null || rawDivider === '' || (normalizedDivider === 0 && sampleRate < 32000)
+    ? autoDivider
+    : normalizedDivider;
   return {
     ...DEFAULT_ADPCM_OPTIONS,
     ...rawOptions,
-    sampleRate: clampInt(rawOptions.sampleRate, 4000, 32000, DEFAULT_ADPCM_OPTIONS.sampleRate),
+    sampleRate,
     loop: Boolean(rawOptions.loop),
     adpcmAddress: clampInt(rawOptions.adpcmAddress, 0, 65535, DEFAULT_ADPCM_OPTIONS.adpcmAddress),
-    divider: clampInt(rawOptions.divider, 0, 255, DEFAULT_ADPCM_OPTIONS.divider),
+    divider,
   };
 }
 
@@ -1124,23 +1131,21 @@ function importImage(projectDir, payload = {}, options = {}) {
 function importAudio(projectDir, payload = {}, options = {}) {
   const kind = payload.kind === 'cdda-track' || payload.type === 'cdda-track' ? 'cdda-track' : 'adpcm';
   const sourceAbs = sourcePathForImport(payload);
-  const sourceName = String(payload.sourceFileName || (sourceAbs ? path.basename(sourceAbs) : 'sound.wav'));
-  const sourceExt = path.extname(sourceName || sourceAbs || '').toLowerCase();
+  const originalFileName = path.basename(String(payload.originalFileName || payload.sourceFileName || (sourceAbs ? path.basename(sourceAbs) : 'sound.wav')));
+  const sourceName = path.basename(String(payload.sourceFileName || originalFileName || 'sound.wav'));
+  const sourceExt = path.extname(sourceName || sourceAbs || originalFileName || '').toLowerCase();
   if (!AUDIO_EXTENSIONS.has(sourceExt)) {
-    throw new Error('WAV audio files are supported');
+    throw new Error('WAV / MP3 audio files are supported');
+  }
+  if (!payload.dataUrl && sourceExt !== '.wav') {
+    throw new Error('MP3 audio must be converted to WAV before import');
   }
   const id = sanitizeAssetId(payload.id || sourceName, kind === 'cdda-track' ? 'cdda_track' : 'adpcm_sample');
   const sourceSubdir = kind === 'cdda-track' ? 'assets/cdda' : 'assets/adpcm';
   const sourceRel = normalizeRelativePath(path.join(sourceSubdir, `${id}.wav`));
-  const generatedDir = path.join(projectDir, 'assets', 'generated', id);
-  const previewFile = relativeGeneratedPath(id, 'preview.json');
-  const outputFile = kind === 'cdda-track' ? relativeGeneratedPath(id, 'cdda.wav') : relativeGeneratedPath(id, 'adpcm.bin');
   const { absPath: destAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
-  const { absPath: outputAbs } = resolveUnderRoot(projectDir, outputFile, 'project');
-  const { absPath: previewAbs } = resolveUnderRoot(projectDir, previewFile, 'project');
 
   ensureDirSync(path.dirname(destAbs));
-  ensureDirSync(generatedDir);
   if (payload.dataUrl) {
     const decoded = decodeDataUrl(payload.dataUrl);
     fs.writeFileSync(destAbs, decoded.buffer);
@@ -1149,82 +1154,190 @@ function importAudio(projectDir, payload = {}, options = {}) {
   }
 
   const input = fs.readFileSync(destAbs);
-  const converted = kind === 'cdda-track'
-    ? audioConverter.convertWavForCdda(input)
-    : audioConverter.convertWavForAdpcm(input, { sampleRate: payload.sampleRate || payload.options?.sampleRate });
-  fs.writeFileSync(outputAbs, converted.output);
+  const importedAt = new Date().toISOString();
+  const processing = payload.processing && typeof payload.processing === 'object'
+    ? {
+        trimStartSec: Number.isFinite(Number(payload.processing.trimStartSec)) ? Number(payload.processing.trimStartSec) : null,
+        trimEndSec: Number.isFinite(Number(payload.processing.trimEndSec)) ? Number(payload.processing.trimEndSec) : null,
+        normalize: Boolean(payload.processing.normalize),
+        volumeDb: Number.isFinite(Number(payload.processing.volumeDb)) ? Number(payload.processing.volumeDb) : 0,
+        fadeInSec: Number.isFinite(Number(payload.processing.fadeInSec)) ? Math.max(0, Number(payload.processing.fadeInSec)) : 0,
+        fadeOutSec: Number.isFinite(Number(payload.processing.fadeOutSec)) ? Math.max(0, Number(payload.processing.fadeOutSec)) : 0,
+        mono: Boolean(payload.processing.mono),
+        sampleRate: Number.isFinite(Number(payload.processing.sampleRate)) ? Math.max(0, Math.trunc(Number(payload.processing.sampleRate))) : 0,
+        channels: Number.isFinite(Number(payload.processing.channels)) ? Math.max(0, Math.trunc(Number(payload.processing.channels))) : 0,
+        skipped: Boolean(payload.processing.skipped),
+      }
+    : {};
+  const doc = readAssetDocument(projectDir);
+  let assetsToWrite = [];
 
-  const preview = {
-    source: sourceRel,
-    kind,
-    sampleRate: converted.sampleRate,
-    channels: converted.channels,
-    durationSeconds: converted.durationSeconds,
-    bytes: converted.output.length,
-    waveform: converted.waveform,
-    warnings: converted.warnings,
-  };
-  fs.writeFileSync(previewAbs, JSON.stringify(preview, null, 2), 'utf-8');
-
-  const baseOptions = kind === 'cdda-track'
-    ? normalizeCddaOptions({
-        type: kind,
-        options: {
-          ...payload.options,
-          track: payload.track ?? payload.options?.track,
-          loop: payload.loop ?? payload.options?.loop,
-        },
-      })
-    : normalizeAdpcmOptions({
-        type: kind,
-        options: {
-          ...payload.options,
+  if (kind === 'cdda-track') {
+    const outputFile = relativeGeneratedPath(id, 'cdda.wav');
+    const previewFile = relativeGeneratedPath(id, 'preview.json');
+    const { absPath: outputAbs } = resolveUnderRoot(projectDir, outputFile, 'project');
+    const { absPath: previewAbs } = resolveUnderRoot(projectDir, previewFile, 'project');
+    ensureDirSync(path.dirname(outputAbs));
+    const converted = audioConverter.convertWavForCdda(input);
+    fs.writeFileSync(outputAbs, converted.output);
+    fs.writeFileSync(previewAbs, JSON.stringify({
+      source: sourceRel,
+      kind,
+      sampleRate: converted.sampleRate,
+      channels: converted.channels,
+      durationSeconds: converted.durationSeconds,
+      bytes: converted.output.length,
+      waveform: converted.waveform,
+      warnings: converted.warnings,
+      processing,
+    }, null, 2), 'utf-8');
+    const baseOptions = normalizeCddaOptions({
+      type: kind,
+      options: {
+        ...payload.options,
+        track: payload.track ?? payload.options?.track,
+        loop: payload.loop ?? payload.options?.loop,
+      },
+    });
+    assetsToWrite = [normalizeAsset({
+      id,
+      type: kind,
+      name: String(payload.name || originalFileName.replace(/\.[^.]+$/, '') || id).trim(),
+      source: sourceRel,
+      options: baseOptions,
+      data: {
+        generated: {
+          outputFile,
+          previewFile,
+          byteLength: converted.output.length,
           sampleRate: converted.sampleRate,
-          loop: payload.loop ?? payload.options?.loop,
-          adpcmAddress: payload.adpcmAddress ?? payload.options?.adpcmAddress,
-          divider: payload.divider ?? payload.options?.divider,
+          channels: converted.channels,
+          durationSeconds: converted.durationSeconds,
+          waveform: converted.waveform,
+          warnings: converted.warnings,
+        },
+        import: {
+          originalFileName,
+          importedAt,
+          converter: 'Internal WAV/CD-DA normalizer',
+          processing,
+        },
+      },
+    })];
+  } else {
+    const baseOptions = normalizeAdpcmOptions({
+      type: kind,
+      options: {
+        ...payload.options,
+        sampleRate: payload.sampleRate ?? payload.options?.sampleRate,
+        loop: payload.loop ?? payload.options?.loop,
+        adpcmAddress: payload.adpcmAddress ?? payload.options?.adpcmAddress,
+        divider: payload.divider ?? payload.options?.divider,
+      },
+    });
+    const maxAdpcmBytes = Math.max(1, Math.min(65535, 65536 - baseOptions.adpcmAddress));
+    const splitPolicy = payload.splitPolicy === 'auto' ? 'auto' : '';
+    const converted = splitPolicy === 'auto'
+      ? audioConverter.convertWavForAdpcmParts(input, { sampleRate: baseOptions.sampleRate, maxBytes: maxAdpcmBytes })
+      : audioConverter.convertWavForAdpcm(input, { sampleRate: baseOptions.sampleRate });
+    const parts = splitPolicy === 'auto'
+      ? converted.parts
+      : [{
+          output: converted.output,
+          sampleRate: converted.sampleRate,
+          channels: converted.channels,
+          durationSeconds: converted.durationSeconds,
+          waveform: converted.waveform,
+        }];
+    const partCount = parts.length;
+    assetsToWrite = parts.map((part, partIndex) => {
+      const assetId = partCount > 1 ? `${id}_part${String(partIndex + 1).padStart(2, '0')}` : id;
+      const outputFile = relativeGeneratedPath(assetId, 'adpcm.bin');
+      const previewFile = relativeGeneratedPath(assetId, 'preview.json');
+      const { absPath: outputAbs } = resolveUnderRoot(projectDir, outputFile, 'project');
+      const { absPath: previewAbs } = resolveUnderRoot(projectDir, previewFile, 'project');
+      const warnings = [
+        ...(converted.warnings || []),
+        ...(part.output.length > maxAdpcmBytes ? [`ADPCM: ${part.output.length} bytes exceeds runtime-safe limit ${maxAdpcmBytes}`] : []),
+      ];
+      ensureDirSync(path.dirname(outputAbs));
+      fs.writeFileSync(outputAbs, part.output);
+      fs.writeFileSync(previewAbs, JSON.stringify({
+        source: sourceRel,
+        kind,
+        sampleRate: part.sampleRate,
+        channels: part.channels,
+        durationSeconds: part.durationSeconds,
+        bytes: part.output.length,
+        waveform: part.waveform,
+        warnings,
+        processing,
+        groupId: id,
+        partIndex: partIndex + 1,
+        partCount,
+        splitPolicy,
+        maxAdpcmBytes,
+      }, null, 2), 'utf-8');
+      return normalizeAsset({
+        id: assetId,
+        type: kind,
+        name: partCount > 1
+          ? `${String(payload.name || originalFileName.replace(/\.[^.]+$/, '') || id).trim()} ${partIndex + 1}/${partCount}`
+          : String(payload.name || originalFileName.replace(/\.[^.]+$/, '') || id).trim(),
+        source: sourceRel,
+        options: { ...baseOptions, sampleRate: part.sampleRate },
+        data: {
+          generated: {
+            outputFile,
+            previewFile,
+            byteLength: part.output.length,
+            sampleRate: part.sampleRate,
+            channels: part.channels,
+            durationSeconds: part.durationSeconds,
+            waveform: part.waveform,
+            warnings,
+          },
+          import: {
+            originalFileName,
+            importedAt,
+            converter: 'Internal WAV/ADPCM encoder',
+            processing,
+            groupId: id,
+            partIndex: partIndex + 1,
+            partCount,
+            splitPolicy,
+            maxAdpcmBytes,
+          },
         },
       });
-  const asset = normalizeAsset({
-    id,
-    type: kind,
-    name: String(payload.name || sourceName.replace(/\.[^.]+$/, '') || id).trim(),
-    source: sourceRel,
-    options: baseOptions,
-    data: {
-      generated: {
-        outputFile,
-        previewFile,
-        byteLength: converted.output.length,
-        sampleRate: converted.sampleRate,
-        channels: converted.channels,
-        durationSeconds: converted.durationSeconds,
-        waveform: converted.waveform,
-        warnings: converted.warnings,
-      },
-      import: {
-        originalFileName: sourceName,
-        importedAt: new Date().toISOString(),
-        converter: kind === 'cdda-track' ? 'Internal WAV/CD-DA normalizer' : 'Internal WAV/ADPCM encoder',
-      },
-    },
+    });
+  }
+
+  const groupId = id;
+  doc.assets = doc.assets.filter((entry) => {
+    if (entry.id === id) return false;
+    if (entry.data?.import?.groupId === groupId) return false;
+    return true;
   });
-  const doc = readAssetDocument(projectDir);
-  const index = doc.assets.findIndex((entry) => entry.id === asset.id);
-  if (index >= 0) doc.assets[index] = asset;
-  else doc.assets.push(asset);
+  for (const asset of assetsToWrite) {
+    const index = doc.assets.findIndex((entry) => entry.id === asset.id);
+    if (index >= 0) doc.assets[index] = asset;
+    else doc.assets.push(asset);
+  }
   const saved = writeAssetDocument(projectDir, doc);
+  const asset = assetsToWrite[0];
   return {
     asset,
     assets: saved.assets,
     conversion: {
       ok: true,
       kind,
-      outputFile,
-      previewFile,
-      sampleRate: converted.sampleRate,
-      channels: converted.channels,
-      byteLength: converted.output.length,
+      outputFile: asset?.data?.generated?.outputFile || '',
+      previewFile: asset?.data?.generated?.previewFile || '',
+      sampleRate: asset?.data?.generated?.sampleRate || 0,
+      channels: asset?.data?.generated?.channels || 0,
+      byteLength: asset?.data?.generated?.byteLength || 0,
+      partCount: assetsToWrite.length,
       dryRun: Boolean(options.dryRun),
     },
   };
@@ -1284,8 +1397,8 @@ function createRomBankAllocator() {
 function createCdRamBankAllocator() {
   return {
     kind: 'ram',
-    nextBank: 129,
-    maxBank: 132,
+    nextBank: 130,
+    maxBank: 131,
     sectionPrefix: 'ram_bank',
     banks: [],
   };
@@ -1295,7 +1408,7 @@ function allocateAssetBank(allocator) {
   if (!allocator) throw new Error('ROM bank allocator is required');
   if (allocator.nextBank > allocator.maxBank) {
     throw new Error(allocator.kind === 'ram'
-      ? 'PCE-CD banked asset data exceeds loadable RAM banks 129-132'
+      ? 'PCE-CD banked asset data exceeds reserved fallback RAM banks 130-131'
       : 'PCE HuCard banked asset data exceeds 127 ROM banks');
   }
   const bank = allocator.nextBank;
@@ -1417,6 +1530,7 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
   const converted = assets.filter((asset) => asset.type === type && asset.data?.generated);
   const arrayLines = [];
   const metaLines = [];
+  const drawMetaLines = [];
   converted.forEach((asset, index) => {
     const ident = toCIdentifier(`pce_editor_${type}_${asset.id}`);
     const generated = asset.data.generated || {};
@@ -1443,14 +1557,17 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
       const cellHeight = numeric(options.cellHeight, 16, 64, 16);
       const cellColumns = Math.max(1, Math.ceil(numeric(options.width, 0, 1024, cellWidth) / cellWidth));
       const cellRows = Math.max(1, Math.ceil(numeric(options.height, 0, 1024, cellHeight) / cellHeight));
-      metaLines.push(`  { ${dataRefLiteral(paletteRef)}, ${dataRefLiteral(tilesRef)}, ${cellWidth}u, ${cellHeight}u, ${cellColumns}u, ${cellRows}u, ${numeric(options.tileBase, 0, 2047, 384)}u, ${numeric(options.paletteBank, 0, 15, 0)}u, ${numeric(options.x, 0, 255, 144)}u, ${numeric(options.y, 0, 255, 104)}u }${index + 1 < converted.length ? ',' : ''}`);
+      const patternBase = numeric(options.tileBase, 0, 2047, 384);
+      const paletteBank = numeric(options.paletteBank, 0, 15, 0);
+      metaLines.push(`  { ${dataRefLiteral(paletteRef)}, ${dataRefLiteral(tilesRef)}, ${cellWidth}u, ${cellHeight}u, ${cellColumns}u, ${cellRows}u, ${patternBase}u, ${paletteBank}u, ${numeric(options.x, 0, 255, 144)}u, ${numeric(options.y, 0, 255, 104)}u }${index + 1 < converted.length ? ',' : ''}`);
+      drawMetaLines.push(`  { ${cellWidth}u, ${cellHeight}u, ${cellColumns}u, ${cellRows}u, ${patternBase}u, ${paletteBank}u }${index + 1 < converted.length ? ',' : ''}`);
     } else {
       const widthTiles = Math.max(1, Math.ceil(numeric(options.width, 0, 1024, 0) / 8));
       const heightTiles = Math.max(1, Math.ceil(numeric(options.height, 0, 1024, 0) / 8));
       metaLines.push(`  { ${dataRefLiteral(paletteRef)}, ${dataRefLiteral(tilesRef)}, ${dataRefLiteral(mapRef)}, ${widthTiles}u, ${heightTiles}u, ${numeric(options.tileBase, 0, 2047, 32)}u, ${numeric(options.mapBase, 0, 2047, 0)}u, ${numeric(options.paletteBank, 0, 15, 0)}u }${index + 1 < converted.length ? ',' : ''}`);
     }
   });
-  return { converted, arrayLines, metaLines };
+  return { converted, arrayLines, metaLines, drawMetaLines };
 }
 
 function projectTargetsCd(projectDir) {
@@ -1656,6 +1773,15 @@ function generateAssetSources(projectDir, options = {}) {
     '} pce_editor_sprite_asset_t;',
     '',
     'typedef struct {',
+    '  unsigned char cell_width;',
+    '  unsigned char cell_height;',
+    '  unsigned char cell_columns;',
+    '  unsigned char cell_rows;',
+    '  unsigned int pattern_base;',
+    '  unsigned char palette_bank;',
+    '} pce_editor_sprite_draw_meta_t;',
+    '',
+    'typedef struct {',
     '  unsigned char step;',
     '  unsigned char channel;',
     '  unsigned int period;',
@@ -1692,6 +1818,7 @@ function generateAssetSources(projectDir, options = {}) {
     'extern const pce_editor_bg_asset_t pce_editor_bg_assets[];',
     'extern const unsigned char pce_editor_bg_asset_count;',
     'extern const pce_editor_sprite_asset_t pce_editor_sprite_assets[];',
+    'extern const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[];',
     'extern const unsigned char pce_editor_sprite_asset_count;',
     'extern const pce_editor_psg_asset_t pce_editor_psg_assets[];',
     'extern const unsigned char pce_editor_psg_asset_count;',
@@ -1749,6 +1876,9 @@ function generateAssetSources(projectDir, options = {}) {
     '',
     'const pce_editor_sprite_asset_t pce_editor_sprite_assets[] = {',
     ...(spriteGenerated.metaLines.length ? spriteGenerated.metaLines : [`  { ${emptyDataRef}, ${emptyDataRef}, 0u, 0u, 0u, 0u, 0u, 0u }`]),
+    '};',
+    'const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[] = {',
+    ...(spriteGenerated.drawMetaLines.length ? spriteGenerated.drawMetaLines : ['  { 16u, 16u, 1u, 1u, 384u, 0u }']),
     '};',
     `const unsigned char pce_editor_sprite_asset_count = ${spriteGenerated.converted.length};`,
     '',
@@ -1839,6 +1969,7 @@ module.exports = {
   reorderAssets,
   resolveAssetSource,
   runInternalPceImageConversion,
+  sampleRateToAdpcmDivider: audioConverter.sampleRateToAdpcmDivider,
   upsertAsset,
   writeAssetDocument,
 };

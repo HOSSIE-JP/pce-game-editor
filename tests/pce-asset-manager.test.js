@@ -171,6 +171,10 @@ function makeWavBuffer(sampleRate = 8000, frames = 32) {
   return buffer;
 }
 
+function makeWavDataUrl(sampleRate = 8000, frames = 32) {
+  return `data:audio/wav;base64,${makeWavBuffer(sampleRate, frames).toString('base64')}`;
+}
+
 function writeFile(projectDir, relativePath, bytes) {
   const absPath = path.join(projectDir, relativePath);
   fs.mkdirSync(path.dirname(absPath), { recursive: true });
@@ -217,6 +221,9 @@ test('PCE asset schema supports BG image, sprite, generated metadata, and legacy
   assert.equal(psg.type, 'psg-sfx');
   assert.equal(psg.options.period, 384);
   assert.equal(adpcm.options.sampleRate, 12000);
+  assert.equal(adpcm.options.divider, 2);
+  assert.equal(assetManager.sampleRateToAdpcmDivider(16000), 1);
+  assert.equal(assetManager.sampleRateToAdpcmDivider(8000), 3);
   assert.equal(cdda.options.track, 3);
   assert.throws(() => assetManager.normalizeAsset({ id: 'bad', type: 'image', source: '/tmp/bad.png' }), /project relative/);
   assert.throws(() => assetManager.normalizeAsset({ id: 'bad', type: 'image', source: 'C:\\bad\\asset.png' }), /project relative/);
@@ -246,12 +253,70 @@ test('PCE audio import converts WAV into ADPCM and CD-DA assets', () => {
 
   assert.equal(adpcm.asset.type, 'adpcm');
   assert.equal(adpcm.asset.options.sampleRate, 12000);
+  assert.equal(adpcm.asset.options.divider, 2);
   assert.match(adpcm.asset.data.generated.outputFile, /adpcm\.bin$/);
   assert.equal(fs.existsSync(path.join(projectDir, adpcm.asset.data.generated.outputFile)), true);
   assert.equal(cdda.asset.type, 'cdda-track');
   assert.equal(cdda.asset.options.track, 4);
   assert.match(cdda.asset.data.generated.outputFile, /cdda\.wav$/);
   assert.equal(fs.existsSync(path.join(projectDir, cdda.asset.data.generated.outputFile)), true);
+});
+
+test('PCE audio import accepts processed WAV data URLs and keeps MP3 provenance', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-audio-dataurl-');
+  const adpcm = assetManager.importAudio(projectDir, {
+    dataUrl: makeWavDataUrl(),
+    sourceFileName: 'voice.wav',
+    originalFileName: 'voice.mp3',
+    kind: 'adpcm',
+    id: 'voice_from_mp3',
+    processing: { trimStartSec: 0.1, trimEndSec: 0.2, normalize: true, volumeDb: -3, fadeInSec: 0.02, fadeOutSec: 0.03, mono: true, sampleRate: 16000, channels: 1 },
+    splitPolicy: 'auto',
+  });
+  const cdda = assetManager.importAudio(projectDir, {
+    dataUrl: makeWavDataUrl(),
+    sourceFileName: 'theme.wav',
+    kind: 'cdda-track',
+    id: 'theme',
+    track: 5,
+  });
+
+  assert.equal(adpcm.asset.type, 'adpcm');
+  assert.equal(adpcm.asset.source, 'assets/adpcm/voice_from_mp3.wav');
+  assert.equal(adpcm.asset.data.import.originalFileName, 'voice.mp3');
+  assert.equal(adpcm.asset.data.import.processing.normalize, true);
+  assert.equal(fs.existsSync(path.join(projectDir, adpcm.asset.source)), true);
+  assert.equal(cdda.asset.type, 'cdda-track');
+  assert.equal(cdda.asset.options.track, 5);
+});
+
+test('PCE ADPCM import auto-splits assets that exceed runtime-safe size', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-audio-split-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+
+  const result = assetManager.importAudio(projectDir, {
+    dataUrl: makeWavDataUrl(8000, 96),
+    sourceFileName: 'long.wav',
+    kind: 'adpcm',
+    id: 'long_voice',
+    sampleRate: 8000,
+    adpcmAddress: 65530,
+    splitPolicy: 'auto',
+  });
+  const parts = result.assets.filter((asset) => asset.data?.import?.groupId === 'long_voice');
+
+  assert.equal(result.asset.id, 'long_voice_part01');
+  assert.equal(result.conversion.partCount > 1, true);
+  assert.equal(parts.length, result.conversion.partCount);
+  for (const [index, part] of parts.entries()) {
+    assert.equal(part.id, `long_voice_part${String(index + 1).padStart(2, '0')}`);
+    assert.equal(part.data.import.partCount, result.conversion.partCount);
+    assert.equal(part.data.import.maxAdpcmBytes, 6);
+    assert.equal(fs.statSync(path.join(projectDir, part.data.generated.outputFile)).size <= 6, true);
+  }
+  assert.deepEqual(assetManager.collectCdDataFiles(projectDir), parts.map((part) => part.data.generated.outputFile));
 });
 
 test('PCE image import generates BG and sprite assets with the internal converter', () => {
@@ -472,6 +537,8 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.equal(result.spriteCount, 1);
   assert.match(header, /pce_editor_bg_asset_t/);
   assert.match(header, /pce_editor_sprite_asset_t/);
+  assert.match(header, /pce_editor_sprite_draw_meta_t/);
+  assert.match(header, /extern const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\];/);
   assert.match(header, /pce_editor_psg_asset_t/);
   assert.match(header, /pce_editor_adpcm_asset_t/);
   assert.match(header, /pce_editor_cdda_asset_t/);
@@ -479,7 +546,9 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.match(source, /static const unsigned char pce_editor_sprite_spr_patterns\[\]/);
   assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_beep_pattern\[\]/);
   assert.match(source, /static const unsigned char pce_editor_adpcm_voice_data\[\]/);
+  assert.match(source, /\{ "voice", pce_editor_adpcm_voice_data, 4u, 16000u, 0u, 1u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
   assert.match(source, /const unsigned char pce_editor_bg_asset_count = 1/);
+  assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] = \{\n  \{ 16u, 16u, 1u, 1u, 384u, 0u \}\n\};/);
   assert.match(source, /const unsigned char pce_editor_sprite_asset_count = 1/);
   assert.match(source, /const unsigned char pce_editor_psg_asset_count = 1/);
   assert.match(source, /const unsigned char pce_editor_adpcm_asset_count = 1/);
@@ -517,7 +586,7 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
         id: 'hero',
         type: 'sprite',
         source: 'assets/sprites/hero.png',
-        options: { width: 64, height: 128, cellWidth: 16, cellHeight: 16, patternBase: 880, paletteBank: 1 },
+        options: { width: 64, height: 128, cellWidth: 16, cellHeight: 16, tileBase: 880, paletteBank: 1 },
         data: { generated: {
           paletteFile: 'assets/generated/hero/palette.bin',
           tilesFile: 'assets/generated/hero/patterns.bin',
@@ -545,12 +614,16 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
     'assets/generated/voice/adpcm.bin',
   ]);
   assert.match(header, /pce_editor_cd_data_ref_t/);
+  assert.match(header, /pce_editor_sprite_draw_meta_t/);
+  assert.match(header, /extern const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\];/);
   assert.doesNotMatch(source, /PCE_RAM_BANK_AT\(129, 3\);/);
   assert.doesNotMatch(source, /pce_editor_image_bg_map_bank129/);
   assert.match(source, /pce_editor_image_bg_tiles_cd = \{ \{ 64u, 0u, 0u \}, 1u \};/);
   assert.match(source, /pce_editor_image_bg_map_cd = \{ \{ 65u, 0u, 0u \}, 1u \};/);
   assert.match(source, /pce_editor_sprite_hero_patterns_cd = \{ \{ 66u, 0u, 0u \}, 2u \};/);
   assert.match(source, /pce_editor_adpcm_voice_data_cd = \{ \{ 68u, 0u, 0u \}, 2u \};/);
+  assert.match(source, /\{ "voice", \(const unsigned char \*\)0, 4096u, 16000u, 0u, 1u, 0u, &pce_editor_adpcm_voice_data_cd \}/);
+  assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] = \{\n  \{ 16u, 16u, 4u, 8u, 880u, 1u \}\n\};/);
   assert.doesNotMatch(source, /extern const unsigned char __cd_assets_generated_bg_tiles_bin/);
   assert.doesNotMatch(source, /__cd_assets_generated_bg_tiles_bin_sector/);
   assert.doesNotMatch(source, /pce_editor_cd_sector_t __cd_assets_generated_bg_tiles_bin =/);

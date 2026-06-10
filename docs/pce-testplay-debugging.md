@@ -22,7 +22,7 @@
 ## 見るべき典型ポイント
 
 - 波打ちや画面全体の破綻: VDC control の DRAM refresh が表示切り替え時にも保持されているか。
-- BG の崩れ: `tileBase * 16`、map base、VRAM copy destination、map word の palette bank / tile index。
+- BG の崩れ: `tileBase * 16`、map base、VRAM copy destination、map word の palette bank / tile index。CD-ROM2 VN の `map_vram.bin` は `mapBase` から一括転送せず、64幅ソース行から `width_tiles` 分だけを行単位でBATへ置く。
 - UI / font の縦縞: 空白タイルの VRAM 内容、font tile base、UI palette bank、window fill map。
 - スプライト崩れ: SATB の pattern 値、pattern VRAM destination、16x16 pattern のエンコード順、width / height attr。
 - CD-ROM2 固有の差: BIOS helper 経由の SATB 更新、VDC copy mode、banked asset の RAM bank 切り替え。

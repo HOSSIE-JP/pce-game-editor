@@ -1,5 +1,5 @@
 const IMAGE_EXTS = ['.png', '.bmp'];
-const AUDIO_EXTS = ['.wav'];
+const AUDIO_EXTS = ['.wav', '.mp3'];
 const SPRITE_CELL_SIZES = ['16x16', '16x32', '16x64', '32x16', '32x32', '32x64'];
 const PCE_PSG_CLOCK = 3579545;
 
@@ -1220,7 +1220,12 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           modal.destroy?.();
           resolve(result.asset || null);
         } catch (err) {
-          error.textContent = err.message || String(err);
+          const message = err.message || String(err);
+          if (modal.panel?.isConnected) error.textContent = message;
+          else {
+            logger.error(`PCE audio import failed: ${message}`);
+            resolve(null);
+          }
         }
       });
       syncKind();
@@ -1276,11 +1281,11 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
               </label>
             </div>
             <div class="pce-assets-import-source">
-              <button class="btn-sm" type="button" data-pick-audio>WAVを選択</button>
+              <button class="btn-sm" type="button" data-pick-audio>WAV / MP3を選択</button>
               <code data-source-label>未選択</code>
             </div>
             <audio controls data-audio-preview hidden></audio>
-            <div class="form-hint" data-import-hint>ADPCM は OKI/MSM5205 系4bit、CD-DA は 44.1kHz/16bit/stereo WAV に正規化します。</div>
+            <div class="form-hint" data-import-hint>共通音声コンバーターでトリミング、正規化、音量、フェードを適用してから ADPCM / CD-DA へ登録します。</div>
             <div class="form-error" data-import-error></div>
             <div class="form-actions-inline modal-actions-end">
               <button class="btn-sm" type="button" data-import-cancel>キャンセル</button>
@@ -1324,7 +1329,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         error.textContent = '';
         const picked = await api.electronAPI.pickFile({
           properties: ['openFile'],
-          filters: [{ name: 'WAV', extensions: ['wav'] }],
+          filters: [{ name: 'WAV / MP3', extensions: ['wav', 'mp3'] }],
         });
         const filePath = picked?.sourcePath || picked?.filePath || picked?.filePaths?.[0] || '';
         if (picked?.canceled || !filePath) return;
@@ -1342,24 +1347,54 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         event.preventDefault();
         error.textContent = '';
         if (!sourcePath) {
-          error.textContent = 'WAVを選択してください';
+          error.textContent = 'WAV / MP3を選択してください';
           return;
         }
         try {
-          const result = await api.electronAPI.importAssetAudio({
-            sourcePath,
-            sourceFileName,
-            kind: form.elements.kind.value,
-            id: form.elements.id.value,
-            name: form.elements.name.value,
-            sampleRate: asNumber(form.elements.sampleRate?.value, 16000),
-            track: asNumber(form.elements.track?.value, 2),
-            loop: Boolean(form.elements.loop?.checked),
-          });
-          if (!result?.ok) throw new Error(result?.error || '取り込みに失敗しました');
-          logger.info(`PCE audio imported: ${result.asset?.id || form.elements.id.value}`);
+          const audioCapability = api.capabilities.get('audio-convert-ui');
+          if (!audioCapability?.openAudioConvertModal) {
+            error.textContent = 'PCE 音声コンバータープラグインが無効または未インストールです';
+            return;
+          }
+          const kind = form.elements.kind.value;
+          const id = safeId(form.elements.id.value, kind === 'cdda-track' ? 'cdda_track' : 'adpcm_sample');
+          const sampleRate = asNumber(form.elements.sampleRate?.value, 16000);
           modal.close();
           modal.destroy?.();
+          const converted = await audioCapability.openAudioConvertModal({
+            mode: 'pce-asset',
+            returnResult: true,
+            kind,
+            picked: {
+              sourcePath,
+              fileName: sourceFileName,
+              ext: extname(sourceFileName || sourcePath),
+            },
+            targetFileName: `${id}.wav`,
+            defaults: {
+              sampleRate: kind === 'cdda-track' ? 44100 : sampleRate,
+              mono: kind !== 'cdda-track',
+            },
+          });
+          if (!converted?.ok || !converted.dataUrl) {
+            resolve(null);
+            return;
+          }
+          const result = await api.electronAPI.importAssetAudio({
+            dataUrl: converted.dataUrl,
+            sourceFileName: `${id}.wav`,
+            originalFileName: converted.originalFileName || sourceFileName,
+            kind,
+            id,
+            name: form.elements.name.value,
+            sampleRate: asNumber(converted.processing?.sampleRate, sampleRate),
+            track: asNumber(form.elements.track?.value, 2),
+            loop: Boolean(form.elements.loop?.checked),
+            processing: converted.processing || {},
+            splitPolicy: 'auto',
+          });
+          if (!result?.ok) throw new Error(result?.error || '取り込みに失敗しました');
+          logger.info(`PCE audio imported: ${result.asset?.id || id}`);
           resolve(result.asset || null);
         } catch (err) {
           error.textContent = err.message || String(err);
@@ -1500,7 +1535,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           isImageInput: true,
         };
       }
-      if (ext === '.wav') {
+      if (AUDIO_EXTS.includes(ext)) {
         return { initialType: 'adpcm', allowedTypes: ['adpcm', 'cdda-track'], defaultSubdir: 'assets/adpcm' };
       }
       if (['.vgm', '.json'].includes(ext)) {

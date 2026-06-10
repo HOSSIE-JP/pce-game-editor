@@ -8,6 +8,8 @@
 #endif
 #if defined(__PCE_CD__)
 #include <pce-cd.h>
+PCE_RAM_BANK_AT(128, 2);
+PCE_RAM_BANK_AT(129, 3);
 PCE_CDB_USE_GRAPHICS_DRIVER(1);
 #endif
 
@@ -32,6 +34,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(1);
 #define VN_MAP_HEIGHT 32u
 #define VN_BG_SCROLL_WIDTH 512u
 #define VN_BG_SCROLL_HEIGHT 256u
+#define VN_MAP_ROW_BYTES (VN_MAP_WIDTH * 2u)
+#define VN_ADPCM_BASE_SAMPLE_RATE 32000u
 #define VN_SATB_ADDR 0x7f00u
 #define VN_WINDOW_X 2u
 #define VN_WINDOW_Y 19u
@@ -48,11 +52,16 @@ PCE_CDB_USE_GRAPHICS_DRIVER(1);
 #define VN_VDC_DISPLAY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG | VDC_CONTROL_ENABLE_SPRITE)
 #define VN_VDC_BG_ONLY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG)
 #define VN_VDC_BLANK_CONTROL VN_VDC_CONTROL_BASE
+#define VN_VDC_MEMORY_CONTROL (VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_64_32)
 #define VN_SPRITE_SLOT_COUNT 4u
 #define VN_EXEC_CONTINUE 0u
 #define VN_EXEC_WAIT 1u
 #define VN_EXEC_RESTART 2u
-#define VN_SPRITE_BANKED_CODE
+#if defined(__PCE_CD__)
+#define VN_BANKED_CODE __attribute__((noinline, section(".ram_bank129")))
+#else
+#define VN_BANKED_CODE
+#endif
 
 static uint8_t current_scene = 0;
 static uint8_t current_command = 0;
@@ -90,8 +99,12 @@ typedef struct
     uint8_t timer;
 } vn_sprite_slot_t;
 static vn_sprite_slot_t sprite_slots[VN_SPRITE_SLOT_COUNT];
+static pce_editor_sprite_draw_meta_t sprite_draw_meta;
 #if defined(__PCE__)
 static vdc_sprite_t sprite_shadow[64];
+#endif
+#if defined(__PCE_CD__)
+static uint8_t cd_transfer_scratch[VN_CD_SECTOR_BYTES];
 #endif
 static void advance_story(void);
 
@@ -99,6 +112,13 @@ static void map_vn_data(void)
 {
 #if defined(__PCE_CD__)
     pce_vn_font_tiles_map();
+#endif
+}
+
+static void map_resident_data(void)
+{
+#if defined(__PCE_CD__)
+    pce_ram_bank128_map();
 #endif
 }
 
@@ -163,14 +183,20 @@ static void display_enable(void)
 
 static void sprite_layer_disable(void)
 {
-#if defined(__PCE__)
+#if defined(__PCE_CD__)
+    pce_cdb_vdc_sprite_disable();
+    pce_vdc_poke(VDC_REG_CONTROL, VN_VDC_BG_ONLY_CONTROL);
+#elif defined(__PCE__)
     pce_vdc_poke(VDC_REG_CONTROL, VN_VDC_BG_ONLY_CONTROL);
 #endif
 }
 
 static void sprite_layer_enable(void)
 {
-#if defined(__PCE__)
+#if defined(__PCE_CD__)
+    pce_cdb_vdc_sprite_enable();
+    pce_vdc_poke(VDC_REG_CONTROL, VN_VDC_DISPLAY_CONTROL);
+#elif defined(__PCE__)
     pce_vdc_poke(VDC_REG_CONTROL, VN_VDC_DISPLAY_CONTROL);
 #endif
 }
@@ -291,6 +317,49 @@ static uint8_t cd_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *r
         cd_sector_advance(&sector);
     }
     return 1u;
+}
+
+static uint8_t cd_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref, uint8_t width_tiles, uint8_t height_tiles)
+{
+    pce_sector_t sector = {0};
+    uint16_t remaining;
+    uint8_t row = 0u;
+    uint8_t copy_width_tiles = width_tiles;
+    uint8_t copy_height_tiles = height_tiles;
+    const uint8_t dest_col = (uint8_t)(dest % VN_MAP_WIDTH);
+    const uint8_t dest_row = (uint8_t)(dest / VN_MAP_WIDTH);
+    uint16_t row_bytes;
+    if (!ref || !ref->cd || !ref->cd->sector_count || !ref->size || !width_tiles || !height_tiles) return 0u;
+    if (dest_col >= VN_MAP_WIDTH || dest_row >= VN_MAP_HEIGHT) return 0u;
+    if ((uint16_t)dest_col + copy_width_tiles > VN_MAP_WIDTH)
+    {
+        copy_width_tiles = (uint8_t)(VN_MAP_WIDTH - dest_col);
+    }
+    if ((uint16_t)dest_row + copy_height_tiles > VN_MAP_HEIGHT)
+    {
+        copy_height_tiles = (uint8_t)(VN_MAP_HEIGHT - dest_row);
+    }
+    if (!copy_width_tiles || !copy_height_tiles) return 0u;
+    row_bytes = (uint16_t)(copy_width_tiles * 2u);
+    if (ref->size < (uint16_t)(VN_MAP_ROW_BYTES * copy_height_tiles)) return 0u;
+    cd_sector_from_ref(&sector, &ref->cd->sector);
+    remaining = (uint16_t)ref->size;
+    while (row < copy_height_tiles && remaining)
+    {
+        uint16_t local_offset = 0u;
+        const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
+        (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)cd_transfer_scratch, chunk);
+        cd_transfer_wait();
+        while (row < copy_height_tiles && (uint16_t)(local_offset + VN_MAP_ROW_BYTES) <= chunk)
+        {
+            pce_editor_vram_copy((uint16_t)(dest + ((uint16_t)row * VN_MAP_WIDTH)), &cd_transfer_scratch[local_offset], row_bytes);
+            local_offset = (uint16_t)(local_offset + VN_MAP_ROW_BYTES);
+            row++;
+        }
+        remaining = (uint16_t)(remaining - chunk);
+        cd_sector_advance(&sector);
+    }
+    return (uint8_t)(row >= copy_height_tiles);
 }
 #endif
 
@@ -530,11 +599,11 @@ static void upload_bg_graphics(const pce_editor_bg_asset_t *bg)
     if (!bg) return;
     upload_palette(&bg->palette, (uint16_t)(bg->palette_bank * 16u), 0);
     copy_data_ref_to_vram((uint16_t)(bg->tile_base * 16u), &bg->tiles, 16u);
+    map_resident_data();
 #if defined(__PCE_CD__)
     if (bg->map.cd && bg->map.size)
     {
-        copy_data_ref_to_vram(bg->map_base, &bg->map, 16u);
-        return;
+        if (cd_bg_map_ref_to_vram(bg->map_base, &bg->map, bg->width_tiles, bg->height_tiles)) return;
     }
 #endif
     map = data_ref_ptr(&bg->map);
@@ -550,12 +619,12 @@ static void upload_bg_graphics(const pce_editor_bg_asset_t *bg)
     }
 }
 
-static uint16_t sprite_attr_for_size(const pce_editor_sprite_asset_t *sprite, uint8_t flags)
+static uint16_t sprite_attr_for_size(uint8_t flags)
 {
-    uint16_t attr = (uint16_t)(VDC_SPRITE_FG | VDC_SPRITE_COLOR(sprite->palette_bank));
-    if (sprite->cell_width >= 32u) attr |= VDC_SPRITE_WIDTH_32;
-    if (sprite->cell_height >= 64u) attr |= VDC_SPRITE_HEIGHT_64;
-    else if (sprite->cell_height >= 32u) attr |= VDC_SPRITE_HEIGHT_32;
+    uint16_t attr = (uint16_t)(VDC_SPRITE_FG | VDC_SPRITE_COLOR(sprite_draw_meta.palette_bank));
+    if (sprite_draw_meta.cell_width >= 32u) attr |= VDC_SPRITE_WIDTH_32;
+    if (sprite_draw_meta.cell_height >= 64u) attr |= VDC_SPRITE_HEIGHT_64;
+    else if (sprite_draw_meta.cell_height >= 32u) attr |= VDC_SPRITE_HEIGHT_32;
     if (flags & PCE_VN_SPRITE_FLIP_X) attr |= VDC_SPRITE_FLIP_X;
     if (flags & PCE_VN_SPRITE_FLIP_Y) attr |= VDC_SPRITE_FLIP_Y;
     return attr;
@@ -578,8 +647,20 @@ static void clear_sprites(void)
 static void upload_sprite_table(void)
 {
 #if defined(__PCE_CD__)
-#endif
-#if defined(__PCE__)
+    uint8_t i;
+    for (i = 0u; i < 64u; i++)
+    {
+        *PCE_CDB_SPR_INDEX = i;
+        *PCE_CDB_SPR_Y = sprite_shadow[i].y;
+        *PCE_CDB_SPR_X = sprite_shadow[i].x;
+        *PCE_CDB_SPR_PATTERN = sprite_shadow[i].pattern;
+        *PCE_CDB_SPR_ATTR = sprite_shadow[i].attr;
+        pce_cdb_vdc_sprite_table_put();
+    }
+    pce_vdc_poke(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL);
+    pce_vdc_poke(VDC_REG_DMA_CONTROL, VDC_DMA_SRC_INC);
+    pce_vdc_poke(VDC_REG_SATB_START, VN_SATB_ADDR);
+#elif defined(__PCE__)
     pce_vdc_sprite_set_table_start(VN_SATB_ADDR);
     pce_editor_vram_copy(VN_SATB_ADDR, (const uint8_t *)sprite_shadow, (uint16_t)(64u * sizeof(vdc_sprite_t)));
     pce_vdc_poke(VDC_REG_DMA_CONTROL, VDC_DMA_SRC_INC);
@@ -587,10 +668,10 @@ static void upload_sprite_table(void)
 #endif
 }
 
-static uint8_t sprite_patterns_per_cell(const pce_editor_sprite_asset_t *sprite)
+static uint8_t sprite_patterns_per_cell(void)
 {
-    uint8_t pattern_cols = (uint8_t)((sprite->cell_width + 15u) / 16u);
-    uint8_t pattern_rows = (uint8_t)((sprite->cell_height + 15u) / 16u);
+    uint8_t pattern_cols = (uint8_t)((sprite_draw_meta.cell_width + 15u) / 16u);
+    uint8_t pattern_rows = (uint8_t)((sprite_draw_meta.cell_height + 15u) / 16u);
     if (!pattern_cols) pattern_cols = 1u;
     if (!pattern_rows) pattern_rows = 1u;
     return (uint8_t)(pattern_cols * pattern_rows * 2u);
@@ -610,22 +691,36 @@ static uint8_t show_character_sprite_frame(uint8_t satb_index, uint8_t sprite_in
 {
     uint8_t row;
     uint8_t col;
+    uint8_t cell_columns;
+    uint8_t cell_rows;
     uint8_t frame_columns;
     uint8_t frame_rows;
     uint8_t written = 0u;
     uint8_t pattern_step;
+    uint8_t use_animation_frame;
     uint16_t first_cell;
     uint16_t total_cells;
-    if (!sprite || !sprite->patterns.size) return 0u;
-    upload_palette(&sprite->palette, (uint16_t)(256u + (sprite->palette_bank * 16u)), 1);
     (void)sprite_index;
-    frame_columns = animation && animation->frame_width_cells ? animation->frame_width_cells : (sprite->cell_columns ? sprite->cell_columns : 1u);
-    frame_rows = animation && animation->frame_height_cells ? animation->frame_height_cells : (sprite->cell_rows ? sprite->cell_rows : 1u);
-    first_cell = animation
+    if (!sprite || !sprite->patterns.size) return 0u;
+    cell_columns = sprite_draw_meta.cell_columns ? sprite_draw_meta.cell_columns : 1u;
+    cell_rows = sprite_draw_meta.cell_rows ? sprite_draw_meta.cell_rows : 1u;
+    total_cells = (uint16_t)(cell_columns * cell_rows);
+    use_animation_frame = (uint8_t)(
+        animation &&
+        animation->frame_count > 1u &&
+        animation->frame_width_cells &&
+        animation->frame_height_cells &&
+        animation->frame_width_cells <= cell_columns &&
+        animation->frame_height_cells <= cell_rows &&
+        animation->frame_stride_cells &&
+        animation->first_cell < total_cells
+    );
+    frame_columns = use_animation_frame && animation->frame_width_cells ? animation->frame_width_cells : cell_columns;
+    frame_rows = use_animation_frame && animation->frame_height_cells ? animation->frame_height_cells : cell_rows;
+    first_cell = use_animation_frame
         ? (uint16_t)(animation->first_cell + ((uint16_t)frame * animation->frame_stride_cells))
         : 0u;
-    total_cells = (uint16_t)((sprite->cell_columns ? sprite->cell_columns : 1u) * (sprite->cell_rows ? sprite->cell_rows : 1u));
-    pattern_step = sprite_patterns_per_cell(sprite);
+    pattern_step = sprite_patterns_per_cell();
 #if defined(__PCE__)
     for (row = 0u; row < frame_rows; row++)
     {
@@ -634,14 +729,14 @@ static uint8_t show_character_sprite_frame(uint8_t satb_index, uint8_t sprite_in
             vdc_sprite_t *entry;
             const uint8_t source_row = (flags & PCE_VN_SPRITE_FLIP_Y) ? (uint8_t)(frame_rows - 1u - row) : row;
             const uint8_t source_col = (flags & PCE_VN_SPRITE_FLIP_X) ? (uint8_t)(frame_columns - 1u - col) : col;
-            uint16_t source_cell = (uint16_t)(first_cell + ((uint16_t)source_row * sprite->cell_columns) + source_col);
+            uint16_t source_cell = (uint16_t)(first_cell + ((uint16_t)source_row * cell_columns) + source_col);
             if (source_cell >= total_cells) continue;
             if ((uint8_t)(satb_index + written) >= 64u) return written;
             entry = &sprite_shadow[(uint8_t)(satb_index + written)];
-            entry->y = (uint16_t)(y + ((uint16_t)row * sprite->cell_height) + 64u);
-            entry->x = (uint16_t)(x + ((uint16_t)col * sprite->cell_width) + 32u);
-            entry->pattern = (uint16_t)(sprite->pattern_base + (source_cell * pattern_step));
-            entry->attr = sprite_attr_for_size(sprite, flags);
+            entry->y = (uint16_t)(y + ((uint16_t)row * sprite_draw_meta.cell_height) + 64u);
+            entry->x = (uint16_t)(x + ((uint16_t)col * sprite_draw_meta.cell_width) + 32u);
+            entry->pattern = (uint16_t)(sprite_draw_meta.pattern_base + (source_cell * pattern_step));
+            entry->attr = sprite_attr_for_size(flags);
             written++;
         }
     }
@@ -679,12 +774,26 @@ static void stop_cdda_track(void)
 #endif
 }
 
+static uint8_t adpcm_play_divider(const pce_editor_adpcm_asset_t *voice)
+{
+    unsigned int rate;
+    unsigned int computed;
+    if (!voice) return 1u;
+    if (voice->divider || voice->sample_rate >= VN_ADPCM_BASE_SAMPLE_RATE) return voice->divider;
+    rate = voice->sample_rate ? voice->sample_rate : 16000u;
+    computed = (VN_ADPCM_BASE_SAMPLE_RATE + (rate / 2u)) / rate;
+    if (!computed) return 0u;
+    computed -= 1u;
+    if (computed > 255u) return 255u;
+    return (uint8_t)computed;
+}
+
 static void play_adpcm_voice(signed char voice_index)
 {
 #if defined(__PCE_CD__)
     const pce_editor_adpcm_asset_t *voice;
+    uint8_t divider;
     if (voice_index < 0 || (uint8_t)voice_index >= pce_editor_adpcm_asset_count) return;
-    if (loaded_adpcm_valid && loaded_adpcm_index == (uint8_t)voice_index) return;
     voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
     if ((!voice->data && !voice->cd) || !voice->data_size) return;
     if (!loaded_adpcm_valid || loaded_adpcm_index != (uint8_t)voice_index)
@@ -705,7 +814,8 @@ static void play_adpcm_voice(signed char voice_index)
         loaded_adpcm_valid = 1u;
         loaded_adpcm_index = (uint8_t)voice_index;
     }
-    (void)pce_cdb_adpcm_play(voice->adpcm_address, (uint16_t)voice->data_size, voice->divider, voice->loop ? PCE_CDB_ADPCM_REPEAT : PCE_CDB_ADPCM_ONE_SHOT);
+    divider = adpcm_play_divider(voice);
+    (void)pce_cdb_adpcm_play(voice->adpcm_address, (uint16_t)voice->data_size, divider, voice->loop ? PCE_CDB_ADPCM_REPEAT : PCE_CDB_ADPCM_ONE_SHOT);
 #else
     (void)voice_index;
 #endif
@@ -751,13 +861,14 @@ static void show_scene(uint8_t scene_index)
     pending_sprite_refresh = 1u;
 }
 
-static void VN_SPRITE_BANKED_CODE refresh_scene_sprites_banked(void)
+static void VN_BANKED_CODE refresh_scene_sprites(void)
 {
     uint8_t i;
     uint8_t satb_index = 0u;
     const uint8_t display_active = (uint8_t)!pending_display_enable;
     uint8_t requires_pattern_upload = 0u;
     map_vn_data();
+    map_resident_data();
     for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
     {
         const vn_sprite_slot_t *slot = &sprite_slots[i];
@@ -781,19 +892,44 @@ static void VN_SPRITE_BANKED_CODE refresh_scene_sprites_banked(void)
         vn_sprite_slot_t *slot = &sprite_slots[i];
         pce_vn_sprite_anim_t animation_value;
         const pce_vn_sprite_anim_t *animation = 0;
+        const pce_editor_sprite_asset_t *sprite;
+        const pce_editor_sprite_draw_meta_t *draw_meta;
+        uint8_t sprite_index;
         if (!slot->visible || slot->sprite_index < 0) continue;
+        map_resident_data();
         if ((uint8_t)slot->sprite_index >= pce_editor_sprite_asset_count) continue;
+        sprite_index = (uint8_t)slot->sprite_index;
+        sprite = &pce_editor_sprite_assets[sprite_index];
+        draw_meta = &pce_editor_sprite_draw_meta[sprite_index];
+        sprite_draw_meta.cell_width = draw_meta->cell_width;
+        sprite_draw_meta.cell_height = draw_meta->cell_height;
+        sprite_draw_meta.cell_columns = draw_meta->cell_columns;
+        sprite_draw_meta.cell_rows = draw_meta->cell_rows;
+        sprite_draw_meta.pattern_base = draw_meta->pattern_base;
+        sprite_draw_meta.palette_bank = draw_meta->palette_bank;
         map_vn_data();
         if (slot->animation_index >= 0 && (uint8_t)slot->animation_index < pce_vn_sprite_animation_count)
         {
-            animation_value = pce_vn_sprite_animations[(uint8_t)slot->animation_index];
-            animation = &animation_value;
+            const pce_vn_sprite_anim_t *source_animation = &pce_vn_sprite_animations[(uint8_t)slot->animation_index];
+            animation_value.sprite_index = source_animation->sprite_index;
+            animation_value.first_cell = source_animation->first_cell;
+            animation_value.frame_count = source_animation->frame_count;
+            animation_value.frame_delay = source_animation->frame_delay;
+            animation_value.frame_width_cells = source_animation->frame_width_cells;
+            animation_value.frame_height_cells = source_animation->frame_height_cells;
+            animation_value.frame_stride_cells = source_animation->frame_stride_cells;
+            animation_value.loop = source_animation->loop;
+            if (animation_value.sprite_index == sprite_index)
+            {
+                animation = &animation_value;
+            }
         }
-        (void)ensure_sprite_patterns_loaded((uint8_t)slot->sprite_index, &pce_editor_sprite_assets[(uint8_t)slot->sprite_index]);
+        upload_palette(&sprite->palette, (uint16_t)(256u + (sprite_draw_meta.palette_bank * 16u)), 1);
+        (void)ensure_sprite_patterns_loaded(sprite_index, sprite);
         satb_index = (uint8_t)(satb_index + show_character_sprite_frame(
             satb_index,
-            (uint8_t)slot->sprite_index,
-            &pce_editor_sprite_assets[(uint8_t)slot->sprite_index],
+            sprite_index,
+            sprite,
             animation,
             slot->frame,
             (int16_t)((int16_t)slot->x + screen_shake_x),
@@ -802,17 +938,12 @@ static void VN_SPRITE_BANKED_CODE refresh_scene_sprites_banked(void)
         ));
     }
     upload_sprite_table();
-    if (display_active && requires_pattern_upload)
+    if (display_active)
     {
         sprite_layer_enable();
-        delay_frame();
+        if (requires_pattern_upload) delay_frame();
     }
     pending_sprite_refresh = 0;
-}
-
-static void refresh_scene_sprites(void)
-{
-    refresh_scene_sprites_banked();
 }
 
 static void tick_sprite_animations(void)
@@ -1306,7 +1437,7 @@ static uint8_t execute_command(const pce_vn_command_t *command)
     return VN_EXEC_CONTINUE;
 }
 
-static uint8_t run_commands_until_wait(void)
+static uint8_t VN_BANKED_CODE run_commands_until_wait(void)
 {
     active_message_index = -1;
     message_complete = 1u;
@@ -1358,9 +1489,11 @@ static void advance_story(void)
 static void init_video(void)
 {
 #if defined(__PCE_CD__)
+    pce_ram_bank129_map();
     pce_cdb_irq_enable((uint8_t)(PCE_CDB_MASK_IRQ_EXTERNAL | PCE_CDB_MASK_VBLANK));
     (void)pce_cdb_vdc_set_resolution(PCE_CDB_VDC_CLOCK_7MHZ, 40u, 28u);
     pce_cdb_vdc_bg_set_size(PCE_CDB_VDC_BG_SIZE_64_32);
+    pce_vdc_poke(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL);
     pce_cdb_vdc_set_copy(PCE_CDB_VDC_COPY_1);
     pce_cdb_vdc_bg_sprite_disable();
     pce_cdb_vdc_sprite_table_set_vram_addr(VN_SATB_ADDR);
@@ -1368,6 +1501,7 @@ static void init_video(void)
 #elif defined(__PCE__)
     pce_vdc_set_resolution(320, 224, VCE_COLORBURST_ON);
     pce_vdc_bg_set_size(VDC_BG_SIZE_64_32);
+    pce_vdc_poke(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL);
     pce_vdc_set_copy_word();
     pce_vdc_bg_enable();
     pce_vdc_sprite_enable();

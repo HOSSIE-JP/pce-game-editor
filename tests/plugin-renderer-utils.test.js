@@ -50,6 +50,22 @@ test('audio-converter declares renderer-invokable main hook capability', () => {
   assert.doesNotMatch(rendererSource, /pluginId:\s*['"]audio-converter['"]/);
 });
 
+test('pce-audio-converter exposes the shared audio convert modal capability', () => {
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'plugins', 'pce-audio-converter', 'manifest.json'),
+    'utf-8',
+  ));
+  const rendererSource = fs.readFileSync(
+    path.join(__dirname, '..', 'plugins', 'pce-audio-converter', 'renderer.js'),
+    'utf-8',
+  );
+
+  assert.ok(manifest.renderer.capabilities.includes('audio-convert-ui'));
+  assert.ok(manifest.renderer.capabilities.includes('pce-audio-converter'));
+  assert.match(rendererSource, /openAudioConvertModal:\s*api\.openAudioConvertModal/);
+  assert.match(rendererSource, /endsWith\('\.mp3'\)/);
+});
+
 test('asset-manager declares v2.5 asset provider capabilities', () => {
   const manifest = JSON.parse(fs.readFileSync(
     path.join(__dirname, '..', 'plugins', 'asset-manager', 'manifest.json'),

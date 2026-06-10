@@ -129,6 +129,18 @@ const OKI_STEP_TABLE = Object.freeze([
 ]);
 
 const OKI_INDEX_SHIFT = Object.freeze([-1, -1, -1, -1, 2, 4, 6, 8]);
+const PCE_ADPCM_BASE_SAMPLE_RATE = 32000;
+
+function sampleRateToAdpcmDivider(sampleRate = 16000) {
+  const rate = Math.max(1, Number(sampleRate) || 16000);
+  const divider = Math.round((PCE_ADPCM_BASE_SAMPLE_RATE / rate) - 1);
+  return Math.max(0, Math.min(255, divider));
+}
+
+function adpcmDividerToSampleRate(divider = 0) {
+  const value = Math.max(0, Math.min(255, Math.trunc(Number(divider) || 0)));
+  return Math.round(PCE_ADPCM_BASE_SAMPLE_RATE / (value + 1));
+}
 
 function decodeOkiNibble(state, nibble) {
   const step = OKI_STEP_TABLE[state.index];
@@ -141,10 +153,17 @@ function decodeOkiNibble(state, nibble) {
   return { signal, index };
 }
 
-function encodeOkiAdpcm(rendered) {
+function encodeOkiAdpcm(rendered, startFrame = 0, frameCount = null) {
+  const firstFrame = Math.max(0, Math.min(rendered.frameCount || 0, Math.trunc(Number(startFrame) || 0)));
+  const frames = Math.max(0, Math.min(
+    (rendered.frameCount || 0) - firstFrame,
+    frameCount == null ? (rendered.frameCount || 0) - firstFrame : Math.trunc(Number(frameCount) || 0)
+  ));
   const samples = [];
-  for (let i = 0; i + 1 < rendered.pcm.length; i += 2) {
-    samples.push(Math.max(-2048, Math.min(2047, rendered.pcm.readInt16LE(i) >> 4)));
+  const channels = Math.max(1, Number(rendered.channels) || 1);
+  for (let frame = 0; frame < frames; frame += 1) {
+    const offset = ((firstFrame + frame) * channels) * 2;
+    samples.push(Math.max(-2048, Math.min(2047, rendered.pcm.readInt16LE(offset) >> 4)));
   }
   const out = Buffer.alloc(Math.ceil(samples.length / 2));
   let state = { signal: 0, index: 0 };
@@ -192,6 +211,28 @@ function waveformPeaks(wav, bucketCount = 64) {
   return peaks;
 }
 
+function waveformPeaksFromRendered(rendered, startFrame = 0, frameCount = null, bucketCount = 64) {
+  const buckets = Math.max(8, Math.min(256, Number(bucketCount) || 64));
+  const firstFrame = Math.max(0, Math.min(rendered.frameCount || 0, Math.trunc(Number(startFrame) || 0)));
+  const frames = Math.max(1, Math.min(
+    (rendered.frameCount || 0) - firstFrame,
+    frameCount == null ? (rendered.frameCount || 0) - firstFrame : Math.trunc(Number(frameCount) || 0)
+  ));
+  const channels = Math.max(1, Number(rendered.channels) || 1);
+  const peaks = [];
+  for (let bucket = 0; bucket < buckets; bucket += 1) {
+    const start = firstFrame + Math.floor((bucket / buckets) * frames);
+    const end = Math.max(start + 1, firstFrame + Math.floor(((bucket + 1) / buckets) * frames));
+    let peak = 0;
+    for (let frame = start; frame < Math.min(firstFrame + frames, end); frame += 1) {
+      const offset = (frame * channels) * 2;
+      peak = Math.max(peak, Math.abs(rendered.pcm.readInt16LE(offset)));
+    }
+    peaks.push(Math.round((peak / 32768) * 1000) / 1000);
+  }
+  return peaks;
+}
+
 function convertWavForCdda(buffer) {
   const wav = parseWav(buffer);
   const rendered = renderPcm16(wav, { sampleRate: 44100, channels: 2 });
@@ -224,11 +265,48 @@ function convertWavForAdpcm(buffer, options = {}) {
   };
 }
 
+function convertWavForAdpcmParts(buffer, options = {}) {
+  const wav = parseWav(buffer);
+  const sampleRate = Math.max(4000, Math.min(32000, Number(options.sampleRate) || 16000));
+  const maxBytes = Math.max(1, Math.min(65535, Math.trunc(Number(options.maxBytes) || 65535)));
+  const rendered = renderPcm16(wav, { sampleRate, channels: 1 });
+  const maxFrames = Math.max(1, maxBytes * 2);
+  const parts = [];
+  for (let startFrame = 0; startFrame < rendered.frameCount; startFrame += maxFrames) {
+    const frameCount = Math.min(maxFrames, rendered.frameCount - startFrame);
+    const output = encodeOkiAdpcm(rendered, startFrame, frameCount);
+    parts.push({
+      output,
+      sampleRate: rendered.sampleRate,
+      channels: 1,
+      frameCount,
+      durationSeconds: frameCount / rendered.sampleRate,
+      waveform: waveformPeaksFromRendered(rendered, startFrame, frameCount),
+    });
+  }
+  return {
+    wav,
+    sampleRate: rendered.sampleRate,
+    channels: 1,
+    frameCount: rendered.frameCount,
+    durationSeconds: rendered.frameCount / rendered.sampleRate,
+    warnings: makeWarnings(wav, rendered, 'ADPCM'),
+    waveform: waveformPeaks(wav),
+    maxBytes,
+    parts,
+  };
+}
+
 module.exports = {
+  PCE_ADPCM_BASE_SAMPLE_RATE,
+  adpcmDividerToSampleRate,
   convertWavForAdpcm,
+  convertWavForAdpcmParts,
   convertWavForCdda,
   parseWav,
   renderPcm16,
+  sampleRateToAdpcmDivider,
   waveformPeaks,
+  waveformPeaksFromRendered,
   writeWavPcm16,
 };

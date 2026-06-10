@@ -604,6 +604,14 @@
             <input type="number" class="form-input form-input-mono" id="audioConvertVolumeDbInput" step="0.1" placeholder="0.0" />
           </div>
           <div class="form-group">
+            <label class="form-label">フェードイン（秒）</label>
+            <input type="number" class="form-input form-input-mono" id="audioConvertFadeInInput" min="0" step="0.01" placeholder="0.00" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">フェードアウト（秒）</label>
+            <input type="number" class="form-input form-input-mono" id="audioConvertFadeOutInput" min="0" step="0.01" placeholder="0.00" />
+          </div>
+          <div class="form-group">
             <label class="form-label">モノラル変換</label>
             <select class="form-input form-input-mono" id="audioConvertMonoInput">
               <option value="FALSE">FALSE</option>

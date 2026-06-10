@@ -692,6 +692,26 @@ const audio = await window.electronAPI.importAssetAudio({
   loop: false,
 });
 
+// WAV / MP3 を renderer の共通音声コンバーターで加工してから登録する場合
+const processedVoice = await audioConvertUi.openAudioConvertModal({
+  mode: 'pce-asset',
+  returnResult: true,
+  kind: 'adpcm',
+  picked: { sourcePath: '/absolute/path/source.mp3', fileName: 'source.mp3', ext: '.mp3' },
+  targetFileName: 'voice_01.wav',
+  defaults: { sampleRate: 16000, mono: true },
+});
+const importedVoice = await window.electronAPI.importAssetAudio({
+  dataUrl: processedVoice.dataUrl,
+  sourceFileName: 'voice_01.wav',
+  originalFileName: processedVoice.originalFileName,
+  processing: processedVoice.processing,
+  splitPolicy: 'auto',
+  kind: 'adpcm',
+  id: 'voice_01',
+  sampleRate: processedVoice.processing.sampleRate,
+});
+
 // project root 内の asset source だけを Data URL 化する
 const preview = await window.electronAPI.previewAssetSource('assets/images/title_bg.png');
 
@@ -699,13 +719,23 @@ const preview = await window.electronAPI.previewAssetSource('assets/images/title
 await window.electronAPI.reorderAssets(['title_bg', 'hero_sprite']);
 ```
 
-`previewAssetSource` と `reorderAssets` は絶対パス、`..`、symlink escape を拒否します。`importAssetImage` / `importAssetAudio` の `sourcePath` は読み取り元として dialog 由来の絶対パスを許可しますが、保存される `source` / generated file path は必ず project 相対です。BMP は renderer 側で PNG Data URL (`convertedDataUrl`) に変換してから import します。
+`previewAssetSource` と `reorderAssets` は絶対パス、`..`、symlink escape を拒否します。`importAssetImage` / `importAssetAudio` の `sourcePath` は読み取り元として dialog 由来の絶対パスを許可しますが、保存される `source` / generated file path は必ず project 相対です。BMP は renderer 側で PNG Data URL (`convertedDataUrl`) に変換してから import します。MP3 入力は renderer の `audio-convert-ui` で WAV Data URL へ加工してから `importAssetAudio({ dataUrl, sourceFileName, originalFileName, processing })` に渡します。
+
+ADPCM で `splitPolicy: "auto"` を指定すると、変換後の ADPCM が runtime 側の 16-bit size/address 制約を超える場合に `<id>_part01`, `<id>_part02`, ... の独立 asset として分割登録します。上限は `min(65535, 65536 - adpcmAddress)` bytes です。分割 asset は自動連続再生されないため、scene/message から必要な part を個別に参照してください。
+
+ADPCM の `divider` は再生速度です。取り込み時は `sampleRate` から `round(32000 / sampleRate - 1)` で自動計算し、旧 default の `divider: 0` は 32000Hz 相当なので 16000Hz 音声では使い回さないでください。runtime も古い asset の `divider: 0` を `sampleRate` から補完します。1 asset の長さは `min(65535, 65536 - adpcmAddress)` bytes、つまり `bytes * 2 / sampleRate` 秒が目安です。`adpcmAddress: 0` なら 16000Hz で約 8.19 秒、8000Hz で約 16.38 秒です。
 
 `assets/pce-assets.json` の v2 画像/音声タイプは `image` (BG), `sprite`, `palette`, `psg-song`, `psg-sfx`, `adpcm`, `cdda-track` です。旧 `psg-sequence` は読み込み時に `psg-sfx` として正規化されます。PCE/CD-ROM2 は `llvm-mos-sdk` 固定で扱い、IPL / System Card は Setup でユーザー所有ファイルを指定します。
 
-`targetMedia: "cd"` の PCE VN build では、generated image の tile data、VRAM 幅へ展開した BG map、sprite pattern、ADPCM 本体を RAM bank へ詰め込まず、project 相対パスのまま `cd.dataFiles` へ登録します。VN build は scene command から必要 asset を解決し、scene pack 順を優先して `cd.dataFiles` を並べます。build は IPL program の後ろへ padding file を挟み、最初の visual/audio data file が固定の CD sector 64 から始まるように配置します。runtime は起動時と scene 切替時に黒画面/fade-out/blank 中の `preload_scene_assets()` で背景 tiles/map、sprite pattern、ADPCM を固定領域へ詰め替え、表示 command 側では preload/cache hit なら CD 読み込みを繰り返しません。RAM bank 129-132 はフォント/文字列など、実行時に CPU から直接参照する小さな生成データ用に限定してください。
+`targetMedia: "cd"` の PCE VN build では、generated image の tile data、VRAM 幅へ展開した BG map、sprite pattern、ADPCM 本体を RAM bank へ詰め込まず、project 相対パスのまま `cd.dataFiles` へ登録します。VN build は scene command から必要 asset を解決し、scene pack 順を優先して `cd.dataFiles` を並べます。build は IPL program の後ろへ padding file を挟み、最初の visual/audio data file が固定の CD sector 64 から始まるように配置します。runtime は起動時と scene 切替時に黒画面/fade-out/blank 中の `preload_scene_assets()` で背景 tiles/map、sprite pattern、ADPCM を固定領域へ詰め替え、表示 command 側では preload/cache hit なら CD 読み込みを繰り返しません。
+
+CD-ROM2 RAM bank の標準ルールは `docs/pce-memory-bank-strategy.md` にまとめています。要点は、bank129 を VN runtime の `VN_BANKED_CODE`、bank132 を font/command/message/scene などの VN generated data、bank130-131 を例外的な小さい CPU-readable fallback data に分けることです。画像/sprite/ADPCM の大きい payload は CD data file のまま扱い、bank129 / bank132 へ asset data を混ぜないでください。
 
 PCE background conversion は、入力画像の各 8x8 cell を表示順の tile としてそのまま出力します。同一内容の tile を dedupe しないため、VN の背景切替では絵が過度に共通タイル化されず、CD 上の `tiles.bin` は `width / 8 * height / 8 * 32` bytes を基準に扱われます。sprite pattern VRAM を別 asset へ差し替える場合は、runtime が sprite layer を一度無効化して空 SATB を反映し、その後に pattern を読み直してから SATB と sprite layer を戻します。同一 sprite sheet 内の目パチ・口パク frame 変更では pattern を再転送せず、SATB の frame 参照だけを更新します。
+
+VN sprite runtime は generated `pce_editor_sprite_draw_meta[]` の cell size、sheet cell 数、pattern base、palette bank を小さい常駐 metadata として読みます。animation metadata は `frame_count > 1` かつ sheet 範囲内のときだけ 1 frame の表示サイズとして使い、単一 frame/default animation は sprite sheet 全体表示に戻します。VDC memory control は `VN_VDC_MEMORY_CONTROL` (`VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_64_32`) を使い、BG size 更新時に sprite cycle bit を落とさないでください。
+
+CD-ROM2 VN runtime では `map_vram.bin` を `mapBase` から一括転送しません。`map_vram.bin` は64タイル幅のソース行として読み、各行の `width_tiles` 分だけを `mapBase + row * 64` へコピーします。これにより、288px背景を320px画面へ配置したときの左右余白は `clear_screen_map()` のblank tileのまま残り、CD上の0埋めpaddingや古いVRAM tileが縦枠として表示されません。
 
 Sprite asset は `options.animations` で VN runtime 向けの差分アニメーションを定義できます。各 entry は `id`, `name`, `frameWidth`, `frameHeight`, `firstCell`, `frameCount`, `frameDelay`, `frameStrideCells`, `loop` を持ちます。未指定時は sprite sheet 全体を 1 frame とする `default` animation が生成時に補われます。`firstCell` と `frameStrideCells` は、PCE 16x16/16x32/32x32 などの sprite cell を左上から数えた index です。
 
@@ -853,9 +883,10 @@ window.electronAPI.onPluginLog((payload) => {
 | タイプ | `editor`, `asset` |
 | 対応 core | `pc-engine` |
 | バージョン | 0.2.0 |
+| 依存 | `image-resize-converter`, `image-quantize-converter`, `pce-audio-converter` |
 | renderer capability | `page`, `asset-manager`, `asset-type-provider`, `asset-import-handler`, `audio-import-handler` |
 
-`assets/pce-assets.json` v2 を編集する PC Engine 用の標準アセット管理です。BG image / Sprite sheet / Palette / PSG song/SFX / ADPCM / CD-DA track を扱い、PNG/BMP は `image-resize-converter` でリサイズ/クリッピングし、`image-quantize-converter` で 16 色へ減色した後、内蔵 PCE 変換で BG tile / BAT map / Sprite pattern 形式の generated asset を作成します。
+`assets/pce-assets.json` v2 を編集する PC Engine 用の標準アセット管理です。BG image / Sprite sheet / Palette / PSG song/SFX / ADPCM / CD-DA track を扱い、PNG/BMP は `image-resize-converter` でリサイズ/クリッピングし、`image-quantize-converter` で 16 色へ減色した後、内蔵 PCE 変換で BG tile / BAT map / Sprite pattern 形式の generated asset を作成します。WAV/MP3 は `pce-audio-converter` の共通音声 UI で trim、正規化、volume、fade、sample rate、mono/stereo を加工してから ADPCM / CD-DA へ登録します。
 
 ---
 
@@ -893,7 +924,7 @@ PCE アセット管理と同じ `pce-assets.json` を、スプライト・パレ
 | 対応 core | `pc-engine` |
 | renderer capability | `pce-image-converter`, `pce-audio-converter`, `image-import-pipeline`, `audio-convert-ui` |
 
-PCE 用の画像/音声 import を capability として提供します。画像 import pipeline は `convertToIndexed16({ sourcePath, targetSize })` を公開し、PCE アセット管理と同じリサイズ/クリッピング -> 16 色減色フローを使います。実変換は PCE asset API と project-local generated files に集約し、外部コードをアプリ本体へコピーしません。
+PCE 用の画像/音声 import を capability として提供します。画像 import pipeline は `convertToIndexed16({ sourcePath, targetSize })` を公開し、PCE アセット管理と同じリサイズ/クリッピング -> 16 色減色フローを使います。音声は `audio-convert-ui.openAudioConvertModal()` を公開し、WAV/MP3 を Web Audio で読み込み、波形表示、preview、seek、trim、volume、normalize、fade、sample rate、mono/stereo 変換を行った WAV Data URL を返します。実変換は PCE asset API と project-local generated files に集約し、外部コードをアプリ本体へコピーしません。
 
 ---
 

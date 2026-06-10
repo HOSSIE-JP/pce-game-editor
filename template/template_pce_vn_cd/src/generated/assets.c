@@ -86,7 +86,7 @@ const pce_editor_psg_asset_t pce_editor_psg_assets[] = {
 const unsigned char pce_editor_psg_asset_count = 1;
 
 const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] = {
-  { "akari_voice", (const unsigned char *)0, 2400u, 16000u, 0u, 0u, 0u, &pce_editor_adpcm_akari_voice_data_cd }
+  { "akari_voice", (const unsigned char *)0, 2400u, 16000u, 0u, 1u, 0u, &pce_editor_adpcm_akari_voice_data_cd }
 };
 const unsigned char pce_editor_adpcm_asset_count = 1;
 

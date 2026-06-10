@@ -6,6 +6,7 @@
 
 - PCE プラグイン、アセット、ビルド、Test Play を変更する前に `PLUGIN.md` を読んでください。
 - Test Play や実機/エミュレーター表示崩れを調査する前に `docs/pce-testplay-debugging.md` を読んでください。
+- CD-ROM2 / VN runtime のメモリバンク配置を変更する前に `docs/pce-memory-bank-strategy.md` を読んでください。
 - 公開 API、プラグイン manifest、IPC、ビルド仕様を変更する場合は、同じ作業内で `PLUGIN.md` または `docs/` 配下の関連ファイルを更新してください。
 - 外部リポジトリからコードをコピーしないでください。外部情報は挙動理解だけに使い、実装は独自に行ってください。
 
@@ -16,6 +17,12 @@
 - PCE 固有のプロジェクト移行処理は `pce-project-migration.js` に置き、共通ライブラリへ戻さないでください。
 - 画像アセットは内蔵 PCE 変換を使い、Superfamiconv には依存しません。
 - CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を前提に扱います。IPL / System Card はユーザー所有ファイルとして扱い、リポジトリへ同梱しません。
+- CD-ROM2 の大きい画像/sprite/ADPCM payload は `cd.dataFiles` に置き、RAM bank には詰め込まないでください。VN runtime は bank129 を実行コード、bank132 を VN generated data、bank130-131 を例外的な小さい fallback data として扱います。
+- ADPCM の `divider` は音量ではなく再生速度です。`sampleRate` から `round(32000 / sampleRate - 1)` で補完し、旧 default の `divider: 0` を 16000Hz などへそのまま使わないでください。
+- ADPCM preload は ADPCM RAM への先読みだけです。`loaded_adpcm_valid` が立っていても、実際の再生時には必ず `pce_cdb_adpcm_play()` を呼んでください。
+- ADPCM 1 asset の安全上限は `min(65535, 65536 - adpcmAddress)` bytes です。4-bit ADPCM なので再生時間は概算で `bytes * 2 / sampleRate` 秒です。
+- VN sprite 表示では generated `pce_editor_sprite_draw_meta[]` の compact metadata を使い、単一 frame/default animation は sheet 全体表示として扱います。VDC memory control は `VN_VDC_MEMORY_CONTROL` を使い、sprite cycle bit を落とさないでください。
+- CD-ROM2 VN の BG `map_vram.bin` は64タイル幅の「ソース行」として扱い、`mapBase` から一括転送しないでください。`width_tiles` 分だけを行単位でBATへ転送し、左右/上下余白は `clear_screen_map()` のblank tileを残します。
 - PCE の描画崩れ、VRAM/SATB/VDC レジスタ調査、Test Play の実画面デバッグでは、利用可能なら Geargrafx MCP を優先して使ってください。
 - Electron renderer、preload、main process の責務を分離してください。
 - ファイルシステム IPC はプロジェクトルート内に限定し、パストラバーサルを拒否してください。
