@@ -1,5 +1,5 @@
 /* =========================================================
-   MD Game Editor - Dark IDE Theme
+   PCE Game Editor - Dark IDE Theme
    ========================================================= */
 :root {
   color-scheme: dark;
@@ -2553,6 +2553,7 @@ button.project-path-chip {
   color: #8aa0bb;
   margin: 0;
 }
+.plugin-card-deps-warning { color: var(--yellow); }
 
 .plugin-builder-badge {
   font-size: 11px;

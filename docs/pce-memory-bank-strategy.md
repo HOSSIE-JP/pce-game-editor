@@ -16,7 +16,7 @@
 | 129 | 3 | VN runtime の banked code | `PCE_RAM_BANK_AT(129, 3)` と `VN_BANKED_CODE` で command interpreter / sprite refresh を置く。asset data を置かない |
 | 130 | 4 | CD fallback の小さい CPU-readable data | 例外的な fallback 用。通常の画像・sprite・ADPCM payload には使わない |
 | 131 | 5 | CD fallback の小さい CPU-readable data | bank130 と同じ。将来の一時 data 用に空きを保つ |
-| 132 | 6 | VN generated data | `PCE_VN_DATA_SECTION` / `PCE_VN_FONT_SECTION`。font tiles、message/choice/command/scene tables を置く |
+| 132 | 6 | VN generated data | `PCE_VN_DATA_SECTION` / `PCE_VN_FONT_SECTION`。font tiles、message/choice/switch/command/scene tables と variable 初期値を置く |
 
 ## 実装ルール
 

@@ -46,6 +46,22 @@ test('PCE plugin tree contains PCE-only and shared plugins only', () => {
   assert.equal(hasPluginManifest('standard-emulator'), false);
 });
 
+test('PCE renderer avoids Mega Drive code-editor defaults', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'renderer.js'), 'utf-8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'style.css'), 'utf-8');
+
+  assert.match(renderer, /PCE Game Editor - renderer\.js/);
+  assert.match(css, /PCE Game Editor - Dark IDE Theme/);
+  assert.match(renderer, /Hello World - PCE Game Editor サンプル/);
+  assert.match(renderer, /pce_vdc_set_resolution/);
+  assert.match(renderer, /PCE_CODE_SYMBOLS/);
+  assert.match(renderer, /getActiveCoreId\(\) === 'pc-engine'[\s\S]*PCE_CODE_COMPLETION_ITEMS/);
+  assert.doesNotMatch(renderer, /HELLO, MEGA WORLD/);
+  assert.doesNotMatch(renderer, /VDP_drawText/);
+  assert.doesNotMatch(renderer, /SYS_doVBlankProcess/);
+  assert.doesNotMatch(renderer, /SGDK を使った最小限/);
+});
+
 test('PCE core manager exposes only PC Engine and creates PCE projects', async () => {
   const userData = makeTempDir('pce-editor-core-state-');
   const coreManager = loadCoreManager(userData);

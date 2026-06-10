@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const zlib = require('node:zlib');
+const audioConverter = require('../pce-audio-converter');
 const { loadWithMockedElectron } = require('./helpers/mock-electron');
 
 function makeTempDir(prefix) {
@@ -175,6 +176,57 @@ function makeWavDataUrl(sampleRate = 8000, frames = 32) {
   return `data:audio/wav;base64,${makeWavBuffer(sampleRate, frames).toString('base64')}`;
 }
 
+const OKI_STEP_TABLE = [
+  16, 17, 19, 21, 23, 25, 28, 31,
+  34, 37, 41, 45, 50, 55, 60, 66,
+  73, 80, 88, 97, 107, 118, 130, 143,
+  157, 173, 190, 209, 230, 253, 279, 307,
+  337, 371, 408, 449, 494, 544, 598, 658,
+  724, 796, 876, 963, 1060, 1166, 1282, 1411,
+  1552,
+];
+const OKI_INDEX_SHIFT = [-1, -1, -1, -1, 2, 4, 6, 8];
+
+function decodeOkiSample(state, nibble) {
+  const step = OKI_STEP_TABLE[state.index];
+  let delta = step >> 3;
+  if (nibble & 1) delta += step >> 2;
+  if (nibble & 2) delta += step >> 1;
+  if (nibble & 4) delta += step;
+  state.signal = Math.max(-2048, Math.min(2047, state.signal + ((nibble & 8) ? -delta : delta)));
+  state.index = Math.max(0, Math.min(OKI_STEP_TABLE.length - 1, state.index + OKI_INDEX_SHIFT[nibble & 7]));
+  return state.signal << 4;
+}
+
+function decodeOkiAdpcm(buffer, highNibbleFirst = true) {
+  const state = { signal: 0, index: 0 };
+  const samples = [];
+  for (const byte of buffer) {
+    if (highNibbleFirst) {
+      samples.push(decodeOkiSample(state, byte >> 4));
+      samples.push(decodeOkiSample(state, byte & 0x0f));
+    } else {
+      samples.push(decodeOkiSample(state, byte & 0x0f));
+      samples.push(decodeOkiSample(state, byte >> 4));
+    }
+  }
+  return samples;
+}
+
+function pcmErrorScore(pcm, samples) {
+  const count = Math.min(samples.length, Math.floor(pcm.length / 2));
+  let squaredError = 0;
+  for (let index = 0; index < count; index += 1) {
+    const error = pcm.readInt16LE(index * 2) - samples[index];
+    squaredError += error * error;
+  }
+  return Math.sqrt(squaredError / Math.max(1, count));
+}
+
+function swapNibbles(buffer) {
+  return Buffer.from(buffer.map((byte) => ((byte & 0x0f) << 4) | (byte >> 4)));
+}
+
 function writeFile(projectDir, relativePath, bytes) {
   const absPath = path.join(projectDir, relativePath);
   fs.mkdirSync(path.dirname(absPath), { recursive: true });
@@ -257,7 +309,14 @@ test('PCE audio import converts WAV into ADPCM and CD-DA assets', () => {
   assert.equal(adpcm.asset.options.sampleRate, 12000);
   assert.equal(adpcm.asset.options.divider, 2);
   assert.match(adpcm.asset.data.generated.outputFile, /adpcm\.bin$/);
+  assert.equal(adpcm.asset.data.generated.codec, 'oki-msm5205');
+  assert.equal(adpcm.asset.data.generated.nibbleOrder, 'msn-first');
+  const adpcmBytes = fs.readFileSync(path.join(projectDir, adpcm.asset.data.generated.outputFile));
+  const renderedPcm = audioConverter.renderPcm16(audioConverter.parseWav(fs.readFileSync(source)), { sampleRate: 12000, channels: 1 }).pcm;
+  const highNibbleError = pcmErrorScore(renderedPcm, decodeOkiAdpcm(adpcmBytes, true));
+  const lowNibbleError = pcmErrorScore(renderedPcm, decodeOkiAdpcm(adpcmBytes, false));
   assert.equal(fs.existsSync(path.join(projectDir, adpcm.asset.data.generated.outputFile)), true);
+  assert.ok(highNibbleError < lowNibbleError / 4);
   assert.equal(cdda.asset.type, 'cdda-track');
   assert.equal(cdda.asset.options.track, 4);
   assert.match(cdda.asset.data.generated.outputFile, /cdda\.wav$/);
@@ -291,6 +350,38 @@ test('PCE audio import accepts processed WAV data URLs and keeps MP3 provenance'
   assert.equal(fs.existsSync(path.join(projectDir, adpcm.asset.source)), true);
   assert.equal(cdda.asset.type, 'cdda-track');
   assert.equal(cdda.asset.options.track, 5);
+});
+
+test('PCE generated sources refresh legacy ADPCM nibble order before build', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-adpcm-refresh-');
+  const source = path.join(makeTempDir('pce-assets-adpcm-refresh-source-'), 'voice.wav');
+  fs.writeFileSync(source, makeWavBuffer(8000, 64));
+
+  const imported = assetManager.importAudio(projectDir, {
+    sourcePath: source,
+    sourceFileName: 'voice.wav',
+    kind: 'adpcm',
+    id: 'voice',
+    sampleRate: 8000,
+  });
+  const outputPath = path.join(projectDir, imported.asset.data.generated.outputFile);
+  const expected = fs.readFileSync(outputPath);
+  fs.writeFileSync(outputPath, swapNibbles(expected));
+
+  const assetPath = path.join(projectDir, 'assets', 'pce-assets.json');
+  const doc = JSON.parse(fs.readFileSync(assetPath, 'utf-8'));
+  delete doc.assets[0].data.generated.codec;
+  delete doc.assets[0].data.generated.nibbleOrder;
+  fs.writeFileSync(assetPath, JSON.stringify(doc, null, 2), 'utf-8');
+
+  assetManager.generateAssetSources(projectDir);
+
+  const refreshed = fs.readFileSync(outputPath);
+  const refreshedDoc = JSON.parse(fs.readFileSync(assetPath, 'utf-8'));
+  assert.deepEqual(refreshed, expected);
+  assert.equal(refreshedDoc.assets[0].data.generated.codec, 'oki-msm5205');
+  assert.equal(refreshedDoc.assets[0].data.generated.nibbleOrder, 'msn-first');
 });
 
 test('PCE ADPCM import auto-splits assets that exceed runtime-safe size', () => {

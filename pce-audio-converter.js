@@ -130,6 +130,8 @@ const OKI_STEP_TABLE = Object.freeze([
 
 const OKI_INDEX_SHIFT = Object.freeze([-1, -1, -1, -1, 2, 4, 6, 8]);
 const PCE_ADPCM_BASE_SAMPLE_RATE = 32000;
+const PCE_ADPCM_CODEC = 'oki-msm5205';
+const PCE_ADPCM_NIBBLE_ORDER = 'msn-first';
 
 function sampleRateToAdpcmDivider(sampleRate = 16000) {
   const rate = Math.max(1, Number(sampleRate) || 16000);
@@ -182,8 +184,8 @@ function encodeOkiAdpcm(rendered, startFrame = 0, frameCount = null) {
     }
     state = bestState;
     const byteIndex = Math.floor(index / 2);
-    if (index % 2 === 0) out[byteIndex] = bestNibble & 0x0f;
-    else out[byteIndex] |= (bestNibble & 0x0f) << 4;
+    if (index % 2 === 0) out[byteIndex] = (bestNibble & 0x0f) << 4;
+    else out[byteIndex] |= bestNibble & 0x0f;
   });
   return out;
 }
@@ -256,6 +258,8 @@ function convertWavForAdpcm(buffer, options = {}) {
   return {
     wav,
     output,
+    codec: PCE_ADPCM_CODEC,
+    nibbleOrder: PCE_ADPCM_NIBBLE_ORDER,
     sampleRate: rendered.sampleRate,
     channels: 1,
     frameCount: rendered.frameCount,
@@ -277,6 +281,8 @@ function convertWavForAdpcmParts(buffer, options = {}) {
     const output = encodeOkiAdpcm(rendered, startFrame, frameCount);
     parts.push({
       output,
+      codec: PCE_ADPCM_CODEC,
+      nibbleOrder: PCE_ADPCM_NIBBLE_ORDER,
       sampleRate: rendered.sampleRate,
       channels: 1,
       frameCount,
@@ -299,6 +305,8 @@ function convertWavForAdpcmParts(buffer, options = {}) {
 
 module.exports = {
   PCE_ADPCM_BASE_SAMPLE_RATE,
+  PCE_ADPCM_CODEC,
+  PCE_ADPCM_NIBBLE_ORDER,
   adpcmDividerToSampleRate,
   convertWavForAdpcm,
   convertWavForAdpcmParts,

@@ -14,7 +14,12 @@ const COMMAND_DEFINITIONS = [
   { type: 'background', label: 'BG', category: '表示', description: '背景画像と切替' },
   { type: 'sprite', label: 'Sprite', category: '表示', description: '立ち絵の表示/非表示' },
   { type: 'message', label: 'Message', category: 'テキスト', description: '話者、本文、送り設定' },
-  { type: 'choice', label: 'Choice', category: '分岐', description: '選択肢でシーン分岐' },
+  { type: 'variable', label: 'Variable', category: '変数', description: '定義、代入、加算、減算、ランダム' },
+  { type: 'choice', label: 'Choice', category: '分岐', description: '選択肢と変数への値設定' },
+  { type: 'if', label: 'IF', category: '分岐', description: '変数条件でラベルへ分岐' },
+  { type: 'switch', label: 'Switch', category: '分岐', description: '変数値で複数ラベルへ分岐' },
+  { type: 'label', label: 'Label', category: '分岐', description: 'GOTO/分岐の移動先' },
+  { type: 'goto', label: 'GOTO', category: '分岐', description: '指定ラベルへ移動' },
   { type: 'jump', label: 'Jump', category: '分岐', description: '別シーンへ移動' },
   { type: 'preload', label: 'Preload', category: '分岐', description: '次シーンを先読み' },
   { type: 'wait', label: 'Wait', category: '制御', description: '指定フレーム待機' },
@@ -45,6 +50,37 @@ function clamp(value, min, max, fallback = min) {
 function safeId(value, fallback) {
   const id = String(value || '').trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
   return id || fallback;
+}
+
+function signedValue(value, fallback = 0) {
+  return clamp(value, -32768, 32767, fallback);
+}
+
+function variableName(value, fallback = 'var_1') {
+  return safeId(value, fallback).slice(0, 32);
+}
+
+function labelName(value, fallback = '') {
+  return safeId(value, fallback).slice(0, 32);
+}
+
+function normalizeVariableOperation(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'define' || raw === 'def') return 'define';
+  if (raw === 'add' || raw === 'inc' || raw === '+') return 'add';
+  if (raw === 'sub' || raw === 'subtract' || raw === 'dec' || raw === '-') return 'sub';
+  if (raw === 'random' || raw === 'rand') return 'random';
+  return 'set';
+}
+
+function normalizeCompareOperator(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === '!=' || raw === '<>' || raw === 'ne') return 'ne';
+  if (raw === '<' || raw === 'lt') return 'lt';
+  if (raw === '<=' || raw === 'lte' || raw === 'le') return 'lte';
+  if (raw === '>' || raw === 'gt') return 'gt';
+  if (raw === '>=' || raw === 'gte' || raw === 'ge') return 'gte';
+  return 'eq';
 }
 
 function commandDefinition(type) {
@@ -101,11 +137,26 @@ function defaultCommand(type, assets = []) {
   if (type === 'effect') {
     return { type: 'effect', effect: 'shake', frames: 16, intensity: 4 };
   }
+  if (type === 'variable') {
+    return { type: 'variable', variableName: 'flag_1', operation: 'set', value: 0, min: 0, max: 9 };
+  }
   if (type === 'preload') {
     return { type: 'preload', sceneId: '' };
   }
   if (type === 'choice') {
-    return { type: 'choice', defaultIndex: 0, choices: [{ label: '進む', targetSceneId: '' }] };
+    return { type: 'choice', variableName: 'choice_1', defaultIndex: 0, choices: [{ label: '進む', value: 0, targetSceneId: '' }] };
+  }
+  if (type === 'if') {
+    return { type: 'if', variableName: 'flag_1', operator: 'eq', value: 1, targetLabel: '', elseLabel: '' };
+  }
+  if (type === 'switch') {
+    return { type: 'switch', variableName: 'choice_1', cases: [{ value: 0, targetLabel: '' }, { value: 1, targetLabel: '' }], defaultLabel: '' };
+  }
+  if (type === 'label') {
+    return { type: 'label', name: 'label_1' };
+  }
+  if (type === 'goto') {
+    return { type: 'goto', targetLabel: '' };
   }
   if (type === 'jump') {
     return { type: 'jump', sceneId: '' };
@@ -188,16 +239,69 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
         const item = choice && typeof choice === 'object' ? choice : {};
         const label = String(item.label || item.text || `選択肢${choiceIndex + 1}`).trim().slice(0, 24);
         if (!label) return null;
-        return { label, targetSceneId: safeId(item.targetSceneId || item.sceneId || item.nextSceneId || item.target, '') };
+        return {
+          label,
+          value: signedValue(item.value ?? item.resultValue ?? choiceIndex, choiceIndex),
+          targetSceneId: safeId(item.targetSceneId || item.sceneId || item.nextSceneId || item.target, ''),
+        };
       })
       .filter(Boolean)
       .slice(0, 4);
-    const normalizedChoices = choices.length ? choices : [{ label: '進む', targetSceneId: '' }];
+    const normalizedChoices = choices.length ? choices : [{ label: '進む', value: 0, targetSceneId: '' }];
     return {
       type: 'choice',
+      variableName: String(raw.variableName || raw.variable || raw.resultVariable || '').trim()
+        ? variableName(raw.variableName || raw.variable || raw.resultVariable)
+        : '',
       choices: normalizedChoices,
       defaultIndex: clamp(raw.defaultIndex ?? raw.initialIndex, 0, normalizedChoices.length - 1, 0),
     };
+  }
+  if (raw.type === 'variable' || raw.type === 'var') {
+    let min = signedValue(raw.min ?? raw.minimum ?? 0, 0);
+    let max = signedValue(raw.max ?? raw.maximum ?? 9, 9);
+    if (min > max) [min, max] = [max, min];
+    return {
+      type: 'variable',
+      variableName: variableName(raw.variableName || raw.variable || raw.name),
+      operation: normalizeVariableOperation(raw.operation || raw.op || raw.action || (raw.define ? 'define' : 'set')),
+      value: signedValue(raw.value ?? raw.initialValue ?? raw.amount, 0),
+      min,
+      max,
+    };
+  }
+  if (raw.type === 'if') {
+    return {
+      type: 'if',
+      variableName: variableName(raw.variableName || raw.variable || raw.name),
+      operator: normalizeCompareOperator(raw.operator || raw.compare || raw.condition),
+      value: signedValue(raw.value ?? raw.compareValue ?? 0, 0),
+      targetLabel: labelName(raw.targetLabel || raw.thenLabel || raw.trueLabel || raw.label || raw.target, ''),
+      elseLabel: labelName(raw.elseLabel || raw.falseLabel || '', ''),
+    };
+  }
+  if (raw.type === 'switch') {
+    const cases = (Array.isArray(raw.cases) ? raw.cases : [])
+      .map((entry, caseIndex) => {
+        const item = entry && typeof entry === 'object' ? entry : {};
+        return {
+          value: signedValue(item.value ?? caseIndex, caseIndex),
+          targetLabel: labelName(item.targetLabel || item.label || item.target || '', ''),
+        };
+      })
+      .slice(0, 16);
+    return {
+      type: 'switch',
+      variableName: variableName(raw.variableName || raw.variable || raw.name),
+      cases: cases.length ? cases : [{ value: 0, targetLabel: '' }],
+      defaultLabel: labelName(raw.defaultLabel || raw.elseLabel || raw.default || '', ''),
+    };
+  }
+  if (raw.type === 'label') {
+    return { type: 'label', name: labelName(raw.name || raw.label || raw.id, `label_${index + 1}`) };
+  }
+  if (raw.type === 'goto') {
+    return { type: 'goto', targetLabel: labelName(raw.targetLabel || raw.label || raw.target || '', '') };
   }
   if (raw.type === 'jump') {
     return { type: 'jump', sceneId: safeId(raw.sceneId || raw.targetSceneId || raw.nextSceneId, '') };
@@ -271,7 +375,11 @@ function normalizeDoc(doc, assets) {
     scenes: deduped.map((scene) => ({
       ...scene,
       nextSceneId: scene.nextSceneId && sceneIds.has(scene.nextSceneId) ? scene.nextSceneId : '',
-      commands: (scene.commands || []).map((command) => {
+      commands: (() => {
+        const labels = new Set((scene.commands || [])
+          .filter((command) => command.type === 'label' && command.name)
+          .map((command) => command.name));
+        return (scene.commands || []).map((command) => {
         if (command.type === 'preload' || command.type === 'jump') {
           return { ...command, sceneId: command.sceneId && sceneIds.has(command.sceneId) ? command.sceneId : '' };
         }
@@ -284,8 +392,29 @@ function normalizeDoc(doc, assets) {
             })),
           };
         }
+        if (command.type === 'goto') {
+          return { ...command, targetLabel: command.targetLabel && labels.has(command.targetLabel) ? command.targetLabel : '' };
+        }
+        if (command.type === 'if') {
+          return {
+            ...command,
+            targetLabel: command.targetLabel && labels.has(command.targetLabel) ? command.targetLabel : '',
+            elseLabel: command.elseLabel && labels.has(command.elseLabel) ? command.elseLabel : '',
+          };
+        }
+        if (command.type === 'switch') {
+          return {
+            ...command,
+            cases: (command.cases || []).map((branch) => ({
+              ...branch,
+              targetLabel: branch.targetLabel && labels.has(branch.targetLabel) ? branch.targetLabel : '',
+            })),
+            defaultLabel: command.defaultLabel && labels.has(command.defaultLabel) ? command.defaultLabel : '',
+          };
+        }
         return command;
-      }),
+        });
+      })(),
     })),
   };
 }
@@ -323,38 +452,25 @@ export function activatePlugin({ root, api, registerCapability }) {
             <button class="btn-primary" type="button" data-action="save">保存</button>
           </div>
         </div>
-        <form class="pce-vn-form" data-role="scene-form">
-          <label class="form-group"><span class="form-label">Scene ID</span><input class="form-input" name="id" /></label>
-          <label class="form-group"><span class="form-label">次シーン</span><select class="form-select" name="nextSceneId"></select></label>
-        </form>
         <div class="pce-vn-commands" data-role="commands"></div>
         <div class="form-error" data-role="error"></div>
       </section>
       <div class="pce-vn-column-resizer" data-column-resizer="right" role="separator" aria-orientation="vertical" aria-label="右列幅"></div>
       <aside class="pce-vn-preview">
-        <div class="pce-vn-stage">
-          <img data-role="bg-preview" alt="background preview" hidden />
-          <div class="pce-vn-sprite-layer" data-role="sprite-layer"></div>
-          <div class="pce-vn-message-preview" data-role="message-preview"></div>
-        </div>
+        <div class="pce-vn-command-preview" data-role="command-preview"></div>
         <form class="pce-vn-detail-form" data-role="command-detail"></form>
-        <dl class="pce-vn-meta" data-role="meta"></dl>
       </aside>
     </div>
   `;
 
   const shell = root.querySelector('.pce-vn-shell');
   const sceneList = root.querySelector('[data-role="scene-list"]');
-  const form = root.querySelector('[data-role="scene-form"]');
   const commandsEl = root.querySelector('[data-role="commands"]');
   const detailForm = root.querySelector('[data-role="command-detail"]');
+  const commandPreviewEl = root.querySelector('[data-role="command-preview"]');
   const commandSearchInput = root.querySelector('[data-role="command-search"]');
   const commandPaletteEl = root.querySelector('[data-role="command-palette"]');
   const errorEl = root.querySelector('[data-role="error"]');
-  const bgPreview = root.querySelector('[data-role="bg-preview"]');
-  const spriteLayer = root.querySelector('[data-role="sprite-layer"]');
-  const messagePreview = root.querySelector('[data-role="message-preview"]');
-  const metaEl = root.querySelector('[data-role="meta"]');
   let assets = [];
   let doc = defaultDoc();
   let selectedId = 'opening';
@@ -363,6 +479,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   let columnLayout = loadColumnLayout();
   let pointerDrag = null;
   let suppressCommandClick = false;
+  let previewToken = 0;
 
   const byType = (types) => assets.filter((asset) => types.includes(asset.type));
   const scene = () => doc.scenes.find((item) => item.id === selectedId) || doc.scenes[0] || null;
@@ -443,6 +560,13 @@ export function activatePlugin({ root, api, registerCapability }) {
     return optionsFor(doc.scenes.map((item) => ({ id: item.id, name: item.id })), current, label);
   }
 
+  function labelOptions(current, label = 'なし') {
+    const labels = (scene()?.commands || [])
+      .filter((command) => command.type === 'label' && command.name)
+      .map((command) => ({ id: command.name, name: command.name }));
+    return optionsFor(labels, current, label);
+  }
+
   function commandSummary(command) {
     if (!command) return '';
     if (command.type === 'background') return assetById(command.assetId)?.name || command.assetId || '背景なし';
@@ -453,8 +577,15 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (command.type === 'message') return `${command.speaker ? `${command.speaker}: ` : ''}${command.text || '本文なし'}`;
     if (command.type === 'audio') return `${command.kind}:${command.action}${command.assetId ? ` ${command.assetId}` : ''}`;
     if (command.type === 'effect') return command.effect === 'shake' ? `shake ${command.frames}f / ${command.intensity}` : `${command.effect} ${command.frames}f`;
+    if (command.type === 'variable') return command.operation === 'random'
+      ? `${command.variableName} = random(${command.min}..${command.max})`
+      : `${command.variableName} ${command.operation} ${command.value}`;
     if (command.type === 'preload') return command.sceneId ? `scene ${command.sceneId}` : 'scene未指定';
-    if (command.type === 'choice') return (command.choices || []).map((choice) => choice.label).join(' / ') || '選択肢なし';
+    if (command.type === 'choice') return `${command.variableName ? `${command.variableName} <= ` : ''}${(command.choices || []).map((choice) => choice.label).join(' / ') || '選択肢なし'}`;
+    if (command.type === 'if') return `${command.variableName} ${command.operator} ${command.value} -> ${command.targetLabel || '未指定'}`;
+    if (command.type === 'switch') return `${command.variableName} / ${(command.cases || []).length} branches`;
+    if (command.type === 'label') return command.name || 'label未指定';
+    if (command.type === 'goto') return command.targetLabel ? `label ${command.targetLabel}` : 'label未指定';
     if (command.type === 'jump') return command.sceneId ? `scene ${command.sceneId}` : 'scene未指定';
     if (command.type === 'wait') return `${command.frames} frames`;
     return command.type;
@@ -503,6 +634,44 @@ export function activatePlugin({ root, api, registerCapability }) {
         intensity: detailForm.elements.intensity.value,
       }, assets);
     }
+    if (type === 'variable') {
+      return normalizeCommand({
+        type,
+        variableName: detailForm.elements.variableName.value,
+        operation: detailForm.elements.operation.value,
+        value: detailForm.elements.value.value,
+        min: detailForm.elements.min.value,
+        max: detailForm.elements.max.value,
+      }, assets);
+    }
+    if (type === 'if') {
+      return normalizeCommand({
+        type,
+        variableName: detailForm.elements.variableName.value,
+        operator: detailForm.elements.operator.value,
+        value: detailForm.elements.value.value,
+        targetLabel: detailForm.elements.targetLabel.value,
+        elseLabel: detailForm.elements.elseLabel.value,
+      }, assets);
+    }
+    if (type === 'switch') {
+      const cases = Array.from(detailForm.querySelectorAll('[data-switch-row]')).map((row) => ({
+        value: row.querySelector('[data-switch-field="value"]')?.value || '',
+        targetLabel: row.querySelector('[data-switch-field="targetLabel"]')?.value || '',
+      }));
+      return normalizeCommand({
+        type,
+        variableName: detailForm.elements.variableName.value,
+        defaultLabel: detailForm.elements.defaultLabel.value,
+        cases,
+      }, assets);
+    }
+    if (type === 'label') {
+      return normalizeCommand({ type, name: detailForm.elements.name.value }, assets);
+    }
+    if (type === 'goto') {
+      return normalizeCommand({ type, targetLabel: detailForm.elements.targetLabel.value }, assets);
+    }
     if (type === 'preload' || type === 'jump') {
       return normalizeCommand({ type, sceneId: detailForm.elements.sceneId.value }, assets);
     }
@@ -512,9 +681,15 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (type === 'choice') {
       const choices = Array.from(detailForm.querySelectorAll('[data-choice-row]')).map((row) => ({
         label: row.querySelector('[data-choice-field="label"]')?.value || '',
+        value: row.querySelector('[data-choice-field="value"]')?.value || '',
         targetSceneId: row.querySelector('[data-choice-field="targetSceneId"]')?.value || '',
       }));
-      return normalizeCommand({ type, defaultIndex: detailForm.elements.defaultIndex.value, choices }, assets);
+      return normalizeCommand({
+        type,
+        variableName: detailForm.elements.variableName.value,
+        defaultIndex: detailForm.elements.defaultIndex.value,
+        choices,
+      }, assets);
     }
     return normalizeCommand({
       type,
@@ -541,46 +716,11 @@ export function activatePlugin({ root, api, registerCapability }) {
     current.commands[selectedCommandIndex] = selectedCommandFromDetail(existing);
     if (rerenderCommands) renderCommands(current);
     if (rerenderDetail) renderCommandDetail(current);
-    if (updatePreview) void renderPreview();
+    if (updatePreview) void renderCommandPreview();
   }
 
   function commitCurrentUiToDoc() {
     updateSelectedCommandFromDetail({ rerenderCommands: false, updatePreview: false });
-    commitSceneMetaToDoc();
-  }
-
-  function commitSceneMetaToDoc() {
-    const current = scene();
-    if (!current) return;
-    const index = doc.scenes.indexOf(current);
-    const next = {
-      ...current,
-      id: safeId(form.elements.id.value, current.id || 'scene'),
-      nextSceneId: form.elements.nextSceneId.value,
-    };
-    const oldId = current.id;
-    doc.scenes[index] = next;
-    if (doc.startScene === oldId) doc.startScene = next.id;
-    doc.scenes = doc.scenes.map((item) => ({
-      ...item,
-      nextSceneId: item.nextSceneId === oldId ? next.id : item.nextSceneId,
-      commands: (item.commands || []).map((command) => {
-        if ((command.type === 'preload' || command.type === 'jump') && command.sceneId === oldId) {
-          return { ...command, sceneId: next.id };
-        }
-        if (command.type === 'choice') {
-          return {
-            ...command,
-            choices: (command.choices || []).map((choice) => ({
-              ...choice,
-              targetSceneId: choice.targetSceneId === oldId ? next.id : choice.targetSceneId,
-            })),
-          };
-        }
-        return command;
-      }),
-    }));
-    selectedId = next.id;
   }
 
   function renderSceneList() {
@@ -683,6 +823,60 @@ export function activatePlugin({ root, api, registerCapability }) {
         </div>
       `;
     }
+    if (command.type === 'variable') {
+      return `
+        <div class="pce-vn-grid">
+          <label class="form-group"><span class="form-label">Variable</span><input class="form-input form-input-mono" name="variableName" value="${esc(command.variableName || '')}" /></label>
+          <label class="form-group"><span class="form-label">Operation</span><select class="form-select" name="operation"><option value="define" ${command.operation === 'define' ? 'selected' : ''}>define</option><option value="set" ${command.operation === 'set' ? 'selected' : ''}>set</option><option value="add" ${command.operation === 'add' ? 'selected' : ''}>add</option><option value="sub" ${command.operation === 'sub' ? 'selected' : ''}>sub</option><option value="random" ${command.operation === 'random' ? 'selected' : ''}>random</option></select></label>
+        </div>
+        <div class="pce-vn-grid tight">
+          <label class="form-group"><span class="form-label">Value</span><input class="form-input" name="value" type="number" min="-32768" max="32767" value="${esc(command.value)}" /></label>
+          <label class="form-group"><span class="form-label">Random min</span><input class="form-input" name="min" type="number" min="-32768" max="32767" value="${esc(command.min)}" /></label>
+          <label class="form-group"><span class="form-label">Random max</span><input class="form-input" name="max" type="number" min="-32768" max="32767" value="${esc(command.max)}" /></label>
+        </div>
+      `;
+    }
+    if (command.type === 'if') {
+      return `
+        <div class="pce-vn-grid">
+          <label class="form-group"><span class="form-label">Variable</span><input class="form-input form-input-mono" name="variableName" value="${esc(command.variableName || '')}" /></label>
+          <label class="form-group"><span class="form-label">Operator</span><select class="form-select" name="operator"><option value="eq" ${command.operator === 'eq' ? 'selected' : ''}>==</option><option value="ne" ${command.operator === 'ne' ? 'selected' : ''}>!=</option><option value="lt" ${command.operator === 'lt' ? 'selected' : ''}>&lt;</option><option value="lte" ${command.operator === 'lte' ? 'selected' : ''}>&lt;=</option><option value="gt" ${command.operator === 'gt' ? 'selected' : ''}>&gt;</option><option value="gte" ${command.operator === 'gte' ? 'selected' : ''}>&gt;=</option></select></label>
+        </div>
+        <div class="pce-vn-grid tight">
+          <label class="form-group"><span class="form-label">Value</span><input class="form-input" name="value" type="number" min="-32768" max="32767" value="${esc(command.value)}" /></label>
+          <label class="form-group"><span class="form-label">True label</span><select class="form-select" name="targetLabel">${labelOptions(command.targetLabel, 'なし')}</select></label>
+          <label class="form-group"><span class="form-label">False label</span><select class="form-select" name="elseLabel">${labelOptions(command.elseLabel, '続行')}</select></label>
+        </div>
+      `;
+    }
+    if (command.type === 'switch') {
+      return `
+        <div class="pce-vn-grid">
+          <label class="form-group"><span class="form-label">Variable</span><input class="form-input form-input-mono" name="variableName" value="${esc(command.variableName || '')}" /></label>
+          <label class="form-group"><span class="form-label">Default</span><select class="form-select" name="defaultLabel">${labelOptions(command.defaultLabel, '続行')}</select></label>
+        </div>
+        <div class="pce-vn-switch-list" data-role="switch-list">
+          ${(command.cases || []).map((branch, index) => `
+            <div class="pce-vn-switch-row" data-switch-row>
+              <label class="form-group"><span class="form-label">Value ${index + 1}</span><input class="form-input" data-switch-field="value" type="number" min="-32768" max="32767" value="${esc(branch.value)}" /></label>
+              <label class="form-group"><span class="form-label">Label</span><select class="form-select" data-switch-field="targetLabel">${labelOptions(branch.targetLabel, 'なし')}</select></label>
+              <button class="icon-btn danger" type="button" data-switch-remove="${index}" title="分岐削除" aria-label="分岐削除">×</button>
+            </div>
+          `).join('')}
+        </div>
+        <button class="btn-sm" type="button" data-switch-add>分岐追加</button>
+      `;
+    }
+    if (command.type === 'label') {
+      return `
+        <label class="form-group"><span class="form-label">Label</span><input class="form-input form-input-mono" name="name" value="${esc(command.name || '')}" /></label>
+      `;
+    }
+    if (command.type === 'goto') {
+      return `
+        <label class="form-group"><span class="form-label">Label</span><select class="form-select" name="targetLabel">${labelOptions(command.targetLabel, 'なし')}</select></label>
+      `;
+    }
     if (command.type === 'preload' || command.type === 'jump') {
       return `
         <label class="form-group"><span class="form-label">Scene</span><select class="form-select" name="sceneId">${sceneOptions(command.sceneId, 'なし')}</select></label>
@@ -695,11 +889,13 @@ export function activatePlugin({ root, api, registerCapability }) {
     }
     if (command.type === 'choice') {
       return `
+        <label class="form-group"><span class="form-label">Result variable</span><input class="form-input form-input-mono" name="variableName" value="${esc(command.variableName || '')}" /></label>
         <label class="form-group"><span class="form-label">Default</span><input class="form-input" name="defaultIndex" type="number" min="0" max="${Math.max(0, (command.choices || []).length - 1)}" value="${esc(command.defaultIndex || 0)}" /></label>
         <div class="pce-vn-choice-list" data-role="choice-list">
           ${(command.choices || []).map((choice, index) => `
             <div class="pce-vn-choice-row" data-choice-row>
               <label class="form-group"><span class="form-label">Label ${index + 1}</span><input class="form-input" data-choice-field="label" value="${esc(choice.label || '')}" /></label>
+              <label class="form-group"><span class="form-label">Value</span><input class="form-input" data-choice-field="value" type="number" min="-32768" max="32767" value="${esc(choice.value ?? index)}" /></label>
               <label class="form-group"><span class="form-label">Target</span><select class="form-select" data-choice-field="targetSceneId">${sceneOptions(choice.targetSceneId, 'なし')}</select></label>
               <button class="icon-btn danger" type="button" data-choice-remove="${index}" title="選択肢削除" aria-label="選択肢削除">×</button>
             </div>
@@ -764,58 +960,102 @@ export function activatePlugin({ root, api, registerCapability }) {
     commandsEl.innerHTML = pieces.join('');
   }
 
-  async function setPreviewImage(img, asset) {
-    img.hidden = true;
-    img.removeAttribute('src');
-    if (!asset?.source) return;
-    const result = await api.electronAPI.previewAssetSource(asset.source);
-    if (result?.dataUrl) {
-      img.src = result.dataUrl;
-      img.hidden = false;
-    }
+  function previewTitle(command) {
+    const definition = commandDefinition(command?.type);
+    return command ? `#${selectedCommandIndex + 1} ${definition.label}` : 'Preview';
   }
 
-  async function renderPreview() {
+  function renderCommandPreviewText(command) {
+    const title = previewTitle(command);
+    const body = document.createElement('div');
+    body.className = 'pce-vn-preview-text';
+    const strong = document.createElement('strong');
+    strong.textContent = title;
+    const text = document.createElement('p');
+    if (!command) text.textContent = 'コマンドを選択してください';
+    else if (command.type === 'message') text.textContent = `${command.speaker ? `${command.speaker}: ` : ''}${command.text || '本文なし'}`;
+    else if (command.type === 'choice') text.textContent = (command.choices || []).map((choice) => `・${choice.label}`).join('\n') || '選択肢なし';
+    else if (command.type === 'variable') text.textContent = command.operation === 'random'
+      ? `${command.variableName} = random(${command.min}..${command.max})`
+      : `${command.variableName} ${command.operation} ${command.value}`;
+    else if (command.type === 'if') text.textContent = `${command.variableName} ${command.operator} ${command.value}\ntrue -> ${command.targetLabel || 'continue'}\nfalse -> ${command.elseLabel || 'continue'}`;
+    else if (command.type === 'switch') text.textContent = `${command.variableName}\n${(command.cases || []).map((branch) => `${branch.value} -> ${branch.targetLabel || 'continue'}`).join('\n')}${command.defaultLabel ? `\ndefault -> ${command.defaultLabel}` : ''}`;
+    else if (command.type === 'label') text.textContent = command.name || 'label未指定';
+    else if (command.type === 'goto') text.textContent = command.targetLabel ? `goto ${command.targetLabel}` : 'label未指定';
+    else if (command.type === 'jump' || command.type === 'preload') text.textContent = command.sceneId ? `Scene: ${command.sceneId}` : 'Scene未指定';
+    else if (command.type === 'wait') text.textContent = `${command.frames} frames`;
+    else if (command.type === 'effect') text.textContent = command.effect === 'shake' ? `shake / ${command.frames} frames / power ${command.intensity}` : `${command.effect} / ${command.frames} frames`;
+    else text.textContent = commandSummary(command);
+    body.append(strong, text);
+    commandPreviewEl.replaceChildren(body);
+  }
+
+  function renderCommandPreviewLoading(command, asset, kind) {
+    commandPreviewEl.innerHTML = `
+      <div class="pce-vn-preview-loading">
+        <strong>${esc(previewTitle(command))}</strong>
+        <span>${esc(asset?.name || asset?.id || `${kind}なし`)}</span>
+      </div>
+    `;
+  }
+
+  async function renderCommandPreview() {
     const current = scene();
     if (!current) return;
-    const slots = new Map();
-    let background = null;
-    let message = null;
-    let audio = '';
-    current.commands.forEach((command) => {
-      if (command.type === 'background') background = assetById(command.assetId);
-      if (command.type === 'sprite') {
-        if (command.visible) slots.set(command.slot, { command, asset: assetById(command.assetId) });
-        else slots.delete(command.slot);
+    const command = ensureSelectedCommand(current);
+    const token = ++previewToken;
+    if (!command) {
+      renderCommandPreviewText(null);
+      return;
+    }
+    if (command.type === 'background' || command.type === 'sprite') {
+      const asset = assetById(command.assetId);
+      renderCommandPreviewLoading(command, asset, command.type === 'background' ? '背景' : 'Sprite');
+      if (!asset?.source) return;
+      const result = await api.electronAPI.previewAssetSource(asset.source);
+      if (token !== previewToken) return;
+      commandPreviewEl.innerHTML = '';
+      if (!result?.dataUrl) {
+        renderCommandPreviewText(command);
+        return;
       }
-      if (command.type === 'message') message = command;
-      if (command.type === 'audio') audio = `${command.kind}:${command.action}${command.assetId ? ` ${command.assetId}` : ''}`;
-    });
-    await setPreviewImage(bgPreview, background);
-    spriteLayer.innerHTML = '';
-    for (const { command, asset } of slots.values()) {
-      if (!asset?.source) continue;
+      const frame = document.createElement('div');
+      frame.className = `pce-vn-media-preview ${command.type === 'sprite' ? 'sprite' : 'background'}`;
       const img = document.createElement('img');
       img.alt = asset.name || asset.id;
-      img.style.left = `${(command.x / PCE_SCREEN_WIDTH) * 100}%`;
-      img.style.top = `${(command.y / PCE_SCREEN_HEIGHT) * 100}%`;
-      img.style.transform = `scale(${command.flipX ? -1 : 1}, ${command.flipY ? -1 : 1})`;
-      spriteLayer.appendChild(img);
-      const result = await api.electronAPI.previewAssetSource(asset.source);
-      if (result?.dataUrl) img.src = result.dataUrl;
+      img.src = result.dataUrl;
+      const caption = document.createElement('span');
+      caption.textContent = asset.name || asset.id;
+      frame.append(img, caption);
+      commandPreviewEl.replaceChildren(frame);
+      return;
     }
-    messagePreview.textContent = message
-      ? `${message.speaker ? `${message.speaker}: ` : ''}${message.text}`
-      : '';
-    const selected = ensureSelectedCommand(current);
-    metaEl.innerHTML = `
-      <dt>target</dt><dd>SUPER CD-ROM2 / llvm-mos</dd>
-      <dt>background</dt><dd>${esc(background?.name || background?.id || '-')}</dd>
-      <dt>sprites</dt><dd>${esc(String(slots.size))}</dd>
-      <dt>commands</dt><dd>${esc(String(current.commands.length))}</dd>
-      <dt>selected</dt><dd>${esc(selected ? `#${selectedCommandIndex + 1} ${commandDefinition(selected.type).label}` : '-')}</dd>
-      <dt>audio</dt><dd>${esc(audio || '-')}</dd>
-    `;
+    if (command.type === 'audio') {
+      const asset = command.action === 'play' ? assetById(command.assetId) : null;
+      renderCommandPreviewLoading(command, asset, '音声');
+      if (!asset?.source) return;
+      const result = await api.electronAPI.previewAssetSource(asset.source);
+      if (token !== previewToken) return;
+      commandPreviewEl.innerHTML = '';
+      if (!result?.dataUrl) {
+        renderCommandPreviewText(command);
+        return;
+      }
+      const frame = document.createElement('div');
+      frame.className = 'pce-vn-audio-preview';
+      const label = document.createElement('strong');
+      label.textContent = asset.name || asset.id;
+      const info = document.createElement('span');
+      info.textContent = `${command.kind.toUpperCase()} / ${command.action}`;
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.preload = 'metadata';
+      audio.src = result.dataUrl;
+      frame.append(label, info, audio);
+      commandPreviewEl.replaceChildren(frame);
+      return;
+    }
+    renderCommandPreviewText(command);
   }
 
   function renderForm() {
@@ -823,15 +1063,9 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (!current) return;
     ensureSelectedCommand(current);
     root.querySelector('[data-role="scene-title"]').textContent = current.id;
-    form.elements.id.value = current.id;
-    form.elements.nextSceneId.innerHTML = optionsFor(
-      doc.scenes.filter((item) => item.id !== current.id).map((item) => ({ id: item.id, name: item.id })),
-      current.nextSceneId,
-      '終端',
-    );
     renderCommands(current);
     renderCommandDetail(current);
-    void renderPreview();
+    void renderCommandPreview();
   }
 
   function render() {
@@ -971,7 +1205,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     const current = scene();
     renderCommands(current);
     renderCommandDetail(current);
-    void renderPreview();
+    void renderCommandPreview();
   });
 
   commandsEl.addEventListener('dragstart', (event) => {
@@ -1071,22 +1305,26 @@ export function activatePlugin({ root, api, registerCapability }) {
   detailForm.addEventListener('click', (event) => {
     const add = event.target?.closest?.('[data-choice-add]');
     const remove = event.target?.closest?.('[data-choice-remove]');
-    if (!add && !remove) return;
+    const switchAdd = event.target?.closest?.('[data-switch-add]');
+    const switchRemove = event.target?.closest?.('[data-switch-remove]');
+    if (!add && !remove && !switchAdd && !switchRemove) return;
     updateSelectedCommandFromDetail({ rerenderCommands: false, updatePreview: false });
     const current = scene();
     const command = ensureSelectedCommand(current);
-    if (!command || command.type !== 'choice') return;
-    if (add && command.choices.length < 4) command.choices.push({ label: `選択肢${command.choices.length + 1}`, targetSceneId: '' });
-    if (remove) command.choices.splice(Number(remove.dataset.choiceRemove), 1);
-    if (!command.choices.length) command.choices.push({ label: '進む', targetSceneId: '' });
-    command.defaultIndex = clamp(command.defaultIndex, 0, command.choices.length - 1, 0);
+    if (!command) return;
+    if (command.type === 'choice') {
+      if (add && command.choices.length < 4) command.choices.push({ label: `選択肢${command.choices.length + 1}`, value: command.choices.length, targetSceneId: '' });
+      if (remove) command.choices.splice(Number(remove.dataset.choiceRemove), 1);
+      if (!command.choices.length) command.choices.push({ label: '進む', value: 0, targetSceneId: '' });
+      command.defaultIndex = clamp(command.defaultIndex, 0, command.choices.length - 1, 0);
+    } else if (command.type === 'switch') {
+      if (switchAdd) command.cases.push({ value: command.cases.length, targetLabel: '' });
+      if (switchRemove) command.cases.splice(Number(switchRemove.dataset.switchRemove), 1);
+      if (!command.cases.length) command.cases.push({ value: 0, targetLabel: '' });
+    }
     renderCommands(current);
     renderCommandDetail(current);
-    void renderPreview();
-  });
-
-  form.addEventListener('input', () => {
-    root.querySelector('[data-role="scene-title"]').textContent = safeId(form.elements.id.value, scene()?.id || 'scene');
+    void renderCommandPreview();
   });
 
   root.querySelector('[data-action="reload"]').addEventListener('click', load);

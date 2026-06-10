@@ -5,6 +5,8 @@
   "channels": 1,
   "durationSeconds": 0.3,
   "bytes": 2400,
+  "codec": "oki-msm5205",
+  "nibbleOrder": "msn-first",
   "waveform": [
     0.044,
     0.113,
@@ -71,5 +73,11 @@
     0.06,
     0.022
   ],
-  "warnings": []
+  "warnings": [],
+  "processing": {},
+  "groupId": "akari_voice",
+  "partIndex": 1,
+  "partCount": 1,
+  "splitPolicy": "",
+  "maxAdpcmBytes": 65535
 }

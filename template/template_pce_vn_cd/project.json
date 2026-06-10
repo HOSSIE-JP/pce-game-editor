@@ -37,7 +37,7 @@
       "pce-font-editor",
       "pce-visual-novel-editor",
       "pce-asset-manager",
-      "pce-sprite-editor",
+      "pce-sprite-manager",
       "pce-palette-editor",
       "pce-music-editor",
       "code-editor"

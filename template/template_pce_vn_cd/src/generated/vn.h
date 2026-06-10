@@ -10,6 +10,11 @@
 #define PCE_VN_COMMAND_JUMP 6u
 #define PCE_VN_COMMAND_WAIT 7u
 #define PCE_VN_COMMAND_EFFECT 8u
+#define PCE_VN_COMMAND_VARIABLE 9u
+#define PCE_VN_COMMAND_IF 10u
+#define PCE_VN_COMMAND_SWITCH 11u
+#define PCE_VN_COMMAND_LABEL 12u
+#define PCE_VN_COMMAND_GOTO 13u
 #define PCE_VN_BG_TRANSITION_CUT 0u
 #define PCE_VN_BG_TRANSITION_FADE 1u
 #define PCE_VN_SPRITE_VISIBLE 1u
@@ -25,6 +30,19 @@
 #define PCE_VN_EFFECT_SHAKE 3u
 #define PCE_VN_ADVANCE_BUTTON 0u
 #define PCE_VN_ADVANCE_AUTO 1u
+#define PCE_VN_VAR_OP_DEFINE 0u
+#define PCE_VN_VAR_OP_SET 1u
+#define PCE_VN_VAR_OP_ADD 2u
+#define PCE_VN_VAR_OP_SUB 3u
+#define PCE_VN_VAR_OP_RANDOM 4u
+#define PCE_VN_COMPARE_EQ 0u
+#define PCE_VN_COMPARE_NE 1u
+#define PCE_VN_COMPARE_LT 2u
+#define PCE_VN_COMPARE_LTE 3u
+#define PCE_VN_COMPARE_GT 4u
+#define PCE_VN_COMPARE_GTE 5u
+#define PCE_VN_NO_COMMAND 65535u
+#define PCE_VN_VARIABLE_STORAGE_COUNT 1u
 
 typedef struct {
   unsigned char sprite_index;
@@ -40,45 +58,58 @@ typedef struct {
 typedef struct {
   const unsigned char *glyphs;
   unsigned char glyph_count;
-  signed char voice_index;
+  signed int voice_index;
   unsigned char text_speed_frames;
   unsigned char advance_mode;
   unsigned char auto_wait_frames;
-  signed char mouth_animation_index;
+  signed int mouth_animation_index;
   unsigned char mouth_slot;
 } pce_vn_message_t;
 
 typedef struct {
   const unsigned char *glyphs;
   unsigned char glyph_count;
-  signed char target_scene;
+  signed int value;
+  signed int target_scene;
 } pce_vn_choice_option_t;
 
 typedef struct {
   const pce_vn_choice_option_t *options;
   unsigned char option_count;
   unsigned char default_index;
+  signed int variable_index;
 } pce_vn_choice_t;
 
 typedef struct {
+  signed int value;
+  unsigned int command;
+} pce_vn_switch_case_t;
+
+typedef struct {
+  const pce_vn_switch_case_t *cases;
+  unsigned char case_count;
+  unsigned int default_command;
+} pce_vn_switch_t;
+
+typedef struct {
   unsigned char type;
-  signed char asset_index;
+  signed int asset_index;
   unsigned char slot;
   unsigned char flags;
   unsigned char arg0;
   unsigned char arg1;
   unsigned int x;
   unsigned int y;
-  signed char message_index;
-  signed char animation_index;
-  signed char scene_index;
-  signed char choice_index;
+  signed int message_index;
+  signed int animation_index;
+  signed int scene_index;
+  signed int choice_index;
 } pce_vn_command_t;
 
 typedef struct {
   unsigned char command_start;
   unsigned char command_count;
-  signed char next_scene;
+  signed int next_scene;
 } pce_vn_scene_t;
 
 #define PCE_VN_FONT_TILE_BASE 712u
@@ -94,6 +125,10 @@ extern const pce_vn_message_t pce_vn_messages[];
 extern const unsigned char pce_vn_message_count;
 extern const pce_vn_choice_t pce_vn_choices[];
 extern const unsigned char pce_vn_choice_count;
+extern const pce_vn_switch_t pce_vn_switches[];
+extern const unsigned char pce_vn_switch_count;
+extern const signed int pce_vn_variable_initial_values[];
+extern const unsigned char pce_vn_variable_count;
 extern const pce_vn_command_t pce_vn_commands[];
 extern const unsigned char pce_vn_command_count;
 extern const pce_vn_scene_t pce_vn_scenes[];

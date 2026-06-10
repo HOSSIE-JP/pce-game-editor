@@ -1,5 +1,5 @@
 /**
- * MD Game Editor - renderer.js
+ * PCE Game Editor - renderer.js
  * エディタのフロントエンドロジック
  */
 
@@ -619,15 +619,22 @@ function renderLogSourceFilters() {
   if (!el.logSourceFilters) return;
   renderSharedLogSourceFilters(el.logSourceFilters, state.logs.sourceVisibility, (source, checked) => {
     state.logs.sourceVisibility[source] = checked;
-    renderLogPanel();
+    scheduleLogPanelRender();
   });
 }
 
 function renderLogPanel() {
   const container = el.buildLog;
   if (!container) return;
+  logPanelRenderScheduled = false;
   renderLogSourceFilters();
   renderLogEntries(container, state.logs.entries, state.logs);
+}
+
+function scheduleLogPanelRender() {
+  if (logPanelRenderScheduled) return;
+  logPanelRenderScheduled = true;
+  requestAnimationFrame(renderLogPanel);
 }
 
 function clearBuildLog() {
@@ -714,13 +721,15 @@ function setLogDetached(detached) {
   }
 }
 
-function setLogOpenHeight(height) {
+function setLogOpenHeight(height, options = {}) {
   const minHeight = 140;
   const maxHeight = Math.max(minHeight, Math.floor(window.innerHeight * 0.75));
   const next = Math.max(minHeight, Math.min(maxHeight, Number(height) || state.logOpenHeight));
   state.logOpenHeight = next;
   document.documentElement.style.setProperty('--log-h-open', `${next}px`);
-  saveLogViewerState();
+  if (options.persist !== false) {
+    saveLogViewerState();
+  }
 }
 
 // ============================================================= PLUGINS ===
@@ -748,6 +757,7 @@ const ASSET_PREVIEW_MIN_WIDTH = 280;
 const ASSET_PREVIEW_MAX_WIDTH = 760;
 const PROJECT_PLUGIN_STATE_EXCLUDED_ROLES = ['builder', 'testplay'];
 let sidebarPluginContextMenu = null;
+let logPanelRenderScheduled = false;
 
 function loadLogViewerState() {
   try {
@@ -818,6 +828,10 @@ function pluginSupportsActiveCore(plugin) {
 function isStaticPageAvailableForActiveCore(pageId) {
   if (pageId === 'assets') return getActiveCoreId() === 'mega-drive';
   return true;
+}
+
+function isLegacyRescompAvailable() {
+  return isStaticPageAvailableForActiveCore('assets');
 }
 
 function getRoleDefinitions() {
@@ -1073,10 +1087,14 @@ function createPluginHostApi(plugin, roots = {}) {
     },
     assets: {
       reloadResources: async (options = {}) => {
-        await loadResDefinitions({ keepSelection: options.keepSelection !== false });
+        if (isLegacyRescompAvailable()) {
+          await loadResDefinitions({ keepSelection: options.keepSelection !== false });
+        }
         await refreshProjectList();
         if (el.assetTableHint) {
-          el.assetTableHint.textContent = 'リソースを再読み込みしました';
+          el.assetTableHint.textContent = isLegacyRescompAvailable()
+            ? 'リソースを再読み込みしました'
+            : 'PCE アセットはプラグイン側で管理しています';
         }
         return { ok: true };
       },
@@ -1312,6 +1330,7 @@ function getSidebarContextMenuPlugins() {
 }
 
 function normalizeSidebarPluginOrder() {
+  const previous = pluginState.sidebarOrder.slice();
   const orderedIds = [];
   const seen = new Set();
   const validIds = new Set(getSidebarTogglePlugins().map((p) => p.id));
@@ -1334,7 +1353,12 @@ function normalizeSidebarPluginOrder() {
     .filter((id) => !seen.has(id));
 
   pluginState.sidebarOrder = [...orderedIds, ...missing];
-  saveSidebarPluginOrder();
+  if (
+    previous.length !== pluginState.sidebarOrder.length
+    || previous.some((id, index) => id !== pluginState.sidebarOrder[index])
+  ) {
+    saveSidebarPluginOrder();
+  }
 }
 
 function clearSidebarDnDClasses() {
@@ -1947,17 +1971,15 @@ function renderPluginList() {
     card.dataset.id = plugin.id;
 
     const dependencies = Array.isArray(plugin.dependencies) ? plugin.dependencies : [];
-    const depText = dependencies.length > 0
-      ? `依存: ${dependencies.join(', ')}`
-      : '依存: なし';
+    const depText = dependencies.length > 0 ? `依存: ${dependencies.join(', ')}` : '';
     const permissions = Array.isArray(plugin.permissions) ? plugin.permissions : [];
-    const permText = permissions.length > 0
-      ? `権限: ${permissions.join(', ')}`
-      : '権限: 未宣言';
+    const permText = permissions.length > 0 ? `権限: ${permissions.join(', ')}` : '';
     const roleText = (Array.isArray(plugin.roles) && plugin.roles.length > 0)
       ? `Role: ${plugin.roles.map((role) => role.label || role.id).join(', ')}`
       : '';
-    const coreText = `Core: ${(plugin.supportedCores || ['mega-drive']).join(', ')}${compatible ? '' : ` / 現在の ${getActiveCoreId()} では非対応`}`;
+    const coreText = compatible
+      ? ''
+      : `Core: ${(plugin.supportedCores || ['mega-drive']).join(', ')} / 現在の ${getActiveCoreId()} では非対応`;
 
     card.innerHTML = `
       <div class="plugin-card-header">
@@ -1975,10 +1997,10 @@ function renderPluginList() {
           <span class="plugin-toggle-slider"></span>
         </label>
       </div>
-      <p class="plugin-card-desc">${escHtml(plugin.description)}</p>
-      <p class="plugin-card-deps">${escHtml(depText)}</p>
-      <p class="plugin-card-deps">${escHtml(coreText)}</p>
-      <p class="plugin-card-deps">${escHtml(permText)}</p>
+      ${plugin.description ? `<p class="plugin-card-desc">${escHtml(plugin.description)}</p>` : ''}
+      ${depText ? `<p class="plugin-card-deps">${escHtml(depText)}</p>` : ''}
+      ${coreText ? `<p class="plugin-card-deps plugin-card-deps-warning">${escHtml(coreText)}</p>` : ''}
+      ${permText ? `<p class="plugin-card-deps">${escHtml(permText)}</p>` : ''}
       ${roleText ? `<p class="plugin-card-deps">${escHtml(roleText)}</p>` : ''}
       <div class="plugin-card-actions">
         <span class="plugin-generate-result" id="plugin-result-${escHtml(plugin.id)}"></span>
@@ -2176,22 +2198,37 @@ const C_KEYWORDS = new Set([
 const C_TYPES = new Set([
   'u8','u16','u32','u64','s8','s16','s32','s64','fix16','fix32','bool','BOOL',
   'TRUE','FALSE','NULL','size_t','uint8_t','uint16_t','uint32_t','uint64_t',
-  'int8_t','int16_t','int32_t','int64_t','VDPSprite','Sprite','Map','Palette',
-  'SpriteDefinition','Animation','AnimationFrame','MAPDefinition',
+  'int8_t','int16_t','int32_t','int64_t','pce_sector_t','vdc_sprite_t',
+  'pce_editor_bg_asset_t','pce_editor_sprite_asset_t','pce_editor_adpcm_asset_t',
+  'pce_vn_command_t','pce_vn_scene_t','pce_vn_message_t',
 ]);
-const CODE_COMPLETION_ITEMS = [
+const PCE_CODE_SYMBOLS = [
+  'pce_vdc_set_resolution', 'pce_vdc_bg_set_size', 'pce_vdc_set_copy_word',
+  'pce_vdc_copy_to_vram', 'pce_vdc_poke', 'pce_vdc_bg_enable', 'pce_vdc_bg_disable',
+  'pce_vdc_sprite_enable', 'pce_vdc_sprite_disable', 'pce_vdc_sprite_set_table_start',
+  'pce_joypad_read', 'pce_ram_bank128_map', 'pce_ram_bank129_map', 'pce_ram_bank132_map',
+  'pce_cdb_wait_vblank', 'pce_cdb_irq_enable', 'pce_cdb_cd_read', 'pce_cdb_cdda_play',
+  'pce_cdb_cdda_pause', 'pce_cdb_adpcm_play', 'pce_cdb_adpcm_stop',
+  'PCE_CDB_LOCATION_TYPE_TRACK', 'PCE_CDB_LOCATION_TYPE_SECTOR', 'PCE_CDB_LOCATION_TYPE_TIME',
+  'PCE_CDB_CDDA_PLAY_ONE_SHOT', 'PCE_CDB_CDDA_PLAY_REPEAT',
+  'VCE_COLORBURST_ON', 'VDC_BG_SIZE_32_32', 'VDC_BG_SIZE_64_32',
+  'VDC_CONTROL_ENABLE_BG', 'VDC_CONTROL_ENABLE_SPRITE', 'VDC_CONTROL_DRAM_REFRESH',
+  'PAD_I', 'PAD_II', 'PAD_SEL', 'PAD_RUN', 'PAD_UP', 'PAD_RIGHT', 'PAD_DOWN', 'PAD_LEFT',
+];
+const BASE_CODE_COMPLETION_ITEMS = [
   ...Array.from(C_KEYWORDS).map((label) => ({ label, kind: 'keyword' })),
   ...Array.from(C_TYPES).map((label) => ({ label, kind: 'type' })),
-  ...[
-    'SYS_doVBlankProcess', 'SYS_disableInts', 'SYS_enableInts',
-    'VDP_drawText', 'VDP_clearText', 'VDP_clearPlane', 'VDP_setPalette',
-    'VDP_setTextPalette', 'VDP_setTileMapEx', 'VDP_drawImageEx',
-    'PAL_setColor', 'PAL_setPalette', 'RGB24_TO_VDPCOLOR',
-    'JOY_init', 'JOY_readJoypad', 'BUTTON_START', 'BUTTON_A', 'BUTTON_B', 'BUTTON_C',
-    'SPR_init', 'SPR_addSprite', 'SPR_setPosition', 'SPR_setAnim', 'SPR_update',
-    'XGM_startPlay', 'XGM_stopPlay', 'XGM2_play', 'XGM2_stop',
-  ].map((label) => ({ label, kind: 'sgdk' })),
+];
+const PCE_CODE_COMPLETION_ITEMS = [
+  ...BASE_CODE_COMPLETION_ITEMS,
+  ...PCE_CODE_SYMBOLS.map((label) => ({ label, kind: 'pce' })),
 ].sort((a, b) => a.label.localeCompare(b.label));
+
+function getCodeCompletionItems() {
+  return getActiveCoreId() === 'pc-engine'
+    ? PCE_CODE_COMPLETION_ITEMS
+    : BASE_CODE_COMPLETION_ITEMS;
+}
 
 function _escHtmlCode(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -2410,13 +2447,25 @@ function bindCodeScrollSync() {
   });
 }
 
+function syncCodeCursorLineClass(previousLine, nextLine) {
+  const lines = el.codeHighlight?.querySelectorAll('.code-highlight-line');
+  if (!lines?.length) return;
+  if (previousLine > 0 && previousLine !== nextLine) {
+    lines[previousLine - 1]?.classList.remove('cursor-line');
+  }
+  if (nextLine > 0) {
+    lines[nextLine - 1]?.classList.add('cursor-line');
+  }
+}
+
 function updateCodeCursorLine() {
   const editor = el.codeEditor;
   if (!editor) return;
   const nextLine = getLineForOffset(editor.value || '', editor.selectionStart || 0);
   if (nextLine === state.code.cursorLine) return;
+  const previousLine = state.code.cursorLine;
   state.code.cursorLine = nextLine;
-  updateCodeEditor(editor.value || '');
+  syncCodeCursorLineClass(previousLine, nextLine);
 }
 
 function openCodeFindPanel() {
@@ -2863,25 +2912,29 @@ function getFilteredPlugins() {
 // ========================================================== SAMPLE CODE ===
 
 const HELLO_WORLD_C = `/**
- * Hello World - MD Game Editor サンプル
- * SGDK を使った最小限のメガドライブゲーム
+ * Hello World - PCE Game Editor サンプル
+ * PC Engine / llvm-mos 向けの最小構成
  */
-#include <genesis.h>
+#include <stdint.h>
+
+#if defined(__PCE__)
+#include <pce.h>
+#endif
 
 int main(void)
 {
-    /* 背景色を設定（パレット 0, カラー 0: 濃い青） */
-    PAL_setColor(0, RGB24_TO_VDPCOLOR(0x000060));
-
-    /* テキスト表示 */
-    VDP_drawText("*** HELLO, MEGA WORLD! ***", 3, 10);
-    VDP_drawText("MD GAME EDITOR SAMPLE", 6, 13);
-    VDP_drawText("PRESS START", 10, 18);
+#if defined(__PCE__)
+    pce_vdc_set_resolution(256, 224, VCE_COLORBURST_ON);
+    pce_vdc_bg_set_size(VDC_BG_SIZE_32_32);
+    pce_vdc_set_copy_word();
+    pce_vdc_bg_enable();
+#endif
 
     /* メインループ */
     while (1)
     {
-        SYS_doVBlankProcess();
+        volatile uint16_t wait;
+        for (wait = 0u; wait < 6200u; wait++) {}
     }
 
     return 0;
@@ -3392,7 +3445,7 @@ async function runBuild(opts = {}) {
   setLogOpen(true);
   setBuildStatus('building', 'ビルド中...');
   if (el.buildRomSize) el.buildRomSize.textContent = '';
-  appendBuildLog(`=== ${getActiveCoreId() === 'pc-engine' ? 'PC Engine' : 'Mega Drive'} Build ===`);
+  appendBuildLog(`=== ${getActiveCoreId() === 'pc-engine' ? 'PC Engine' : getActiveCoreId()} Build ===`);
   appendBuildLog(`プロジェクト: ${state.projectConfig.title}`);
   appendBuildLog('');
 
@@ -3903,7 +3956,7 @@ function updateCodeCompletion({ force = false } = {}) {
     return;
   }
   const lower = prefix.toLowerCase();
-  const completions = CODE_COMPLETION_ITEMS
+  const completions = getCodeCompletionItems()
     .filter((item) => !prefix || item.label.toLowerCase().startsWith(lower))
     .slice(0, 24);
   state.code.completions = completions;
@@ -8045,7 +8098,7 @@ async function openAboutDialog() {
       return;
     }
     const wasm = info.embeddedWasm || {};
-    if (el.aboutTitle) el.aboutTitle.textContent = info.appName || 'MD Game Editor';
+    if (el.aboutTitle) el.aboutTitle.textContent = info.appName || 'PCE Game Editor';
     if (el.aboutDescription) el.aboutDescription.textContent = info.appDescription || 'Embedded emulator information';
     if (el.aboutAppVersion) el.aboutAppVersion.textContent = info.appVersion || 'unknown';
     if (el.aboutWasmBuildVersion) el.aboutWasmBuildVersion.textContent = wasm.buildVersion || 'unknown';
@@ -8646,11 +8699,11 @@ function bindEvents() {
   el.btnToggleLog?.addEventListener('click', (e) => { e.stopPropagation(); setLogOpen(!state.logOpen); });
   el.logLevelFilter?.addEventListener('change', () => {
     state.logs.levelFilter = el.logLevelFilter.value || 'all';
-    renderLogPanel();
+    scheduleLogPanelRender();
   });
   el.logSearchInput?.addEventListener('input', () => {
     state.logs.searchText = el.logSearchInput.value || '';
-    renderLogPanel();
+    scheduleLogPanelRender();
   });
 
   if (el.buildLogResizer) {
@@ -8658,12 +8711,13 @@ function bindEvents() {
     let dragStartHeight = 0;
     const onMouseMove = (event) => {
       const delta = dragStartY - event.clientY;
-      setLogOpenHeight(dragStartHeight + delta);
+      setLogOpenHeight(dragStartHeight + delta, { persist: false });
     };
     const onMouseUp = () => {
       el.buildLogResizer.classList.remove('dragging');
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      saveLogViewerState();
     };
 
     el.buildLogResizer.addEventListener('mousedown', (event) => {
@@ -8803,7 +8857,9 @@ async function bootstrap() {
   }
   await loadProjectConfig();
   await refreshProjectList();
-  await loadResDefinitions({ keepSelection: false });
+  if (isLegacyRescompAvailable()) {
+    await loadResDefinitions({ keepSelection: false });
+  }
   await loadPlugins();
   renderLogPanel();
 

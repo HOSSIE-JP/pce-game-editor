@@ -363,9 +363,19 @@ const pce_vn_message_t PCE_VN_DATA_SECTION pce_vn_messages[] = {
 const unsigned char PCE_VN_DATA_SECTION pce_vn_message_count = 4;
 
 const pce_vn_choice_t PCE_VN_DATA_SECTION pce_vn_choices[] = {
-  { (const pce_vn_choice_option_t *)0, 0u, 0u }
+  { (const pce_vn_choice_option_t *)0, 0u, 0u, -1 }
 };
 const unsigned char PCE_VN_DATA_SECTION pce_vn_choice_count = 0;
+
+const pce_vn_switch_t PCE_VN_DATA_SECTION pce_vn_switches[] = {
+  { (const pce_vn_switch_case_t *)0, 0u, PCE_VN_NO_COMMAND }
+};
+const unsigned char PCE_VN_DATA_SECTION pce_vn_switch_count = 0;
+
+const signed int PCE_VN_DATA_SECTION pce_vn_variable_initial_values[] = {
+  0
+};
+const unsigned char PCE_VN_DATA_SECTION pce_vn_variable_count = 0;
 
 const pce_vn_command_t PCE_VN_DATA_SECTION pce_vn_commands[] = {
   { 0u, 0, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, -1, -1 },

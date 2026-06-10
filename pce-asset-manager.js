@@ -21,6 +21,8 @@ const PCE_BG_MAP_WIDTH_TILES = 64;
 const PCE_BG_MAP_HEIGHT_TILES = 32;
 const PCE_BG_AUTO_MAP_BASE = 0;
 const PCE_BG_AUTO_TILE_BASE = Math.ceil((PCE_BG_MAP_WIDTH_TILES * PCE_BG_MAP_HEIGHT_TILES) / 16);
+const PCE_ADPCM_CODEC = audioConverter.PCE_ADPCM_CODEC || 'oki-msm5205';
+const PCE_ADPCM_NIBBLE_ORDER = audioConverter.PCE_ADPCM_NIBBLE_ORDER || 'msn-first';
 const DEFAULT_BG_OPTIONS = Object.freeze({
   kind: 'background',
   paletteBank: 0,
@@ -1284,6 +1286,8 @@ function importAudio(projectDir, payload = {}, options = {}) {
         channels: part.channels,
         durationSeconds: part.durationSeconds,
         bytes: part.output.length,
+        codec: part.codec || PCE_ADPCM_CODEC,
+        nibbleOrder: part.nibbleOrder || PCE_ADPCM_NIBBLE_ORDER,
         waveform: part.waveform,
         warnings,
         processing,
@@ -1309,6 +1313,8 @@ function importAudio(projectDir, payload = {}, options = {}) {
             sampleRate: part.sampleRate,
             channels: part.channels,
             durationSeconds: part.durationSeconds,
+            codec: part.codec || PCE_ADPCM_CODEC,
+            nibbleOrder: part.nibbleOrder || PCE_ADPCM_NIBBLE_ORDER,
             waveform: part.waveform,
             warnings,
           },
@@ -1691,6 +1697,134 @@ function collectCdDataFiles(projectDir) {
     .filter((relativePath) => fs.existsSync(path.join(projectDir, relativePath)))));
 }
 
+function adpcmAssetNeedsRegeneration(projectDir, asset) {
+  const generated = asset?.data?.generated || {};
+  if (!generated.outputFile) return Boolean(asset?.source);
+  const outputPath = path.join(projectDir, normalizeRelativePath(generated.outputFile));
+  if (!fs.existsSync(outputPath)) return true;
+  if (generated.codec !== PCE_ADPCM_CODEC) return true;
+  if (generated.nibbleOrder !== PCE_ADPCM_NIBBLE_ORDER) return true;
+  return false;
+}
+
+function updateAdpcmGeneratedAsset(projectDir, asset, part, shared = {}) {
+  const generated = asset.data?.generated || {};
+  const outputFile = normalizeRelativePath(generated.outputFile || relativeGeneratedPath(asset.id, 'adpcm.bin'));
+  const previewFile = normalizeRelativePath(generated.previewFile || relativeGeneratedPath(asset.id, 'preview.json'));
+  const { absPath: outputAbs } = resolveUnderRoot(projectDir, outputFile, 'project');
+  const { absPath: previewAbs } = resolveUnderRoot(projectDir, previewFile, 'project');
+  const warnings = [
+    ...(shared.warnings || []),
+    ...(part.output.length > shared.maxAdpcmBytes ? [`ADPCM: ${part.output.length} bytes exceeds runtime-safe limit ${shared.maxAdpcmBytes}`] : []),
+  ];
+  ensureDirSync(path.dirname(outputAbs));
+  fs.writeFileSync(outputAbs, part.output);
+  fs.writeFileSync(previewAbs, JSON.stringify({
+    source: shared.sourceRel,
+    kind: 'adpcm',
+    sampleRate: part.sampleRate,
+    channels: part.channels,
+    durationSeconds: part.durationSeconds,
+    bytes: part.output.length,
+    codec: part.codec || PCE_ADPCM_CODEC,
+    nibbleOrder: part.nibbleOrder || PCE_ADPCM_NIBBLE_ORDER,
+    waveform: part.waveform,
+    warnings,
+    processing: shared.processing || {},
+    groupId: shared.groupId,
+    partIndex: shared.partIndex,
+    partCount: shared.partCount,
+    splitPolicy: shared.splitPolicy,
+    maxAdpcmBytes: shared.maxAdpcmBytes,
+  }, null, 2), 'utf-8');
+  asset.data = {
+    ...(asset.data || {}),
+    generated: {
+      ...generated,
+      outputFile,
+      previewFile,
+      byteLength: part.output.length,
+      sampleRate: part.sampleRate,
+      channels: part.channels,
+      durationSeconds: part.durationSeconds,
+      codec: part.codec || PCE_ADPCM_CODEC,
+      nibbleOrder: part.nibbleOrder || PCE_ADPCM_NIBBLE_ORDER,
+      waveform: part.waveform,
+      warnings,
+    },
+    import: {
+      ...(asset.data?.import || {}),
+      codec: part.codec || PCE_ADPCM_CODEC,
+      nibbleOrder: part.nibbleOrder || PCE_ADPCM_NIBBLE_ORDER,
+      regeneratedAt: new Date().toISOString(),
+    },
+  };
+}
+
+function ensureAdpcmGeneratedAssets(projectDir, doc) {
+  const adpcmAssets = (doc.assets || []).filter((asset) => asset.type === 'adpcm');
+  const groupIds = new Set();
+  let changed = false;
+  for (const asset of adpcmAssets) {
+    const groupId = String(asset.data?.import?.groupId || asset.id || '');
+    if (!groupId || groupIds.has(groupId)) continue;
+    groupIds.add(groupId);
+    const group = adpcmAssets
+      .filter((entry) => String(entry.data?.import?.groupId || entry.id || '') === groupId)
+      .sort((a, b) => clampInt(a.data?.import?.partIndex, 1, 65535, 1) - clampInt(b.data?.import?.partIndex, 1, 65535, 1));
+    if (!group.some((entry) => adpcmAssetNeedsRegeneration(projectDir, entry))) continue;
+    const first = group[0];
+    const sourceRel = normalizeRelativePath(first.source || '');
+    if (!sourceRel) continue;
+    const { absPath: sourceAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
+    if (!fs.existsSync(sourceAbs)) {
+      if (group.every((entry) => {
+        const generated = entry.data?.generated || {};
+        return generated.outputFile && fs.existsSync(path.join(projectDir, normalizeRelativePath(generated.outputFile)));
+      })) {
+        continue;
+      }
+      throw new Error(`ADPCM source not found for regeneration: ${sourceRel}`);
+    }
+    const input = fs.readFileSync(sourceAbs);
+    const options = normalizeAdpcmOptions(first);
+    const maxAdpcmBytes = Math.max(1, Math.min(65535, clampInt(first.data?.import?.maxAdpcmBytes, 1, 65535, 65536 - options.adpcmAddress)));
+    const splitPolicy = first.data?.import?.splitPolicy === 'auto' || group.length > 1 ? 'auto' : '';
+    const converted = splitPolicy === 'auto'
+      ? audioConverter.convertWavForAdpcmParts(input, { sampleRate: options.sampleRate, maxBytes: maxAdpcmBytes })
+      : audioConverter.convertWavForAdpcm(input, { sampleRate: options.sampleRate });
+    const parts = splitPolicy === 'auto'
+      ? converted.parts
+      : [{
+          output: converted.output,
+          codec: converted.codec,
+          nibbleOrder: converted.nibbleOrder,
+          sampleRate: converted.sampleRate,
+          channels: converted.channels,
+          durationSeconds: converted.durationSeconds,
+          waveform: converted.waveform,
+        }];
+    if (parts.length !== group.length) {
+      throw new Error(`ADPCM split count changed for ${groupId}; please re-import the asset`);
+    }
+    group.forEach((entry, index) => {
+      updateAdpcmGeneratedAsset(projectDir, entry, parts[index], {
+        sourceRel,
+        warnings: converted.warnings || [],
+        processing: entry.data?.import?.processing || {},
+        groupId,
+        partIndex: index + 1,
+        partCount: group.length,
+        splitPolicy,
+        maxAdpcmBytes,
+      });
+      changed = true;
+    });
+  }
+  if (changed) writeAssetDocument(projectDir, doc);
+  return changed;
+}
+
 function buildCdDataLayout(projectDir, dataFiles) {
   const layout = new Map();
   let sector = CD_DATA_BASE_SECTOR;
@@ -1715,6 +1849,7 @@ function normalizeCdDataFileList(projectDir, entries = []) {
 
 function generateAssetSources(projectDir, options = {}) {
   const doc = readAssetDocument(projectDir);
+  ensureAdpcmGeneratedAssets(projectDir, doc);
   const image = doc.assets.find((asset) => asset.type === 'image');
   const sound = doc.assets.find((asset) => asset.type === 'psg-sfx' || asset.type === 'psg-song');
   const targetsCd = projectTargetsCd(projectDir);
