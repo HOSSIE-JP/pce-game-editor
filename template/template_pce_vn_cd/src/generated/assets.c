@@ -85,17 +85,17 @@ const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[] = {
 const unsigned char pce_editor_sprite_asset_count = 2;
 
 const pce_editor_psg_asset_t pce_editor_psg_assets[] = {
-  { "vn_psg_chime", 1u, 512u, 132u, 8u, pce_editor_psg_vn_psg_chime_pattern, 4u }
+  { 1u, 512u, 132u, 8u, pce_editor_psg_vn_psg_chime_pattern, 4u }
 };
 const unsigned char pce_editor_psg_asset_count = 1;
 
 const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] = {
-  { "akari_voice", (const unsigned char *)0, 2400u, 16000u, 0u, 1u, 0u, &pce_editor_adpcm_akari_voice_data_cd }
+  { (const unsigned char *)0, 2400u, 16000u, 0u, 1u, 0u, 0u, &pce_editor_adpcm_akari_voice_data_cd }
 };
 const unsigned char pce_editor_adpcm_asset_count = 1;
 
 const pce_editor_cdda_asset_t pce_editor_cdda_assets[] = {
-  { "opening_cdda", 2u, 1u }
+  { 2u, 1u, { 194u, 1u, 0u }, { 177u, 2u, 0u }, { 14u, 11u, 0u }, 190u }
 };
 const unsigned char pce_editor_cdda_asset_count = 1;
 

@@ -6,7 +6,7 @@
   "durationSeconds": 0.3,
   "bytes": 2400,
   "codec": "oki-msm5205",
-  "nibbleOrder": "msn-first",
+  "nibbleOrder": "lsn-first",
   "waveform": [
     0.044,
     0.113,

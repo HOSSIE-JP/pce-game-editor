@@ -143,6 +143,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
               <span class="form-label">Loop</span>
               <label class="pce-adpcm-check"><input name="loop" type="checkbox" /><span>loop</span></label>
             </label>
+            <label class="form-group">
+              <span class="form-label">Streaming</span>
+              <label class="pce-adpcm-check"><input name="stream" type="checkbox" /><span>CDから直接再生</span></label>
+            </label>
           </div>
           <audio controls data-role="preview" hidden></audio>
           <div class="pce-adpcm-stats" data-role="stats"></div>
@@ -294,6 +298,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     formEl.elements.divider.value = asset.options?.divider ?? sampleRateToDivider(formEl.elements.sampleRate.value);
     delete formEl.elements.divider.dataset.touched;
     formEl.elements.loop.checked = Boolean(asset.options?.loop);
+    formEl.elements.stream.checked = Boolean(asset.options?.stream ?? asset.options?.streaming);
     renderStats(asset);
     void loadPreview(asset, options);
   }
@@ -380,6 +385,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         adpcmAddress: clampInt(formEl.elements.adpcmAddress.value, 0, 65535, 0),
         divider: clampInt(formEl.elements.divider.value, 0, 255, sampleRateToDivider(sampleRate)),
         loop: Boolean(formEl.elements.loop.checked),
+        stream: Boolean(formEl.elements.stream.checked),
       },
     };
   }
@@ -504,6 +510,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
                 <span class="form-label">Loop</span>
                 <label class="pce-adpcm-check"><input name="loop" type="checkbox" /><span>loop</span></label>
               </label>
+              <label class="form-group">
+                <span class="form-label">Streaming</span>
+                <label class="pce-adpcm-check"><input name="stream" type="checkbox" /><span>CDから直接再生</span></label>
+              </label>
               <label class="form-group pce-adpcm-wide">
                 <span class="form-label">Split</span>
                 <label class="pce-adpcm-check"><input name="splitPolicy" type="checkbox" checked /><span>16-bit size/address 制約に合わせて自動分割</span></label>
@@ -522,7 +532,13 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       const syncDivider = () => {
         form.elements.divider.value = sampleRateToDivider(form.elements.sampleRate.value);
       };
+      const syncStreaming = () => {
+        const stream = Boolean(form.elements.stream.checked);
+        form.elements.splitPolicy.disabled = stream;
+        if (stream) form.elements.splitPolicy.checked = false;
+      };
       form.elements.sampleRate.addEventListener('input', syncDivider);
+      form.elements.stream.addEventListener('change', syncStreaming);
       modal.panel.querySelector('[data-import-auto-divider]').addEventListener('click', syncDivider);
       modal.panel.querySelectorAll('[data-import-cancel]').forEach((button) => {
         button.addEventListener('click', () => {
@@ -539,6 +555,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           return;
         }
         const sampleRate = clampInt(form.elements.sampleRate.value, 4000, 32000, 16000);
+        const stream = Boolean(form.elements.stream.checked);
         modal.close();
         modal.destroy?.();
         resolve({
@@ -548,9 +565,11 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           adpcmAddress: clampInt(form.elements.adpcmAddress.value, 0, 65535, 0),
           divider: clampInt(form.elements.divider.value, 0, 255, sampleRateToDivider(sampleRate)),
           loop: Boolean(form.elements.loop.checked),
-          splitPolicy: Boolean(form.elements.splitPolicy.checked),
+          stream,
+          splitPolicy: !stream && Boolean(form.elements.splitPolicy.checked),
         });
       });
+      syncStreaming();
       modal.open();
     });
   }
@@ -595,8 +614,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         adpcmAddress: details.adpcmAddress,
         divider: details.divider,
         loop: details.loop,
+        stream: details.stream,
         processing: converted.processing || {},
-        splitPolicy: details.splitPolicy ? 'auto' : '',
+        splitPolicy: details.stream ? '' : (details.splitPolicy ? 'auto' : ''),
       });
       if (!result?.ok) throw new Error(result?.error || '取り込みに失敗しました');
       selectedId = result.asset?.id || details.id;

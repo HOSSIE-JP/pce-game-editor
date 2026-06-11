@@ -310,13 +310,13 @@ test('PCE audio import converts WAV into ADPCM and CD-DA assets', () => {
   assert.equal(adpcm.asset.options.divider, 2);
   assert.match(adpcm.asset.data.generated.outputFile, /adpcm\.bin$/);
   assert.equal(adpcm.asset.data.generated.codec, 'oki-msm5205');
-  assert.equal(adpcm.asset.data.generated.nibbleOrder, 'msn-first');
+  assert.equal(adpcm.asset.data.generated.nibbleOrder, 'lsn-first');
   const adpcmBytes = fs.readFileSync(path.join(projectDir, adpcm.asset.data.generated.outputFile));
   const renderedPcm = audioConverter.renderPcm16(audioConverter.parseWav(fs.readFileSync(source)), { sampleRate: 12000, channels: 1 }).pcm;
   const highNibbleError = pcmErrorScore(renderedPcm, decodeOkiAdpcm(adpcmBytes, true));
   const lowNibbleError = pcmErrorScore(renderedPcm, decodeOkiAdpcm(adpcmBytes, false));
   assert.equal(fs.existsSync(path.join(projectDir, adpcm.asset.data.generated.outputFile)), true);
-  assert.ok(highNibbleError < lowNibbleError / 4);
+  assert.ok(lowNibbleError < highNibbleError / 4);
   assert.equal(cdda.asset.type, 'cdda-track');
   assert.equal(cdda.asset.options.track, 4);
   assert.match(cdda.asset.data.generated.outputFile, /cdda\.wav$/);
@@ -381,7 +381,7 @@ test('PCE generated sources refresh legacy ADPCM nibble order before build', () 
   const refreshedDoc = JSON.parse(fs.readFileSync(assetPath, 'utf-8'));
   assert.deepEqual(refreshed, expected);
   assert.equal(refreshedDoc.assets[0].data.generated.codec, 'oki-msm5205');
-  assert.equal(refreshedDoc.assets[0].data.generated.nibbleOrder, 'msn-first');
+  assert.equal(refreshedDoc.assets[0].data.generated.nibbleOrder, 'lsn-first');
 });
 
 test('PCE ADPCM import auto-splits assets that exceed runtime-safe size', () => {
@@ -410,6 +410,36 @@ test('PCE ADPCM import auto-splits assets that exceed runtime-safe size', () => 
     assert.equal(fs.statSync(path.join(projectDir, part.data.generated.outputFile)).size <= 6, true);
   }
   assert.deepEqual(assetManager.collectCdDataFiles(projectDir), parts.map((part) => part.data.generated.outputFile));
+});
+
+test('PCE ADPCM streaming import keeps long samples as one CD data file', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-audio-stream-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+
+  const result = assetManager.importAudio(projectDir, {
+    dataUrl: makeWavDataUrl(8000, 96),
+    sourceFileName: 'long.wav',
+    kind: 'adpcm',
+    id: 'long_stream',
+    sampleRate: 8000,
+    adpcmAddress: 65530,
+    stream: true,
+    splitPolicy: 'auto',
+  });
+  const generatedPath = path.join(projectDir, result.asset.data.generated.outputFile);
+
+  assert.equal(result.asset.id, 'long_stream');
+  assert.equal(result.asset.options.stream, true);
+  assert.equal(result.conversion.partCount, 1);
+  assert.equal(fs.statSync(generatedPath).size > 6, true);
+  assert.deepEqual(assetManager.collectCdDataFiles(projectDir), ['assets/generated/long_stream/adpcm.bin']);
+
+  const generated = assetManager.generateAssetSources(projectDir);
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  assert.match(header, /unsigned long data_size;/);
+  assert.match(source, /\{ \(const unsigned char \*\)0, \d+u, 8000u, 65530u, 3u, 0u, 1u, &pce_editor_adpcm_long_stream_data_cd \}/);
 });
 
 test('PCE image import generates BG and sprite assets with the internal converter', () => {
@@ -449,6 +479,7 @@ test('PCE image import generates BG and sprite assets with the internal converte
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.paletteFile)).length, 32);
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.tilesFile)).length, 256);
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.mapFile)).length, 16);
+  assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.mapVramFile)).readUInt16LE(0) & 0x0fff, 128);
   assert.equal(bg.asset.data.generated.tileCount, 8);
   assert.equal(sprite.asset.type, 'sprite');
   assert.equal(sprite.commandInfo.mode, 'internal-pce');
@@ -461,6 +492,33 @@ test('PCE image import generates BG and sprite assets with the internal converte
   assert.equal(webp.asset.type, 'image');
   assert.equal(webp.asset.source, 'assets/images/cover_webp.png');
   assert.equal(fs.existsSync(path.join(projectDir, webp.asset.source)), true);
+});
+
+test('PCE background generation refreshes stale map tile references before source output', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-stale-bg-');
+  const imported = assetManager.importImage(projectDir, {
+    sourceFileName: 'title.png',
+    convertedDataUrl: makePngDataUrl(16, 16),
+    kind: 'background',
+    id: 'title',
+  });
+  const mapPath = path.join(projectDir, imported.asset.data.generated.mapFile);
+  const mapVramPath = path.join(projectDir, imported.asset.data.generated.mapVramFile);
+  const staleMap = fs.readFileSync(mapPath);
+  const staleVramMap = fs.readFileSync(mapVramPath);
+  staleMap.writeUInt16LE(32, 0);
+  staleVramMap.writeUInt16LE(32, 0);
+  fs.writeFileSync(mapPath, staleMap);
+  fs.writeFileSync(mapVramPath, staleVramMap);
+
+  assetManager.generateAssetSources(projectDir);
+
+  const refreshed = fs.readFileSync(mapVramPath);
+  const saved = assetManager.readAssetDocument(projectDir);
+  assert.equal(refreshed.readUInt16LE(0) & 0x0fff, 128);
+  assert.equal(saved.assets[0].data.import.converter, 'Internal PCE image converter');
+  assert.equal(typeof saved.assets[0].data.import.regeneratedAt, 'string');
 });
 
 test('PCE sprite import writes VCE colors and sprite pattern words in hardware order', () => {
@@ -645,13 +703,16 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.match(header, /extern const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\];/);
   assert.match(header, /pce_editor_psg_asset_t/);
   assert.match(header, /pce_editor_adpcm_asset_t/);
+  assert.match(header, /unsigned long data_size;/);
+  assert.match(header, /unsigned char stream;/);
   assert.match(header, /pce_editor_cdda_asset_t/);
+  assert.doesNotMatch(header, /const char \*id;/);
   assert.match(source, /static const unsigned char pce_editor_image_bg_palette\[\]/);
   assert.match(source, /static const unsigned char pce_editor_sprite_spr_patterns\[\]/);
   assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_beep_pattern\[\]/);
   assert.match(source, /static const unsigned char pce_editor_adpcm_voice_data\[\]/);
   assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_tiles, 64u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_map, 8u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, 2u, 2u, 128u, 0u, 0u \}/);
-  assert.match(source, /\{ "voice", pce_editor_adpcm_voice_data, 4u, 16000u, 0u, 1u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
+  assert.match(source, /\{ pce_editor_adpcm_voice_data, 4u, 16000u, 0u, 1u, 0u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
   assert.match(source, /const unsigned char pce_editor_bg_asset_count = 1/);
   assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] = \{\n  \{ 16u, 16u, 1u, 1u, 384u, 0u \}\n\};/);
   assert.match(source, /const unsigned char pce_editor_sprite_asset_count = 1/);
@@ -672,6 +733,8 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   writeFile(projectDir, 'assets/generated/hero/palette.bin', Buffer.alloc(32, 0x02));
   writeFile(projectDir, 'assets/generated/hero/patterns.bin', Buffer.alloc(4096, 0x33));
   writeFile(projectDir, 'assets/generated/voice/adpcm.bin', Buffer.alloc(4096, 0x44));
+  writeFile(projectDir, 'assets/generated/opening/cdda.wav', makeWavBuffer(44100, 44100));
+  writeFile(projectDir, 'assets/generated/ending/cdda.wav', makeWavBuffer(44100, 88200));
   writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
     version: 2,
     assets: [
@@ -701,7 +764,22 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
         id: 'voice',
         type: 'adpcm',
         source: 'assets/adpcm/voice.wav',
+        options: { stream: true },
         data: { generated: { outputFile: 'assets/generated/voice/adpcm.bin' } },
+      },
+      {
+        id: 'ending',
+        type: 'cdda-track',
+        source: 'assets/cdda/ending.wav',
+        options: { track: 3 },
+        data: { generated: { outputFile: 'assets/generated/ending/cdda.wav' } },
+      },
+      {
+        id: 'opening',
+        type: 'cdda-track',
+        source: 'assets/cdda/opening.wav',
+        options: { track: 2, loop: true },
+        data: { generated: { outputFile: 'assets/generated/opening/cdda.wav' } },
       },
     ],
   }, null, 2));
@@ -728,7 +806,13 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_tiles_cd \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_map_cd \}, 36u, 16u, 128u, 0u, 0u \}/);
   assert.match(source, /pce_editor_sprite_hero_patterns_cd = \{ \{ 66u, 0u, 0u \}, 2u \};/);
   assert.match(source, /pce_editor_adpcm_voice_data_cd = \{ \{ 68u, 0u, 0u \}, 2u \};/);
-  assert.match(source, /\{ "voice", \(const unsigned char \*\)0, 4096u, 16000u, 0u, 1u, 0u, &pce_editor_adpcm_voice_data_cd \}/);
+  assert.match(source, /\{ \(const unsigned char \*\)0, 4096u, 16000u, 0u, 1u, 0u, 1u, &pce_editor_adpcm_voice_data_cd \}/);
+  assert.match(header, /pce_editor_cd_sector_t start_sector;/);
+  assert.match(header, /pce_editor_cd_sector_t end_sector;/);
+  assert.match(header, /pce_editor_cd_time_t end_time;/);
+  assert.match(header, /unsigned int play_frames;/);
+  assert.match(source, /\{ 3u, 0u, \{ 13u, 2u, 0u \}, \{ 162u, 2u, 0u \}, \{ 74u, 10u, 0u \}, 118u \}/);
+  assert.match(source, /\{ 2u, 1u, \{ 194u, 1u, 0u \}, \{ 12u, 2u, 0u \}, \{ 74u, 8u, 0u \}, 58u \}/);
   assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] = \{\n  \{ 16u, 16u, 4u, 8u, 880u, 1u \}\n\};/);
   assert.doesNotMatch(source, /extern const unsigned char __cd_assets_generated_bg_tiles_bin/);
   assert.doesNotMatch(source, /__cd_assets_generated_bg_tiles_bin_sector/);

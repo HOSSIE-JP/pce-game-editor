@@ -70,8 +70,12 @@ static uint8_t pending_sprite_refresh = 0;
 static uint8_t pending_display_enable = 0;
 static uint8_t pending_scene_sprite_clear = 0;
 static signed int current_bg_index;
+static uint8_t current_bg_x;
+static uint8_t current_bg_y;
 static uint8_t preloaded_bg_valid = 0;
 static uint8_t preloaded_bg_index = 0;
+static uint8_t preloaded_bg_x = 0;
+static uint8_t preloaded_bg_y = 0;
 static uint8_t loaded_sprite_pattern_valid = 0;
 static uint8_t loaded_sprite_pattern_index = 0;
 static uint8_t loaded_adpcm_valid = 0;
@@ -108,8 +112,21 @@ static vdc_sprite_t sprite_shadow[64];
 #endif
 #if defined(__PCE_CD__)
 static uint8_t cd_transfer_scratch[VN_CD_SECTOR_BYTES];
+static uint8_t cdda_active = 0;
+static uint8_t cdda_has_frame_limit = 0;
+static uint8_t cdda_looping = 0;
+static uint8_t cdda_track = 0;
+static uint16_t cdda_frames_remaining = 0;
+static const pce_editor_cdda_asset_t *cdda_current = (const pce_editor_cdda_asset_t *)0;
+static uint8_t adpcm_stream_looping = 0;
+static uint8_t adpcm_stream_index = 0;
 #endif
 static void advance_story(void);
+static void preload_scene_assets(signed int scene_index, uint8_t allow_visual_upload);
+#if defined(__PCE_CD__)
+static void service_cdda_playback(void);
+static void service_adpcm_streaming(void);
+#endif
 
 static void map_vn_data(void)
 {
@@ -134,12 +151,26 @@ static void init_runtime_state(void)
     pending_display_enable = 0u;
     pending_scene_sprite_clear = 0u;
     current_bg_index = -1;
+    current_bg_x = 0u;
+    current_bg_y = 0u;
     preloaded_bg_valid = 0u;
     preloaded_bg_index = 0u;
+    preloaded_bg_x = 0u;
+    preloaded_bg_y = 0u;
     loaded_sprite_pattern_valid = 0u;
     loaded_sprite_pattern_index = 0u;
     loaded_adpcm_valid = 0u;
     loaded_adpcm_index = 0u;
+#if defined(__PCE_CD__)
+    cdda_active = 0u;
+    cdda_has_frame_limit = 0u;
+    cdda_looping = 0u;
+    cdda_track = 0u;
+    cdda_frames_remaining = 0u;
+    cdda_current = (const pce_editor_cdda_asset_t *)0;
+    adpcm_stream_looping = 0u;
+    adpcm_stream_index = 0u;
+#endif
     screen_shake_x = 0;
     screen_shake_y = 0;
     active_message_index = -1;
@@ -167,6 +198,8 @@ static void delay_frame(void)
 {
 #if defined(__PCE_CD__)
     pce_cdb_wait_vblank();
+    service_cdda_playback();
+    service_adpcm_streaming();
 #else
     volatile uint16_t delay;
     for (delay = 0; delay < 6200u; delay++) {}
@@ -377,6 +410,13 @@ static void cd_sector_from_ref(pce_sector_t *dest, const pce_editor_cd_sector_t 
     dest->hi = source ? source->hi : 0u;
 }
 
+static void cd_sector_from_uint(pce_sector_t *dest, unsigned long value)
+{
+    dest->lo = (uint8_t)(value & 0xfful);
+    dest->md = (uint8_t)((value >> 8) & 0xfful);
+    dest->hi = (uint8_t)((value >> 16) & 0xfful);
+}
+
 static void cd_sector_advance(pce_sector_t *sector)
 {
     sector->lo++;
@@ -392,12 +432,25 @@ static void cd_transfer_wait(void)
     for (wait = 0u; wait < 65535u; wait++) {}
 }
 
+static void prepare_cd_data_access(void)
+{
+    if (!cdda_active) return;
+    (void)pce_cdb_cdda_pause();
+    cdda_active = 0u;
+    cdda_has_frame_limit = 0u;
+    cdda_looping = 0u;
+    cdda_track = 0u;
+    cdda_frames_remaining = 0u;
+    cdda_current = (const pce_editor_cdda_asset_t *)0;
+}
+
 static uint8_t cd_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref)
 {
     pce_sector_t sector = {0};
     uint16_t remaining;
     uint16_t vram_dest;
     if (!ref || !ref->cd || !ref->cd->sector_count || !ref->size) return 0u;
+    prepare_cd_data_access();
     cd_sector_from_ref(&sector, &ref->cd->sector);
     remaining = (uint16_t)ref->size;
     vram_dest = dest;
@@ -436,6 +489,7 @@ static uint8_t cd_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t 
     if (!copy_width_tiles || !copy_height_tiles) return 0u;
     row_bytes = (uint16_t)(copy_width_tiles * 2u);
     if (ref->size < (uint16_t)(VN_MAP_ROW_BYTES * copy_height_tiles)) return 0u;
+    prepare_cd_data_access();
     cd_sector_from_ref(&sector, &ref->cd->sector);
     remaining = (uint16_t)ref->size;
     while (row < copy_height_tiles && remaining)
@@ -600,6 +654,34 @@ static void clear_screen_map(void)
     }
 }
 
+static void clear_map_rect_at_dest(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles)
+{
+    uint8_t row;
+    uint8_t col;
+    uint8_t x;
+    uint8_t y;
+    uint8_t copy_width;
+    uint8_t copy_height;
+    static uint16_t line[VN_MAP_WIDTH];
+    if (!width_tiles || !height_tiles) return;
+    x = (uint8_t)(map_dest % VN_MAP_WIDTH);
+    y = (uint8_t)(map_dest / VN_MAP_WIDTH);
+    if (y >= VN_MAP_HEIGHT) return;
+    copy_width = width_tiles;
+    copy_height = height_tiles;
+    if ((uint16_t)x + copy_width > VN_MAP_WIDTH) copy_width = (uint8_t)(VN_MAP_WIDTH - x);
+    if ((uint16_t)y + copy_height > VN_MAP_HEIGHT) copy_height = (uint8_t)(VN_MAP_HEIGHT - y);
+    if (!copy_width || !copy_height) return;
+    for (col = 0; col < copy_width; col++)
+    {
+        line[col] = ui_tile(VN_UI_BLANK_TILE);
+    }
+    for (row = 0; row < copy_height; row++)
+    {
+        write_map_words((uint16_t)(map_dest + ((uint16_t)row * VN_MAP_WIDTH)), line, copy_width);
+    }
+}
+
 static void draw_blank_cell(uint8_t x, uint8_t y)
 {
     static uint16_t top[2];
@@ -685,7 +767,20 @@ static void draw_message_text(const pce_vn_message_t *message)
     }
 }
 
-static void upload_bg_graphics(const pce_editor_bg_asset_t *bg)
+static uint16_t bg_map_dest_from_tile(const pce_editor_bg_asset_t *bg, uint16_t tile_x, uint16_t tile_y)
+{
+    uint8_t x = tile_x < VN_MAP_WIDTH ? (uint8_t)tile_x : 0u;
+    uint8_t y = tile_y < VN_MAP_HEIGHT ? (uint8_t)tile_y : 0u;
+    return (uint16_t)(bg->map_base + ((uint16_t)y * VN_MAP_WIDTH) + x);
+}
+
+static void clear_bg_map_region(const pce_editor_bg_asset_t *bg, uint16_t tile_x, uint16_t tile_y)
+{
+    if (!bg) return;
+    clear_map_rect_at_dest(bg_map_dest_from_tile(bg, tile_x, tile_y), bg->width_tiles, bg->height_tiles);
+}
+
+static void upload_bg_graphics(const pce_editor_bg_asset_t *bg, uint16_t map_dest)
 {
     uint8_t row;
     uint16_t row_bytes;
@@ -697,7 +792,7 @@ static void upload_bg_graphics(const pce_editor_bg_asset_t *bg)
 #if defined(__PCE_CD__)
     if (bg->map.cd && bg->map.size)
     {
-        if (cd_bg_map_ref_to_vram(bg->map_base, &bg->map, bg->width_tiles, bg->height_tiles)) return;
+        if (cd_bg_map_ref_to_vram(map_dest, &bg->map, bg->width_tiles, bg->height_tiles)) return;
     }
 #endif
     map = data_ref_ptr(&bg->map);
@@ -706,7 +801,7 @@ static void upload_bg_graphics(const pce_editor_bg_asset_t *bg)
     for (row = 0; row < bg->height_tiles; row++)
     {
         pce_editor_vram_copy(
-            (uint16_t)(bg->map_base + ((uint16_t)row * VN_MAP_WIDTH)),
+            (uint16_t)(map_dest + ((uint16_t)row * VN_MAP_WIDTH)),
             map + ((uint16_t)row * row_bytes),
             row_bytes
         );
@@ -843,41 +938,64 @@ static uint8_t show_character_sprite_frame(uint8_t satb_index, uint8_t sprite_in
     return written;
 }
 
-static void play_cdda_track(uint8_t track, uint8_t loop)
+static void play_cdda_track(const pce_editor_cdda_asset_t *cdda)
 {
 #if defined(__PCE_CD__)
     pce_sector_t start = {0};
     pce_sector_t end = {0};
     uint8_t end_type = PCE_CDB_LOCATION_TYPE_UNTIL_END;
-    const uint8_t mode = loop ? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT;
+    uint8_t track;
+    uint8_t loop;
+    const uint8_t restore_display_after_cdda = (uint8_t)!pending_display_enable;
+    if (!cdda) return;
+    track = cdda->track;
+    loop = cdda->loop;
+    const uint8_t mode = PCE_CDB_CDDA_PLAY_REPEAT;
     if (track < 2u) return;
-    start.track = track;
-    start.track_end = track;
+    if (cdda_active)
     {
-        pce_cdb_toc_data_t toc = {0};
-        if (!pce_cdb_cd_read_toc_track_count(&toc))
+        (void)pce_cdb_cdda_pause();
+        cdda_active = 0u;
+    }
+    start.lo = cdda->start_sector.lo;
+    start.md = cdda->start_sector.md;
+    start.hi = cdda->start_sector.hi;
+    cdda_has_frame_limit = cdda->play_frames ? 1u : 0u;
+    cdda_frames_remaining = cdda->play_frames;
+    cdda_looping = loop ? 1u : 0u;
+    cdda_track = track;
+    cdda_current = cdda;
+    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, start, end_type, end, mode);
+    cdda_active = 1u;
+    if (restore_display_after_cdda) display_enable();
+#else
+    (void)cdda;
+#endif
+}
+
+static void service_cdda_playback(void)
+{
+#if defined(__PCE_CD__)
+    if (!cdda_active || !cdda_has_frame_limit || !cdda_current) return;
+    if (cdda_frames_remaining) cdda_frames_remaining--;
+    if (cdda_frames_remaining) return;
+    {
+        if (cdda_looping)
         {
-            if (track > toc.track_end) return;
-            if (track < toc.track_end && !pce_cdb_cd_read_toc_track_sector(&toc, (uint8_t)(track + 1u)))
-            {
-                end.lo = toc.lo;
-                end.md = toc.md;
-                end.hi = toc.hi;
-                end_type = PCE_CDB_LOCATION_TYPE_SECTOR;
-            }
-            else if (track >= toc.track_end && !pce_cdb_cd_read_toc_lead_out_time(&toc))
-            {
-                end.frame = toc.frame;
-                end.second = toc.second;
-                end.minute = toc.minute;
-                end_type = PCE_CDB_LOCATION_TYPE_TIME;
-            }
+            cdda_active = 0u;
+            play_cdda_track(cdda_current);
+        }
+        else
+        {
+            (void)pce_cdb_cdda_pause();
+            cdda_active = 0u;
+            cdda_has_frame_limit = 0u;
+            cdda_looping = 0u;
+            cdda_track = 0u;
+            cdda_frames_remaining = 0u;
+            cdda_current = (const pce_editor_cdda_asset_t *)0;
         }
     }
-    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_TRACK, start, end_type, end, mode);
-#else
-    (void)track;
-    (void)loop;
 #endif
 }
 
@@ -885,6 +1003,12 @@ static void stop_cdda_track(void)
 {
 #if defined(__PCE_CD__)
     (void)pce_cdb_cdda_pause();
+    cdda_active = 0u;
+    cdda_has_frame_limit = 0u;
+    cdda_looping = 0u;
+    cdda_track = 0u;
+    cdda_frames_remaining = 0u;
+    cdda_current = (const pce_editor_cdda_asset_t *)0;
 #endif
 }
 
@@ -911,7 +1035,7 @@ static uint8_t adpcm_playback_active(void)
 #endif
 }
 
-static void wait_adpcm_transfer_ready(void)
+static uint8_t wait_adpcm_transfer_ready(void)
 {
 #if defined(__PCE_CD__)
     uint16_t guard = 65535u;
@@ -919,6 +1043,85 @@ static void wait_adpcm_transfer_ready(void)
     {
         guard--;
     }
+    return guard ? 1u : 0u;
+#else
+    return 0u;
+#endif
+}
+
+static uint8_t load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback)
+{
+#if defined(__PCE_CD__)
+    const pce_editor_adpcm_asset_t *voice;
+    uint8_t loaded = 0u;
+    if (voice_index < 0 || (uint8_t)voice_index >= pce_editor_adpcm_asset_count) return 0u;
+    if (loaded_adpcm_valid && loaded_adpcm_index == (uint8_t)voice_index) return 1u;
+    voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
+    if (voice->stream) return 0u;
+    if (adpcm_playback_active())
+    {
+        if (!allow_stop_playback) return 0u;
+        pce_cdb_adpcm_stop();
+        (void)wait_adpcm_transfer_ready();
+    }
+    if ((!voice->data && !voice->cd) || !voice->data_size) return 0u;
+    loaded_adpcm_valid = 0u;
+    pce_cdb_adpcm_reset();
+    if (!wait_adpcm_transfer_ready()) return 0u;
+    if (voice->cd && voice->cd->sector_count)
+    {
+        pce_sector_t sector = {0};
+        const uint16_t sector_count = voice->cd->sector_count;
+        const uint8_t read_count = sector_count > 255u ? 255u : (uint8_t)sector_count;
+        prepare_cd_data_access();
+        cd_sector_from_ref(&sector, &voice->cd->sector);
+        loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, read_count, voice->adpcm_address));
+    }
+    else
+    {
+        loaded = (uint8_t)(!pce_cdb_adpcm_read_from_ram(PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)voice->data, voice->adpcm_address, (uint16_t)voice->data_size));
+    }
+    if (!loaded) return 0u;
+    if (!wait_adpcm_transfer_ready()) return 0u;
+    loaded_adpcm_valid = 1u;
+    loaded_adpcm_index = (uint8_t)voice_index;
+    return 1u;
+#else
+    (void)voice_index;
+    (void)allow_stop_playback;
+    return 0u;
+#endif
+}
+
+static uint8_t stream_adpcm_voice(signed int voice_index)
+{
+#if defined(__PCE_CD__)
+    const pce_editor_adpcm_asset_t *voice;
+    pce_sector_t sector = {0};
+    pce_sector_t length = {0};
+    uint8_t divider;
+    if (voice_index < 0 || (uint8_t)voice_index >= pce_editor_adpcm_asset_count) return 0u;
+    voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
+    if (!voice->stream || !voice->cd || !voice->cd->sector_count || !voice->data_size) return 0u;
+    if (adpcm_playback_active())
+    {
+        pce_cdb_adpcm_stop();
+        (void)wait_adpcm_transfer_ready();
+    }
+    loaded_adpcm_valid = 0u;
+    prepare_cd_data_access();
+    pce_cdb_adpcm_reset();
+    if (!wait_adpcm_transfer_ready()) return 0u;
+    cd_sector_from_ref(&sector, &voice->cd->sector);
+    cd_sector_from_uint(&length, (unsigned long)voice->cd->sector_count);
+    divider = adpcm_play_divider(voice);
+    if (pce_cdb_adpcm_stream(sector, length, divider)) return 0u;
+    adpcm_stream_looping = voice->loop ? 1u : 0u;
+    adpcm_stream_index = (uint8_t)voice_index;
+    return 1u;
+#else
+    (void)voice_index;
+    return 0u;
 #endif
 }
 
@@ -928,30 +1131,24 @@ static void play_adpcm_voice(signed int voice_index)
     const pce_editor_adpcm_asset_t *voice;
     uint8_t divider;
     if (voice_index < 0 || (uint8_t)voice_index >= pce_editor_adpcm_asset_count) return;
-    voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
-    if ((!voice->data && !voice->cd) || !voice->data_size) return;
-    if (!loaded_adpcm_valid || loaded_adpcm_index != (uint8_t)voice_index)
+    if (adpcm_playback_active())
     {
-        if (adpcm_playback_active()) pce_cdb_adpcm_stop();
-        pce_cdb_adpcm_reset();
-        if (voice->cd && voice->cd->sector_count)
-        {
-            pce_sector_t sector = {0};
-            const uint16_t sector_count = voice->cd->sector_count;
-            const uint8_t read_count = sector_count > 255u ? 255u : (uint8_t)sector_count;
-            cd_sector_from_ref(&sector, &voice->cd->sector);
-            (void)pce_cdb_adpcm_read_from_cd(sector, read_count, voice->adpcm_address);
-        }
-        else
-        {
-            (void)pce_cdb_adpcm_read_from_ram(PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)voice->data, voice->adpcm_address, (uint16_t)voice->data_size);
-        }
-        wait_adpcm_transfer_ready();
-        loaded_adpcm_valid = 1u;
-        loaded_adpcm_index = (uint8_t)voice_index;
+        pce_cdb_adpcm_stop();
+        (void)wait_adpcm_transfer_ready();
     }
+    voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
+    if (voice->stream)
+    {
+        (void)stream_adpcm_voice(voice_index);
+        return;
+    }
+    adpcm_stream_looping = 0u;
+    if (!load_adpcm_voice(voice_index, 1u)) return;
     divider = adpcm_play_divider(voice);
-    (void)pce_cdb_adpcm_play(voice->adpcm_address, (uint16_t)voice->data_size, divider, voice->loop ? PCE_CDB_ADPCM_REPEAT : PCE_CDB_ADPCM_ONE_SHOT);
+    if (pce_cdb_adpcm_play(voice->adpcm_address, (uint16_t)voice->data_size, divider, voice->loop ? PCE_CDB_ADPCM_REPEAT : PCE_CDB_ADPCM_ONE_SHOT))
+    {
+        loaded_adpcm_valid = 0u;
+    }
 #else
     (void)voice_index;
 #endif
@@ -962,6 +1159,16 @@ static void stop_adpcm_voice(void)
 #if defined(__PCE_CD__)
     pce_cdb_adpcm_stop();
     loaded_adpcm_valid = 0u;
+    adpcm_stream_looping = 0u;
+#endif
+}
+
+static void service_adpcm_streaming(void)
+{
+#if defined(__PCE_CD__)
+    if (!adpcm_stream_looping) return;
+    if (!(pce_cdb_adpcm_status() & ADPCM_STOPPED)) return;
+    (void)stream_adpcm_voice((signed int)adpcm_stream_index);
 #endif
 }
 
@@ -996,6 +1203,7 @@ static void show_scene(uint8_t scene_index)
     }
     pending_scene_sprite_clear = keep_display_for_transition ? 1u : 0u;
     pending_sprite_refresh = 1u;
+    preload_scene_assets((signed int)scene_index, 1u);
 }
 
 static void VN_BANKED_CODE refresh_scene_sprites(void)
@@ -1247,34 +1455,17 @@ static void hide_sprites_for_asset_load(void)
 static void preload_adpcm_voice(signed int voice_index)
 {
 #if defined(__PCE_CD__)
-    const pce_editor_adpcm_asset_t *voice;
-    if (voice_index < 0 || (uint8_t)voice_index >= pce_editor_adpcm_asset_count) return;
-    if (loaded_adpcm_valid && loaded_adpcm_index == (uint8_t)voice_index) return;
-    if (adpcm_playback_active()) return;
-    voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
-    if ((!voice->data && !voice->cd) || !voice->data_size) return;
-    pce_cdb_adpcm_reset();
-    if (voice->cd && voice->cd->sector_count)
+    if (voice_index >= 0 && (uint8_t)voice_index < pce_editor_adpcm_asset_count)
     {
-        pce_sector_t sector = {0};
-        const uint16_t sector_count = voice->cd->sector_count;
-        const uint8_t read_count = sector_count > 255u ? 255u : (uint8_t)sector_count;
-        cd_sector_from_ref(&sector, &voice->cd->sector);
-        (void)pce_cdb_adpcm_read_from_cd(sector, read_count, voice->adpcm_address);
+        if (pce_editor_adpcm_assets[(uint8_t)voice_index].stream) return;
     }
-    else
-    {
-        (void)pce_cdb_adpcm_read_from_ram(PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)voice->data, voice->adpcm_address, (uint16_t)voice->data_size);
-    }
-    wait_adpcm_transfer_ready();
-    loaded_adpcm_valid = 1u;
-    loaded_adpcm_index = (uint8_t)voice_index;
+    (void)load_adpcm_voice(voice_index, 0u);
 #else
     (void)voice_index;
 #endif
 }
 
-static void preload_scene_assets(signed int scene_index)
+static void preload_scene_assets(signed int scene_index, uint8_t allow_visual_upload)
 {
     pce_vn_scene_t scene;
     uint8_t i;
@@ -1290,21 +1481,30 @@ static void preload_scene_assets(signed int scene_index)
         command = pce_vn_commands[command_index];
         if (command.type == PCE_VN_COMMAND_BACKGROUND)
         {
+            if (!allow_visual_upload || !pending_display_enable) continue;
             if (command.asset_index < 0 || (uint8_t)command.asset_index >= pce_editor_bg_asset_count) continue;
-            if (preloaded_bg_valid && preloaded_bg_index == (uint8_t)command.asset_index) continue;
-            if (!pending_display_enable)
-            {
-                display_disable();
-                pending_display_enable = 1u;
-            }
+            if (preloaded_bg_valid
+                && preloaded_bg_index == (uint8_t)command.asset_index
+                && preloaded_bg_x == (uint8_t)command.x
+                && preloaded_bg_y == (uint8_t)command.y) continue;
             if (pending_scene_sprite_clear) hide_sprites_for_asset_load();
-            clear_screen_map();
-            upload_bg_graphics(&pce_editor_bg_assets[(uint8_t)command.asset_index]);
+            clear_bg_map_region(
+                &pce_editor_bg_assets[(uint8_t)command.asset_index],
+                command.x,
+                command.y
+            );
+            upload_bg_graphics(
+                &pce_editor_bg_assets[(uint8_t)command.asset_index],
+                bg_map_dest_from_tile(&pce_editor_bg_assets[(uint8_t)command.asset_index], command.x, command.y)
+            );
             preloaded_bg_valid = 1u;
             preloaded_bg_index = (uint8_t)command.asset_index;
+            preloaded_bg_x = (uint8_t)command.x;
+            preloaded_bg_y = (uint8_t)command.y;
         }
         else if (command.type == PCE_VN_COMMAND_SPRITE)
         {
+            if (!allow_visual_upload || !pending_display_enable) continue;
             if (!(command.flags & PCE_VN_SPRITE_VISIBLE)) continue;
             if (command.asset_index < 0 || (uint8_t)command.asset_index >= pce_editor_sprite_asset_count) continue;
             if (loaded_sprite_pattern_valid && loaded_sprite_pattern_index == (uint8_t)command.asset_index) continue;
@@ -1412,40 +1612,48 @@ static uint8_t handle_choice_input(uint8_t pressed)
     return 0u;
 }
 
-static void set_background(signed int bg_index, uint8_t transition, uint8_t fade_out_frames, uint8_t fade_in_frames)
+static void set_background(signed int bg_index, uint8_t transition, uint8_t fade_out_frames, uint8_t fade_in_frames, uint16_t tile_x, uint16_t tile_y)
 {
     const pce_editor_bg_asset_t *next_bg;
     const uint8_t fade_transition = (uint8_t)(transition == PCE_VN_BG_TRANSITION_FADE);
+    const uint8_t next_x = tile_x < VN_MAP_WIDTH ? (uint8_t)tile_x : 0u;
+    const uint8_t next_y = tile_y < VN_MAP_HEIGHT ? (uint8_t)tile_y : 0u;
+    const uint8_t bg_position_changed = (uint8_t)(current_bg_x != next_x || current_bg_y != next_y);
+    const uint8_t restore_display_after_bg_load = (uint8_t)!pending_display_enable;
     uint8_t bg_ready;
     if (bg_index < 0 || (uint8_t)bg_index >= pce_editor_bg_asset_count) return;
     next_bg = &pce_editor_bg_assets[(uint8_t)bg_index];
     if (fade_transition && current_bg_index >= 0 && !pending_display_enable)
     {
         fade_palette(&pce_editor_bg_assets[(uint8_t)current_bg_index].palette, (uint16_t)(pce_editor_bg_assets[(uint8_t)current_bg_index].palette_bank * 16u), fade_out_frames, 0u);
-        display_disable();
-        pending_display_enable = 1u;
     }
-    else if (!pending_display_enable && current_bg_index >= 0 && bg_index != current_bg_index)
-    {
-        display_disable();
-        pending_display_enable = 1u;
-    }
-    preload_scene_assets((signed int)current_scene);
     if (pending_scene_sprite_clear)
     {
         clear_sprites();
         upload_sprite_table();
         pending_scene_sprite_clear = 0u;
     }
-    bg_ready = (uint8_t)(preloaded_bg_valid && preloaded_bg_index == (uint8_t)bg_index);
+    bg_ready = (uint8_t)(preloaded_bg_valid
+        && preloaded_bg_index == (uint8_t)bg_index
+        && preloaded_bg_x == next_x
+        && preloaded_bg_y == next_y);
     if (!bg_ready)
     {
-        clear_screen_map();
-        upload_bg_graphics(next_bg);
+        if (current_bg_index >= 0 && (bg_index != current_bg_index || bg_position_changed))
+        {
+            clear_bg_map_region(&pce_editor_bg_assets[(uint8_t)current_bg_index], current_bg_x, current_bg_y);
+        }
+        clear_bg_map_region(next_bg, next_x, next_y);
+        upload_bg_graphics(next_bg, bg_map_dest_from_tile(next_bg, next_x, next_y));
+        if (restore_display_after_bg_load) display_enable();
         preloaded_bg_valid = 1u;
         preloaded_bg_index = (uint8_t)bg_index;
+        preloaded_bg_x = next_x;
+        preloaded_bg_y = next_y;
     }
     current_bg_index = bg_index;
+    current_bg_x = next_x;
+    current_bg_y = next_y;
     if (transition == PCE_VN_BG_TRANSITION_FADE && pending_display_enable)
     {
         display_enable();
@@ -1464,7 +1672,7 @@ static uint8_t execute_command(const pce_vn_command_t *command)
     if (!command) return VN_EXEC_CONTINUE;
     if (command->type == PCE_VN_COMMAND_BACKGROUND)
     {
-        set_background(command->asset_index, command->flags, command->arg0, command->arg1);
+        set_background(command->asset_index, command->flags, command->arg0, command->arg1, command->x, command->y);
     }
     else if (command->type == PCE_VN_COMMAND_SPRITE)
     {
@@ -1509,7 +1717,7 @@ static uint8_t execute_command(const pce_vn_command_t *command)
             else if (command->asset_index >= 0 && (uint8_t)command->asset_index < pce_editor_cdda_asset_count)
             {
                 const pce_editor_cdda_asset_t *cdda = &pce_editor_cdda_assets[(uint8_t)command->asset_index];
-                play_cdda_track(cdda->track, cdda->loop);
+                play_cdda_track(cdda);
             }
         }
     }
@@ -1523,7 +1731,7 @@ static uint8_t execute_command(const pce_vn_command_t *command)
     }
     else if (command->type == PCE_VN_COMMAND_PRELOAD)
     {
-        preload_scene_assets(command->scene_index);
+        preload_scene_assets(command->scene_index, pending_display_enable);
     }
     else if (command->type == PCE_VN_COMMAND_CHOICE)
     {
@@ -1737,7 +1945,6 @@ int main(void)
     map_vn_data();
     start_scene = pce_vn_start_scene;
     show_scene(start_scene);
-    preload_scene_assets((signed int)start_scene);
     advance_story();
     last_pad = read_pad_raw();
 

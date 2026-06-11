@@ -284,6 +284,7 @@
       "options": {
         "sampleRate": 16000,
         "loop": false,
+        "stream": false,
         "adpcmAddress": 0,
         "divider": 1
       },
@@ -371,15 +372,15 @@
           "paletteColors": [],
           "mapVramFile": "",
           "codec": "oki-msm5205",
-          "nibbleOrder": "msn-first"
+          "nibbleOrder": "lsn-first"
         },
         "import": {
           "originalFileName": "akari_voice.wav",
           "importedAt": "2026-06-07T02:48:20.298Z",
           "converter": "Internal WAV/ADPCM encoder",
           "codec": "oki-msm5205",
-          "nibbleOrder": "msn-first",
-          "regeneratedAt": "2026-06-10T16:54:22.057Z"
+          "nibbleOrder": "lsn-first",
+          "regeneratedAt": "2026-06-11T12:54:56.923Z"
         }
       }
     },

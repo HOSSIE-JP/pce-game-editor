@@ -14,6 +14,12 @@ typedef struct {
 } pce_editor_cd_sector_t;
 
 typedef struct {
+  unsigned char frame;
+  unsigned char second;
+  unsigned char minute;
+} pce_editor_cd_time_t;
+
+typedef struct {
   pce_editor_cd_sector_t sector;
   unsigned int sector_count;
 } pce_editor_cd_data_ref_t;
@@ -67,7 +73,6 @@ typedef struct {
 } pce_editor_psg_step_t;
 
 typedef struct {
-  const char *id;
   unsigned char is_song;
   unsigned int period;
   unsigned int bpm;
@@ -77,20 +82,23 @@ typedef struct {
 } pce_editor_psg_asset_t;
 
 typedef struct {
-  const char *id;
   const unsigned char *data;
-  unsigned int data_size;
+  unsigned long data_size;
   unsigned int sample_rate;
   unsigned int adpcm_address;
   unsigned char divider;
   unsigned char loop;
+  unsigned char stream;
   const pce_editor_cd_data_ref_t *cd;
 } pce_editor_adpcm_asset_t;
 
 typedef struct {
-  const char *id;
   unsigned char track;
   unsigned char loop;
+  pce_editor_cd_sector_t start_sector;
+  pce_editor_cd_sector_t end_sector;
+  pce_editor_cd_time_t end_time;
+  unsigned int play_frames;
 } pce_editor_cdda_asset_t;
 
 extern const pce_editor_bg_asset_t pce_editor_bg_assets[];

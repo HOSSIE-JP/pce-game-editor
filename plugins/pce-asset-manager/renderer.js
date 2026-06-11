@@ -251,6 +251,11 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
                     <input data-field="loop" type="checkbox" />
                     <span>繰り返し再生</span>
                   </label>
+                  <label class="form-label">Streaming</label>
+                  <label class="pce-assets-check">
+                    <input data-field="stream" type="checkbox" />
+                    <span>CDから直接再生</span>
+                  </label>
                 </div>
                 <div class="pce-assets-animation-editor" data-role="animation-editor" hidden></div>
                 <div class="form-actions-inline">
@@ -535,6 +540,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       sampleRate: isAudio && !isCdda,
       track: isCdda,
       loop: isAudio || asset?.type === 'psg-song',
+      stream: asset?.type === 'adpcm',
     };
     Object.entries(visibility).forEach(([key, show]) => setVisible(key, show));
     if (animationEditorEl) animationEditorEl.hidden = !isSprite;
@@ -679,6 +685,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     fields.sampleRate.value = options.sampleRate ?? 16000;
     fields.track.value = options.track ?? 2;
     fields.loop.checked = Boolean(options.loop);
+    fields.stream.checked = Boolean(options.stream ?? options.streaming);
     setFieldVisibility(asset);
     renderAnimationEditor(asset);
     renderGenerated(asset);
@@ -703,6 +710,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             ...(current.options || {}),
             sampleRate: asNumber(fields.sampleRate.value, 16000),
             loop: fields.loop.checked,
+            stream: fields.stream.checked,
           }
         : type === 'cdda-track'
           ? {
@@ -1316,6 +1324,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
                 <span class="form-label">Loop</span>
                 <label class="pce-assets-check"><input name="loop" type="checkbox" /><span>loop</span></label>
               </label>
+              <label class="form-group" data-adpcm-only>
+                <span class="form-label">Streaming</span>
+                <label class="pce-assets-check"><input name="stream" type="checkbox" /><span>CDから直接再生</span></label>
+              </label>
             </div>
             <div class="pce-assets-import-source">
               <button class="btn-sm" type="button" data-pick-audio>WAV / MP3を選択</button>
@@ -1392,6 +1404,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           const kind = form.elements.kind.value;
           const id = safeId(form.elements.id.value, kind === 'cdda-track' ? 'cdda_track' : 'adpcm_sample');
           const sampleRate = asNumber(form.elements.sampleRate?.value, 16000);
+          const stream = kind === 'adpcm' && Boolean(form.elements.stream?.checked);
           modal.close();
           modal.destroy?.();
           const converted = await audioCapability.openAudioConvertModal({
@@ -1423,8 +1436,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             sampleRate: asNumber(converted.processing?.sampleRate, sampleRate),
             track: asNumber(form.elements.track?.value, 2),
             loop: Boolean(form.elements.loop?.checked),
+            stream,
             processing: converted.processing || {},
-            splitPolicy: 'auto',
+            splitPolicy: kind === 'adpcm' && !stream ? 'auto' : '',
           });
           if (!result?.ok) throw new Error(result?.error || '取り込みに失敗しました');
           logger.info(`PCE audio imported: ${result.asset?.id || id}`);

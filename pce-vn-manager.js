@@ -402,6 +402,8 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
       transition: String(raw.transition || 'cut') === 'fade' ? 'fade' : 'cut',
       fadeOutFrames: clampInt(raw.fadeOutFrames, 0, 60, 0),
       fadeInFrames: clampInt(raw.fadeInFrames, 0, 60, String(raw.transition || '') === 'fade' ? 16 : 0),
+      x: clampInt(raw.x ?? raw.tileX ?? raw.mapX, 0, 63, 0),
+      y: clampInt(raw.y ?? raw.tileY ?? raw.mapY, 0, 31, 0),
     };
   }
   if (type === 'sprite') {
@@ -1105,6 +1107,8 @@ function generateVnSources(projectDir, options = {}) {
           flags: command.transition === 'fade' ? VN_BG_TRANSITION_FADE : VN_BG_TRANSITION_CUT,
           arg0: command.fadeOutFrames,
           arg1: command.fadeInFrames,
+          x: command.x,
+          y: command.y,
         }));
         commandCount += 1;
         return;

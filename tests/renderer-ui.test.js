@@ -175,6 +175,10 @@ test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', 
   assert.match(renderer, /data-action="import-sprite"[\s\S]*title="スプライトを追加"/);
   assert.match(renderer, /data-action="import-adpcm"[\s\S]*title="ADPCMを追加"/);
   assert.match(renderer, /data-action="import-cdda"[\s\S]*title="CD-DAを追加"/);
+  assert.match(renderer, /data-field="stream"/);
+  assert.match(renderer, /const stream = kind === 'adpcm' && Boolean\(form\.elements\.stream\?\.checked\)/);
+  assert.match(renderer, /stream,/);
+  assert.match(renderer, /splitPolicy:\s*kind === 'adpcm' && !stream \? 'auto' : ''/);
   assert.doesNotMatch(renderer, /data-action="refresh"/);
   assert.match(renderer, /data-role="animation-editor"/);
   assert.match(renderer, /data-animation-add/);
@@ -303,6 +307,8 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /data-palette-add="\$\{item\.type\}"/);
   assert.match(renderer, /data-role="command-preview"/);
   assert.match(renderer, /data-role="command-detail"/);
+  assert.match(renderer, /<span class="form-label">X tile<\/span><input class="form-input" name="x" type="number" min="0" max="63"/);
+  assert.match(renderer, /<span class="form-label">Y tile<\/span><input class="form-input" name="y" type="number" min="0" max="31"/);
   assert.match(renderer, /function selectedCommandFromDetail\(existing\)/);
   assert.match(renderer, /async function renderCommandPreview\(\)/);
   assert.match(renderer, /document\.createElement\('audio'\)/);
@@ -384,11 +390,13 @@ test('PCE ADPCM manager exposes sample-only import, property edit, preview, and 
   assert.match(renderer, /sampleRateToDivider/);
   assert.match(renderer, /name="adpcmAddress"/);
   assert.match(renderer, /name="divider"/);
+  assert.match(renderer, /name="stream"/);
   assert.match(renderer, /name="splitPolicy"/);
   assert.match(renderer, /openAudioConvertModal/);
   assert.match(renderer, /kind:\s*'adpcm'/);
   assert.match(renderer, /importAssetAudio/);
-  assert.match(renderer, /splitPolicy:\s*details\.splitPolicy \? 'auto' : ''/);
+  assert.match(renderer, /stream:\s*details\.stream/);
+  assert.match(renderer, /splitPolicy:\s*details\.stream \? '' : \(details\.splitPolicy \? 'auto' : ''\)/);
   assert.match(renderer, /previewAssetSource/);
   assert.match(renderer, /data-row-play/);
   assert.match(renderer, /data-row-delete/);

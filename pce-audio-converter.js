@@ -131,7 +131,7 @@ const OKI_STEP_TABLE = Object.freeze([
 const OKI_INDEX_SHIFT = Object.freeze([-1, -1, -1, -1, 2, 4, 6, 8]);
 const PCE_ADPCM_BASE_SAMPLE_RATE = 32000;
 const PCE_ADPCM_CODEC = 'oki-msm5205';
-const PCE_ADPCM_NIBBLE_ORDER = 'msn-first';
+const PCE_ADPCM_NIBBLE_ORDER = 'lsn-first';
 
 function sampleRateToAdpcmDivider(sampleRate = 16000) {
   const rate = Math.max(1, Number(sampleRate) || 16000);
@@ -184,8 +184,8 @@ function encodeOkiAdpcm(rendered, startFrame = 0, frameCount = null) {
     }
     state = bestState;
     const byteIndex = Math.floor(index / 2);
-    if (index % 2 === 0) out[byteIndex] = (bestNibble & 0x0f) << 4;
-    else out[byteIndex] |= bestNibble & 0x0f;
+    if (index % 2 === 0) out[byteIndex] = bestNibble & 0x0f;
+    else out[byteIndex] |= (bestNibble & 0x0f) << 4;
   });
   return out;
 }

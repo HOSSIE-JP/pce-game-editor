@@ -17,12 +17,16 @@ const ROM_BANKED_CHUNK_SIZE = 8192;
 const BANKED_DATA_THRESHOLD = 1024;
 const CD_DATA_BASE_SECTOR = 64;
 const CD_SECTOR_BYTES = 2048;
+const CD_AUDIO_MIN_SECTOR = 450;
+const CDDA_SECTORS_PER_SECOND = 75;
+const CDDA_PLAYBACK_GUARD_FRAMES = 2;
+const CD_MSF_LEAD_IN_SECTORS = 150;
 const PCE_BG_MAP_WIDTH_TILES = 64;
 const PCE_BG_MAP_HEIGHT_TILES = 32;
 const PCE_BG_AUTO_MAP_BASE = 0;
 const PCE_BG_AUTO_TILE_BASE = Math.ceil((PCE_BG_MAP_WIDTH_TILES * PCE_BG_MAP_HEIGHT_TILES) / 16);
 const PCE_ADPCM_CODEC = audioConverter.PCE_ADPCM_CODEC || 'oki-msm5205';
-const PCE_ADPCM_NIBBLE_ORDER = audioConverter.PCE_ADPCM_NIBBLE_ORDER || 'msn-first';
+const PCE_ADPCM_NIBBLE_ORDER = audioConverter.PCE_ADPCM_NIBBLE_ORDER || 'lsn-first';
 const DEFAULT_BG_OPTIONS = Object.freeze({
   kind: 'background',
   paletteBank: 0,
@@ -78,6 +82,7 @@ const DEFAULT_PSG_OPTIONS = Object.freeze({
 const DEFAULT_ADPCM_OPTIONS = Object.freeze({
   sampleRate: 16000,
   loop: false,
+  stream: false,
   adpcmAddress: 0,
   divider: 0,
 });
@@ -313,6 +318,7 @@ function normalizeAdpcmOptions(asset = {}) {
     ...rawOptions,
     sampleRate,
     loop: Boolean(rawOptions.loop),
+    stream: Boolean(rawOptions.stream ?? rawOptions.streaming),
     adpcmAddress: clampInt(rawOptions.adpcmAddress, 0, 65535, DEFAULT_ADPCM_OPTIONS.adpcmAddress),
     divider,
   };
@@ -1062,6 +1068,69 @@ function createGeneratedMetadata(projectDir, asset, plan, sourceRel, imageSize, 
   return { ...generated, previewFile: plan.files.previewFile };
 }
 
+function readFirstTileIndex(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 2) return null;
+  return buffer.readUInt16LE(0) & 0x0fff;
+}
+
+function backgroundGeneratedAssetNeedsRefresh(projectDir, asset) {
+  if (!asset || asset.type !== 'image') return false;
+  const options = normalizeImageOptions(asset);
+  const generated = asset.data?.generated || {};
+  const widthTiles = Math.max(1, Math.ceil((options.width || 0) / 8));
+  const heightTiles = Math.max(1, Math.ceil((options.height || 0) / 8));
+  const expectedMapBytes = widthTiles * heightTiles * 2;
+  const expectedVramMapBytes = PCE_BG_MAP_WIDTH_TILES * heightTiles * 2;
+  const tiles = readGeneratedBuffer(projectDir, generated.tilesFile);
+  const map = readGeneratedBuffer(projectDir, generated.mapFile);
+  const vramMap = readGeneratedBuffer(projectDir, generated.mapVramFile);
+  const tileBase = options.tileBase & 0x0fff;
+  const vramFirstTile = readFirstTileIndex(vramMap);
+  const mapFirstTile = readFirstTileIndex(map);
+
+  if (!tiles.length || !map.length || !vramMap.length) return true;
+  if (expectedMapBytes && map.length !== expectedMapBytes) return true;
+  if (expectedVramMapBytes && vramMap.length !== expectedVramMapBytes) return true;
+  if (vramFirstTile !== null && vramFirstTile !== tileBase) return true;
+  if (mapFirstTile !== null && mapFirstTile !== tileBase) return true;
+  return false;
+}
+
+function regenerateBackgroundGeneratedAsset(projectDir, asset) {
+  const sourceRel = normalizeAssetSource(asset.source || '');
+  if (!sourceRel) return asset;
+  const { absPath: sourceAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
+  if (!fs.existsSync(sourceAbs)) return asset;
+  const plan = buildInternalPceConversionPlan(projectDir, asset);
+  const result = runInternalPceImageConversion(plan, sourceAbs, asset);
+  const imageSize = readImageSize(sourceAbs);
+  const generated = createGeneratedMetadata(projectDir, asset, plan, sourceRel, imageSize, result.warnings || []);
+  return normalizeAsset({
+    ...asset,
+    data: {
+      ...(asset.data || {}),
+      generated,
+      import: {
+        ...(asset.data?.import || {}),
+        converter: PCE_INTERNAL_IMAGE_CONVERTER,
+        regeneratedAt: new Date().toISOString(),
+      },
+    },
+  });
+}
+
+function ensureBackgroundGeneratedAssets(projectDir, doc) {
+  let changed = false;
+  doc.assets = (doc.assets || []).map((asset) => {
+    if (!backgroundGeneratedAssetNeedsRefresh(projectDir, asset)) return asset;
+    const regenerated = regenerateBackgroundGeneratedAsset(projectDir, asset);
+    if (regenerated !== asset) changed = true;
+    return regenerated;
+  });
+  if (changed) writeAssetDocument(projectDir, doc);
+  return changed;
+}
+
 function importImage(projectDir, payload = {}, options = {}) {
   const kind = payload.kind === 'sprite' || payload.type === 'sprite' ? 'sprite' : 'background';
   const sourceAbs = sourcePathForImport(payload);
@@ -1248,12 +1317,15 @@ function importAudio(projectDir, payload = {}, options = {}) {
         ...payload.options,
         sampleRate: payload.sampleRate ?? payload.options?.sampleRate,
         loop: payload.loop ?? payload.options?.loop,
+        stream: payload.stream ?? payload.streaming ?? payload.options?.stream ?? payload.options?.streaming,
         adpcmAddress: payload.adpcmAddress ?? payload.options?.adpcmAddress,
         divider: payload.divider ?? payload.options?.divider,
       },
     });
-    const maxAdpcmBytes = Math.max(1, Math.min(65535, 65536 - baseOptions.adpcmAddress));
-    const splitPolicy = payload.splitPolicy === 'auto' ? 'auto' : '';
+    const maxAdpcmBytes = baseOptions.stream
+      ? 0x7ffffff
+      : Math.max(1, Math.min(65535, 65536 - baseOptions.adpcmAddress));
+    const splitPolicy = payload.splitPolicy === 'auto' && !baseOptions.stream ? 'auto' : '';
     const converted = splitPolicy === 'auto'
       ? audioConverter.convertWavForAdpcmParts(input, { sampleRate: baseOptions.sampleRate, maxBytes: maxAdpcmBytes })
       : audioConverter.convertWavForAdpcm(input, { sampleRate: baseOptions.sampleRate });
@@ -1275,7 +1347,7 @@ function importAudio(projectDir, payload = {}, options = {}) {
       const { absPath: previewAbs } = resolveUnderRoot(projectDir, previewFile, 'project');
       const warnings = [
         ...(converted.warnings || []),
-        ...(part.output.length > maxAdpcmBytes ? [`ADPCM: ${part.output.length} bytes exceeds runtime-safe limit ${maxAdpcmBytes}`] : []),
+        ...(!baseOptions.stream && part.output.length > maxAdpcmBytes ? [`ADPCM: ${part.output.length} bytes exceeds runtime-safe limit ${maxAdpcmBytes}`] : []),
       ];
       ensureDirSync(path.dirname(outputAbs));
       fs.writeFileSync(outputAbs, part.output);
@@ -1646,7 +1718,7 @@ function generatePsgMetadata(assets) {
       arrayLines.push('};');
       arrayLines.push('');
     }
-    return `  { "${String(asset.id).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}", ${asset.type === 'psg-song' ? '1u' : '0u'}, ${firstPsgPeriod(asset)}u, ${options.bpm}u, ${options.steps}u, ${pattern.length ? `${ident}_pattern` : '(const pce_editor_psg_step_t *)0'}, ${pattern.length}u }${index + 1 < psgAssets.length ? ',' : ''}`;
+    return `  { ${asset.type === 'psg-song' ? '1u' : '0u'}, ${firstPsgPeriod(asset)}u, ${options.bpm}u, ${options.steps}u, ${pattern.length ? `${ident}_pattern` : '(const pce_editor_psg_step_t *)0'}, ${pattern.length}u }${index + 1 < psgAssets.length ? ',' : ''}`;
   });
   return { psgAssets, arrayLines, metaLines };
 }
@@ -1665,16 +1737,111 @@ function generateAdpcmMetadata(projectDir, assets, generationOptions = {}) {
     arrayLines.push(...dataRef.lines);
     if (arrayLines[arrayLines.length - 1] !== '') arrayLines.push('');
     const options = normalizeAdpcmOptions(asset);
-    metaLines.push(`  { "${String(asset.id).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}", ${dataRef.pointer}, ${data.length}u, ${options.sampleRate}u, ${options.adpcmAddress}u, ${options.divider}u, ${options.loop ? '1u' : '0u'}, ${dataRef.cd} }${index + 1 < adpcmAssets.length ? ',' : ''}`);
+    metaLines.push(`  { ${dataRef.pointer}, ${data.length}u, ${options.sampleRate}u, ${options.adpcmAddress}u, ${options.divider}u, ${options.loop ? '1u' : '0u'}, ${options.stream ? '1u' : '0u'}, ${dataRef.cd} }${index + 1 < adpcmAssets.length ? ',' : ''}`);
   });
   return { adpcmAssets, arrayLines, metaLines };
 }
 
-function generateCddaMetadata(assets) {
+function sectorToGeneratedSector(sector) {
+  const value = Math.max(0, Math.trunc(Number(sector) || 0));
+  return {
+    lo: value & 0xff,
+    md: (value >> 8) & 0xff,
+    hi: (value >> 16) & 0xff,
+  };
+}
+
+function sectorToCInitializer(sector) {
+  const value = sectorToGeneratedSector(sector);
+  return `{ ${value.lo}u, ${value.md}u, ${value.hi}u }`;
+}
+
+function sectorToTimeInitializer(sector) {
+  let value = Math.max(0, Math.trunc(Number(sector) || 0) + CD_MSF_LEAD_IN_SECTORS);
+  const frame = value % CDDA_SECTORS_PER_SECOND;
+  value = Math.floor(value / CDDA_SECTORS_PER_SECOND);
+  const second = value % 60;
+  const minute = Math.floor(value / 60);
+  return `{ ${frame}u, ${second}u, ${minute}u }`;
+}
+
+function readWavAudioInfo(filePath) {
+  const buffer = fs.existsSync(filePath) ? fs.readFileSync(filePath) : null;
+  if (!buffer || buffer.length < 44 || buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WAVE') {
+    return null;
+  }
+  let offset = 12;
+  let sampleRate = 0;
+  let blockAlign = 0;
+  let dataBytes = 0;
+  while (offset + 8 <= buffer.length) {
+    const chunkId = buffer.toString('ascii', offset, offset + 4);
+    const chunkSize = buffer.readUInt32LE(offset + 4);
+    const dataOffset = offset + 8;
+    if (dataOffset + chunkSize > buffer.length) break;
+    if (chunkId === 'fmt ' && chunkSize >= 16) {
+      sampleRate = buffer.readUInt32LE(dataOffset + 4);
+      blockAlign = buffer.readUInt16LE(dataOffset + 12);
+    } else if (chunkId === 'data') {
+      dataBytes = chunkSize;
+    }
+    offset = dataOffset + chunkSize + (chunkSize % 2);
+  }
+  return { sampleRate, blockAlign, dataBytes };
+}
+
+function cddaSectorCountForAsset(projectDir, asset) {
+  const generated = asset.data?.generated || {};
+  const rel = normalizeRelativePath(generated.outputFile || asset.source || '');
+  const absPath = rel ? path.join(projectDir, rel) : '';
+  const info = absPath ? readWavAudioInfo(absPath) : null;
+  if (!info || !info.dataBytes) return 1;
+  if (info.sampleRate > 0 && info.blockAlign > 0) {
+    const sampleFrames = Math.ceil(info.dataBytes / info.blockAlign);
+    return Math.max(1, Math.ceil((sampleFrames * CDDA_SECTORS_PER_SECOND) / info.sampleRate));
+  }
+  return Math.max(1, Math.ceil(info.dataBytes / 2352));
+}
+
+function cdDataEndSector(cdLayout) {
+  let sector = CD_DATA_BASE_SECTOR;
+  for (const entry of cdLayout?.values?.() || []) {
+    sector = Math.max(sector, entry.sector + entry.sectorCount);
+  }
+  return sector;
+}
+
+function buildCddaTrackLayout(projectDir, cddaAssets, cdLayout) {
+  const layout = new Map();
+  let sector = Math.max(CD_AUDIO_MIN_SECTOR, cdDataEndSector(cdLayout));
+  const sorted = [...cddaAssets].sort((a, b) => {
+    const aTrack = normalizeCddaOptions(a).track;
+    const bTrack = normalizeCddaOptions(b).track;
+    return aTrack - bTrack || String(a.id || '').localeCompare(String(b.id || ''), 'ja');
+  });
+  sorted.forEach((asset) => {
+    const sectorCount = cddaSectorCountForAsset(projectDir, asset);
+    const nominalFrames = Math.ceil((sectorCount * 60) / CDDA_SECTORS_PER_SECOND);
+    layout.set(asset.id, {
+      startSector: sector,
+      endSector: sector + sectorCount - 1,
+      sectorCount,
+      playFrames: Math.max(1, nominalFrames - CDDA_PLAYBACK_GUARD_FRAMES),
+    });
+    sector += sectorCount;
+  });
+  return layout;
+}
+
+function generateCddaMetadata(projectDir, assets, generationOptions = {}) {
   const cddaAssets = assets.filter((asset) => asset.type === 'cdda-track');
+  const cddaLayout = generationOptions.targetsCd
+    ? buildCddaTrackLayout(projectDir, cddaAssets, generationOptions.cdLayout)
+    : new Map();
   const metaLines = cddaAssets.map((asset, index) => {
     const options = normalizeCddaOptions(asset);
-    return `  { "${String(asset.id).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}", ${options.track}u, ${options.loop ? '1u' : '0u'} }${index + 1 < cddaAssets.length ? ',' : ''}`;
+    const layout = cddaLayout.get(asset.id) || { startSector: 0, endSector: 0, playFrames: 0 };
+    return `  { ${options.track}u, ${options.loop ? '1u' : '0u'}, ${sectorToCInitializer(layout.startSector)}, ${sectorToCInitializer(layout.endSector)}, ${sectorToTimeInitializer(layout.endSector)}, ${layout.playFrames}u }${index + 1 < cddaAssets.length ? ',' : ''}`;
   });
   return { cddaAssets, metaLines };
 }
@@ -1715,7 +1882,7 @@ function updateAdpcmGeneratedAsset(projectDir, asset, part, shared = {}) {
   const { absPath: previewAbs } = resolveUnderRoot(projectDir, previewFile, 'project');
   const warnings = [
     ...(shared.warnings || []),
-    ...(part.output.length > shared.maxAdpcmBytes ? [`ADPCM: ${part.output.length} bytes exceeds runtime-safe limit ${shared.maxAdpcmBytes}`] : []),
+    ...(!shared.stream && part.output.length > shared.maxAdpcmBytes ? [`ADPCM: ${part.output.length} bytes exceeds runtime-safe limit ${shared.maxAdpcmBytes}`] : []),
   ];
   ensureDirSync(path.dirname(outputAbs));
   fs.writeFileSync(outputAbs, part.output);
@@ -1788,8 +1955,10 @@ function ensureAdpcmGeneratedAssets(projectDir, doc) {
     }
     const input = fs.readFileSync(sourceAbs);
     const options = normalizeAdpcmOptions(first);
-    const maxAdpcmBytes = Math.max(1, Math.min(65535, clampInt(first.data?.import?.maxAdpcmBytes, 1, 65535, 65536 - options.adpcmAddress)));
-    const splitPolicy = first.data?.import?.splitPolicy === 'auto' || group.length > 1 ? 'auto' : '';
+    const maxAdpcmBytes = options.stream
+      ? 0x7ffffff
+      : Math.max(1, Math.min(65535, clampInt(first.data?.import?.maxAdpcmBytes, 1, 65535, 65536 - options.adpcmAddress)));
+    const splitPolicy = !options.stream && (first.data?.import?.splitPolicy === 'auto' || group.length > 1) ? 'auto' : '';
     const converted = splitPolicy === 'auto'
       ? audioConverter.convertWavForAdpcmParts(input, { sampleRate: options.sampleRate, maxBytes: maxAdpcmBytes })
       : audioConverter.convertWavForAdpcm(input, { sampleRate: options.sampleRate });
@@ -1817,6 +1986,7 @@ function ensureAdpcmGeneratedAssets(projectDir, doc) {
         partCount: group.length,
         splitPolicy,
         maxAdpcmBytes,
+        stream: options.stream,
       });
       changed = true;
     });
@@ -1849,6 +2019,7 @@ function normalizeCdDataFileList(projectDir, entries = []) {
 
 function generateAssetSources(projectDir, options = {}) {
   const doc = readAssetDocument(projectDir);
+  ensureBackgroundGeneratedAssets(projectDir, doc);
   ensureAdpcmGeneratedAssets(projectDir, doc);
   const image = doc.assets.find((asset) => asset.type === 'image');
   const sound = doc.assets.find((asset) => asset.type === 'psg-sfx' || asset.type === 'psg-song');
@@ -1866,7 +2037,7 @@ function generateAssetSources(projectDir, options = {}) {
   const spriteGenerated = generateConvertedAssetArrays(projectDir, doc.assets, 'sprite', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
   const psgGenerated = generatePsgMetadata(doc.assets);
   const adpcmGenerated = generateAdpcmMetadata(projectDir, doc.assets, { targetsCd, cdLayout });
-  const cddaGenerated = generateCddaMetadata(doc.assets);
+  const cddaGenerated = generateCddaMetadata(projectDir, doc.assets, { targetsCd, cdLayout });
   const emptyDataRef = '{ (const unsigned char *)0, 0u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }';
 
   const linesH = [
@@ -1884,6 +2055,12 @@ function generateAssetSources(projectDir, options = {}) {
     '  unsigned char md;',
     '  unsigned char hi;',
     '} pce_editor_cd_sector_t;',
+    '',
+    'typedef struct {',
+    '  unsigned char frame;',
+    '  unsigned char second;',
+    '  unsigned char minute;',
+    '} pce_editor_cd_time_t;',
     '',
     'typedef struct {',
     '  pce_editor_cd_sector_t sector;',
@@ -1939,7 +2116,6 @@ function generateAssetSources(projectDir, options = {}) {
     '} pce_editor_psg_step_t;',
     '',
     'typedef struct {',
-    '  const char *id;',
     '  unsigned char is_song;',
     '  unsigned int period;',
     '  unsigned int bpm;',
@@ -1949,20 +2125,23 @@ function generateAssetSources(projectDir, options = {}) {
     '} pce_editor_psg_asset_t;',
     '',
     'typedef struct {',
-    '  const char *id;',
     '  const unsigned char *data;',
-    '  unsigned int data_size;',
+    '  unsigned long data_size;',
     '  unsigned int sample_rate;',
     '  unsigned int adpcm_address;',
     '  unsigned char divider;',
     '  unsigned char loop;',
+    '  unsigned char stream;',
     '  const pce_editor_cd_data_ref_t *cd;',
     '} pce_editor_adpcm_asset_t;',
     '',
     'typedef struct {',
-    '  const char *id;',
     '  unsigned char track;',
     '  unsigned char loop;',
+    '  pce_editor_cd_sector_t start_sector;',
+    '  pce_editor_cd_sector_t end_sector;',
+    '  pce_editor_cd_time_t end_time;',
+    '  unsigned int play_frames;',
     '} pce_editor_cdda_asset_t;',
     '',
     'extern const pce_editor_bg_asset_t pce_editor_bg_assets[];',
@@ -2033,17 +2212,17 @@ function generateAssetSources(projectDir, options = {}) {
     `const unsigned char pce_editor_sprite_asset_count = ${spriteGenerated.converted.length};`,
     '',
     'const pce_editor_psg_asset_t pce_editor_psg_assets[] = {',
-    ...(psgGenerated.metaLines.length ? psgGenerated.metaLines : ['  { "", 0u, 512u, 150u, 0u, (const pce_editor_psg_step_t *)0, 0u }']),
+    ...(psgGenerated.metaLines.length ? psgGenerated.metaLines : ['  { 0u, 512u, 150u, 0u, (const pce_editor_psg_step_t *)0, 0u }']),
     '};',
     `const unsigned char pce_editor_psg_asset_count = ${psgGenerated.psgAssets.length};`,
     '',
     'const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] = {',
-    ...(adpcmGenerated.metaLines.length ? adpcmGenerated.metaLines : ['  { "", (const unsigned char *)0, 0u, 0u, 0u, 0u, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
+    ...(adpcmGenerated.metaLines.length ? adpcmGenerated.metaLines : ['  { (const unsigned char *)0, 0u, 0u, 0u, 0u, 0u, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
     '};',
     `const unsigned char pce_editor_adpcm_asset_count = ${adpcmGenerated.adpcmAssets.length};`,
     '',
     'const pce_editor_cdda_asset_t pce_editor_cdda_assets[] = {',
-    ...(cddaGenerated.metaLines.length ? cddaGenerated.metaLines : ['  { "", 0u, 0u }']),
+    ...(cddaGenerated.metaLines.length ? cddaGenerated.metaLines : ['  { 0u, 0u, { 0u, 0u, 0u }, { 0u, 0u, 0u }, { 0u, 0u, 0u }, 0u }']),
     '};',
     `const unsigned char pce_editor_cdda_asset_count = ${cddaGenerated.cddaAssets.length};`,
     '',

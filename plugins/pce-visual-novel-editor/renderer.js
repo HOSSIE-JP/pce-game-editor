@@ -125,7 +125,7 @@ function animationOptions(asset, current, label = 'default') {
 function defaultCommand(type, assets = []) {
   const first = (assetType) => assets.find((asset) => asset.type === assetType)?.id || '';
   if (type === 'background') {
-    return { type: 'background', assetId: first('image'), transition: 'fade', fadeOutFrames: 8, fadeInFrames: 16 };
+    return { type: 'background', assetId: first('image'), transition: 'fade', fadeOutFrames: 8, fadeInFrames: 16, x: 0, y: 0 };
   }
   if (type === 'sprite') {
     const assetId = first('sprite');
@@ -205,6 +205,8 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       transition: raw.transition === 'fade' ? 'fade' : 'cut',
       fadeOutFrames: clamp(raw.fadeOutFrames, 0, 60, 0),
       fadeInFrames: clamp(raw.fadeInFrames, 0, 60, raw.transition === 'fade' ? 16 : 0),
+      x: clamp(raw.x ?? raw.tileX ?? raw.mapX, 0, 63, 0),
+      y: clamp(raw.y ?? raw.tileY ?? raw.mapY, 0, 31, 0),
     };
   }
   if (raw.type === 'sprite') {
@@ -569,7 +571,10 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   function commandSummary(command) {
     if (!command) return '';
-    if (command.type === 'background') return assetById(command.assetId)?.name || command.assetId || '背景なし';
+    if (command.type === 'background') {
+      const label = assetById(command.assetId)?.name || command.assetId || '背景なし';
+      return (command.x || command.y) ? `${label} @ ${command.x},${command.y}` : label;
+    }
     if (command.type === 'sprite') {
       const name = assetById(command.assetId)?.name || command.assetId || 'spriteなし';
       return `${name} slot ${command.slot} (${command.x}, ${command.y})`;
@@ -600,6 +605,8 @@ export function activatePlugin({ root, api, registerCapability }) {
         type,
         assetId: detailForm.elements.assetId.value,
         transition: detailForm.elements.transition.value,
+        x: detailForm.elements.x.value,
+        y: detailForm.elements.y.value,
         fadeOutFrames: detailForm.elements.fadeOutFrames.value,
         fadeInFrames: detailForm.elements.fadeInFrames.value,
       }, assets);
@@ -781,6 +788,8 @@ export function activatePlugin({ root, api, registerCapability }) {
           <label class="form-group"><span class="form-label">切替</span><select class="form-select" name="transition"><option value="cut" ${command.transition !== 'fade' ? 'selected' : ''}>cut</option><option value="fade" ${command.transition === 'fade' ? 'selected' : ''}>fade</option></select></label>
         </div>
         <div class="pce-vn-grid tight">
+          <label class="form-group"><span class="form-label">X tile</span><input class="form-input" name="x" type="number" min="0" max="63" value="${esc(command.x)}" /></label>
+          <label class="form-group"><span class="form-label">Y tile</span><input class="form-input" name="y" type="number" min="0" max="31" value="${esc(command.y)}" /></label>
           <label class="form-group"><span class="form-label">Fade out</span><input class="form-input" name="fadeOutFrames" type="number" min="0" max="60" value="${esc(command.fadeOutFrames)}" /></label>
           <label class="form-group"><span class="form-label">Fade in</span><input class="form-input" name="fadeInFrames" type="number" min="0" max="60" value="${esc(command.fadeInFrames)}" /></label>
         </div>

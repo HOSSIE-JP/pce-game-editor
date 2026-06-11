@@ -22,10 +22,11 @@
 
 - `ram_bank129` は起動時に `pce_ram_bank129_map()` で MPR3 へ常時 map します。`VN_BANKED_CODE` 関数はこの前提で直接呼びます。
 - `ram_bank128` の常駐 data を読む runtime code は、CD BIOS helper や `map_vn_data()` 呼び出し後に `map_resident_data()` を挟んでから参照します。特に `pce_editor_sprite_assets[]`、`pce_editor_sprite_draw_meta[]`、CD data ref のような小さい metadata は bank128 resident data として扱います。
+- 生成済み C metadata は scene 生成時に asset ID を index へ解決済みで、runtime では ID 文字列を使いません。`pce_editor_psg_asset_t` / `pce_editor_adpcm_asset_t` / `pce_editor_cdda_asset_t` に `id` field を戻すと bank128 の `.rodata` を直接圧迫するため、debug 用文字列は JSON 側に留めます。
 - `ram_bank132` を読む前は `pce_vn_font_tiles_map()` または runtime の `map_vn_data()` を呼びます。MPR6 を切り替えるため、MPR6 上で実行される code を作らないでください。
 - `pce_vn_commands[]` や `pce_vn_messages[]` の要素は、CD / asset bank / VDC 転送で MPR が変わる可能性を考え、必要なら stack local にコピーしてから処理します。
 - `pce_editor_map_asset_bank()` を使う banked asset fallback は bank130-131 のみを使います。bank129 と bank132 は VN runtime / VN data 専用です。
-- CD-ROM2 の BG `map_vram.bin` は CD 上では64タイル幅のソース行です。`mapBase` からファイル全体を一括転送すると、行末が次行左端へ回り込んで本来画像にない縦縞が出ます。runtime は `cd_transfer_scratch` へ1 sectorずつ読み、各行の `width_tiles` 分だけを `mapBase + row * VN_MAP_WIDTH` へコピーし、左右/上下余白は `clear_screen_map()` のblank tileを残します。
+- CD-ROM2 の BG `map_vram.bin` は CD 上では64タイル幅のソース行です。`mapBase` からファイル全体を一括転送すると、行末が次行左端へ回り込んで本来画像にない縦縞が出ます。runtime は `cd_transfer_scratch` へ1 sectorずつ読み、各行の `width_tiles` 分だけを `mapBase + command.y * VN_MAP_WIDTH + command.x + row * VN_MAP_WIDTH` へコピーし、左右/上下余白は `clear_screen_map()` のblank tileを残します。
 - sprite 描画に必要な cell size、sheet cell 数、pattern base、palette bank は generated `pce_editor_sprite_draw_meta[]` にも小さく出します。runtime はこの compact metadata を `sprite_draw_meta` へコピーしてから SATB を組み、animation metadata は `frame_count > 1` かつ sheet 範囲内のときだけ frame size として使います。単一 frame / default animation は sprite sheet 全体を表示します。
 - sprite pattern は VRAM の sprite pattern 領域へ転送し、SATB は `VN_SATB_ADDR` (`0x7f00`) を使います。CD-ROM2 では BIOS sprite table helper へ shadow SATB を渡した後、`VDC_REG_SATB_START` を維持します。pattern upload のために sprite layer を落とした場合は、refresh 後に display active なら必ず sprite layer を再有効化します。
 - VDC memory control は `VN_VDC_MEMORY_CONTROL` (`VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_64_32`) を標準にします。BG size を設定し直す時に sprite cycle bit を落とすと sprite layer が見えなくなるため、`VDC_REG_MEMORY` へはこの定義を使ってください。
