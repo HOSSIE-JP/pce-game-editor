@@ -58,6 +58,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(1);
 #define VN_EXEC_WAIT 1u
 #define VN_EXEC_RESTART 2u
 #define VN_COMMAND_STEP_GUARD 1024u
+#define VN_ADPCM_STREAM_MONITOR_FRAMES 4u
 #if defined(__PCE_CD__)
 #define VN_BANKED_CODE __attribute__((noinline, section(".ram_bank129")))
 #else
@@ -120,12 +121,26 @@ static uint16_t cdda_frames_remaining = 0;
 static const pce_editor_cdda_asset_t *cdda_current = (const pce_editor_cdda_asset_t *)0;
 static uint8_t adpcm_stream_looping = 0;
 static uint8_t adpcm_stream_index = 0;
+static uint8_t adpcm_stream_monitor_frames = 0;
 #endif
+typedef struct
+{
+    const unsigned char *data;
+    unsigned long data_size;
+    unsigned int sample_rate;
+    unsigned int adpcm_address;
+    uint16_t cd_sector_count;
+    pce_editor_cd_sector_t cd_sector;
+    uint8_t divider;
+    uint8_t loop;
+    uint8_t stream;
+    uint8_t has_cd;
+} vn_adpcm_voice_t;
 static void advance_story(void);
 static void preload_scene_assets(signed int scene_index, uint8_t allow_visual_upload);
 #if defined(__PCE_CD__)
 static void service_cdda_playback(void);
-static void service_adpcm_streaming(void);
+static void VN_BANKED_CODE service_adpcm_streaming(void);
 #endif
 
 static void map_vn_data(void)
@@ -170,6 +185,7 @@ static void init_runtime_state(void)
     cdda_current = (const pce_editor_cdda_asset_t *)0;
     adpcm_stream_looping = 0u;
     adpcm_stream_index = 0u;
+    adpcm_stream_monitor_frames = 0u;
 #endif
     screen_shake_x = 0;
     screen_shake_y = 0;
@@ -1012,13 +1028,12 @@ static void stop_cdda_track(void)
 #endif
 }
 
-static uint8_t adpcm_play_divider(const pce_editor_adpcm_asset_t *voice)
+static uint8_t VN_BANKED_CODE adpcm_play_divider(unsigned int sample_rate, uint8_t divider)
 {
     unsigned int rate;
     unsigned int computed;
-    if (!voice) return 1u;
-    if (voice->divider || voice->sample_rate >= VN_ADPCM_BASE_SAMPLE_RATE) return voice->divider;
-    rate = voice->sample_rate ? voice->sample_rate : 16000u;
+    if (divider || sample_rate >= VN_ADPCM_BASE_SAMPLE_RATE) return divider;
+    rate = sample_rate ? sample_rate : 16000u;
     computed = (VN_ADPCM_BASE_SAMPLE_RATE + (rate / 2u)) / rate;
     if (!computed) return 0u;
     computed -= 1u;
@@ -1026,7 +1041,62 @@ static uint8_t adpcm_play_divider(const pce_editor_adpcm_asset_t *voice)
     return (uint8_t)computed;
 }
 
-static uint8_t adpcm_playback_active(void)
+static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer(const vn_adpcm_voice_t *voice)
+{
+#if defined(__PCE_CD__)
+    unsigned long limit;
+    if (!voice || !voice->data_size) return 0u;
+    if (voice->data_size > 65535ul) return 0u;
+    if ((unsigned long)voice->adpcm_address >= 65536ul) return 0u;
+    limit = 65536ul - (unsigned long)voice->adpcm_address;
+    if (limit > 65535ul) limit = 65535ul;
+    return voice->data_size <= limit ? 1u : 0u;
+#else
+    (void)voice;
+    return 0u;
+#endif
+}
+
+static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index, vn_adpcm_voice_t *dest)
+{
+#if defined(__PCE_CD__)
+    const pce_editor_adpcm_asset_t *voice;
+    if (!dest) return 0u;
+    if (voice_index < 0) return 0u;
+    map_resident_data();
+    if ((uint8_t)voice_index >= pce_editor_adpcm_asset_count) return 0u;
+    voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
+    dest->data = voice->data;
+    dest->data_size = voice->data_size;
+    dest->sample_rate = voice->sample_rate;
+    dest->adpcm_address = voice->adpcm_address;
+    dest->divider = voice->divider;
+    dest->loop = voice->loop;
+    dest->stream = voice->stream;
+    dest->has_cd = (uint8_t)(voice->cd && voice->cd->sector_count);
+    if (dest->has_cd)
+    {
+        dest->cd_sector_count = voice->cd->sector_count;
+        dest->cd_sector.lo = voice->cd->sector.lo;
+        dest->cd_sector.md = voice->cd->sector.md;
+        dest->cd_sector.hi = voice->cd->sector.hi;
+    }
+    else
+    {
+        dest->cd_sector_count = 0u;
+        dest->cd_sector.lo = 0u;
+        dest->cd_sector.md = 0u;
+        dest->cd_sector.hi = 0u;
+    }
+    return 1u;
+#else
+    (void)voice_index;
+    (void)dest;
+    return 0u;
+#endif
+}
+
+static uint8_t VN_BANKED_CODE adpcm_playback_active(void)
 {
 #if defined(__PCE_CD__)
     return (pce_cdb_adpcm_status() & ADPCM_STOPPED) ? 0u : 1u;
@@ -1035,7 +1105,7 @@ static uint8_t adpcm_playback_active(void)
 #endif
 }
 
-static uint8_t wait_adpcm_transfer_ready(void)
+static uint8_t VN_BANKED_CODE wait_adpcm_transfer_ready(void)
 {
 #if defined(__PCE_CD__)
     uint16_t guard = 65535u;
@@ -1049,60 +1119,89 @@ static uint8_t wait_adpcm_transfer_ready(void)
 #endif
 }
 
-static uint8_t load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback)
+static void VN_BANKED_CODE restore_display_after_adpcm(uint8_t restore_display)
 {
 #if defined(__PCE_CD__)
-    const pce_editor_adpcm_asset_t *voice;
+    if (restore_display) display_enable();
+#else
+    (void)restore_display;
+#endif
+}
+
+static uint8_t VN_BANKED_CODE load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t allow_stream_asset)
+{
+#if defined(__PCE_CD__)
+    vn_adpcm_voice_t voice;
     uint8_t loaded = 0u;
-    if (voice_index < 0 || (uint8_t)voice_index >= pce_editor_adpcm_asset_count) return 0u;
+    const uint8_t restore_display = (uint8_t)!pending_display_enable;
+    if (voice_index < 0) return 0u;
     if (loaded_adpcm_valid && loaded_adpcm_index == (uint8_t)voice_index) return 1u;
-    voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
-    if (voice->stream) return 0u;
+    if (!copy_adpcm_voice(voice_index, &voice)) return 0u;
+    if (voice.stream && !allow_stream_asset) return 0u;
     if (adpcm_playback_active())
     {
         if (!allow_stop_playback) return 0u;
         pce_cdb_adpcm_stop();
         (void)wait_adpcm_transfer_ready();
     }
-    if ((!voice->data && !voice->cd) || !voice->data_size) return 0u;
+    if ((!voice.data && !voice.has_cd) || !voice.data_size) return 0u;
     loaded_adpcm_valid = 0u;
     pce_cdb_adpcm_reset();
-    if (!wait_adpcm_transfer_ready()) return 0u;
-    if (voice->cd && voice->cd->sector_count)
+    if (!wait_adpcm_transfer_ready())
+    {
+        map_resident_data();
+        restore_display_after_adpcm(restore_display);
+        return 0u;
+    }
+    if (voice.has_cd)
     {
         pce_sector_t sector = {0};
-        const uint16_t sector_count = voice->cd->sector_count;
+        const uint16_t sector_count = voice.cd_sector_count;
         const uint8_t read_count = sector_count > 255u ? 255u : (uint8_t)sector_count;
         prepare_cd_data_access();
-        cd_sector_from_ref(&sector, &voice->cd->sector);
-        loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, read_count, voice->adpcm_address));
+        cd_sector_from_ref(&sector, &voice.cd_sector);
+        loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, read_count, voice.adpcm_address));
     }
     else
     {
-        loaded = (uint8_t)(!pce_cdb_adpcm_read_from_ram(PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)voice->data, voice->adpcm_address, (uint16_t)voice->data_size));
+        map_resident_data();
+        loaded = (uint8_t)(!pce_cdb_adpcm_read_from_ram(PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)voice.data, voice.adpcm_address, (uint16_t)voice.data_size));
     }
-    if (!loaded) return 0u;
-    if (!wait_adpcm_transfer_ready()) return 0u;
+    if (!loaded)
+    {
+        map_resident_data();
+        restore_display_after_adpcm(restore_display);
+        return 0u;
+    }
+    if (!wait_adpcm_transfer_ready())
+    {
+        map_resident_data();
+        restore_display_after_adpcm(restore_display);
+        return 0u;
+    }
+    map_resident_data();
     loaded_adpcm_valid = 1u;
     loaded_adpcm_index = (uint8_t)voice_index;
+    restore_display_after_adpcm(restore_display);
     return 1u;
 #else
     (void)voice_index;
     (void)allow_stop_playback;
+    (void)allow_stream_asset;
     return 0u;
 #endif
 }
 
-static uint8_t stream_adpcm_voice(signed int voice_index)
+static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
 {
 #if defined(__PCE_CD__)
-    const pce_editor_adpcm_asset_t *voice;
+    vn_adpcm_voice_t voice;
     pce_sector_t sector = {0};
     pce_sector_t length = {0};
     uint8_t divider;
-    if (voice_index < 0 || (uint8_t)voice_index >= pce_editor_adpcm_asset_count) return 0u;
-    voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
-    if (!voice->stream || !voice->cd || !voice->cd->sector_count || !voice->data_size) return 0u;
+    const uint8_t restore_display = (uint8_t)!pending_display_enable;
+    if (!copy_adpcm_voice(voice_index, &voice)) return 0u;
+    if (!voice.stream || !voice.has_cd || !voice.cd_sector_count || !voice.data_size) return 0u;
     if (adpcm_playback_active())
     {
         pce_cdb_adpcm_stop();
@@ -1111,13 +1210,26 @@ static uint8_t stream_adpcm_voice(signed int voice_index)
     loaded_adpcm_valid = 0u;
     prepare_cd_data_access();
     pce_cdb_adpcm_reset();
-    if (!wait_adpcm_transfer_ready()) return 0u;
-    cd_sector_from_ref(&sector, &voice->cd->sector);
-    cd_sector_from_uint(&length, (unsigned long)voice->cd->sector_count);
-    divider = adpcm_play_divider(voice);
-    if (pce_cdb_adpcm_stream(sector, length, divider)) return 0u;
-    adpcm_stream_looping = voice->loop ? 1u : 0u;
+    if (!wait_adpcm_transfer_ready())
+    {
+        map_resident_data();
+        restore_display_after_adpcm(restore_display);
+        return 0u;
+    }
+    cd_sector_from_ref(&sector, &voice.cd_sector);
+    cd_sector_from_uint(&length, (unsigned long)voice.cd_sector_count);
+    divider = adpcm_play_divider(voice.sample_rate, voice.divider);
+    if (pce_cdb_adpcm_stream(sector, length, divider))
+    {
+        map_resident_data();
+        restore_display_after_adpcm(restore_display);
+        return 0u;
+    }
+    map_resident_data();
+    adpcm_stream_looping = voice.loop ? 1u : 0u;
     adpcm_stream_index = (uint8_t)voice_index;
+    adpcm_stream_monitor_frames = adpcm_voice_fits_buffer(&voice) ? VN_ADPCM_STREAM_MONITOR_FRAMES : 0u;
+    restore_display_after_adpcm(restore_display);
     return 1u;
 #else
     (void)voice_index;
@@ -1125,49 +1237,89 @@ static uint8_t stream_adpcm_voice(signed int voice_index)
 #endif
 }
 
-static void play_adpcm_voice(signed int voice_index)
+static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice(signed int voice_index, uint8_t restore_display)
 {
 #if defined(__PCE_CD__)
-    const pce_editor_adpcm_asset_t *voice;
+    vn_adpcm_voice_t voice;
     uint8_t divider;
-    if (voice_index < 0 || (uint8_t)voice_index >= pce_editor_adpcm_asset_count) return;
-    if (adpcm_playback_active())
-    {
-        pce_cdb_adpcm_stop();
-        (void)wait_adpcm_transfer_ready();
-    }
-    voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
-    if (voice->stream)
-    {
-        (void)stream_adpcm_voice(voice_index);
-        return;
-    }
+    if (!copy_adpcm_voice(voice_index, &voice)) return 0u;
+    if (!adpcm_voice_fits_buffer(&voice)) return 0u;
     adpcm_stream_looping = 0u;
-    if (!load_adpcm_voice(voice_index, 1u)) return;
-    divider = adpcm_play_divider(voice);
-    if (pce_cdb_adpcm_play(voice->adpcm_address, (uint16_t)voice->data_size, divider, voice->loop ? PCE_CDB_ADPCM_REPEAT : PCE_CDB_ADPCM_ONE_SHOT))
+    adpcm_stream_monitor_frames = 0u;
+    if (!load_adpcm_voice(voice_index, 1u, 1u))
+    {
+        restore_display_after_adpcm(restore_display);
+        return 0u;
+    }
+    divider = adpcm_play_divider(voice.sample_rate, voice.divider);
+    if (pce_cdb_adpcm_play(voice.adpcm_address, (uint16_t)voice.data_size, divider, voice.loop ? PCE_CDB_ADPCM_REPEAT : PCE_CDB_ADPCM_ONE_SHOT))
     {
         loaded_adpcm_valid = 0u;
+        map_resident_data();
+        restore_display_after_adpcm(restore_display);
+        return 0u;
     }
+    map_resident_data();
+    restore_display_after_adpcm(restore_display);
+    return 1u;
+#else
+    (void)voice_index;
+    (void)restore_display;
+    return 0u;
+#endif
+}
+
+static void VN_BANKED_CODE play_adpcm_voice(signed int voice_index)
+{
+#if defined(__PCE_CD__)
+    vn_adpcm_voice_t voice;
+    const uint8_t restore_display = (uint8_t)!pending_display_enable;
+    if (!copy_adpcm_voice(voice_index, &voice)) return;
+    if (voice.stream)
+    {
+        if (adpcm_voice_fits_buffer(&voice))
+        {
+            (void)play_adpcm_buffered_voice(voice_index, restore_display);
+            restore_display_after_adpcm(restore_display);
+            return;
+        }
+        (void)stream_adpcm_voice(voice_index);
+        restore_display_after_adpcm(restore_display);
+        return;
+    }
+    (void)play_adpcm_buffered_voice(voice_index, restore_display);
 #else
     (void)voice_index;
 #endif
 }
 
-static void stop_adpcm_voice(void)
+static void VN_BANKED_CODE stop_adpcm_voice(void)
 {
 #if defined(__PCE_CD__)
     pce_cdb_adpcm_stop();
     loaded_adpcm_valid = 0u;
     adpcm_stream_looping = 0u;
+    adpcm_stream_monitor_frames = 0u;
 #endif
 }
 
-static void service_adpcm_streaming(void)
+static void VN_BANKED_CODE service_adpcm_streaming(void)
 {
 #if defined(__PCE_CD__)
+    uint16_t status;
+    if (!adpcm_stream_looping && !adpcm_stream_monitor_frames) return;
+    status = pce_cdb_adpcm_status();
+    if (adpcm_stream_monitor_frames)
+    {
+        adpcm_stream_monitor_frames--;
+        if (!adpcm_stream_monitor_frames && (status & ADPCM_STOPPED))
+        {
+            (void)play_adpcm_buffered_voice((signed int)adpcm_stream_index, (uint8_t)!pending_display_enable);
+            return;
+        }
+    }
     if (!adpcm_stream_looping) return;
-    if (!(pce_cdb_adpcm_status() & ADPCM_STOPPED)) return;
+    if (!(status & ADPCM_STOPPED)) return;
     (void)stream_adpcm_voice((signed int)adpcm_stream_index);
 #endif
 }
@@ -1455,11 +1607,7 @@ static void hide_sprites_for_asset_load(void)
 static void preload_adpcm_voice(signed int voice_index)
 {
 #if defined(__PCE_CD__)
-    if (voice_index >= 0 && (uint8_t)voice_index < pce_editor_adpcm_asset_count)
-    {
-        if (pce_editor_adpcm_assets[(uint8_t)voice_index].stream) return;
-    }
-    (void)load_adpcm_voice(voice_index, 0u);
+    (void)load_adpcm_voice(voice_index, 0u, 0u);
 #else
     (void)voice_index;
 #endif
