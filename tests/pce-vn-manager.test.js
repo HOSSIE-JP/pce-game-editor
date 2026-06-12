@@ -499,7 +499,13 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /cd_sector_from_ref\(&sector, &ref->cd->sector\);/);
   assert.match(source, /voice->cd && voice->cd->sector_count/);
   assert.match(source, /typedef struct\s*\{[\s\S]*unsigned long data_size;[\s\S]*pce_editor_cd_sector_t cd_sector;[\s\S]*uint8_t has_cd;[\s\S]*\} vn_adpcm_voice_t;/);
+  assert.match(source, /#define VN_ADPCM_BASE_SAMPLE_RATE 32000u/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE adpcm_rate_code\(unsigned int sample_rate\)/);
+  assert.match(source, /actual = adpcm_code_sample_rate\(code\);/);
+  assert.match(source, /if \(divider < 8u\) return computed;/);
+  assert.match(source, /adpcm_legacy_divider\(sample_rate, VN_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE\)/);
   assert.match(source, /static uint8_t VN_BANKED_CODE adpcm_play_divider\(unsigned int sample_rate, uint8_t divider\)/);
+  assert.doesNotMatch(source, /static uint8_t VN_BANKED_CODE adpcm_rate_divider/);
   assert.match(source, /static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer\(const vn_adpcm_voice_t \*voice\)/);
   assert.match(source, /if \(voice->data_size > 65535ul\) return 0u;/);
   assert.match(source, /limit = 65536ul - \(unsigned long\)voice->adpcm_address;/);

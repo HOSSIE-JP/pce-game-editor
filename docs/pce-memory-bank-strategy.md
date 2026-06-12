@@ -6,6 +6,7 @@
 
 - CD-ROM2 build では、背景 tiles/map、sprite pattern、ADPCM 本体のような大きい payload は RAM bank へ詰め込まず、`cd.dataFiles` に並べて CD sector から VRAM / ADPCM RAM へ直接転送します。
 - CPU が頻繁に読む小さい runtime data だけを RAM bank に置きます。表示 asset の実体は CD data file 優先です。
+- `cd.dataFiles` は sector 64 以降に並ぶ前提で generated metadata に sector を埋め込みます。build は IPL program の後ろへ padding file を挟み、ISO 上の最初の data file が sector 64 から始まるようにします。
 - VN runtime は `template/template_pce_vn_cd/src/pce_vn_runtime.c` が単一の実体です。project 側へ同期されるので、bank ルール変更は必ず template を直します。
 
 ## CD-ROM2 RAM Bank Map

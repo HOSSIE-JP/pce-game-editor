@@ -18,7 +18,8 @@
 - 画像アセットは内蔵 PCE 変換を使い、Superfamiconv には依存しません。
 - CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を前提に扱います。IPL / System Card はユーザー所有ファイルとして扱い、リポジトリへ同梱しません。
 - CD-ROM2 の大きい画像/sprite/ADPCM payload は `cd.dataFiles` に置き、RAM bank には詰め込まないでください。VN runtime は bank129 を実行コード、bank132 を VN generated data、bank130-131 を例外的な小さい fallback data として扱います。
-- ADPCM の `divider` は音量ではなく再生速度です。`sampleRate` から `round(32000 / sampleRate - 1)` で補完し、旧 default の `divider: 0` を 16000Hz などへそのまま使わないでください。
+- ADPCM の `divider` は音量ではなく ADPCM 再生 rate code です。`sampleRate` から `32000 / (16 - code)` に最も近い `0..15` の code を補完し、代表値は 32000Hz -> 15、16000Hz -> 14、8000Hz -> 12、4000Hz -> 8 です。旧実装で保存された `round(32000 / sampleRate - 1)` や `round(16000 / sampleRate - 1)` の値は読み込み時と runtime で補正します。
+- ADPCM generated metadata の `codec`、`nibbleOrder`、`encoderVersion` が現行値と違う場合は source WAV から再生成してください。同じ `oki-msm5205/msn-first` 表記でも、古い `encoderVersion` のバイナリは先頭ノイズが出る可能性があります。
 - ADPCM preload は ADPCM RAM への先読みだけです。`loaded_adpcm_valid` が立っていても、実際の再生時には必ず `pce_cdb_adpcm_play()` を呼んでください。
 - ADPCM 1 asset の安全上限は `min(65535, 65536 - adpcmAddress)` bytes です。4-bit ADPCM なので再生時間は概算で `bytes * 2 / sampleRate` 秒です。
 - VN sprite 表示では generated `pce_editor_sprite_draw_meta[]` の compact metadata を使い、単一 frame/default animation は sheet 全体表示として扱います。VDC memory control は `VN_VDC_MEMORY_CONTROL` を使い、sprite cycle bit を落とさないでください。

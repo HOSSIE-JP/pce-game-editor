@@ -129,19 +129,53 @@ const OKI_STEP_TABLE = Object.freeze([
 ]);
 
 const OKI_INDEX_SHIFT = Object.freeze([-1, -1, -1, -1, 2, 4, 6, 8]);
+const PCE_ADPCM_MIN_SAMPLE_RATE = 4000;
+const PCE_ADPCM_MAX_SAMPLE_RATE = 32000;
 const PCE_ADPCM_BASE_SAMPLE_RATE = 32000;
+const PCE_ADPCM_LEGACY_BASE_SAMPLE_RATE = 32000;
+const PCE_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE = 16000;
 const PCE_ADPCM_CODEC = 'oki-msm5205';
-const PCE_ADPCM_NIBBLE_ORDER = 'lsn-first';
+const PCE_ADPCM_EXPERIMENTAL_CODEC = 'pce-cd-adpcm-experimental';
+const PCE_ADPCM_NIBBLE_ORDER = 'msn-first';
+const PCE_ADPCM_ENCODER_VERSION = 2;
+
+function normalizeAdpcmNibbleOrder(value = PCE_ADPCM_NIBBLE_ORDER) {
+  const order = String(value || '').trim().toLowerCase();
+  if (order === 'msn-first' || order === 'high-first' || order === 'high') return 'msn-first';
+  if (order === 'lsn-first' || order === 'low-first' || order === 'low') return 'lsn-first';
+  return PCE_ADPCM_NIBBLE_ORDER;
+}
 
 function sampleRateToAdpcmDivider(sampleRate = 16000) {
+  const rate = Math.max(PCE_ADPCM_MIN_SAMPLE_RATE, Math.min(PCE_ADPCM_MAX_SAMPLE_RATE, Number(sampleRate) || 16000));
+  let best = 0;
+  let bestDiff = Infinity;
+  for (let code = 0; code <= 15; code += 1) {
+    const actual = adpcmDividerToSampleRate(code);
+    const diff = Math.abs(actual - rate);
+    if (diff < bestDiff) {
+      best = code;
+      bestDiff = diff;
+    }
+  }
+  return best;
+}
+
+function legacySampleRateToAdpcmDivider(sampleRate = 16000) {
   const rate = Math.max(1, Number(sampleRate) || 16000);
-  const divider = Math.round((PCE_ADPCM_BASE_SAMPLE_RATE / rate) - 1);
+  const divider = Math.round((PCE_ADPCM_LEGACY_BASE_SAMPLE_RATE / rate) - 1);
+  return Math.max(0, Math.min(255, divider));
+}
+
+function slowLegacySampleRateToAdpcmDivider(sampleRate = 16000) {
+  const rate = Math.max(1, Number(sampleRate) || 16000);
+  const divider = Math.round((PCE_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE / rate) - 1);
   return Math.max(0, Math.min(255, divider));
 }
 
 function adpcmDividerToSampleRate(divider = 0) {
-  const value = Math.max(0, Math.min(255, Math.trunc(Number(divider) || 0)));
-  return Math.round(PCE_ADPCM_BASE_SAMPLE_RATE / (value + 1));
+  const value = Math.max(0, Math.min(15, Math.trunc(Number(divider) || 0)));
+  return Math.round(PCE_ADPCM_BASE_SAMPLE_RATE / (16 - value));
 }
 
 function decodeOkiNibble(state, nibble) {
@@ -150,44 +184,166 @@ function decodeOkiNibble(state, nibble) {
   if (nibble & 1) delta += step >> 2;
   if (nibble & 2) delta += step >> 1;
   if (nibble & 4) delta += step;
-  const signal = Math.max(-2048, Math.min(2047, state.signal + ((nibble & 8) ? -delta : delta)));
+  const signal = (state.signal + ((nibble & 8) ? -delta : delta)) & 0x0fff;
   const index = Math.max(0, Math.min(OKI_STEP_TABLE.length - 1, state.index + OKI_INDEX_SHIFT[nibble & 7]));
   return { signal, index };
 }
 
-function encodeOkiAdpcm(rendered, startFrame = 0, frameCount = null) {
+function okiSignalToPcm16(signal) {
+  return ((signal & 0x0fff) - 2048) << 4;
+}
+
+function encodeOkiAdpcm(rendered, startFrame = 0, frameCount = null, options = {}) {
+  const nibbleOrder = normalizeAdpcmNibbleOrder(options.nibbleOrder);
   const firstFrame = Math.max(0, Math.min(rendered.frameCount || 0, Math.trunc(Number(startFrame) || 0)));
   const frames = Math.max(0, Math.min(
     (rendered.frameCount || 0) - firstFrame,
     frameCount == null ? (rendered.frameCount || 0) - firstFrame : Math.trunc(Number(frameCount) || 0)
   ));
-  const samples = [];
   const channels = Math.max(1, Number(rendered.channels) || 1);
-  for (let frame = 0; frame < frames; frame += 1) {
-    const offset = ((firstFrame + frame) * channels) * 2;
-    samples.push(Math.max(-2048, Math.min(2047, rendered.pcm.readInt16LE(offset) >> 4)));
-  }
-  const out = Buffer.alloc(Math.ceil(samples.length / 2));
-  let state = { signal: 0, index: 0 };
-  samples.forEach((sample, index) => {
+  const out = Buffer.alloc(Math.ceil(frames / 2));
+  let state = { signal: 2048, index: 0 };
+  for (let index = 0; index < frames; index += 1) {
+    const offset = ((firstFrame + index) * channels) * 2;
+    const sample = rendered.pcm.readInt16LE(offset);
     let bestNibble = 0;
     let bestState = state;
     let bestError = Infinity;
     for (let nibble = 0; nibble < 16; nibble += 1) {
       const next = decodeOkiNibble(state, nibble);
-      const error = Math.abs(sample - next.signal);
+      const error = Math.abs(sample - okiSignalToPcm16(next.signal));
       if (error < bestError) {
         bestError = error;
         bestNibble = nibble;
         bestState = next;
+        if (error === 0) break;
       }
     }
     state = bestState;
     const byteIndex = Math.floor(index / 2);
-    if (index % 2 === 0) out[byteIndex] = bestNibble & 0x0f;
+    if (nibbleOrder === 'msn-first') {
+      if (index % 2 === 0) out[byteIndex] = (bestNibble & 0x0f) << 4;
+      else out[byteIndex] |= bestNibble & 0x0f;
+    } else if (index % 2 === 0) out[byteIndex] = bestNibble & 0x0f;
     else out[byteIndex] |= (bestNibble & 0x0f) << 4;
-  });
+  }
   return out;
+}
+
+function decodeOkiAdpcm(buffer, options = {}) {
+  const input = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
+  const sampleRate = Math.max(4000, Math.min(32000, Number(options.sampleRate) || 16000));
+  const nibbleOrder = normalizeAdpcmNibbleOrder(options.nibbleOrder);
+  const pcm = Buffer.alloc(input.length * 4);
+  const state = { signal: 2048, index: 0 };
+  let sampleIndex = 0;
+
+  for (const byte of input) {
+    const first = nibbleOrder === 'msn-first' ? (byte >> 4) : (byte & 0x0f);
+    const second = nibbleOrder === 'msn-first' ? (byte & 0x0f) : (byte >> 4);
+    const firstState = decodeOkiNibble(state, first);
+    state.signal = firstState.signal;
+    state.index = firstState.index;
+    pcm.writeInt16LE(okiSignalToPcm16(state.signal), sampleIndex * 2);
+    sampleIndex += 1;
+
+    const secondState = decodeOkiNibble(state, second);
+    state.signal = secondState.signal;
+    state.index = secondState.index;
+    pcm.writeInt16LE(okiSignalToPcm16(state.signal), sampleIndex * 2);
+    sampleIndex += 1;
+  }
+
+  return {
+    sampleRate,
+    channels: 1,
+    frameCount: sampleIndex,
+    pcm,
+    codec: 'oki-msm5205',
+    nibbleOrder,
+  };
+}
+
+const PCE_ADPCM_QUANT_SCALE = Object.freeze([230, 230, 230, 230, 307, 409, 512, 614]);
+const PCE_ADPCM_DELTA_SCALE = Object.freeze([1, 3, 5, 7, 9, 11, 13, 15]);
+
+function clampPcm16(value) {
+  return Math.max(-32768, Math.min(32767, value));
+}
+
+function decodePceAdpcmNibble(state, nibble) {
+  const magnitude = nibble & 7;
+  const sign = (nibble & 8) ? -1 : 1;
+  const delta = (state.quant * PCE_ADPCM_DELTA_SCALE[magnitude]) >> 3;
+  const value = clampPcm16(state.value + (sign * delta));
+  const quant = Math.max(127, Math.min(24576, (state.quant * PCE_ADPCM_QUANT_SCALE[magnitude]) >> 8));
+  return { value, quant };
+}
+
+function encodePceAdpcm(rendered, startFrame = 0, frameCount = null, options = {}) {
+  const nibbleOrder = normalizeAdpcmNibbleOrder(options.nibbleOrder);
+  const firstFrame = Math.max(0, Math.min(rendered.frameCount || 0, Math.trunc(Number(startFrame) || 0)));
+  const frames = Math.max(0, Math.min(
+    (rendered.frameCount || 0) - firstFrame,
+    frameCount == null ? (rendered.frameCount || 0) - firstFrame : Math.trunc(Number(frameCount) || 0)
+  ));
+  const out = Buffer.alloc(Math.ceil(frames / 2));
+  const channels = Math.max(1, Number(rendered.channels) || 1);
+  let state = { value: 0, quant: 127 };
+  for (let frame = 0; frame < frames; frame += 1) {
+    const offset = ((firstFrame + frame) * channels) * 2;
+    const sample = rendered.pcm.readInt16LE(offset);
+    let bestNibble = 0;
+    let bestState = state;
+    let bestError = Infinity;
+    for (let nibble = 0; nibble < 16; nibble += 1) {
+      const next = decodePceAdpcmNibble(state, nibble);
+      const error = Math.abs(sample - next.value);
+      if (error < bestError) {
+        bestError = error;
+        bestNibble = nibble;
+        bestState = next;
+        if (error === 0) break;
+      }
+    }
+    state = bestState;
+    const byteIndex = Math.floor(frame / 2);
+    if (nibbleOrder === 'msn-first') {
+      if (frame % 2 === 0) out[byteIndex] = (bestNibble & 0x0f) << 4;
+      else out[byteIndex] |= bestNibble & 0x0f;
+    } else if (frame % 2 === 0) out[byteIndex] = bestNibble & 0x0f;
+    else out[byteIndex] |= (bestNibble & 0x0f) << 4;
+  }
+  return out;
+}
+
+function decodePceAdpcm(buffer, options = {}) {
+  const input = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
+  const sampleRate = Math.max(4000, Math.min(32000, Number(options.sampleRate) || 16000));
+  const nibbleOrder = normalizeAdpcmNibbleOrder(options.nibbleOrder);
+  const pcm = Buffer.alloc(input.length * 4);
+  let state = { value: 0, quant: 127 };
+  let sampleIndex = 0;
+
+  for (const byte of input) {
+    const first = nibbleOrder === 'msn-first' ? (byte >> 4) : (byte & 0x0f);
+    const second = nibbleOrder === 'msn-first' ? (byte & 0x0f) : (byte >> 4);
+    state = decodePceAdpcmNibble(state, first);
+    pcm.writeInt16LE(state.value, sampleIndex * 2);
+    sampleIndex += 1;
+    state = decodePceAdpcmNibble(state, second);
+    pcm.writeInt16LE(state.value, sampleIndex * 2);
+    sampleIndex += 1;
+  }
+
+  return {
+    sampleRate,
+    channels: 1,
+    frameCount: sampleIndex,
+    pcm,
+    codec: PCE_ADPCM_EXPERIMENTAL_CODEC,
+    nibbleOrder,
+  };
 }
 
 function makeWarnings(wav, rendered, kind) {
@@ -252,14 +408,16 @@ function convertWavForCdda(buffer) {
 
 function convertWavForAdpcm(buffer, options = {}) {
   const wav = parseWav(buffer);
-  const sampleRate = Math.max(4000, Math.min(32000, Number(options.sampleRate) || 16000));
+  const sampleRate = Math.max(PCE_ADPCM_MIN_SAMPLE_RATE, Math.min(PCE_ADPCM_MAX_SAMPLE_RATE, Number(options.sampleRate) || 16000));
+  const nibbleOrder = normalizeAdpcmNibbleOrder(options.nibbleOrder);
   const rendered = renderPcm16(wav, { sampleRate, channels: 1 });
-  const output = encodeOkiAdpcm(rendered);
+  const output = encodeOkiAdpcm(rendered, 0, null, { nibbleOrder });
   return {
     wav,
     output,
     codec: PCE_ADPCM_CODEC,
-    nibbleOrder: PCE_ADPCM_NIBBLE_ORDER,
+    encoderVersion: PCE_ADPCM_ENCODER_VERSION,
+    nibbleOrder,
     sampleRate: rendered.sampleRate,
     channels: 1,
     frameCount: rendered.frameCount,
@@ -271,18 +429,20 @@ function convertWavForAdpcm(buffer, options = {}) {
 
 function convertWavForAdpcmParts(buffer, options = {}) {
   const wav = parseWav(buffer);
-  const sampleRate = Math.max(4000, Math.min(32000, Number(options.sampleRate) || 16000));
+  const sampleRate = Math.max(PCE_ADPCM_MIN_SAMPLE_RATE, Math.min(PCE_ADPCM_MAX_SAMPLE_RATE, Number(options.sampleRate) || 16000));
+  const nibbleOrder = normalizeAdpcmNibbleOrder(options.nibbleOrder);
   const maxBytes = Math.max(1, Math.min(65535, Math.trunc(Number(options.maxBytes) || 65535)));
   const rendered = renderPcm16(wav, { sampleRate, channels: 1 });
   const maxFrames = Math.max(1, maxBytes * 2);
   const parts = [];
   for (let startFrame = 0; startFrame < rendered.frameCount; startFrame += maxFrames) {
     const frameCount = Math.min(maxFrames, rendered.frameCount - startFrame);
-    const output = encodeOkiAdpcm(rendered, startFrame, frameCount);
+    const output = encodeOkiAdpcm(rendered, startFrame, frameCount, { nibbleOrder });
     parts.push({
       output,
       codec: PCE_ADPCM_CODEC,
-      nibbleOrder: PCE_ADPCM_NIBBLE_ORDER,
+      encoderVersion: PCE_ADPCM_ENCODER_VERSION,
+      nibbleOrder,
       sampleRate: rendered.sampleRate,
       channels: 1,
       frameCount,
@@ -306,14 +466,27 @@ function convertWavForAdpcmParts(buffer, options = {}) {
 module.exports = {
   PCE_ADPCM_BASE_SAMPLE_RATE,
   PCE_ADPCM_CODEC,
+  PCE_ADPCM_ENCODER_VERSION,
+  PCE_ADPCM_EXPERIMENTAL_CODEC,
+  PCE_ADPCM_LEGACY_BASE_SAMPLE_RATE,
+  PCE_ADPCM_MAX_SAMPLE_RATE,
+  PCE_ADPCM_MIN_SAMPLE_RATE,
   PCE_ADPCM_NIBBLE_ORDER,
+  PCE_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE,
   adpcmDividerToSampleRate,
   convertWavForAdpcm,
   convertWavForAdpcmParts,
   convertWavForCdda,
+  decodeOkiAdpcm,
+  decodePceAdpcm,
+  encodeOkiAdpcm,
+  encodePceAdpcm,
+  legacySampleRateToAdpcmDivider,
+  normalizeAdpcmNibbleOrder,
   parseWav,
   renderPcm16,
   sampleRateToAdpcmDivider,
+  slowLegacySampleRateToAdpcmDivider,
   waveformPeaks,
   waveformPeaksFromRendered,
   writeWavPcm16,

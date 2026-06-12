@@ -1,0 +1,46 @@
+{
+  "purpose": "PCE CD-ROM2 ADPCM playback diagnostic sample",
+  "codec": "oki-msm5205",
+  "encoderVersion": 2,
+  "sampleRate": 16000,
+  "divider": 14,
+  "durationSeconds": 1,
+  "adpcmAddress": 0,
+  "byteLength": 8000,
+  "sectorBytes": 2048,
+  "sectorCount": 4,
+  "dataBaseSector": 64,
+  "files": {
+    "sourceWav": "assets/source/sine_1khz_16000.wav",
+    "lowNibbleFirstAdpcm": "assets/generated/sine_1khz_16000_lsn/adpcm.bin",
+    "highNibbleFirstAdpcm": "assets/generated/sine_1khz_16000_msn/adpcm.bin",
+    "lowNibbleFirstDecodedWav": "assets/generated/sine_1khz_16000_lsn/decoded.wav",
+    "highNibbleFirstDecodedWav": "assets/generated/sine_1khz_16000_msn/decoded.wav"
+  },
+  "cdLayout": [
+    {
+      "id": "sine_1khz_16000_lsn",
+      "codec": "oki-msm5205",
+      "encoderVersion": 2,
+      "nibbleOrder": "lsn-first",
+      "sector": 64,
+      "sectorCount": 4,
+      "byteLength": 8000
+    },
+    {
+      "id": "sine_1khz_16000_msn",
+      "codec": "oki-msm5205",
+      "encoderVersion": 2,
+      "nibbleOrder": "msn-first",
+      "sector": 68,
+      "sectorCount": 4,
+      "byteLength": 8000
+    }
+  ],
+  "romControls": {
+    "I": "buffered playback, high-nibble-first data",
+    "II": "buffered playback, low-nibble-first data",
+    "RUN": "CD streaming playback, high-nibble-first data",
+    "SELECT": "stop ADPCM playback"
+  }
+}

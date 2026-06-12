@@ -176,48 +176,11 @@ function makeWavDataUrl(sampleRate = 8000, frames = 32) {
   return `data:audio/wav;base64,${makeWavBuffer(sampleRate, frames).toString('base64')}`;
 }
 
-const OKI_STEP_TABLE = [
-  16, 17, 19, 21, 23, 25, 28, 31,
-  34, 37, 41, 45, 50, 55, 60, 66,
-  73, 80, 88, 97, 107, 118, 130, 143,
-  157, 173, 190, 209, 230, 253, 279, 307,
-  337, 371, 408, 449, 494, 544, 598, 658,
-  724, 796, 876, 963, 1060, 1166, 1282, 1411,
-  1552,
-];
-const OKI_INDEX_SHIFT = [-1, -1, -1, -1, 2, 4, 6, 8];
-
-function decodeOkiSample(state, nibble) {
-  const step = OKI_STEP_TABLE[state.index];
-  let delta = step >> 3;
-  if (nibble & 1) delta += step >> 2;
-  if (nibble & 2) delta += step >> 1;
-  if (nibble & 4) delta += step;
-  state.signal = Math.max(-2048, Math.min(2047, state.signal + ((nibble & 8) ? -delta : delta)));
-  state.index = Math.max(0, Math.min(OKI_STEP_TABLE.length - 1, state.index + OKI_INDEX_SHIFT[nibble & 7]));
-  return state.signal << 4;
-}
-
-function decodeOkiAdpcm(buffer, highNibbleFirst = true) {
-  const state = { signal: 0, index: 0 };
-  const samples = [];
-  for (const byte of buffer) {
-    if (highNibbleFirst) {
-      samples.push(decodeOkiSample(state, byte >> 4));
-      samples.push(decodeOkiSample(state, byte & 0x0f));
-    } else {
-      samples.push(decodeOkiSample(state, byte & 0x0f));
-      samples.push(decodeOkiSample(state, byte >> 4));
-    }
-  }
-  return samples;
-}
-
-function pcmErrorScore(pcm, samples) {
-  const count = Math.min(samples.length, Math.floor(pcm.length / 2));
+function pcmBufferErrorScore(left, right) {
+  const count = Math.min(Math.floor(left.length / 2), Math.floor(right.length / 2));
   let squaredError = 0;
   for (let index = 0; index < count; index += 1) {
-    const error = pcm.readInt16LE(index * 2) - samples[index];
+    const error = left.readInt16LE(index * 2) - right.readInt16LE(index * 2);
     squaredError += error * error;
   }
   return Math.sqrt(squaredError / Math.max(1, count));
@@ -262,6 +225,8 @@ test('PCE asset schema supports BG image, sprite, generated metadata, and legacy
   });
   const psg = assetManager.normalizeAsset({ id: 'old-beep', type: 'psg-sequence', options: { period: 384 } });
   const adpcm = assetManager.normalizeAsset({ id: 'voice', type: 'adpcm', source: 'assets/adpcm/voice.wav', options: { sampleRate: 12000 } });
+  const legacyAdpcm = assetManager.normalizeAsset({ id: 'legacy-voice', type: 'adpcm', source: 'assets/adpcm/legacy.wav', options: { sampleRate: 16000, divider: 1 } });
+  const defaultDividerAdpcm = assetManager.normalizeAsset({ id: 'old-default', type: 'adpcm', source: 'assets/adpcm/default.wav', options: { sampleRate: 8000, divider: 0 } });
   const cdda = assetManager.normalizeAsset({ id: 'track', type: 'cdda-track', source: 'assets/cdda/track.wav', options: { track: 3 } });
 
   assert.equal(image.options.kind, 'background');
@@ -275,9 +240,11 @@ test('PCE asset schema supports BG image, sprite, generated metadata, and legacy
   assert.equal(psg.type, 'psg-sfx');
   assert.equal(psg.options.period, 384);
   assert.equal(adpcm.options.sampleRate, 12000);
-  assert.equal(adpcm.options.divider, 2);
-  assert.equal(assetManager.sampleRateToAdpcmDivider(16000), 1);
-  assert.equal(assetManager.sampleRateToAdpcmDivider(8000), 3);
+  assert.equal(adpcm.options.divider, 13);
+  assert.equal(legacyAdpcm.options.divider, 14);
+  assert.equal(defaultDividerAdpcm.options.divider, 12);
+  assert.equal(assetManager.sampleRateToAdpcmDivider(16000), 14);
+  assert.equal(assetManager.sampleRateToAdpcmDivider(8000), 12);
   assert.equal(cdda.options.track, 3);
   assert.throws(() => assetManager.normalizeAsset({ id: 'bad', type: 'image', source: '/tmp/bad.png' }), /project relative/);
   assert.throws(() => assetManager.normalizeAsset({ id: 'bad', type: 'image', source: 'C:\\bad\\asset.png' }), /project relative/);
@@ -307,20 +274,38 @@ test('PCE audio import converts WAV into ADPCM and CD-DA assets', () => {
 
   assert.equal(adpcm.asset.type, 'adpcm');
   assert.equal(adpcm.asset.options.sampleRate, 12000);
-  assert.equal(adpcm.asset.options.divider, 2);
+  assert.equal(adpcm.asset.options.divider, 13);
   assert.match(adpcm.asset.data.generated.outputFile, /adpcm\.bin$/);
-  assert.equal(adpcm.asset.data.generated.codec, 'oki-msm5205');
-  assert.equal(adpcm.asset.data.generated.nibbleOrder, 'lsn-first');
+  assert.equal(adpcm.asset.data.generated.codec, audioConverter.PCE_ADPCM_CODEC);
+  assert.equal(adpcm.asset.data.generated.encoderVersion, audioConverter.PCE_ADPCM_ENCODER_VERSION);
+  assert.equal(adpcm.asset.data.generated.nibbleOrder, 'msn-first');
   const adpcmBytes = fs.readFileSync(path.join(projectDir, adpcm.asset.data.generated.outputFile));
   const renderedPcm = audioConverter.renderPcm16(audioConverter.parseWav(fs.readFileSync(source)), { sampleRate: 12000, channels: 1 }).pcm;
-  const highNibbleError = pcmErrorScore(renderedPcm, decodeOkiAdpcm(adpcmBytes, true));
-  const lowNibbleError = pcmErrorScore(renderedPcm, decodeOkiAdpcm(adpcmBytes, false));
+  const highNibbleError = pcmBufferErrorScore(renderedPcm, audioConverter.decodeOkiAdpcm(adpcmBytes, { sampleRate: 12000, nibbleOrder: 'msn-first' }).pcm);
+  const lowNibbleError = pcmBufferErrorScore(renderedPcm, audioConverter.decodeOkiAdpcm(adpcmBytes, { sampleRate: 12000, nibbleOrder: 'lsn-first' }).pcm);
   assert.equal(fs.existsSync(path.join(projectDir, adpcm.asset.data.generated.outputFile)), true);
-  assert.ok(lowNibbleError < highNibbleError / 4);
+  assert.ok(highNibbleError < lowNibbleError / 4);
   assert.equal(cdda.asset.type, 'cdda-track');
   assert.equal(cdda.asset.options.track, 4);
   assert.match(cdda.asset.data.generated.outputFile, /cdda\.wav$/);
   assert.equal(fs.existsSync(path.join(projectDir, cdda.asset.data.generated.outputFile)), true);
+});
+
+test('PCE ADPCM diagnostic codec supports low and high nibble orders', () => {
+  const wav = audioConverter.parseWav(makeWavBuffer(16000, 256));
+  const rendered = audioConverter.renderPcm16(wav, { sampleRate: 16000, channels: 1 });
+  const lsnAdpcm = audioConverter.encodeOkiAdpcm(rendered, 0, rendered.frameCount, { nibbleOrder: 'lsn-first' });
+  const msnAdpcm = audioConverter.encodeOkiAdpcm(rendered, 0, rendered.frameCount, { nibbleOrder: 'msn-first' });
+  const lsnCorrect = audioConverter.decodeOkiAdpcm(lsnAdpcm, { sampleRate: 16000, nibbleOrder: 'lsn-first' });
+  const lsnWrong = audioConverter.decodeOkiAdpcm(lsnAdpcm, { sampleRate: 16000, nibbleOrder: 'msn-first' });
+  const msnCorrect = audioConverter.decodeOkiAdpcm(msnAdpcm, { sampleRate: 16000, nibbleOrder: 'msn-first' });
+  const msnWrong = audioConverter.decodeOkiAdpcm(msnAdpcm, { sampleRate: 16000, nibbleOrder: 'lsn-first' });
+
+  assert.equal(audioConverter.normalizeAdpcmNibbleOrder('high-first'), 'msn-first');
+  assert.equal(lsnCorrect.nibbleOrder, 'lsn-first');
+  assert.equal(msnCorrect.nibbleOrder, 'msn-first');
+  assert.ok(pcmBufferErrorScore(rendered.pcm, lsnCorrect.pcm) < pcmBufferErrorScore(rendered.pcm, lsnWrong.pcm));
+  assert.ok(pcmBufferErrorScore(rendered.pcm, msnCorrect.pcm) < pcmBufferErrorScore(rendered.pcm, msnWrong.pcm));
 });
 
 test('PCE audio import accepts processed WAV data URLs and keeps MP3 provenance', () => {
@@ -352,7 +337,7 @@ test('PCE audio import accepts processed WAV data URLs and keeps MP3 provenance'
   assert.equal(cdda.asset.options.track, 5);
 });
 
-test('PCE generated sources refresh legacy ADPCM nibble order before build', () => {
+test('PCE generated sources refresh stale ADPCM encoder output before build', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-adpcm-refresh-');
   const source = path.join(makeTempDir('pce-assets-adpcm-refresh-source-'), 'voice.wav');
@@ -371,8 +356,7 @@ test('PCE generated sources refresh legacy ADPCM nibble order before build', () 
 
   const assetPath = path.join(projectDir, 'assets', 'pce-assets.json');
   const doc = JSON.parse(fs.readFileSync(assetPath, 'utf-8'));
-  delete doc.assets[0].data.generated.codec;
-  delete doc.assets[0].data.generated.nibbleOrder;
+  doc.assets[0].data.generated.encoderVersion = 1;
   fs.writeFileSync(assetPath, JSON.stringify(doc, null, 2), 'utf-8');
 
   assetManager.generateAssetSources(projectDir);
@@ -380,8 +364,9 @@ test('PCE generated sources refresh legacy ADPCM nibble order before build', () 
   const refreshed = fs.readFileSync(outputPath);
   const refreshedDoc = JSON.parse(fs.readFileSync(assetPath, 'utf-8'));
   assert.deepEqual(refreshed, expected);
-  assert.equal(refreshedDoc.assets[0].data.generated.codec, 'oki-msm5205');
-  assert.equal(refreshedDoc.assets[0].data.generated.nibbleOrder, 'lsn-first');
+  assert.equal(refreshedDoc.assets[0].data.generated.codec, audioConverter.PCE_ADPCM_CODEC);
+  assert.equal(refreshedDoc.assets[0].data.generated.encoderVersion, audioConverter.PCE_ADPCM_ENCODER_VERSION);
+  assert.equal(refreshedDoc.assets[0].data.generated.nibbleOrder, 'msn-first');
 });
 
 test('PCE ADPCM import auto-splits assets that exceed runtime-safe size', () => {
@@ -439,7 +424,7 @@ test('PCE ADPCM streaming import keeps long samples as one CD data file', () => 
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
   assert.match(header, /unsigned long data_size;/);
-  assert.match(source, /\{ \(const unsigned char \*\)0, \d+u, 8000u, 65530u, 3u, 0u, 1u, &pce_editor_adpcm_long_stream_data_cd \}/);
+  assert.match(source, /\{ \(const unsigned char \*\)0, \d+u, 8000u, 65530u, 12u, 0u, 1u, &pce_editor_adpcm_long_stream_data_cd \}/);
 });
 
 test('PCE image import generates BG and sprite assets with the internal converter', () => {
@@ -712,7 +697,7 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_beep_pattern\[\]/);
   assert.match(source, /static const unsigned char pce_editor_adpcm_voice_data\[\]/);
   assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_tiles, 64u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_map, 8u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, 2u, 2u, 128u, 0u, 0u \}/);
-  assert.match(source, /\{ pce_editor_adpcm_voice_data, 4u, 16000u, 0u, 1u, 0u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
+  assert.match(source, /\{ pce_editor_adpcm_voice_data, 4u, 16000u, 0u, 14u, 0u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
   assert.match(source, /const unsigned char pce_editor_bg_asset_count = 1/);
   assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] = \{\n  \{ 16u, 16u, 1u, 1u, 384u, 0u \}\n\};/);
   assert.match(source, /const unsigned char pce_editor_sprite_asset_count = 1/);
@@ -806,7 +791,7 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_tiles_cd \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_map_cd \}, 36u, 16u, 128u, 0u, 0u \}/);
   assert.match(source, /pce_editor_sprite_hero_patterns_cd = \{ \{ 66u, 0u, 0u \}, 2u \};/);
   assert.match(source, /pce_editor_adpcm_voice_data_cd = \{ \{ 68u, 0u, 0u \}, 2u \};/);
-  assert.match(source, /\{ \(const unsigned char \*\)0, 4096u, 16000u, 0u, 1u, 0u, 1u, &pce_editor_adpcm_voice_data_cd \}/);
+  assert.match(source, /\{ \(const unsigned char \*\)0, 4096u, 16000u, 0u, 14u, 0u, 1u, &pce_editor_adpcm_voice_data_cd \}/);
   assert.match(header, /pce_editor_cd_sector_t start_sector;/);
   assert.match(header, /pce_editor_cd_sector_t end_sector;/);
   assert.match(header, /pce_editor_cd_time_t end_time;/);

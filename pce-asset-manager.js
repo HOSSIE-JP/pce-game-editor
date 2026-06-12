@@ -26,7 +26,10 @@ const PCE_BG_MAP_HEIGHT_TILES = 32;
 const PCE_BG_AUTO_MAP_BASE = 0;
 const PCE_BG_AUTO_TILE_BASE = Math.ceil((PCE_BG_MAP_WIDTH_TILES * PCE_BG_MAP_HEIGHT_TILES) / 16);
 const PCE_ADPCM_CODEC = audioConverter.PCE_ADPCM_CODEC || 'oki-msm5205';
-const PCE_ADPCM_NIBBLE_ORDER = audioConverter.PCE_ADPCM_NIBBLE_ORDER || 'lsn-first';
+const PCE_ADPCM_ENCODER_VERSION = audioConverter.PCE_ADPCM_ENCODER_VERSION || 2;
+const PCE_ADPCM_NIBBLE_ORDER = audioConverter.PCE_ADPCM_NIBBLE_ORDER || 'msn-first';
+const PCE_ADPCM_MIN_SAMPLE_RATE = audioConverter.PCE_ADPCM_MIN_SAMPLE_RATE || 4000;
+const PCE_ADPCM_MAX_SAMPLE_RATE = audioConverter.PCE_ADPCM_MAX_SAMPLE_RATE || 32000;
 const DEFAULT_BG_OPTIONS = Object.freeze({
   kind: 'background',
   paletteBank: 0,
@@ -306,11 +309,21 @@ function normalizePsgOptions(asset = {}) {
 
 function normalizeAdpcmOptions(asset = {}) {
   const rawOptions = asset.options && typeof asset.options === 'object' ? { ...asset.options } : {};
-  const sampleRate = clampInt(rawOptions.sampleRate, 4000, 32000, DEFAULT_ADPCM_OPTIONS.sampleRate);
+  const sampleRate = clampInt(rawOptions.sampleRate, PCE_ADPCM_MIN_SAMPLE_RATE, PCE_ADPCM_MAX_SAMPLE_RATE, DEFAULT_ADPCM_OPTIONS.sampleRate);
   const autoDivider = audioConverter.sampleRateToAdpcmDivider(sampleRate);
   const rawDivider = rawOptions.divider;
-  const normalizedDivider = clampInt(rawDivider, 0, 255, autoDivider);
-  const divider = rawDivider == null || rawDivider === '' || (normalizedDivider === 0 && sampleRate < 32000)
+  const normalizedDivider = clampInt(rawDivider, 0, 15, autoDivider);
+  const legacyDivider = typeof audioConverter.legacySampleRateToAdpcmDivider === 'function'
+    ? audioConverter.legacySampleRateToAdpcmDivider(sampleRate)
+    : autoDivider;
+  const slowLegacyDivider = typeof audioConverter.slowLegacySampleRateToAdpcmDivider === 'function'
+    ? audioConverter.slowLegacySampleRateToAdpcmDivider(sampleRate)
+    : autoDivider;
+  const divider = rawDivider == null
+    || rawDivider === ''
+    || normalizedDivider === legacyDivider
+    || normalizedDivider === slowLegacyDivider
+    || normalizedDivider < 8
     ? autoDivider
     : normalizedDivider;
   return {
@@ -1332,8 +1345,11 @@ function importAudio(projectDir, payload = {}, options = {}) {
     const parts = splitPolicy === 'auto'
       ? converted.parts
       : [{
-          output: converted.output,
-          sampleRate: converted.sampleRate,
+        output: converted.output,
+        codec: converted.codec,
+        encoderVersion: converted.encoderVersion,
+        nibbleOrder: converted.nibbleOrder,
+        sampleRate: converted.sampleRate,
           channels: converted.channels,
           durationSeconds: converted.durationSeconds,
           waveform: converted.waveform,
@@ -1359,6 +1375,7 @@ function importAudio(projectDir, payload = {}, options = {}) {
         durationSeconds: part.durationSeconds,
         bytes: part.output.length,
         codec: part.codec || PCE_ADPCM_CODEC,
+        encoderVersion: part.encoderVersion || PCE_ADPCM_ENCODER_VERSION,
         nibbleOrder: part.nibbleOrder || PCE_ADPCM_NIBBLE_ORDER,
         waveform: part.waveform,
         warnings,
@@ -1386,15 +1403,17 @@ function importAudio(projectDir, payload = {}, options = {}) {
             channels: part.channels,
             durationSeconds: part.durationSeconds,
             codec: part.codec || PCE_ADPCM_CODEC,
+            encoderVersion: part.encoderVersion || PCE_ADPCM_ENCODER_VERSION,
             nibbleOrder: part.nibbleOrder || PCE_ADPCM_NIBBLE_ORDER,
             waveform: part.waveform,
             warnings,
           },
-          import: {
-            originalFileName,
-            importedAt,
-            converter: 'Internal WAV/ADPCM encoder',
-            processing,
+        import: {
+          originalFileName,
+          importedAt,
+          converter: 'Internal WAV/ADPCM encoder',
+          encoderVersion: part.encoderVersion || PCE_ADPCM_ENCODER_VERSION,
+          processing,
             groupId: id,
             partIndex: partIndex + 1,
             partCount,
@@ -1870,6 +1889,7 @@ function adpcmAssetNeedsRegeneration(projectDir, asset) {
   const outputPath = path.join(projectDir, normalizeRelativePath(generated.outputFile));
   if (!fs.existsSync(outputPath)) return true;
   if (generated.codec !== PCE_ADPCM_CODEC) return true;
+  if (generated.encoderVersion !== PCE_ADPCM_ENCODER_VERSION) return true;
   if (generated.nibbleOrder !== PCE_ADPCM_NIBBLE_ORDER) return true;
   return false;
 }
@@ -1894,6 +1914,7 @@ function updateAdpcmGeneratedAsset(projectDir, asset, part, shared = {}) {
     durationSeconds: part.durationSeconds,
     bytes: part.output.length,
     codec: part.codec || PCE_ADPCM_CODEC,
+    encoderVersion: part.encoderVersion || PCE_ADPCM_ENCODER_VERSION,
     nibbleOrder: part.nibbleOrder || PCE_ADPCM_NIBBLE_ORDER,
     waveform: part.waveform,
     warnings,
@@ -1915,6 +1936,7 @@ function updateAdpcmGeneratedAsset(projectDir, asset, part, shared = {}) {
       channels: part.channels,
       durationSeconds: part.durationSeconds,
       codec: part.codec || PCE_ADPCM_CODEC,
+      encoderVersion: part.encoderVersion || PCE_ADPCM_ENCODER_VERSION,
       nibbleOrder: part.nibbleOrder || PCE_ADPCM_NIBBLE_ORDER,
       waveform: part.waveform,
       warnings,
@@ -1922,6 +1944,7 @@ function updateAdpcmGeneratedAsset(projectDir, asset, part, shared = {}) {
     import: {
       ...(asset.data?.import || {}),
       codec: part.codec || PCE_ADPCM_CODEC,
+      encoderVersion: part.encoderVersion || PCE_ADPCM_ENCODER_VERSION,
       nibbleOrder: part.nibbleOrder || PCE_ADPCM_NIBBLE_ORDER,
       regeneratedAt: new Date().toISOString(),
     },
@@ -1967,6 +1990,7 @@ function ensureAdpcmGeneratedAssets(projectDir, doc) {
       : [{
           output: converted.output,
           codec: converted.codec,
+          encoderVersion: converted.encoderVersion,
           nibbleOrder: converted.nibbleOrder,
           sampleRate: converted.sampleRate,
           channels: converted.channels,

@@ -36,6 +36,9 @@ PCE_CDB_USE_GRAPHICS_DRIVER(1);
 #define VN_BG_SCROLL_HEIGHT 256u
 #define VN_MAP_ROW_BYTES (VN_MAP_WIDTH * 2u)
 #define VN_ADPCM_BASE_SAMPLE_RATE 32000u
+#define VN_ADPCM_LEGACY_BASE_SAMPLE_RATE 32000u
+#define VN_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE 16000u
+#define VN_ADPCM_MAX_RATE_CODE 15u
 #define VN_SATB_ADDR 0x7f00u
 #define VN_WINDOW_X 2u
 #define VN_WINDOW_Y 19u
@@ -1028,17 +1031,60 @@ static void stop_cdda_track(void)
 #endif
 }
 
-static uint8_t VN_BANKED_CODE adpcm_play_divider(unsigned int sample_rate, uint8_t divider)
+static unsigned int VN_BANKED_CODE adpcm_code_sample_rate(uint8_t code)
+{
+    uint8_t value;
+    value = code > VN_ADPCM_MAX_RATE_CODE ? VN_ADPCM_MAX_RATE_CODE : code;
+    return VN_ADPCM_BASE_SAMPLE_RATE / (16u - (unsigned int)value);
+}
+
+static uint8_t VN_BANKED_CODE adpcm_rate_code(unsigned int sample_rate)
+{
+    unsigned int rate;
+    unsigned int actual;
+    unsigned int diff;
+    unsigned int best_diff;
+    uint8_t code;
+    uint8_t best;
+    rate = sample_rate ? sample_rate : 16000u;
+    best = 0u;
+    best_diff = 65535u;
+    for (code = 0u; code <= VN_ADPCM_MAX_RATE_CODE; code += 1u)
+    {
+        actual = adpcm_code_sample_rate(code);
+        diff = actual > rate ? actual - rate : rate - actual;
+        if (diff < best_diff)
+        {
+            best = code;
+            best_diff = diff;
+            if (!diff) break;
+        }
+    }
+    return best;
+}
+
+static uint8_t VN_BANKED_CODE adpcm_legacy_divider(unsigned int sample_rate, unsigned int base_rate)
 {
     unsigned int rate;
     unsigned int computed;
-    if (divider || sample_rate >= VN_ADPCM_BASE_SAMPLE_RATE) return divider;
     rate = sample_rate ? sample_rate : 16000u;
-    computed = (VN_ADPCM_BASE_SAMPLE_RATE + (rate / 2u)) / rate;
+    computed = (base_rate + (rate / 2u)) / rate;
     if (!computed) return 0u;
     computed -= 1u;
     if (computed > 255u) return 255u;
     return (uint8_t)computed;
+}
+
+static uint8_t VN_BANKED_CODE adpcm_play_divider(unsigned int sample_rate, uint8_t divider)
+{
+    uint8_t computed;
+    if (!sample_rate) return divider > VN_ADPCM_MAX_RATE_CODE ? VN_ADPCM_MAX_RATE_CODE : divider;
+    computed = adpcm_rate_code(sample_rate);
+    if (divider > VN_ADPCM_MAX_RATE_CODE) return computed;
+    if (divider < 8u) return computed;
+    if (divider == adpcm_legacy_divider(sample_rate, VN_ADPCM_LEGACY_BASE_SAMPLE_RATE)) return computed;
+    if (divider == adpcm_legacy_divider(sample_rate, VN_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE)) return computed;
+    return divider;
 }
 
 static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer(const vn_adpcm_voice_t *voice)

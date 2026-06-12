@@ -1,5 +1,7 @@
 const AUDIO_EXTS = ['.wav', '.mp3'];
 const ADPCM_BASE_SAMPLE_RATE = 32000;
+const ADPCM_MIN_SAMPLE_RATE = 4000;
+const ADPCM_MAX_SAMPLE_RATE = 32000;
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -38,8 +40,18 @@ function safeId(value, fallback = 'adpcm_sample') {
 }
 
 function sampleRateToDivider(sampleRate) {
-  const rate = clampInt(sampleRate, 4000, 32000, 16000);
-  return clampInt(Math.round((ADPCM_BASE_SAMPLE_RATE / rate) - 1), 0, 255, 1);
+  const rate = clampInt(sampleRate, ADPCM_MIN_SAMPLE_RATE, ADPCM_MAX_SAMPLE_RATE, 16000);
+  let best = 0;
+  let bestDiff = Infinity;
+  for (let code = 0; code <= 15; code += 1) {
+    const actual = Math.round(ADPCM_BASE_SAMPLE_RATE / (16 - code));
+    const diff = Math.abs(actual - rate);
+    if (diff < bestDiff) {
+      best = code;
+      bestDiff = diff;
+    }
+  }
+  return best;
 }
 
 function formatSeconds(value) {
@@ -135,7 +147,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             <label class="form-group">
               <span class="form-label">Divider</span>
               <div class="pce-adpcm-field-action">
-                <input class="form-input" name="divider" type="number" min="0" max="255" />
+                <input class="form-input" name="divider" type="number" min="0" max="15" />
                 <button class="icon-btn-xs" type="button" data-action="auto-divider" title="Sample rate から divider を補完" aria-label="Sample rate から divider を補完">↺</button>
               </div>
             </label>
@@ -373,7 +385,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     const asset = selectedAsset();
     if (!asset) return null;
     const id = safeId(formEl.elements.id.value, asset.id);
-    const sampleRate = clampInt(formEl.elements.sampleRate.value, 4000, 32000, 16000);
+    const sampleRate = clampInt(formEl.elements.sampleRate.value, ADPCM_MIN_SAMPLE_RATE, ADPCM_MAX_SAMPLE_RATE, 16000);
     return {
       ...asset,
       id,
@@ -383,7 +395,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         ...(asset.options || {}),
         sampleRate,
         adpcmAddress: clampInt(formEl.elements.adpcmAddress.value, 0, 65535, 0),
-        divider: clampInt(formEl.elements.divider.value, 0, 255, sampleRateToDivider(sampleRate)),
+        divider: clampInt(formEl.elements.divider.value, 0, 15, sampleRateToDivider(sampleRate)),
         loop: Boolean(formEl.elements.loop.checked),
         stream: Boolean(formEl.elements.stream.checked),
       },
@@ -502,7 +514,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
               <label class="form-group">
                 <span class="form-label">Divider</span>
                 <div class="pce-adpcm-field-action">
-                  <input class="form-input" name="divider" type="number" min="0" max="255" value="1" />
+                  <input class="form-input" name="divider" type="number" min="0" max="15" value="14" />
                   <button class="icon-btn-xs" type="button" data-import-auto-divider title="Sample rate から divider を補完" aria-label="Sample rate から divider を補完">↺</button>
                 </div>
               </label>
@@ -554,7 +566,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           error.textContent = '同じ ID のアセットが既にあります';
           return;
         }
-        const sampleRate = clampInt(form.elements.sampleRate.value, 4000, 32000, 16000);
+        const sampleRate = clampInt(form.elements.sampleRate.value, ADPCM_MIN_SAMPLE_RATE, ADPCM_MAX_SAMPLE_RATE, 16000);
         const stream = Boolean(form.elements.stream.checked);
         modal.close();
         modal.destroy?.();
@@ -563,7 +575,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           name: String(form.elements.name.value || id).trim(),
           sampleRate,
           adpcmAddress: clampInt(form.elements.adpcmAddress.value, 0, 65535, 0),
-          divider: clampInt(form.elements.divider.value, 0, 255, sampleRateToDivider(sampleRate)),
+          divider: clampInt(form.elements.divider.value, 0, 15, sampleRateToDivider(sampleRate)),
           loop: Boolean(form.elements.loop.checked),
           stream,
           splitPolicy: !stream && Boolean(form.elements.splitPolicy.checked),
@@ -601,7 +613,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       if (!converted?.ok || !converted.dataUrl) return null;
       const processedSampleRate = Number(converted.processing?.sampleRate);
       const sampleRate = Number.isFinite(processedSampleRate) && processedSampleRate > 0
-        ? clampInt(processedSampleRate, 4000, 32000, details.sampleRate)
+        ? clampInt(processedSampleRate, ADPCM_MIN_SAMPLE_RATE, ADPCM_MAX_SAMPLE_RATE, details.sampleRate)
         : details.sampleRate;
       const result = await api.electronAPI.importAssetAudio({
         dataUrl: converted.dataUrl,

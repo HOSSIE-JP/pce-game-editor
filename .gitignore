@@ -2,6 +2,7 @@ node_modules/
 dist/
 data/
 out/
+samples/*/out/
 tools/generated/
 *.log
 build-meta.json
