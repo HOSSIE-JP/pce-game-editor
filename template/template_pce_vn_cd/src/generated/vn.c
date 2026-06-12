@@ -332,66 +332,20 @@ void pce_vn_font_tiles_map(void)
 #endif
 }
 
-static const unsigned char PCE_VN_DATA_SECTION pce_vn_message_0_glyphs[] = {
-  0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0xff
-};
-
-static const unsigned char PCE_VN_DATA_SECTION pce_vn_message_1_glyphs[] = {
-  0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0xff
-};
-
-static const unsigned char PCE_VN_DATA_SECTION pce_vn_message_2_glyphs[] = {
-  0x13, 0x12, 0x14, 0x15, 0x16, 0x00, 0x17, 0x18, 0x0d, 0x11, 0x12, 0x08, 0x09, 0xff
-};
-
-static const unsigned char PCE_VN_DATA_SECTION pce_vn_message_3_glyphs[] = {
-  0x19, 0x1a, 0x11, 0x1b, 0x00, 0x1c, 0x1b, 0x1d, 0x00, 0x1e, 0x1f, 0x20, 0x21, 0xff
-};
-
 const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations[] = {
   { 0u, 0u, 1u, 8u, 4u, 8u, 32u, 1u },
   { 1u, 0u, 1u, 8u, 4u, 8u, 32u, 1u }
 };
 const unsigned char PCE_VN_DATA_SECTION pce_vn_sprite_animation_count = 2;
 
-const pce_vn_message_t PCE_VN_DATA_SECTION pce_vn_messages[] = {
-  { pce_vn_message_0_glyphs, 8u, -1, 2u, 0u, 60u, -1, 0u },
-  { pce_vn_message_1_glyphs, 9u, -1, 2u, 0u, 60u, -1, 0u },
-  { pce_vn_message_2_glyphs, 13u, -1, 2u, 0u, 60u, -1, 0u },
-  { pce_vn_message_3_glyphs, 13u, -1, 2u, 0u, 60u, -1, 0u }
-};
-const unsigned char PCE_VN_DATA_SECTION pce_vn_message_count = 4;
-
-const pce_vn_choice_t PCE_VN_DATA_SECTION pce_vn_choices[] = {
-  { (const pce_vn_choice_option_t *)0, 0u, 0u, -1 }
-};
-const unsigned char PCE_VN_DATA_SECTION pce_vn_choice_count = 0;
-
-const pce_vn_switch_t PCE_VN_DATA_SECTION pce_vn_switches[] = {
-  { (const pce_vn_switch_case_t *)0, 0u, PCE_VN_NO_COMMAND }
-};
-const unsigned char PCE_VN_DATA_SECTION pce_vn_switch_count = 0;
-
 const signed int PCE_VN_DATA_SECTION pce_vn_variable_initial_values[] = {
   0
 };
 const unsigned char PCE_VN_DATA_SECTION pce_vn_variable_count = 0;
 
-const pce_vn_command_t PCE_VN_DATA_SECTION pce_vn_commands[] = {
-  { 0u, 0, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, -1, -1 },
-  { 1u, 0, 0u, 1u, 0u, 0u, 128u, 24u, -1, 0, -1, -1 },
-  { 2u, -1, 0u, 0u, 0u, 0u, 0u, 0u, 0, -1, -1, -1 },
-  { 2u, -1, 0u, 0u, 0u, 0u, 0u, 0u, 1, -1, -1, -1 },
-  { 0u, 1, 0u, 1u, 16u, 16u, 0u, 0u, -1, -1, -1, -1 },
-  { 1u, 1, 0u, 1u, 0u, 0u, 128u, 24u, -1, 1, -1, -1 },
-  { 2u, -1, 0u, 0u, 0u, 0u, 0u, 0u, 2, -1, -1, -1 },
-  { 2u, -1, 0u, 0u, 0u, 0u, 0u, 0u, 3, -1, -1, -1 }
-};
-const unsigned char PCE_VN_DATA_SECTION pce_vn_command_count = 8;
-
-const pce_vn_scene_t PCE_VN_DATA_SECTION pce_vn_scenes[] = {
-  { 0u, 4u, 1 },
-  { 4u, 4u, -1 }
+const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs[] = {
+  { { 64u, 0u, 0u }, 1u, 137u, 1 },
+  { { 77u, 0u, 0u }, 1u, 146u, -1 }
 };
 const unsigned char PCE_VN_DATA_SECTION pce_vn_scene_count = 2;
 const unsigned char PCE_VN_DATA_SECTION pce_vn_start_scene = 0u;

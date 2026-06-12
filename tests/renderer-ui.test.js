@@ -345,15 +345,70 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(css, /\.pce-vn-command-dropzone\.is-drop-target/);
 });
 
-test('PCE CD-DA manager exposes track-only import, edit, preview, and reorder UI', () => {
+test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
+  const manifest = readPluginManifest('novel-editor');
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'novel-editor', 'renderer.js'), 'utf-8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'novel-editor', 'style.css'), 'utf-8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'novel-editor', 'index.js'), 'utf-8');
+
+  assert.equal(manifest.name, 'ノベル');
+  assert.equal(manifest.tab.label, 'Novel');
+  assert.equal(manifest.tab.page, 'novel-editor');
+  assert.equal(manifest.renderer.page, 'novel-editor');
+  assert.ok(manifest.hooks.includes('readFontSettings'));
+  assert.ok(manifest.mainApi.hooks.includes('generateFont'));
+  assert.ok(manifest.renderer.capabilities.includes('novel-editor'));
+  assert.ok(manifest.renderer.capabilities.includes('visual-novel-editor'));
+  assert.ok(manifest.renderer.capabilities.includes('font-editor'));
+  assert.match(renderer, /activateVnEditor/);
+  assert.match(renderer, /activateFontEditor/);
+  assert.match(renderer, /label:\s*'VN'/);
+  assert.match(renderer, /label:\s*'Font'/);
+  assert.match(renderer, /data-novel-tab/);
+  assert.match(renderer, /pluginId:\s*'novel-editor'/);
+  assert.match(css, /pce-visual-novel-editor\/style\.css/);
+  assert.match(css, /pce-font-editor\/style\.css/);
+  assert.match(index, /readFontSettings/);
+  assert.match(index, /generateVnSources/);
+});
+
+test('Sound plugin integrates ADPCM, CD-DA, and PSM tools behind one tabbed page', () => {
+  const manifest = readPluginManifest('sound-editor');
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'sound-editor', 'renderer.js'), 'utf-8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'sound-editor', 'style.css'), 'utf-8');
+
+  assert.equal(manifest.name, 'サウンド');
+  assert.equal(manifest.tab.label, 'Sound');
+  assert.equal(manifest.tab.page, 'sound-editor');
+  assert.equal(manifest.renderer.page, 'sound-editor');
+  assert.ok(manifest.dependencies.includes('pce-audio-converter'));
+  assert.ok(manifest.renderer.capabilities.includes('sound-editor'));
+  assert.ok(manifest.renderer.capabilities.includes('adpcm-manager'));
+  assert.ok(manifest.renderer.capabilities.includes('cdda-manager'));
+  assert.ok(manifest.renderer.capabilities.includes('psg-music-editor'));
+  assert.match(renderer, /activateAdpcmManager/);
+  assert.match(renderer, /activateCddaManager/);
+  assert.match(renderer, /activatePsmEditor/);
+  assert.match(renderer, /label:\s*'ADPCM'/);
+  assert.match(renderer, /label:\s*'CD-DA'/);
+  assert.match(renderer, /label:\s*'PSM'/);
+  assert.match(renderer, /data-sound-tab/);
+  assert.match(renderer, /data-sound-panel/);
+  assert.match(css, /pce-adpcm-manager\/style\.css/);
+  assert.match(css, /pce-cdda-manager\/style\.css/);
+  assert.match(css, /pce-music-editor\/style\.css/);
+  assert.match(css, /\.tool-tab-button/);
+});
+
+test('CD-DA manager module exposes track-only import, edit, preview, and reorder UI', () => {
   const manifest = readPluginManifest('pce-cdda-manager');
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-cdda-manager', 'renderer.js'), 'utf-8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-cdda-manager', 'style.css'), 'utf-8');
 
-  assert.equal(manifest.tab.page, 'pce-cdda-manager');
-  assert.equal(manifest.renderer.page, 'pce-cdda-manager');
+  assert.equal(manifest.hidden, true);
+  assert.equal(manifest.tab, undefined);
+  assert.equal(manifest.renderer, undefined);
   assert.ok(manifest.dependencies.includes('pce-audio-converter'));
-  assert.ok(manifest.renderer.capabilities.includes('cdda-manager'));
   assert.match(renderer, /CD-DA Tracks/);
   assert.match(renderer, /async function pickAudioFile\(\)/);
   assert.match(renderer, /filters:\s*\[\{ name: 'WAV \/ MP3'/);
@@ -374,15 +429,15 @@ test('PCE CD-DA manager exposes track-only import, edit, preview, and reorder UI
   assert.match(css, /\.pce-cdda-stats/);
 });
 
-test('PCE ADPCM manager exposes sample-only import, property edit, preview, and delete UI', () => {
+test('ADPCM manager module exposes sample-only import, property edit, preview, and delete UI', () => {
   const manifest = readPluginManifest('pce-adpcm-manager');
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-adpcm-manager', 'renderer.js'), 'utf-8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-adpcm-manager', 'style.css'), 'utf-8');
 
-  assert.equal(manifest.tab.page, 'pce-adpcm-manager');
-  assert.equal(manifest.renderer.page, 'pce-adpcm-manager');
+  assert.equal(manifest.hidden, true);
+  assert.equal(manifest.tab, undefined);
+  assert.equal(manifest.renderer, undefined);
   assert.ok(manifest.dependencies.includes('pce-audio-converter'));
-  assert.ok(manifest.renderer.capabilities.includes('adpcm-manager'));
   assert.match(renderer, /ADPCM Samples/);
   assert.match(renderer, /async function pickAudioFile\(\)/);
   assert.match(renderer, /filters:\s*\[\{ name: 'WAV \/ MP3'/);
@@ -709,6 +764,10 @@ test('project plugin settings persist non-role enabled state and sidebar order',
   assert.match(renderer, /await persistProjectPluginSettings\(\{ enabled: getCurrentProjectPluginEnabledState\(\) \}\)/);
   assert.match(renderer, /persistProjectPluginSettings\(\{ sidebarOrder: pluginState\.sidebarOrder \}\)/);
   assert.match(renderer, /const projectOrder = getProjectPluginSidebarOrder\(\)/);
+  assert.match(renderer, /const SIDEBAR_PLUGIN_ID_ALIASES = new Map/);
+  assert.match(renderer, /\['pce-font-editor', 'novel-editor'\]/);
+  assert.match(renderer, /\['pce-music-editor', 'sound-editor'\]/);
+  assert.match(renderer, /function normalizeSidebarPluginIdList\(ids = \[\]\)/);
   assert.match(renderer, /const validIds = new Set\(getSidebarTogglePlugins\(\)\.map\(\(p\) => p\.id\)\)/);
   assert.match(renderer, /state\.projectConfig = \{ \.\.\.state\.projectConfig, \.\.\.cfg, \.\.\.normalized \}/);
   assert.match(renderer, /loadPlugins\(options = \{\}\)/);

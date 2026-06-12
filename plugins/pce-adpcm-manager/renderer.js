@@ -597,7 +597,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       if (!details) return null;
       const audioCapability = api.capabilities.get('audio-convert-ui');
       if (!audioCapability?.openAudioConvertModal) {
-        throw new Error('PCE 音声コンバータープラグインが無効または未インストールです');
+        throw new Error('音声コンバータープラグインが無効または未インストールです');
       }
       const converted = await audioCapability.openAudioConvertModal({
         mode: 'pce-asset',
@@ -632,13 +632,13 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       });
       if (!result?.ok) throw new Error(result?.error || '取り込みに失敗しました');
       selectedId = result.asset?.id || details.id;
-      logger.info(`PCE ADPCM imported: ${selectedId}`);
+      logger.info(`ADPCM imported: ${selectedId}`);
       setStatus('追加しました', 'ok');
       await reload();
       return result.asset || null;
     } catch (err) {
       const message = err.message || String(err);
-      logger.error(`PCE ADPCM import failed: ${message}`);
+      logger.error(`ADPCM import failed: ${message}`);
       setStatus(message, 'error');
       return null;
     } finally {

@@ -2304,6 +2304,7 @@ module.exports = {
   SPRITE_CELL_SIZES,
   SUPPORTED_TYPES,
   buildInternalPceConversionPlan,
+  buildCdDataLayout,
   collectCdDataFiles,
   defaultAssets,
   deleteAsset,

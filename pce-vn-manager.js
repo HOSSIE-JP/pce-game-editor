@@ -54,6 +54,18 @@ const VN_COMPARE_GT = 4;
 const VN_COMPARE_GTE = 5;
 const VN_NO_COMMAND = 0xffff;
 const VN_MAX_U8_COUNT = 255;
+const VN_SCENE_PACK_DIR = path.join('assets', 'generated', 'vn', 'scenes');
+const VN_SCENE_PACK_CACHE_BYTES = 4096;
+const VN_SCENE_PACK_VERSION = 1;
+const VN_SCENE_PACK_HEADER_SIZE = 20;
+const VN_SCENE_PACK_COMMAND_SIZE = 19;
+const VN_SCENE_PACK_MESSAGE_SIZE = 11;
+const VN_SCENE_PACK_CHOICE_SIZE = 6;
+const VN_SCENE_PACK_OPTION_SIZE = 7;
+const VN_SCENE_PACK_SWITCH_SIZE = 5;
+const VN_SCENE_PACK_SWITCH_CASE_SIZE = 4;
+const VN_SCENE_PACK_MAGIC = Buffer.from('PVNS');
+const VN_CD_SECTOR_BYTES = 2048;
 const DEFAULT_FONT_CONFIG = {
   version: 1,
   fontPath: '',
@@ -1042,6 +1054,177 @@ function commandEntry(type, {
   return `  { ${type}u, ${assetIndex}, ${slot}u, ${flags}u, ${arg0}u, ${arg1}u, ${x}u, ${y}u, ${messageIndex}, ${animationIndex}, ${sceneIndex}, ${choiceIndex} }`;
 }
 
+function scenePackRelativePath(scene = {}, index = 0) {
+  const ordinal = String(index).padStart(3, '0');
+  const sceneId = toCIdentifier(scene.id || `scene_${index}`);
+  return normalizeRelativePath(path.join(VN_SCENE_PACK_DIR, `${ordinal}_${sceneId}.bin`));
+}
+
+function pushU8(bytes, value) {
+  bytes.push(clampInt(value, 0, 255, 0) & 0xff);
+}
+
+function pushU16(bytes, value) {
+  const encoded = clampInt(value, 0, 0xffff, 0) & 0xffff;
+  bytes.push(encoded & 0xff, (encoded >> 8) & 0xff);
+}
+
+function pushS16(bytes, value) {
+  const encoded = clampSignedInt(value, 0) & 0xffff;
+  bytes.push(encoded & 0xff, (encoded >> 8) & 0xff);
+}
+
+function appendPackData(chunks, state, buffer) {
+  const chunk = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
+  const offset = state.offset;
+  state.offset += chunk.length;
+  chunks.push(chunk);
+  return offset;
+}
+
+function encodeCommandRecord(command = {}) {
+  const bytes = [];
+  pushU8(bytes, command.type);
+  pushS16(bytes, command.assetIndex);
+  pushU8(bytes, command.slot);
+  pushU8(bytes, command.flags);
+  pushU8(bytes, command.arg0);
+  pushU8(bytes, command.arg1);
+  pushU16(bytes, command.x);
+  pushU16(bytes, command.y);
+  pushS16(bytes, command.messageIndex);
+  pushS16(bytes, command.animationIndex);
+  pushS16(bytes, command.sceneIndex);
+  pushS16(bytes, command.choiceIndex);
+  return Buffer.from(bytes);
+}
+
+function encodeMessageRecord(message = {}) {
+  const bytes = [];
+  pushU16(bytes, message.glyphOffset);
+  pushU8(bytes, message.glyphCount);
+  pushS16(bytes, message.voiceIndex);
+  pushU8(bytes, message.textSpeedFrames);
+  pushU8(bytes, message.advanceMode);
+  pushU8(bytes, message.autoWaitFrames);
+  pushS16(bytes, message.mouthAnimationIndex);
+  pushU8(bytes, message.mouthSlot);
+  return Buffer.from(bytes);
+}
+
+function encodeChoiceRecord(choice = {}) {
+  const bytes = [];
+  pushU16(bytes, choice.optionOffset);
+  pushU8(bytes, choice.optionCount);
+  pushU8(bytes, choice.defaultIndex);
+  pushS16(bytes, choice.variableIndex);
+  return Buffer.from(bytes);
+}
+
+function encodeChoiceOptionRecord(option = {}) {
+  const bytes = [];
+  pushU16(bytes, option.glyphOffset);
+  pushU8(bytes, option.glyphCount);
+  pushS16(bytes, option.value);
+  pushS16(bytes, option.targetScene);
+  return Buffer.from(bytes);
+}
+
+function encodeSwitchRecord(branch = {}) {
+  const bytes = [];
+  pushU16(bytes, branch.caseOffset);
+  pushU8(bytes, branch.caseCount);
+  pushU16(bytes, branch.defaultCommand);
+  return Buffer.from(bytes);
+}
+
+function encodeSwitchCaseRecord(branchCase = {}) {
+  const bytes = [];
+  pushS16(bytes, branchCase.value);
+  pushU16(bytes, branchCase.command);
+  return Buffer.from(bytes);
+}
+
+function buildScenePack(sceneBuild) {
+  const commands = sceneBuild.commands || [];
+  const messages = sceneBuild.messages || [];
+  const choices = sceneBuild.choices || [];
+  const switches = sceneBuild.switches || [];
+  const commandOffset = VN_SCENE_PACK_HEADER_SIZE;
+  const messageOffset = commandOffset + (commands.length * VN_SCENE_PACK_COMMAND_SIZE);
+  const choiceOffset = messageOffset + (messages.length * VN_SCENE_PACK_MESSAGE_SIZE);
+  const switchOffset = choiceOffset + (choices.length * VN_SCENE_PACK_CHOICE_SIZE);
+  const dataOffset = switchOffset + (switches.length * VN_SCENE_PACK_SWITCH_SIZE);
+  const dataChunks = [];
+  const state = { offset: dataOffset };
+
+  messages.forEach((message) => {
+    message.glyphOffset = appendPackData(dataChunks, state, message.glyphs);
+  });
+  choices.forEach((choice) => {
+    const optionRecords = [];
+    choice.options.forEach((option) => {
+      option.glyphOffset = appendPackData(dataChunks, state, option.glyphs);
+      optionRecords.push(encodeChoiceOptionRecord(option));
+    });
+    choice.optionOffset = optionRecords.length
+      ? appendPackData(dataChunks, state, Buffer.concat(optionRecords))
+      : 0;
+  });
+  switches.forEach((branch) => {
+    const caseRecords = branch.cases.map((branchCase) => encodeSwitchCaseRecord(branchCase));
+    branch.caseOffset = caseRecords.length
+      ? appendPackData(dataChunks, state, Buffer.concat(caseRecords))
+      : 0;
+  });
+
+  const header = Buffer.alloc(VN_SCENE_PACK_HEADER_SIZE);
+  VN_SCENE_PACK_MAGIC.copy(header, 0);
+  header.writeUInt8(VN_SCENE_PACK_VERSION, 4);
+  header.writeUInt8(commands.length, 5);
+  header.writeUInt8(messages.length, 6);
+  header.writeUInt8(choices.length, 7);
+  header.writeUInt8(switches.length, 8);
+  header.writeUInt8(0, 9);
+  header.writeUInt16LE(commandOffset, 10);
+  header.writeUInt16LE(messageOffset, 12);
+  header.writeUInt16LE(choiceOffset, 14);
+  header.writeUInt16LE(switchOffset, 16);
+  header.writeUInt16LE(dataOffset, 18);
+
+  const pack = Buffer.concat([
+    header,
+    ...commands.map((command) => encodeCommandRecord(command)),
+    ...messages.map((message) => encodeMessageRecord(message)),
+    ...choices.map((choice) => encodeChoiceRecord(choice)),
+    ...switches.map((branch) => encodeSwitchRecord(branch)),
+    ...dataChunks,
+  ]);
+  if (pack.length > VN_SCENE_PACK_CACHE_BYTES) {
+    throw new Error(`PCE VN scene pack "${sceneBuild.sceneId}" is ${pack.length} bytes; split the scene to stay within ${VN_SCENE_PACK_CACHE_BYTES} bytes`);
+  }
+  return pack;
+}
+
+function writeScenePack(projectDir, sceneBuild) {
+  const relativePath = sceneBuild.packPath;
+  const absPath = path.join(projectDir, relativePath);
+  ensureDirSync(path.dirname(absPath));
+  fs.writeFileSync(absPath, sceneBuild.packBuffer);
+  return relativePath;
+}
+
+function cdLayoutForFiles(projectDir, dataFiles = []) {
+  return typeof assetManager.buildCdDataLayout === 'function'
+    ? assetManager.buildCdDataLayout(projectDir, dataFiles)
+    : new Map();
+}
+
+function cdSectorInitializer(layoutEntry = {}) {
+  const sector = Math.max(0, Math.trunc(Number(layoutEntry.sector) || 0));
+  return `{ ${sector & 0xff}u, ${(sector >> 8) & 0xff}u, ${(sector >> 16) & 0xff}u }`;
+}
+
 function generateVnSources(projectDir, options = {}) {
   const assetDoc = assetManager.readAssetDocument(projectDir);
   const doc = writeSceneDocument(projectDir, readSceneDocument(projectDir));
@@ -1073,23 +1256,22 @@ function generateVnSources(projectDir, options = {}) {
   const variableIndex = variables.index;
   const generatedDir = path.join(projectDir, 'src', 'generated');
   ensureDirSync(generatedDir);
-  const vnDataSection = 'PCE_VN_DATA_SECTION';
-
-  const messageArrays = [];
-  const messageMeta = [];
-  const choiceArrays = [];
-  const choiceMeta = [];
-  const switchArrays = [];
-  const switchMeta = [];
-  const commandMeta = [];
-  const sceneMeta = [];
+  const sceneBuilds = [];
   let messageCount = 0;
   let choiceCount = 0;
   let switchCount = 0;
   let commandCount = 0;
 
   doc.scenes.forEach((scene, sceneIdx) => {
-    const firstCommand = commandCount;
+    const sceneBuild = {
+      sceneId: scene.id || `scene_${sceneIdx}`,
+      packPath: scenePackRelativePath(scene, sceneIdx),
+      nextScene: scene.nextSceneId && sceneIndex.has(scene.nextSceneId) ? sceneIndex.get(scene.nextSceneId) : -1,
+      commands: [],
+      messages: [],
+      choices: [],
+      switches: [],
+    };
     const slotSpriteAssets = ['', '', '', ''];
     const labels = new Map();
     (scene.commands || []).forEach((command, commandIndex) => {
@@ -1098,19 +1280,29 @@ function generateVnSources(projectDir, options = {}) {
       }
     });
     const labelCommand = (name) => (name && labels.has(name) ? labels.get(name) : VN_NO_COMMAND);
+    const pushCommand = (entry) => {
+      if (sceneBuild.commands.length >= VN_MAX_U8_COUNT) {
+        throw new Error('PCE VN supports up to 255 commands per scene');
+      }
+      sceneBuild.commands.push(entry);
+      commandCount += 1;
+    };
     (scene.commands || []).forEach((command) => {
-      if (commandCount >= 255) throw new Error('PCE VN supports up to 255 commands');
       if (command.type === 'background') {
         const bgIndex = imageIndex.has(command.assetId) ? imageIndex.get(command.assetId) : -1;
-        commandMeta.push(commandEntry(VN_COMMAND_BACKGROUND, {
+        pushCommand({
+          type: VN_COMMAND_BACKGROUND,
           assetIndex: bgIndex,
           flags: command.transition === 'fade' ? VN_BG_TRANSITION_FADE : VN_BG_TRANSITION_CUT,
           arg0: command.fadeOutFrames,
           arg1: command.fadeInFrames,
           x: command.x,
           y: command.y,
-        }));
-        commandCount += 1;
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
         return;
       }
       if (command.type === 'sprite') {
@@ -1124,40 +1316,68 @@ function generateVnSources(projectDir, options = {}) {
           | (command.flipX ? VN_SPRITE_FLIP_X : 0)
           | (command.flipY ? VN_SPRITE_FLIP_Y : 0);
         slotSpriteAssets[slot] = spriteAssetIndex >= 0 ? spriteAssetId : '';
-        commandMeta.push(commandEntry(VN_COMMAND_SPRITE, {
+        pushCommand({
+          type: VN_COMMAND_SPRITE,
           assetIndex: spriteAssetIndex,
           slot,
           flags,
           arg0: command.durationFrames,
+          arg1: 0,
           x: command.x,
           y: command.y,
           animationIndex,
-        }));
-        commandCount += 1;
+          messageIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
         return;
       }
       if (command.type === 'message') {
-        if (messageCount >= 255) throw new Error('PCE VN supports up to 255 messages');
+        if (sceneBuild.messages.length >= VN_MAX_U8_COUNT) {
+          throw new Error('PCE VN supports up to 255 messages per scene');
+        }
         const bytes = [];
         for (const glyph of messageDisplayText(command)) {
           bytes.push(glyphIndex.get(glyph) ?? 0);
         }
+        if (bytes.length > VN_MAX_U8_COUNT) {
+          throw new Error(`PCE VN message in scene "${sceneBuild.sceneId}" exceeds 255 glyphs`);
+        }
         bytes.push(GLYPH_END);
-        const name = `pce_vn_message_${messageCount}_glyphs`;
         const mouthSlot = clampInt(command.mouthSlot, 0, 3, 0);
         const mouthSpriteId = slotSpriteAssets[mouthSlot] || '';
         const mouthAnimationIndex = command.mouthAnimationId && mouthSpriteId
           ? (spriteAnimations.index.get(`${mouthSpriteId}:${command.mouthAnimationId}`) ?? -1)
           : -1;
-        messageArrays.push(...bytesToCArray(`${vnDataSection} ${name}`, Buffer.from(bytes)));
-        messageArrays.push('');
         const voiceIndex = command.voiceAssetId && adpcmIndex.has(command.voiceAssetId)
           ? adpcmIndex.get(command.voiceAssetId)
           : -1;
-        messageMeta.push(`  { ${name}, ${Math.max(0, bytes.length - 1)}u, ${voiceIndex}, ${command.textSpeedFrames}u, ${command.advanceMode === 'auto' ? VN_ADVANCE_AUTO : VN_ADVANCE_BUTTON}u, ${command.autoWaitFrames}u, ${mouthAnimationIndex}, ${mouthSlot}u }`);
-        commandMeta.push(commandEntry(VN_COMMAND_MESSAGE, { messageIndex: messageCount }));
+        const messageIndex = sceneBuild.messages.length;
+        sceneBuild.messages.push({
+          glyphs: Buffer.from(bytes),
+          glyphCount: Math.max(0, bytes.length - 1),
+          voiceIndex,
+          textSpeedFrames: command.textSpeedFrames,
+          advanceMode: command.advanceMode === 'auto' ? VN_ADVANCE_AUTO : VN_ADVANCE_BUTTON,
+          autoWaitFrames: command.autoWaitFrames,
+          mouthAnimationIndex,
+          mouthSlot,
+        });
+        pushCommand({
+          type: VN_COMMAND_MESSAGE,
+          assetIndex: -1,
+          slot: 0,
+          flags: 0,
+          arg0: 0,
+          arg1: 0,
+          x: 0,
+          y: 0,
+          messageIndex,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
         messageCount += 1;
-        commandCount += 1;
         return;
       }
       if (command.type === 'audio') {
@@ -1167,135 +1387,266 @@ function generateVnSources(projectDir, options = {}) {
           ? (isAdpcm ? (adpcmIndex.get(command.assetId) ?? -1) : (cddaIndex.get(command.assetId) ?? -1))
           : -1;
         const flags = (isAdpcm ? VN_AUDIO_KIND_ADPCM : VN_AUDIO_KIND_CDDA) | action;
-        commandMeta.push(commandEntry(VN_COMMAND_AUDIO, { assetIndex, flags }));
-        commandCount += 1;
+        pushCommand({
+          type: VN_COMMAND_AUDIO,
+          assetIndex,
+          slot: 0,
+          flags,
+          arg0: 0,
+          arg1: 0,
+          x: 0,
+          y: 0,
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
         return;
       }
       if (command.type === 'preload') {
         const target = command.sceneId && sceneIndex.has(command.sceneId) ? sceneIndex.get(command.sceneId) : -1;
-        commandMeta.push(commandEntry(VN_COMMAND_PRELOAD, { sceneIndex: target }));
-        commandCount += 1;
+        pushCommand({
+          type: VN_COMMAND_PRELOAD,
+          assetIndex: -1,
+          slot: 0,
+          flags: 0,
+          arg0: 0,
+          arg1: 0,
+          x: 0,
+          y: 0,
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: target,
+          choiceIndex: -1,
+        });
         return;
       }
       if (command.type === 'choice') {
-        if (choiceCount >= 255) throw new Error('PCE VN supports up to 255 choices');
-        const choiceName = `pce_vn_choice_${choiceCount}`;
+        if (sceneBuild.choices.length >= VN_MAX_U8_COUNT) {
+          throw new Error('PCE VN supports up to 255 choices per scene');
+        }
         const options = (command.choices || []).slice(0, 4);
-        options.forEach((option, optionIndex) => {
+        const encodedOptions = options.map((option) => {
           const bytes = [];
           for (const glyph of String(option.label || '')) {
             bytes.push(glyphIndex.get(glyph) ?? 0);
           }
+          if (bytes.length > VN_MAX_U8_COUNT) {
+            throw new Error(`PCE VN choice label in scene "${sceneBuild.sceneId}" exceeds 255 glyphs`);
+          }
           bytes.push(GLYPH_END);
-          choiceArrays.push(...bytesToCArray(`${vnDataSection} ${choiceName}_option_${optionIndex}_glyphs`, Buffer.from(bytes)));
-          choiceArrays.push('');
-        });
-        choiceArrays.push(`static const pce_vn_choice_option_t ${vnDataSection} ${choiceName}_options[] = {`);
-        options.forEach((option, optionIndex) => {
-          let glyphCount = 0;
-          for (const _glyph of String(option.label || '')) glyphCount += 1;
           const target = option.targetSceneId && sceneIndex.has(option.targetSceneId) ? sceneIndex.get(option.targetSceneId) : -1;
-          const suffix = optionIndex + 1 < options.length ? ',' : '';
-          choiceArrays.push(`  { ${choiceName}_option_${optionIndex}_glyphs, ${glyphCount}u, ${int16Literal(option.value)}, ${target} }${suffix}`);
+          return {
+            glyphs: Buffer.from(bytes),
+            glyphCount: Math.max(0, bytes.length - 1),
+            value: option.value,
+            targetScene: target,
+          };
         });
-        choiceArrays.push('};');
-        choiceArrays.push('');
         const resultVariable = command.variableName && variableIndex.has(command.variableName)
           ? variableIndex.get(command.variableName)
           : -1;
-        choiceMeta.push(`  { ${choiceName}_options, ${options.length}u, ${clampInt(command.defaultIndex, 0, Math.max(0, options.length - 1), 0)}u, ${resultVariable} }`);
-        commandMeta.push(commandEntry(VN_COMMAND_CHOICE, { choiceIndex: choiceCount }));
+        const choiceIndex = sceneBuild.choices.length;
+        sceneBuild.choices.push({
+          options: encodedOptions,
+          optionCount: encodedOptions.length,
+          defaultIndex: clampInt(command.defaultIndex, 0, Math.max(0, encodedOptions.length - 1), 0),
+          variableIndex: resultVariable,
+        });
+        pushCommand({
+          type: VN_COMMAND_CHOICE,
+          assetIndex: -1,
+          slot: 0,
+          flags: 0,
+          arg0: 0,
+          arg1: 0,
+          x: 0,
+          y: 0,
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex,
+        });
         choiceCount += 1;
-        commandCount += 1;
         return;
       }
       if (command.type === 'variable') {
         const varIndex = command.variableName && variableIndex.has(command.variableName) ? variableIndex.get(command.variableName) : -1;
         const [arg0, arg1] = int16ArgBytes(command.value);
-        commandMeta.push(commandEntry(VN_COMMAND_VARIABLE, {
+        pushCommand({
+          type: VN_COMMAND_VARIABLE,
           assetIndex: varIndex,
+          slot: 0,
           flags: varOperationCode(command.operation),
           arg0,
           arg1,
           x: command.operation === 'random' ? uint16Value(command.min) : 0,
           y: command.operation === 'random' ? uint16Value(command.max) : 0,
-        }));
-        commandCount += 1;
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
         return;
       }
       if (command.type === 'if') {
         const varIndex = command.variableName && variableIndex.has(command.variableName) ? variableIndex.get(command.variableName) : -1;
         const [arg0, arg1] = int16ArgBytes(command.value);
-        commandMeta.push(commandEntry(VN_COMMAND_IF, {
+        pushCommand({
+          type: VN_COMMAND_IF,
           assetIndex: varIndex,
+          slot: 0,
           flags: compareCode(command.operator),
           arg0,
           arg1,
           x: labelCommand(command.targetLabel),
           y: labelCommand(command.elseLabel),
-        }));
-        commandCount += 1;
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
         return;
       }
       if (command.type === 'switch') {
-        if (switchCount >= 255) throw new Error('PCE VN supports up to 255 switch commands');
-        const switchName = `pce_vn_switch_${switchCount}`;
+        if (sceneBuild.switches.length >= VN_MAX_U8_COUNT) {
+          throw new Error('PCE VN supports up to 255 switch commands per scene');
+        }
         const cases = (command.cases || []).slice(0, 16);
-        switchArrays.push(`static const pce_vn_switch_case_t ${vnDataSection} ${switchName}_cases[] = {`);
-        cases.forEach((branch, branchIndex) => {
-          const suffix = branchIndex + 1 < cases.length ? ',' : '';
-          switchArrays.push(`  { ${int16Literal(branch.value)}, ${labelCommand(branch.targetLabel)}u }${suffix}`);
+        const switchIndex = sceneBuild.switches.length;
+        sceneBuild.switches.push({
+          cases: cases.map((branch) => ({
+            value: branch.value,
+            command: labelCommand(branch.targetLabel),
+          })),
+          caseCount: cases.length,
+          defaultCommand: labelCommand(command.defaultLabel),
         });
-        switchArrays.push('};');
-        switchArrays.push('');
-        switchMeta.push(`  { ${switchName}_cases, ${cases.length}u, ${labelCommand(command.defaultLabel)}u }`);
         const varIndex = command.variableName && variableIndex.has(command.variableName) ? variableIndex.get(command.variableName) : -1;
-        commandMeta.push(commandEntry(VN_COMMAND_SWITCH, { assetIndex: varIndex, choiceIndex: switchCount }));
+        pushCommand({
+          type: VN_COMMAND_SWITCH,
+          assetIndex: varIndex,
+          slot: 0,
+          flags: 0,
+          arg0: 0,
+          arg1: 0,
+          x: 0,
+          y: 0,
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: switchIndex,
+        });
         switchCount += 1;
-        commandCount += 1;
         return;
       }
       if (command.type === 'label') {
-        commandMeta.push(commandEntry(VN_COMMAND_LABEL));
-        commandCount += 1;
+        pushCommand({
+          type: VN_COMMAND_LABEL,
+          assetIndex: -1,
+          slot: 0,
+          flags: 0,
+          arg0: 0,
+          arg1: 0,
+          x: 0,
+          y: 0,
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
         return;
       }
       if (command.type === 'goto') {
-        commandMeta.push(commandEntry(VN_COMMAND_GOTO, { x: labelCommand(command.targetLabel) }));
-        commandCount += 1;
+        pushCommand({
+          type: VN_COMMAND_GOTO,
+          assetIndex: -1,
+          slot: 0,
+          flags: 0,
+          arg0: 0,
+          arg1: 0,
+          x: labelCommand(command.targetLabel),
+          y: 0,
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
         return;
       }
       if (command.type === 'jump') {
         const target = command.sceneId && sceneIndex.has(command.sceneId) ? sceneIndex.get(command.sceneId) : -1;
-        commandMeta.push(commandEntry(VN_COMMAND_JUMP, { sceneIndex: target }));
-        commandCount += 1;
+        pushCommand({
+          type: VN_COMMAND_JUMP,
+          assetIndex: -1,
+          slot: 0,
+          flags: 0,
+          arg0: 0,
+          arg1: 0,
+          x: 0,
+          y: 0,
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: target,
+          choiceIndex: -1,
+        });
         return;
       }
       if (command.type === 'wait') {
         const frames = clampInt(command.frames, 0, 65535, 30);
-        commandMeta.push(commandEntry(VN_COMMAND_WAIT, { arg0: frames & 0xff, arg1: (frames >> 8) & 0xff }));
-        commandCount += 1;
+        pushCommand({
+          type: VN_COMMAND_WAIT,
+          assetIndex: -1,
+          slot: 0,
+          flags: 0,
+          arg0: frames & 0xff,
+          arg1: (frames >> 8) & 0xff,
+          x: 0,
+          y: 0,
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
         return;
       }
       if (command.type === 'effect') {
         const effect = command.effect === 'fadeIn'
           ? VN_EFFECT_FADE_IN
           : (command.effect === 'blank' ? VN_EFFECT_BLANK : (command.effect === 'shake' ? VN_EFFECT_SHAKE : VN_EFFECT_FADE_OUT));
-        commandMeta.push(commandEntry(VN_COMMAND_EFFECT, {
+        pushCommand({
+          type: VN_COMMAND_EFFECT,
+          assetIndex: -1,
+          slot: 0,
           flags: effect,
           arg0: clampInt(command.frames, 0, 255, 16),
           arg1: clampInt(command.intensity, 0, 16, 0),
-        }));
-        commandCount += 1;
+          x: 0,
+          y: 0,
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
       }
     });
-    const next = scene.nextSceneId && sceneIndex.has(scene.nextSceneId) ? sceneIndex.get(scene.nextSceneId) : -1;
-    sceneMeta.push(`  { ${firstCommand}u, ${commandCount - firstCommand}u, ${next} }${sceneIdx + 1 < doc.scenes.length ? ',' : ''}`);
+    sceneBuild.packBuffer = buildScenePack(sceneBuild);
+    writeScenePack(projectDir, sceneBuild);
+    sceneBuilds.push(sceneBuild);
   });
 
   const animationMeta = spriteAnimations.meta.map((animation, index) => (
     `  { ${animation.spriteIndex}u, ${animation.firstCell}u, ${animation.frameCount}u, ${animation.frameDelay}u, ${animation.frameWidthCells}u, ${animation.frameHeightCells}u, ${animation.frameStrideCells}u, ${animation.loop ? '1u' : '0u'} }${index + 1 < spriteAnimations.meta.length ? ',' : ''}`
   ));
+  const cdDataFiles = Array.isArray(options.cdDataFiles)
+    ? options.cdDataFiles.map((entry) => normalizeRelativePath(entry || '')).filter(Boolean)
+    : collectCdDataFiles(projectDir);
+  const cdLayout = cdLayoutForFiles(projectDir, cdDataFiles);
+  const scenePackMeta = sceneBuilds.map((sceneBuild, index) => {
+    const layout = cdLayout.get(sceneBuild.packPath) || {};
+    const sectorCount = layout.sectorCount || Math.max(1, Math.ceil(sceneBuild.packBuffer.length / VN_CD_SECTOR_BYTES));
+    return `  { ${cdSectorInitializer(layout)}, ${sectorCount}u, ${sceneBuild.packBuffer.length}u, ${sceneBuild.nextScene} }${index + 1 < sceneBuilds.length ? ',' : ''}`;
+  });
 
   const headerPath = path.join(generatedDir, 'vn.h');
   const sourcePath = path.join(generatedDir, 'vn.c');
@@ -1345,6 +1696,15 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_COMPARE_GTE ${VN_COMPARE_GTE}u`,
     `#define PCE_VN_NO_COMMAND ${VN_NO_COMMAND}u`,
     `#define PCE_VN_VARIABLE_STORAGE_COUNT ${Math.max(1, variables.initialValues.length)}u`,
+    `#define PCE_VN_SCENE_PACK_CACHE_BYTES ${VN_SCENE_PACK_CACHE_BYTES}u`,
+    `#define PCE_VN_SCENE_PACK_VERSION ${VN_SCENE_PACK_VERSION}u`,
+    `#define PCE_VN_SCENE_PACK_HEADER_SIZE ${VN_SCENE_PACK_HEADER_SIZE}u`,
+    `#define PCE_VN_SCENE_PACK_COMMAND_SIZE ${VN_SCENE_PACK_COMMAND_SIZE}u`,
+    `#define PCE_VN_SCENE_PACK_MESSAGE_SIZE ${VN_SCENE_PACK_MESSAGE_SIZE}u`,
+    `#define PCE_VN_SCENE_PACK_CHOICE_SIZE ${VN_SCENE_PACK_CHOICE_SIZE}u`,
+    `#define PCE_VN_SCENE_PACK_OPTION_SIZE ${VN_SCENE_PACK_OPTION_SIZE}u`,
+    `#define PCE_VN_SCENE_PACK_SWITCH_SIZE ${VN_SCENE_PACK_SWITCH_SIZE}u`,
+    `#define PCE_VN_SCENE_PACK_SWITCH_CASE_SIZE ${VN_SCENE_PACK_SWITCH_CASE_SIZE}u`,
     '',
     'typedef struct {',
     '  unsigned char sprite_index;',
@@ -1376,7 +1736,7 @@ function generateVnSources(projectDir, options = {}) {
     '} pce_vn_choice_option_t;',
     '',
     'typedef struct {',
-    '  const pce_vn_choice_option_t *options;',
+    '  unsigned int options_offset;',
     '  unsigned char option_count;',
     '  unsigned char default_index;',
     '  signed int variable_index;',
@@ -1388,7 +1748,7 @@ function generateVnSources(projectDir, options = {}) {
     '} pce_vn_switch_case_t;',
     '',
     'typedef struct {',
-    '  const pce_vn_switch_case_t *cases;',
+    '  unsigned int cases_offset;',
     '  unsigned char case_count;',
     '  unsigned int default_command;',
     '} pce_vn_switch_t;',
@@ -1409,10 +1769,17 @@ function generateVnSources(projectDir, options = {}) {
     '} pce_vn_command_t;',
     '',
     'typedef struct {',
-    '  unsigned char command_start;',
-    '  unsigned char command_count;',
+    '  unsigned char lo;',
+    '  unsigned char md;',
+    '  unsigned char hi;',
+    '} pce_vn_cd_sector_t;',
+    '',
+    'typedef struct {',
+    '  pce_vn_cd_sector_t sector;',
+    '  unsigned int sector_count;',
+    '  unsigned int byte_size;',
     '  signed int next_scene;',
-    '} pce_vn_scene_t;',
+    '} pce_vn_scene_pack_t;',
     '',
     `#define PCE_VN_FONT_TILE_BASE ${Number(fontConfig.tileBase || DEFAULT_FONT_TILE_BASE)}u`,
     `#define PCE_VN_CHOICE_CURSOR_GLYPH ${glyphIndex.get('>') ?? 0}u`,
@@ -1423,17 +1790,9 @@ function generateVnSources(projectDir, options = {}) {
     'void pce_vn_font_tiles_map(void);',
     'extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];',
     'extern const unsigned char pce_vn_sprite_animation_count;',
-    'extern const pce_vn_message_t pce_vn_messages[];',
-    'extern const unsigned char pce_vn_message_count;',
-    'extern const pce_vn_choice_t pce_vn_choices[];',
-    'extern const unsigned char pce_vn_choice_count;',
-    'extern const pce_vn_switch_t pce_vn_switches[];',
-    'extern const unsigned char pce_vn_switch_count;',
     'extern const signed int pce_vn_variable_initial_values[];',
     'extern const unsigned char pce_vn_variable_count;',
-    'extern const pce_vn_command_t pce_vn_commands[];',
-    'extern const unsigned char pce_vn_command_count;',
-    'extern const pce_vn_scene_t pce_vn_scenes[];',
+    'extern const pce_vn_scene_pack_t pce_vn_scene_packs[];',
     'extern const unsigned char pce_vn_scene_count;',
     'extern const unsigned char pce_vn_start_scene;',
     '',
@@ -1464,28 +1823,10 @@ function generateVnSources(projectDir, options = {}) {
     '#endif',
     '}',
     '',
-    ...messageArrays,
     'const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations[] = {',
     ...(animationMeta.length ? animationMeta : ['  { 0u, 0u, 1u, 8u, 1u, 1u, 1u, 1u }']),
     '};',
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_sprite_animation_count = ${spriteAnimations.meta.length};`,
-    '',
-    'const pce_vn_message_t PCE_VN_DATA_SECTION pce_vn_messages[] = {',
-    ...(messageMeta.length ? messageMeta.map((line, index) => `${line}${index + 1 < messageMeta.length ? ',' : ''}`) : ['  { (const unsigned char *)0, 0u, -1, 0u, 0u, 0u, -1, 0u }']),
-    '};',
-    `const unsigned char PCE_VN_DATA_SECTION pce_vn_message_count = ${messageCount};`,
-    '',
-    ...choiceArrays,
-    'const pce_vn_choice_t PCE_VN_DATA_SECTION pce_vn_choices[] = {',
-    ...(choiceMeta.length ? choiceMeta.map((line, index) => `${line}${index + 1 < choiceMeta.length ? ',' : ''}`) : ['  { (const pce_vn_choice_option_t *)0, 0u, 0u, -1 }']),
-    '};',
-    `const unsigned char PCE_VN_DATA_SECTION pce_vn_choice_count = ${choiceCount};`,
-    '',
-    ...switchArrays,
-    'const pce_vn_switch_t PCE_VN_DATA_SECTION pce_vn_switches[] = {',
-    ...(switchMeta.length ? switchMeta.map((line, index) => `${line}${index + 1 < switchMeta.length ? ',' : ''}`) : ['  { (const pce_vn_switch_case_t *)0, 0u, PCE_VN_NO_COMMAND }']),
-    '};',
-    `const unsigned char PCE_VN_DATA_SECTION pce_vn_switch_count = ${switchCount};`,
     '',
     'const signed int PCE_VN_DATA_SECTION pce_vn_variable_initial_values[] = {',
     ...(variables.initialValues.length
@@ -1494,13 +1835,8 @@ function generateVnSources(projectDir, options = {}) {
     '};',
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_variable_count = ${variables.initialValues.length};`,
     '',
-    'const pce_vn_command_t PCE_VN_DATA_SECTION pce_vn_commands[] = {',
-    ...(commandMeta.length ? commandMeta.map((line, index) => `${line}${index + 1 < commandMeta.length ? ',' : ''}`) : ['  { 0u, -1, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, -1, -1 }']),
-    '};',
-    `const unsigned char PCE_VN_DATA_SECTION pce_vn_command_count = ${commandCount};`,
-    '',
-    'const pce_vn_scene_t PCE_VN_DATA_SECTION pce_vn_scenes[] = {',
-    ...sceneMeta,
+    'const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs[] = {',
+    ...(scenePackMeta.length ? scenePackMeta : ['  { { 0u, 0u, 0u }, 0u, 0u, -1 }']),
     '};',
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_scene_count = ${doc.scenes.length};`,
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_start_scene = ${startScene}u;`,
@@ -1520,6 +1856,8 @@ function generateVnSources(projectDir, options = {}) {
     commandCount,
     spriteAnimationCount: spriteAnimations.meta.length,
     sceneCount: doc.scenes.length,
+    scenePackPaths: sceneBuilds.map((sceneBuild) => sceneBuild.packPath),
+    scenePackBytes: sceneBuilds.map((sceneBuild) => sceneBuild.packBuffer.length),
     fontRenderer: fontRender.renderer,
     fontPath: fontRender.fontPath,
   };
@@ -1568,6 +1906,13 @@ function addExistingCdDataFile(projectDir, files, seen, relativePath) {
   files.push(normalized);
 }
 
+function addCdDataFile(files, seen, relativePath) {
+  const normalized = normalizeRelativePath(relativePath || '');
+  if (!normalized || seen.has(normalized)) return;
+  seen.add(normalized);
+  files.push(normalized);
+}
+
 function addAssetCdDataFiles(projectDir, files, seen, asset) {
   if (!asset) return;
   const generated = asset.data?.generated || {};
@@ -1601,7 +1946,8 @@ function collectCdDataFiles(projectDir) {
   const assets = assetById(assetDoc);
   const files = [];
   const seen = new Set();
-  (doc.scenes || []).forEach((scene) => {
+  (doc.scenes || []).forEach((scene, sceneIndex) => {
+    addCdDataFile(files, seen, scenePackRelativePath(scene, sceneIndex));
     collectSceneCommandAssetIds(scene).forEach((assetId) => {
       addAssetCdDataFiles(projectDir, files, seen, assets.get(assetId));
     });
@@ -1638,12 +1984,13 @@ function collectCddaTracks(projectDir) {
 function prepareVisualNovelBuild(projectDir, config = {}) {
   syncVisualNovelRuntime(projectDir);
   ensureSceneFile(projectDir);
-  const generated = generateVnSources(projectDir);
+  generateVnSources(projectDir);
   const dataFiles = collectCdDataFiles(projectDir);
   const cddaTracks = collectCddaTracks(projectDir);
   const cd = config.cd && typeof config.cd === 'object' ? config.cd : {};
   const mergedDataFiles = Array.from(new Set([...dataFiles, ...(Array.isArray(cd.dataFiles) ? cd.dataFiles : [])]));
   const mergedCddaTracks = Array.from(new Set([...(Array.isArray(cd.cddaTracks) ? cd.cddaTracks : []), ...cddaTracks]));
+  const generated = generateVnSources(projectDir, { cdDataFiles: mergedDataFiles });
   return {
     ok: true,
     generated,
@@ -1668,6 +2015,8 @@ function prepareVisualNovelBuild(projectDir, config = {}) {
 
 module.exports = {
   VN_SCENE_FILE,
+  VN_SCENE_PACK_DIR,
+  VN_SCENE_PACK_CACHE_BYTES,
   VN_FONT_FILE,
   DEFAULT_FONT_TILE_BASE,
   DEFAULT_FONT_CONFIG,
@@ -1682,6 +2031,11 @@ module.exports = {
   VN_COMMAND_JUMP,
   VN_COMMAND_WAIT,
   VN_COMMAND_EFFECT,
+  VN_COMMAND_VARIABLE,
+  VN_COMMAND_IF,
+  VN_COMMAND_SWITCH,
+  VN_COMMAND_LABEL,
+  VN_COMMAND_GOTO,
   collectCdDataFiles,
   collectGlyphs,
   defaultSceneDocument,

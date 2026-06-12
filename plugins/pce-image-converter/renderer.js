@@ -136,7 +136,7 @@ async function convertImageToIndexed16(api, options = {}) {
 export function activatePlugin({ api, registerCapability }) {
   registerCapability('pce-image-converter', {
     id: 'pce-image-converter',
-    label: 'PCE BG/Sprite Internal',
+    label: 'BG/Sprite Internal',
     priority: 30,
     canConvert(file = {}) {
       const ext = extname(file.ext || file.sourcePath || file.path || '');

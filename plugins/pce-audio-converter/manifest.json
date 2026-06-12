@@ -1,6 +1,6 @@
 {
   "id": "pce-audio-converter",
-  "name": "PCE 音声コンバーター",
+  "name": "音声コンバーター",
   "description": "WAV / MP3 を加工し、PCE ADPCM / CD-DA アセットとして取り込む変換ワークフローを提供します。",
   "version": "0.2.0",
   "icon": "music",

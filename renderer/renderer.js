@@ -756,6 +756,13 @@ const ASSET_PREVIEW_WIDTH_KEY = 'md-editor.assetPreviewWidth.v1';
 const ASSET_PREVIEW_MIN_WIDTH = 280;
 const ASSET_PREVIEW_MAX_WIDTH = 760;
 const PROJECT_PLUGIN_STATE_EXCLUDED_ROLES = ['builder', 'testplay'];
+const SIDEBAR_PLUGIN_ID_ALIASES = new Map([
+  ['pce-font-editor', 'novel-editor'],
+  ['pce-visual-novel-editor', 'novel-editor'],
+  ['pce-music-editor', 'sound-editor'],
+  ['pce-cdda-manager', 'sound-editor'],
+  ['pce-adpcm-manager', 'sound-editor'],
+]);
 let sidebarPluginContextMenu = null;
 let logPanelRenderScheduled = false;
 
@@ -1227,6 +1234,23 @@ function getProjectPluginSidebarOrder() {
   return Array.isArray(order) ? order.filter((id) => typeof id === 'string' && id.trim()) : [];
 }
 
+function normalizeSidebarPluginId(id) {
+  const value = String(id || '').trim();
+  return SIDEBAR_PLUGIN_ID_ALIASES.get(value) || value;
+}
+
+function normalizeSidebarPluginIdList(ids = []) {
+  const seen = new Set();
+  const normalized = [];
+  ids.forEach((id) => {
+    const nextId = normalizeSidebarPluginId(id);
+    if (!nextId || seen.has(nextId)) return;
+    seen.add(nextId);
+    normalized.push(nextId);
+  });
+  return normalized;
+}
+
 function getCurrentProjectPluginEnabledState() {
   const enabled = {};
   pluginState.plugins
@@ -1264,12 +1288,12 @@ function loadSidebarPluginOrder() {
   try {
     const projectOrder = getProjectPluginSidebarOrder();
     if (projectOrder.length > 0) {
-      pluginState.sidebarOrder = projectOrder;
+      pluginState.sidebarOrder = normalizeSidebarPluginIdList(projectOrder);
       return;
     }
     const raw = localStorage.getItem(getSidebarPluginOrderStorageKey());
     const parsed = raw ? JSON.parse(raw) : [];
-    pluginState.sidebarOrder = Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : [];
+    pluginState.sidebarOrder = Array.isArray(parsed) ? normalizeSidebarPluginIdList(parsed.filter((v) => typeof v === 'string')) : [];
   } catch (_) {
     pluginState.sidebarOrder = [];
   }
@@ -1336,9 +1360,10 @@ function normalizeSidebarPluginOrder() {
   const validIds = new Set(getSidebarTogglePlugins().map((p) => p.id));
 
   pluginState.sidebarOrder.forEach((id) => {
-    if (validIds.has(id) && !seen.has(id)) {
-      seen.add(id);
-      orderedIds.push(id);
+    const normalizedId = normalizeSidebarPluginId(id);
+    if (validIds.has(normalizedId) && !seen.has(normalizedId)) {
+      seen.add(normalizedId);
+      orderedIds.push(normalizedId);
     }
   });
 

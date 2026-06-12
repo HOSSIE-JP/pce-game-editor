@@ -34,12 +34,11 @@
       "sample": "visual-novel-cd"
     },
     "sidebarOrder": [
-      "pce-font-editor",
-      "pce-visual-novel-editor",
+      "novel-editor",
       "pce-asset-manager",
+      "sound-editor",
       "pce-sprite-manager",
       "pce-palette-editor",
-      "pce-music-editor",
       "code-editor"
     ]
   },

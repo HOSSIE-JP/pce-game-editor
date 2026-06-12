@@ -32,7 +32,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     <div class="pce-font-shell">
       <aside class="pce-font-settings">
         <div class="pce-font-header">
-          <h2>PCE Font</h2>
+          <h2>Font</h2>
           <p>16x16 / 18文字x4行の VN メッセージ用ビットマップフォントを作成します。</p>
         </div>
         <form class="settings-form compact-form pce-font-form" data-role="form">

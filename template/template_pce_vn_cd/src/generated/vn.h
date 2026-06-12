@@ -43,6 +43,15 @@
 #define PCE_VN_COMPARE_GTE 5u
 #define PCE_VN_NO_COMMAND 65535u
 #define PCE_VN_VARIABLE_STORAGE_COUNT 1u
+#define PCE_VN_SCENE_PACK_CACHE_BYTES 4096u
+#define PCE_VN_SCENE_PACK_VERSION 1u
+#define PCE_VN_SCENE_PACK_HEADER_SIZE 20u
+#define PCE_VN_SCENE_PACK_COMMAND_SIZE 19u
+#define PCE_VN_SCENE_PACK_MESSAGE_SIZE 11u
+#define PCE_VN_SCENE_PACK_CHOICE_SIZE 6u
+#define PCE_VN_SCENE_PACK_OPTION_SIZE 7u
+#define PCE_VN_SCENE_PACK_SWITCH_SIZE 5u
+#define PCE_VN_SCENE_PACK_SWITCH_CASE_SIZE 4u
 
 typedef struct {
   unsigned char sprite_index;
@@ -74,7 +83,7 @@ typedef struct {
 } pce_vn_choice_option_t;
 
 typedef struct {
-  const pce_vn_choice_option_t *options;
+  unsigned int options_offset;
   unsigned char option_count;
   unsigned char default_index;
   signed int variable_index;
@@ -86,7 +95,7 @@ typedef struct {
 } pce_vn_switch_case_t;
 
 typedef struct {
-  const pce_vn_switch_case_t *cases;
+  unsigned int cases_offset;
   unsigned char case_count;
   unsigned int default_command;
 } pce_vn_switch_t;
@@ -107,10 +116,17 @@ typedef struct {
 } pce_vn_command_t;
 
 typedef struct {
-  unsigned char command_start;
-  unsigned char command_count;
+  unsigned char lo;
+  unsigned char md;
+  unsigned char hi;
+} pce_vn_cd_sector_t;
+
+typedef struct {
+  pce_vn_cd_sector_t sector;
+  unsigned int sector_count;
+  unsigned int byte_size;
   signed int next_scene;
-} pce_vn_scene_t;
+} pce_vn_scene_pack_t;
 
 #define PCE_VN_FONT_TILE_BASE 712u
 #define PCE_VN_CHOICE_CURSOR_GLYPH 1u
@@ -121,17 +137,9 @@ extern const unsigned char pce_vn_font_glyph_count;
 void pce_vn_font_tiles_map(void);
 extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];
 extern const unsigned char pce_vn_sprite_animation_count;
-extern const pce_vn_message_t pce_vn_messages[];
-extern const unsigned char pce_vn_message_count;
-extern const pce_vn_choice_t pce_vn_choices[];
-extern const unsigned char pce_vn_choice_count;
-extern const pce_vn_switch_t pce_vn_switches[];
-extern const unsigned char pce_vn_switch_count;
 extern const signed int pce_vn_variable_initial_values[];
 extern const unsigned char pce_vn_variable_count;
-extern const pce_vn_command_t pce_vn_commands[];
-extern const unsigned char pce_vn_command_count;
-extern const pce_vn_scene_t pce_vn_scenes[];
+extern const pce_vn_scene_pack_t pce_vn_scene_packs[];
 extern const unsigned char pce_vn_scene_count;
 extern const unsigned char pce_vn_start_scene;
 

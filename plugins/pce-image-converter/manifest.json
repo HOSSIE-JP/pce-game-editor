@@ -1,6 +1,6 @@
 {
   "id": "pce-image-converter",
-  "name": "PCE 画像コンバーター",
+  "name": "画像コンバーター",
   "description": "PNG/BMP/WebP を PCE BG / Sprite 用の内蔵 PCE 変換ワークフローへルーティングします。",
   "version": "0.1.0",
   "icon": "assets",

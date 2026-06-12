@@ -1,0 +1,23 @@
+{
+  "id": "sound-editor",
+  "name": "サウンド",
+  "description": "ADPCM / CD-DA / PSM の音声アセット編集をまとめて扱います。",
+  "version": "0.1.0",
+  "icon": "music",
+  "types": ["editor", "asset"],
+  "dependencies": ["pce-audio-converter"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "project.write", "dialog.openFile", "asset.import", "asset.preview", "audio.preview"],
+  "tab": {
+    "label": "Sound",
+    "icon": "music",
+    "page": "sound-editor",
+    "order": 13
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "page": "sound-editor",
+    "capabilities": ["page", "sound-editor", "adpcm-manager", "cdda-manager", "psg-music-editor"]
+  }
+}

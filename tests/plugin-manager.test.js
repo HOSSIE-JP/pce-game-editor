@@ -4,7 +4,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { loadAppConfig } = require('game-editor-common');
 const { loadWithMockedElectron } = require('./helpers/mock-electron');
+
+loadAppConfig({
+  appRoot: path.join(__dirname, '..'),
+  defaultCoreId: 'mega-drive',
+  allowedCoreIds: ['default', 'mega-drive', 'pc-engine'],
+  pluginsRoot: path.join(__dirname, '..', 'plugins'),
+});
 
 function makeTempUserData() {
   const root = path.join(__dirname, '..', 'node_modules', '.plugin-test-tmp');
@@ -40,9 +48,15 @@ test('listPlugins reads user plugins and normalizes manifest fields', () => {
     roles: [{ id: 'custom-role', label: 'Custom Role', exclusive: true, order: 50 }],
     tab: { label: 'Alpha' },
   });
+  writePlugin(userData, 'hidden-internal', {
+    hidden: true,
+    types: ['editor'],
+    tab: { label: 'Hidden' },
+  });
 
   const pluginManager = loadWithMockedElectron(path.join(__dirname, '..', 'plugin-manager.js'), { userData });
-  const alpha = pluginManager.listPlugins().find((plugin) => plugin.id === 'alpha');
+  const plugins = pluginManager.listPlugins();
+  const alpha = plugins.find((plugin) => plugin.id === 'alpha');
 
   assert.equal(alpha.name, 'Alpha Plugin');
   assert.deepEqual(alpha.pluginTypes, ['editor', 'asset']);
@@ -54,6 +68,7 @@ test('listPlugins reads user plugins and normalizes manifest fields', () => {
   assert.deepEqual(alpha.roles, [{ id: 'custom-role', label: 'Custom Role', exclusive: true, order: 50 }]);
   assert.equal(alpha.enabled, true);
   assert.equal(alpha.isUserPlugin, true);
+  assert.equal(plugins.some((plugin) => plugin.id === 'hidden-internal'), false);
 });
 
 test('listPlugins exposes core compatibility metadata and defaults legacy plugins to Mega Drive', () => {
@@ -144,12 +159,18 @@ test('built-in PCE asset editor suite is scoped to the PC Engine core', () => {
   const pluginManager = loadWithMockedElectron(path.join(__dirname, '..', 'plugin-manager.js'), { userData });
   const pcePlugins = new Map(pluginManager.listPlugins({ coreId: 'pc-engine' }).map((plugin) => [plugin.id, plugin]));
 
-  ['pce-asset-manager', 'pce-background-manager', 'pce-sprite-manager', 'pce-music-editor', 'pce-palette-editor', 'pce-image-converter', 'pce-audio-converter'].forEach((id) => {
+  ['novel-editor', 'pce-asset-manager', 'sound-editor', 'pce-background-manager', 'pce-sprite-manager', 'pce-palette-editor', 'pce-image-converter', 'pce-audio-converter'].forEach((id) => {
     assert.equal(pcePlugins.has(id), true, `${id} should be available for PC Engine`);
     assert.deepEqual(pcePlugins.get(id).supportedCores, ['pc-engine']);
   });
+  ['pce-font-editor', 'pce-visual-novel-editor', 'pce-music-editor', 'pce-cdda-manager', 'pce-adpcm-manager'].forEach((id) => {
+    assert.equal(pcePlugins.has(id), false, `${id} should be hidden behind an integrated plugin`);
+  });
   assert.equal(pcePlugins.get('pce-asset-manager').renderer.capabilities.includes('audio-import-handler'), true);
-  assert.equal(pcePlugins.get('pce-music-editor').tab.page, 'pce-music-editor');
+  assert.equal(pcePlugins.get('sound-editor').tab.page, 'sound-editor');
+  assert.equal(pcePlugins.get('sound-editor').tab.label, 'Sound');
+  assert.equal(pcePlugins.get('novel-editor').tab.page, 'novel-editor');
+  assert.equal(pcePlugins.get('novel-editor').tab.label, 'Novel');
 });
 
 test('setEnabledWithDependencies enables dependencies and reports missing ones', () => {

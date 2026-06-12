@@ -1,6 +1,6 @@
 {
   "id": "pce-background-manager",
-  "name": "PCE 背景管理",
+  "name": "背景管理",
   "description": "PCE / CD-ROM2 の背景画像アセットを assets/pce-assets.json の BG image として追加・編集します。",
   "version": "0.1.0",
   "icon": "assets",
@@ -9,7 +9,7 @@
   "supportedCores": ["pc-engine"],
   "permissions": ["project.read", "project.write", "dialog.openFile", "asset.import", "asset.preview"],
   "tab": {
-    "label": "PCE BG",
+    "label": "BG",
     "icon": "assets",
     "page": "pce-background-manager",
     "order": 15

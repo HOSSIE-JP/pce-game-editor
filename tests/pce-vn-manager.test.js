@@ -36,6 +36,91 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf-8');
 }
 
+function u16(buffer, offset) {
+  return buffer.readUInt16LE(offset);
+}
+
+function s16(buffer, offset) {
+  return buffer.readInt16LE(offset);
+}
+
+function commandRecord(buffer, index) {
+  const table = u16(buffer, 10);
+  const offset = table + (index * 19);
+  return {
+    type: buffer[offset],
+    assetIndex: s16(buffer, offset + 1),
+    slot: buffer[offset + 3],
+    flags: buffer[offset + 4],
+    arg0: buffer[offset + 5],
+    arg1: buffer[offset + 6],
+    x: u16(buffer, offset + 7),
+    y: u16(buffer, offset + 9),
+    messageIndex: s16(buffer, offset + 11),
+    animationIndex: s16(buffer, offset + 13),
+    sceneIndex: s16(buffer, offset + 15),
+    choiceIndex: s16(buffer, offset + 17),
+  };
+}
+
+function messageRecord(buffer, index) {
+  const table = u16(buffer, 12);
+  const offset = table + (index * 11);
+  return {
+    glyphOffset: u16(buffer, offset),
+    glyphCount: buffer[offset + 2],
+    voiceIndex: s16(buffer, offset + 3),
+    textSpeedFrames: buffer[offset + 5],
+    advanceMode: buffer[offset + 6],
+    autoWaitFrames: buffer[offset + 7],
+    mouthAnimationIndex: s16(buffer, offset + 8),
+    mouthSlot: buffer[offset + 10],
+  };
+}
+
+function choiceRecord(buffer, index) {
+  const table = u16(buffer, 14);
+  const offset = table + (index * 6);
+  return {
+    optionOffset: u16(buffer, offset),
+    optionCount: buffer[offset + 2],
+    defaultIndex: buffer[offset + 3],
+    variableIndex: s16(buffer, offset + 4),
+  };
+}
+
+function choiceOptionRecord(buffer, choice, index) {
+  const offset = choice.optionOffset + (index * 7);
+  return {
+    glyphOffset: u16(buffer, offset),
+    glyphCount: buffer[offset + 2],
+    value: s16(buffer, offset + 3),
+    targetScene: s16(buffer, offset + 5),
+  };
+}
+
+function switchRecord(buffer, index) {
+  const table = u16(buffer, 16);
+  const offset = table + (index * 5);
+  return {
+    caseOffset: u16(buffer, offset),
+    caseCount: buffer[offset + 2],
+    defaultCommand: u16(buffer, offset + 3),
+  };
+}
+
+function switchCaseRecord(buffer, branch, index) {
+  const offset = branch.caseOffset + (index * 4);
+  return {
+    value: s16(buffer, offset),
+    command: u16(buffer, offset + 2),
+  };
+}
+
+function readPack(projectDir, relativePath) {
+  return fs.readFileSync(path.join(projectDir, relativePath));
+}
+
 test('PCE VN manager normalizes scene references and emits CD build patch', () => {
   const projectDir = makeTempDir('pce-vn-project-');
   const vnManager = loadVnManager();
@@ -94,27 +179,43 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   const prepared = vnManager.prepareVisualNovelBuild(projectDir, { cd: { dataFiles: [] } });
   assert.equal(prepared.configPatch.targetMedia, 'cd');
   assert.equal(prepared.configPatch.toolchain, 'llvm-mos');
-  assert.deepEqual(prepared.configPatch.cd.dataFiles, ['assets/generated/voice/adpcm.bin']);
+  assert.deepEqual(prepared.configPatch.cd.dataFiles, [
+    'assets/generated/vn/scenes/000_opening.bin',
+    'assets/generated/voice/adpcm.bin',
+  ]);
   assert.deepEqual(prepared.configPatch.cd.cddaTracks, ['assets/generated/track/cdda.wav']);
   assert.equal(prepared.generated.sceneCount, 1);
   assert.equal(prepared.generated.commandCount, 5);
+  assert.equal(prepared.generated.messageCount, 1);
+  assert.deepEqual(prepared.generated.scenePackPaths, ['assets/generated/vn/scenes/000_opening.bin']);
   assert.equal(prepared.generated.spriteAnimationCount, 2);
   const header = fs.readFileSync(prepared.generated.headerPath, 'utf-8');
   const source = fs.readFileSync(prepared.generated.sourcePath, 'utf-8');
+  const pack = readPack(projectDir, prepared.generated.scenePackPaths[0]);
   assert.match(header, /PCE_VN_FONT_TILE_BASE 712u/);
   assert.match(header, /void pce_vn_font_tiles_map\(void\);/);
   assert.match(header, /PCE_VN_COMMAND_BACKGROUND 0u/);
   assert.match(header, /PCE_VN_COMMAND_PRELOAD 4u/);
-  assert.match(header, /typedef struct \{\n  const pce_vn_choice_option_t \*options;/);
+  assert.match(header, /PCE_VN_SCENE_PACK_CACHE_BYTES 4096u/);
+  assert.match(header, /typedef struct \{\n  pce_vn_cd_sector_t sector;/);
   assert.match(header, /pce_vn_command_t/);
   assert.match(source, /PCE_RAM_BANK_AT\(132, 6\);/);
   assert.match(source, /PCE_VN_FONT_SECTION pce_vn_font_tiles\[\]/);
   assert.match(source, /#define PCE_VN_DATA_SECTION __attribute__\(\(section\("\.ram_bank132"\)\)\)/);
   assert.match(source, /pce_ram_bank132_map\(\);/);
   assert.match(source, /const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations\[\]/);
-  assert.match(source, /const pce_vn_choice_t PCE_VN_DATA_SECTION pce_vn_choices\[\]/);
-  assert.match(source, /const pce_vn_command_t PCE_VN_DATA_SECTION pce_vn_commands\[\]/);
-  assert.match(source, /\{ 2u, -1, 0u, 0u, 0u, 0u, 0u, 0u, 0, -1, -1, -1 \}/);
+  assert.match(source, /const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs\[\]/);
+  assert.doesNotMatch(source, /pce_vn_commands\[\]|pce_vn_messages\[\]|pce_vn_scenes\[\]/);
+  assert.equal(pack.subarray(0, 4).toString('ascii'), 'PVNS');
+  assert.equal(pack[4], 1);
+  assert.equal(pack[5], 5);
+  assert.equal(pack[6], 1);
+  assert.equal(commandRecord(pack, 4).type, vnManager.VN_COMMAND_MESSAGE);
+  const message = messageRecord(pack, 0);
+  assert.equal(message.voiceIndex, 0);
+  assert.equal(message.textSpeedFrames, 3);
+  assert.equal(message.mouthAnimationIndex, 1);
+  assert.equal(pack[message.glyphOffset + message.glyphCount], 0xff);
 });
 
 test('PCE VN manager default scene does not auto-play the first CD-DA asset', () => {
@@ -199,9 +300,11 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   assert.equal(normalized.scenes[1].commands[5].frames, 45);
   assert.equal(normalized.scenes[1].commands[6].sceneId, 'opening');
   assert.deepEqual(vnManager.collectCdDataFiles(projectDir), [
+    'assets/generated/vn/scenes/000_opening.bin',
     'assets/generated/bg_a/tiles.bin',
     'assets/generated/bg_a/map_vram.bin',
     'assets/generated/hero/patterns.bin',
+    'assets/generated/vn/scenes/001_next.bin',
     'assets/generated/bg_b/tiles.bin',
     'assets/generated/bg_b/map_vram.bin',
     'assets/generated/rival/patterns.bin',
@@ -211,20 +314,50 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   const generated = vnManager.generateVnSources(projectDir);
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  const openingPack = readPack(projectDir, generated.scenePackPaths[0]);
+  const nextPack = readPack(projectDir, generated.scenePackPaths[1]);
   assert.equal(generated.choiceCount, 1);
   assert.match(header, /PCE_VN_COMMAND_CHOICE 5u/);
   assert.match(header, /PCE_VN_SPRITE_FLIP_X 2u/);
   assert.match(header, /PCE_VN_SPRITE_FLIP_Y 4u/);
   assert.match(header, /PCE_VN_EFFECT_FADE_OUT 0u/);
   assert.match(header, /PCE_VN_EFFECT_SHAKE 3u/);
-  assert.match(source, /pce_vn_choice_0_options/);
-  assert.match(source, /\{ 0u, 1, 0u, 1u, 8u, 16u, 2u, 4u, -1, -1, -1, -1 \}/);
-  assert.match(source, /\{ 1u, 0, 0u, 7u, 12u, 0u, 128u, 24u, -1, 0, -1, -1 \}/);
-  assert.match(source, /\{ 4u, -1, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, 1, -1 \}/);
-  assert.match(source, /\{ 5u, -1, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, -1, 0 \}/);
-  assert.match(source, /\{ 8u, -1, 0u, 3u, 20u, 6u, 0u, 0u, -1, -1, -1, -1 \}/);
-  assert.match(source, /\{ 7u, -1, 0u, 0u, 45u, 0u, 0u, 0u, -1, -1, -1, -1 \}/);
-  assert.match(source, /\{ 6u, -1, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, 0, -1 \}/);
+  assert.match(source, /\{ \{ 64u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  assert.match(source, /\{ \{ 77u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  assert.equal(openingPack[5], 4);
+  assert.equal(openingPack[7], 1);
+  assert.deepEqual(commandRecord(openingPack, 0), {
+    type: 0,
+    assetIndex: 0,
+    slot: 0,
+    flags: 0,
+    arg0: 0,
+    arg1: 0,
+    x: 0,
+    y: 0,
+    messageIndex: -1,
+    animationIndex: -1,
+    sceneIndex: -1,
+    choiceIndex: -1,
+  });
+  assert.equal(commandRecord(openingPack, 1).flags, 7);
+  assert.equal(commandRecord(openingPack, 1).arg0, 12);
+  assert.equal(commandRecord(openingPack, 2).sceneIndex, 1);
+  assert.equal(commandRecord(openingPack, 3).choiceIndex, 0);
+  const choice = choiceRecord(openingPack, 0);
+  assert.equal(choice.optionCount, 2);
+  assert.equal(choice.defaultIndex, 1);
+  assert.equal(choiceOptionRecord(openingPack, choice, 0).targetScene, 1);
+  assert.equal(choiceOptionRecord(openingPack, choice, 1).targetScene, 0);
+  assert.equal(nextPack[5], 7);
+  assert.equal(commandRecord(nextPack, 0).type, vnManager.VN_COMMAND_EFFECT);
+  assert.equal(commandRecord(nextPack, 0).flags, 0);
+  assert.equal(commandRecord(nextPack, 3).flags, 3);
+  assert.equal(commandRecord(nextPack, 3).arg0, 20);
+  assert.equal(commandRecord(nextPack, 3).arg1, 6);
+  assert.equal(commandRecord(nextPack, 5).type, vnManager.VN_COMMAND_WAIT);
+  assert.equal(commandRecord(nextPack, 5).arg0, 45);
+  assert.equal(commandRecord(nextPack, 6).sceneIndex, 0);
 });
 
 test('PCE VN manager emits variable, branch, switch, label, and goto commands', () => {
@@ -268,6 +401,7 @@ test('PCE VN manager emits variable, branch, switch, label, and goto commands', 
   const generated = vnManager.generateVnSources(projectDir);
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
   assert.equal(generated.variableCount, 3);
   assert.equal(generated.choiceCount, 1);
   assert.equal(generated.switchCount, 1);
@@ -289,18 +423,78 @@ test('PCE VN manager emits variable, branch, switch, label, and goto commands', 
   assert.match(header, /signed int choice_index;/);
   assert.match(header, /signed int next_scene;/);
   assert.match(header, /typedef struct \{\n  signed int value;\n  unsigned int command;\n\} pce_vn_switch_case_t;/);
+  assert.match(header, /unsigned int options_offset;/);
+  assert.match(header, /unsigned int cases_offset;/);
   assert.match(source, /const signed int PCE_VN_DATA_SECTION pce_vn_variable_initial_values\[\] = \{\n  2,\n  0,\n  0\n\};/);
-  assert.match(source, /\{ pce_vn_choice_0_option_0_glyphs, 1u, 7, -1 \}/);
-  assert.match(source, /\{ pce_vn_switch_0_cases, 2u, 9u \}/);
-  assert.match(source, /\{ 9u, 0, 0u, 0u, 2u, 0u, 0u, 0u, -1, -1, -1, -1 \}/);
-  assert.match(source, /\{ 10u, 0, 0u, 5u, 2u, 0u, 4u, 9u, -1, -1, -1, -1 \}/);
-  assert.match(source, /\{ 11u, 0, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, -1, 0 \}/);
-  assert.match(source, /\{ 13u, -1, 0u, 0u, 0u, 0u, 11u, 0u, -1, -1, -1, -1 \}/);
-  assert.match(source, /\{ 9u, 2, 0u, 4u, 0u, 0u, 1u, 6u, -1, -1, -1, -1 \}/);
+  assert.equal(pack[5], 13);
+  assert.equal(pack[7], 1);
+  assert.equal(pack[8], 1);
+  assert.equal(commandRecord(pack, 0).type, vnManager.VN_COMMAND_VARIABLE);
+  assert.equal(commandRecord(pack, 0).assetIndex, 0);
+  assert.equal(commandRecord(pack, 0).arg0, 2);
+  assert.equal(commandRecord(pack, 3).type, vnManager.VN_COMMAND_IF);
+  assert.equal(commandRecord(pack, 3).flags, 5);
+  assert.equal(commandRecord(pack, 3).x, 4);
+  assert.equal(commandRecord(pack, 3).y, 9);
+  const choice = choiceRecord(pack, 0);
+  assert.equal(choice.variableIndex, 1);
+  assert.equal(choiceOptionRecord(pack, choice, 0).value, 7);
+  const branch = switchRecord(pack, 0);
+  assert.equal(branch.caseCount, 2);
+  assert.equal(branch.defaultCommand, 9);
+  assert.deepEqual(switchCaseRecord(pack, branch, 0), { value: 5, command: 7 });
+  assert.deepEqual(switchCaseRecord(pack, branch, 1), { value: 8, command: 9 });
+  assert.equal(commandRecord(pack, 8).type, vnManager.VN_COMMAND_GOTO);
+  assert.equal(commandRecord(pack, 8).x, 11);
+  assert.equal(commandRecord(pack, 10).type, vnManager.VN_COMMAND_VARIABLE);
+  assert.equal(commandRecord(pack, 10).assetIndex, 2);
+  assert.equal(commandRecord(pack, 10).flags, 4);
+  assert.equal(commandRecord(pack, 10).x, 1);
+  assert.equal(commandRecord(pack, 10).y, 6);
 });
 
-test('PCE VN manager keeps generated indexes valid past signed char range', () => {
-  const projectDir = makeTempDir('pce-vn-wide-indexes-');
+test('PCE VN manager allows script totals past 255 when each scene pack fits', () => {
+  const projectDir = makeTempDir('pce-vn-wide-script-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: Array.from({ length: 3 }, (_, sceneIndex) => ({
+      id: sceneIndex === 0 ? 'opening' : `part_${sceneIndex}`,
+      commands: Array.from({ length: 100 }, (_, index) => ({
+        type: 'message',
+        text: `A${sceneIndex}_${index}`,
+        textSpeedFrames: 0,
+      })),
+      nextSceneId: sceneIndex < 2 ? `part_${sceneIndex + 1}` : '',
+    })),
+  });
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+
+  assert.equal(generated.messageCount, 300);
+  assert.equal(generated.commandCount, 300);
+  assert.equal(generated.sceneCount, 3);
+  assert.equal(generated.scenePackPaths.length, 3);
+  assert.ok(generated.scenePackBytes.every((size) => size <= vnManager.VN_SCENE_PACK_CACHE_BYTES));
+  assert.match(header, /signed int message_index;/);
+  assert.match(source, /const unsigned char PCE_VN_DATA_SECTION pce_vn_scene_count = 3;/);
+  assert.doesNotMatch(source, /pce_vn_message_count|pce_vn_command_count/);
+  generated.scenePackPaths.forEach((packPath) => {
+    const pack = readPack(projectDir, packPath);
+    assert.equal(pack[5], 100);
+    assert.equal(pack[6], 100);
+  });
+});
+
+test('PCE VN manager rejects one scene pack over the runtime cache size', () => {
+  const projectDir = makeTempDir('pce-vn-pack-overflow-');
   const vnManager = loadVnManager();
   writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
     version: 2,
@@ -311,26 +505,18 @@ test('PCE VN manager keeps generated indexes valid past signed char range', () =
     startScene: 'opening',
     scenes: [{
       id: 'opening',
-      commands: Array.from({ length: 130 }, (_, index) => ({
-        type: 'choice',
-        variableName: `choice_${index}`,
-        choices: [{ label: 'A', value: index }],
+      commands: Array.from({ length: 140 }, (_, index) => ({
+        type: 'message',
+        text: `LONG_MESSAGE_${index}`,
+        textSpeedFrames: 0,
       })),
     }],
   });
 
-  const generated = vnManager.generateVnSources(projectDir);
-  const header = fs.readFileSync(generated.headerPath, 'utf-8');
-  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
-
-  assert.equal(generated.choiceCount, 130);
-  assert.equal(generated.variableCount, 130);
-  assert.match(header, /signed int choice_index;/);
-  assert.match(header, /signed int variable_index;/);
-  assert.match(source, /const unsigned char PCE_VN_DATA_SECTION pce_vn_choice_count = 130;/);
-  assert.match(source, /const unsigned char PCE_VN_DATA_SECTION pce_vn_variable_count = 130;/);
-  assert.match(source, /\{ 5u, -1, 0u, 0u, 0u, 0u, 0u, 0u, -1, -1, -1, 129 \}/);
-  assert.match(source, /\{ pce_vn_choice_129_options, 1u, 0u, 129 \}/);
+  assert.throws(
+    () => vnManager.generateVnSources(projectDir),
+    /scene pack "opening" is \d+ bytes; split the scene to stay within 4096 bytes/
+  );
 });
 
 test('PCE VN manager expands default sprite animation to the whole sprite sheet', () => {
@@ -464,6 +650,24 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /#define VN_CD_SECTOR_BYTES 2048u/);
   assert.match(source, /#define VN_MAP_ROW_BYTES \(VN_MAP_WIDTH \* 2u\)/);
   assert.match(source, /static uint8_t cd_transfer_scratch\[VN_CD_SECTOR_BYTES\];/);
+  assert.match(source, /static uint8_t vn_active_scene_pack_data\[PCE_VN_SCENE_PACK_CACHE_BYTES\];/);
+  assert.match(source, /static uint8_t vn_preload_scene_pack_data\[PCE_VN_SCENE_PACK_CACHE_BYTES\];/);
+  assert.match(source, /typedef struct\s*\{[\s\S]*uint8_t \*data;[\s\S]*uint16_t size;[\s\S]*uint8_t scene_index;[\s\S]*uint8_t valid;[\s\S]*\} vn_scene_pack_cache_t;/);
+  assert.match(source, /static vn_scene_pack_cache_t active_scene_pack;/);
+  assert.match(source, /static vn_scene_pack_cache_t preload_scene_pack;/);
+  assert.match(source, /#define VN_SCENE_PACK_MAGIC_P 0x50u/);
+  assert.match(source, /static uint8_t load_scene_pack_into_cache\(uint8_t scene_index, vn_scene_pack_cache_t \*cache\)/);
+  assert.match(source, /pce_vn_scene_pack_t pack;/);
+  assert.match(source, /pack = pce_vn_scene_packs\[scene_index\];/);
+  assert.match(source, /pack\.byte_size > PCE_VN_SCENE_PACK_CACHE_BYTES/);
+  assert.match(source, /pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)&cache->data\[offset\], chunk\);/);
+  assert.match(source, /static uint8_t scene_pack_read_command\(const vn_scene_pack_cache_t \*cache, uint8_t command_index, pce_vn_command_t \*command\)/);
+  assert.match(source, /static uint8_t scene_pack_read_message\(const vn_scene_pack_cache_t \*cache, uint8_t message_index, pce_vn_message_t \*message\)/);
+  assert.match(source, /static uint8_t scene_pack_read_choice\(const vn_scene_pack_cache_t \*cache, uint8_t choice_index, vn_choice_ref_t \*choice\)/);
+  assert.match(source, /static uint8_t scene_pack_read_switch\(const vn_scene_pack_cache_t \*cache, uint8_t switch_index, vn_switch_ref_t \*branch\)/);
+  assert.doesNotMatch(source, /pce_vn_commands\[/);
+  assert.doesNotMatch(source, /pce_vn_messages\[/);
+  assert.doesNotMatch(source, /pce_vn_scenes\[/);
   assert.match(source, /static uint8_t cdda_active = 0;/);
   assert.match(source, /static void preload_scene_assets\(signed int scene_index, uint8_t allow_visual_upload\);/);
   assert.match(source, /static uint8_t adpcm_stream_looping = 0;/);
@@ -556,6 +760,12 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /if \(loaded_sprite_pattern_valid && loaded_sprite_pattern_index == sprite_index\) return 0u;/);
   assert.match(source, /copy_data_ref_to_vram\(\(uint16_t\)\(sprite->pattern_base \* 32u\), &sprite->patterns, 16u\);/);
   assert.match(source, /static void preload_scene_assets\(signed int scene_index, uint8_t allow_visual_upload\)/);
+  assert.match(preloadSceneSource, /vn_scene_pack_cache_t \*cache;/);
+  assert.match(preloadSceneSource, /load_scene_pack_into_cache\(\(uint8_t\)scene_index, &active_scene_pack\)/);
+  assert.match(preloadSceneSource, /load_scene_pack_into_cache\(\(uint8_t\)scene_index, &preload_scene_pack\)/);
+  assert.match(preloadSceneSource, /command_count = scene_pack_command_count\(cache\);/);
+  assert.match(preloadSceneSource, /scene_pack_read_command\(cache, i, &command\)/);
+  assert.match(preloadSceneSource, /scene_pack_read_message\(cache, \(uint8_t\)command\.message_index, &message\)/);
   assert.match(preloadSceneSource, /if \(!allow_visual_upload \|\| !pending_display_enable\) continue;[\s\S]*PCE_VN_COMMAND_SPRITE[\s\S]*if \(!allow_visual_upload \|\| !pending_display_enable\) continue;/);
   assert.match(source, /preloaded_bg_x == \(uint8_t\)command\.x[\s\S]*preloaded_bg_y == \(uint8_t\)command\.y/);
   assert.match(source, /upload_bg_graphics\([\s\S]*&pce_editor_bg_assets\[\(uint8_t\)command\.asset_index\],[\s\S]*bg_map_dest_from_tile\(&pce_editor_bg_assets\[\(uint8_t\)command\.asset_index\], command\.x, command\.y\)/);
@@ -566,7 +776,11 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static signed int random_range_value\(signed int min, signed int max\)/);
   assert.match(source, /static uint8_t compare_values\(signed int left, uint8_t operator_id, signed int right\)/);
   assert.match(source, /static uint8_t jump_to_command\(uint16_t command_offset\)/);
+  assert.match(source, /if \(!load_scene_pack_into_cache\(current_scene, &active_scene_pack\)\) return 0u;/);
+  assert.match(source, /if \(command_offset >= scene_pack_command_count\(&active_scene_pack\)\) return 0u;/);
   assert.match(source, /static void draw_choice_options\(void\)/);
+  assert.match(source, /scene_pack_read_choice\(&active_scene_pack, \(uint8_t\)active_choice_index, &choice\)/);
+  assert.match(source, /scene_pack_read_choice_option\(&active_scene_pack, &choice, row, &option\)/);
   assert.match(source, /PCE_VN_CHOICE_CURSOR_GLYPH/);
   assert.match(source, /static uint8_t handle_choice_input\(uint8_t pressed\)/);
   assert.match(source, /set_variable_value\(choice\.variable_index, option\.value\);/);
@@ -578,6 +792,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(audioCommandMatch[0], /else play_adpcm_voice\(command->asset_index\);/);
   assert.doesNotMatch(audioCommandMatch[0], /VN_EXEC_WAIT|VN_EXEC_RESTART|return/);
   assert.match(source, /static uint8_t VN_BANKED_CODE run_commands_until_wait\(void\)/);
+  assert.match(source, /command_count = scene_pack_command_count\(&active_scene_pack\);/);
+  assert.match(source, /scene_pack_read_command\(&active_scene_pack, current_command, &command\)/);
+  assert.match(source, /static signed int current_scene_next_scene\(void\)/);
+  assert.match(source, /pack = pce_vn_scene_packs\[current_scene\];/);
   assert.match(source, /PCE_VN_COMMAND_PRELOAD/);
   assert.match(source, /preload_scene_assets\(command->scene_index, pending_display_enable\);/);
   assert.match(source, /PCE_VN_COMMAND_CHOICE/);
@@ -642,6 +860,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /PCE_CDB_LOCATION_TYPE_TRACK, end/);
   assert.match(source, /play_cdda_track\(cdda\);/);
   assert.match(source, /pce_ram_bank129_map\(\);\n    pce_cdb_irq_enable\(\(uint8_t\)\(PCE_CDB_MASK_IRQ_EXTERNAL \| PCE_CDB_MASK_VBLANK\)\);/);
+  assert.match(source, /if \(!load_scene_pack_into_cache\(scene_index, &active_scene_pack\)\) return;/);
   assert.match(source, /pending_sprite_refresh = 1u;\n    preload_scene_assets\(\(signed int\)scene_index, 1u\);/);
   assert.match(source, /init_runtime_state\(\);\n    init_video\(\);\n    map_vn_data\(\);\n    start_scene = pce_vn_start_scene;\n    show_scene\(start_scene\);\n    advance_story\(\);/);
   assert.doesNotMatch(source, /show_scene\(start_scene\);\n    preload_scene_assets\(\(signed int\)start_scene\);/);
@@ -672,6 +891,9 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.equal(result.commandInfo.targetMedia, 'cd');
   assert.ok(result.commandInfo.mkcdArgs.some((arg) => /pce_cd_data_padding\.bin$/.test(arg)));
   assert.equal(result.generated.visualNovel.messageCount, 1);
+  assert.deepEqual(result.generated.visualNovel.scenePackPaths, ['assets/generated/vn/scenes/000_opening.bin']);
   const source = fs.readFileSync(path.join(projectDir, 'src', 'generated', 'vn.c'), 'utf-8');
-  assert.match(source, /const unsigned char PCE_VN_DATA_SECTION pce_vn_message_count = 1;/);
+  assert.match(source, /const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs\[\]/);
+  assert.match(source, /\{ \{ 64u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'scenes', '000_opening.bin')));
 });

@@ -130,7 +130,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       <section class="asset-list-panel">
         <div class="asset-list-header">
           <div>
-            <h2>PCE Assets</h2>
+            <h2>Assets</h2>
             <p class="pce-assets-subtitle">BG / Sprite / Palette / PSG / ADPCM / CD-DA を PC Engine 向けに管理します</p>
           </div>
           <div class="asset-list-header-actions">
@@ -1063,7 +1063,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         panelClassName: 'app-panel pce-assets-import-panel',
         html: `
           <div class="page-header modal-header">
-            <h2>PCE 画像取り込み</h2>
+            <h2>画像取り込み</h2>
             <button class="icon-btn" type="button" data-import-cancel>✕</button>
           </div>
           <form class="settings-form compact-form pce-assets-import-form">
@@ -1292,7 +1292,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         panelClassName: 'app-panel pce-assets-import-panel',
         html: `
           <div class="page-header modal-header">
-            <h2>PCE 音声取り込み</h2>
+            <h2>音声取り込み</h2>
             <button class="icon-btn" type="button" data-import-cancel>✕</button>
           </div>
           <form class="settings-form compact-form pce-assets-import-form">
@@ -1398,7 +1398,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         try {
           const audioCapability = api.capabilities.get('audio-convert-ui');
           if (!audioCapability?.openAudioConvertModal) {
-            error.textContent = 'PCE 音声コンバータープラグインが無効または未インストールです';
+            error.textContent = '音声コンバータープラグインが無効または未インストールです';
             return;
           }
           const kind = form.elements.kind.value;

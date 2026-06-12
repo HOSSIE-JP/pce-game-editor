@@ -1,0 +1,27 @@
+{
+  "id": "novel-editor",
+  "name": "ノベル",
+  "description": "VN シーン編集とフォント生成をまとめて扱います。",
+  "version": "0.1.0",
+  "icon": "book",
+  "types": ["editor", "asset"],
+  "supportedCores": ["pc-engine"],
+  "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont"],
+  "permissions": ["project.read", "project.write", "dialog.openFile", "asset.preview", "main.invokeHook"],
+  "mainApi": {
+    "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont"],
+    "capabilities": ["novel-editor", "font-editor"]
+  },
+  "tab": {
+    "label": "Novel",
+    "icon": "book",
+    "page": "novel-editor",
+    "order": 8
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "page": "novel-editor",
+    "capabilities": ["page", "novel-editor", "visual-novel-editor", "font-editor"]
+  }
+}

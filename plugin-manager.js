@@ -293,6 +293,10 @@ function isPluginEnabled(id) {
   return Boolean(s[id]?.enabled ?? true);
 }
 
+function isHiddenPluginManifest(manifest) {
+  return Boolean(manifest?.hidden || manifest?.private || manifest?.internal);
+}
+
 // ── プラグイン一覧 ──────────────────────────────────────────────────────────
 
 function listPlugins(options = {}) {
@@ -328,6 +332,7 @@ function listPlugins(options = {}) {
       try {
         manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
       } catch (_) {}
+      if (isHiddenPluginManifest(manifest)) return null;
 
       const pluginDir = path.join(baseDir, id);
       const pluginTypes = normalizePluginTypes(manifest);
@@ -363,6 +368,7 @@ function listPlugins(options = {}) {
         isUserPlugin: isUser,  // ユーザー追加プラグインか否か
       };
     })
+    .filter(Boolean)
     .filter((plugin) => pluginAllowedForApp(plugin.supportedCores))
     .filter((plugin) => includeIncompatible || pluginSupportsCore(plugin, coreId))
     .sort((a, b) => a.id.localeCompare(b.id, 'ja'));

@@ -27,7 +27,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   root.innerHTML = `
     <div class="pce-music-editor-shell">
       <aside class="pce-plugin-list">
-        <div class="pce-plugin-header"><h2>PSG</h2><button class="btn-sm" type="button" data-new>新規</button></div>
+        <div class="pce-plugin-header"><h2>PSM</h2><button class="btn-sm" type="button" data-new>新規</button></div>
         <div data-list class="pce-plugin-items"></div>
       </aside>
       <main class="pce-plugin-main">
@@ -66,7 +66,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   function renderList() {
     listEl.innerHTML = assets.length
       ? assets.map((asset) => `<button class="${asset.id === selectedId ? 'active' : ''}" type="button" data-id="${esc(asset.id)}"><strong>${esc(asset.name || asset.id)}</strong><span>${esc(asset.type)}</span></button>`).join('')
-      : '<p class="asset-no-selection-hint">PSG アセットがありません</p>';
+      : '<p class="asset-no-selection-hint">PSM アセットがありません</p>';
     listEl.querySelectorAll('[data-id]').forEach((button) => {
       button.addEventListener('click', () => {
         selectedId = button.dataset.id;
@@ -84,7 +84,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   function renderGrid() {
     const asset = selected();
     if (!asset) {
-      gridEl.innerHTML = '<p class="asset-no-selection-hint">PSG アセットを選択してください</p>';
+      gridEl.innerHTML = '<p class="asset-no-selection-hint">PSM アセットを選択してください</p>';
       form.hidden = true;
       return;
     }
@@ -160,7 +160,7 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   root.querySelector('[data-new]').addEventListener('click', () => {
     const id = `psg_${Date.now()}`;
-    assets.push({ id, type: 'psg-sfx', name: 'PSG SFX', source: '', options: { bpm: 150, steps: 16, period: 512, pattern: [{ step: 0, note: 'C4', period: 512 }] } });
+    assets.push({ id, type: 'psg-sfx', name: 'PSM SFX', source: '', options: { bpm: 150, steps: 16, period: 512, pattern: [{ step: 0, note: 'C4', period: 512 }] } });
     selectedId = id;
     render();
   });

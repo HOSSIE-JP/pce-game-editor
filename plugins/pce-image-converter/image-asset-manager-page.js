@@ -1067,7 +1067,7 @@ export function createImageAssetManagerPlugin(config = {}) {
         if (!details) return null;
         const pipeline = getImagePipeline(api);
         if (!pipeline?.convertToIndexed16) {
-          throw new Error('PCE 画像コンバータープラグインが無効または未インストールです');
+          throw new Error('画像コンバータープラグインが無効または未インストールです');
         }
         const converted = await pipeline.convertToIndexed16({
           sourcePath: picked.sourcePath,
