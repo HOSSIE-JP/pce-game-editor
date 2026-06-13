@@ -159,6 +159,9 @@ typedef struct
     uint8_t stream;
     uint8_t has_cd;
 } vn_adpcm_voice_t;
+#if defined(__PCE_CD__)
+static vn_adpcm_voice_t adpcm_voice_snapshot;
+#endif
 typedef struct
 {
     uint8_t *data;
@@ -1341,57 +1344,54 @@ static uint8_t VN_BANKED_CODE adpcm_play_divider(unsigned int sample_rate, uint8
     return divider;
 }
 
-static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer(const vn_adpcm_voice_t *voice)
+static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer(void)
 {
 #if defined(__PCE_CD__)
     unsigned long limit;
-    if (!voice || !voice->data_size) return 0u;
-    if (voice->data_size > 65535ul) return 0u;
-    if ((unsigned long)voice->adpcm_address >= 65536ul) return 0u;
-    limit = 65536ul - (unsigned long)voice->adpcm_address;
+    if (!adpcm_voice_snapshot.data_size) return 0u;
+    if (adpcm_voice_snapshot.data_size > 65535ul) return 0u;
+    if ((unsigned long)adpcm_voice_snapshot.adpcm_address >= 65536ul) return 0u;
+    limit = 65536ul - (unsigned long)adpcm_voice_snapshot.adpcm_address;
     if (limit > 65535ul) limit = 65535ul;
-    return voice->data_size <= limit ? 1u : 0u;
+    return adpcm_voice_snapshot.data_size <= limit ? 1u : 0u;
 #else
-    (void)voice;
     return 0u;
 #endif
 }
 
-static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index, vn_adpcm_voice_t *dest)
+static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
 {
 #if defined(__PCE_CD__)
     const pce_editor_adpcm_asset_t *voice;
-    if (!dest) return 0u;
     if (voice_index < 0) return 0u;
     map_resident_data();
     if ((uint8_t)voice_index >= pce_editor_adpcm_asset_count) return 0u;
     voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
-    dest->data = voice->data;
-    dest->data_size = voice->data_size;
-    dest->sample_rate = voice->sample_rate;
-    dest->adpcm_address = voice->adpcm_address;
-    dest->divider = voice->divider;
-    dest->loop = voice->loop;
-    dest->stream = voice->stream;
-    dest->has_cd = (uint8_t)(voice->cd && voice->cd->sector_count);
-    if (dest->has_cd)
+    adpcm_voice_snapshot.data = voice->data;
+    adpcm_voice_snapshot.data_size = voice->data_size;
+    adpcm_voice_snapshot.sample_rate = voice->sample_rate;
+    adpcm_voice_snapshot.adpcm_address = voice->adpcm_address;
+    adpcm_voice_snapshot.divider = voice->divider;
+    adpcm_voice_snapshot.loop = voice->loop;
+    adpcm_voice_snapshot.stream = voice->stream;
+    adpcm_voice_snapshot.has_cd = (uint8_t)(voice->cd && voice->cd->sector_count);
+    if (adpcm_voice_snapshot.has_cd)
     {
-        dest->cd_sector_count = voice->cd->sector_count;
-        dest->cd_sector.lo = voice->cd->sector.lo;
-        dest->cd_sector.md = voice->cd->sector.md;
-        dest->cd_sector.hi = voice->cd->sector.hi;
+        adpcm_voice_snapshot.cd_sector_count = voice->cd->sector_count;
+        adpcm_voice_snapshot.cd_sector.lo = voice->cd->sector.lo;
+        adpcm_voice_snapshot.cd_sector.md = voice->cd->sector.md;
+        adpcm_voice_snapshot.cd_sector.hi = voice->cd->sector.hi;
     }
     else
     {
-        dest->cd_sector_count = 0u;
-        dest->cd_sector.lo = 0u;
-        dest->cd_sector.md = 0u;
-        dest->cd_sector.hi = 0u;
+        adpcm_voice_snapshot.cd_sector_count = 0u;
+        adpcm_voice_snapshot.cd_sector.lo = 0u;
+        adpcm_voice_snapshot.cd_sector.md = 0u;
+        adpcm_voice_snapshot.cd_sector.hi = 0u;
     }
     return 1u;
 #else
     (void)voice_index;
-    (void)dest;
     return 0u;
 #endif
 }
@@ -1431,20 +1431,19 @@ static void VN_BANKED_CODE restore_display_after_adpcm(uint8_t restore_display)
 static uint8_t VN_BANKED_CODE load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t allow_stream_asset)
 {
 #if defined(__PCE_CD__)
-    vn_adpcm_voice_t voice;
     uint8_t loaded = 0u;
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
     if (voice_index < 0) return 0u;
     if (loaded_adpcm_valid && loaded_adpcm_index == (uint8_t)voice_index) return 1u;
-    if (!copy_adpcm_voice(voice_index, &voice)) return 0u;
-    if (voice.stream && !allow_stream_asset) return 0u;
+    if (!copy_adpcm_voice(voice_index)) return 0u;
+    if (adpcm_voice_snapshot.stream && !allow_stream_asset) return 0u;
     if (adpcm_playback_active())
     {
         if (!allow_stop_playback) return 0u;
         pce_cdb_adpcm_stop();
         (void)wait_adpcm_transfer_ready();
     }
-    if ((!voice.data && !voice.has_cd) || !voice.data_size) return 0u;
+    if ((!adpcm_voice_snapshot.data && !adpcm_voice_snapshot.has_cd) || !adpcm_voice_snapshot.data_size) return 0u;
     loaded_adpcm_valid = 0u;
     pce_cdb_adpcm_reset();
     if (!wait_adpcm_transfer_ready())
@@ -1453,19 +1452,19 @@ static uint8_t VN_BANKED_CODE load_adpcm_voice(signed int voice_index, uint8_t a
         restore_display_after_adpcm(restore_display);
         return 0u;
     }
-    if (voice.has_cd)
+    if (adpcm_voice_snapshot.has_cd)
     {
         pce_sector_t sector = {0};
-        const uint16_t sector_count = voice.cd_sector_count;
+        const uint16_t sector_count = adpcm_voice_snapshot.cd_sector_count;
         const uint8_t read_count = sector_count > 255u ? 255u : (uint8_t)sector_count;
         prepare_cd_data_access();
-        cd_sector_from_ref(&sector, &voice.cd_sector);
-        loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, read_count, voice.adpcm_address));
+        cd_sector_from_ref(&sector, &adpcm_voice_snapshot.cd_sector);
+        loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, read_count, adpcm_voice_snapshot.adpcm_address));
     }
     else
     {
         map_resident_data();
-        loaded = (uint8_t)(!pce_cdb_adpcm_read_from_ram(PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)voice.data, voice.adpcm_address, (uint16_t)voice.data_size));
+        loaded = (uint8_t)(!pce_cdb_adpcm_read_from_ram(PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)adpcm_voice_snapshot.data, adpcm_voice_snapshot.adpcm_address, (uint16_t)adpcm_voice_snapshot.data_size));
     }
     if (!loaded)
     {
@@ -1495,13 +1494,12 @@ static uint8_t VN_BANKED_CODE load_adpcm_voice(signed int voice_index, uint8_t a
 static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
 {
 #if defined(__PCE_CD__)
-    vn_adpcm_voice_t voice;
     pce_sector_t sector = {0};
     pce_sector_t length = {0};
     uint8_t divider;
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
-    if (!copy_adpcm_voice(voice_index, &voice)) return 0u;
-    if (!voice.stream || !voice.has_cd || !voice.cd_sector_count || !voice.data_size) return 0u;
+    if (!copy_adpcm_voice(voice_index)) return 0u;
+    if (!adpcm_voice_snapshot.stream || !adpcm_voice_snapshot.has_cd || !adpcm_voice_snapshot.cd_sector_count || !adpcm_voice_snapshot.data_size) return 0u;
     if (adpcm_playback_active())
     {
         pce_cdb_adpcm_stop();
@@ -1516,9 +1514,9 @@ static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
         restore_display_after_adpcm(restore_display);
         return 0u;
     }
-    cd_sector_from_ref(&sector, &voice.cd_sector);
-    cd_sector_from_uint(&length, (unsigned long)voice.cd_sector_count);
-    divider = adpcm_play_divider(voice.sample_rate, voice.divider);
+    cd_sector_from_ref(&sector, &adpcm_voice_snapshot.cd_sector);
+    cd_sector_from_uint(&length, (unsigned long)adpcm_voice_snapshot.cd_sector_count);
+    divider = adpcm_play_divider(adpcm_voice_snapshot.sample_rate, adpcm_voice_snapshot.divider);
     if (pce_cdb_adpcm_stream(sector, length, divider))
     {
         map_resident_data();
@@ -1526,9 +1524,9 @@ static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
         return 0u;
     }
     map_resident_data();
-    adpcm_stream_looping = voice.loop ? 1u : 0u;
+    adpcm_stream_looping = adpcm_voice_snapshot.loop ? 1u : 0u;
     adpcm_stream_index = (uint8_t)voice_index;
-    adpcm_stream_monitor_frames = adpcm_voice_fits_buffer(&voice) ? VN_ADPCM_STREAM_MONITOR_FRAMES : 0u;
+    adpcm_stream_monitor_frames = adpcm_voice_fits_buffer() ? VN_ADPCM_STREAM_MONITOR_FRAMES : 0u;
     restore_display_after_adpcm(restore_display);
     return 1u;
 #else
@@ -1540,10 +1538,9 @@ static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
 static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice(signed int voice_index, uint8_t restore_display)
 {
 #if defined(__PCE_CD__)
-    vn_adpcm_voice_t voice;
     uint8_t divider;
-    if (!copy_adpcm_voice(voice_index, &voice)) return 0u;
-    if (!adpcm_voice_fits_buffer(&voice)) return 0u;
+    if (!copy_adpcm_voice(voice_index)) return 0u;
+    if (!adpcm_voice_fits_buffer()) return 0u;
     adpcm_stream_looping = 0u;
     adpcm_stream_monitor_frames = 0u;
     if (!load_adpcm_voice(voice_index, 1u, 1u))
@@ -1551,8 +1548,8 @@ static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice(signed int voice_index, 
         restore_display_after_adpcm(restore_display);
         return 0u;
     }
-    divider = adpcm_play_divider(voice.sample_rate, voice.divider);
-    if (pce_cdb_adpcm_play(voice.adpcm_address, (uint16_t)voice.data_size, divider, voice.loop ? PCE_CDB_ADPCM_REPEAT : PCE_CDB_ADPCM_ONE_SHOT))
+    divider = adpcm_play_divider(adpcm_voice_snapshot.sample_rate, adpcm_voice_snapshot.divider);
+    if (pce_cdb_adpcm_play(adpcm_voice_snapshot.adpcm_address, (uint16_t)adpcm_voice_snapshot.data_size, divider, adpcm_voice_snapshot.loop ? PCE_CDB_ADPCM_REPEAT : PCE_CDB_ADPCM_ONE_SHOT))
     {
         loaded_adpcm_valid = 0u;
         map_resident_data();
@@ -1572,12 +1569,11 @@ static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice(signed int voice_index, 
 static void VN_BANKED_CODE play_adpcm_voice(signed int voice_index)
 {
 #if defined(__PCE_CD__)
-    vn_adpcm_voice_t voice;
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
-    if (!copy_adpcm_voice(voice_index, &voice)) return;
-    if (voice.stream)
+    if (!copy_adpcm_voice(voice_index)) return;
+    if (adpcm_voice_snapshot.stream)
     {
-        if (adpcm_voice_fits_buffer(&voice))
+        if (adpcm_voice_fits_buffer())
         {
             (void)play_adpcm_buffered_voice(voice_index, restore_display);
             restore_display_after_adpcm(restore_display);

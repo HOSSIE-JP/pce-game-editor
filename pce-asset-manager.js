@@ -1756,7 +1756,7 @@ function generateAdpcmMetadata(projectDir, assets, generationOptions = {}) {
     arrayLines.push(...dataRef.lines);
     if (arrayLines[arrayLines.length - 1] !== '') arrayLines.push('');
     const options = normalizeAdpcmOptions(asset);
-    metaLines.push(`  { ${dataRef.pointer}, ${data.length}u, ${options.sampleRate}u, ${options.adpcmAddress}u, ${options.divider}u, ${options.loop ? '1u' : '0u'}, ${options.stream ? '1u' : '0u'}, ${dataRef.cd} }${index + 1 < adpcmAssets.length ? ',' : ''}`);
+    metaLines.push(`  { ${dataRef.pointer}, ${data.length}ul, ${options.sampleRate}u, ${options.adpcmAddress}u, ${options.divider}u, ${options.loop ? '1u' : '0u'}, ${options.stream ? '1u' : '0u'}, ${dataRef.cd} }${index + 1 < adpcmAssets.length ? ',' : ''}`);
   });
   return { adpcmAssets, arrayLines, metaLines };
 }

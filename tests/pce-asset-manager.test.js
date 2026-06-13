@@ -424,7 +424,7 @@ test('PCE ADPCM streaming import keeps long samples as one CD data file', () => 
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
   assert.match(header, /unsigned long data_size;/);
-  assert.match(source, /\{ \(const unsigned char \*\)0, \d+u, 8000u, 65530u, 12u, 0u, 1u, &pce_editor_adpcm_long_stream_data_cd \}/);
+  assert.match(source, /\{ \(const unsigned char \*\)0, \d+ul, 8000u, 65530u, 12u, 0u, 1u, &pce_editor_adpcm_long_stream_data_cd \}/);
 });
 
 test('PCE image import generates BG and sprite assets with the internal converter', () => {
@@ -697,7 +697,7 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_beep_pattern\[\]/);
   assert.match(source, /static const unsigned char pce_editor_adpcm_voice_data\[\]/);
   assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_tiles, 64u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_map, 8u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, 2u, 2u, 128u, 0u, 0u \}/);
-  assert.match(source, /\{ pce_editor_adpcm_voice_data, 4u, 16000u, 0u, 14u, 0u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
+  assert.match(source, /\{ pce_editor_adpcm_voice_data, 4ul, 16000u, 0u, 14u, 0u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
   assert.match(source, /const unsigned char pce_editor_bg_asset_count = 1/);
   assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] = \{\n  \{ 16u, 16u, 1u, 1u, 384u, 0u \}\n\};/);
   assert.match(source, /const unsigned char pce_editor_sprite_asset_count = 1/);
@@ -791,7 +791,7 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_tiles_cd \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_map_cd \}, 36u, 16u, 128u, 0u, 0u \}/);
   assert.match(source, /pce_editor_sprite_hero_patterns_cd = \{ \{ 66u, 0u, 0u \}, 2u \};/);
   assert.match(source, /pce_editor_adpcm_voice_data_cd = \{ \{ 68u, 0u, 0u \}, 2u \};/);
-  assert.match(source, /\{ \(const unsigned char \*\)0, 4096u, 16000u, 0u, 14u, 0u, 1u, &pce_editor_adpcm_voice_data_cd \}/);
+  assert.match(source, /\{ \(const unsigned char \*\)0, 4096ul, 16000u, 0u, 14u, 0u, 1u, &pce_editor_adpcm_voice_data_cd \}/);
   assert.match(header, /pce_editor_cd_sector_t start_sector;/);
   assert.match(header, /pce_editor_cd_sector_t end_sector;/);
   assert.match(header, /pce_editor_cd_time_t end_time;/);
