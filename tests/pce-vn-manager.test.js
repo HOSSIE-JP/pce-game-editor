@@ -629,6 +629,9 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static void set_vdc_control\(uint16_t control\)/);
   assert.match(source, /\*VN_CDB_VDC_CONTROL_SHADOW_LO = \(uint8_t\)\(control & 0xffu\);/);
   assert.match(source, /\*VN_CDB_VDC_CONTROL_SHADOW_HI = \(uint8_t\)\(control >> 8\);/);
+  assert.match(source, /static void VN_BANKED_CODE restore_video_after_cdb_call\(uint8_t restore_display\)/);
+  assert.match(source, /pce_vdc_set_resolution\(320, 224, VCE_COLORBURST_ON\);[\s\S]*pce_vdc_bg_set_size\(VDC_BG_SIZE_64_32\);[\s\S]*pce_vdc_poke\(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL\);/);
+  assert.match(source, /pce_vdc_sprite_set_table_start\(VN_SATB_ADDR\);[\s\S]*apply_screen_offset\(\);[\s\S]*set_vdc_control\(restore_display \? VN_VDC_DISPLAY_CONTROL : VN_VDC_BLANK_CONTROL\);/);
   assert.match(source, /static void sprite_layer_disable\(void\)/);
   assert.match(source, /set_vdc_control\(VN_VDC_BG_ONLY_CONTROL\);/);
   assert.match(source, /static void sprite_layer_enable\(void\)/);
@@ -741,7 +744,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /while \(guard && \(pce_cdb_adpcm_status\(\) & ADPCM_BUSY\)\)/);
   assert.match(source, /return guard \? 1u : 0u;/);
   assert.match(source, /static void VN_BANKED_CODE restore_display_after_adpcm\(uint8_t restore_display\)/);
-  assert.match(source, /if \(restore_display\) display_enable\(\);/);
+  assert.match(source, /restore_video_after_cdb_call\(restore_display\);/);
   assert.match(source, /static uint8_t VN_BANKED_CODE load_adpcm_voice\(signed int voice_index, uint8_t allow_stop_playback, uint8_t allow_stream_asset\)/);
   assert.match(source, /const uint8_t restore_display = \(uint8_t\)!pending_display_enable;/);
   assert.match(source, /if \(voice\.stream && !allow_stream_asset\) return 0u;/);
@@ -771,6 +774,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /if \(pce_cdb_adpcm_play\(voice\.adpcm_address, \(uint16_t\)voice\.data_size, divider,/);
   assert.match(source, /loaded_adpcm_valid = 0u;\n        map_resident_data\(\);\n        restore_display_after_adpcm\(restore_display\);\n        return 0u;/);
   assert.match(source, /map_resident_data\(\);\n    restore_display_after_adpcm\(restore_display\);/);
+  assert.match(source, /static void VN_BANKED_CODE stop_adpcm_voice\(void\)[\s\S]*const uint8_t restore_display = \(uint8_t\)!pending_display_enable;[\s\S]*pce_cdb_adpcm_stop\(\);[\s\S]*restore_display_after_adpcm\(restore_display\);/);
   assert.match(source, /static void VN_BANKED_CODE service_adpcm_streaming\(void\)[\s\S]*if \(!adpcm_stream_looping && !adpcm_stream_monitor_frames\) return;[\s\S]*\(void\)play_adpcm_buffered_voice\(\(signed int\)adpcm_stream_index, \(uint8_t\)!pending_display_enable\);[\s\S]*\(void\)stream_adpcm_voice\(\(signed int\)adpcm_stream_index\);/);
   assert.match(source, /static void preload_adpcm_voice\(signed int voice_index\)[\s\S]*\(void\)load_adpcm_voice\(voice_index, 0u, 0u\);/);
   assert.doesNotMatch(source, /divider = adpcm_play_divider\(voice\);/);
@@ -873,7 +877,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /if \(cdda_frames_remaining\) cdda_frames_remaining--;/);
   assert.match(source, /if \(cdda_frames_remaining\) return;/);
   assert.match(source, /if \(cdda_looping\)\n        \{\n            cdda_active = 0u;\n            play_cdda_track\(cdda_current\);/);
-  assert.match(source, /if \(restore_display_after_cdda\) display_enable\(\);/);
+  assert.match(source, /restore_video_after_cdb_call\(restore_display_after_cdda\);/);
   assert.doesNotMatch(source, /pce_cdb_cdda_read_subcode_q/);
   assert.doesNotMatch(source, /pce_cdb_cd_scan\(\)/);
   assert.doesNotMatch(source, /PCE_CDB_LOCATION_TYPE_TRACK, end/);

@@ -362,6 +362,21 @@ static void set_screen_offset(signed char x, signed char y)
     pending_sprite_refresh = 1u;
 }
 
+static void VN_BANKED_CODE restore_video_after_cdb_call(uint8_t restore_display)
+{
+#if defined(__PCE_CD__)
+    pce_vdc_set_resolution(320, 224, VCE_COLORBURST_ON);
+    pce_vdc_bg_set_size(VDC_BG_SIZE_64_32);
+    pce_vdc_poke(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL);
+    pce_vdc_set_copy_word();
+    pce_vdc_sprite_set_table_start(VN_SATB_ADDR);
+    apply_screen_offset();
+    set_vdc_control(restore_display ? VN_VDC_DISPLAY_CONTROL : VN_VDC_BLANK_CONTROL);
+#else
+    (void)restore_display;
+#endif
+}
+
 static void enable_display_if_pending(void)
 {
     if (!pending_display_enable) return;
@@ -523,6 +538,7 @@ static void cd_transfer_wait(void)
 
 static void prepare_cd_data_access(void)
 {
+    const uint8_t restore_display_after_pause = (uint8_t)!pending_display_enable;
     if (!cdda_active) return;
     (void)pce_cdb_cdda_pause();
     cdda_active = 0u;
@@ -531,6 +547,7 @@ static void prepare_cd_data_access(void)
     cdda_track = 0u;
     cdda_frames_remaining = 0u;
     cdda_current = (const pce_editor_cdda_asset_t *)0;
+    restore_video_after_cdb_call(restore_display_after_pause);
 }
 
 static uint8_t cd_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref)
@@ -1219,7 +1236,7 @@ static void play_cdda_track(const pce_editor_cdda_asset_t *cdda)
     cdda_current = cdda;
     (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, start, end_type, end, mode);
     cdda_active = 1u;
-    if (restore_display_after_cdda) display_enable();
+    restore_video_after_cdb_call(restore_display_after_cdda);
 #else
     (void)cdda;
 #endif
@@ -1239,6 +1256,7 @@ static void service_cdda_playback(void)
         }
         else
         {
+            const uint8_t restore_display_after_pause = (uint8_t)!pending_display_enable;
             (void)pce_cdb_cdda_pause();
             cdda_active = 0u;
             cdda_has_frame_limit = 0u;
@@ -1246,6 +1264,7 @@ static void service_cdda_playback(void)
             cdda_track = 0u;
             cdda_frames_remaining = 0u;
             cdda_current = (const pce_editor_cdda_asset_t *)0;
+            restore_video_after_cdb_call(restore_display_after_pause);
         }
     }
 #endif
@@ -1254,6 +1273,7 @@ static void service_cdda_playback(void)
 static void stop_cdda_track(void)
 {
 #if defined(__PCE_CD__)
+    const uint8_t restore_display_after_pause = (uint8_t)!pending_display_enable;
     (void)pce_cdb_cdda_pause();
     cdda_active = 0u;
     cdda_has_frame_limit = 0u;
@@ -1261,6 +1281,7 @@ static void stop_cdda_track(void)
     cdda_track = 0u;
     cdda_frames_remaining = 0u;
     cdda_current = (const pce_editor_cdda_asset_t *)0;
+    restore_video_after_cdb_call(restore_display_after_pause);
 #endif
 }
 
@@ -1401,7 +1422,7 @@ static uint8_t VN_BANKED_CODE wait_adpcm_transfer_ready(void)
 static void VN_BANKED_CODE restore_display_after_adpcm(uint8_t restore_display)
 {
 #if defined(__PCE_CD__)
-    if (restore_display) display_enable();
+    restore_video_after_cdb_call(restore_display);
 #else
     (void)restore_display;
 #endif
@@ -1575,10 +1596,12 @@ static void VN_BANKED_CODE play_adpcm_voice(signed int voice_index)
 static void VN_BANKED_CODE stop_adpcm_voice(void)
 {
 #if defined(__PCE_CD__)
+    const uint8_t restore_display = (uint8_t)!pending_display_enable;
     pce_cdb_adpcm_stop();
     loaded_adpcm_valid = 0u;
     adpcm_stream_looping = 0u;
     adpcm_stream_monitor_frames = 0u;
+    restore_display_after_adpcm(restore_display);
 #endif
 }
 

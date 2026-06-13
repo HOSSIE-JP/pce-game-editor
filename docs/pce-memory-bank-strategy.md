@@ -34,6 +34,7 @@
 - sprite 描画に必要な cell size、sheet cell 数、pattern base、palette bank は generated `pce_editor_sprite_draw_meta[]` にも小さく出します。runtime はこの compact metadata を `sprite_draw_meta` へコピーしてから SATB を組み、animation metadata は `frame_count > 1` かつ sheet 範囲内のときだけ frame size として使います。単一 frame / default animation は sprite sheet 全体を表示します。
 - sprite pattern は VRAM の sprite pattern 領域へ転送し、SATB は `VN_SATB_ADDR` (`0x7f00`) を使います。CD-ROM2 でも CD BIOS graphics driver は使わず、VBlank は `PCE_CDB_MASK_VBLANK_NO_BIOS` で有効化して VDC 表示レジスタを runtime 側で所有します。`pce_cdb_wait_vblank()` が参照する BIOS R5 shadow (`$F3/$F4`) も `set_vdc_control()` で更新し、sprite bit が次 VBlank で戻されないようにします。shadow SATB は直接 VRAM へ転送してから `VDC_REG_SATB_START` を維持します。pattern upload のために sprite layer を落とした場合は、refresh 後に display active なら必ず sprite layer を再有効化します。
 - VDC memory control は `VN_VDC_MEMORY_CONTROL` (`VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_64_32`) を標準にします。BG size を設定し直す時に sprite cycle bit を落とすと sprite layer が見えなくなるため、`VDC_REG_MEMORY` へはこの定義を使ってください。
+- ADPCM / CD-DA の CD BIOS helper から戻った後は、R5 だけでなく `pce_vdc_set_resolution(320, 224, VCE_COLORBURST_ON)`、`VDC_REG_MEMORY`、SATB start、scroll を runtime 標準値へ戻します。System Card BIOS は ADPCM 処理中に水平/垂直 timing register を触ることがあり、display enable だけの復元では画面が上下に二重表示されることがあります。
 
 ## 変更時の確認
 
