@@ -38,7 +38,7 @@ npm start
 npm test
 ```
 
-PCE 関連の最小テストは `tests/run-tests.js` から実行されます。
+PCE 関連の基本回帰テストは `tests/run-tests.js` から実行されます。AI Control の REST/MCP 境界、plugin manager、packaging、PCE asset/build/Test Play/VN まわりのテストを含みます。
 
 ## 共有コード
 
