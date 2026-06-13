@@ -17,5 +17,6 @@ loadAppConfig(require('../app.config'));
   'pce-ipl-extractor.test.js',
   'pce-setup-manager.test.js',
   'pce-standard-emulator.test.js',
+  'pce-testplay-server.test.js',
   'pce-vn-manager.test.js',
 ].forEach((file) => require(path.join(__dirname, file)));

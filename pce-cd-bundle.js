@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { isPathInside } = require('./pce-file-safety');
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -102,11 +103,6 @@ function createStoredZipBuffer(entries) {
     writeU16(0),
   ]);
   return Buffer.concat([...localParts, central, end]);
-}
-
-function isPathInside(parentPath, childPath) {
-  const rel = path.relative(path.resolve(parentPath), path.resolve(childPath));
-  return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
 function parseCueFileReferences(cuePath) {
