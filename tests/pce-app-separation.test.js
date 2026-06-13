@@ -19,9 +19,7 @@ function makeTempDir(prefix) {
 function loadCoreManager(userData, home = makeTempDir('pce-editor-core-home-')) {
   loadAppConfig(require('../app.config'));
   delete require.cache[require.resolve('../core-manager')];
-  delete require.cache[require.resolve('../build-system')];
   delete require.cache[require.resolve('../pce-build-system')];
-  delete require.cache[require.resolve('../setup-manager')];
   delete require.cache[require.resolve('../pce-setup-manager')];
   return loadWithMockedElectron(path.join(__dirname, '..', 'core-manager.js'), {
     userData,

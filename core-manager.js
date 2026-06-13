@@ -3,19 +3,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const mdBuildSystem = require('./build-system');
-const mdSetupManager = require('./setup-manager');
-const mdRescompManager = require('./rescomp-manager');
 const pceBuildSystem = require('./pce-build-system');
 const pceSetupManager = require('./pce-setup-manager');
 const pceAssetManager = require('./pce-asset-manager');
 const { app } = require('electron');
-const {
-  filterCoresForApp,
-  getDefaultCoreId,
-  isCoreAllowed,
-  normalizeCoreIdForApp,
-} = require('game-editor-common');
+const { filterCoresForApp, isCoreAllowed } = require('game-editor-common');
 const { migratePceProjectsIfNeeded } = require('./pce-project-migration');
 
 const CORE_IDS = Object.freeze({
@@ -23,43 +15,41 @@ const CORE_IDS = Object.freeze({
   PC_ENGINE: 'pc-engine',
 });
 
-const CORES = Object.freeze([
-  {
-    id: CORE_IDS.MEGA_DRIVE,
-    pluginId: 'mega-drive-core',
-    name: 'Mega Drive',
-    shortName: 'MD',
-    platform: 'md',
-    description: 'SGDK を使う Mega Drive / Genesis プロジェクト',
-  },
-  {
-    id: CORE_IDS.PC_ENGINE,
-    pluginId: 'pc-engine-core',
-    name: 'PC Engine',
-    shortName: 'PCE',
-    platform: 'pce',
-    description: 'llvm-mos を標準に HuCard / 実験的 PCE-CD を扱う PC Engine プロジェクト',
-  },
-]);
+const PCE_CORE = Object.freeze({
+  id: CORE_IDS.PC_ENGINE,
+  pluginId: 'pc-engine-core',
+  name: 'PC Engine',
+  shortName: 'PCE',
+  platform: 'pce',
+  description: 'llvm-mos を標準に HuCard / Super CD-ROM2 を扱う PC Engine プロジェクト',
+});
+
+const CORES = Object.freeze([PCE_CORE]);
 
 function normalizeCoreId(value) {
-  return normalizeCoreIdForApp(value);
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return CORE_IDS.PC_ENGINE;
+  if (raw === 'pce' || raw === 'pcengine' || raw === 'pc-engine') return CORE_IDS.PC_ENGINE;
+  if (raw === 'md' || raw === 'megadrive' || raw === 'mega-drive' || raw === 'genesis') return CORE_IDS.MEGA_DRIVE;
+  return raw;
 }
 
 function detectCoreIdFromConfig(config = {}) {
   if (config && typeof config === 'object') {
     if (config.coreId) return normalizeCoreId(config.coreId);
-    if (String(config.platform || '').trim().toLowerCase() === 'pce') return normalizeCoreId(CORE_IDS.PC_ENGINE);
+    const platform = String(config.platform || '').trim().toLowerCase();
+    if (platform === 'pce' || platform === 'pc-engine') return CORE_IDS.PC_ENGINE;
+    if (platform === 'md' || platform === 'mega-drive' || platform === 'megadrive' || platform === 'genesis') return CORE_IDS.MEGA_DRIVE;
   }
-  return normalizeCoreId(CORE_IDS.MEGA_DRIVE);
+  // Projects without an explicit PCE marker are legacy MD projects and should
+  // not appear in the PCE-only project list.
+  return CORE_IDS.MEGA_DRIVE;
 }
 
 function readProjectConfig(projectDir) {
   try {
     const cfgPath = path.join(path.resolve(projectDir), 'project.json');
-    if (fs.existsSync(cfgPath)) {
-      return JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) || {};
-    }
+    if (fs.existsSync(cfgPath)) return JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) || {};
   } catch (_) {}
   return {};
 }
@@ -68,51 +58,41 @@ function getCoreIdForProjectDir(projectDir) {
   return detectCoreIdFromConfig(readProjectConfig(projectDir));
 }
 
-function getBuildSystemForCore(coreId) {
-  return normalizeCoreId(coreId) === CORE_IDS.PC_ENGINE ? pceBuildSystem : mdBuildSystem;
+function getBuildSystemForCore() {
+  return pceBuildSystem;
 }
 
-function getSetupManagerForCore(coreId) {
-  return normalizeCoreId(coreId) === CORE_IDS.PC_ENGINE ? pceSetupManager : mdSetupManager;
+function getSetupManagerForCore() {
+  return pceSetupManager;
 }
 
 function getActiveProjectDir() {
-  return getBuildSystemForCore(getDefaultCoreId()).getProjectDir();
+  return pceBuildSystem.getProjectDir();
 }
 
 function getActiveCoreId() {
-  return normalizeCoreId(getCoreIdForProjectDir(getActiveProjectDir()));
+  const projectDir = getActiveProjectDir();
+  const configPath = path.join(path.resolve(projectDir || ''), 'project.json');
+  if (!projectDir || !fs.existsSync(configPath)) return CORE_IDS.PC_ENGINE;
+  return getCoreIdForProjectDir(projectDir) === CORE_IDS.PC_ENGINE
+    ? CORE_IDS.PC_ENGINE
+    : CORE_IDS.PC_ENGINE;
 }
 
 function getActiveBuildSystem() {
-  return getBuildSystemForCore(getActiveCoreId());
+  return pceBuildSystem;
 }
 
-function withCoreId(config = {}, fallbackCoreId = CORE_IDS.MEGA_DRIVE) {
-  const hasExplicitCore = Boolean(config?.coreId || config?.platform);
-  const coreId = hasExplicitCore ? detectCoreIdFromConfig(config) : normalizeCoreId(fallbackCoreId);
-  return { ...(config || {}), coreId };
-}
-
-function withInferredCoreInfo(info = {}, projectDir = info.projectDir) {
-  const coreId = projectDir ? getCoreIdForProjectDir(projectDir) : detectCoreIdFromConfig(info);
-  const core = getCore(coreId);
-  return { ...info, coreId, core };
+function withCoreId(config = {}) {
+  return { ...(config || {}), coreId: CORE_IDS.PC_ENGINE };
 }
 
 function getCore(coreId) {
-  const normalized = normalizeCoreId(coreId);
-  return CORES.find((core) => core.id === normalized) || CORES[0];
+  return normalizeCoreId(coreId) === CORE_IDS.PC_ENGINE ? { ...PCE_CORE } : null;
 }
 
 function listCores() {
   return filterCoresForApp(CORES).map((core) => ({ ...core }));
-}
-
-function routeCoreForNewProject(config = {}, templateId = '') {
-  if (config?.coreId || config?.platform) return normalizeCoreId(detectCoreIdFromConfig(config));
-  if (String(templateId || '').startsWith('template_pce_') && isCoreAllowed(CORE_IDS.PC_ENGINE)) return CORE_IDS.PC_ENGINE;
-  return getDefaultCoreId();
 }
 
 function maybeMigratePceProjects() {
@@ -125,214 +105,152 @@ function normalizeListedProject(project) {
   return {
     ...project,
     coreId,
-    coreName: getCore(coreId).name,
+    coreName: coreId === CORE_IDS.PC_ENGINE ? PCE_CORE.name : '',
   };
 }
 
 function listProjects() {
   maybeMigratePceProjects();
-  const mdList = isCoreAllowed(CORE_IDS.MEGA_DRIVE)
-    ? mdBuildSystem.listProjects()
-    : { projectsRootDir: mdBuildSystem.getProjectsRootDir(), projects: [], recentProjects: [], templates: [] };
   const pceList = isCoreAllowed(CORE_IDS.PC_ENGINE)
     ? pceBuildSystem.listProjects()
     : { projectsRootDir: pceBuildSystem.getProjectsRootDir(), projects: [], recentProjects: [], templates: [] };
   const currentProjectDir = path.resolve(getProjectDir());
-  const byDir = new Map();
 
-  [
-    ...(isCoreAllowed(CORE_IDS.MEGA_DRIVE) ? (mdList.projects || []) : []),
-    ...(isCoreAllowed(CORE_IDS.PC_ENGINE) ? (pceList.projects || []) : []),
-  ].forEach((project) => {
-    const item = normalizeListedProject(project);
-    if (!isCoreAllowed(item.coreId)) return;
-    byDir.set(path.resolve(item.projectDir), {
-      ...item,
-      current: path.resolve(item.projectDir) === currentProjectDir,
-    });
-  });
-
-  const projects = Array.from(byDir.values())
+  const projects = (pceList.projects || [])
+    .map(normalizeListedProject)
+    .filter((project) => project.coreId === CORE_IDS.PC_ENGINE)
+    .map((project) => ({
+      ...project,
+      current: path.resolve(project.projectDir) === currentProjectDir,
+    }))
     .sort((left, right) => String(left.projectName).localeCompare(String(right.projectName), 'ja'));
-  const templates = [
-    ...(isCoreAllowed(CORE_IDS.MEGA_DRIVE) ? (mdList.templates || []).map(normalizeListedProject) : []),
-    ...(isCoreAllowed(CORE_IDS.PC_ENGINE) ? (pceList.templates || []).map(normalizeListedProject) : []),
-  ]
-    .filter((template) => isCoreAllowed(template.coreId))
+
+  const templates = (pceList.templates || [])
+    .map(normalizeListedProject)
+    .filter((template) => template.coreId === CORE_IDS.PC_ENGINE)
     .sort((left, right) => String(left.templateId || left.projectName).localeCompare(String(right.templateId || right.projectName), 'ja'));
-  const recentProjects = [
-    ...(isCoreAllowed(CORE_IDS.MEGA_DRIVE) ? (mdList.recentProjects || []) : []),
-    ...(isCoreAllowed(CORE_IDS.PC_ENGINE) ? (pceList.recentProjects || []) : []),
-  ].map(normalizeListedProject).filter((project) => isCoreAllowed(project.coreId));
+
+  const recentProjects = (pceList.recentProjects || [])
+    .map(normalizeListedProject)
+    .filter((project) => project.coreId === CORE_IDS.PC_ENGINE);
 
   return {
-    projectsRootDir: isCoreAllowed(CORE_IDS.MEGA_DRIVE) ? mdList.projectsRootDir : pceList.projectsRootDir,
-    pceProjectsRootDir: isCoreAllowed(CORE_IDS.PC_ENGINE) ? pceList.projectsRootDir : '',
+    projectsRootDir: pceList.projectsRootDir,
+    pceProjectsRootDir: pceList.projectsRootDir,
     currentProjectDir,
     projects,
     recentProjects,
     templates,
     cores: listCores(),
-    activeCoreId: getActiveCoreId(),
+    activeCoreId: CORE_IDS.PC_ENGINE,
   };
 }
 
 function getProjectStartupState() {
   maybeMigratePceProjects();
-  const state = getBuildSystemForCore(getDefaultCoreId()).getProjectStartupState();
-  const savedCoreId = state.savedProjectExists ? getCoreIdForProjectDir(state.savedProjectDir) : getDefaultCoreId();
-  const savedProjectAllowed = !state.savedProjectExists || isCoreAllowed(savedCoreId);
+  const state = pceBuildSystem.getProjectStartupState();
+  const savedCoreId = state.savedProjectExists ? getCoreIdForProjectDir(state.savedProjectDir) : CORE_IDS.PC_ENGINE;
+  const savedProjectAllowed = !state.savedProjectExists || savedCoreId === CORE_IDS.PC_ENGINE;
   return {
     ...state,
     savedProjectExists: Boolean(state.savedProjectExists && savedProjectAllowed),
     savedProjectDir: savedProjectAllowed ? state.savedProjectDir : '',
     cores: listCores(),
-    activeCoreId: savedProjectAllowed ? normalizeCoreId(savedCoreId) : getDefaultCoreId(),
+    activeCoreId: CORE_IDS.PC_ENGINE,
   };
 }
 
 function getProjectDir() {
-  return getActiveProjectDir();
+  return pceBuildSystem.getProjectDir();
 }
 
 function setProjectDir(projectDir) {
-  const coreId = getCoreIdForProjectDir(projectDir);
-  return getBuildSystemForCore(coreId).setProjectDir(projectDir);
+  return pceBuildSystem.setProjectDir(projectDir);
 }
 
 function getProjectInfo() {
-  const projectDir = getProjectDir();
-  return withInferredCoreInfo(getBuildSystemForCore(getCoreIdForProjectDir(projectDir)).getProjectInfo(), projectDir);
+  return { ...pceBuildSystem.getProjectInfo(), coreId: CORE_IDS.PC_ENGINE, core: { ...PCE_CORE } };
 }
 
 function openProject(projectDir) {
-  const coreId = getCoreIdForProjectDir(projectDir);
-  return withInferredCoreInfo(getBuildSystemForCore(coreId).openProject(projectDir), projectDir);
+  return { ...pceBuildSystem.openProject(projectDir), coreId: CORE_IDS.PC_ENGINE, core: { ...PCE_CORE } };
 }
 
 function openProjectByName(projectName) {
   const normalized = String(projectName || '').trim();
-  const candidates = [
-    path.join(mdBuildSystem.getProjectsRootDir(), normalized),
-    path.join(pceBuildSystem.getProjectsRootDir(), normalized),
-  ];
-  const found = candidates.find((candidate) => fs.existsSync(path.join(candidate, 'project.json')));
-  if (!found) return openProject(candidates[0]);
-  return openProject(found);
+  return openProject(path.join(pceBuildSystem.getProjectsRootDir(), normalized));
 }
 
-function createProject(projectDir, config = {}, sourceCode) {
-  const coreId = detectCoreIdFromConfig(config);
-  const nextConfig = withCoreId(config, coreId);
-  if (coreId === CORE_IDS.PC_ENGINE) {
-    return pceBuildSystem.createProjectFromTemplate(projectDir, 'template_pce_sample', nextConfig);
-  }
-  return mdBuildSystem.createProject(projectDir, nextConfig, sourceCode);
+function createProject(projectDir, config = {}) {
+  return pceBuildSystem.createProjectFromTemplate(projectDir, 'template_pce_sample', withCoreId(config));
 }
 
-function createProjectInRoot(projectName, config = {}, sourceCode) {
-  const coreId = detectCoreIdFromConfig(config);
-  const root = coreId === CORE_IDS.PC_ENGINE ? pceBuildSystem.getProjectsRootDir() : mdBuildSystem.getProjectsRootDir();
-  return createProjectInParent(root, projectName, config, sourceCode);
+function createProjectInRoot(projectName, config = {}, sourceCode = null, options = {}) {
+  return createProjectInParent(pceBuildSystem.getProjectsRootDir(), projectName, config, sourceCode, options);
 }
 
 function createProjectInParent(parentDir, projectName, config = {}, sourceCode = null, options = {}) {
-  const coreId = routeCoreForNewProject(config, options?.templateId);
-  const nextConfig = withCoreId(config, coreId);
-  if (coreId === CORE_IDS.PC_ENGINE) {
-    const mdDefaultRoot = path.resolve(mdBuildSystem.getProjectsRootDir());
-    const requestedParent = parentDir ? path.resolve(parentDir) : '';
-    const parent = (!requestedParent || requestedParent === mdDefaultRoot)
-      ? pceBuildSystem.getProjectsRootDir()
-      : requestedParent;
-    const normalizedName = pceBuildSystem.normalizeProjectName(projectName);
-    const templateId = String(options?.templateId || 'template_pce_sample').trim() || 'template_pce_sample';
-    return pceBuildSystem.createProjectFromTemplate(path.join(parent, normalizedName), templateId, nextConfig);
-  }
-  return mdBuildSystem.createProjectInParent(parentDir, projectName, nextConfig, sourceCode, options);
+  const parent = parentDir ? path.resolve(parentDir) : pceBuildSystem.getProjectsRootDir();
+  const normalizedName = pceBuildSystem.normalizeProjectName(projectName);
+  const templateId = String(options?.templateId || 'template_pce_sample').trim() || 'template_pce_sample';
+  return pceBuildSystem.createProjectFromTemplate(path.join(parent, normalizedName), templateId, withCoreId(config));
 }
 
 function createProjectFromTemplate(projectDir, templateId, config = {}) {
-  const coreId = routeCoreForNewProject(config, templateId);
-  const nextConfig = withCoreId(config, coreId);
-  if (coreId === CORE_IDS.PC_ENGINE) {
-    return pceBuildSystem.createProjectFromTemplate(projectDir, templateId || 'template_pce_sample', nextConfig);
-  }
-  return mdBuildSystem.createProjectFromTemplate(projectDir, templateId, nextConfig);
+  return pceBuildSystem.createProjectFromTemplate(projectDir, templateId || 'template_pce_sample', withCoreId(config));
 }
 
 function loadProjectConfig() {
-  const projectDir = getProjectDir();
-  const coreId = getCoreIdForProjectDir(projectDir);
-  return withCoreId(getBuildSystemForCore(coreId).loadProjectConfig(), coreId);
+  return withCoreId(pceBuildSystem.loadProjectConfig());
 }
 
 function loadProjectConfigFromDir(projectDir) {
-  const coreId = getCoreIdForProjectDir(projectDir);
-  return withCoreId(getBuildSystemForCore(coreId).loadProjectConfigFromDir(projectDir), coreId);
+  return withCoreId(pceBuildSystem.loadProjectConfigFromDir(projectDir));
 }
 
 function saveProjectConfig(patch = {}) {
-  const coreId = getActiveCoreId();
-  return withCoreId(getBuildSystemForCore(coreId).saveProjectConfig(withCoreId(patch, coreId)), coreId);
+  return withCoreId(pceBuildSystem.saveProjectConfig(withCoreId(patch)));
 }
 
 function generateProject(sourceCode, config = {}) {
-  const coreId = detectCoreIdFromConfig(config);
-  if (coreId === CORE_IDS.PC_ENGINE) {
-    return createProject(pceBuildSystem.getDefaultProjectDir(), config, sourceCode);
-  }
-  return mdBuildSystem.generateProject(sourceCode, withCoreId(config, coreId));
+  return createProject(pceBuildSystem.getDefaultProjectDir(), config, sourceCode);
 }
 
 function generateProjectStructureOnly(config = {}) {
-  const coreId = getActiveCoreId();
-  if (coreId === CORE_IDS.PC_ENGINE) {
-    return pceBuildSystem.ensureProjectStructure(getProjectDir(), withCoreId({ ...loadProjectConfig(), ...config }, coreId));
-  }
-  return mdBuildSystem.generateProjectStructureOnly(withCoreId(config, coreId));
+  return pceBuildSystem.ensureProjectStructure(getProjectDir(), withCoreId({ ...loadProjectConfig(), ...config }));
 }
 
 function loadCurrentSource() {
-  return getActiveBuildSystem().loadCurrentSource();
+  return pceBuildSystem.loadCurrentSource();
 }
 
 function getLastRomPath() {
-  return getActiveBuildSystem().getLastRomPath();
+  return pceBuildSystem.getLastRomPath();
 }
 
 function getSampleSourceCode() {
-  if (getActiveCoreId() === CORE_IDS.PC_ENGINE) {
-    const samplePath = path.join(pceBuildSystem.getTemplatesRootDir(), 'template_pce_sample', 'src', 'main.c');
-    return fs.existsSync(samplePath) ? fs.readFileSync(samplePath, 'utf-8') : '';
-  }
-  return mdBuildSystem.getSampleSourceCode();
+  const samplePath = path.join(pceBuildSystem.getTemplatesRootDir(), 'template_pce_sample', 'src', 'main.c');
+  return fs.existsSync(samplePath) ? fs.readFileSync(samplePath, 'utf-8') : '';
 }
 
 function getPluginRoles() {
-  return getActiveBuildSystem().getPluginRoles();
+  return pceBuildSystem.getPluginRoles();
 }
 
 function getPluginRole(roleId) {
-  return getActiveBuildSystem().getPluginRole(roleId);
+  return pceBuildSystem.getPluginRole(roleId);
 }
 
 function setPluginRole(roleId, id) {
-  return getActiveBuildSystem().setPluginRole(roleId, id);
+  return pceBuildSystem.setPluginRole(roleId, id);
 }
 
 function buildProject(...args) {
-  const coreId = getActiveCoreId();
-  if (coreId === CORE_IDS.PC_ENGINE) return pceBuildSystem.buildProject(...args);
-  return mdBuildSystem.buildProject(...args);
+  return pceBuildSystem.buildProject(...args);
 }
 
 function collectProjectAssets(projectDir = getProjectDir()) {
-  const coreId = getCoreIdForProjectDir(projectDir);
-  if (coreId === CORE_IDS.PC_ENGINE) {
-    return pceAssetManager.listAssets(projectDir).assets;
-  }
-  return mdRescompManager.listResDefinitions(projectDir);
+  return pceAssetManager.listAssets(projectDir).assets;
 }
 
 module.exports = {
@@ -350,19 +268,18 @@ module.exports = {
   getBuildSystemForCore,
   getCore,
   getCoreIdForProjectDir,
-  getDefaultProjectDir: (...args) => getBuildSystemForCore(getDefaultCoreId()).getDefaultProjectDir(...args),
+  getDefaultProjectDir: (...args) => pceBuildSystem.getDefaultProjectDir(...args),
   getLastRomPath,
   getPceSetupManager: () => pceSetupManager,
-  getMdSetupManager: () => mdSetupManager,
   getPluginRole,
   getPluginRoles,
   getProjectDir,
   getProjectInfo,
-  getProjectsRootDir: (...args) => getBuildSystemForCore(getDefaultCoreId()).getProjectsRootDir(...args),
+  getProjectsRootDir: (...args) => pceBuildSystem.getProjectsRootDir(...args),
   getProjectStartupState,
   getSampleSourceCode,
   getSetupManagerForCore,
-  getTemplatesRootDir: (...args) => getBuildSystemForCore(getDefaultCoreId()).getTemplatesRootDir(...args),
+  getTemplatesRootDir: (...args) => pceBuildSystem.getTemplatesRootDir(...args),
   listCores,
   listProjects,
   loadCurrentSource,

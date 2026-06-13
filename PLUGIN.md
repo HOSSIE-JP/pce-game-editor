@@ -571,7 +571,7 @@ export function activatePlugin({ root }) {
 }
 ```
 
-renderer から main process hook を呼ぶ場合は、`hooks` と `mainApi.hooks` の両方に hook 名を宣言してください。新規 plugin で本体 `main.js` / `preload.js` / `build-system.js` の個別追記が必要に見える場合は、まず Runtime v2.5 の汎用 API 不足として扱い、個別 plugin ID の分岐を本体へ追加しないでください。
+renderer から main process hook を呼ぶ場合は、`hooks` と `mainApi.hooks` の両方に hook 名を宣言してください。新規 plugin で本体 `main.js` / `preload.js` / `pce-build-system.js` の個別追記が必要に見える場合は、まず Runtime v2.5 の汎用 API 不足として扱い、個別 plugin ID の分岐を本体へ追加しないでください。
 
 ### Plugin Runtime v2.5 の追加 capability
 
