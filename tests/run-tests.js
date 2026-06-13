@@ -6,9 +6,15 @@ const { loadAppConfig } = require('game-editor-common');
 loadAppConfig(require('../app.config'));
 
 [
+  'editor-control-service.test.js',
+  'export-html.test.js',
+  'packaging-config.test.js',
+  'plugin-manager.test.js',
   'pce-app-separation.test.js',
   'pce-asset-manager.test.js',
   'pce-cd-bundle.test.js',
+  'pce-file-safety.test.js',
+  'pce-ipl-extractor.test.js',
   'pce-setup-manager.test.js',
   'pce-standard-emulator.test.js',
   'pce-vn-manager.test.js',
