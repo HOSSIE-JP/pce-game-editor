@@ -430,7 +430,7 @@ Visual Novel project では `assets/pce-vn-scenes.json` の `commands` が表示
 | `action` | `"play"` / `"stop"` | `play` は track 再生、`stop` は pause |
 | `assetId` | `cdda-track` asset ID | `play` のとき `options.track` が runtime へ渡る |
 
-現行 VN runtime の CD-DA 再生は、明示的な audio command がある場合だけ開始します。開始位置は `cdda-track.options.track` から生成した `start_sector`、終了位置は `PCE_CDB_LOCATION_TYPE_UNTIL_END` として `pce_cdb_cdda_play()` を呼びます。track 境界は BIOS の明示終了指定ではなく、WAV 長から生成した `play_frames` を runtime が毎 VBlank で減算して管理します。`cdda-track.options.loop` が `true` の場合は境界直前で同じ asset の開始 sector へ再生命令を再発行し、`false` の場合は `pce_cdb_cdda_pause()` で停止します。
+現行 VN runtime の CD-DA 再生は、明示的な audio command がある場合だけ開始します。開始位置は `cdda-track.options.track` から生成した `start_sector`、終了位置は `PCE_CDB_LOCATION_TYPE_UNTIL_END` として `pce_cdb_cdda_play()` を呼びます。track 境界は BIOS の明示終了指定ではなく、WAV 長から生成した `play_frames` を runtime が毎 VBlank で減算して管理します。CD-ROM2 VN runtime は VDC 表示制御を直接所有するため、VBlank は `PCE_CDB_MASK_VBLANK_NO_BIOS` で有効化し、`pce_cdb_wait_vblank()` が使う BIOS R5 shadow も runtime 側で更新します。`cdda-track.options.loop` が `true` の場合は境界直前で同じ asset の開始 sector へ再生命令を再発行し、`false` の場合は `pce_cdb_cdda_pause()` で停止します。
 
 ### Preload command
 
@@ -438,9 +438,9 @@ Visual Novel project では `assets/pce-vn-scenes.json` の `commands` が表示
 { "type": "preload", "sceneId": "next_scene" }
 ```
 
-`preload` は暗転中や scene 切替前に、指定 scene で必要になる背景 tiles/map、sprite patterns、ADPCM data を先読みするための command です。CD-DA は audio track なので CD data file の preload 対象ではありません。指定先 scene の script pack は preload scan cache へ読み込まれ、現在実行中の active scene cache は破壊されません。表示中に `preload` を実行した場合は現在の画面を変えず、ADPCM data だけを先読みします。BG/Sprite の VRAM 先読みは、直前の `effect: "fadeOut"` / `effect: "blank"` などで display が暗転待ち (`pending_display_enable`) になっている場合だけ行われます。
+`preload` は現在 scene の active cache を再走査し、暗転中なら背景 tiles/map、sprite patterns、ADPCM data の先読みを試みる command です。CD-DA は audio track なので CD data file の preload 対象ではありません。CD-ROM2 VN runtime は別 scene 用の preload scan cache を持たないため、`sceneId` が別 scene を指す場合は事前読み込みを行わず、target scene 入場時に active cache へ通常ロードします。表示中に `preload` を実行した場合は現在の画面を変えず、ADPCM data だけを先読みします。BG/Sprite の VRAM 先読みは、直前の `effect: "fadeOut"` / `effect: "blank"` などで display が暗転待ち (`pending_display_enable`) になっている場合だけ行われます。
 
-scene 入場時の runtime は、scene pack を active cache (`4096` bytes) へ読み込んでから、command 実行より前に ADPCM cache だけを先読みします。BG/Sprite は各 `background` / `sprite` command の位置で転送されるため、scene 末尾の表示 command がメッセージ待ちを飛び越えて先に見えることはありません。表示中の任意タイミングで読み込み時間を隠したい場合は、前 scene の終端などで `effect: "fadeOut"`、`preload`、`jump` / `fadeIn` の順に置いてください。script pack 読み込みも CD data read なので、CD-DA と同時には行えません。CD-DA を維持したい scene では BG/Sprite command を CD-DA の前に置くか、暗転中の `preload` で必要な表示データを先に詰めてください。
+scene 入場時の runtime は、scene pack を active cache (`4096` bytes) へ読み込んでから、その scene の必要 asset を active cache から先読みします。BG/Sprite は各 `background` / `sprite` command でも固定 VRAM 領域へ反映されるため、scene 末尾の表示 command がメッセージ待ちを飛び越えて先に見えることはありません。script pack 読み込みも CD data read なので、CD-DA と同時には行えません。CD-DA を維持したい scene では BG/Sprite command を CD-DA の前に置いてください。
 
 現行 runtime は ADPCM の preload/cache 状態を `loaded_adpcm_valid` / `loaded_adpcm_index` で管理します。すでに同じ ADPCM が読み込まれている場合、preload は controller を reset/load しません。また ADPCM 再生中の preload は ADPCM RAM の再読み込みを避けるため、背景表示などの preload が再生中の音声を壊しません。CD data file を読む前には再生中の CD-DA を `pce_cdb_cdda_pause()` で止め、ADPCM 読み込みに失敗した場合は cache valid にせず再生もしません。音声の確実な再生制御をしたい場合は、まず `audio` command または `message.voiceAssetId` を主 API として使い、`preload` は表示データの読み込みタイミング調整を主目的にしてください。
 
@@ -566,7 +566,7 @@ classDiagram
 
 `voice_index`、`asset_index`、`message_index`、`animation_index`、`scene_index`、`choice_index`、`target_scene`、`variable_index`、`next_scene` は `-1` sentinel を持つため `signed int` として生成します。scene 数、variable 数、sprite animation 数は `unsigned char` で公開するため build 時に 255 件を上限として検証します。CD-ROM2 VN の command/message/choice/switch は scene pack 内の local index になり、上限は scene ごとに 255 件です。1 scene pack は runtime cache に合わせて 4096 bytes 以下である必要があります。
 
-PCE-CD / Super CD-ROM2 build では、llvm-mos の既定 `.text` / `.rodata` は常駐 `ram_bank128` に配置されます。VN runtime は command interpreter、sprite refresh、ADPCM 制御を `.ram_bank129`、font tiles、sprite animation、variable 初期値、scene pack directory を `.ram_bank132` に明示配置し、bank128 に全 runtime/data を詰め込まない構成にしています。bank130-131 は例外的な小さい CPU-readable fallback data 用に残し、scene script、背景 tiles/map、sprite pattern、ADPCM 本体は `cd.dataFiles` から active cache / VRAM / ADPCM RAM へ転送します。詳細な割り当てと変更時の注意は `docs/pce-memory-bank-strategy.md` を参照してください。
+PCE-CD / Super CD-ROM2 build では、llvm-mos の既定 `.text` / `.rodata` は常駐 `ram_bank128` に配置されます。VN runtime は command interpreter、sprite refresh、ADPCM 制御、scene pack command/message reader を `.ram_bank129`、scene pack choice/switch reader と preload helper を `.ram_bank130`、font tiles、sprite animation、variable 初期値、scene pack directory を `.ram_bank132` に明示配置し、bank128 に全 runtime/data を詰め込まない構成にしています。bank131 は例外的な小さい CPU-readable fallback data 用に残し、scene script、背景 tiles/map、sprite pattern、ADPCM 本体は `cd.dataFiles` から active cache / VRAM / ADPCM RAM へ転送します。詳細な割り当てと変更時の注意は `docs/pce-memory-bank-strategy.md` を参照してください。
 
 VN sprite runtime は `pce_editor_sprite_draw_meta[]` を `sprite_draw_meta` へコピーしてから SATB を組みます。animation metadata は `frame_count > 1` かつ sheet 範囲内のときだけ 1 frame の表示サイズとして使い、単一 frame/default animation は sheet 全体表示へ戻します。VDC memory control は `VN_VDC_MEMORY_CONTROL` (`VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_64_32`) を使い、BG size 更新時に sprite cycle bit を落とさないことを前提にしています。
 
@@ -591,7 +591,7 @@ sequenceDiagram
   RT->>VDC: display enable / fade in
 ```
 
-背景は `upload_bg_graphics()` で palette、tiles、map を転送します。BG map は `VN_MAP_WIDTH = 64` の BAT として扱われます。CD-ROM2 target では `pce_cdb_cd_read(..., PCE_CDB_VRAM_BYTES, ...)` で CD data sector から VRAM へ直接読み込みます。
+背景は `upload_bg_graphics()` で palette、tiles、map を転送します。BG map は `VN_MAP_WIDTH = 64` の BAT として扱われます。CD-ROM2 target では CD data sector を `cd_transfer_scratch` へ読み込み、`pce_editor_vram_copy()` で VRAM へ転送します。
 
 ### スプライト
 

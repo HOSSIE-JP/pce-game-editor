@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "geargrafx": {
+      "command": "/Applications/Geargrafx.app/Contents/MacOS/geargrafx",
+      "args": ["--mcp-stdio"]
+    }
+  }
+}

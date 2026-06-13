@@ -21,10 +21,10 @@ static const unsigned char pce_editor_image_vn_classroom_bg_palette[] = {
   0x74, 0x01, 0x0d, 0x01, 0xbc, 0x01, 0x6c, 0x01
 };
 #if defined(__PCE_CD__)
-static const pce_editor_cd_data_ref_t pce_editor_image_vn_classroom_bg_tiles_cd = { { 64u, 0u, 0u }, 9u };
+static const pce_editor_cd_data_ref_t pce_editor_image_vn_classroom_bg_tiles_cd = { { 65u, 0u, 0u }, 9u };
 #endif
 #if defined(__PCE_CD__)
-static const pce_editor_cd_data_ref_t pce_editor_image_vn_classroom_bg_map_cd = { { 73u, 0u, 0u }, 1u };
+static const pce_editor_cd_data_ref_t pce_editor_image_vn_classroom_bg_map_cd = { { 74u, 0u, 0u }, 1u };
 #endif
 
 static const unsigned char pce_editor_image_rooftop_dusk_bg_palette[] = {
@@ -45,7 +45,7 @@ static const unsigned char pce_editor_sprite_akari_sprite_palette[] = {
   0xbd, 0x01, 0x33, 0x01, 0x00, 0x00, 0x00, 0x00
 };
 #if defined(__PCE_CD__)
-static const pce_editor_cd_data_ref_t pce_editor_sprite_akari_sprite_patterns_cd = { { 74u, 0u, 0u }, 2u };
+static const pce_editor_cd_data_ref_t pce_editor_sprite_akari_sprite_patterns_cd = { { 75u, 0u, 0u }, 2u };
 #endif
 
 static const unsigned char pce_editor_sprite_mika_sprite_palette[] = {
@@ -65,7 +65,7 @@ static const pce_editor_psg_step_t pce_editor_psg_vn_psg_chime_pattern[] = {
 };
 
 #if defined(__PCE_CD__)
-static const pce_editor_cd_data_ref_t pce_editor_adpcm_akari_voice_data_cd = { { 76u, 0u, 0u }, 2u };
+static const pce_editor_cd_data_ref_t pce_editor_adpcm_akari_voice_data_cd = { { 90u, 0u, 0u }, 2u };
 #endif
 
 const pce_editor_bg_asset_t pce_editor_bg_assets[] = {
@@ -90,7 +90,7 @@ const pce_editor_psg_asset_t pce_editor_psg_assets[] = {
 const unsigned char pce_editor_psg_asset_count = 1;
 
 const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] = {
-  { (const unsigned char *)0, 2400u, 16000u, 0u, 1u, 0u, 0u, &pce_editor_adpcm_akari_voice_data_cd }
+  { (const unsigned char *)0, 2400u, 16000u, 0u, 14u, 0u, 0u, &pce_editor_adpcm_akari_voice_data_cd }
 };
 const unsigned char pce_editor_adpcm_asset_count = 1;
 

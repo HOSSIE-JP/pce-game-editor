@@ -535,7 +535,7 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
       toolchain,
       targetMedia,
       command,
-      args: ['-Os', '-DPCE_EDITOR_TARGET_CD=1', '-o', elfPath, ...sources],
+      args: ['-Oz', '-DPCE_EDITOR_TARGET_CD=1', '-o', elfPath, ...sources],
       cwd: projectDir,
       env: buildSpawnEnv(command, toolchain),
       elfPath,
