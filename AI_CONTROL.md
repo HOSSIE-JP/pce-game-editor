@@ -7,7 +7,7 @@ AI Control は、Codex / Claude / Copilot などの外部 AI ツールが PCE Ga
 Editor の `AI Control` タブで `Start` を押すと、`127.0.0.1` のみで REST / MCP bridge が起動します。外部公開は行いません。
 
 - 既定 port: `17777`
-- 認証: `Authorization: Bearer <token>` または `X-MD-Editor-Token: <token>`
+- 認証: `Authorization: Bearer <token>` または `X-PCE-Editor-Token: <token>`
 - token は起動ごとに生成され、`AI Control` タブに表示されます。
 - `Origin` header がある場合、`localhost` / `127.0.0.1` / `[::1]` 以外は拒否します。
 
@@ -36,7 +36,7 @@ AI が利用できる prompt template 一覧を返します。
 ### `POST /v1/resources/read`
 
 ```json
-{ "uri": "md-editor://project/config" }
+{ "uri": "pce-editor://project/config" }
 ```
 
 ### `POST /v1/tools/call`
@@ -57,8 +57,8 @@ AI が利用できる prompt template 一覧を返します。
 Editor 起動中の REST bridge に接続する stdio sidecar を用意しています。
 
 ```powershell
-$env:MD_EDITOR_CONTROL_URL = "http://127.0.0.1:17777"
-$env:MD_EDITOR_CONTROL_TOKEN = "<AI Control tab token>"
+$env:PCE_EDITOR_CONTROL_URL = "http://127.0.0.1:17777"
+$env:PCE_EDITOR_CONTROL_TOKEN = "<AI Control tab token>"
 npm run mcp
 ```
 
@@ -90,10 +90,10 @@ MCP sidecar は stdout に JSON-RPC メッセージだけを書き、ログは s
 
 ## Resources
 
-- `md-editor://project/current`
-- `md-editor://project/config`
-- `md-editor://project/resources`
-- `md-editor://project/source/<path>`
+- `pce-editor://project/current`
+- `pce-editor://project/config`
+- `pce-editor://project/resources`
+- `pce-editor://project/source/<path>`
 
 ## Prompts
 

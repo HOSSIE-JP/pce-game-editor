@@ -1155,5 +1155,5 @@ AI Control API の詳細は [AI_CONTROL.md](AI_CONTROL.md) を参照してくだ
 - Editor 内の `AI Control` タブで明示的に起動した場合のみ `127.0.0.1` に公開する
 - REST と MCP は同じ tool registry を使い、`editor_status` / `asset_add` / `build_run` などの tool 名と引数を共有する
 - project state を変更する tool は `dryRun: true` または `confirm: true` が必要
-- MCP stdio sidecar は `scripts/md-game-editor-mcp.js` で、`MD_EDITOR_CONTROL_URL` と `MD_EDITOR_CONTROL_TOKEN` を環境変数から読む
+- MCP stdio sidecar は `scripts/pce-game-editor-mcp.js` で、`PCE_EDITOR_CONTROL_URL` と `PCE_EDITOR_CONTROL_TOKEN` を環境変数から読む
 - stdout には MCP JSON-RPC メッセージだけを出し、診断ログは stderr に出す

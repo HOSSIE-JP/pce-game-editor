@@ -6,7 +6,7 @@
   "main": "main.js",
   "scripts": {
     "inject-build-meta": "node scripts/inject-build-meta.js",
-    "mcp": "node scripts/md-game-editor-mcp.js",
+    "mcp": "node scripts/pce-game-editor-mcp.js",
     "prepare:dist": "node scripts/prepare-dist.js",
     "test": "node tests/run-tests.js",
     "start": "node scripts/start-electron.js",

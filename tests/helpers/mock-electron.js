@@ -16,7 +16,7 @@ function loadWithMockedElectron(modulePath, appOverrides = {}) {
       return appOverrides.appPath || '';
     },
     getName() {
-      return appOverrides.name || 'md-game-editor-test';
+      return appOverrides.name || 'pce-game-editor-test';
     },
     getVersion() {
       return appOverrides.version || '0.0.0-test';

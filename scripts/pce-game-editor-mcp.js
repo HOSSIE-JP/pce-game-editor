@@ -5,15 +5,15 @@ const readline = require('node:readline');
 
 const DEFAULT_URL = 'http://127.0.0.1:17777';
 const PROTOCOL_VERSION = '2025-06-18';
-const baseUrl = String(process.env.MD_EDITOR_CONTROL_URL || DEFAULT_URL).replace(/\/+$/, '');
-const token = process.env.MD_EDITOR_CONTROL_TOKEN || process.env.MD_GAME_EDITOR_TOKEN || '';
+const baseUrl = String(process.env.PCE_EDITOR_CONTROL_URL || DEFAULT_URL).replace(/\/+$/, '');
+const token = process.env.PCE_EDITOR_CONTROL_TOKEN || '';
 
 function writeMessage(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
 function log(message) {
-  process.stderr.write(`[md-game-editor-mcp] ${message}\n`);
+  process.stderr.write(`[pce-game-editor-mcp] ${message}\n`);
 }
 
 function response(id, result) {
@@ -26,7 +26,7 @@ function errorResponse(id, code, message) {
 
 async function request(path, options = {}) {
   if (!token) {
-    throw new Error('MD_EDITOR_CONTROL_TOKEN is required');
+    throw new Error('PCE_EDITOR_CONTROL_TOKEN is required');
   }
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -56,7 +56,7 @@ async function handle(message) {
       return response(id, {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {}, resources: {}, prompts: {} },
-        serverInfo: { name: 'md-game-editor-mcp', version: '1.0.0' },
+        serverInfo: { name: 'pce-game-editor-mcp', version: '1.0.0' },
       });
     case 'notifications/initialized':
       return null;
@@ -114,7 +114,7 @@ async function handle(message) {
           role: 'user',
           content: {
             type: 'text',
-            text: `${prompt.description}\nUse the MD Game Editor tools exposed by this MCP server. Validate project changes with build_run when possible.`,
+            text: `${prompt.description}\nUse the PCE Game Editor tools exposed by this MCP server. Validate project changes with build_run when possible.`,
           },
         }],
       });

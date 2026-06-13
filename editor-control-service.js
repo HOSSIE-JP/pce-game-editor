@@ -11,7 +11,7 @@ const MCP_PROTOCOL_VERSION = '2025-06-18';
 const PROMPTS = [
   {
     name: 'create_game_from_assets',
-    description: 'Create or update an MD Game Editor project from available assets, then generate and build it.',
+    description: 'Create or update a PCE Game Editor project from available assets, then generate and build it.',
     arguments: [
       { name: 'projectGoal', description: 'Short game concept and success criteria.', required: true },
     ],
@@ -33,10 +33,10 @@ const PROMPTS = [
 ];
 
 const RESOURCE_TEMPLATES = [
-  { uri: 'md-editor://project/current', name: 'Current project', mimeType: 'application/json' },
-  { uri: 'md-editor://project/config', name: 'Project config', mimeType: 'application/json' },
-  { uri: 'md-editor://project/resources', name: 'Project resources', mimeType: 'application/json' },
-  { uriTemplate: 'md-editor://project/source/{path}', name: 'Project source file', mimeType: 'text/plain' },
+  { uri: 'pce-editor://project/current', name: 'Current project', mimeType: 'application/json' },
+  { uri: 'pce-editor://project/config', name: 'Project config', mimeType: 'application/json' },
+  { uri: 'pce-editor://project/resources', name: 'Project resources', mimeType: 'application/json' },
+  { uriTemplate: 'pce-editor://project/source/{path}', name: 'Project source file', mimeType: 'text/plain' },
 ];
 
 function objectSchema(properties = {}, required = []) {
@@ -45,12 +45,12 @@ function objectSchema(properties = {}, required = []) {
 
 const COMMANDS = [
   { name: 'editor_status', description: 'Return app, project, server, and capability status.', inputSchema: objectSchema() },
-  { name: 'project_list', description: 'List projects known to MD Game Editor.', inputSchema: objectSchema() },
+  { name: 'project_list', description: 'List projects known to PCE Game Editor.', inputSchema: objectSchema() },
   { name: 'project_open', description: 'Open an existing project by project name or absolute projectDir.', mutates: true, inputSchema: objectSchema({ projectName: { type: 'string' }, projectDir: { type: 'string' } }) },
   { name: 'project_create', description: 'Create a project under a parent directory, optionally from a bundled template project.', mutates: true, inputSchema: objectSchema({ projectName: { type: 'string' }, parentDir: { type: 'string' }, templateId: { type: 'string' }, config: { type: 'object' }, sourceCode: { type: 'string' } }, ['projectName']) },
   { name: 'project_config_get', description: 'Read project.json for the current project.', inputSchema: objectSchema() },
   { name: 'project_config_update', description: 'Patch project.json for the current project.', mutates: true, inputSchema: objectSchema({ patch: { type: 'object' } }, ['patch']) },
-  { name: 'asset_list', description: 'List ResComp resource definitions for the current project.', inputSchema: objectSchema() },
+  { name: 'asset_list', description: 'List project resource definitions for the current project.', inputSchema: objectSchema() },
   { name: 'asset_add', description: 'Add an entry to a .res file.', mutates: true, inputSchema: objectSchema({ file: { type: 'string' }, entry: { type: 'object' } }, ['entry']) },
   { name: 'asset_write_file', description: 'Write or copy a binary asset under the current project res directory.', mutates: true, inputSchema: objectSchema({ targetPath: { type: 'string' }, dataBase64: { type: 'string' }, dataUrl: { type: 'string' }, sourcePath: { type: 'string' } }, ['targetPath']) },
   { name: 'asset_update', description: 'Update an entry in a .res file by line number.', mutates: true, inputSchema: objectSchema({ file: { type: 'string' }, lineNumber: { type: 'number' }, entry: { type: 'object' } }, ['lineNumber', 'entry']) },
@@ -58,7 +58,7 @@ const COMMANDS = [
   { name: 'code_tree', description: 'List files under the current project root.', inputSchema: objectSchema({ path: { type: 'string' } }) },
   { name: 'code_read', description: 'Read a UTF-8 file under the current project root.', inputSchema: objectSchema({ path: { type: 'string' } }, ['path']) },
   { name: 'code_write', description: 'Write a UTF-8 file under the current project root.', mutates: true, inputSchema: objectSchema({ path: { type: 'string' }, content: { type: 'string' } }, ['path', 'content']) },
-  { name: 'plugin_list', description: 'List installed MD Game Editor plugins.', inputSchema: objectSchema() },
+  { name: 'plugin_list', description: 'List installed PCE Game Editor plugins.', inputSchema: objectSchema() },
   { name: 'plugin_set_role', description: 'Set a project plugin role such as builder or testplay.', mutates: true, inputSchema: objectSchema({ roleId: { type: 'string' }, id: { type: 'string' } }, ['roleId']) },
   { name: 'plugin_run_generator', description: 'Run a build plugin generator and write src/main.c.', mutates: true, inputSchema: objectSchema({ id: { type: 'string' } }, ['id']) },
   { name: 'build_run', description: 'Run the current project build pipeline.', mutates: true, inputSchema: objectSchema() },
@@ -196,11 +196,11 @@ function createEditorControlService(handlers = {}) {
 
   async function readResource(uri) {
     const target = String(uri || '');
-    if (target === 'md-editor://project/current') return callTool('editor_status');
-    if (target === 'md-editor://project/config') return callTool('project_config_get');
-    if (target === 'md-editor://project/resources') return callTool('asset_list');
-    if (target.startsWith('md-editor://project/source/')) {
-      const filePath = decodeURIComponent(target.slice('md-editor://project/source/'.length));
+    if (target === 'pce-editor://project/current') return callTool('editor_status');
+    if (target === 'pce-editor://project/config') return callTool('project_config_get');
+    if (target === 'pce-editor://project/resources') return callTool('asset_list');
+    if (target.startsWith('pce-editor://project/source/')) {
+      const filePath = decodeURIComponent(target.slice('pce-editor://project/source/'.length));
       return callTool('code_read', { path: filePath });
     }
     return fail('UNKNOWN_RESOURCE', `unknown resource: ${uri}`);
@@ -217,7 +217,7 @@ function createEditorControlService(handlers = {}) {
           role: 'user',
           content: {
             type: 'text',
-            text: `${prompt.description}\nUse the exposed MD Game Editor tools and resources. Keep changes focused, validate with build_run when changing project files, and report any remaining risk.${extra}`,
+            text: `${prompt.description}\nUse the exposed PCE Game Editor tools and resources. Keep changes focused, validate with build_run when changing project files, and report any remaining risk.${extra}`,
           },
         },
       ],
@@ -237,7 +237,7 @@ function createEditorControlService(handlers = {}) {
 function parseBearerToken(req) {
   const auth = String(req.headers.authorization || '');
   const match = auth.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1] : String(req.headers['x-md-editor-token'] || '');
+  return match ? match[1] : String(req.headers['x-pce-editor-token'] || '');
 }
 
 function isLocalOrigin(origin) {
@@ -423,7 +423,7 @@ function createEditorControlServer(service, options = {}) {
               resources: {},
               prompts: {},
             },
-            serverInfo: { name: 'md-game-editor-control', version: '1.0.0' },
+            serverInfo: { name: 'pce-game-editor-control', version: '1.0.0' },
           });
         case 'notifications/initialized':
           return null;
@@ -452,7 +452,7 @@ function createEditorControlServer(service, options = {}) {
           return mcpResult(id, {
             contents: [{
               uri,
-              mimeType: uri === 'md-editor://project/source' ? 'text/plain' : 'application/json',
+              mimeType: String(uri || '').startsWith('pce-editor://project/source/') ? 'text/plain' : 'application/json',
               text: typeof result.result?.content === 'string'
                 ? result.result.content
                 : JSON.stringify(result.result, null, 2),

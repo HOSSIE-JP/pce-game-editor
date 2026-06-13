@@ -441,7 +441,7 @@ function openLogWindow(snapshot = latestLogSnapshot) {
   logWindow = registerWindowCloseDevTools(new BrowserWindow({
     width: 920,
     height: 560,
-    title: 'Log - MD Game Editor',
+    title: 'Log - PCE Game Editor',
     backgroundColor: '#0b0f16',
     autoHideMenuBar: true,
     webPreferences: {
@@ -1199,8 +1199,8 @@ function getEditorControlService() {
 function getEditorControlServer() {
   if (editorControlServer) return editorControlServer;
   editorControlServer = createEditorControlServer(getEditorControlService(), {
-    token: process.env.MD_EDITOR_CONTROL_TOKEN || undefined,
-    port: process.env.MD_EDITOR_CONTROL_PORT || undefined,
+    token: process.env.PCE_EDITOR_CONTROL_TOKEN || undefined,
+    port: process.env.PCE_EDITOR_CONTROL_PORT || undefined,
     onLog(entry) {
       sendToRenderer('ai-control-log', entry);
     },
@@ -1209,11 +1209,11 @@ function getEditorControlServer() {
 }
 
 async function maybeAutoStartEditorControlServer() {
-  const flag = String(process.env.MD_EDITOR_CONTROL_AUTOSTART || '').trim().toLowerCase();
+  const flag = String(process.env.PCE_EDITOR_CONTROL_AUTOSTART || '').trim().toLowerCase();
   if (!['1', 'true', 'yes', 'on'].includes(flag)) return;
   try {
     const result = await getEditorControlServer().start({
-      port: process.env.MD_EDITOR_CONTROL_PORT,
+      port: process.env.PCE_EDITOR_CONTROL_PORT,
     });
     console.log(`[ai-control] listening on ${result.baseUrl || `http://127.0.0.1:${result.port}`}`);
   } catch (err) {
@@ -1277,7 +1277,7 @@ function createMenu() {
       label: 'Help',
       submenu: [
         {
-          label: 'About MD Game Editor',
+          label: 'About PCE Game Editor',
           click: () => {
             sendToRenderer('menu:openAbout');
           },
@@ -2063,7 +2063,7 @@ ipcMain.handle('window:openTestPlaySettings', async () => {
   testPlaySettingsWindow = registerWindowCloseDevTools(new BrowserWindow({
     width: 840,
     height: 760,
-    title: 'Test Play Settings - MD Game Editor',
+    title: 'Test Play Settings - PCE Game Editor',
     backgroundColor: '#0f1117',
     autoHideMenuBar: true,
     webPreferences: {
@@ -2087,7 +2087,7 @@ ipcMain.handle('window:openSetup', async () => {
   setupWindow = registerWindowCloseDevTools(new BrowserWindow({
     width: 720,
     height: 640,
-    title: 'Setup - MD Game Editor',
+    title: 'Setup - PCE Game Editor',
     backgroundColor: '#0f1117',
     autoHideMenuBar: true,
     webPreferences: {

@@ -836,7 +836,7 @@ function fixMarsdevMacosGettext(marsdevPath) {
 
 function httpsGet(url, options = {}) {
   return new Promise((resolve, reject) => {
-    const opts = { ...options, headers: { 'User-Agent': 'md-game-editor/1.0', ...(options.headers || {}) } };
+    const opts = { ...options, headers: { 'User-Agent': 'pce-game-editor/1.0', ...(options.headers || {}) } };
     const req = https.get(url, opts, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         resolve(httpsGet(res.headers.location, options));
@@ -853,7 +853,7 @@ function httpsGet(url, options = {}) {
 function downloadToFile(url, destPath, onProgress) {
   return new Promise((resolve, reject) => {
     const doGet = (u) => {
-      const opts = { headers: { 'User-Agent': 'md-game-editor/1.0' } };
+      const opts = { headers: { 'User-Agent': 'pce-game-editor/1.0' } };
       https.get(u, opts, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           doGet(res.headers.location);

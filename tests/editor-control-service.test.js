@@ -15,6 +15,7 @@ function makeService() {
   const service = createEditorControlService({
     editor_status: async () => ({ ready: true }),
     asset_list: async () => ({ files: [] }),
+    project_config_get: async () => ({ title: 'PCE Test' }),
     code_write: async (args) => {
       calls.push(['code_write', args]);
       return { path: args.path };
@@ -81,6 +82,23 @@ test('editor control REST server enforces token and localhost origin', async () 
     });
     assert.equal(tools.status, 200);
     assert.ok(tools.data.result.tools.some((tool) => tool.name === 'asset_list'));
+
+    const resources = await requestJson(`${baseUrl}/v1/resources`, {
+      headers: { 'X-PCE-Editor-Token': 'test-token' },
+    });
+    assert.equal(resources.status, 200);
+    assert.ok(resources.data.result.resources.some((resource) => resource.uri === 'pce-editor://project/config'));
+
+    const config = await requestJson(`${baseUrl}/v1/resources/read`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer test-token',
+        'Content-Type': 'application/json',
+      },
+      body: { uri: 'pce-editor://project/config' },
+    });
+    assert.equal(config.status, 200);
+    assert.deepEqual(config.data.result, { title: 'PCE Test' });
 
     const call = await requestJson(`${baseUrl}/v1/tools/call`, {
       method: 'POST',
@@ -181,13 +199,13 @@ test('editor control MCP sidecar writes only JSON-RPC messages to stdout', async
   const { service } = makeService();
   const server = createEditorControlServer(service, { token: 'sidecar-token' });
   const status = await server.start({ port: 0 });
-  const sidecarPath = path.join(__dirname, '..', 'scripts', 'md-game-editor-mcp.js');
+  const sidecarPath = path.join(__dirname, '..', 'scripts', 'pce-game-editor-mcp.js');
   const child = spawn(process.execPath, [sidecarPath], {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {
       ...process.env,
-      MD_EDITOR_CONTROL_URL: status.baseUrl,
-      MD_EDITOR_CONTROL_TOKEN: 'sidecar-token',
+      PCE_EDITOR_CONTROL_URL: status.baseUrl,
+      PCE_EDITOR_CONTROL_TOKEN: 'sidecar-token',
     },
   });
 
@@ -207,7 +225,7 @@ test('editor control MCP sidecar writes only JSON-RPC messages to stdout', async
 
     const messages = stdoutLines.map((line) => JSON.parse(line));
     assert.equal(messages[0].id, 1);
-    assert.equal(messages[0].result.serverInfo.name, 'md-game-editor-mcp');
+    assert.equal(messages[0].result.serverInfo.name, 'pce-game-editor-mcp');
     assert.equal(messages[1].id, 2);
     assert.ok(messages[1].result.tools.some((tool) => tool.name === 'editor_status'));
   } finally {
