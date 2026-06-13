@@ -859,9 +859,7 @@ window.electronAPI.onPluginLog((payload) => {
 | `pce-sample-builder` | サンプルゲームビルダー | `build` | 表示 | PCE sample / VN template の build role |
 | `pce-standard-emulator` | 標準エミュレーター (EmulatorJS) | `emulator` | 表示 | Setup 済み EmulatorJS `mednafen_pce` core で Test Play を起動 |
 | `pce-asset-manager` | アセット管理 | `editor`, `asset` | 表示 | `assets/pce-assets.json` の BG / sprite / palette / PSG / ADPCM / CD-DA 管理 |
-| `pce-background-manager` | 背景管理 | `editor`, `asset` | 表示 | BG image 専用の追加・編集 UI |
-| `pce-sprite-manager` | スプライト管理 | `editor`, `asset` | 表示 | sprite sheet 専用の追加・編集 UI |
-| `pce-palette-editor` | パレットエディター | `editor`, `asset` | 表示 | BG / sprite 用 16 色 palette の編集 |
+| `image-editor` | イメージ | `editor`, `asset` | 表示 | BG / Sprites / Palette を 1 つの Image タブに統合 |
 | `sound-editor` | サウンド | `editor`, `asset` | 表示 | ADPCM / CD-DA / PSM を 1 つの Sound タブに統合 |
 | `novel-editor` | ノベル | `editor`, `asset` | 表示 | VN scene 編集と font 生成を 1 つの Novel タブに統合 |
 | `pce-image-converter` | 画像コンバーター | `converter` | 表示 | PNG/BMP/WebP を PCE BG / sprite 用 import pipeline へルーティング |
@@ -871,6 +869,9 @@ window.electronAPI.onPluginLog((payload) => {
 | `pce-adpcm-manager` | ADPCM 管理 | `editor`, `asset` | 内部 | `sound-editor` の ADPCM タブ用モジュール |
 | `pce-cdda-manager` | CD-DA 管理 | `editor`, `asset` | 内部 | `sound-editor` の CD-DA タブ用モジュール |
 | `pce-music-editor` | ミュージックエディター | `editor`, `asset` | 内部 | `sound-editor` の PSM / PSG タブ用モジュール |
+| `pce-background-manager` | 背景管理 | `editor`, `asset` | 内部 | `image-editor` の BG タブ用モジュール |
+| `pce-sprite-manager` | スプライト管理 | `editor`, `asset` | 内部 | `image-editor` の Sprites タブ用モジュール |
+| `pce-palette-editor` | パレットエディター | `editor`, `asset` | 内部 | `image-editor` の Palette タブ用モジュール |
 | `pce-visual-novel-editor` | ビジュアルノベル | `editor`, `asset` | 内部 | `novel-editor` の VN タブ用モジュール |
 | `pce-font-editor` | フォント | `editor`, `asset` | 内部 | `novel-editor` の Font タブ用モジュール |
 
@@ -878,7 +879,7 @@ window.electronAPI.onPluginLog((payload) => {
 
 `pce-asset-manager` は `assets/pce-assets.json` v2 を正とする標準アセット管理です。BG image / Sprite sheet / Palette / PSG song/SFX / ADPCM / CD-DA track を扱います。画像の追加は `pce-image-converter` の `image-import-pipeline` を経由し、内蔵 PCE 変換で BG tile / BAT map / sprite pattern 形式の generated asset を作成します。音声の追加は `pce-audio-converter` の共通音声 UI を経由し、project-local WAV を生成してから ADPCM / CD-DA へ登録します。
 
-`pce-background-manager`、`pce-sprite-manager`、`pce-palette-editor` は同じ `assets/pce-assets.json` を別視点で編集する補助 UI です。BG / sprite の生成物は PCE 変換を使い、Superfamiconv や SGDK ResComp 用の converter には依存しません。
+`image-editor` は BG / Sprites / Palette の画像画面を 1 つの sidebar タブに統合します。画面上部のタブで `BG`、`Sprites`、`Palette` を切り替えます。`pce-background-manager` / `pce-sprite-manager` / `pce-palette-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。BG / sprite の生成物は PCE 変換を使い、Superfamiconv や SGDK ResComp 用の converter には依存しません。
 
 ### Sound / Novel 統合 UI
 

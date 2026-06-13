@@ -1,0 +1,23 @@
+{
+  "id": "image-editor",
+  "name": "イメージ",
+  "description": "BG / Sprites / Palette の画像アセット編集をまとめて扱います。",
+  "version": "0.1.0",
+  "icon": "assets",
+  "types": ["editor", "asset"],
+  "dependencies": ["pce-image-converter"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "project.write", "dialog.openFile", "asset.import", "asset.preview"],
+  "tab": {
+    "label": "Image",
+    "icon": "assets",
+    "page": "image-editor",
+    "order": 12
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "page": "image-editor",
+    "capabilities": ["page", "image-editor", "background-manager", "sprite-manager", "palette-editor"]
+  }
+}

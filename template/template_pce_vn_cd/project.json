@@ -36,9 +36,8 @@
     "sidebarOrder": [
       "novel-editor",
       "pce-asset-manager",
+      "image-editor",
       "sound-editor",
-      "pce-sprite-manager",
-      "pce-palette-editor",
       "code-editor"
     ]
   },

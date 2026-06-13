@@ -762,6 +762,9 @@ const SIDEBAR_PLUGIN_ID_ALIASES = new Map([
   ['pce-music-editor', 'sound-editor'],
   ['pce-cdda-manager', 'sound-editor'],
   ['pce-adpcm-manager', 'sound-editor'],
+  ['pce-background-manager', 'image-editor'],
+  ['pce-sprite-manager', 'image-editor'],
+  ['pce-palette-editor', 'image-editor'],
 ]);
 let sidebarPluginContextMenu = null;
 let logPanelRenderScheduled = false;

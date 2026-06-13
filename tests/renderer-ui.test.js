@@ -227,28 +227,62 @@ test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', 
   assert.doesNotMatch(css, /\.asset-table\s*\{|\.form-input\s*\{/);
 });
 
-test('PCE background and sprite managers expose file-first image import and asset list editing', () => {
+test('Image plugin integrates BG, Sprites, and Palette tools behind one tabbed page', () => {
+  const manifest = readPluginManifest('image-editor');
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'image-editor', 'renderer.js'), 'utf-8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'image-editor', 'style.css'), 'utf-8');
+
+  assert.equal(manifest.name, 'イメージ');
+  assert.equal(manifest.tab.label, 'Image');
+  assert.equal(manifest.tab.page, 'image-editor');
+  assert.equal(manifest.renderer.page, 'image-editor');
+  assert.ok(manifest.dependencies.includes('pce-image-converter'));
+  assert.ok(manifest.renderer.capabilities.includes('image-editor'));
+  assert.ok(manifest.renderer.capabilities.includes('background-manager'));
+  assert.ok(manifest.renderer.capabilities.includes('sprite-manager'));
+  assert.ok(manifest.renderer.capabilities.includes('palette-editor'));
+  assert.match(renderer, /activateBackgroundManager/);
+  assert.match(renderer, /activateSpriteManager/);
+  assert.match(renderer, /activatePaletteEditor/);
+  assert.match(renderer, /label:\s*'BG'/);
+  assert.match(renderer, /label:\s*'Sprites'/);
+  assert.match(renderer, /label:\s*'Palette'/);
+  assert.match(renderer, /data-image-tab/);
+  assert.match(renderer, /data-image-panel/);
+  assert.match(css, /pce-background-manager\/style\.css/);
+  assert.match(css, /pce-sprite-manager\/style\.css/);
+  assert.match(css, /pce-palette-editor\/style\.css/);
+  assert.match(css, /\.tool-tab-button/);
+});
+
+test('Image manager modules expose file-first image import, asset list editing, and palette editing', () => {
   const bgManifest = readPluginManifest('pce-background-manager');
   const spriteManifest = readPluginManifest('pce-sprite-manager');
+  const paletteManifest = readPluginManifest('pce-palette-editor');
   const bgRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-background-manager', 'renderer.js'), 'utf-8');
   const spriteRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-sprite-manager', 'renderer.js'), 'utf-8');
+  const paletteRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-palette-editor', 'renderer.js'), 'utf-8');
   const commonRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-image-converter', 'image-asset-manager-page.js'), 'utf-8');
   const bgCss = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-background-manager', 'style.css'), 'utf-8');
   const spriteCss = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-sprite-manager', 'style.css'), 'utf-8');
   const appCss = readRendererFile('style.css');
 
-  assert.equal(bgManifest.tab.page, 'pce-background-manager');
-  assert.equal(bgManifest.renderer.page, 'pce-background-manager');
+  assert.equal(bgManifest.hidden, true);
+  assert.equal(bgManifest.tab, undefined);
+  assert.equal(bgManifest.renderer, undefined);
   assert.ok(bgManifest.dependencies.includes('pce-image-converter'));
-  assert.ok(bgManifest.renderer.capabilities.includes('background-manager'));
-  assert.equal(spriteManifest.tab.page, 'pce-sprite-manager');
-  assert.equal(spriteManifest.renderer.page, 'pce-sprite-manager');
+  assert.equal(spriteManifest.hidden, true);
+  assert.equal(spriteManifest.tab, undefined);
+  assert.equal(spriteManifest.renderer, undefined);
   assert.ok(spriteManifest.dependencies.includes('pce-image-converter'));
-  assert.ok(spriteManifest.renderer.capabilities.includes('sprite-manager'));
+  assert.equal(paletteManifest.hidden, true);
+  assert.equal(paletteManifest.tab, undefined);
+  assert.equal(paletteManifest.renderer, undefined);
   assert.match(bgRenderer, /createImageAssetManagerPlugin/);
   assert.match(bgRenderer, /kind:\s*'background'/);
   assert.match(spriteRenderer, /createImageAssetManagerPlugin/);
   assert.match(spriteRenderer, /kind:\s*'sprite'/);
+  assert.match(paletteRenderer, /registerCapability\('palette-editor'/);
   assert.match(commonRenderer, /async function pickImageFile\(\)/);
   assert.match(commonRenderer, /filters:\s*\[\{ name: 'PNG \/ BMP \/ WebP'/);
   assert.match(commonRenderer, /const PCE_BG_AUTO_TILE_BASE = 128/);
@@ -767,6 +801,9 @@ test('project plugin settings persist non-role enabled state and sidebar order',
   assert.match(renderer, /const SIDEBAR_PLUGIN_ID_ALIASES = new Map/);
   assert.match(renderer, /\['pce-font-editor', 'novel-editor'\]/);
   assert.match(renderer, /\['pce-music-editor', 'sound-editor'\]/);
+  assert.match(renderer, /\['pce-background-manager', 'image-editor'\]/);
+  assert.match(renderer, /\['pce-sprite-manager', 'image-editor'\]/);
+  assert.match(renderer, /\['pce-palette-editor', 'image-editor'\]/);
   assert.match(renderer, /function normalizeSidebarPluginIdList\(ids = \[\]\)/);
   assert.match(renderer, /const validIds = new Set\(getSidebarTogglePlugins\(\)\.map\(\(p\) => p\.id\)\)/);
   assert.match(renderer, /state\.projectConfig = \{ \.\.\.state\.projectConfig, \.\.\.cfg, \.\.\.normalized \}/);

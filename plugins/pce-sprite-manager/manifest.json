@@ -1,23 +1,12 @@
 {
   "id": "pce-sprite-manager",
   "name": "スプライト管理",
-  "description": "PCE / CD-ROM2 のスプライト画像アセットを assets/pce-assets.json の sprite として追加・編集します。",
+  "description": "Image プラグイン内で使う sprite sheet 管理モジュールです。",
   "version": "0.1.0",
   "icon": "sprites",
   "types": ["editor", "asset"],
+  "hidden": true,
   "dependencies": ["pce-image-converter"],
   "supportedCores": ["pc-engine"],
-  "permissions": ["project.read", "project.write", "dialog.openFile", "asset.import", "asset.preview"],
-  "tab": {
-    "label": "Sprites",
-    "icon": "sprites",
-    "page": "pce-sprite-manager",
-    "order": 16
-  },
-  "renderer": {
-    "entry": "renderer.js",
-    "styles": ["style.css"],
-    "page": "pce-sprite-manager",
-    "capabilities": ["page", "sprite-manager"]
-  }
+  "permissions": ["project.read", "project.write", "dialog.openFile", "asset.import", "asset.preview"]
 }

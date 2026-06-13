@@ -159,14 +159,16 @@ test('built-in PCE asset editor suite is scoped to the PC Engine core', () => {
   const pluginManager = loadWithMockedElectron(path.join(__dirname, '..', 'plugin-manager.js'), { userData });
   const pcePlugins = new Map(pluginManager.listPlugins({ coreId: 'pc-engine' }).map((plugin) => [plugin.id, plugin]));
 
-  ['novel-editor', 'pce-asset-manager', 'sound-editor', 'pce-background-manager', 'pce-sprite-manager', 'pce-palette-editor', 'pce-image-converter', 'pce-audio-converter'].forEach((id) => {
+  ['novel-editor', 'pce-asset-manager', 'image-editor', 'sound-editor', 'pce-image-converter', 'pce-audio-converter'].forEach((id) => {
     assert.equal(pcePlugins.has(id), true, `${id} should be available for PC Engine`);
     assert.deepEqual(pcePlugins.get(id).supportedCores, ['pc-engine']);
   });
-  ['pce-font-editor', 'pce-visual-novel-editor', 'pce-music-editor', 'pce-cdda-manager', 'pce-adpcm-manager'].forEach((id) => {
+  ['pce-font-editor', 'pce-visual-novel-editor', 'pce-music-editor', 'pce-cdda-manager', 'pce-adpcm-manager', 'pce-background-manager', 'pce-sprite-manager', 'pce-palette-editor'].forEach((id) => {
     assert.equal(pcePlugins.has(id), false, `${id} should be hidden behind an integrated plugin`);
   });
   assert.equal(pcePlugins.get('pce-asset-manager').renderer.capabilities.includes('audio-import-handler'), true);
+  assert.equal(pcePlugins.get('image-editor').tab.page, 'image-editor');
+  assert.equal(pcePlugins.get('image-editor').tab.label, 'Image');
   assert.equal(pcePlugins.get('sound-editor').tab.page, 'sound-editor');
   assert.equal(pcePlugins.get('sound-editor').tab.label, 'Sound');
   assert.equal(pcePlugins.get('novel-editor').tab.page, 'novel-editor');
