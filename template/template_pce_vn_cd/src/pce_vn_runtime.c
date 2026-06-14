@@ -64,7 +64,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_EXEC_WAIT 1u
 #define VN_EXEC_RESTART 2u
 #define VN_COMMAND_STEP_GUARD 1024u
-#define VN_ADPCM_STREAM_MONITOR_FRAMES 4u
+#define VN_ADPCM_FRAME_RATE 60ul
+#define VN_ADPCM_END_PAD_FRAMES 2ul
 #define VN_SCENE_PACK_MAGIC_P 0x50u
 #define VN_SCENE_PACK_MAGIC_V 0x56u
 #define VN_SCENE_PACK_MAGIC_N 0x4eu
@@ -142,11 +143,13 @@ static uint8_t cdda_looping = 0;
 static uint8_t cdda_track = 0;
 static uint16_t cdda_frames_remaining = 0;
 static const pce_editor_cdda_asset_t *cdda_current = (const pce_editor_cdda_asset_t *)0;
+static uint8_t adpcm_play_active = 0;
+static uint16_t adpcm_play_frames_remaining = 0;
 static uint8_t adpcm_stream_active = 0;
 static uint8_t adpcm_stream_looping = 0;
 static uint8_t adpcm_stream_index = 0;
-static uint8_t adpcm_stream_buffered_fallback = 0;
-static uint8_t adpcm_stream_monitor_frames = 0;
+/* EmulatorJS mednafen_pce can lose the next joypad edge after ADPCM BIOS calls. */
+static uint8_t pad_edge_reset_pending = 0;
 #endif
 typedef struct
 {
@@ -207,7 +210,7 @@ static uint8_t VN_BANKED_CODE load_scene_pack_into_cache(uint8_t scene_index, vn
 static uint8_t VN_BANKED_CODE scene_pack_command_count(const vn_scene_pack_cache_t *cache);
 #if defined(__PCE_CD__)
 static void service_cdda_playback(void);
-static void VN_BANKED_CODE service_adpcm_streaming(void);
+static void VN_BANKED_CODE service_adpcm_playback(void);
 #endif
 
 static void map_vn_data(void)
@@ -250,11 +253,12 @@ static void init_runtime_state(void)
     cdda_track = 0u;
     cdda_frames_remaining = 0u;
     cdda_current = (const pce_editor_cdda_asset_t *)0;
+    adpcm_play_active = 0u;
+    adpcm_play_frames_remaining = 0u;
     adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
     adpcm_stream_index = 0u;
-    adpcm_stream_buffered_fallback = 0u;
-    adpcm_stream_monitor_frames = 0u;
+    pad_edge_reset_pending = 0u;
     active_scene_pack.data = vn_active_scene_pack_data;
     active_scene_pack.size = 0u;
     active_scene_pack.scene_index = 0xffu;
@@ -291,7 +295,7 @@ static void init_runtime_state(void)
 static void delay_frame(void)
 {
 #if defined(__PCE_CD__)
-    service_adpcm_streaming();
+    service_adpcm_playback();
     pce_cdb_wait_vblank();
     service_cdda_playback();
 #else
@@ -543,9 +547,22 @@ static void cd_transfer_wait(void)
     for (wait = 0u; wait < 65535u; wait++) {}
 }
 
+static void mask_buffered_adpcm_completion_irq(void)
+{
+#if defined(__PCE_CD__)
+    if (adpcm_play_active && adpcm_play_frames_remaining && !adpcm_stream_active)
+    {
+        pce_cdb_irq_disable(PCE_CDB_MASK_IRQ_EXTERNAL);
+    }
+#endif
+}
+
 static void prepare_cd_data_access(void)
 {
     const uint8_t restore_display_after_pause = (uint8_t)!pending_display_enable;
+#if defined(__PCE_CD__)
+    pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+#endif
     if (!cdda_active) return;
     (void)pce_cdb_cdda_pause();
     cdda_active = 0u;
@@ -577,6 +594,7 @@ static uint8_t cd_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *r
         remaining = (uint16_t)(remaining - chunk);
         cd_sector_advance(&sector);
     }
+    mask_buffered_adpcm_completion_irq();
     return 1u;
 }
 
@@ -621,6 +639,7 @@ static uint8_t cd_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t 
         remaining = (uint16_t)(remaining - chunk);
         cd_sector_advance(&sector);
     }
+    mask_buffered_adpcm_completion_irq();
     return (uint8_t)(row >= copy_height_tiles);
 }
 #endif
@@ -691,6 +710,7 @@ static uint8_t VN_BANKED_CODE load_scene_pack_into_cache(uint8_t scene_index, vn
         cache->size = pack.byte_size;
         cache->scene_index = scene_index;
         cache->valid = scene_pack_is_valid(cache);
+        mask_buffered_adpcm_completion_irq();
         return cache->valid;
     }
 #else
@@ -927,6 +947,7 @@ static void upload_font_tiles(void)
         remaining = (uint16_t)(remaining - chunk);
         cd_sector_advance(&sector);
     }
+    mask_buffered_adpcm_completion_irq();
 #elif defined(__PCE__)
     pce_editor_vram_copy((uint16_t)(PCE_VN_FONT_TILE_BASE * 16u), pce_vn_font_tiles, (uint16_t)(pce_vn_font_glyph_count * 128u));
 #endif
@@ -1265,6 +1286,7 @@ static void play_cdda_track(const pce_editor_cdda_asset_t *cdda)
     uint8_t loop;
     const uint8_t restore_display_after_cdda = (uint8_t)!pending_display_enable;
     if (!cdda) return;
+    pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
     track = cdda->track;
     loop = cdda->loop;
     const uint8_t mode = PCE_CDB_CDDA_PLAY_REPEAT;
@@ -1285,6 +1307,7 @@ static void play_cdda_track(const pce_editor_cdda_asset_t *cdda)
     (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, start, end_type, end, mode);
     cdda_active = 1u;
     restore_video_after_cdb_call(restore_display_after_cdda);
+    mask_buffered_adpcm_completion_irq();
 #else
     (void)cdda;
 #endif
@@ -1404,6 +1427,23 @@ static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer(void)
 #endif
 }
 
+static uint16_t VN_BANKED_CODE adpcm_voice_frame_count(void)
+{
+#if defined(__PCE_CD__)
+    unsigned long rate;
+    unsigned long frames;
+    rate = (unsigned long)adpcm_code_sample_rate(adpcm_play_divider(adpcm_voice_snapshot.sample_rate, adpcm_voice_snapshot.divider));
+    if (!rate) rate = 16000ul;
+    frames = ((adpcm_voice_snapshot.data_size * 2ul * VN_ADPCM_FRAME_RATE) + rate - 1ul) / rate;
+    frames += VN_ADPCM_END_PAD_FRAMES;
+    if (!frames) frames = 1ul;
+    if (frames > 65535ul) frames = 65535ul;
+    return (uint16_t)frames;
+#else
+    return 0u;
+#endif
+}
+
 static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
 {
 #if defined(__PCE_CD__)
@@ -1444,7 +1484,7 @@ static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
 static uint8_t VN_BANKED_CODE adpcm_playback_active(void)
 {
 #if defined(__PCE_CD__)
-    return (pce_cdb_adpcm_status() & ADPCM_STOPPED) ? 0u : 1u;
+    return adpcm_play_active;
 #else
     return 0u;
 #endif
@@ -1477,23 +1517,29 @@ static uint8_t VN_BANKED_CODE load_adpcm_voice(signed int voice_index, uint8_t a
 {
 #if defined(__PCE_CD__)
     uint8_t loaded = 0u;
+    uint8_t same_loaded;
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
     if (voice_index < 0) return 0u;
-    if (loaded_adpcm_valid && loaded_adpcm_index == (uint8_t)voice_index) return 1u;
     if (!copy_adpcm_voice(voice_index)) return 0u;
     if (adpcm_voice_snapshot.stream && !allow_stream_asset) return 0u;
+    same_loaded = (uint8_t)(loaded_adpcm_valid && loaded_adpcm_index == (uint8_t)voice_index);
     if (adpcm_playback_active())
     {
-        if (!allow_stop_playback) return 0u;
+        if (!allow_stop_playback) return same_loaded ? 1u : 0u;
+        pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
         pce_cdb_adpcm_stop();
         (void)wait_adpcm_transfer_ready();
+        adpcm_play_active = 0u;
+        adpcm_play_frames_remaining = 0u;
         adpcm_stream_active = 0u;
         adpcm_stream_looping = 0u;
-        adpcm_stream_buffered_fallback = 0u;
-        adpcm_stream_monitor_frames = 0u;
     }
+    if (same_loaded) return 1u;
     if ((!adpcm_voice_snapshot.data && !adpcm_voice_snapshot.has_cd) || !adpcm_voice_snapshot.data_size) return 0u;
     loaded_adpcm_valid = 0u;
+    adpcm_play_active = 0u;
+    adpcm_play_frames_remaining = 0u;
+    pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
     pce_cdb_adpcm_reset();
     if (!wait_adpcm_transfer_ready())
     {
@@ -1551,13 +1597,14 @@ static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
     if (!adpcm_voice_snapshot.stream || !adpcm_voice_snapshot.has_cd || !adpcm_voice_snapshot.cd_sector_count || !adpcm_voice_snapshot.data_size) return 0u;
     if (adpcm_playback_active())
     {
+        pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
         pce_cdb_adpcm_stop();
         (void)wait_adpcm_transfer_ready();
+        adpcm_play_active = 0u;
+        adpcm_play_frames_remaining = 0u;
     }
     adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
-    adpcm_stream_buffered_fallback = 0u;
-    adpcm_stream_monitor_frames = 0u;
     loaded_adpcm_valid = 0u;
     prepare_cd_data_access();
     pce_cdb_adpcm_reset();
@@ -1577,11 +1624,12 @@ static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
         return 0u;
     }
     map_resident_data();
+    adpcm_play_active = 1u;
+    adpcm_play_frames_remaining = adpcm_voice_frame_count();
     adpcm_stream_active = 1u;
     adpcm_stream_looping = adpcm_voice_snapshot.loop ? 1u : 0u;
     adpcm_stream_index = (uint8_t)voice_index;
-    adpcm_stream_buffered_fallback = adpcm_voice_fits_buffer() ? 1u : 0u;
-    adpcm_stream_monitor_frames = VN_ADPCM_STREAM_MONITOR_FRAMES;
+    pad_edge_reset_pending = 1u;
     restore_display_after_adpcm(restore_display);
     return 1u;
 #else
@@ -1598,8 +1646,6 @@ static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice(signed int voice_index, 
     if (!adpcm_voice_fits_buffer()) return 0u;
     adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
-    adpcm_stream_buffered_fallback = 0u;
-    adpcm_stream_monitor_frames = 0u;
     if (!load_adpcm_voice(voice_index, 1u, 1u))
     {
         restore_display_after_adpcm(restore_display);
@@ -1615,15 +1661,26 @@ static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice(signed int voice_index, 
     }
     map_resident_data();
     /*
-     * Buffered one-shot playback does not need natural-completion polling.
+     * Buffered one-shot playback does not need BIOS status polling.
      * Polling ADPCM status through the end of short voices can leave the
      * EmulatorJS mednafen_pce core unable to deliver joypad edges afterward.
      */
+    adpcm_play_active = 1u;
+    adpcm_play_frames_remaining = adpcm_voice_snapshot.loop ? 0u : adpcm_voice_frame_count();
     adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
     adpcm_stream_index = (uint8_t)voice_index;
-    adpcm_stream_buffered_fallback = 0u;
-    adpcm_stream_monitor_frames = 0u;
+    if (!adpcm_voice_snapshot.loop)
+    {
+        /*
+         * Standard EmulatorJS mednafen_pce can wedge the CPU when the CD unit
+         * raises the buffered ADPCM one-shot completion IRQ. The runtime does
+         * not need that IRQ for natural voice completion, so leave it masked
+         * until the next CD/ADPCM BIOS operation explicitly re-enables it.
+         */
+        mask_buffered_adpcm_completion_irq();
+    }
+    pad_edge_reset_pending = 1u;
     restore_display_after_adpcm(restore_display);
     return 1u;
 #else
@@ -1660,54 +1717,43 @@ static void VN_BANKED_CODE stop_adpcm_voice(void)
 {
 #if defined(__PCE_CD__)
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
+    pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
     pce_cdb_adpcm_stop();
     (void)wait_adpcm_transfer_ready();
     pce_cdb_adpcm_reset();
     (void)wait_adpcm_transfer_ready();
     loaded_adpcm_valid = 0u;
+    adpcm_play_active = 0u;
+    adpcm_play_frames_remaining = 0u;
     adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
-    adpcm_stream_buffered_fallback = 0u;
-    adpcm_stream_monitor_frames = 0u;
     restore_display_after_adpcm(restore_display);
 #endif
 }
 
-static void VN_BANKED_CODE service_adpcm_streaming(void)
+static void VN_BANKED_CODE service_adpcm_playback(void)
 {
 #if defined(__PCE_CD__)
-    uint16_t status;
-    if (!adpcm_stream_active) return;
-    status = pce_cdb_adpcm_status();
-    if (adpcm_stream_monitor_frames)
-    {
-        adpcm_stream_monitor_frames--;
-        if (adpcm_stream_monitor_frames) return;
-        if ((status & ADPCM_STOPPED) && adpcm_stream_buffered_fallback)
-        {
-            adpcm_stream_active = 0u;
-            (void)play_adpcm_buffered_voice((signed int)adpcm_stream_index, (uint8_t)!pending_display_enable);
-            return;
-        }
-    }
-    if (!(status & ADPCM_STOPPED)) return;
-    if (adpcm_stream_looping)
+    if (!adpcm_play_active) return;
+    if (!adpcm_play_frames_remaining) return;
+    adpcm_play_frames_remaining--;
+    if (adpcm_play_frames_remaining) return;
+    if (adpcm_stream_active && adpcm_stream_looping)
     {
         (void)stream_adpcm_voice((signed int)adpcm_stream_index);
         return;
     }
     /*
-     * Natural one-shot/stream completion is already stopped. Issuing an extra
-     * stop/reset here is unnecessary and can leave the EmulatorJS mednafen_pce
-     * core in a state where joypad edges are no longer delivered after ADPCM.
-     * Explicit AUDIO stop still uses stop_adpcm_voice(), which performs the
-     * full hardware stop/reset sequence.
+     * Natural one-shot/stream completion is not closed with ADPCM status,
+     * stop, or reset. The EmulatorJS mednafen_pce core can stop delivering
+     * joypad edges after those natural-completion probes. Explicit AUDIO stop
+     * still uses stop_adpcm_voice(), which performs the full hardware stop/reset
+     * sequence.
      */
+    adpcm_play_active = 0u;
+    adpcm_play_frames_remaining = 0u;
     adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
-    adpcm_stream_buffered_fallback = 0u;
-    adpcm_stream_monitor_frames = 0u;
-    restore_display_after_adpcm((uint8_t)!pending_display_enable);
 #endif
 }
 
@@ -2473,10 +2519,24 @@ int main(void)
     show_scene(start_scene);
     advance_story();
     last_pad = read_pad_raw();
+#if defined(__PCE_CD__)
+    if (pad_edge_reset_pending)
+    {
+        last_pad = 0u;
+        pad_edge_reset_pending = 0u;
+    }
+#endif
 
     while (1)
     {
         pad = read_pad_raw();
+#if defined(__PCE_CD__)
+        if (pad_edge_reset_pending)
+        {
+            last_pad = 0u;
+            pad_edge_reset_pending = 0u;
+        }
+#endif
         pressed = (uint8_t)(pad & (uint8_t)~last_pad);
         if (active_choice_index >= 0)
         {
