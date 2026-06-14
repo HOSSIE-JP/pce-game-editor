@@ -152,11 +152,6 @@ const WAV_OUT_RATE_DEFAULT_BY_DRIVER = {
   PCM: '16000',
   XGM2: '13300',
 };
-const NEW_PROJECT_DEFAULT_CONFIG = {
-  title: 'MY NEW GAME',
-  author: 'YOUR NAME',
-  serial: 'GM 00000000-00',
-};
 const FORM_FIELDS_BY_TYPE = {
   PALETTE: [
     { key: 'name', label: 'シンボル名', type: 'text' },
@@ -433,10 +428,6 @@ const el = {
   btnProjectModalCancel: $('btnProjectModalCancel'),
   btnProjectModalCreate: $('btnProjectModalCreate'),
   projectSystemNameInput: $('projectSystemNameInput'),
-  projectCoreSelect: $('projectCoreSelect'),
-  projectTitleInput: $('projectTitleInput'),
-  projectAuthorInput: $('projectAuthorInput'),
-  projectSerialInput: $('projectSerialInput'),
   projectParentDirInput: $('projectParentDirInput'),
   btnProjectParentDirBrowse: $('btnProjectParentDirBrowse'),
   projectTemplateSelect: $('projectTemplateSelect'),
@@ -761,6 +752,12 @@ const pluginState = {
 };
 
 const pluginRuntime = createPluginRuntime();
+const pceAssetState = {
+  loaded: false,
+  loading: null,
+  file: '',
+  assets: [],
+};
 
 const SIDEBAR_PLUGIN_ORDER_KEY_PREFIX = 'md-editor.sidebarPluginOrder.v1';
 const LOG_VIEWER_STATE_KEY = 'md-editor.logViewerState.v1';
@@ -961,6 +958,106 @@ function listPluginCapabilities() {
   return listRuntimeCapabilities(pluginRuntime, isPluginFeatureEnabled);
 }
 
+function emitPluginRuntimeEvent(eventName, detail = {}) {
+  const type = String(eventName || '').trim();
+  if (!type) return;
+  pluginRuntime.eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
+}
+
+function clonePceAssetResult(extra = {}) {
+  return {
+    ok: true,
+    file: pceAssetState.file,
+    ...extra,
+    assets: pceAssetState.assets.slice(),
+  };
+}
+
+function updatePceAssetCache(result = {}) {
+  if (!result?.ok || !Array.isArray(result.assets)) return result;
+  pceAssetState.loaded = true;
+  pceAssetState.loading = null;
+  pceAssetState.file = result.file || pceAssetState.file || '';
+  pceAssetState.assets = result.assets.slice();
+  return result;
+}
+
+function resetPceAssetCache() {
+  pceAssetState.loaded = false;
+  pceAssetState.loading = null;
+  pceAssetState.file = '';
+  pceAssetState.assets = [];
+}
+
+async function listPceAssets(options = {}) {
+  const force = Boolean(options.force);
+  if (!force && pceAssetState.loaded) return clonePceAssetResult();
+  if (!force && pceAssetState.loading) return pceAssetState.loading;
+  const request = window.electronAPI.listAssets()
+    .then((result) => updatePceAssetCache(result))
+    .finally(() => {
+      pceAssetState.loading = null;
+    });
+  pceAssetState.loading = request;
+  return request;
+}
+
+function emitPceAssetsChanged(action, result = {}, detail = {}) {
+  emitPluginRuntimeEvent('assets:pce:changed', {
+    action,
+    file: result.file || pceAssetState.file,
+    assets: Array.isArray(result.assets) ? result.assets.slice() : pceAssetState.assets.slice(),
+    ...detail,
+  });
+}
+
+async function mutatePceAssets(action, request, detail = {}) {
+  const result = await request;
+  if (result?.ok) {
+    updatePceAssetCache(result);
+    emitPceAssetsChanged(action, result, detail);
+  }
+  return result;
+}
+
+function getPluginIdForPage(pageId) {
+  const button = Array.from(document.querySelectorAll('.nav-btn[data-page]'))
+    .find((btn) => btn.dataset.page === pageId);
+  return button?.dataset?.pluginId || '';
+}
+
+function createPceAssetApi() {
+  return {
+    listPceAssets,
+    upsertPceAsset: (asset) => mutatePceAssets(
+      'upsert',
+      window.electronAPI.upsertAsset(asset || {}),
+      { assetId: asset?.id || '' },
+    ),
+    deletePceAsset: (id) => mutatePceAssets(
+      'delete',
+      window.electronAPI.deleteAsset(id),
+      { assetId: String(id || '') },
+    ),
+    importPceImage: (payload) => mutatePceAssets(
+      'import-image',
+      window.electronAPI.importAssetImage(payload || {}),
+      { assetId: payload?.id || '', kind: payload?.kind || payload?.type || 'background' },
+    ),
+    importPceAudio: (payload) => mutatePceAssets(
+      'import-audio',
+      window.electronAPI.importAssetAudio(payload || {}),
+      { assetId: payload?.id || '', kind: payload?.kind || payload?.type || 'adpcm' },
+    ),
+    reorderPceAssets: (ids) => mutatePceAssets(
+      'reorder',
+      window.electronAPI.reorderAssets(ids || []),
+      { ids: Array.isArray(ids) ? ids.slice() : [] },
+    ),
+    previewPceAssetSource: (relativePath) => window.electronAPI.previewAssetSource(relativePath),
+  };
+}
+
 function getAssetTypeInfo(file = {}) {
   const providers = getPluginCapabilities('asset-type-provider');
   for (const provider of providers) {
@@ -1109,6 +1206,7 @@ function createPluginHostApi(plugin, roots = {}) {
       invokeHook: (id, hook, payload) => window.electronAPI.invokePluginHook(id, hook, payload),
     },
     assets: {
+      ...createPceAssetApi(),
       reloadResources: async (options = {}) => {
         if (isLegacyRescompAvailable()) {
           await loadResDefinitions({ keepSelection: options.keepSelection !== false });
@@ -2122,6 +2220,10 @@ function switchPage(page) {
   document.querySelectorAll('.editor-page').forEach((sec) => {
     sec.classList.toggle('active', sec.id === `page-${next}`);
   });
+  emitPluginRuntimeEvent('page:activated', {
+    pageId: next,
+    pluginId: getPluginIdForPage(next),
+  });
   if (next === 'code') {
     void loadCodeTree(undefined, { refreshOnly: state.code.dirty });
   }
@@ -3111,9 +3213,9 @@ function collectAndValidateSettings({ showError = true } = {}) {
       },
     };
   }
-  const title = el.settingTitle.value.trim();
-  const author = el.settingAuthor.value.trim();
-  const serial = el.settingSerial.value.trim().toUpperCase();
+  const title = el.settingTitle?.value.trim() || state.projectConfig.title || 'MY GAME';
+  const author = el.settingAuthor?.value.trim() || state.projectConfig.author || 'AUTHOR';
+  const serial = (el.settingSerial?.value.trim() || state.projectConfig.serial || 'GM 00000000-00').toUpperCase();
 
   const errors = {
     title: validateTitle(title),
@@ -3217,6 +3319,7 @@ async function loadPluginCatalogForProjectCreation() {
 function resetProjectScopedPluginUiState() {
   state.startup.selectedDefaultSidebarPage = false;
   state.currentPage = 'plugins';
+  resetPceAssetCache();
   pluginState.plugins = [];
   pluginState.generating = {};
   pluginState.activeRoles = {};
@@ -3606,7 +3709,7 @@ async function openTestPlay() {
     return;
   }
   appendLog('emulator', 'テストプレイ起動を開始します');
-  appendLog('emulator', '最新のプロジェクト設定を ROM ヘッダーへ反映するため、Test Play 前に差分ビルドします');
+  appendLog('emulator', '最新のプロジェクト設定と生成物を反映するため、Test Play 前に差分ビルドします');
   const buildResult = await runBuild({ skipClean: true });
   if (!buildResult?.success) {
     appendLog('emulator', `テストプレイを中止しました: ${buildResult?.error || 'ビルド失敗'}`, 'warn');
@@ -8048,25 +8151,9 @@ function openProjectModal() {
     el.projectParentDirInput.value = state.project.newProjectParentDir || '';
     el.projectParentDirInput.title = state.project.newProjectParentDir || '';
   }
-  populateProjectCoreSelect();
-  if (el.projectSystemNameInput) el.projectSystemNameInput.value = getActiveCoreId() === 'pc-engine' ? 'my_pce_game' : 'my_md_game';
-  if (el.projectTitleInput) el.projectTitleInput.value = NEW_PROJECT_DEFAULT_CONFIG.title;
-  if (el.projectAuthorInput) el.projectAuthorInput.value = NEW_PROJECT_DEFAULT_CONFIG.author;
-  if (el.projectSerialInput) el.projectSerialInput.value = NEW_PROJECT_DEFAULT_CONFIG.serial;
+  if (el.projectSystemNameInput) el.projectSystemNameInput.value = 'my_pce_game';
   populateProjectTemplateSelect();
   openModal(el.projectModal);
-}
-
-function populateProjectCoreSelect() {
-  if (!el.projectCoreSelect) return;
-  const cores = Array.isArray(state.project.cores) && state.project.cores.length > 0
-    ? state.project.cores
-    : [{ id: 'pc-engine', name: 'PC Engine' }];
-  el.projectCoreSelect.innerHTML = cores.map((core) => (
-    `<option value="${escHtml(core.id)}">${escHtml(core.name || core.id)}</option>`
-  )).join('');
-  state.projectConfig.coreId = normalizeProjectCoreId(state.projectConfig.coreId);
-  el.projectCoreSelect.value = state.projectConfig.coreId;
 }
 
 function getProjectTemplateMediaLabel(template) {
@@ -8085,7 +8172,7 @@ function getBuilderPluginDisplayName(builderId) {
 
 function populateProjectTemplateSelect() {
   if (!el.projectTemplateSelect) return;
-  const selectedCore = String(el.projectCoreSelect?.value || getActiveCoreId());
+  const selectedCore = 'pc-engine';
   const templates = Array.isArray(state.project.templates) ? state.project.templates : [];
   const options = ['<option value="">空のプロジェクト</option>'];
   templates.filter((template) => !template.coreId || template.coreId === selectedCore).forEach((template) => {
@@ -8136,22 +8223,18 @@ async function submitProjectModal() {
     if (el.settingsSavedMsg) el.settingsSavedMsg.textContent = 'プロジェクトフォルダ名を入力してください。';
     return;
   }
-  const coreId = normalizeProjectCoreId(el.projectCoreSelect?.value || state.projectConfig.coreId);
+  const coreId = 'pc-engine';
+  const projectTitle = projectName;
   const payload = {
     projectName,
     parentDir: el.projectParentDirInput?.value.trim() || state.project.projectsRootDir || '',
     templateId: String(el.projectTemplateSelect?.value || '').trim(),
     config: {
       coreId,
-      platform: coreId === 'pc-engine' ? 'pce' : 'md',
-      title: el.projectTitleInput?.value.trim() || NEW_PROJECT_DEFAULT_CONFIG.title,
-      author: el.projectAuthorInput?.value.trim() || NEW_PROJECT_DEFAULT_CONFIG.author,
-      serial: (el.projectSerialInput?.value.trim() || NEW_PROJECT_DEFAULT_CONFIG.serial).toUpperCase(),
-      region: 'JUE',
-      ...(coreId === 'pc-engine' ? {
-        romName: el.projectTitleInput?.value.trim() || projectName,
-        toolchain: 'llvm-mos',
-      } : {}),
+      platform: 'pce',
+      title: projectTitle,
+      romName: projectTitle,
+      toolchain: 'llvm-mos',
     },
   };
   const result = await window.electronAPI.createNewProject(payload);
@@ -8648,14 +8731,6 @@ function bindEvents() {
   });
   el.btnProjectParentDirBrowse?.addEventListener('click', chooseProjectParentDirectory);
   el.projectTemplateSelect?.addEventListener('change', updateProjectTemplateHint);
-  el.projectCoreSelect?.addEventListener('change', () => {
-    const coreId = normalizeProjectCoreId(el.projectCoreSelect.value);
-    state.projectConfig.coreId = coreId;
-    if (el.projectSystemNameInput) {
-      el.projectSystemNameInput.value = coreId === 'pc-engine' ? 'my_pce_game' : 'my_md_game';
-    }
-    populateProjectTemplateSelect();
-  });
   el.btnProjectModalCreate?.addEventListener('click', submitProjectModal);
   el.btnProjectPickerOpenFolder?.addEventListener('click', openProjectFolderFromDialog);
   el.btnProjectPickerNew?.addEventListener('click', () => {

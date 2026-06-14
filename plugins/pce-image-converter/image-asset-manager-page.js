@@ -43,6 +43,49 @@ function sourceBasename(source = '') {
   return String(source || '').split(/[\\/]/).pop() || '';
 }
 
+function assetNameParts(asset = {}) {
+  const label = String(asset.name || asset.id || '').trim();
+  const parts = label.split('/').map((part) => part.trim()).filter(Boolean);
+  return parts.length ? parts : [label || asset.id || ''];
+}
+
+function assetDisplayName(asset = {}) {
+  const parts = assetNameParts(asset);
+  return parts[parts.length - 1] || asset.id || '';
+}
+
+function assetGroupParts(asset = {}) {
+  const parts = assetNameParts(asset);
+  return parts.slice(0, -1);
+}
+
+function assetFullName(asset = {}) {
+  return assetNameParts(asset).join('/');
+}
+
+function compareText(left, right) {
+  return String(left ?? '').localeCompare(String(right ?? ''), 'ja', { numeric: true, sensitivity: 'base' });
+}
+
+function compareSortValues(left, right) {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    const leftList = Array.isArray(left) ? left : [left];
+    const rightList = Array.isArray(right) ? right : [right];
+    const length = Math.max(leftList.length, rightList.length);
+    for (let index = 0; index < length; index += 1) {
+      const result = compareSortValues(leftList[index], rightList[index]);
+      if (result) return result;
+    }
+    return 0;
+  }
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
+    return leftNumber - rightNumber;
+  }
+  return compareText(left, right);
+}
+
 function imageKind(asset = {}) {
   return asset.type === 'sprite' || asset.options?.kind === 'sprite' ? 'sprite' : 'background';
 }
@@ -217,11 +260,11 @@ export function createImageAssetManagerPlugin(config = {}) {
             <table class="pce-image-manager-table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Size</th>
-                  <th>Tiles</th>
-                  <th>Pal</th>
-                  <th>Source</th>
+                  <th><button class="pce-image-manager-sort" type="button" data-sort-key="name">Name <span data-sort-indicator></span></button></th>
+                  <th><button class="pce-image-manager-sort" type="button" data-sort-key="id">ID <span data-sort-indicator></span></button></th>
+                  <th><button class="pce-image-manager-sort" type="button" data-sort-key="size">Size <span data-sort-indicator></span></button></th>
+                  <th><button class="pce-image-manager-sort" type="button" data-sort-key="tiles">Tiles <span data-sort-indicator></span></button></th>
+                  <th><button class="pce-image-manager-sort" type="button" data-sort-key="source">Source <span data-sort-indicator></span></button></th>
                   <th class="pce-image-manager-row-actions"></th>
                 </tr>
               </thead>
@@ -233,6 +276,8 @@ export function createImageAssetManagerPlugin(config = {}) {
           <div class="form-error pce-image-manager-status" data-role="status"></div>
         </section>
 
+        <div class="pce-image-manager-resizer" data-role="pane-resizer" role="separator" aria-orientation="vertical" aria-label="一覧と詳細の幅を変更"></div>
+
         <aside class="pce-image-manager-detail-panel">
           <div class="asset-no-selection-hint" data-role="empty-detail">アセットを選択してください</div>
           <form class="settings-form compact-form pce-image-manager-form" data-role="form" hidden>
@@ -241,7 +286,6 @@ export function createImageAssetManagerPlugin(config = {}) {
                 <h2 data-role="detail-title">${esc(title)}</h2>
                 <code data-role="detail-source"></code>
               </div>
-              <button class="icon-btn" type="button" data-action="preview" title="プレビュー" aria-label="プレビュー">▶</button>
             </div>
             <div class="image-preview-frame pce-image-manager-preview">
               <img data-role="preview" alt="PCE image preview" hidden />
@@ -256,10 +300,6 @@ export function createImageAssetManagerPlugin(config = {}) {
               <label class="form-group">
                 <span class="form-label">Name</span>
                 <input class="form-input" name="name" />
-              </label>
-              <label class="form-group">
-                <span class="form-label">Palette bank</span>
-                <input class="form-input" name="paletteBank" type="number" min="0" max="15" />
               </label>
               ${kind === 'sprite' ? `
                 <label class="form-group">
@@ -282,21 +322,9 @@ export function createImageAssetManagerPlugin(config = {}) {
                 </label>
               ` : ''}
               ${kind === 'sprite' ? '' : `
-                <input name="tileBase" type="hidden" value="${PCE_BG_AUTO_TILE_BASE}" />
-                <input name="mapBase" type="hidden" value="${PCE_BG_AUTO_MAP_BASE}" />
+                  <input name="tileBase" type="hidden" value="${PCE_BG_AUTO_TILE_BASE}" />
+                  <input name="mapBase" type="hidden" value="${PCE_BG_AUTO_MAP_BASE}" />
               `}
-              <label class="form-group">
-                <span class="form-label">Width</span>
-                <input class="form-input" name="width" type="number" min="8" max="1024" step="8" />
-              </label>
-              <label class="form-group">
-                <span class="form-label">Height</span>
-                <input class="form-input" name="height" type="number" min="8" max="1024" step="8" />
-              </label>
-              <label class="form-group">
-                <span class="form-label">Transparent index</span>
-                <input class="form-input" name="transparentIndex" type="number" min="0" max="15" />
-              </label>
             </div>
             <div class="pce-image-manager-animation-editor" data-role="animation-editor" hidden></div>
             <div class="pce-image-manager-stats" data-role="stats"></div>
@@ -313,6 +341,9 @@ export function createImageAssetManagerPlugin(config = {}) {
       </div>
     `;
 
+    const layoutEl = root.querySelector('.pce-image-manager-layout');
+    const listPanelEl = root.querySelector('.pce-image-manager-list-panel');
+    const paneResizerEl = root.querySelector('[data-role="pane-resizer"]');
     const rowsEl = root.querySelector('[data-role="rows"]');
     const summaryEl = root.querySelector('[data-role="summary"]');
     const statusEl = root.querySelector('[data-role="status"]');
@@ -335,6 +366,7 @@ export function createImageAssetManagerPlugin(config = {}) {
     let selectedId = '';
     let importBusy = false;
     let previewLoadToken = 0;
+    let sortState = { key: 'name', direction: 'asc' };
     const spritePreviewState = {
       image: null,
       assetId: '',
@@ -343,10 +375,203 @@ export function createImageAssetManagerPlugin(config = {}) {
       playing: false,
       timer: 0,
     };
+    const previewViewportState = {
+      scale: 1,
+      offsetX: 0,
+      offsetY: 0,
+      panning: false,
+      pointerId: 0,
+      startX: 0,
+      startY: 0,
+      startOffsetX: 0,
+      startOffsetY: 0,
+    };
+    const assetApi = api.assets || {};
+
+    const listPceAssets = (options = {}) => assetApi.listPceAssets
+      ? assetApi.listPceAssets(options)
+      : api.electronAPI.listAssets();
+    const upsertPceAsset = (asset) => assetApi.upsertPceAsset
+      ? assetApi.upsertPceAsset(asset)
+      : api.electronAPI.upsertAsset(asset);
+    const deletePceAsset = (assetId) => assetApi.deletePceAsset
+      ? assetApi.deletePceAsset(assetId)
+      : api.electronAPI.deleteAsset(assetId);
+    const importPceImage = (payload) => assetApi.importPceImage
+      ? assetApi.importPceImage(payload)
+      : api.electronAPI.importAssetImage(payload);
+    const previewPceAssetSource = (relativePath) => assetApi.previewPceAssetSource
+      ? assetApi.previewPceAssetSource(relativePath)
+      : api.electronAPI.previewAssetSource(relativePath);
 
     function setStatus(message = '', type = '') {
       statusEl.textContent = message;
       statusEl.dataset.kind = type;
+    }
+
+    function previewTargets() {
+      return [previewEl, spritePreviewEl].filter(Boolean);
+    }
+
+    function hasVisiblePreview() {
+      return Boolean((previewEl && !previewEl.hidden) || (spritePreviewEl && !spritePreviewEl.hidden));
+    }
+
+    function applyPreviewViewport() {
+      const transform = `translate(${previewViewportState.offsetX}px, ${previewViewportState.offsetY}px) scale(${previewViewportState.scale})`;
+      previewTargets().forEach((target) => {
+        target.style.transform = transform;
+      });
+      previewFrameEl?.classList.toggle('is-zoomed', previewViewportState.scale > 1.001);
+    }
+
+    function resetPreviewViewport() {
+      previewViewportState.scale = 1;
+      previewViewportState.offsetX = 0;
+      previewViewportState.offsetY = 0;
+      previewViewportState.panning = false;
+      previewFrameEl?.classList.remove('is-panning');
+      applyPreviewViewport();
+    }
+
+    function zoomPreview(event) {
+      if (!hasVisiblePreview()) return;
+      event.preventDefault();
+      const rect = previewFrameEl.getBoundingClientRect();
+      const oldScale = previewViewportState.scale;
+      const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const nextScale = Math.max(1, Math.min(16, oldScale * factor));
+      if (Math.abs(nextScale - oldScale) < 0.001) return;
+      const pointerX = event.clientX - rect.left - (rect.width / 2);
+      const pointerY = event.clientY - rect.top - (rect.height / 2);
+      const ratio = nextScale / oldScale;
+      previewViewportState.offsetX = pointerX - ((pointerX - previewViewportState.offsetX) * ratio);
+      previewViewportState.offsetY = pointerY - ((pointerY - previewViewportState.offsetY) * ratio);
+      previewViewportState.scale = nextScale;
+      applyPreviewViewport();
+    }
+
+    function beginPreviewPan(event) {
+      if (event.button !== 1 || !hasVisiblePreview()) return;
+      event.preventDefault();
+      previewViewportState.panning = true;
+      previewViewportState.pointerId = event.pointerId;
+      previewViewportState.startX = event.clientX;
+      previewViewportState.startY = event.clientY;
+      previewViewportState.startOffsetX = previewViewportState.offsetX;
+      previewViewportState.startOffsetY = previewViewportState.offsetY;
+      previewFrameEl.classList.add('is-panning');
+      previewFrameEl.setPointerCapture?.(event.pointerId);
+    }
+
+    function movePreviewPan(event) {
+      if (!previewViewportState.panning || event.pointerId !== previewViewportState.pointerId) return;
+      event.preventDefault();
+      previewViewportState.offsetX = previewViewportState.startOffsetX + (event.clientX - previewViewportState.startX);
+      previewViewportState.offsetY = previewViewportState.startOffsetY + (event.clientY - previewViewportState.startY);
+      applyPreviewViewport();
+    }
+
+    function endPreviewPan(event) {
+      if (!previewViewportState.panning || event.pointerId !== previewViewportState.pointerId) return;
+      previewViewportState.panning = false;
+      previewFrameEl.classList.remove('is-panning');
+      previewFrameEl.releasePointerCapture?.(event.pointerId);
+    }
+
+    function setupInteractivePreview() {
+      if (!previewFrameEl) return () => {};
+      const preventMiddleClick = (event) => {
+        if (event.button === 1) event.preventDefault();
+      };
+      previewFrameEl.addEventListener('wheel', zoomPreview, { passive: false });
+      previewFrameEl.addEventListener('pointerdown', beginPreviewPan);
+      previewFrameEl.addEventListener('pointermove', movePreviewPan);
+      previewFrameEl.addEventListener('pointerup', endPreviewPan);
+      previewFrameEl.addEventListener('pointercancel', endPreviewPan);
+      previewFrameEl.addEventListener('auxclick', preventMiddleClick);
+      return () => {
+        previewFrameEl.removeEventListener('wheel', zoomPreview);
+        previewFrameEl.removeEventListener('pointerdown', beginPreviewPan);
+        previewFrameEl.removeEventListener('pointermove', movePreviewPan);
+        previewFrameEl.removeEventListener('pointerup', endPreviewPan);
+        previewFrameEl.removeEventListener('pointercancel', endPreviewPan);
+        previewFrameEl.removeEventListener('auxclick', preventMiddleClick);
+      };
+    }
+
+    function setupPaneResizer() {
+      if (!layoutEl || !listPanelEl || !paneResizerEl) return () => {};
+      const storageKey = `pce-image-manager.${kind}.listWidth.v1`;
+      const resizerWidth = 6;
+      const minListWidth = 280;
+      const minDetailWidth = 300;
+
+      function clampListWidth(width) {
+        const total = layoutEl.getBoundingClientRect().width || 0;
+        const maxWidth = total > 0
+          ? Math.max(minListWidth, total - minDetailWidth - resizerWidth)
+          : Math.max(minListWidth, Number(width) || minListWidth);
+        return Math.max(minListWidth, Math.min(maxWidth, Number(width) || minListWidth));
+      }
+
+      function applyListWidth(width, persist = false) {
+        const nextWidth = clampListWidth(width);
+        layoutEl.style.gridTemplateColumns = `${nextWidth}px ${resizerWidth}px minmax(${minDetailWidth}px, 1fr)`;
+        if (persist) {
+          try {
+            window.localStorage?.setItem(storageKey, String(Math.round(nextWidth)));
+          } catch (_err) {
+            // localStorage may be unavailable in tests or hardened runtimes.
+          }
+        }
+      }
+
+      try {
+        const saved = Number(window.localStorage?.getItem(storageKey));
+        if (Number.isFinite(saved) && saved > 0) {
+          window.requestAnimationFrame(() => applyListWidth(saved));
+        }
+      } catch (_err) {
+        // ignore storage read errors
+      }
+
+      let resizeState = null;
+      const move = (event) => {
+        if (!resizeState || event.pointerId !== resizeState.pointerId) return;
+        event.preventDefault();
+        applyListWidth(resizeState.startWidth + (event.clientX - resizeState.startX));
+      };
+      const finish = (event) => {
+        if (!resizeState || event.pointerId !== resizeState.pointerId) return;
+        event.preventDefault();
+        applyListWidth(resizeState.startWidth + (event.clientX - resizeState.startX), true);
+        resizeState = null;
+        paneResizerEl.classList.remove('is-dragging');
+        paneResizerEl.releasePointerCapture?.(event.pointerId);
+      };
+      const begin = (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        resizeState = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startWidth: listPanelEl.getBoundingClientRect().width,
+        };
+        paneResizerEl.classList.add('is-dragging');
+        paneResizerEl.setPointerCapture?.(event.pointerId);
+      };
+
+      paneResizerEl.addEventListener('pointerdown', begin);
+      paneResizerEl.addEventListener('pointermove', move);
+      paneResizerEl.addEventListener('pointerup', finish);
+      paneResizerEl.addEventListener('pointercancel', finish);
+      return () => {
+        paneResizerEl.removeEventListener('pointerdown', begin);
+        paneResizerEl.removeEventListener('pointermove', move);
+        paneResizerEl.removeEventListener('pointerup', finish);
+        paneResizerEl.removeEventListener('pointercancel', finish);
+      };
     }
 
     function managedAssets() {
@@ -357,6 +582,73 @@ export function createImageAssetManagerPlugin(config = {}) {
           : entry.asset.type === 'image' && imageKind(entry.asset) === 'background')
         .sort((a, b) => a.index - b.index || a.asset.id.localeCompare(b.asset.id, 'ja'))
         .map((entry) => entry.asset);
+    }
+
+    function imageSortValue(asset, key, index = 0) {
+      const generated = generatedInfo(asset);
+      const options = asset.options || {};
+      const width = options.width || generated.width || 0;
+      const height = options.height || generated.height || 0;
+      switch (key) {
+        case 'id': return asset.id || '';
+        case 'size': return [width, height];
+        case 'tiles': return generated.tileCount || 0;
+        case 'source': return asset.source || '';
+        case 'order': return index;
+        case 'name':
+        default:
+          return assetFullName(asset);
+      }
+    }
+
+    function sortedManagedAssets() {
+      const direction = sortState.direction === 'desc' ? -1 : 1;
+      return managedAssets()
+        .map((asset, index) => ({ asset, index }))
+        .sort((left, right) => {
+          const primary = compareSortValues(
+            imageSortValue(left.asset, sortState.key, left.index),
+            imageSortValue(right.asset, sortState.key, right.index),
+          );
+          if (primary) return primary * direction;
+          return left.index - right.index || compareText(left.asset.id, right.asset.id);
+        })
+        .map((entry) => entry.asset);
+    }
+
+    function updateSortHeaders() {
+      root.querySelectorAll('[data-sort-key]').forEach((button) => {
+        const active = button.dataset.sortKey === sortState.key;
+        button.dataset.sortDirection = active ? sortState.direction : '';
+        button.setAttribute('aria-sort', active ? (sortState.direction === 'desc' ? 'descending' : 'ascending') : 'none');
+        const indicator = button.querySelector('[data-sort-indicator]');
+        if (indicator) indicator.textContent = active ? (sortState.direction === 'desc' ? '▼' : '▲') : '↕';
+      });
+    }
+
+    function renderGroupedRows(list, colSpan, rowRenderer) {
+      let previousGroup = [];
+      return list.map((asset) => {
+        const group = assetGroupParts(asset);
+        let shared = 0;
+        while (shared < previousGroup.length && shared < group.length && previousGroup[shared] === group[shared]) {
+          shared += 1;
+        }
+        let html = '';
+        for (let depth = shared; depth < group.length; depth += 1) {
+          const path = group.slice(0, depth + 1).join(' / ');
+          html += `
+            <tr class="pce-image-manager-group-row">
+              <td colspan="${colSpan}" style="--asset-group-indent:${depth * 14}px">
+                <span>${esc(group[depth])}</span>
+                <code>${esc(path)}</code>
+              </td>
+            </tr>
+          `;
+        }
+        previousGroup = group;
+        return html + rowRenderer(asset);
+      });
     }
 
     function selectedAsset() {
@@ -373,6 +665,7 @@ export function createImageAssetManagerPlugin(config = {}) {
     function clearPreview() {
       previewLoadToken += 1;
       stopSpritePlayback();
+      resetPreviewViewport();
       previewEl.removeAttribute('src');
       previewEl.hidden = true;
       spritePreviewEl.hidden = true;
@@ -407,12 +700,13 @@ export function createImageAssetManagerPlugin(config = {}) {
       const [cellWidth, cellHeight] = String(formEl.elements.cellSize?.value || `${current.options?.cellWidth || 16}x${current.options?.cellHeight || 16}`)
         .split('x')
         .map((value) => asNumber(value, 16));
+      const generated = generatedInfo(current);
       return {
         ...current,
         options: {
           ...(current.options || {}),
-          width: clampInt(formEl.elements.width?.value, 0, 1024, current.options?.width || defaultWidth),
-          height: clampInt(formEl.elements.height?.value, 0, 1024, current.options?.height || defaultHeight),
+          width: current.options?.width || generated.width || defaultWidth,
+          height: current.options?.height || generated.height || defaultHeight,
           cellWidth,
           cellHeight,
           animations: collectAnimationRows(),
@@ -476,6 +770,7 @@ export function createImageAssetManagerPlugin(config = {}) {
         spritePreviewEl.width,
         spritePreviewEl.height,
       );
+      applyPreviewViewport();
       syncAnimationSelection();
     }
 
@@ -520,7 +815,7 @@ export function createImageAssetManagerPlugin(config = {}) {
       clearPreview();
       if (!asset?.source) return;
       const token = previewLoadToken;
-      const result = await api.electronAPI.previewAssetSource(asset.source);
+      const result = await previewPceAssetSource(asset.source);
       if (token !== previewLoadToken) return;
       if (!result?.ok || !result.dataUrl) {
         formErrorEl.textContent = result?.error || 'プレビューを取得できませんでした';
@@ -547,6 +842,7 @@ export function createImageAssetManagerPlugin(config = {}) {
       previewEl.hidden = false;
       spritePreviewEl.hidden = true;
       noPreviewEl.hidden = true;
+      applyPreviewViewport();
     }
 
     function renderGenerated(asset) {
@@ -677,7 +973,6 @@ export function createImageAssetManagerPlugin(config = {}) {
       sourceEl.textContent = asset.source || '';
       formEl.elements.id.value = asset.id || '';
       formEl.elements.name.value = asset.name || asset.id || '';
-      formEl.elements.paletteBank.value = assetOptions.paletteBank ?? 0;
       if (kind === 'sprite') {
         formEl.elements.tileBase.value = assetOptions.tileBase ?? defaultTileBase;
         formEl.elements.x.value = assetOptions.x ?? 144;
@@ -687,9 +982,6 @@ export function createImageAssetManagerPlugin(config = {}) {
         formEl.elements.tileBase.value = PCE_BG_AUTO_TILE_BASE;
         formEl.elements.mapBase.value = PCE_BG_AUTO_MAP_BASE;
       }
-      formEl.elements.width.value = assetOptions.width || generated.width || defaultWidth;
-      formEl.elements.height.value = assetOptions.height || generated.height || defaultHeight;
-      formEl.elements.transparentIndex.value = assetOptions.transparentIndex ?? 0;
       renderAnimationEditor(asset);
       renderGenerated(asset);
       if (options.preview !== false) void loadPreview(asset);
@@ -702,24 +994,24 @@ export function createImageAssetManagerPlugin(config = {}) {
     }
 
     function renderRows() {
-      const list = managedAssets();
+      const list = sortedManagedAssets();
       summaryEl.textContent = `${list.length} ${summaryLabel}`;
+      updateSortHeaders();
       if (!list.length) {
         rowsEl.innerHTML = '<tr><td colspan="6" class="pce-image-manager-empty">アセットがありません</td></tr>';
         return;
       }
-      rowsEl.innerHTML = list.map((asset) => {
+      rowsEl.innerHTML = renderGroupedRows(list, 6, (asset) => {
         const generated = generatedInfo(asset);
         const warnings = [...(generated.warnings || []), asset.pathError].filter(Boolean);
         return `
           <tr class="pce-image-manager-row ${asset.id === selectedId ? 'active' : ''}" data-id="${esc(asset.id)}">
-            <td><span>${esc(asset.name || asset.id)}</span><code>${esc(asset.id)}</code></td>
+            <td class="pce-image-manager-name-cell"><span>${esc(assetDisplayName(asset))}</span></td>
+            <td class="pce-image-manager-id-cell"><code>${esc(asset.id)}</code></td>
             <td>${esc(formatSize(asset))}</td>
             <td>${esc(generated.tileCount || 0)}</td>
-            <td>${esc(generated.paletteCount || 0)}</td>
             <td><code>${esc(asset.source || '')}</code>${warnings.length ? `<div class="asset-warning">${warnings.length}</div>` : ''}</td>
             <td class="pce-image-manager-row-actions">
-              <button class="icon-btn-xs" type="button" data-row-preview="${esc(asset.id)}" title="プレビュー" aria-label="プレビュー">▶</button>
               <button class="icon-btn-xs" type="button" data-row-delete="${esc(asset.id)}" title="削除" aria-label="削除">✕</button>
             </td>
           </tr>
@@ -731,12 +1023,6 @@ export function createImageAssetManagerPlugin(config = {}) {
           selectAsset(row.dataset.id || '');
         });
       });
-      rowsEl.querySelectorAll('[data-row-preview]').forEach((button) => {
-        button.addEventListener('click', (event) => {
-          event.stopPropagation();
-          selectAsset(button.dataset.rowPreview || '', { preview: true });
-        });
-      });
       rowsEl.querySelectorAll('[data-row-delete]').forEach((button) => {
         button.addEventListener('click', (event) => {
           event.stopPropagation();
@@ -745,8 +1031,8 @@ export function createImageAssetManagerPlugin(config = {}) {
       });
     }
 
-    async function reload() {
-      const result = await api.electronAPI.listAssets();
+    async function reload(options = {}) {
+      const result = await listPceAssets({ force: Boolean(options.force) });
       if (!result?.ok) {
         rowsEl.innerHTML = `<tr><td colspan="6" class="pce-image-manager-empty">${esc(result?.error || 'PCE assets を読み込めません')}</td></tr>`;
         return;
@@ -756,7 +1042,32 @@ export function createImageAssetManagerPlugin(config = {}) {
       if (selectedId && !list.some((asset) => asset.id === selectedId)) selectedId = '';
       if (!selectedId && list.length) selectedId = list[0].id;
       renderRows();
-      fillForm(selectedAsset(), { preview: false });
+      fillForm(selectedAsset(), { preview: options.preview !== false });
+    }
+
+    function isPluginPageActive() {
+      const page = root.closest?.('.editor-page');
+      return page ? page.classList.contains('active') : !root.hidden;
+    }
+
+    function setupAssetRefreshEvents() {
+      let queued = false;
+      const queueReload = () => {
+        if (queued) return;
+        queued = true;
+        window.setTimeout(() => {
+          queued = false;
+          if (isPluginPageActive()) void reload({ force: true });
+        }, 0);
+      };
+      const offChanged = api.events?.on?.('assets:pce:changed', queueReload) || (() => {});
+      const offActivated = api.events?.on?.('page:activated', () => {
+        if (isPluginPageActive()) queueReload();
+      }) || (() => {});
+      return () => {
+        offChanged();
+        offActivated();
+      };
     }
 
     function collectFormAsset() {
@@ -774,16 +1085,12 @@ export function createImageAssetManagerPlugin(config = {}) {
         options: {
           ...(current.options || {}),
           kind,
-          paletteBank: clampInt(formEl.elements.paletteBank.value, 0, 15, 0),
           tileBase: kind === 'sprite' ? clampInt(formEl.elements.tileBase.value, 0, 2047, defaultTileBase) : PCE_BG_AUTO_TILE_BASE,
           mapBase: PCE_BG_AUTO_MAP_BASE,
           x: kind === 'sprite' ? clampInt(formEl.elements.x.value, 0, 255, 144) : 0,
           y: kind === 'sprite' ? clampInt(formEl.elements.y.value, 0, 255, 104) : 0,
-          width: clampInt(formEl.elements.width.value, 0, 1024, defaultWidth),
-          height: clampInt(formEl.elements.height.value, 0, 1024, defaultHeight),
           cellWidth,
           cellHeight,
-          transparentIndex: clampInt(formEl.elements.transparentIndex.value, 0, 15, 0),
           ...(kind === 'sprite' ? { animations: collectAnimationRows() } : {}),
         },
       };
@@ -799,14 +1106,14 @@ export function createImageAssetManagerPlugin(config = {}) {
         formErrorEl.textContent = '同じ ID のアセットが既にあります';
         return;
       }
-      const result = await api.electronAPI.upsertAsset(asset);
+      const result = await upsertPceAsset(asset);
       if (!result?.ok) {
         formErrorEl.textContent = result?.error || '保存できませんでした';
         return;
       }
       assets = result.assets || assets;
       if (asset.id !== current.id) {
-        const deleted = await api.electronAPI.deleteAsset(current.id);
+        const deleted = await deletePceAsset(current.id);
         if (!deleted?.ok) {
           formErrorEl.textContent = deleted?.error || '旧 ID の削除に失敗しました';
           return;
@@ -854,7 +1161,7 @@ export function createImageAssetManagerPlugin(config = {}) {
       try {
         const before = managedAssets();
         const oldIndex = Math.max(0, before.findIndex((asset) => asset.id === assetId));
-        const result = await api.electronAPI.deleteAsset(assetId);
+        const result = await deletePceAsset(assetId);
         if (!result?.ok) throw new Error(result?.error || '削除できませんでした');
         assets = result.assets || assets;
         const after = managedAssets();
@@ -1086,7 +1393,7 @@ export function createImageAssetManagerPlugin(config = {}) {
         if (kind !== 'sprite' && (finalWidth % 8 !== 0 || finalHeight % 8 !== 0)) {
           throw new Error('BG image の出力サイズは8px単位にしてください');
         }
-        const result = await api.electronAPI.importAssetImage({
+        const result = await importPceImage({
           sourcePath: picked.sourcePath,
           sourceFileName: picked.fileName,
           convertedDataUrl: converted.convertedDataUrl || '',
@@ -1196,15 +1503,23 @@ export function createImageAssetManagerPlugin(config = {}) {
       }
     });
     formEl.addEventListener('change', (event) => {
-      if (kind === 'sprite' && event.target?.closest?.('[name="width"], [name="height"], [name="cellSize"]')) {
+      if (kind === 'sprite' && event.target?.closest?.('[name="cellSize"]')) {
         stopSpritePlayback();
         drawSpritePreviewFrame();
       }
     });
     formEl.addEventListener('submit', saveSelected);
+    root.querySelectorAll('[data-sort-key]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const key = button.dataset.sortKey || 'name';
+        sortState = sortState.key === key
+          ? { key, direction: sortState.direction === 'asc' ? 'desc' : 'asc' }
+          : { key, direction: 'asc' };
+        renderRows();
+      });
+    });
     root.querySelector('[data-action="add"]').addEventListener('click', () => { void importImageAsset(); });
-    root.querySelector('[data-action="refresh"]').addEventListener('click', () => { void reload(); });
-    root.querySelector('[data-action="preview"]').addEventListener('click', () => { void loadPreview(); });
+    root.querySelector('[data-action="refresh"]').addEventListener('click', () => { void reload({ force: true }); });
     root.querySelector('[data-action="delete"]').addEventListener('click', () => { void deleteAsset(); });
 
     registerCapability(capabilityName, {
@@ -1212,7 +1527,17 @@ export function createImageAssetManagerPlugin(config = {}) {
       reload,
       importImageAsset,
     });
+    const teardownAssetRefreshEvents = setupAssetRefreshEvents();
+    const teardownPaneResizer = setupPaneResizer();
+    const teardownInteractivePreview = setupInteractivePreview();
     void reload();
-    return { deactivate: clearPreview };
+    return {
+      deactivate() {
+        teardownAssetRefreshEvents();
+        teardownPaneResizer();
+        teardownInteractivePreview();
+        clearPreview();
+      },
+    };
   };
 }

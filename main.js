@@ -296,6 +296,25 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
+  // renderer / plugin が window.open() で開く補助ウィンドウ（VN プレビューなど）は
+  // メニューバーを出さない素のコンテンツウィンドウとして許可する。
+  mainWindow.webContents.setWindowOpenHandler(() => ({
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      backgroundColor: '#05070a',
+      autoHideMenuBar: true,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+      },
+    },
+  }));
+
+  mainWindow.webContents.on('did-create-window', (childWindow) => {
+    try { childWindow.removeMenu(); } catch (_) {}
+  });
+
   mainWindow.on('close', () => {
     saveMainWindowBounds(mainWindow);
   });

@@ -12,6 +12,30 @@ function defaultColors() {
   return ['#000000', '#ffffff', '#777777', '#ffcc33', '#3399ff', '#ff6699', '#33cc88', '#cc66ff', '#222222', '#555555', '#888888', '#bbbbbb', '#dd3333', '#33dd33', '#3333dd', '#eeeeee'];
 }
 
+function assetNameParts(asset = {}) {
+  const label = String(asset.name || asset.id || '').trim();
+  const parts = label.split('/').map((part) => part.trim()).filter(Boolean);
+  return parts.length ? parts : [label || asset.id || ''];
+}
+
+function assetDisplayName(asset = {}) {
+  const parts = assetNameParts(asset);
+  return parts[parts.length - 1] || asset.id || '';
+}
+
+function assetGroupParts(asset = {}) {
+  const parts = assetNameParts(asset);
+  return parts.slice(0, -1);
+}
+
+function assetFullName(asset = {}) {
+  return assetNameParts(asset).join('/');
+}
+
+function compareText(left, right) {
+  return String(left ?? '').localeCompare(String(right ?? ''), 'ja', { numeric: true, sensitivity: 'base' });
+}
+
 export function activatePlugin({ root, api, registerCapability }) {
   root.innerHTML = `
     <div class="pce-palette-editor-shell">
@@ -44,9 +68,19 @@ export function activatePlugin({ root, api, registerCapability }) {
   const error = root.querySelector('[data-error]');
   let assets = [];
   let selectedId = '';
+  const assetApi = api.assets || {};
+
+  const listPceAssets = (options = {}) => assetApi.listPceAssets
+    ? assetApi.listPceAssets(options)
+    : api.electronAPI.listAssets();
+  const upsertPceAsset = (asset) => assetApi.upsertPceAsset
+    ? assetApi.upsertPceAsset(asset)
+    : api.electronAPI.upsertAsset(asset);
 
   function paletteAssets() {
-    return assets.filter((asset) => asset.type === 'palette');
+    return assets
+      .filter((asset) => asset.type === 'palette')
+      .sort((left, right) => compareText(assetFullName(left), assetFullName(right)) || compareText(left.id, right.id));
   }
 
   function selected() {
@@ -56,12 +90,30 @@ export function activatePlugin({ root, api, registerCapability }) {
   function renderList() {
     const palettes = paletteAssets();
     listEl.innerHTML = palettes.length
-      ? palettes.map((asset) => `<button class="${asset.id === selectedId ? 'active' : ''}" type="button" data-id="${esc(asset.id)}"><strong>${esc(asset.name || asset.id)}</strong><span>${esc(asset.options?.target || 'bg')} bank ${esc(asset.options?.paletteBank ?? 0)}</span></button>`).join('')
+      ? renderGroupedList(palettes, (asset) => `<button class="${asset.id === selectedId ? 'active' : ''}" type="button" data-id="${esc(asset.id)}"><strong>${esc(assetDisplayName(asset))}</strong><code>${esc(asset.id)}</code><span>${esc(asset.options?.target || 'bg')} bank ${esc(asset.options?.paletteBank ?? 0)}</span></button>`)
       : '<p class="asset-no-selection-hint">palette アセットがありません</p>';
     listEl.querySelectorAll('[data-id]').forEach((button) => button.addEventListener('click', () => {
       selectedId = button.dataset.id;
       render();
     }));
+  }
+
+  function renderGroupedList(list, itemRenderer) {
+    let previousGroup = [];
+    return list.map((asset) => {
+      const group = assetGroupParts(asset);
+      let shared = 0;
+      while (shared < previousGroup.length && shared < group.length && previousGroup[shared] === group[shared]) {
+        shared += 1;
+      }
+      let html = '';
+      for (let depth = shared; depth < group.length; depth += 1) {
+        const path = group.slice(0, depth + 1).join(' / ');
+        html += `<div class="pce-plugin-group" style="--asset-group-indent:${depth * 14}px"><strong>${esc(group[depth])}</strong><code>${esc(path)}</code></div>`;
+      }
+      previousGroup = group;
+      return html + itemRenderer(asset);
+    }).join('');
   }
 
   function renderDerived() {
@@ -88,11 +140,36 @@ export function activatePlugin({ root, api, registerCapability }) {
     fill(selected());
   }
 
-  async function reload() {
-    const result = await api.electronAPI.listAssets();
+  async function reload(options = {}) {
+    const result = await listPceAssets({ force: Boolean(options.force) });
     assets = result?.assets || [];
     if (!paletteAssets().some((asset) => asset.id === selectedId)) selectedId = paletteAssets()[0]?.id || '';
     render();
+  }
+
+  function isPluginPageActive() {
+    const page = root.closest?.('.editor-page');
+    return page ? page.classList.contains('active') : !root.hidden;
+  }
+
+  function setupAssetRefreshEvents() {
+    let queued = false;
+    const queueReload = () => {
+      if (queued) return;
+      queued = true;
+      window.setTimeout(() => {
+        queued = false;
+        if (isPluginPageActive()) void reload({ force: true });
+      }, 0);
+    };
+    const offChanged = api.events?.on?.('assets:pce:changed', queueReload) || (() => {});
+    const offActivated = api.events?.on?.('page:activated', () => {
+      if (isPluginPageActive()) queueReload();
+    }) || (() => {});
+    return () => {
+      offChanged();
+      offActivated();
+    };
   }
 
   root.querySelector('[data-new]').addEventListener('click', () => {
@@ -106,7 +183,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     const asset = selected();
     if (!asset) return;
     const colors = Array.from(colorEl.querySelectorAll('[data-color]')).map((input) => input.value);
-    const result = await api.electronAPI.upsertAsset({
+    const result = await upsertPceAsset({
       ...asset,
       name: form.elements.name.value,
       options: {
@@ -120,9 +197,14 @@ export function activatePlugin({ root, api, registerCapability }) {
       error.textContent = result?.error || '保存できませんでした';
       return;
     }
-    await reload();
+    await reload({ force: true });
   });
   registerCapability('palette-editor', { reload });
+  const teardownAssetRefreshEvents = setupAssetRefreshEvents();
   void reload();
-  return { deactivate() {} };
+  return {
+    deactivate() {
+      teardownAssetRefreshEvents();
+    },
+  };
 }

@@ -384,21 +384,10 @@
               </div>
             </div>
             <div class="form-group">
-              <label class="form-label">タイトル</label>
+              <label class="form-label">プロジェクト表示名</label>
               <input type="text" class="form-input" id="settingTitle" value="MY GAME" maxlength="48" />
-              <p class="form-hint">PC Engine ROM ヘッダの Domestic/International Name（ASCII、最大 48 文字）</p>
+              <p class="form-hint">アプリ内表示とエクスポート候補名に使用します。PCE ROM ヘッダー情報ではありません。</p>
               <p class="form-error" id="settingTitleError"></p>
-            </div>
-            <div class="form-group">
-              <label class="form-label">作者名</label>
-              <input type="text" class="form-input" id="settingAuthor" value="AUTHOR" maxlength="16" />
-              <p class="form-error" id="settingAuthorError"></p>
-            </div>
-            <div class="form-group">
-              <label class="form-label">シリアルナンバー</label>
-              <input type="text" class="form-input form-input-mono" id="settingSerial" value="GM 00000000-00" maxlength="14" />
-              <p class="form-hint">例: GM 00000000-00（ASCII、14 文字固定）</p>
-              <p class="form-error" id="settingSerialError"></p>
             </div>
           </section>
 
@@ -677,24 +666,8 @@
             <p class="form-hint">未変更の場合は既定の projects フォルダ配下に作成します。</p>
           </div>
           <div class="form-group app-grid-span-2">
-            <label class="form-label">対象コア</label>
-            <select class="form-input" id="projectCoreSelect"></select>
-          </div>
-          <div class="form-group app-grid-span-2">
             <label class="form-label">プロジェクトフォルダ名</label>
-            <input type="text" class="form-input form-input-mono" id="projectSystemNameInput" placeholder="my_md_game" />
-          </div>
-          <div class="form-group app-grid-span-2">
-            <label class="form-label">タイトル</label>
-            <input type="text" class="form-input" id="projectTitleInput" maxlength="48" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">作者名</label>
-            <input type="text" class="form-input" id="projectAuthorInput" maxlength="16" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">シリアル</label>
-            <input type="text" class="form-input form-input-mono" id="projectSerialInput" maxlength="14" />
+            <input type="text" class="form-input form-input-mono" id="projectSystemNameInput" placeholder="my_pce_game" />
           </div>
           <div class="form-group app-grid-span-2">
             <label class="form-label">ゲームタイプ</label>

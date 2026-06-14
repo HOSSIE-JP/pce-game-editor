@@ -58,6 +58,39 @@ function sourceBasename(source = '') {
   return String(source || '').split(/[\\/]/).pop() || '';
 }
 
+function assetNameParts(asset = {}) {
+  const label = String(asset.name || asset.id || '').trim();
+  const parts = label.split('/').map((part) => part.trim()).filter(Boolean);
+  return parts.length ? parts : [label || asset.id || ''];
+}
+
+function assetDisplayName(asset = {}) {
+  const parts = assetNameParts(asset);
+  return parts[parts.length - 1] || asset.id || '';
+}
+
+function assetGroupParts(asset = {}) {
+  const parts = assetNameParts(asset);
+  return parts.slice(0, -1);
+}
+
+function assetFullName(asset = {}) {
+  return assetNameParts(asset).join('/');
+}
+
+function compareText(left, right) {
+  return String(left ?? '').localeCompare(String(right ?? ''), 'ja', { numeric: true, sensitivity: 'base' });
+}
+
+function compareSortValues(left, right) {
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
+    return leftNumber - rightNumber;
+  }
+  return compareText(left, right);
+}
+
 export function activatePlugin({ plugin, root, api, logger, registerCapability }) {
   root.innerHTML = `
     <div class="pce-cdda-layout" data-plugin-root="${esc(plugin.id)}">
@@ -77,20 +110,23 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             <thead>
               <tr>
                 <th class="pce-cdda-drag-th"></th>
-                <th>Track</th>
-                <th>Name</th>
-                <th>Time</th>
-                <th>Loop</th>
+                <th><button class="pce-cdda-sort" type="button" data-sort-key="track">Track <span data-sort-indicator></span></button></th>
+                <th><button class="pce-cdda-sort" type="button" data-sort-key="name">Name <span data-sort-indicator></span></button></th>
+                <th><button class="pce-cdda-sort" type="button" data-sort-key="id">ID <span data-sort-indicator></span></button></th>
+                <th><button class="pce-cdda-sort" type="button" data-sort-key="time">Time <span data-sort-indicator></span></button></th>
+                <th><button class="pce-cdda-sort" type="button" data-sort-key="loop">Loop <span data-sort-indicator></span></button></th>
                 <th class="pce-cdda-row-actions"></th>
               </tr>
             </thead>
             <tbody data-role="rows">
-              <tr><td colspan="6" class="pce-cdda-empty">読み込み中...</td></tr>
+              <tr><td colspan="7" class="pce-cdda-empty">読み込み中...</td></tr>
             </tbody>
           </table>
         </div>
         <div class="form-error pce-cdda-status" data-role="status"></div>
       </section>
+
+      <div class="pce-cdda-resizer" data-role="pane-resizer" role="separator" aria-orientation="vertical" aria-label="一覧と詳細の幅を変更"></div>
 
       <aside class="pce-cdda-detail-panel">
         <div class="asset-no-selection-hint" data-role="empty-detail">トラックを選択してください</div>
@@ -133,6 +169,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     </div>
   `;
 
+  const layoutEl = root.querySelector('.pce-cdda-layout');
+  const listPanelEl = root.querySelector('.pce-cdda-list-panel');
+  const paneResizerEl = root.querySelector('[data-role="pane-resizer"]');
   const rowsEl = root.querySelector('[data-role="rows"]');
   const summaryEl = root.querySelector('[data-role="summary"]');
   const statusEl = root.querySelector('[data-role="status"]');
@@ -149,10 +188,102 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   let selectedId = '';
   let draggedId = '';
   let importBusy = false;
+  let sortState = { key: 'track', direction: 'asc' };
+  const assetApi = api.assets || {};
+
+  const listPceAssets = (options = {}) => assetApi.listPceAssets
+    ? assetApi.listPceAssets(options)
+    : api.electronAPI.listAssets();
+  const upsertPceAsset = (asset) => assetApi.upsertPceAsset
+    ? assetApi.upsertPceAsset(asset)
+    : api.electronAPI.upsertAsset(asset);
+  const deletePceAsset = (assetId) => assetApi.deletePceAsset
+    ? assetApi.deletePceAsset(assetId)
+    : api.electronAPI.deleteAsset(assetId);
+  const importPceAudio = (payload) => assetApi.importPceAudio
+    ? assetApi.importPceAudio(payload)
+    : api.electronAPI.importAssetAudio(payload);
+  const previewPceAssetSource = (relativePath) => assetApi.previewPceAssetSource
+    ? assetApi.previewPceAssetSource(relativePath)
+    : api.electronAPI.previewAssetSource(relativePath);
 
   function setStatus(message = '', kind = '') {
     statusEl.textContent = message;
     statusEl.dataset.kind = kind;
+  }
+
+  function setupPaneResizer() {
+    if (!layoutEl || !listPanelEl || !paneResizerEl) return () => {};
+    const storageKey = 'pce-cdda-manager.listWidth.v1';
+    const resizerWidth = 6;
+    const minListWidth = 300;
+    const minDetailWidth = 300;
+
+    function clampListWidth(width) {
+      const total = layoutEl.getBoundingClientRect().width || 0;
+      const maxWidth = total > 0
+        ? Math.max(minListWidth, total - minDetailWidth - resizerWidth)
+        : Math.max(minListWidth, Number(width) || minListWidth);
+      return Math.max(minListWidth, Math.min(maxWidth, Number(width) || minListWidth));
+    }
+
+    function applyListWidth(width, persist = false) {
+      const nextWidth = clampListWidth(width);
+      layoutEl.style.gridTemplateColumns = `${nextWidth}px ${resizerWidth}px minmax(${minDetailWidth}px, 1fr)`;
+      if (persist) {
+        try {
+          window.localStorage?.setItem(storageKey, String(Math.round(nextWidth)));
+        } catch (_err) {
+          // localStorage may be unavailable in tests or hardened runtimes.
+        }
+      }
+    }
+
+    try {
+      const saved = Number(window.localStorage?.getItem(storageKey));
+      if (Number.isFinite(saved) && saved > 0) {
+        window.requestAnimationFrame(() => applyListWidth(saved));
+      }
+    } catch (_err) {
+      // ignore storage read errors
+    }
+
+    let resizeState = null;
+    const move = (event) => {
+      if (!resizeState || event.pointerId !== resizeState.pointerId) return;
+      event.preventDefault();
+      applyListWidth(resizeState.startWidth + (event.clientX - resizeState.startX));
+    };
+    const finish = (event) => {
+      if (!resizeState || event.pointerId !== resizeState.pointerId) return;
+      event.preventDefault();
+      applyListWidth(resizeState.startWidth + (event.clientX - resizeState.startX), true);
+      resizeState = null;
+      paneResizerEl.classList.remove('is-dragging');
+      paneResizerEl.releasePointerCapture?.(event.pointerId);
+    };
+    const begin = (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      resizeState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startWidth: listPanelEl.getBoundingClientRect().width,
+      };
+      paneResizerEl.classList.add('is-dragging');
+      paneResizerEl.setPointerCapture?.(event.pointerId);
+    };
+
+    paneResizerEl.addEventListener('pointerdown', begin);
+    paneResizerEl.addEventListener('pointermove', move);
+    paneResizerEl.addEventListener('pointerup', finish);
+    paneResizerEl.addEventListener('pointercancel', finish);
+    return () => {
+      paneResizerEl.removeEventListener('pointerdown', begin);
+      paneResizerEl.removeEventListener('pointermove', move);
+      paneResizerEl.removeEventListener('pointerup', finish);
+      paneResizerEl.removeEventListener('pointercancel', finish);
+    };
   }
 
   function trackNumber(asset = {}) {
@@ -165,6 +296,74 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       .filter((entry) => entry.asset.type === 'cdda-track')
       .sort((a, b) => trackNumber(a.asset) - trackNumber(b.asset) || a.index - b.index || a.asset.id.localeCompare(b.asset.id, 'ja'))
       .map((entry) => entry.asset);
+  }
+
+  function cddaSortValue(asset, key, index = 0) {
+    const generated = generatedInfo(asset);
+    switch (key) {
+      case 'id': return asset.id || '';
+      case 'time': return generated.durationSeconds || 0;
+      case 'loop': return asset.options?.loop ? 1 : 0;
+      case 'order': return index;
+      case 'track': return trackNumber(asset);
+      case 'name':
+      default:
+        return assetFullName(asset);
+    }
+  }
+
+  function sortedCddaAssets() {
+    const direction = sortState.direction === 'desc' ? -1 : 1;
+    return cddaAssets()
+      .map((asset, index) => ({ asset, index }))
+      .sort((left, right) => {
+        const primary = compareSortValues(
+          cddaSortValue(left.asset, sortState.key, left.index),
+          cddaSortValue(right.asset, sortState.key, right.index),
+        );
+        if (primary) return primary * direction;
+        return left.index - right.index || compareText(left.asset.id, right.asset.id);
+      })
+      .map((entry) => entry.asset);
+  }
+
+  function canDragReorder() {
+    return sortState.key === 'track' && sortState.direction === 'asc';
+  }
+
+  function updateSortHeaders() {
+    root.querySelectorAll('[data-sort-key]').forEach((button) => {
+      const active = button.dataset.sortKey === sortState.key;
+      button.dataset.sortDirection = active ? sortState.direction : '';
+      button.setAttribute('aria-sort', active ? (sortState.direction === 'desc' ? 'descending' : 'ascending') : 'none');
+      const indicator = button.querySelector('[data-sort-indicator]');
+      if (indicator) indicator.textContent = active ? (sortState.direction === 'desc' ? '▼' : '▲') : '↕';
+    });
+  }
+
+  function renderGroupedRows(list, colSpan, rowRenderer) {
+    let previousGroup = [];
+    return list.map((asset) => {
+      const group = assetGroupParts(asset);
+      let shared = 0;
+      while (shared < previousGroup.length && shared < group.length && previousGroup[shared] === group[shared]) {
+        shared += 1;
+      }
+      let html = '';
+      for (let depth = shared; depth < group.length; depth += 1) {
+        const path = group.slice(0, depth + 1).join(' / ');
+        html += `
+          <tr class="pce-cdda-group-row">
+            <td colspan="${colSpan}" style="--asset-group-indent:${depth * 14}px">
+              <span>${esc(group[depth])}</span>
+              <code>${esc(path)}</code>
+            </td>
+          </tr>
+        `;
+      }
+      previousGroup = group;
+      return html + rowRenderer(asset);
+    });
   }
 
   function selectedAsset() {
@@ -204,7 +403,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     clearPreview();
     if (!asset?.source) return;
     const previewTargetId = asset.id;
-    const result = await api.electronAPI.previewAssetSource(asset.source);
+    const result = await previewPceAssetSource(asset.source);
     if (selectedId !== previewTargetId) return;
     if (!result?.ok || !result.dataUrl) {
       formErrorEl.textContent = result?.error || 'プレビューを取得できませんでした';
@@ -267,19 +466,22 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   }
 
   function renderRows() {
-    const tracks = cddaAssets();
+    const tracks = sortedCddaAssets();
     summaryEl.textContent = tracks.length ? `${tracks.length} tracks` : '0 tracks';
+    updateSortHeaders();
     if (!tracks.length) {
-      rowsEl.innerHTML = '<tr><td colspan="6" class="pce-cdda-empty">CD-DA track がありません</td></tr>';
+      rowsEl.innerHTML = '<tr><td colspan="7" class="pce-cdda-empty">CD-DA track がありません</td></tr>';
       return;
     }
-    rowsEl.innerHTML = tracks.map((asset) => {
+    const dragEnabled = canDragReorder();
+    rowsEl.innerHTML = renderGroupedRows(tracks, 7, (asset) => {
       const generated = generatedInfo(asset);
       return `
-        <tr class="pce-cdda-row ${asset.id === selectedId ? 'active' : ''}" draggable="true" data-id="${esc(asset.id)}">
-          <td class="pce-cdda-drag-cell"><span class="drag-handle" title="並び替え">&#8942;&#8942;</span></td>
+        <tr class="pce-cdda-row ${asset.id === selectedId ? 'active' : ''}" draggable="${dragEnabled ? 'true' : 'false'}" data-id="${esc(asset.id)}">
+          <td class="pce-cdda-drag-cell ${dragEnabled ? '' : 'is-disabled'}"><span class="drag-handle" title="並び替え">&#8942;&#8942;</span></td>
           <td><strong>${String(trackNumber(asset)).padStart(2, '0')}</strong></td>
-          <td><span>${esc(asset.name || asset.id)}</span><code>${esc(asset.id)}</code></td>
+          <td class="pce-cdda-name-cell"><span>${esc(assetDisplayName(asset))}</span></td>
+          <td class="pce-cdda-id-cell"><code>${esc(asset.id)}</code></td>
           <td>${esc(formatSeconds(generated.durationSeconds))}</td>
           <td>${asset.options?.loop ? '<span class="pce-cdda-loop">Loop</span>' : '<span class="pce-cdda-muted">-</span>'}</td>
           <td class="pce-cdda-row-actions">
@@ -295,6 +497,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         selectAsset(row.dataset.id || '');
       });
       row.addEventListener('dragstart', (event) => {
+        if (!canDragReorder()) {
+          event.preventDefault();
+          return;
+        }
         draggedId = row.dataset.id || '';
         row.classList.add('drag-source');
         event.dataTransfer.effectAllowed = 'move';
@@ -331,10 +537,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     });
   }
 
-  async function reload() {
-    const result = await api.electronAPI.listAssets();
+  async function reload(options = {}) {
+    const result = await listPceAssets({ force: Boolean(options.force) });
     if (!result?.ok) {
-      rowsEl.innerHTML = `<tr><td colspan="6" class="pce-cdda-empty">${esc(result?.error || 'PCE assets を読み込めません')}</td></tr>`;
+      rowsEl.innerHTML = `<tr><td colspan="7" class="pce-cdda-empty">${esc(result?.error || 'PCE assets を読み込めません')}</td></tr>`;
       return;
     }
     assets = result.assets || [];
@@ -345,6 +551,31 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     fillForm(selectedAsset());
   }
 
+  function isPluginPageActive() {
+    const page = root.closest?.('.editor-page');
+    return page ? page.classList.contains('active') : !root.hidden;
+  }
+
+  function setupAssetRefreshEvents() {
+    let queued = false;
+    const queueReload = () => {
+      if (queued) return;
+      queued = true;
+      window.setTimeout(() => {
+        queued = false;
+        if (isPluginPageActive()) void reload({ force: true });
+      }, 0);
+    };
+    const offChanged = api.events?.on?.('assets:pce:changed', queueReload) || (() => {});
+    const offActivated = api.events?.on?.('page:activated', () => {
+      if (isPluginPageActive()) queueReload();
+    }) || (() => {});
+    return () => {
+      offChanged();
+      offActivated();
+    };
+  }
+
   async function saveTrackOrder(order, preferredId = selectedId) {
     if (order.length > 98) throw new Error('CD-DA track は 98 件までです');
     let changed = false;
@@ -352,7 +583,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       const nextTrack = index + 2;
       if (trackNumber(asset) === nextTrack) continue;
       changed = true;
-      const result = await api.electronAPI.upsertAsset({
+      const result = await upsertPceAsset({
         ...asset,
         options: {
           ...(asset.options || {}),
@@ -363,7 +594,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       assets = result.assets || assets;
     }
     selectedId = preferredId || selectedId;
-    if (changed) await reload();
+    if (changed) await reload({ force: true });
     else {
       renderRows();
       fillForm(selectedAsset());
@@ -412,14 +643,14 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       formErrorEl.textContent = '同じ ID のアセットが既にあります';
       return;
     }
-    const result = await api.electronAPI.upsertAsset(asset);
+    const result = await upsertPceAsset(asset);
     if (!result?.ok) {
       formErrorEl.textContent = result?.error || '保存できませんでした';
       return;
     }
     assets = result.assets || assets;
     if (asset.id !== current.id) {
-      const deleted = await api.electronAPI.deleteAsset(current.id);
+      const deleted = await deletePceAsset(current.id);
       if (!deleted?.ok) {
         formErrorEl.textContent = deleted?.error || '旧 ID の削除に失敗しました';
         return;
@@ -467,7 +698,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     try {
       const before = cddaAssets();
       const oldIndex = Math.max(0, before.findIndex((asset) => asset.id === assetId));
-      const result = await api.electronAPI.deleteAsset(assetId);
+      const result = await deletePceAsset(assetId);
       if (!result?.ok) throw new Error(result?.error || '削除できませんでした');
       assets = result.assets || assets;
       const after = cddaAssets();
@@ -573,7 +804,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         },
       });
       if (!converted?.ok || !converted.dataUrl) return null;
-      const result = await api.electronAPI.importAssetAudio({
+      const result = await importPceAudio({
         dataUrl: converted.dataUrl,
         sourceFileName: `${details.id}.wav`,
         originalFileName: converted.originalFileName || picked.fileName,
@@ -602,8 +833,17 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   }
 
   formEl.addEventListener('submit', saveSelected);
+  root.querySelectorAll('[data-sort-key]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const key = button.dataset.sortKey || 'track';
+      sortState = sortState.key === key
+        ? { key, direction: sortState.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: 'asc' };
+      renderRows();
+    });
+  });
   root.querySelector('[data-action="add"]').addEventListener('click', () => { void importCddaTrack(); });
-  root.querySelector('[data-action="refresh"]').addEventListener('click', () => { void reload(); });
+  root.querySelector('[data-action="refresh"]').addEventListener('click', () => { void reload({ force: true }); });
   root.querySelector('[data-action="play"]').addEventListener('click', () => {
     const asset = selectedAsset();
     if (asset) void loadPreview(asset, { autoplay: true });
@@ -615,6 +855,14 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     reload,
     importCddaTrack,
   });
+  const teardownAssetRefreshEvents = setupAssetRefreshEvents();
+  const teardownPaneResizer = setupPaneResizer();
   void reload();
-  return { deactivate: clearPreview };
+  return {
+    deactivate() {
+      teardownAssetRefreshEvents();
+      teardownPaneResizer();
+      clearPreview();
+    },
+  };
 }

@@ -105,6 +105,47 @@ function spritePixelWidth(asset = {}) {
   return 64;
 }
 
+function assetPixelSize(asset = {}) {
+  const options = asset?.options || {};
+  const width = Number(options.width);
+  const height = Number(options.height);
+  return {
+    width: Number.isFinite(width) && width > 0 ? Math.round(width) : null,
+    height: Number.isFinite(height) && height > 0 ? Math.round(height) : null,
+  };
+}
+
+// 表示系コマンドを先頭から uptoIndex まで畳み込み、その時点の画面状態を返す
+function computeVisualState(commands = [], uptoIndex = -1) {
+  const state = { background: null, sprites: {} };
+  const last = Math.min(uptoIndex, commands.length - 1);
+  for (let i = 0; i <= last; i += 1) {
+    const command = commands[i];
+    if (!command) continue;
+    if (command.type === 'background') {
+      state.background = { assetId: command.assetId, x: command.x, y: command.y };
+    } else if (command.type === 'sprite') {
+      if (command.visible === false) {
+        delete state.sprites[command.slot];
+      } else {
+        state.sprites[command.slot] = {
+          slot: command.slot,
+          assetId: command.assetId,
+          x: command.x,
+          y: command.y,
+          flipX: command.flipX,
+          flipY: command.flipY,
+          animationId: command.animationId,
+        };
+      }
+    } else if (command.type === 'effect' && command.effect === 'blank') {
+      state.background = null;
+      state.sprites = {};
+    }
+  }
+  return state;
+}
+
 function defaultCharacterPlacement(asset) {
   return {
     x: Math.max(0, Math.floor((PCE_SCREEN_WIDTH - spritePixelWidth(asset)) / 2)),
@@ -421,6 +462,344 @@ function normalizeDoc(doc, assets) {
   };
 }
 
+// 別ウィンドウのプレビュー再生エンジン。activatePlugin のスコープを参照しないよう
+// toString() でそのまま埋め込むため、window.__PCE_VN_PREVIEW__ だけを入力にする。
+function previewRuntime() {
+  const data = window.__PCE_VN_PREVIEW__ || { doc: { scenes: [] }, urls: {}, meta: {} };
+  const SCREEN_W = (data.screen && data.screen.w) || 320;
+  const SCREEN_H = (data.screen && data.screen.h) || 224;
+  const scenesById = {};
+  (data.doc.scenes || []).forEach((s) => { scenesById[s.id] = s; });
+
+  const style = document.createElement('style');
+  style.textContent = [
+    'html,body{margin:0;height:100%;background:#05070a;color:#e8eef5;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;}',
+    '#pv-root{position:fixed;inset:0;display:flex;flex-direction:column;}',
+    '#pv-stage-wrap{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;}',
+    '#pv-stage{position:relative;width:' + SCREEN_W + 'px;height:' + SCREEN_H + 'px;background:#000;transform-origin:center center;overflow:hidden;box-shadow:0 0 0 1px #000,0 10px 36px rgba(0,0,0,.6);}',
+    '#pv-stage img{position:absolute;image-rendering:pixelated;transform-origin:top left;}',
+    '#pv-msg{position:absolute;left:8px;right:8px;bottom:8px;min-height:52px;background:rgba(4,8,16,.82);border:1px solid rgba(120,160,210,.55);border-radius:4px;padding:6px 8px;font-size:12px;line-height:1.5;}',
+    '#pv-msg .pv-speaker{color:#8fd0ff;font-weight:700;font-size:11px;display:block;margin-bottom:2px;}',
+    '#pv-msg .pv-text{white-space:pre-wrap;word-break:break-word;}',
+    '#pv-msg.pv-hidden,#pv-choice.pv-hidden{display:none;}',
+    '#pv-choice{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;gap:6px;min-width:140px;}',
+    '#pv-choice button{font:inherit;font-size:12px;padding:6px 14px;border-radius:4px;border:1px solid rgba(120,160,210,.6);background:rgba(8,14,24,.92);color:#e8eef5;cursor:pointer;}',
+    '#pv-choice button.pv-active,#pv-choice button:hover{border-color:#8fd0ff;background:rgba(40,80,130,.7);}',
+    '#pv-bar{height:34px;display:flex;align-items:center;gap:12px;padding:0 12px;background:#0b1118;border-top:1px solid #1d2733;font-size:11px;color:#9fb0c0;flex:none;}',
+    '#pv-bar button{font:inherit;font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #2a3a4a;background:#13202c;color:#cfe0ee;cursor:pointer;}',
+    '#pv-hint{margin-left:auto;color:#6b7a88;}',
+    '.pv-shake{animation:pv-shake .4s linear;}',
+    '@keyframes pv-shake{0%,100%{transform:none}20%{transform:translateX(-5px)}60%{transform:translateX(5px)}80%{transform:translateX(-3px)}}',
+  ].join('\n');
+  document.head.appendChild(style);
+  document.title = 'VN プレビュー';
+
+  const root = document.createElement('div');
+  root.id = 'pv-root';
+  root.innerHTML =
+    '<div id="pv-stage-wrap"><div id="pv-stage">'
+    + '<div id="pv-msg" class="pv-hidden"><span class="pv-speaker"></span><span class="pv-text"></span></div>'
+    + '<div id="pv-choice" class="pv-hidden"></div>'
+    + '</div></div>'
+    + '<div id="pv-bar"><button id="pv-restart">最初から</button><span id="pv-scene"></span>'
+    + '<span id="pv-hint">クリック / Enter で進む ・ Esc で閉じる</span></div>';
+  document.body.appendChild(root);
+
+  const stage = root.querySelector('#pv-stage');
+  const stageWrap = root.querySelector('#pv-stage-wrap');
+  const msgBox = root.querySelector('#pv-msg');
+  const choiceBox = root.querySelector('#pv-choice');
+  const sceneLabel = root.querySelector('#pv-scene');
+
+  function fit() {
+    const sc = Math.max(1, Math.min(stageWrap.clientWidth / SCREEN_W, stageWrap.clientHeight / SCREEN_H));
+    stage.style.transform = 'scale(' + sc + ')';
+  }
+  window.addEventListener('resize', fit);
+
+  let sceneId = null;
+  let scene = null;
+  let pc = 0;
+  let vars = {};
+  let state = { background: null, sprites: {} };
+  let typeTimer = null;
+  let waitTimer = null;
+  let autoTimer = null;
+  let pending = null;
+  let choiceState = null;
+  const audio = { cdda: null, adpcm: null };
+
+  function s16(value) {
+    let v = Number(value) | 0;
+    v = ((v + 32768) & 0xffff) - 32768;
+    return v;
+  }
+  function getVar(name) { return vars[name] || 0; }
+  function clearTimers() {
+    if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
+    if (waitTimer) { clearTimeout(waitTimer); waitTimer = null; }
+    if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+  }
+  function stopAudio(kind) { const a = audio[kind]; if (a) { a.pause(); audio[kind] = null; } }
+  function hideMsg() { msgBox.classList.add('pv-hidden'); }
+  function hideChoice() { choiceBox.classList.add('pv-hidden'); choiceBox.innerHTML = ''; choiceState = null; }
+
+  function makeImg(layer, kind) {
+    const img = document.createElement('img');
+    img.className = 'pv-layer';
+    img.src = data.urls[layer.assetId];
+    const meta = data.meta[layer.assetId] || {};
+    const x = kind === 'background' ? (layer.x || 0) * 8 : (layer.x || 0);
+    const y = kind === 'background' ? (layer.y || 0) * 8 : (layer.y || 0);
+    img.style.left = x + 'px';
+    img.style.top = y + 'px';
+    if (meta.width) img.style.width = meta.width + 'px';
+    if (meta.height) img.style.height = meta.height + 'px';
+    const sx = layer.flipX ? -1 : 1;
+    const sy = layer.flipY ? -1 : 1;
+    if (sx !== 1 || sy !== 1) {
+      const tx = sx === -1 && meta.width ? meta.width : 0;
+      const ty = sy === -1 && meta.height ? meta.height : 0;
+      img.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + sx + ',' + sy + ')';
+    }
+    return img;
+  }
+
+  function renderStage() {
+    Array.prototype.slice.call(stage.querySelectorAll('img.pv-layer')).forEach((n) => n.remove());
+    if (state.background && state.background.assetId && data.urls[state.background.assetId]) {
+      stage.insertBefore(makeImg(state.background, 'background'), msgBox);
+    }
+    Object.keys(state.sprites).map(Number).sort((a, b) => a - b).forEach((slot) => {
+      const s = state.sprites[slot];
+      if (s && s.assetId && data.urls[s.assetId]) stage.insertBefore(makeImg(s, 'sprite'), msgBox);
+    });
+    sceneLabel.textContent = 'Scene: ' + (scene ? scene.id : '-');
+  }
+
+  function labelIndex(name) {
+    if (!name || !scene) return -1;
+    return (scene.commands || []).findIndex((c) => c.type === 'label' && c.name === name);
+  }
+  function jumpLabel(name) {
+    const i = labelIndex(name);
+    pc = i >= 0 ? i : pc + 1;
+  }
+  function setScene(id) {
+    scene = scenesById[id] || null;
+    sceneId = id;
+    pc = 0;
+  }
+
+  function applyVar(c) {
+    const n = c.variableName;
+    if (!n) return;
+    if (c.operation === 'define' || c.operation === 'set') vars[n] = s16(c.value);
+    else if (c.operation === 'add') vars[n] = s16(getVar(n) + Number(c.value || 0));
+    else if (c.operation === 'sub') vars[n] = s16(getVar(n) - Number(c.value || 0));
+    else if (c.operation === 'random') {
+      const lo = Math.min(c.min, c.max);
+      const hi = Math.max(c.min, c.max);
+      vars[n] = s16(lo + Math.floor(Math.random() * (hi - lo + 1)));
+    }
+  }
+  function compare(a, op, b) {
+    a = a | 0; b = b | 0;
+    if (op === 'ne') return a !== b;
+    if (op === 'lt') return a < b;
+    if (op === 'lte') return a <= b;
+    if (op === 'gt') return a > b;
+    if (op === 'gte') return a >= b;
+    return a === b;
+  }
+  function handleAudio(c) {
+    const kind = c.kind === 'adpcm' ? 'adpcm' : 'cdda';
+    if (c.action === 'stop') { stopAudio(kind); return; }
+    if (!c.assetId || !data.urls[c.assetId]) return;
+    stopAudio(kind);
+    const a = new Audio(data.urls[c.assetId]);
+    if (kind === 'cdda') a.loop = true;
+    a.play().catch(() => {});
+    audio[kind] = a;
+  }
+  function applyEffect(c) {
+    if (c.effect === 'blank') { state.background = null; state.sprites = {}; renderStage(); }
+    else if (c.effect === 'fadeOut') { stage.style.transition = 'opacity .2s'; stage.style.opacity = '0'; }
+    else if (c.effect === 'fadeIn') { stage.style.transition = 'opacity .2s'; stage.style.opacity = '1'; }
+    else if (c.effect === 'shake') { stage.classList.remove('pv-shake'); void stage.offsetWidth; stage.classList.add('pv-shake'); }
+  }
+
+  function showEnd() {
+    hideChoice();
+    msgBox.classList.remove('pv-hidden');
+    msgBox.querySelector('.pv-speaker').style.display = 'none';
+    msgBox.querySelector('.pv-text').textContent = '― END ―';
+    pending = null;
+  }
+
+  function showMessage(c) {
+    hideChoice();
+    msgBox.classList.remove('pv-hidden');
+    const sp = msgBox.querySelector('.pv-speaker');
+    const tx = msgBox.querySelector('.pv-text');
+    sp.textContent = c.speaker || '';
+    sp.style.display = c.speaker ? 'block' : 'none';
+    const full = c.text || '';
+    let shown = 0;
+    let done = false;
+    tx.textContent = '';
+    function next() { clearTimers(); pending = null; run(); }
+    function complete() {
+      done = true;
+      tx.textContent = full;
+      if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
+      if (c.advanceMode === 'auto') autoTimer = setTimeout(next, Math.max(0, c.autoWaitFrames || 0) * 1000 / 60);
+    }
+    pending = function () { if (!done) complete(); else next(); };
+    const speed = Math.max(0, c.textSpeedFrames || 0) * 1000 / 60;
+    if (speed <= 0 || !full) complete();
+    else {
+      typeTimer = setInterval(() => {
+        shown += 1;
+        tx.textContent = full.slice(0, shown);
+        if (shown >= full.length) complete();
+      }, speed);
+    }
+  }
+
+  function showChoice(c) {
+    hideMsg();
+    pending = null;
+    choiceBox.classList.remove('pv-hidden');
+    choiceBox.innerHTML = '';
+    const choices = c.choices || [];
+    let sel = Math.min(Math.max(0, c.defaultIndex || 0), Math.max(0, choices.length - 1));
+    const btns = choices.map((ch, idx) => {
+      const b = document.createElement('button');
+      b.textContent = ch.label;
+      b.addEventListener('click', (e) => { e.stopPropagation(); pick(idx); });
+      choiceBox.appendChild(b);
+      return b;
+    });
+    function hl() { btns.forEach((b, i) => b.classList.toggle('pv-active', i === sel)); }
+    hl();
+    choiceState = {
+      move(d) { if (!choices.length) return; sel = (sel + d + choices.length) % choices.length; hl(); },
+      confirm() { pick(sel); },
+    };
+    function pick(idx) {
+      const ch = choices[idx] || choices[0];
+      choiceState = null;
+      hideChoice();
+      if (!ch) { pc += 1; run(); return; }
+      if (c.variableName) vars[c.variableName] = s16(ch.value);
+      pc += 1;
+      if (ch.targetSceneId && scenesById[ch.targetSceneId]) setScene(ch.targetSceneId);
+      run();
+    }
+  }
+
+  function run() {
+    let guard = 0;
+    while (true) {
+      guard += 1;
+      if (guard > 20000) { showEnd(); return; }
+      if (!scene) { showEnd(); return; }
+      if (pc >= scene.commands.length) {
+        if (scene.nextSceneId && scenesById[scene.nextSceneId]) { setScene(scene.nextSceneId); continue; }
+        showEnd();
+        return;
+      }
+      const c = scene.commands[pc];
+      const t = c.type;
+      if (t === 'background') { state.background = { assetId: c.assetId, x: c.x, y: c.y }; renderStage(); pc += 1; continue; }
+      if (t === 'sprite') {
+        if (c.visible === false) delete state.sprites[c.slot];
+        else state.sprites[c.slot] = { slot: c.slot, assetId: c.assetId, x: c.x, y: c.y, flipX: c.flipX, flipY: c.flipY };
+        renderStage();
+        pc += 1;
+        continue;
+      }
+      if (t === 'audio') { handleAudio(c); pc += 1; continue; }
+      if (t === 'variable') { applyVar(c); pc += 1; continue; }
+      if (t === 'effect') { applyEffect(c); pc += 1; continue; }
+      if (t === 'preload' || t === 'label') { pc += 1; continue; }
+      if (t === 'goto') { jumpLabel(c.targetLabel); continue; }
+      if (t === 'if') {
+        const ok = compare(getVar(c.variableName), c.operator, c.value);
+        const lbl = ok ? c.targetLabel : c.elseLabel;
+        if (lbl) { jumpLabel(lbl); continue; }
+        pc += 1;
+        continue;
+      }
+      if (t === 'switch') {
+        const v = getVar(c.variableName);
+        const hit = (c.cases || []).find((b) => b.value === v);
+        const lbl = hit ? hit.targetLabel : c.defaultLabel;
+        if (lbl) { jumpLabel(lbl); continue; }
+        pc += 1;
+        continue;
+      }
+      if (t === 'jump') {
+        if (c.sceneId && scenesById[c.sceneId]) { setScene(c.sceneId); continue; }
+        pc += 1;
+        continue;
+      }
+      if (t === 'wait') { pc += 1; waitTimer = setTimeout(() => { waitTimer = null; run(); }, Math.max(0, c.frames || 0) * 1000 / 60); return; }
+      if (t === 'message') { pc += 1; showMessage(c); return; }
+      if (t === 'choice') { showChoice(c); return; }
+      pc += 1;
+    }
+  }
+
+  function start() {
+    clearTimers();
+    stopAudio('cdda');
+    stopAudio('adpcm');
+    stage.style.opacity = '1';
+    sceneId = scenesById[data.startScene] ? data.startScene : (data.doc.startScene || (data.doc.scenes[0] && data.doc.scenes[0].id));
+    scene = scenesById[sceneId] || null;
+    pc = 0;
+    vars = {};
+    state = { background: null, sprites: {} };
+    pending = null;
+    choiceState = null;
+    renderStage();
+    hideMsg();
+    hideChoice();
+    run();
+  }
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#pv-bar')) return;
+    if (e.target.closest('#pv-choice')) return;
+    if (choiceState) return;
+    if (typeof pending === 'function') pending();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { window.close(); return; }
+    if (choiceState) {
+      if (e.key === 'ArrowUp') { e.preventDefault(); choiceState.move(-1); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); choiceState.move(1); }
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choiceState.confirm(); }
+      return;
+    }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (typeof pending === 'function') pending(); }
+  });
+  root.querySelector('#pv-restart').addEventListener('click', (e) => { e.stopPropagation(); start(); });
+
+  fit();
+  start();
+}
+
+function buildPreviewHtml(payload) {
+  const json = JSON.stringify(payload).replace(/</g, '\\u003c');
+  return '<!doctype html><html lang="ja"><head><meta charset="utf-8" /><title>VN プレビュー</title></head><body>'
+    + '<scr' + 'ipt>window.__PCE_VN_PREVIEW__=' + json + ';</scr' + 'ipt>'
+    + '<scr' + 'ipt>(' + previewRuntime.toString() + ')();</scr' + 'ipt>'
+    + '</body></html>';
+}
+
 export function activatePlugin({ root, api, registerCapability }) {
   root.innerHTML = `
     <div class="pce-vn-shell">
@@ -450,6 +829,7 @@ export function activatePlugin({ root, api, registerCapability }) {
         <div class="pce-vn-edit-title">
           <h2 data-role="scene-title">Scene</h2>
           <div class="pce-vn-actions">
+            <button class="btn-sm" type="button" data-action="preview" title="シーンをプレビュー再生">▶ プレビュー</button>
             <button class="icon-btn danger" type="button" data-action="delete-scene" title="シーン削除" aria-label="シーン削除">×</button>
             <button class="btn-primary" type="button" data-action="save">保存</button>
           </div>
@@ -482,10 +862,92 @@ export function activatePlugin({ root, api, registerCapability }) {
   let pointerDrag = null;
   let suppressCommandClick = false;
   let previewToken = 0;
+  let commandClipboard = null;
+  const assetDataUrlCache = new Map();
+  const assetApi = api.assets || {};
+
+  const listPceAssets = (options = {}) => assetApi.listPceAssets
+    ? assetApi.listPceAssets(options)
+    : api.electronAPI.listAssets();
+  const previewPceAssetSource = (relativePath) => assetApi.previewPceAssetSource
+    ? assetApi.previewPceAssetSource(relativePath)
+    : api.electronAPI.previewAssetSource(relativePath);
 
   const byType = (types) => assets.filter((asset) => types.includes(asset.type));
   const scene = () => doc.scenes.find((item) => item.id === selectedId) || doc.scenes[0] || null;
   const assetById = (id) => assets.find((asset) => asset.id === id) || null;
+
+  async function resolveAssetDataUrl(asset) {
+    if (!asset?.id || !asset?.source) return '';
+    if (assetDataUrlCache.has(asset.id)) return assetDataUrlCache.get(asset.id);
+    const result = await previewPceAssetSource(asset.source);
+    const url = result?.dataUrl || '';
+    assetDataUrlCache.set(asset.id, url);
+    return url;
+  }
+
+  function makeStageImg(layer, kind, url, active) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = assetById(layer.assetId)?.name || layer.assetId || '';
+    const size = assetPixelSize(assetById(layer.assetId));
+    const x = kind === 'background' ? (layer.x || 0) * 8 : (layer.x || 0);
+    const y = kind === 'background' ? (layer.y || 0) * 8 : (layer.y || 0);
+    img.style.left = `${x}px`;
+    img.style.top = `${y}px`;
+    if (size.width) img.style.width = `${size.width}px`;
+    if (size.height) img.style.height = `${size.height}px`;
+    const sx = layer.flipX ? -1 : 1;
+    const sy = layer.flipY ? -1 : 1;
+    if (sx !== 1 || sy !== 1) {
+      const tx = sx === -1 && size.width ? size.width : 0;
+      const ty = sy === -1 && size.height ? size.height : 0;
+      img.style.transform = `translate(${tx}px, ${ty}px) scale(${sx}, ${sy})`;
+    }
+    if (active) img.classList.add('is-active');
+    return img;
+  }
+
+  function buildStageNode(state, urls, command) {
+    const block = document.createElement('div');
+    block.className = 'pce-vn-stage-block';
+    const head = document.createElement('div');
+    head.className = 'pce-vn-stage-head';
+    const title = document.createElement('strong');
+    title.textContent = previewTitle(command);
+    const caption = document.createElement('span');
+    if (command.type === 'background') caption.textContent = `tile ${command.x},${command.y} (px ${command.x * 8},${command.y * 8})`;
+    else caption.textContent = `slot ${command.slot} @ ${command.x},${command.y}`;
+    head.append(title, caption);
+    const wrap = document.createElement('div');
+    wrap.className = 'pce-vn-stage-wrap';
+    const stage = document.createElement('div');
+    stage.className = 'pce-vn-stage';
+    if (state.background?.assetId && urls[state.background.assetId]) {
+      stage.appendChild(makeStageImg(state.background, 'background', urls[state.background.assetId], command.type === 'background'));
+    }
+    Object.values(state.sprites)
+      .sort((a, b) => a.slot - b.slot)
+      .forEach((s) => {
+        if (s.assetId && urls[s.assetId]) {
+          stage.appendChild(makeStageImg(s, 'sprite', urls[s.assetId], command.type === 'sprite' && s.slot === command.slot));
+        }
+      });
+    wrap.appendChild(stage);
+    block.append(head, wrap);
+    return block;
+  }
+
+  function fitStageNodes() {
+    commandPreviewEl.querySelectorAll('.pce-vn-stage-wrap').forEach((wrap) => {
+      const stage = wrap.querySelector('.pce-vn-stage');
+      if (!stage) return;
+      const avail = wrap.clientWidth || commandPreviewEl.clientWidth || PCE_SCREEN_WIDTH;
+      const scale = Math.max(0.1, avail / PCE_SCREEN_WIDTH);
+      stage.style.transform = `scale(${scale})`;
+      wrap.style.height = `${PCE_SCREEN_HEIGHT * scale}px`;
+    });
+  }
 
   applyColumnLayout();
 
@@ -530,6 +992,7 @@ export function activatePlugin({ root, api, registerCapability }) {
         columnLayout.right = clamp(shellRect.right - moveEvent.clientX, MIN_RIGHT_WIDTH, maxRight, columnLayout.right);
       }
       applyColumnLayout();
+      fitStageNodes();
     };
     const finish = () => {
       resizer.classList.remove('is-dragging');
@@ -733,11 +1196,22 @@ export function activatePlugin({ root, api, registerCapability }) {
   function renderSceneList() {
     sceneList.innerHTML = doc.scenes.map((item) => {
       const firstMessage = item.commands.find((command) => command.type === 'message');
+      const canDelete = doc.scenes.length > 1;
       return `
-        <button type="button" data-scene-id="${esc(item.id)}" class="${item.id === selectedId ? 'active' : ''}">
-          <strong>${esc(item.id)}</strong>
-          <span>${esc(firstMessage?.text || `${item.commands.length} commands`)}</span>
-        </button>
+        <div class="pce-vn-scene-row ${item.id === selectedId ? 'active' : ''}" data-scene-row="${esc(item.id)}">
+          <button type="button" data-scene-id="${esc(item.id)}" class="pce-vn-scene-select">
+            <strong>${esc(item.id)}</strong>
+            <span>${esc(firstMessage?.text || `${item.commands.length} commands`)}</span>
+          </button>
+          <button
+            class="icon-btn-xs danger pce-vn-scene-delete"
+            type="button"
+            data-scene-delete="${esc(item.id)}"
+            title="シーン削除"
+            aria-label="${esc(item.id)} を削除"
+            ${canDelete ? '' : 'disabled'}
+          >×</button>
+        </div>
       `;
     }).join('');
     sceneList.querySelectorAll('[data-scene-id]').forEach((button) => {
@@ -746,6 +1220,12 @@ export function activatePlugin({ root, api, registerCapability }) {
         selectedId = button.dataset.sceneId;
         selectedCommandIndex = 0;
         render();
+      });
+    });
+    sceneList.querySelectorAll('[data-scene-delete]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        deleteScene(button.dataset.sceneDelete || selectedId);
       });
     });
   }
@@ -961,7 +1441,12 @@ export function activatePlugin({ root, api, registerCapability }) {
               <small>${esc(commandSummary(command))}</small>
             </span>
           </button>
-          <button class="icon-btn danger" type="button" data-command-remove="${index}" title="削除" aria-label="削除">×</button>
+          <div class="pce-vn-command-actions">
+            <button class="icon-btn" type="button" data-command-paste-before="${index}" title="前にペースト" aria-label="前にペースト" ${commandClipboard ? '' : 'disabled'}>⤒</button>
+            <button class="icon-btn" type="button" data-command-paste-after="${index}" title="後にペースト" aria-label="後にペースト" ${commandClipboard ? '' : 'disabled'}>⤓</button>
+            <button class="icon-btn" type="button" data-command-copy="${index}" title="コピー" aria-label="コピー">⧉</button>
+            <button class="icon-btn danger" type="button" data-command-remove="${index}" title="削除" aria-label="削除">×</button>
+          </div>
         </section>
         <div class="pce-vn-command-dropzone" data-drop-index="${index + 1}"></div>
       `;
@@ -1018,32 +1503,23 @@ export function activatePlugin({ root, api, registerCapability }) {
       return;
     }
     if (command.type === 'background' || command.type === 'sprite') {
-      const asset = assetById(command.assetId);
-      renderCommandPreviewLoading(command, asset, command.type === 'background' ? '背景' : 'Sprite');
-      if (!asset?.source) return;
-      const result = await api.electronAPI.previewAssetSource(asset.source);
+      renderCommandPreviewLoading(command, assetById(command.assetId), command.type === 'background' ? '背景' : 'Sprite');
+      const state = computeVisualState(current.commands, selectedCommandIndex);
+      const ids = new Set();
+      if (state.background?.assetId) ids.add(state.background.assetId);
+      Object.values(state.sprites).forEach((s) => { if (s.assetId) ids.add(s.assetId); });
+      const urls = {};
+      await Promise.all([...ids].map(async (id) => { urls[id] = await resolveAssetDataUrl(assetById(id)); }));
       if (token !== previewToken) return;
-      commandPreviewEl.innerHTML = '';
-      if (!result?.dataUrl) {
-        renderCommandPreviewText(command);
-        return;
-      }
-      const frame = document.createElement('div');
-      frame.className = `pce-vn-media-preview ${command.type === 'sprite' ? 'sprite' : 'background'}`;
-      const img = document.createElement('img');
-      img.alt = asset.name || asset.id;
-      img.src = result.dataUrl;
-      const caption = document.createElement('span');
-      caption.textContent = asset.name || asset.id;
-      frame.append(img, caption);
-      commandPreviewEl.replaceChildren(frame);
+      commandPreviewEl.replaceChildren(buildStageNode(state, urls, command));
+      fitStageNodes();
       return;
     }
     if (command.type === 'audio') {
       const asset = command.action === 'play' ? assetById(command.assetId) : null;
       renderCommandPreviewLoading(command, asset, '音声');
       if (!asset?.source) return;
-      const result = await api.electronAPI.previewAssetSource(asset.source);
+      const result = await previewPceAssetSource(asset.source);
       if (token !== previewToken) return;
       commandPreviewEl.innerHTML = '';
       if (!result?.dataUrl) {
@@ -1083,9 +1559,10 @@ export function activatePlugin({ root, api, registerCapability }) {
     renderForm();
   }
 
-  async function load() {
+  async function load(options = {}) {
     errorEl.textContent = '';
-    const assetResult = await api.electronAPI.listAssets();
+    assetDataUrlCache.clear();
+    const assetResult = await listPceAssets({ force: Boolean(options.force) });
     assets = Array.isArray(assetResult?.assets) ? assetResult.assets : [];
     const read = await api.electronAPI.readCodeFile({ path: SCENE_FILE });
     if (read?.ok && read.content) {
@@ -1101,6 +1578,31 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (!doc.scenes.some((item) => item.id === selectedId)) selectedId = doc.startScene || doc.scenes[0]?.id || 'opening';
     selectedCommandIndex = 0;
     render();
+  }
+
+  function isPluginPageActive() {
+    const page = root.closest?.('.editor-page');
+    return page ? page.classList.contains('active') : !root.hidden;
+  }
+
+  function setupAssetRefreshEvents() {
+    let queued = false;
+    const queueReload = () => {
+      if (queued) return;
+      queued = true;
+      window.setTimeout(() => {
+        queued = false;
+        if (isPluginPageActive()) void load({ force: true });
+      }, 0);
+    };
+    const offChanged = api.events?.on?.('assets:pce:changed', queueReload) || (() => {});
+    const offActivated = api.events?.on?.('page:activated', () => {
+      if (isPluginPageActive()) queueReload();
+    }) || (() => {});
+    return () => {
+      offChanged();
+      offActivated();
+    };
   }
 
   async function save() {
@@ -1123,6 +1625,74 @@ export function activatePlugin({ root, api, registerCapability }) {
     current.commands.splice(index, 0, defaultCommand(type, assets));
     selectedCommandIndex = index;
     render();
+  }
+
+  function cloneCommand(command) {
+    return normalizeCommand(JSON.parse(JSON.stringify(command)), assets);
+  }
+
+  function copyCommand(index) {
+    const current = scene();
+    if (!current) return;
+    commitCurrentUiToDoc();
+    const command = current.commands[index];
+    if (!command) return;
+    commandClipboard = cloneCommand(command);
+    renderCommands(current);
+    errorEl.textContent = `${commandDefinition(command.type).label} をコピーしました`;
+  }
+
+  function pasteCommand(index, where) {
+    if (!commandClipboard) return;
+    commitCurrentUiToDoc();
+    const current = scene();
+    if (!current) return;
+    const at = clamp(where === 'after' ? index + 1 : index, 0, current.commands.length, current.commands.length);
+    current.commands.splice(at, 0, cloneCommand(commandClipboard));
+    selectedCommandIndex = at;
+    render();
+  }
+
+  async function openScenePreview() {
+    try {
+      commitCurrentUiToDoc();
+      const snapshot = normalizeDoc(doc, assets);
+      const referenced = new Set();
+      snapshot.scenes.forEach((item) => (item.commands || []).forEach((command) => {
+        if ((command.type === 'background' || command.type === 'sprite') && command.assetId) referenced.add(command.assetId);
+        if (command.type === 'audio' && command.action === 'play' && command.assetId) referenced.add(command.assetId);
+        if (command.type === 'message' && command.voiceAssetId) referenced.add(command.voiceAssetId);
+      }));
+      const urls = {};
+      const meta = {};
+      await Promise.all([...referenced].map(async (id) => {
+        const asset = assetById(id);
+        if (!asset) return;
+        const url = await resolveAssetDataUrl(asset);
+        if (!url) return;
+        urls[id] = url;
+        const size = assetPixelSize(asset);
+        meta[id] = { type: asset.type, name: asset.name || asset.id, width: size.width, height: size.height };
+      }));
+      const payload = {
+        doc: snapshot,
+        startScene: selectedId,
+        urls,
+        meta,
+        screen: { w: PCE_SCREEN_WIDTH, h: PCE_SCREEN_HEIGHT },
+      };
+      const win = window.open('', `pce-vn-preview-${selectedId}`, 'width=720,height=560');
+      if (!win) {
+        errorEl.textContent = 'プレビューウィンドウを開けませんでした（ポップアップ設定をご確認ください）';
+        return;
+      }
+      win.document.open();
+      win.document.write(buildPreviewHtml(payload));
+      win.document.close();
+      win.focus();
+    } catch (err) {
+      errorEl.textContent = `プレビュー失敗: ${err?.message || err}`;
+    }
   }
 
   function removeCommand(index) {
@@ -1200,6 +1770,21 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (suppressCommandClick) {
       suppressCommandClick = false;
       event.preventDefault();
+      return;
+    }
+    const copy = event.target?.closest?.('[data-command-copy]');
+    if (copy) {
+      copyCommand(Number(copy.dataset.commandCopy));
+      return;
+    }
+    const pasteBefore = event.target?.closest?.('[data-command-paste-before]');
+    if (pasteBefore) {
+      pasteCommand(Number(pasteBefore.dataset.commandPasteBefore), 'before');
+      return;
+    }
+    const pasteAfter = event.target?.closest?.('[data-command-paste-after]');
+    if (pasteAfter) {
+      pasteCommand(Number(pasteAfter.dataset.commandPasteAfter), 'after');
       return;
     }
     const remove = event.target?.closest?.('[data-command-remove]');
@@ -1336,8 +1921,9 @@ export function activatePlugin({ root, api, registerCapability }) {
     void renderCommandPreview();
   });
 
-  root.querySelector('[data-action="reload"]').addEventListener('click', load);
+  root.querySelector('[data-action="reload"]').addEventListener('click', () => { void load({ force: true }); });
   root.querySelector('[data-action="save"]').addEventListener('click', save);
+  root.querySelector('[data-action="preview"]').addEventListener('click', () => { void openScenePreview(); });
   root.querySelector('[data-action="add-scene"]').addEventListener('click', () => {
     commitCurrentUiToDoc();
     const id = safeId(`scene_${doc.scenes.length + 1}`, 'scene');
@@ -1346,16 +1932,39 @@ export function activatePlugin({ root, api, registerCapability }) {
     selectedCommandIndex = 0;
     render();
   });
-  root.querySelector('[data-action="delete-scene"]').addEventListener('click', () => {
+
+  function deleteScene(sceneId = selectedId) {
     if (doc.scenes.length <= 1) return;
-    doc.scenes = doc.scenes.filter((item) => item.id !== selectedId);
-    selectedId = doc.scenes[0]?.id || 'opening';
-    doc.startScene = selectedId;
-    selectedCommandIndex = 0;
+    const targetId = String(sceneId || selectedId);
+    const targetIndex = doc.scenes.findIndex((item) => item.id === targetId);
+    if (targetIndex < 0) return;
+    commitCurrentUiToDoc();
+    const deletingSelected = targetId === selectedId;
+    doc.scenes = doc.scenes.filter((item) => item.id !== targetId);
+    if (deletingSelected) {
+      selectedId = doc.scenes[Math.min(targetIndex, doc.scenes.length - 1)]?.id || 'opening';
+      selectedCommandIndex = 0;
+    }
+    if (doc.startScene === targetId || !doc.scenes.some((item) => item.id === doc.startScene)) {
+      doc.startScene = selectedId || doc.scenes[0]?.id || 'opening';
+    }
     render();
+  }
+
+  root.querySelector('[data-action="delete-scene"]').addEventListener('click', () => {
+    deleteScene(selectedId);
   });
 
+  const handleWindowResize = () => fitStageNodes();
+  window.addEventListener('resize', handleWindowResize);
+
   registerCapability('visual-novel-editor', { reload: load, save });
+  const teardownAssetRefreshEvents = setupAssetRefreshEvents();
   void load();
-  return { deactivate() {} };
+  return {
+    deactivate() {
+      teardownAssetRefreshEvents();
+      window.removeEventListener('resize', handleWindowResize);
+    },
+  };
 }

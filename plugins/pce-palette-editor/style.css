@@ -47,10 +47,37 @@
   border-color: var(--border);
 }
 
+.pce-palette-editor-shell .pce-plugin-items strong,
+.pce-palette-editor-shell .pce-plugin-items code,
 .pce-plugin-items span {
   display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pce-palette-editor-shell .pce-plugin-items code,
+.pce-plugin-items span {
   color: var(--muted);
   font-size: 11px;
+}
+
+.pce-palette-editor-shell .pce-plugin-group {
+  padding: 8px 10px 6px calc(10px + var(--asset-group-indent, 0px));
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pce-palette-editor-shell .pce-plugin-group strong {
+  display: inline;
+  color: var(--text);
+}
+
+.pce-palette-editor-shell .pce-plugin-group code {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .pce-palette-main {

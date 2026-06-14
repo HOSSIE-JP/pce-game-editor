@@ -23,6 +23,30 @@ function noteToPeriod(note = 'C4') {
   return Math.max(32, Math.min(4095, Math.round((base[name] || 1024) * (2 ** shift))));
 }
 
+function assetNameParts(asset = {}) {
+  const label = String(asset.name || asset.id || '').trim();
+  const parts = label.split('/').map((part) => part.trim()).filter(Boolean);
+  return parts.length ? parts : [label || asset.id || ''];
+}
+
+function assetDisplayName(asset = {}) {
+  const parts = assetNameParts(asset);
+  return parts[parts.length - 1] || asset.id || '';
+}
+
+function assetGroupParts(asset = {}) {
+  const parts = assetNameParts(asset);
+  return parts.slice(0, -1);
+}
+
+function assetFullName(asset = {}) {
+  return assetNameParts(asset).join('/');
+}
+
+function compareText(left, right) {
+  return String(left ?? '').localeCompare(String(right ?? ''), 'ja', { numeric: true, sensitivity: 'base' });
+}
+
 export function activatePlugin({ root, api, registerCapability }) {
   root.innerHTML = `
     <div class="pce-music-editor-shell">
@@ -58,14 +82,47 @@ export function activatePlugin({ root, api, registerCapability }) {
   let assets = [];
   let selectedId = '';
   let audioContext = null;
+  const assetApi = api.assets || {};
+
+  const listPceAssets = (options = {}) => assetApi.listPceAssets
+    ? assetApi.listPceAssets(options)
+    : api.electronAPI.listAssets();
+  const upsertPceAsset = (asset) => assetApi.upsertPceAsset
+    ? assetApi.upsertPceAsset(asset)
+    : api.electronAPI.upsertAsset(asset);
 
   function selected() {
     return assets.find((asset) => asset.id === selectedId) || null;
   }
 
+  function psgAssets() {
+    return assets
+      .slice()
+      .sort((left, right) => compareText(assetFullName(left), assetFullName(right)) || compareText(left.id, right.id));
+  }
+
+  function renderGroupedList(list, itemRenderer) {
+    let previousGroup = [];
+    return list.map((asset) => {
+      const group = assetGroupParts(asset);
+      let shared = 0;
+      while (shared < previousGroup.length && shared < group.length && previousGroup[shared] === group[shared]) {
+        shared += 1;
+      }
+      let html = '';
+      for (let depth = shared; depth < group.length; depth += 1) {
+        const path = group.slice(0, depth + 1).join(' / ');
+        html += `<div class="pce-plugin-group" style="--asset-group-indent:${depth * 14}px"><strong>${esc(group[depth])}</strong><code>${esc(path)}</code></div>`;
+      }
+      previousGroup = group;
+      return html + itemRenderer(asset);
+    }).join('');
+  }
+
   function renderList() {
-    listEl.innerHTML = assets.length
-      ? assets.map((asset) => `<button class="${asset.id === selectedId ? 'active' : ''}" type="button" data-id="${esc(asset.id)}"><strong>${esc(asset.name || asset.id)}</strong><span>${esc(asset.type)}</span></button>`).join('')
+    const list = psgAssets();
+    listEl.innerHTML = list.length
+      ? renderGroupedList(list, (asset) => `<button class="${asset.id === selectedId ? 'active' : ''}" type="button" data-id="${esc(asset.id)}"><strong>${esc(assetDisplayName(asset))}</strong><code>${esc(asset.id)}</code><span>${esc(asset.type)}</span></button>`)
       : '<p class="asset-no-selection-hint">PSM アセットがありません</p>';
     listEl.querySelectorAll('[data-id]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -109,11 +166,36 @@ export function activatePlugin({ root, api, registerCapability }) {
     renderGrid();
   }
 
-  async function reload() {
-    const result = await api.electronAPI.listAssets();
+  async function reload(options = {}) {
+    const result = await listPceAssets({ force: Boolean(options.force) });
     assets = (result?.assets || []).filter((asset) => asset.type === 'psg-song' || asset.type === 'psg-sfx');
     if (!assets.some((asset) => asset.id === selectedId)) selectedId = assets[0]?.id || '';
     render();
+  }
+
+  function isPluginPageActive() {
+    const page = root.closest?.('.editor-page');
+    return page ? page.classList.contains('active') : !root.hidden;
+  }
+
+  function setupAssetRefreshEvents() {
+    let queued = false;
+    const queueReload = () => {
+      if (queued) return;
+      queued = true;
+      window.setTimeout(() => {
+        queued = false;
+        if (isPluginPageActive()) void reload({ force: true });
+      }, 0);
+    };
+    const offChanged = api.events?.on?.('assets:pce:changed', queueReload) || (() => {});
+    const offActivated = api.events?.on?.('page:activated', () => {
+      if (isPluginPageActive()) queueReload();
+    }) || (() => {});
+    return () => {
+      offChanged();
+      offActivated();
+    };
   }
 
   async function save() {
@@ -124,7 +206,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       note: select.value,
       period: select.value ? noteToPeriod(select.value) : 0,
     }));
-    const result = await api.electronAPI.upsertAsset({
+    const result = await upsertPceAsset({
       ...asset,
       type: form.elements.type.value,
       name: form.elements.name.value,
@@ -141,7 +223,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       error.textContent = result?.error || '保存できませんでした';
       return;
     }
-    await reload();
+    await reload({ force: true });
   }
 
   function play() {
@@ -168,6 +250,11 @@ export function activatePlugin({ root, api, registerCapability }) {
   root.querySelector('[data-play]').addEventListener('click', play);
   root.querySelector('[data-stop]').addEventListener('click', () => {});
   registerCapability('psg-music-editor', { reload });
+  const teardownAssetRefreshEvents = setupAssetRefreshEvents();
   void reload();
-  return { deactivate() {} };
+  return {
+    deactivate() {
+      teardownAssetRefreshEvents();
+    },
+  };
 }

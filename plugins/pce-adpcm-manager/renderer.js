@@ -78,6 +78,39 @@ function sourceBasename(source = '') {
   return String(source || '').split(/[\\/]/).pop() || '';
 }
 
+function assetNameParts(asset = {}) {
+  const label = String(asset.name || asset.id || '').trim();
+  const parts = label.split('/').map((part) => part.trim()).filter(Boolean);
+  return parts.length ? parts : [label || asset.id || ''];
+}
+
+function assetDisplayName(asset = {}) {
+  const parts = assetNameParts(asset);
+  return parts[parts.length - 1] || asset.id || '';
+}
+
+function assetGroupParts(asset = {}) {
+  const parts = assetNameParts(asset);
+  return parts.slice(0, -1);
+}
+
+function assetFullName(asset = {}) {
+  return assetNameParts(asset).join('/');
+}
+
+function compareText(left, right) {
+  return String(left ?? '').localeCompare(String(right ?? ''), 'ja', { numeric: true, sensitivity: 'base' });
+}
+
+function compareSortValues(left, right) {
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
+    return leftNumber - rightNumber;
+  }
+  return compareText(left, right);
+}
+
 function adpcmMaxBytes(asset = {}) {
   const address = clampInt(asset.options?.adpcmAddress, 0, 65535, 0);
   return Math.max(1, Math.min(65535, 65536 - address));
@@ -101,21 +134,24 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           <table class="pce-adpcm-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Rate</th>
-                <th>Length</th>
-                <th>Size</th>
-                <th>Loop</th>
+                <th><button class="pce-adpcm-sort" type="button" data-sort-key="name">Name <span data-sort-indicator></span></button></th>
+                <th><button class="pce-adpcm-sort" type="button" data-sort-key="id">ID <span data-sort-indicator></span></button></th>
+                <th><button class="pce-adpcm-sort" type="button" data-sort-key="rate">Rate <span data-sort-indicator></span></button></th>
+                <th><button class="pce-adpcm-sort" type="button" data-sort-key="length">Length <span data-sort-indicator></span></button></th>
+                <th><button class="pce-adpcm-sort" type="button" data-sort-key="size">Size <span data-sort-indicator></span></button></th>
+                <th><button class="pce-adpcm-sort" type="button" data-sort-key="loop">Loop <span data-sort-indicator></span></button></th>
                 <th class="pce-adpcm-row-actions"></th>
               </tr>
             </thead>
             <tbody data-role="rows">
-              <tr><td colspan="6" class="pce-adpcm-empty">読み込み中...</td></tr>
+              <tr><td colspan="7" class="pce-adpcm-empty">読み込み中...</td></tr>
             </tbody>
           </table>
         </div>
         <div class="form-error pce-adpcm-status" data-role="status"></div>
       </section>
+
+      <div class="pce-adpcm-resizer" data-role="pane-resizer" role="separator" aria-orientation="vertical" aria-label="一覧と詳細の幅を変更"></div>
 
       <aside class="pce-adpcm-detail-panel">
         <div class="asset-no-selection-hint" data-role="empty-detail">ADPCM アセットを選択してください</div>
@@ -174,6 +210,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     </div>
   `;
 
+  const layoutEl = root.querySelector('.pce-adpcm-layout');
+  const listPanelEl = root.querySelector('.pce-adpcm-list-panel');
+  const paneResizerEl = root.querySelector('[data-role="pane-resizer"]');
   const rowsEl = root.querySelector('[data-role="rows"]');
   const summaryEl = root.querySelector('[data-role="summary"]');
   const statusEl = root.querySelector('[data-role="status"]');
@@ -190,10 +229,102 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   let assets = [];
   let selectedId = '';
   let importBusy = false;
+  let sortState = { key: 'name', direction: 'asc' };
+  const assetApi = api.assets || {};
+
+  const listPceAssets = (options = {}) => assetApi.listPceAssets
+    ? assetApi.listPceAssets(options)
+    : api.electronAPI.listAssets();
+  const upsertPceAsset = (asset) => assetApi.upsertPceAsset
+    ? assetApi.upsertPceAsset(asset)
+    : api.electronAPI.upsertAsset(asset);
+  const deletePceAsset = (assetId) => assetApi.deletePceAsset
+    ? assetApi.deletePceAsset(assetId)
+    : api.electronAPI.deleteAsset(assetId);
+  const importPceAudio = (payload) => assetApi.importPceAudio
+    ? assetApi.importPceAudio(payload)
+    : api.electronAPI.importAssetAudio(payload);
+  const previewPceAssetSource = (relativePath) => assetApi.previewPceAssetSource
+    ? assetApi.previewPceAssetSource(relativePath)
+    : api.electronAPI.previewAssetSource(relativePath);
 
   function setStatus(message = '', kind = '') {
     statusEl.textContent = message;
     statusEl.dataset.kind = kind;
+  }
+
+  function setupPaneResizer() {
+    if (!layoutEl || !listPanelEl || !paneResizerEl) return () => {};
+    const storageKey = 'pce-adpcm-manager.listWidth.v1';
+    const resizerWidth = 6;
+    const minListWidth = 300;
+    const minDetailWidth = 320;
+
+    function clampListWidth(width) {
+      const total = layoutEl.getBoundingClientRect().width || 0;
+      const maxWidth = total > 0
+        ? Math.max(minListWidth, total - minDetailWidth - resizerWidth)
+        : Math.max(minListWidth, Number(width) || minListWidth);
+      return Math.max(minListWidth, Math.min(maxWidth, Number(width) || minListWidth));
+    }
+
+    function applyListWidth(width, persist = false) {
+      const nextWidth = clampListWidth(width);
+      layoutEl.style.gridTemplateColumns = `${nextWidth}px ${resizerWidth}px minmax(${minDetailWidth}px, 1fr)`;
+      if (persist) {
+        try {
+          window.localStorage?.setItem(storageKey, String(Math.round(nextWidth)));
+        } catch (_err) {
+          // localStorage may be unavailable in tests or hardened runtimes.
+        }
+      }
+    }
+
+    try {
+      const saved = Number(window.localStorage?.getItem(storageKey));
+      if (Number.isFinite(saved) && saved > 0) {
+        window.requestAnimationFrame(() => applyListWidth(saved));
+      }
+    } catch (_err) {
+      // ignore storage read errors
+    }
+
+    let resizeState = null;
+    const move = (event) => {
+      if (!resizeState || event.pointerId !== resizeState.pointerId) return;
+      event.preventDefault();
+      applyListWidth(resizeState.startWidth + (event.clientX - resizeState.startX));
+    };
+    const finish = (event) => {
+      if (!resizeState || event.pointerId !== resizeState.pointerId) return;
+      event.preventDefault();
+      applyListWidth(resizeState.startWidth + (event.clientX - resizeState.startX), true);
+      resizeState = null;
+      paneResizerEl.classList.remove('is-dragging');
+      paneResizerEl.releasePointerCapture?.(event.pointerId);
+    };
+    const begin = (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      resizeState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startWidth: listPanelEl.getBoundingClientRect().width,
+      };
+      paneResizerEl.classList.add('is-dragging');
+      paneResizerEl.setPointerCapture?.(event.pointerId);
+    };
+
+    paneResizerEl.addEventListener('pointerdown', begin);
+    paneResizerEl.addEventListener('pointermove', move);
+    paneResizerEl.addEventListener('pointerup', finish);
+    paneResizerEl.addEventListener('pointercancel', finish);
+    return () => {
+      paneResizerEl.removeEventListener('pointerdown', begin);
+      paneResizerEl.removeEventListener('pointermove', move);
+      paneResizerEl.removeEventListener('pointerup', finish);
+      paneResizerEl.removeEventListener('pointercancel', finish);
+    };
   }
 
   function adpcmAssets() {
@@ -202,6 +333,79 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       .filter((entry) => entry.asset.type === 'adpcm')
       .sort((a, b) => a.index - b.index || a.asset.id.localeCompare(b.asset.id, 'ja'))
       .map((entry) => entry.asset);
+  }
+
+  function adpcmListMetrics(asset = {}) {
+    const generated = generatedInfo(asset);
+    const sampleRate = generated.sampleRate || asset.options?.sampleRate || 16000;
+    const byteLength = generated.byteLength || 0;
+    const estimatedSeconds = byteLength ? byteLength * 2 / Math.max(1, sampleRate) : generated.durationSeconds;
+    return { generated, sampleRate, byteLength, estimatedSeconds };
+  }
+
+  function adpcmSortValue(asset, key, index = 0) {
+    const metrics = adpcmListMetrics(asset);
+    switch (key) {
+      case 'id': return asset.id || '';
+      case 'rate': return metrics.sampleRate;
+      case 'length': return metrics.estimatedSeconds || 0;
+      case 'size': return metrics.byteLength || 0;
+      case 'loop': return asset.options?.loop ? 1 : 0;
+      case 'order': return index;
+      case 'name':
+      default:
+        return assetFullName(asset);
+    }
+  }
+
+  function sortedAdpcmAssets() {
+    const direction = sortState.direction === 'desc' ? -1 : 1;
+    return adpcmAssets()
+      .map((asset, index) => ({ asset, index }))
+      .sort((left, right) => {
+        const primary = compareSortValues(
+          adpcmSortValue(left.asset, sortState.key, left.index),
+          adpcmSortValue(right.asset, sortState.key, right.index),
+        );
+        if (primary) return primary * direction;
+        return left.index - right.index || compareText(left.asset.id, right.asset.id);
+      })
+      .map((entry) => entry.asset);
+  }
+
+  function updateSortHeaders() {
+    root.querySelectorAll('[data-sort-key]').forEach((button) => {
+      const active = button.dataset.sortKey === sortState.key;
+      button.dataset.sortDirection = active ? sortState.direction : '';
+      button.setAttribute('aria-sort', active ? (sortState.direction === 'desc' ? 'descending' : 'ascending') : 'none');
+      const indicator = button.querySelector('[data-sort-indicator]');
+      if (indicator) indicator.textContent = active ? (sortState.direction === 'desc' ? '▼' : '▲') : '↕';
+    });
+  }
+
+  function renderGroupedRows(list, colSpan, rowRenderer) {
+    let previousGroup = [];
+    return list.map((asset) => {
+      const group = assetGroupParts(asset);
+      let shared = 0;
+      while (shared < previousGroup.length && shared < group.length && previousGroup[shared] === group[shared]) {
+        shared += 1;
+      }
+      let html = '';
+      for (let depth = shared; depth < group.length; depth += 1) {
+        const path = group.slice(0, depth + 1).join(' / ');
+        html += `
+          <tr class="pce-adpcm-group-row">
+            <td colspan="${colSpan}" style="--asset-group-indent:${depth * 14}px">
+              <span>${esc(group[depth])}</span>
+              <code>${esc(path)}</code>
+            </td>
+          </tr>
+        `;
+      }
+      previousGroup = group;
+      return html + rowRenderer(asset);
+    });
   }
 
   function selectedAsset() {
@@ -236,7 +440,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     clearPreview();
     if (!asset?.source) return;
     const previewTargetId = asset.id;
-    const result = await api.electronAPI.previewAssetSource(asset.source);
+    const result = await previewPceAssetSource(asset.source);
     if (selectedId !== previewTargetId) return;
     if (!result?.ok || !result.dataUrl) {
       formErrorEl.textContent = result?.error || 'プレビューを取得できませんでした';
@@ -322,20 +526,19 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   }
 
   function renderRows() {
-    const samples = adpcmAssets();
+    const samples = sortedAdpcmAssets();
     summaryEl.textContent = samples.length ? `${samples.length} samples` : '0 samples';
+    updateSortHeaders();
     if (!samples.length) {
-      rowsEl.innerHTML = '<tr><td colspan="6" class="pce-adpcm-empty">ADPCM アセットがありません</td></tr>';
+      rowsEl.innerHTML = '<tr><td colspan="7" class="pce-adpcm-empty">ADPCM アセットがありません</td></tr>';
       return;
     }
-    rowsEl.innerHTML = samples.map((asset) => {
-      const generated = generatedInfo(asset);
-      const sampleRate = generated.sampleRate || asset.options?.sampleRate || 16000;
-      const byteLength = generated.byteLength || 0;
-      const estimatedSeconds = byteLength ? byteLength * 2 / Math.max(1, sampleRate) : generated.durationSeconds;
+    rowsEl.innerHTML = renderGroupedRows(samples, 7, (asset) => {
+      const { sampleRate, byteLength, estimatedSeconds } = adpcmListMetrics(asset);
       return `
         <tr class="pce-adpcm-row ${asset.id === selectedId ? 'active' : ''}" data-id="${esc(asset.id)}">
-          <td><span>${esc(asset.name || asset.id)}</span><code>${esc(asset.id)}</code></td>
+          <td class="pce-adpcm-name-cell"><span>${esc(assetDisplayName(asset))}</span></td>
+          <td class="pce-adpcm-id-cell"><code>${esc(asset.id)}</code></td>
           <td>${esc(sampleRate)} Hz</td>
           <td>${esc(formatSeconds(estimatedSeconds))}</td>
           <td>${esc(formatBytes(byteLength))}</td>
@@ -367,10 +570,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     });
   }
 
-  async function reload() {
-    const result = await api.electronAPI.listAssets();
+  async function reload(options = {}) {
+    const result = await listPceAssets({ force: Boolean(options.force) });
     if (!result?.ok) {
-      rowsEl.innerHTML = `<tr><td colspan="6" class="pce-adpcm-empty">${esc(result?.error || 'PCE assets を読み込めません')}</td></tr>`;
+      rowsEl.innerHTML = `<tr><td colspan="7" class="pce-adpcm-empty">${esc(result?.error || 'PCE assets を読み込めません')}</td></tr>`;
       return;
     }
     assets = result.assets || [];
@@ -379,6 +582,31 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     if (!selectedId && samples.length) selectedId = samples[0].id;
     renderRows();
     fillForm(selectedAsset());
+  }
+
+  function isPluginPageActive() {
+    const page = root.closest?.('.editor-page');
+    return page ? page.classList.contains('active') : !root.hidden;
+  }
+
+  function setupAssetRefreshEvents() {
+    let queued = false;
+    const queueReload = () => {
+      if (queued) return;
+      queued = true;
+      window.setTimeout(() => {
+        queued = false;
+        if (isPluginPageActive()) void reload({ force: true });
+      }, 0);
+    };
+    const offChanged = api.events?.on?.('assets:pce:changed', queueReload) || (() => {});
+    const offActivated = api.events?.on?.('page:activated', () => {
+      if (isPluginPageActive()) queueReload();
+    }) || (() => {});
+    return () => {
+      offChanged();
+      offActivated();
+    };
   }
 
   function collectFormAsset() {
@@ -412,14 +640,14 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       formErrorEl.textContent = '同じ ID のアセットが既にあります';
       return;
     }
-    const result = await api.electronAPI.upsertAsset(asset);
+    const result = await upsertPceAsset(asset);
     if (!result?.ok) {
       formErrorEl.textContent = result?.error || '保存できませんでした';
       return;
     }
     assets = result.assets || assets;
     if (asset.id !== current.id) {
-      const deleted = await api.electronAPI.deleteAsset(current.id);
+      const deleted = await deletePceAsset(current.id);
       if (!deleted?.ok) {
         formErrorEl.textContent = deleted?.error || '旧 ID の削除に失敗しました';
         return;
@@ -467,7 +695,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     try {
       const before = adpcmAssets();
       const oldIndex = Math.max(0, before.findIndex((asset) => asset.id === assetId));
-      const result = await api.electronAPI.deleteAsset(assetId);
+      const result = await deletePceAsset(assetId);
       if (!result?.ok) throw new Error(result?.error || '削除できませんでした');
       assets = result.assets || assets;
       const after = adpcmAssets();
@@ -615,7 +843,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       const sampleRate = Number.isFinite(processedSampleRate) && processedSampleRate > 0
         ? clampInt(processedSampleRate, ADPCM_MIN_SAMPLE_RATE, ADPCM_MAX_SAMPLE_RATE, details.sampleRate)
         : details.sampleRate;
-      const result = await api.electronAPI.importAssetAudio({
+      const result = await importPceAudio({
         dataUrl: converted.dataUrl,
         sourceFileName: `${details.id}.wav`,
         originalFileName: converted.originalFileName || picked.fileName,
@@ -655,12 +883,21 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   formEl.elements.divider.addEventListener('input', () => {
     formEl.elements.divider.dataset.touched = '1';
   });
+  root.querySelectorAll('[data-sort-key]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const key = button.dataset.sortKey || 'name';
+      sortState = sortState.key === key
+        ? { key, direction: sortState.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: 'asc' };
+      renderRows();
+    });
+  });
   root.querySelector('[data-action="auto-divider"]').addEventListener('click', () => {
     formEl.elements.divider.value = sampleRateToDivider(formEl.elements.sampleRate.value);
     delete formEl.elements.divider.dataset.touched;
   });
   root.querySelector('[data-action="add"]').addEventListener('click', () => { void importAdpcmAsset(); });
-  root.querySelector('[data-action="refresh"]').addEventListener('click', () => { void reload(); });
+  root.querySelector('[data-action="refresh"]').addEventListener('click', () => { void reload({ force: true }); });
   root.querySelector('[data-action="play"]').addEventListener('click', () => {
     const asset = selectedAsset();
     if (asset) void loadPreview(asset, { autoplay: true });
@@ -672,6 +909,14 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     reload,
     importAdpcmAsset,
   });
+  const teardownAssetRefreshEvents = setupAssetRefreshEvents();
+  const teardownPaneResizer = setupPaneResizer();
   void reload();
-  return { deactivate: clearPreview };
+  return {
+    deactivate() {
+      teardownAssetRefreshEvents();
+      teardownPaneResizer();
+      clearPreview();
+    },
+  };
 }

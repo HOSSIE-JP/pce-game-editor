@@ -541,8 +541,17 @@ export function activatePlugin({ plugin, hostRoot, api, registerCapability }) {
 | `api.capabilities.require(name, timeoutMs?)` | capability 登録を待つ。見つからない場合は `null` |
 | `api.capabilities.list()` | 現在有効な capability と provider plugin ID を列挙する |
 | `api.plugins.invokeHook(id, hook, payload)` | `mainApi.hooks` で許可された main process hook を呼び出す |
+| `api.assets.listPceAssets({ force? })` | PCE asset 共有ストアから `assets/pce-assets.json` を取得する。`force: true` で IPC から再読込する |
+| `api.assets.upsertPceAsset(asset)` | PCE asset を保存し、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
+| `api.assets.deletePceAsset(id)` | PCE asset を削除し、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
+| `api.assets.importPceImage(payload)` | 画像 asset を取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
+| `api.assets.importPceAudio(payload)` | 音声 asset を取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
+| `api.assets.reorderPceAssets(ids)` | PCE asset の順序を保存し、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
+| `api.assets.previewPceAssetSource(relativePath)` | project root 内の PCE asset source を Data URL として取得する |
 | `api.events.emit(name, detail)` | renderer plugin 間の軽量イベントを発行する |
 | `api.events.on(name, handler)` | renderer plugin 間イベントを購読し、解除関数を返す |
+
+Host は sidebar/page 切替後に `page:activated` (`{ pageId, pluginId }`) を発行します。アセット参照を持つ editor plugin は、このイベントと `assets:pce:changed` を購読し、表示中に必要な一覧・select・preview を再読込してください。PCE asset を変更する renderer plugin は、直接 `window.electronAPI.*Asset*` を呼ぶのではなく `api.assets.*` を優先し、他 plugin と同じ共有ストアを更新してください。
 
 本体側に残すべきものは、プロジェクト内ファイル操作 IPC、ビルド/Test Play orchestration、plugin 読込、共通 shell UI です。新しいページ、ツール、converter、モーダル、プレビュー、plugin 間連携は plugin 側 renderer module と capability/event で実装してください。
 
@@ -668,6 +677,7 @@ const preview = await window.electronAPI.readTempFileAsDataUrl(tempWavPath, { de
 PC Engine core のプロジェクトでは、PCE asset manager 用の安全な project-local IPC を利用できます。
 
 画像表示、スプライト表示、ADPCM 再生、CD-DA 再生を実装する場合は、より実装寄りの流れを `docs/pce-media-programming-guide.md` にまとめています。ここでは IPC の入口だけを示します。
+renderer plugin から asset を読む・変更する場合は、共有ストアと変更通知を扱う `api.assets.*` を優先してください。`window.electronAPI.*Asset*` は低レベル IPC として残しています。
 
 ```js
 // assets/pce-assets.json を取得
@@ -882,13 +892,13 @@ window.electronAPI.onPluginLog((payload) => {
 
 `pce-asset-manager` は `assets/pce-assets.json` v2 を正とする標準アセット管理です。BG image / Sprite sheet / Palette / PSG song/SFX / ADPCM / CD-DA track を扱います。画像の追加は `pce-image-converter` の `image-import-pipeline` を経由し、内蔵 PCE 変換で BG tile / BAT map / sprite pattern 形式の generated asset を作成します。音声の追加は `pce-audio-converter` の共通音声 UI を経由し、project-local WAV を生成してから ADPCM / CD-DA へ登録します。
 
-`image-editor` は BG / Sprites / Palette の画像画面を 1 つの sidebar タブに統合します。画面上部のタブで `BG`、`Sprites`、`Palette` を切り替えます。`pce-background-manager` / `pce-sprite-manager` / `pce-palette-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。BG / sprite の生成物は PCE 変換を使い、Superfamiconv や SGDK ResComp 用の converter には依存しません。
+`image-editor` は BG / Sprites / Palette の画像画面を 1 つの sidebar タブに統合します。画面上部のタブで `BG`、`Sprites`、`Palette` を切り替えます。`pce-background-manager` / `pce-sprite-manager` / `pce-palette-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。BG / sprite の生成物は PCE 変換を使い、Superfamiconv や SGDK ResComp 用の converter には依存しません。画像の `Palette bank`、出力幅/高さ、`Transparent index` は import 時の変換条件として指定し、変換後の Image 詳細フォームでは generated 出力と metadata の不整合を避けるため直接編集しません。BG の一覧と詳細 preview の境界はドラッグで幅調整できます。preview はホイールで拡大縮小し、中央ボタンドラッグで表示位置を動かせます。一覧では固定的で意味が薄い palette 数列を表示せず、palette count / palette file / swatch は詳細側で確認します。BG の一覧は `Name` と `ID` を別列にし、各列ヘッダーで昇順/降順ソートできます。Image 配下の asset 一覧では `Name` に `folder/item` のような `/` 区切りを使うと、エディタ上ではグループ見出しと leaf 名に分けて表示します。Sprites タブは MD Game Editor の Sprite editor と同じ 3 ペイン構成に寄せ、左に sprite asset tree、中央に frame preview / sprite sheet / Animation Rows、右に properties を表示します。PCE では `.res` の `SPRITE` 定義ではなく `assets/pce-assets.json` の sprite asset を正とし、frame size、ROW ごとの有効 frame 数、time、collision などの編集結果は `options.animations` と `options.spriteEditor` metadata へ保存します。
 
 ### Sound / Novel 統合 UI
 
-`sound-editor` は ADPCM / CD-DA / PSM の音声画面を 1 つの sidebar タブに統合します。`pce-adpcm-manager` / `pce-cdda-manager` / `pce-music-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。
+`sound-editor` は ADPCM / CD-DA / PSM の音声画面を 1 つの sidebar タブに統合します。`pce-adpcm-manager` / `pce-cdda-manager` / `pce-music-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。ADPCM / CD-DA の一覧と詳細 pane の境界はドラッグで幅調整できます。一覧行右端の preview / delete は横並びの icon button として扱い、狭い列幅でも縦に崩れないようにします。ADPCM / CD-DA の一覧は `Name` と `ID` を別列にし、各列ヘッダーで昇順/降順ソートできます。Sound 配下の asset 一覧でも `Name` の `/` 区切りをグループ表示として扱います。
 
-`novel-editor` は VN scene 編集と font 生成を 1 つの sidebar タブに統合します。`pce-visual-novel-editor` / `pce-font-editor` は内部モジュール (`hidden: true`) として残します。CD-ROM2 / VN runtime の bank 配置を変える作業では、先に `docs/pce-memory-bank-strategy.md` を読んでください。
+`novel-editor` は script scene 編集と font 生成を 1 つの sidebar タブに統合します。画面上部のタブは `スクリプト` / `Font` です。Scenes 一覧では各行右端の削除アイコンから scene を削除できます。`pce-visual-novel-editor` / `pce-font-editor` は内部モジュール (`hidden: true`) として残します。CD-ROM2 / VN runtime の bank 配置を変える作業では、先に `docs/pce-memory-bank-strategy.md` を読んでください。
 
 ### Test Play
 

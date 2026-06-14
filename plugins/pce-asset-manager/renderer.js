@@ -362,6 +362,29 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   let psgAudioContext = null;
   let psgPreviewNodes = [];
   let psgPreviewToken = 0;
+  const assetApi = api.assets || {};
+
+  const listPceAssets = (options = {}) => assetApi.listPceAssets
+    ? assetApi.listPceAssets(options)
+    : api.electronAPI.listAssets();
+  const upsertPceAsset = (asset) => assetApi.upsertPceAsset
+    ? assetApi.upsertPceAsset(asset)
+    : api.electronAPI.upsertAsset(asset);
+  const deletePceAsset = (assetId) => assetApi.deletePceAsset
+    ? assetApi.deletePceAsset(assetId)
+    : api.electronAPI.deleteAsset(assetId);
+  const importPceImage = (payload) => assetApi.importPceImage
+    ? assetApi.importPceImage(payload)
+    : api.electronAPI.importAssetImage(payload);
+  const importPceAudio = (payload) => assetApi.importPceAudio
+    ? assetApi.importPceAudio(payload)
+    : api.electronAPI.importAssetAudio(payload);
+  const reorderPceAssets = (ids) => assetApi.reorderPceAssets
+    ? assetApi.reorderPceAssets(ids)
+    : api.electronAPI.reorderAssets(ids);
+  const previewPceAssetSource = (relativePath) => assetApi.previewPceAssetSource
+    ? assetApi.previewPceAssetSource(relativePath)
+    : api.electronAPI.previewAssetSource(relativePath);
 
   function selectedAsset() {
     return assets.find((asset) => asset.id === selectedId) || null;
@@ -776,7 +799,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     if (!asset?.source) return;
     const ext = extname(asset.source);
     if (!IMAGE_EXTS.includes(ext) && !AUDIO_EXTS.includes(ext)) return;
-    const result = await api.electronAPI.previewAssetSource(asset.source);
+    const result = await previewPceAssetSource(asset.source);
     if (!result?.ok || !result.dataUrl) {
       previewInfoEl.textContent = result?.error || 'プレビューを取得できませんでした';
       return;
@@ -883,8 +906,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     renderRows();
   }
 
-  async function reload() {
-    const result = await api.electronAPI.listAssets();
+  async function reload(options = {}) {
+    const result = await listPceAssets({ force: Boolean(options.force) });
     if (!result?.ok) {
       rowsEl.innerHTML = `<tr class="asset-row-empty"><td colspan="7">${esc(result?.error || 'PCE assets を読み込めません')}</td></tr>`;
       return;
@@ -899,7 +922,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     event.preventDefault();
     try {
       const asset = collectFormAsset();
-      const result = await api.electronAPI.upsertAsset(asset);
+      const result = await upsertPceAsset(asset);
       if (!result?.ok) throw new Error(result?.error || '保存に失敗しました');
       selectedId = asset.id;
       logger.info(`PCE asset saved: ${asset.id}`);
@@ -943,7 +966,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   async function deleteAsset(assetId = selectedId) {
     if (!assetId) return;
     if (!(await askDelete(assetId))) return;
-    const result = await api.electronAPI.deleteAsset(assetId);
+    const result = await deletePceAsset(assetId);
     if (!result?.ok) {
       formErrorEl.textContent = result?.error || '削除に失敗しました';
       return;
@@ -959,7 +982,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     const to = ids.indexOf(targetId);
     if (from < 0 || to < 0) return;
     ids.splice(to, 0, ids.splice(from, 1)[0]);
-    const result = await api.electronAPI.reorderAssets(ids);
+    const result = await reorderPceAssets(ids);
     if (!result?.ok) {
       formErrorEl.textContent = result?.error || '並び替えに失敗しました';
       return;
@@ -1216,7 +1239,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           if (form.elements.kind.value !== 'sprite' && (finalWidth % 8 !== 0 || finalHeight % 8 !== 0)) {
             throw new Error('BG image の出力サイズは8px単位にしてください');
           }
-          const result = await api.electronAPI.importAssetImage({
+          const result = await importPceImage({
             sourcePath,
             sourceFileName,
             convertedDataUrl: converted.convertedDataUrl || '',
@@ -1426,7 +1449,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             resolve(null);
             return;
           }
-          const result = await api.electronAPI.importAssetAudio({
+          const result = await importPceAudio({
             dataUrl: converted.dataUrl,
             sourceFileName: `${id}.wav`,
             originalFileName: converted.originalFileName || sourceFileName,
@@ -1597,36 +1620,31 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     return !root.hidden;
   }
 
-  function setupReloadOnVisible() {
-    const page = root.closest?.('.editor-page') || root;
-    let wasVisible = isPluginPageVisible();
-    const reloadIfVisible = () => {
-      const visible = isPluginPageVisible();
-      if (visible && !wasVisible) void reload();
-      wasVisible = visible;
-    };
-    const observer = new MutationObserver(reloadIfVisible);
-    observer.observe(page, { attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
-    const pageId = page?.id ? page.id.replace(/^page-/, '') : '';
-    const handleNavClick = (event) => {
-      const button = event.target?.closest?.('.nav-btn[data-page]');
-      if (!button || button.dataset.page !== pageId) return;
+  function setupAssetRefreshEvents() {
+    let queued = false;
+    const queueReload = () => {
+      if (queued) return;
+      queued = true;
       window.setTimeout(() => {
-        if (isPluginPageVisible()) void reload();
+        queued = false;
+        if (isPluginPageVisible()) void reload({ force: true });
       }, 0);
     };
-    document.addEventListener('click', handleNavClick);
+    const offChanged = api.events?.on?.('assets:pce:changed', queueReload) || (() => {});
+    const offActivated = api.events?.on?.('page:activated', () => {
+      if (isPluginPageVisible()) queueReload();
+    }) || (() => {});
     return () => {
-      observer.disconnect();
-      document.removeEventListener('click', handleNavClick);
+      offChanged();
+      offActivated();
     };
   }
 
-  const teardownReloadOnVisible = setupReloadOnVisible();
+  const teardownAssetRefreshEvents = setupAssetRefreshEvents();
   void reload();
   return {
     deactivate() {
-      teardownReloadOnVisible();
+      teardownAssetRefreshEvents();
       stopPsgPreview();
     },
   };

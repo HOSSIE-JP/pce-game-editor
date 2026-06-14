@@ -2,7 +2,7 @@ import { activatePlugin as activateVnEditor } from '../pce-visual-novel-editor/r
 import { activatePlugin as activateFontEditor } from '../pce-font-editor/renderer.js';
 
 const NOVEL_TABS = [
-  { id: 'vn', label: 'VN', pluginId: 'novel-editor', activate: activateVnEditor },
+  { id: 'vn', label: 'スクリプト', pluginId: 'novel-editor', activate: activateVnEditor },
   { id: 'font', label: 'Font', pluginId: 'novel-editor', activate: activateFontEditor },
 ];
 
