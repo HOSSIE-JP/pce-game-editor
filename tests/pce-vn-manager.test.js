@@ -777,9 +777,19 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /divider = adpcm_play_divider\(adpcm_voice_snapshot\.sample_rate, adpcm_voice_snapshot\.divider\);/);
   assert.match(source, /if \(pce_cdb_adpcm_play\(adpcm_voice_snapshot\.adpcm_address, \(uint16_t\)adpcm_voice_snapshot\.data_size, divider,/);
   assert.match(source, /loaded_adpcm_valid = 0u;\n        map_resident_data\(\);\n        restore_display_after_adpcm\(restore_display\);\n        return 0u;/);
-  assert.match(source, /map_resident_data\(\);\n    adpcm_stream_active = adpcm_voice_snapshot\.loop \? 0u : 1u;\n    adpcm_stream_looping = 0u;\n    adpcm_stream_index = \(uint8_t\)voice_index;\n    adpcm_stream_buffered_fallback = 0u;\n    adpcm_stream_monitor_frames = adpcm_voice_snapshot\.loop \? 0u : 1u;\n    restore_display_after_adpcm\(restore_display\);/);
+  assert.match(source, /Buffered one-shot playback does not need natural-completion polling/);
+  assert.match(source, /map_resident_data\(\);\n    \/\*[\s\S]*?EmulatorJS mednafen_pce core unable to deliver joypad edges afterward\.[\s\S]*?\*\/\n    adpcm_stream_active = 0u;\n    adpcm_stream_looping = 0u;\n    adpcm_stream_index = \(uint8_t\)voice_index;\n    adpcm_stream_buffered_fallback = 0u;\n    adpcm_stream_monitor_frames = 0u;\n    restore_display_after_adpcm\(restore_display\);/);
   assert.match(source, /static void VN_BANKED_CODE stop_adpcm_voice\(void\)[\s\S]*const uint8_t restore_display = \(uint8_t\)!pending_display_enable;[\s\S]*pce_cdb_adpcm_stop\(\);[\s\S]*pce_cdb_adpcm_reset\(\);[\s\S]*restore_display_after_adpcm\(restore_display\);/);
-  assert.match(source, /static void VN_BANKED_CODE service_adpcm_streaming\(void\)[\s\S]*if \(!adpcm_stream_active\) return;[\s\S]*if \(adpcm_stream_monitor_frames\)[\s\S]*if \(adpcm_stream_monitor_frames\) return;[\s\S]*adpcm_stream_buffered_fallback[\s\S]*adpcm_stream_active = 0u;\n            \(void\)play_adpcm_buffered_voice\(\(signed int\)adpcm_stream_index, \(uint8_t\)!pending_display_enable\);[\s\S]*if \(adpcm_stream_looping\)[\s\S]*\(void\)stream_adpcm_voice\(\(signed int\)adpcm_stream_index\);[\s\S]*pce_cdb_adpcm_stop\(\);[\s\S]*pce_cdb_adpcm_reset\(\);[\s\S]*adpcm_stream_buffered_fallback = 0u;/);
+  const adpcmServiceMatch = source.match(/static void VN_BANKED_CODE service_adpcm_streaming\(void\)\n\{[\s\S]*?\n}\n\nstatic void show_scene/);
+  assert.ok(adpcmServiceMatch);
+  assert.match(adpcmServiceMatch[0], /if \(!adpcm_stream_active\) return;/);
+  assert.match(adpcmServiceMatch[0], /if \(adpcm_stream_monitor_frames\)[\s\S]*if \(adpcm_stream_monitor_frames\) return;[\s\S]*adpcm_stream_buffered_fallback[\s\S]*adpcm_stream_active = 0u;\n            \(void\)play_adpcm_buffered_voice\(\(signed int\)adpcm_stream_index, \(uint8_t\)!pending_display_enable\);/);
+  assert.match(adpcmServiceMatch[0], /if \(adpcm_stream_looping\)[\s\S]*\(void\)stream_adpcm_voice\(\(signed int\)adpcm_stream_index\);/);
+  assert.match(adpcmServiceMatch[0], /Natural one-shot\/stream completion is already stopped/);
+  assert.doesNotMatch(adpcmServiceMatch[0], /pce_cdb_adpcm_stop\(\);/);
+  assert.doesNotMatch(adpcmServiceMatch[0], /pce_cdb_adpcm_reset\(\);/);
+  assert.doesNotMatch(adpcmServiceMatch[0], /loaded_adpcm_valid = 0u;/);
+  assert.match(adpcmServiceMatch[0], /adpcm_stream_buffered_fallback = 0u;/);
   assert.match(source, /static void preload_adpcm_voice\(signed int voice_index\)[\s\S]*\(void\)load_adpcm_voice\(voice_index, 0u, 0u\);/);
   assert.doesNotMatch(source, /divider = adpcm_play_divider\(voice\);/);
   assert.match(source, /return \(uint8_t\)\(pattern_cols \* pattern_rows \* 2u\);/);
@@ -899,6 +909,11 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
 test('PCE build system regenerates visual novel sources from saved scenes', async () => {
   const projectDir = path.join(makeTempDir('pce-vn-build-project-'), 'project');
   fs.cpSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd'), projectDir, { recursive: true });
+  const runtimePath = path.join(projectDir, 'src', 'pce_vn_runtime.c');
+  const currentRuntime = fs.readFileSync(runtimePath, 'utf-8');
+  const changedRuntime = currentRuntime.replace('adpcm_stream_active = 1u;', 'adpcm_stream_active = 0u;');
+  assert.notEqual(changedRuntime, currentRuntime);
+  fs.writeFileSync(runtimePath, changedRuntime, 'utf-8');
   const scenePath = path.join(projectDir, 'assets', 'pce-vn-scenes.json');
   const sceneDoc = JSON.parse(fs.readFileSync(scenePath, 'utf-8'));
   sceneDoc.scenes[0].commands = [
@@ -924,4 +939,6 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.match(source, /const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs\[\]/);
   assert.match(source, /\{ \{ 64u, 0u, 0u \}, 1u, \d+u, -1 \}/);
   assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'scenes', '000_opening.bin')));
+  const syncedRuntime = fs.readFileSync(runtimePath, 'utf-8');
+  assert.match(syncedRuntime, /adpcm_stream_active = 1u;/);
 });

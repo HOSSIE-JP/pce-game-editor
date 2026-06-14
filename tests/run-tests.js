@@ -13,6 +13,7 @@ loadAppConfig(require('../app.config'));
   'pce-app-separation.test.js',
   'pce-asset-manager.test.js',
   'pce-cd-bundle.test.js',
+  'pce-external-emulator.test.js',
   'pce-file-safety.test.js',
   'pce-ipl-extractor.test.js',
   'pce-setup-manager.test.js',

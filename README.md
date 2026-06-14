@@ -40,6 +40,13 @@ npm test
 
 PCE 関連の基本回帰テストは `tests/run-tests.js` から実行されます。AI Control の REST/MCP 境界、plugin manager、packaging、PCE asset/build/Test Play/VN まわりのテストを含みます。
 
+## ドキュメント
+
+- [User Guide](docs/user-guide.md): Setup、Build、標準/外部エミュレーター Test Play の使い方。
+- [PLUGIN.md](PLUGIN.md): plugin manifest、hook、capability、PCE 内蔵 plugin の開発仕様。
+- [PCE Test Play Debugging](docs/pce-testplay-debugging.md): Geargrafx MCP / EmulatorJS を使った Test Play 調査手順。
+- [PCE Media Programming Guide](docs/pce-media-programming-guide.md): 画像、スプライト、ADPCM、CD-DA の実装ガイド。
+
 ## 共有コード
 
 `game-editor-common` は隣接する `/Users/hossie/development/game-editor-common` を `file:../game-editor-common` として参照します。共通ライブラリは特定ハードウェアの知識を持たず、PCE 固有の移行処理は `pce-project-migration.js` に置きます。

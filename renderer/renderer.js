@@ -29,6 +29,8 @@ import {
   renderLogSourceFilters as renderSharedLogSourceFilters,
 } from './log-viewer-core.mjs';
 
+const DEFAULT_EXTERNAL_EMULATOR_PATH = '/Applications/Geargrafx.app/Contents/MacOS/geargrafx';
+
 // ------------------------------------------------------------------ state --
 const state = {
   currentPage: 'assets',
@@ -43,6 +45,12 @@ const state = {
     author: 'AUTHOR',
     serial: 'GM 00000000-00',
     region: 'JUE',
+    testPlay: {
+      externalEmulator: {
+        executablePath: DEFAULT_EXTERNAL_EMULATOR_PATH,
+        extraArgs: '',
+      },
+    },
   },
   project: {
     dir: '',
@@ -365,6 +373,10 @@ const el = {
   settingAuthorError: $('settingAuthorError'),
   settingSerialError: $('settingSerialError'),
   settingOutputPath: $('settingOutputPath'),
+  externalEmulatorSettings: $('externalEmulatorSettings'),
+  externalEmulatorPath: $('externalEmulatorPath'),
+  externalEmulatorArgs: $('externalEmulatorArgs'),
+  externalEmulatorHint: $('externalEmulatorHint'),
   currentProjectDir: $('currentProjectDir'),
   btnOpenProjectDir: $('btnOpenProjectDir'),
   btnSettingsProjectPicker: $('btnSettingsProjectPicker'),
@@ -756,6 +768,7 @@ const ASSET_PREVIEW_WIDTH_KEY = 'md-editor.assetPreviewWidth.v1';
 const ASSET_PREVIEW_MIN_WIDTH = 280;
 const ASSET_PREVIEW_MAX_WIDTH = 760;
 const PROJECT_PLUGIN_STATE_EXCLUDED_ROLES = ['builder', 'testplay'];
+const EXTERNAL_EMULATOR_PLUGIN_ID = 'pce-external-emulator';
 const SIDEBAR_PLUGIN_ID_ALIASES = new Map([
   ['pce-font-editor', 'novel-editor'],
   ['pce-visual-novel-editor', 'novel-editor'],
@@ -1709,6 +1722,7 @@ async function setActiveEmulatorPlugin(id) {
   }
   await loadPlugins();
   applyTestPlayAvailability();
+  updateExternalEmulatorSettingsAvailability();
 }
 
 function updateBuildButtonLabel() {
@@ -1873,6 +1887,7 @@ async function loadPlugins(options = {}) {
   appendLog('app', `プラグインをスキャン: ${pluginState.plugins.length} 件`);
   applyBuildAvailability();
   applyTestPlayAvailability();
+  updateExternalEmulatorSettingsAvailability();
 }
 
 function renderPluginRoleSettings() {
@@ -1929,6 +1944,7 @@ function renderPluginRoleSettings() {
       updateBuildButtonLabel();
       applyBuildAvailability();
       applyTestPlayAvailability();
+      updateExternalEmulatorSettingsAvailability();
     });
   });
 }
@@ -3029,6 +3045,51 @@ function safeMdSerial(value) {
   return validateSerial(text) ? 'GM 00000000-00' : text;
 }
 
+function getExternalEmulatorProjectSettings() {
+  const testPlay = state.projectConfig?.testPlay;
+  const external = testPlay && typeof testPlay === 'object' && testPlay.externalEmulator && typeof testPlay.externalEmulator === 'object'
+    ? testPlay.externalEmulator
+    : {};
+  return {
+    executablePath: String(external.executablePath || external.path || DEFAULT_EXTERNAL_EMULATOR_PATH).trim(),
+    extraArgs: String(external.extraArgs || external.arguments || '').trim(),
+  };
+}
+
+function collectExternalEmulatorSettings() {
+  return {
+    executablePath: el.externalEmulatorPath?.value.trim() || '',
+    extraArgs: el.externalEmulatorArgs?.value.trim() || '',
+  };
+}
+
+function populateExternalEmulatorSettings() {
+  const external = getExternalEmulatorProjectSettings();
+  if (el.externalEmulatorPath) el.externalEmulatorPath.value = external.executablePath;
+  if (el.externalEmulatorArgs) el.externalEmulatorArgs.value = external.extraArgs;
+  updateExternalEmulatorSettingsAvailability();
+}
+
+function updateExternalEmulatorSettingsAvailability() {
+  const activeId = getActiveRolePlugin('testplay') || pluginState.activeEmulatorPlugin || '';
+  const enabled = activeId === EXTERNAL_EMULATOR_PLUGIN_ID;
+  el.externalEmulatorSettings?.classList.toggle('is-disabled', !enabled);
+  if (el.externalEmulatorPath) el.externalEmulatorPath.disabled = !enabled;
+  if (el.externalEmulatorArgs) el.externalEmulatorArgs.disabled = !enabled;
+  if (el.externalEmulatorHint) {
+    el.externalEmulatorHint.textContent = enabled
+      ? '現在の Test Play は外部エミュレーターで起動します。'
+      : 'Plugins 画面で Test Play プラグインを「外部エミュレーター」にすると有効になります。';
+  }
+}
+
+function buildTestPlaySettingsPatch() {
+  return {
+    ...(state.projectConfig.testPlay && typeof state.projectConfig.testPlay === 'object' ? state.projectConfig.testPlay : {}),
+    externalEmulator: collectExternalEmulatorSettings(),
+  };
+}
+
 function collectAndValidateSettings({ showError = true } = {}) {
   if (getActiveCoreId() === 'pc-engine') {
     const title = el.settingTitle?.value.trim() || state.projectConfig.title || state.projectConfig.romName || 'pce_sample';
@@ -3046,6 +3107,7 @@ function collectAndValidateSettings({ showError = true } = {}) {
         title,
         romName: state.projectConfig.romName || title,
         toolchain: 'llvm-mos',
+        testPlay: buildTestPlaySettingsPatch(),
       },
     };
   }
@@ -3074,6 +3136,7 @@ function collectAndValidateSettings({ showError = true } = {}) {
       author: author || state.projectConfig.author,
       serial: serial || state.projectConfig.serial,
       region: 'JUE',
+      testPlay: buildTestPlaySettingsPatch(),
     },
   };
 }
@@ -3364,6 +3427,7 @@ async function loadProjectConfig() {
       if (el.settingTitle) el.settingTitle.value = state.projectConfig.title;
       if (el.settingAuthor) el.settingAuthor.value = state.projectConfig.author;
       if (el.settingSerial) el.settingSerial.value = state.projectConfig.serial;
+      populateExternalEmulatorSettings();
       updateProjectNameDisplay();
       collectAndValidateSettings({ showError: true });
     }
@@ -3406,6 +3470,7 @@ async function persistProjectSettings(config, { showMessage = false } = {}) {
   }
   state.projectConfig = result.config || config;
   if (el.settingSerial) el.settingSerial.value = state.projectConfig.serial;
+  populateExternalEmulatorSettings();
   updateProjectNameDisplay();
   if (showMessage && el.settingsSavedMsg) {
     el.settingsSavedMsg.textContent = '✓ 設定を保存しました';
@@ -8351,6 +8416,11 @@ function bindEvents() {
   el.settingSerial?.addEventListener('input', () => {
     el.settingSerial.value = el.settingSerial.value.toUpperCase();
     collectAndValidateSettings({ showError: true });
+  });
+  [el.externalEmulatorPath, el.externalEmulatorArgs].forEach((input) => {
+    input?.addEventListener('input', () => {
+      state.projectConfig.testPlay = buildTestPlaySettingsPatch();
+    });
   });
 
   el.btnOpenOutputFolder?.addEventListener('click', async () => {

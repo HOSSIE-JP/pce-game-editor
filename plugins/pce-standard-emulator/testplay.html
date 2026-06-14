@@ -6,7 +6,7 @@
   <title>PCE Test Play</title>
   <style>
     html, body { height: 100%; margin: 0; background: #0d1117; color: #e8eef6; font-family: system-ui, sans-serif; }
-    #game { width: 100%; height: calc(100% - 44px); }
+    #game { width: 100%; height: calc(100% - 44px); outline: none; }
     header { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid #2c3440; }
     .meta { color: #98a4b3; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .status { margin-left: auto; color: #78d6ff; font-size: 12px; white-space: nowrap; }
@@ -19,19 +19,32 @@
     <span id="meta" class="meta"></span>
     <span id="status" class="status"></span>
   </header>
-  <div id="game"></div>
+  <div id="game" tabindex="0"></div>
   <script>
     (async () => {
       const result = await window.pceTestPlay.getContext();
       const ctx = result && result.context;
+      const settings = typeof window.pceTestPlay.getSettings === 'function'
+        ? await window.pceTestPlay.getSettings().catch(() => null)
+        : null;
       const meta = document.getElementById('meta');
       const status = document.getElementById('status');
+      const game = document.getElementById('game');
       const setStatus = (text, isError = false) => {
         status.textContent = text;
         status.style.color = isError ? '#ff9b9b' : '#78d6ff';
       };
+      const focusGame = () => {
+        window.focus();
+        game?.focus({ preventScroll: true });
+      };
       window.addEventListener('error', (event) => setStatus(`Error: ${event.message || 'runtime error'}`, true));
       window.addEventListener('unhandledrejection', (event) => setStatus(`Error: ${event.reason?.message || event.reason || 'runtime error'}`, true));
+      window.addEventListener('pointerdown', focusGame, true);
+      window.addEventListener('focus', focusGame);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) focusGame();
+      });
       function installRuntimeGlobalBridge() {
         const NativeBlob = window.Blob;
         const NativeAppendChild = Element.prototype.appendChild;
@@ -62,7 +75,91 @@
           return NativeAppendChild.call(this, child);
         };
       }
+      function installPceDirectInputBridge(testPlaySettings = {}) {
+        const inputIndexes = {
+          UP: 4,
+          DOWN: 5,
+          LEFT: 6,
+          RIGHT: 7,
+          A: 8,
+          B: 0,
+          C: 9,
+          SELECT: 2,
+          START: 3,
+        };
+        const defaultKeyboard = {
+          UP: 'ArrowUp',
+          DOWN: 'ArrowDown',
+          LEFT: 'ArrowLeft',
+          RIGHT: 'ArrowRight',
+          A: 'KeyA',
+          B: 'KeyZ',
+          C: 'KeyX',
+          SELECT: 'ShiftRight',
+          START: 'Enter',
+        };
+        const defaultKeyboardAliases = {
+          A: ['Space'],
+          SELECT: ['ShiftLeft'],
+          START: ['NumpadEnter'],
+        };
+        const keyboard = {
+          ...defaultKeyboard,
+          ...(testPlaySettings && typeof testPlaySettings.keyboard === 'object' ? testPlaySettings.keyboard : {}),
+        };
+        const bindings = new Map();
+        const addBinding = (action, code) => {
+          if (inputIndexes[action] == null || !code) return;
+          if (Array.isArray(code)) {
+            code.forEach((entry) => addBinding(action, entry));
+            return;
+          }
+          bindings.set(String(code), inputIndexes[action]);
+        };
+        Object.entries(defaultKeyboardAliases).forEach(([action, codes]) => addBinding(action, codes));
+        Object.entries(keyboard).forEach(([action, code]) => {
+          addBinding(action, code);
+        });
+
+        const pressedKeys = new Map();
+        const isEditableTarget = (target) => {
+          if (!target || typeof target.closest !== 'function') return false;
+          return Boolean(target.closest('input, textarea, select, button, [role="button"], [contenteditable="true"]'));
+        };
+        const manager = () => window.EJS_emulator && window.EJS_emulator.gameManager;
+        const sendInput = (button, down) => {
+          const gameManager = manager();
+          if (!gameManager || typeof gameManager.simulateInput !== 'function') return false;
+          gameManager.simulateInput(0, button, down ? 1 : 0);
+          return true;
+        };
+        const handleKey = (event, down) => {
+          if (event.metaKey || event.ctrlKey || event.altKey || isEditableTarget(event.target)) return;
+          const button = bindings.get(event.code) ?? bindings.get(event.key);
+          if (button == null) return;
+          if (down) {
+            if (pressedKeys.get(event.code)) {
+              event.preventDefault();
+              return;
+            }
+            pressedKeys.set(event.code, button);
+          } else {
+            pressedKeys.delete(event.code);
+          }
+          if (sendInput(button, down)) {
+            event.preventDefault();
+            focusGame();
+          }
+        };
+        window.addEventListener('keydown', (event) => handleKey(event, true), true);
+        window.addEventListener('keyup', (event) => handleKey(event, false), true);
+        window.addEventListener('blur', () => {
+          pressedKeys.forEach((button) => sendInput(button, false));
+          pressedKeys.clear();
+        });
+      }
       installRuntimeGlobalBridge();
+      installPceDirectInputBridge(settings || {});
       if (!ctx || !ctx.romPath || !ctx.emulatorJsDir) {
         document.getElementById('game').innerHTML = '<div class="error">ROM または EmulatorJS が未設定です。</div>';
         return;
@@ -79,12 +176,19 @@
       window.EJS_startOnLoaded = true;
       window.EJS_disableDatabases = true;
       window.EJS_disableLocalStorage = true;
+      window.EJS_defaultOptions = { webgl2Enabled: 'enabled' };
       if (ctx.isCdMedia) {
         window.EJS_forceExtract = true;
       }
       window.EJS_cacheConfig = { enabled: false, cacheMaxSizeMB: 1, cacheMaxAgeMins: 1 };
-      window.EJS_ready = () => setStatus('Emulator ready');
-      window.EJS_onGameStart = () => setStatus('Running');
+      window.EJS_ready = () => {
+        setStatus('Emulator ready');
+        focusGame();
+      };
+      window.EJS_onGameStart = () => {
+        setStatus('Running');
+        focusGame();
+      };
       const baseUrl = ctx.emulatorJsUrl || ctx.emulatorJsDir;
       window.EJS_pathtodata = ctx.emulatorJsDataUrl || (baseUrl.endsWith('/data/') ? baseUrl : baseUrl.replace(/\/$/, '') + '/data/');
       window.EJS_gameUrl = ctx.romUrl || ctx.romPath;

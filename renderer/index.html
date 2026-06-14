@@ -415,6 +415,21 @@
             </div>
           </section>
 
+          <section class="settings-column testplay-settings-column" id="externalEmulatorSettings">
+            <h3 class="settings-column-title">外部エミュレーター</h3>
+            <div class="form-group">
+              <label class="form-label">起動パス</label>
+              <input type="text" class="form-input form-input-mono" id="externalEmulatorPath" placeholder="/Applications/Geargrafx.app/Contents/MacOS/geargrafx" />
+              <p class="form-hint">Test Play プラグインで「外部エミュレーター」を選択した場合に使用します。</p>
+            </div>
+            <div class="form-group">
+              <label class="form-label">追加パラメータ</label>
+              <input type="text" class="form-input form-input-mono" id="externalEmulatorArgs" placeholder="例: --fullscreen" />
+              <p class="form-hint"><code>{rom}</code> を含めるとその位置へ ROM / CUE パスを挿入します。未指定時は末尾へ自動追加します。</p>
+            </div>
+            <p class="form-hint" id="externalEmulatorHint"></p>
+          </section>
+
           <div class="form-actions settings-grid-actions">
             <button class="btn-primary" id="btnSaveSettings">プロジェクト設定を保存</button>
             <button class="btn-sm" id="btnOpenSetup" type="button">初期設定</button>

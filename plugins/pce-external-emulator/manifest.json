@@ -1,0 +1,12 @@
+{
+  "id": "pce-external-emulator",
+  "name": "外部エミュレーター",
+  "description": "プロジェクト設定で指定した外部エミュレーターへ生成済み ROM / CUE を渡して Test Play を起動します。",
+  "version": "0.1.0",
+  "icon": "play",
+  "types": ["emulator"],
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "testplay.launch"],
+  "roles": [{ "id": "testplay", "label": "Test Play", "exclusive": true, "order": 21 }],
+  "hooks": ["onTestPlay"]
+}

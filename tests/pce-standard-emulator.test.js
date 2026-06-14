@@ -41,6 +41,30 @@ test('PCE EmulatorJS page bridges core EJS_Runtime into window global', () => {
   assert.match(html, /fetch\(script\.src\)/);
   assert.match(html, /window\.EJS_core = 'pce'/);
   assert.match(html, /window\.EJS_startOnLoaded = true/);
+  assert.match(html, /window\.EJS_defaultOptions = \{ webgl2Enabled: 'enabled' \}/);
   assert.match(html, /window\.EJS_cacheConfig = \{ enabled: false/);
   assert.match(html, /window\.EJS_pathtodata/);
+});
+
+test('PCE EmulatorJS page keeps focus and forwards PCE inputs directly', () => {
+  const html = fs.readFileSync(path.join(pluginDir, 'testplay.html'), 'utf-8');
+  const preload = fs.readFileSync(path.join(pluginDir, 'testplay-preload.js'), 'utf-8');
+
+  assert.match(preload, /getSettings:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('testplay:getSettings'\)/);
+  assert.match(html, /id="game" tabindex="0"/);
+  assert.match(html, /function installPceDirectInputBridge/);
+  assert.match(html, /A:\s*8/);
+  assert.match(html, /B:\s*0/);
+  assert.match(html, /SELECT:\s*2/);
+  assert.match(html, /START:\s*3/);
+  assert.match(html, /UP:\s*4/);
+  assert.match(html, /defaultKeyboardAliases/);
+  assert.match(html, /START:\s*\['NumpadEnter'\]/);
+  assert.match(html, /SELECT:\s*\['ShiftLeft'\]/);
+  assert.match(html, /A:\s*\['Space'\]/);
+  assert.match(html, /function installPceDirectInputBridge/);
+  assert.match(html, /const addBinding = \(action,\s*code\) =>/);
+  assert.match(html, /gameManager\.simulateInput\(0,\s*button,\s*down \? 1 : 0\)/);
+  assert.match(html, /window\.addEventListener\('keydown'/);
+  assert.match(html, /focusGame\(\)/);
 });

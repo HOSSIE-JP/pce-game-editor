@@ -2163,6 +2163,16 @@ button.project-path-chip {
   padding-left: 24px;
 }
 
+.testplay-settings-column {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+
+.testplay-settings-column.is-disabled {
+  opacity: 0.68;
+}
+
 @media (max-width: 900px) {
   .project-settings-grid {
     grid-template-columns: 1fr;

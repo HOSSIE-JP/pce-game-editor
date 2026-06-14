@@ -23,6 +23,21 @@ test('settings page keeps project and export settings in two columns', () => {
   assert.match(css, /\.project-settings-grid\s*\{[\s\S]*grid-template-columns:\s*minmax\(320px,\s*1fr\)\s*minmax\(280px,\s*0\.82fr\)/);
 });
 
+test('settings page exposes external emulator settings gated by Test Play role', () => {
+  const html = readRendererFile('index.html');
+  const renderer = readRendererFile('renderer.js');
+
+  assert.match(html, /id="externalEmulatorSettings"[\s\S]*外部エミュレーター/);
+  assert.match(html, /id="externalEmulatorPath"/);
+  assert.match(html, /id="externalEmulatorArgs"/);
+  assert.match(renderer, /const EXTERNAL_EMULATOR_PLUGIN_ID = 'pce-external-emulator'/);
+  assert.match(renderer, /const DEFAULT_EXTERNAL_EMULATOR_PATH = '\/Applications\/Geargrafx\.app\/Contents\/MacOS\/geargrafx'/);
+  assert.match(renderer, /function updateExternalEmulatorSettingsAvailability\(\)/);
+  assert.match(renderer, /activeId === EXTERNAL_EMULATOR_PLUGIN_ID/);
+  assert.match(renderer, /testPlay:\s*buildTestPlaySettingsPatch\(\)/);
+  assert.match(renderer, /updateExternalEmulatorSettingsAvailability\(\)/);
+});
+
 test('header project chips are actionable buttons wired to project actions', () => {
   const html = readRendererFile('index.html');
   const renderer = readRendererFile('renderer.js');

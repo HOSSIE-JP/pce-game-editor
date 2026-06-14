@@ -866,10 +866,74 @@ function createTestPlayHostApi(pluginId) {
     startApiServer: (options = {}) => startApiServer(options.port || 8080),
     stopApiServer,
     isApiServerRunning: () => ({ running: !!apiServerProcess, port: apiServerPort }),
+    getProjectConfig: () => buildSystem.loadProjectConfig(),
+    launchExternalEmulator: (options = {}) => launchExternalEmulator(options),
     getEmulatorStatus: () => buildSystem.getActiveCoreId() === 'pc-engine'
       ? buildSystem.getPceSetupManager().getStatus().emulatorJs
       : setupManager.getStatus(),
   };
+}
+
+function resolveMacAppBundleExecutable(appPath) {
+  if (process.platform !== 'darwin' || path.extname(appPath).toLowerCase() !== '.app') return '';
+  const macosDir = path.join(appPath, 'Contents', 'MacOS');
+  const candidates = [];
+  try {
+    const plist = fs.readFileSync(path.join(appPath, 'Contents', 'Info.plist'), 'utf-8');
+    const match = plist.match(/<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/);
+    if (match?.[1]) candidates.push(match[1]);
+  } catch (_) {}
+  candidates.push(path.basename(appPath, '.app'), path.basename(appPath, '.app').toLowerCase(), 'geargrafx');
+
+  for (const name of Array.from(new Set(candidates.map((item) => String(item || '').trim()).filter(Boolean)))) {
+    const candidate = path.join(macosDir, name);
+    try {
+      if (fs.statSync(candidate).isFile()) return candidate;
+    } catch (_) {}
+  }
+  return '';
+}
+
+function resolveExternalEmulatorLaunchTarget(executablePath, args = []) {
+  const appExecutable = resolveMacAppBundleExecutable(executablePath);
+  if (appExecutable) return { command: appExecutable, args };
+  const isMacAppBundle = process.platform === 'darwin' && path.extname(executablePath).toLowerCase() === '.app';
+  if (isMacAppBundle) return { command: 'open', args: [executablePath, '--args', ...args] };
+  return { command: executablePath, args };
+}
+
+function launchExternalEmulator(options = {}) {
+  const executablePath = String(options.executablePath || '').trim();
+  const args = Array.isArray(options.args)
+    ? options.args.map((arg) => String(arg))
+    : [];
+
+  if (!executablePath) {
+    return { ok: false, error: '外部エミュレーターの起動パスが未設定です。Project Settings で設定してください。' };
+  }
+  if (!fs.existsSync(executablePath)) {
+    return { ok: false, error: `外部エミュレーターが見つかりません: ${executablePath}` };
+  }
+
+  const launchTarget = resolveExternalEmulatorLaunchTarget(executablePath, args);
+
+  try {
+    const proc = spawn(launchTarget.command, launchTarget.args, {
+      cwd: buildSystem.getProjectDir(),
+      detached: true,
+      stdio: 'ignore',
+    });
+    proc.unref();
+    return {
+      ok: true,
+      launched: true,
+      pid: proc.pid || null,
+      command: launchTarget.command,
+      args: launchTarget.args,
+    };
+  } catch (err) {
+    return { ok: false, error: `外部エミュレーター起動に失敗しました: ${String(err?.message || err)}` };
+  }
 }
 
 function syncProjectPluginRoleState() {
@@ -1090,7 +1154,10 @@ async function openTestPlayWithPlugin(romPath) {
     }
   );
 
-  if (hookResult.ok && hookResult.result && hookResult.result.handled) {
+  const handledByHook = Boolean(hookResult.ok && (
+    hookResult.handled || (hookResult.result && hookResult.result.handled)
+  ));
+  if (handledByHook) {
     return { opened: true, reused: false, handledByPlugin: emulatorPluginId };
   }
   if (!hookResult.ok) {

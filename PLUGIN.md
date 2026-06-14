@@ -270,6 +270,8 @@ context.testPlay.openApiWindow({ romPath, pluginId, port? })
 context.testPlay.startApiServer({ port? })
 context.testPlay.stopApiServer()
 context.testPlay.isApiServerRunning()
+context.testPlay.getProjectConfig()
+context.testPlay.launchExternalEmulator({ executablePath, args, romPath })
 ```
 
 Test Play の表示崩れ、VDC / VRAM / SATB / palette の調査では、EmulatorJS の画面確認だけで判断せず、利用可能なら Geargrafx MCP を優先して使ってください。詳しい手順は `docs/pce-testplay-debugging.md` にまとめています。
@@ -858,6 +860,7 @@ window.electronAPI.onPluginLog((payload) => {
 | `code-editor` | コードエディタ | `editor` | 表示 | `src/` など project 配下のファイル編集 |
 | `pce-sample-builder` | サンプルゲームビルダー | `build` | 表示 | PCE sample / VN template の build role |
 | `pce-standard-emulator` | 標準エミュレーター (EmulatorJS) | `emulator` | 表示 | Setup 済み EmulatorJS `mednafen_pce` core で Test Play を起動 |
+| `pce-external-emulator` | 外部エミュレーター | `emulator` | 表示 | Project Settings の起動パスへ生成済み ROM / CUE を渡して Test Play を起動 |
 | `pce-asset-manager` | アセット管理 | `editor`, `asset` | 表示 | `assets/pce-assets.json` の BG / sprite / palette / PSG / ADPCM / CD-DA 管理 |
 | `image-editor` | イメージ | `editor`, `asset` | 表示 | BG / Sprites / Palette を 1 つの Image タブに統合 |
 | `sound-editor` | サウンド | `editor`, `asset` | 表示 | ADPCM / CD-DA / PSM を 1 つの Sound タブに統合 |
@@ -891,6 +894,10 @@ window.electronAPI.onPluginLog((payload) => {
 
 `pce-standard-emulator` は `pce-setup-manager` が検出した EmulatorJS runtime と `mednafen_pce` core を使います。HuCard / CD-ROM2 の Test Play では、System Card / IPL はユーザー所有ファイルとして扱い、リポジトリへ同梱しません。描画崩れの原因調査は EmulatorJS の見た目だけに依存せず、利用可能なら Geargrafx MCP で VDC / VRAM / SATB / palette を確認してください。
 
+`pce-external-emulator` は `testplay` role の代替 plugin です。Project Settings の `testPlay.externalEmulator.executablePath` と `testPlay.externalEmulator.extraArgs` を読み、`context.testPlay.launchExternalEmulator()` で外部プロセスを起動します。macOS では未設定時の起動パスを `/Applications/Geargrafx.app/Contents/MacOS/geargrafx` に補完します。`.app` bundle が指定された場合は、main process 側で `Contents/MacOS` の実行ファイルへ解決してから ROM / CUE path を渡します。`extraArgs` に `{rom}` / `{romPath}` / `{file}` / `%ROM%` を含めるとその位置へ生成済み ROM / CUE path を挿入し、placeholder が無い場合は末尾へ自動追加します。この設定 UI は Test Play role が `pce-external-emulator` の場合だけ有効です。ユーザー向け手順は `docs/user-guide.md` を参照してください。
+
+Super CD-ROM2 / ADPCM の挙動確認では、標準 EmulatorJS/WASM だけを正としないでください。標準 WASM の `mednafen_pce-wasm.data` だけ ADPCM 再生後の message advance が止まり、Geargrafx / 外部エミュレーターでは進むケースがあります。詳細な切り分け手順は `docs/pce-testplay-debugging.md` に残しています。
+
 ---
 
 ## 14. 開発の流れ (チュートリアル)
@@ -906,10 +913,11 @@ window.electronAPI.onPluginLog((payload) => {
 7. 新しい plugin で本体修正が必要に見えた場合は、まず汎用 API または core provider の不足として扱い、plugin 固有分岐を本体へ追加しない。
 8. renderer 側の入力 UI は `window.prompt()` / `alert()` ではなく、`api.createModal()` で plugin-owned modal として実装する。
 9. `.res` のアセット名は物理ファイル名ではなく ResComp alias / C symbol として扱い、登録前・ビルド前に重複検査する。
-10. SGDK の `src/boot/sega.s` / `src/boot/rom_head.c` は専用 build rule が扱うため、plugin の `makeVariables` へ通常ソースとして追加しない。
-11. `src/boot/rom_head.c` はプロジェクト設定からエディタ本体が生成するため、build plugin のテンプレート同期で上書きしない。
-12. アセット参照を持つ editor plugin は、画面を開いた時点または sidebar で再アクティブになった時点で `.res` / source data を再読込し、一覧・select・preview を最新化する。更新ボタンに依存した状態同期だけにしない。
-13. 選択中アセットに未保存変更がある状態で別アセット選択・新規追加・import を行う場合は、保存 / 破棄 / キャンセルを選べる plugin-owned modal を出し、暗黙に編集内容を捨てない。
+10. ユーザーに見える機能追加、plugin role/API、project 設定、既知制約を変えた場合は、実装と同じ変更で `docs/user-guide.md`、`PLUGIN.md`、関連する `docs/` を更新する。
+11. SGDK の `src/boot/sega.s` / `src/boot/rom_head.c` は専用 build rule が扱うため、plugin の `makeVariables` へ通常ソースとして追加しない。
+12. `src/boot/rom_head.c` はプロジェクト設定からエディタ本体が生成するため、build plugin のテンプレート同期で上書きしない。
+13. アセット参照を持つ editor plugin は、画面を開いた時点または sidebar で再アクティブになった時点で `.res` / source data を再読込し、一覧・select・preview を最新化する。更新ボタンに依存した状態同期だけにしない。
+14. 選択中アセットに未保存変更がある状態で別アセット選択・新規追加・import を行う場合は、保存 / 破棄 / キャンセルを選べる plugin-owned modal を出し、暗黙に編集内容を捨てない。
 
 ### 手順 1: フォルダを作成する
 

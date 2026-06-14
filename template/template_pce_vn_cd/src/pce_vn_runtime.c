@@ -1573,11 +1573,16 @@ static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice(signed int voice_index, 
         return 0u;
     }
     map_resident_data();
-    adpcm_stream_active = adpcm_voice_snapshot.loop ? 0u : 1u;
+    /*
+     * Buffered one-shot playback does not need natural-completion polling.
+     * Polling ADPCM status through the end of short voices can leave the
+     * EmulatorJS mednafen_pce core unable to deliver joypad edges afterward.
+     */
+    adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
     adpcm_stream_index = (uint8_t)voice_index;
     adpcm_stream_buffered_fallback = 0u;
-    adpcm_stream_monitor_frames = adpcm_voice_snapshot.loop ? 0u : 1u;
+    adpcm_stream_monitor_frames = 0u;
     restore_display_after_adpcm(restore_display);
     return 1u;
 #else
@@ -1650,11 +1655,13 @@ static void VN_BANKED_CODE service_adpcm_streaming(void)
         (void)stream_adpcm_voice((signed int)adpcm_stream_index);
         return;
     }
-    pce_cdb_adpcm_stop();
-    (void)wait_adpcm_transfer_ready();
-    pce_cdb_adpcm_reset();
-    (void)wait_adpcm_transfer_ready();
-    loaded_adpcm_valid = 0u;
+    /*
+     * Natural one-shot/stream completion is already stopped. Issuing an extra
+     * stop/reset here is unnecessary and can leave the EmulatorJS mednafen_pce
+     * core in a state where joypad edges are no longer delivered after ADPCM.
+     * Explicit AUDIO stop still uses stop_adpcm_voice(), which performs the
+     * full hardware stop/reset sequence.
+     */
     adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
     adpcm_stream_buffered_fallback = 0u;

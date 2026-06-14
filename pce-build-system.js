@@ -11,6 +11,9 @@ const setupManager = require('./pce-setup-manager');
 const DEFAULT_PROJECT_NAME = 'sample_pce_game';
 const TEMPLATE_PROJECT_PREFIX = 'template_';
 const DEFAULT_TOOLCHAIN = 'llvm-mos';
+const DEFAULT_EXTERNAL_EMULATOR_PATH = process.platform === 'darwin'
+  ? '/Applications/Geargrafx.app/Contents/MacOS/geargrafx'
+  : '';
 const PCE_CD_SECTOR_BYTES = 2048;
 const PCE_CD_IPL_PROGRAM_SECTORS = 20;
 const PCE_CD_DATA_BASE_SECTOR = 64;
@@ -79,6 +82,19 @@ function normalizeCdConfig(value = {}) {
   };
 }
 
+function normalizeTestPlayConfig(value = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const external = raw.externalEmulator && typeof raw.externalEmulator === 'object'
+    ? raw.externalEmulator
+    : {};
+  return {
+    externalEmulator: {
+      executablePath: String(external.executablePath || external.path || DEFAULT_EXTERNAL_EMULATOR_PATH).trim(),
+      extraArgs: String(external.extraArgs || external.arguments || '').trim(),
+    },
+  };
+}
+
 function normalizeProjectConfig(config = {}) {
   const romName = String(config.romName || config.title || 'pce_sample').trim() || 'pce_sample';
   const pluginRoles = config.pluginRoles && typeof config.pluginRoles === 'object'
@@ -96,6 +112,7 @@ function normalizeProjectConfig(config = {}) {
     toolchain: normalizeToolchain(config.toolchain || DEFAULT_TOOLCHAIN),
     targetMedia,
     cd: normalizeCdConfig(config.cd),
+    testPlay: normalizeTestPlayConfig(config.testPlay),
     pluginRoles: {
       builder: 'pce-sample-builder',
       testplay: 'pce-standard-emulator',
@@ -132,6 +149,14 @@ function saveProjectConfig(patch = {}) {
     cd: {
       ...(current.cd || {}),
       ...(patch.cd || {}),
+    },
+    testPlay: {
+      ...(current.testPlay || {}),
+      ...(patch.testPlay || {}),
+      externalEmulator: {
+        ...((current.testPlay || {}).externalEmulator || {}),
+        ...((patch.testPlay || {}).externalEmulator || {}),
+      },
     },
     pluginRoles: {
       ...(current.pluginRoles || {}),
