@@ -14,7 +14,7 @@
 ## 現在の運用
 
 - PCE 固有の実装は `pce-*.js`、`plugins/pce-*`、`plugins/pc-engine-core`、`template/template_pce_*` を優先して確認してください。
-- 共有ユーティリティは隣接リポジトリ `/Users/hossie/development/game-editor-common` にあります。
+- 共有アプリ基盤ユーティリティは本体に取り込んだ `game-editor-common.js` にあります（旧 `../game-editor-common` 外部パッケージは廃止）。
 - PCE 固有のプロジェクト移行処理は `pce-project-migration.js` に置き、共通ライブラリへ戻さないでください。
 - 画像アセットは内蔵 PCE 変換を使い、Superfamiconv には依存しません。
 - CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を前提に扱います。IPL / System Card はユーザー所有ファイルとして扱い、リポジトリへ同梱しません。

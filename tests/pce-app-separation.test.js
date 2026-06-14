@@ -9,7 +9,7 @@ const { loadWithMockedElectron } = require('./helpers/mock-electron');
 const {
   loadAppConfig,
   normalizeAppConfig,
-} = require('game-editor-common');
+} = require('../game-editor-common');
 const { migratePceProjectsIfNeeded } = require('../pce-project-migration');
 
 function makeTempDir(prefix) {

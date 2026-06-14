@@ -49,7 +49,7 @@ PCE 関連の基本回帰テストは `tests/run-tests.js` から実行されま
 
 ## 共有コード
 
-`game-editor-common` は隣接する `/Users/hossie/development/game-editor-common` を `file:../game-editor-common` として参照します。共通ライブラリは特定ハードウェアの知識を持たず、PCE 固有の移行処理は `pce-project-migration.js` に置きます。
+共有アプリ基盤は `game-editor-common.js` として本体に取り込み、独自にメンテナンスします（外部パッケージ参照はありません）。このモジュールは特定ハードウェアの知識を持たず、PCE 固有の移行処理は `pce-project-migration.js` に置きます。
 
 ## 注意
 

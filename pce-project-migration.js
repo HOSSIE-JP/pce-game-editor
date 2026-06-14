@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { getCurrentAppConfig } = require('game-editor-common');
+const { getCurrentAppConfig } = require('./game-editor-common');
 
 const PCE_CORE_ID = 'pc-engine';
 

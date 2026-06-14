@@ -26,7 +26,7 @@ const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const { app } = require('electron');
-const { getCurrentAppConfig, pluginAllowedForApp } = require('game-editor-common');
+const { getCurrentAppConfig, pluginAllowedForApp } = require('./game-editor-common');
 
 function getPluginsDir() {
   if (app.isPackaged) {

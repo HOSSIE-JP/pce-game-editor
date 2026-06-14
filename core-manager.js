@@ -7,7 +7,7 @@ const pceBuildSystem = require('./pce-build-system');
 const pceSetupManager = require('./pce-setup-manager');
 const pceAssetManager = require('./pce-asset-manager');
 const { app } = require('electron');
-const { filterCoresForApp, isCoreAllowed } = require('game-editor-common');
+const { filterCoresForApp, isCoreAllowed } = require('./game-editor-common');
 const { migratePceProjectsIfNeeded } = require('./pce-project-migration');
 
 const CORE_IDS = Object.freeze({

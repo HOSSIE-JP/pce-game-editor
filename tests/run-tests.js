@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('node:path');
-const { loadAppConfig } = require('game-editor-common');
+const { loadAppConfig } = require('../game-editor-common');
 
 loadAppConfig(require('../app.config'));
 

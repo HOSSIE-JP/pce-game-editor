@@ -20,7 +20,6 @@
     "electron-builder": "26.8.1"
   },
   "dependencies": {
-    "iconv-lite": "0.6.3",
-    "game-editor-common": "file:../game-editor-common"
+    "iconv-lite": "0.6.3"
   }
 }
