@@ -17,7 +17,7 @@
 | 129 | 3 | VN runtime の banked code | `PCE_RAM_BANK_AT(129, 3)` と `VN_BANKED_CODE` で command interpreter / sprite refresh / ADPCM 制御、scene pack command/message reader を置く。asset data を置かない |
 | 130 | 4 | VN runtime の 2 本目の banked code | `PCE_RAM_BANK_AT(130, 4)` と `VN_BANKED_CODE2` で scene pack choice/switch reader や preload scan helper を置く。asset data を置かない |
 | 131 | 5 | CD fallback の小さい CPU-readable data | 例外的な fallback 用。通常の画像・sprite・ADPCM payload には使わない |
-| 132 | 6 | VN generated data | `PCE_VN_DATA_SECTION` / `PCE_VN_FONT_SECTION`。font tiles、sprite animation、variable 初期値、scene pack directory を置く。scene script 本体は CD data file |
+| 132 | 6 | VN generated data | `PCE_VN_DATA_SECTION`。sprite animation、variable 初期値、scene pack directory、font tiles の CD data ref (`pce_vn_font_data`) を置く。**font tiles 本体は bank132 に常駐させず CD data file (`assets/generated/vn/font.bin`) からストリーム**。scene script 本体も CD data file |
 
 ## 実装ルール
 
@@ -26,6 +26,7 @@
 - `ram_bank128` の常駐 data を読む runtime code は、CD BIOS helper や `map_vn_data()` 呼び出し後に `map_resident_data()` を挟んでから参照します。特に `pce_editor_sprite_assets[]`、`pce_editor_sprite_draw_meta[]`、CD data ref のような小さい metadata は bank128 resident data として扱います。
 - 生成済み C metadata は scene 生成時に asset ID を index へ解決済みで、runtime では ID 文字列を使いません。`pce_editor_psg_asset_t` / `pce_editor_adpcm_asset_t` / `pce_editor_cdda_asset_t` に `id` field を戻すと bank128 の `.rodata` を直接圧迫するため、debug 用文字列は JSON 側に留めます。
 - `ram_bank132` を読む前は `pce_vn_font_tiles_map()` または runtime の `map_vn_data()` を呼びます。MPR6 を切り替えるため、MPR6 上で実行される code を作らないでください。
+- グリフフォントは BG タイルと同じく `cd.dataFiles` の `assets/generated/vn/font.bin` に並べ、起動時に `upload_font_tiles()` が `cd_transfer_scratch` 経由で 1 回だけ VRAM (`PCE_VN_FONT_TILE_BASE` から) へストリーム転送します。bank132 には sector/サイズだけを持つ `pce_vn_font_data` (`pce_vn_cd_data_ref_t`) を常駐させ、glyph 数に比例した数 KB を bank132 から外します。font.bin は `collectCdDataFiles()` で先頭 (CD sector 64) に置き、埋め込み sector と ISO 配置を一致させます。VRAM 側の上限だけが残るため、`generateVnSources()` の `computeFontBudget()` が glyph index 上限 (254)・VRAM tile 末尾 (SATB `0x7f00` = tile 2032) をビルド時に検査し、超過は build error、接近は警告します。非 CD (`__PCE__`) build だけ従来通り `pce_vn_font_tiles[]` を埋め込みます。
 - VN script は scene 単位の `assets/generated/vn/scenes/NNN_<sceneId>.bin` として `cd.dataFiles` に置きます。pack は pointer を持たない little-endian / offset ベース形式で、`pce_vn_scene_packs[]` だけを bank132 に常駐させます。
 - runtime は scene 入場時に active scene cache (`4096` bytes) へ pack を読み込みます。別 scene 用の preload scan cache は持たず、`preload` が別 scene を指す場合は事前走査せず target scene 入場時に通常ロードします。pack が 4096 bytes を超える場合は build error にして scene 分割を促します。
 - scene pack から読む command/message/choice/switch の要素は、CD / asset bank / VDC 転送で MPR が変わる可能性を考え、処理前に stack local にコピーしてから扱います。特に ADPCM は BIOS 呼び出し前に data size、address、divider、loop、stream、CD sector を runtime-owned snapshot へ直接コピーし、BIOS 呼び出し後に `pce_editor_adpcm_assets[]` のポインタを再読みに使わないでください。

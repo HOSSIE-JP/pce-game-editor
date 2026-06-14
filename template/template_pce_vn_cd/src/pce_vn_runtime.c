@@ -901,8 +901,35 @@ static void upload_ui_palette(void)
 
 static void upload_font_tiles(void)
 {
+#if defined(__PCE_CD__)
+    /* Font tiles are streamed from a CD data file straight into VRAM at boot;
+       only the small pce_vn_font_data ref (sector/size) lives in ram_bank132. */
+    pce_vn_cd_data_ref_t font;
+    pce_sector_t sector = {0};
+    uint16_t remaining;
+    uint16_t vram_dest = (uint16_t)(PCE_VN_FONT_TILE_BASE * 16u);
     map_vn_data();
+    font = pce_vn_font_data;
+    map_resident_data();
+    if (!font.byte_size || !font.sector_count) return;
+    prepare_cd_data_access();
+    sector.lo = font.sector.lo;
+    sector.md = font.sector.md;
+    sector.hi = font.sector.hi;
+    remaining = font.byte_size;
+    while (remaining)
+    {
+        const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
+        (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)cd_transfer_scratch, chunk);
+        cd_transfer_wait();
+        pce_editor_vram_copy(vram_dest, cd_transfer_scratch, chunk);
+        vram_dest = (uint16_t)(vram_dest + ((chunk + 1u) / 2u));
+        remaining = (uint16_t)(remaining - chunk);
+        cd_sector_advance(&sector);
+    }
+#elif defined(__PCE__)
     pce_editor_vram_copy((uint16_t)(PCE_VN_FONT_TILE_BASE * 16u), pce_vn_font_tiles, (uint16_t)(pce_vn_font_glyph_count * 128u));
+#endif
 }
 
 static void write_map_words(uint16_t map_addr, const uint16_t *words, uint16_t count)
@@ -1025,6 +1052,13 @@ static uint8_t draw_message_next_glyph(const pce_vn_message_t *message)
     if (!message || !message->glyphs || message_glyph_pos >= message->glyph_count) return 1u;
     glyph = message->glyphs[message_glyph_pos++];
     if (glyph == PCE_VN_GLYPH_END) return 1u;
+    if (glyph == PCE_VN_GLYPH_NEWLINE)
+    {
+        message_col = 0u;
+        message_row++;
+        if (message_row >= VN_TEXT_ROWS) return 1u;
+        return message_glyph_pos >= message->glyph_count ? 1u : 0u;
+    }
     draw_message_glyph_at(glyph, message_col, message_row);
     message_col++;
     if (message_col >= VN_TEXT_COLS)
@@ -1046,6 +1080,13 @@ static void draw_message_text(const pce_vn_message_t *message)
     {
         const uint8_t glyph = message->glyphs[i];
         if (glyph == PCE_VN_GLYPH_END) break;
+        if (glyph == PCE_VN_GLYPH_NEWLINE)
+        {
+            col = 0;
+            row++;
+            if (row >= VN_TEXT_ROWS) break;
+            continue;
+        }
         draw_message_glyph_at(glyph, col, row);
         col++;
         if (col >= VN_TEXT_COLS)

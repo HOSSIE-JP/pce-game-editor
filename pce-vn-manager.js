@@ -8,6 +8,7 @@ const assetManager = require('./pce-asset-manager');
 const VN_SCENE_FILE = path.join('assets', 'pce-vn-scenes.json');
 const VN_FONT_FILE = path.join('assets', 'pce-font.json');
 const GLYPH_END = 0xff;
+const GLYPH_NEWLINE = 0xfe;
 const DEFAULT_FONT_TILE_BASE = 712;
 const PCE_SCREEN_WIDTH = 320;
 const DEFAULT_CHARACTER_Y = 24;
@@ -55,6 +56,19 @@ const VN_COMPARE_GTE = 5;
 const VN_NO_COMMAND = 0xffff;
 const VN_MAX_U8_COUNT = 255;
 const VN_SCENE_PACK_DIR = path.join('assets', 'generated', 'vn', 'scenes');
+// Font tiles are streamed from this CD data file into VRAM at boot (no longer
+// resident in ram_bank132). One glyph = 16x16 px = 4 BG tiles = 128 bytes.
+const VN_FONT_DATA_FILE = path.join('assets', 'generated', 'vn', 'font.bin');
+const FONT_TILES_PER_GLYPH = 4;
+const FONT_BYTES_PER_GLYPH = 128;
+// glyph index space: 0..253 are drawable, 0xfe = newline, 0xff = end marker.
+const VN_MAX_GLYPH_COUNT = 254;
+// VRAM is 0x8000 words; SATB sits at 0x7f00 (tile 0x7f00/16 = 2032). Font tiles
+// must end strictly below that. Sprite patterns are auto-placed above the font
+// block by the asset converter, so warn well before the hard SATB ceiling.
+const VN_FONT_VRAM_TILE_HARD_CEILING = 2032;
+const VN_FONT_VRAM_TILE_SOFT_CEILING = 1728;
+const VN_GLYPH_COUNT_SOFT_WARN = 224;
 const VN_SCENE_PACK_CACHE_BYTES = 4096;
 const VN_SCENE_PACK_VERSION = 1;
 const VN_SCENE_PACK_HEADER_SIZE = 20;
@@ -654,7 +668,9 @@ function messageDisplayText(message) {
   return speaker ? `${speaker}「${text}」` : text;
 }
 
-function collectGlyphs(doc) {
+// Every distinct character that appears in messages/choices, untruncated.
+// The leading ' ' and '>' are always present (blank cell and choice cursor).
+function collectGlyphsRaw(doc) {
   const glyphs = [' ', '>'];
   const seen = new Set(glyphs);
   (doc.scenes || []).forEach((scene) => {
@@ -664,6 +680,7 @@ function collectGlyphs(doc) {
         : (command.type === 'choice' ? (command.choices || []).map((choice) => choice.label || '').join('') : '');
       if (!text) return;
       for (const char of text) {
+        if (char === '\n' || char === '\r') continue;
         if (!seen.has(char)) {
           seen.add(char);
           glyphs.push(char);
@@ -671,7 +688,38 @@ function collectGlyphs(doc) {
       }
     });
   });
-  return glyphs.slice(0, 254);
+  return glyphs;
+}
+
+function collectGlyphs(doc) {
+  return collectGlyphsRaw(doc).slice(0, VN_MAX_GLYPH_COUNT);
+}
+
+// Build-time budget report for the glyph font. After moving the tiles to a CD
+// data file the binding limits are (a) the 254-entry glyph index space and
+// (b) the VRAM tile span the streamed tiles occupy. Returns the byte/sector
+// footprint plus human-readable warnings/errors so the build can surface them.
+function computeFontBudget(rawGlyphCount, tileBase) {
+  const usedGlyphCount = Math.min(rawGlyphCount, VN_MAX_GLYPH_COUNT);
+  const droppedGlyphCount = Math.max(0, rawGlyphCount - VN_MAX_GLYPH_COUNT);
+  const byteSize = usedGlyphCount * FONT_BYTES_PER_GLYPH;
+  const sectorCount = Math.max(1, Math.ceil(byteSize / VN_CD_SECTOR_BYTES));
+  const endTile = tileBase + (usedGlyphCount * FONT_TILES_PER_GLYPH);
+  const warnings = [];
+  const errors = [];
+  if (droppedGlyphCount > 0) {
+    warnings.push(`フォント: 使用文字が ${rawGlyphCount} 種類あり、上限 ${VN_MAX_GLYPH_COUNT} を超えています。`
+      + `超過した ${droppedGlyphCount} 文字は空白として表示されます。シーンで使う文字種を減らしてください。`);
+  } else if (usedGlyphCount >= VN_GLYPH_COUNT_SOFT_WARN) {
+    warnings.push(`フォント: 使用文字が ${usedGlyphCount} 種類で上限 ${VN_MAX_GLYPH_COUNT} に近づいています。`);
+  }
+  if (endTile > VN_FONT_VRAM_TILE_HARD_CEILING) {
+    errors.push(`フォント: タイル配置 (tileBase ${tileBase} + ${usedGlyphCount} グリフ) が VRAM 末尾 (SATB tile ${VN_FONT_VRAM_TILE_HARD_CEILING}) を超えます。`
+      + `tileBase を下げるか文字種を減らしてください。`);
+  } else if (endTile > VN_FONT_VRAM_TILE_SOFT_CEILING) {
+    warnings.push(`フォント: タイル末尾が ${endTile} でスプライトパターン領域に接近しています (推奨上限 ${VN_FONT_VRAM_TILE_SOFT_CEILING})。`);
+  }
+  return { usedGlyphCount, rawGlyphCount, droppedGlyphCount, byteSize, sectorCount, tileBase, endTile, warnings, errors };
 }
 
 function fontCandidates(config = {}) {
@@ -1231,15 +1279,26 @@ function generateVnSources(projectDir, options = {}) {
   if ((doc.scenes || []).length > VN_MAX_U8_COUNT) {
     throw new Error(`PCE VN supports up to ${VN_MAX_U8_COUNT} scenes`);
   }
-  const glyphs = collectGlyphs(doc);
+  const rawGlyphs = collectGlyphsRaw(doc);
+  const glyphs = rawGlyphs.slice(0, VN_MAX_GLYPH_COUNT);
   const glyphIndex = new Map(glyphs.map((glyph, index) => [glyph, index]));
   const fontConfig = normalizeFontConfig({
     ...readFontConfig(projectDir),
     ...(options.fontConfig || {}),
     tileBase: options.fontTileBase || options.fontConfig?.tileBase || readFontConfig(projectDir).tileBase,
   });
+  const fontTileBase = Number(fontConfig.tileBase || DEFAULT_FONT_TILE_BASE);
+  const fontBudget = computeFontBudget(rawGlyphs.length, fontTileBase);
+  if (fontBudget.errors.length) {
+    throw new Error(fontBudget.errors.join(' '));
+  }
   const fontRender = renderGlyphBitmaps(glyphs, fontConfig);
   const fontTiles = encodeGlyphTileData(fontRender.bitmaps);
+  // Font tiles live on the CD as a streamed data file, not in ram_bank132.
+  const fontDataPath = normalizeRelativePath(VN_FONT_DATA_FILE);
+  const fontDataAbsPath = path.join(projectDir, fontDataPath);
+  ensureDirSync(path.dirname(fontDataAbsPath));
+  fs.writeFileSync(fontDataAbsPath, fontTiles);
   const imageIndex = indexAssets(assetDoc.assets || [], 'image');
   const spriteIndex = indexAssets(assetDoc.assets || [], 'sprite');
   const adpcmIndex = indexAssets(assetDoc.assets || [], 'adpcm');
@@ -1338,6 +1397,11 @@ function generateVnSources(projectDir, options = {}) {
         }
         const bytes = [];
         for (const glyph of messageDisplayText(command)) {
+          if (glyph === '\r') continue;
+          if (glyph === '\n') {
+            bytes.push(GLYPH_NEWLINE);
+            continue;
+          }
           bytes.push(glyphIndex.get(glyph) ?? 0);
         }
         if (bytes.length > VN_MAX_U8_COUNT) {
@@ -1642,6 +1706,9 @@ function generateVnSources(projectDir, options = {}) {
     ? options.cdDataFiles.map((entry) => normalizeRelativePath(entry || '')).filter(Boolean)
     : collectCdDataFiles(projectDir);
   const cdLayout = cdLayoutForFiles(projectDir, cdDataFiles);
+  const fontLayout = cdLayout.get(fontDataPath) || {};
+  const fontSectorCount = fontLayout.sectorCount || fontBudget.sectorCount;
+  const fontDataInitializer = `{ ${cdSectorInitializer(fontLayout)}, ${fontSectorCount}u, ${fontBudget.byteSize}u }`;
   const scenePackMeta = sceneBuilds.map((sceneBuild, index) => {
     const layout = cdLayout.get(sceneBuild.packPath) || {};
     const sectorCount = layout.sectorCount || Math.max(1, Math.ceil(sceneBuild.packBuffer.length / VN_CD_SECTOR_BYTES));
@@ -1778,14 +1845,25 @@ function generateVnSources(projectDir, options = {}) {
     '  pce_vn_cd_sector_t sector;',
     '  unsigned int sector_count;',
     '  unsigned int byte_size;',
+    '} pce_vn_cd_data_ref_t;',
+    '',
+    'typedef struct {',
+    '  pce_vn_cd_sector_t sector;',
+    '  unsigned int sector_count;',
+    '  unsigned int byte_size;',
     '  signed int next_scene;',
     '} pce_vn_scene_pack_t;',
     '',
     `#define PCE_VN_FONT_TILE_BASE ${Number(fontConfig.tileBase || DEFAULT_FONT_TILE_BASE)}u`,
     `#define PCE_VN_CHOICE_CURSOR_GLYPH ${glyphIndex.get('>') ?? 0}u`,
     '#define PCE_VN_GLYPH_END 0xffu',
+    '#define PCE_VN_GLYPH_NEWLINE 0xfeu',
     '',
+    '#if defined(__PCE_CD__)',
+    'extern const pce_vn_cd_data_ref_t pce_vn_font_data;',
+    '#else',
     'extern const unsigned char pce_vn_font_tiles[];',
+    '#endif',
     'extern const unsigned char pce_vn_font_glyph_count;',
     'void pce_vn_font_tiles_map(void);',
     'extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];',
@@ -1813,7 +1891,11 @@ function generateVnSources(projectDir, options = {}) {
     '',
     '#include "vn.h"',
     '',
+    '#if defined(__PCE_CD__)',
+    `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_data = ${fontDataInitializer};`,
+    '#else',
     ...bytesToCArray('PCE_VN_FONT_SECTION pce_vn_font_tiles', fontTiles, 'const unsigned char'),
+    '#endif',
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_font_glyph_count = ${glyphs.length};`,
     '',
     'void pce_vn_font_tiles_map(void)',
@@ -1860,6 +1942,13 @@ function generateVnSources(projectDir, options = {}) {
     scenePackBytes: sceneBuilds.map((sceneBuild) => sceneBuild.packBuffer.length),
     fontRenderer: fontRender.renderer,
     fontPath: fontRender.fontPath,
+    fontDataPath,
+    fontByteSize: fontBudget.byteSize,
+    fontSectorCount: fontSectorCount,
+    fontTileBase,
+    fontEndTile: fontBudget.endTile,
+    droppedGlyphCount: fontBudget.droppedGlyphCount,
+    warnings: fontBudget.warnings,
   };
 }
 
@@ -1946,6 +2035,9 @@ function collectCdDataFiles(projectDir) {
   const assets = assetById(assetDoc);
   const files = [];
   const seen = new Set();
+  // Shared glyph font is streamed into VRAM at boot; place it first so its
+  // CD sector stays stable regardless of scene edits.
+  addCdDataFile(files, seen, VN_FONT_DATA_FILE);
   (doc.scenes || []).forEach((scene, sceneIndex) => {
     addCdDataFile(files, seen, scenePackRelativePath(scene, sceneIndex));
     collectSceneCommandAssetIds(scene).forEach((assetId) => {
@@ -2018,6 +2110,8 @@ module.exports = {
   VN_SCENE_PACK_DIR,
   VN_SCENE_PACK_CACHE_BYTES,
   VN_FONT_FILE,
+  VN_FONT_DATA_FILE,
+  VN_MAX_GLYPH_COUNT,
   DEFAULT_FONT_TILE_BASE,
   DEFAULT_FONT_CONFIG,
   GLYPH_END,
@@ -2038,6 +2132,8 @@ module.exports = {
   VN_COMMAND_GOTO,
   collectCdDataFiles,
   collectGlyphs,
+  collectGlyphsRaw,
+  computeFontBudget,
   defaultSceneDocument,
   encodeGlyphTileData,
   ensureSceneFile,

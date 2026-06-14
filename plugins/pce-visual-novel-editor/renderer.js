@@ -1,6 +1,9 @@
 const SCENE_FILE = 'assets/pce-vn-scenes.json';
 const PCE_SCREEN_WIDTH = 320;
 const PCE_SCREEN_HEIGHT = 224;
+// ゲーム側 runtime のメッセージ領域に一致させる。
+// VN_TEXT_X=2,VN_TEXT_Y=19 タイル (×8px)、18 文字 × 4 行、1 文字 16×16px。
+const MESSAGE_AREA = { x: 16, y: 152, cols: 18, rows: 4, cell: 16 };
 const DEFAULT_CHARACTER_Y = 24;
 const COLUMN_LAYOUT_KEY = 'pce-vn-editor.columnLayout.v1';
 const DEFAULT_COLUMN_LAYOUT = { left: 320, right: 440 };
@@ -103,6 +106,57 @@ function spritePixelWidth(asset = {}) {
     return Math.min(PCE_SCREEN_WIDTH, Math.round(cellWidth * columns));
   }
   return 64;
+}
+
+// ゲーム runtime の messageDisplayText と同じ表示文字列を作る。
+function messageFullText(command = {}) {
+  const speaker = String(command.speaker || '').trim();
+  const text = String(command.text || '').trim();
+  return speaker ? `${speaker}「${text}」` : text;
+}
+
+// pce-vn-manager.js の collectGlyphsRaw と同じ規則で、スクリプト全体の異なる
+// 文字種数を数える。フォントタイルは使用文字ぶんだけ生成され CD からストリーム
+// されるため、本体 RAM は溢れないが glyph index 空間は 254 種が上限。
+const VN_MAX_GLYPH_COUNT = 254;
+const VN_GLYPH_WARN_COUNT = 224;
+function countScriptGlyphs(doc) {
+  const seen = new Set([' ', '>']);
+  (doc?.scenes || []).forEach((sceneItem) => {
+    (sceneItem?.commands || []).forEach((command) => {
+      let text = '';
+      if (command?.type === 'message') text = messageFullText(command);
+      else if (command?.type === 'choice') text = (command.choices || []).map((choice) => choice?.label || '').join('');
+      for (const ch of String(text)) {
+        if (ch !== '\n' && ch !== '\r') seen.add(ch);
+      }
+    });
+  });
+  return seen.size;
+}
+
+// runtime と同じ折り返し規則: \n で強制改行、18 文字で自動折り返し、最大 4 行。
+function layoutMessageLines(text) {
+  const lines = [''];
+  let col = 0;
+  for (const ch of String(text || '')) {
+    if (ch === '\r') continue;
+    if (lines.length > MESSAGE_AREA.rows) break;
+    if (ch === '\n') {
+      if (lines.length >= MESSAGE_AREA.rows) break;
+      lines.push('');
+      col = 0;
+      continue;
+    }
+    lines[lines.length - 1] += ch;
+    col += 1;
+    if (col >= MESSAGE_AREA.cols) {
+      if (lines.length >= MESSAGE_AREA.rows) break;
+      lines.push('');
+      col = 0;
+    }
+  }
+  return lines.slice(0, MESSAGE_AREA.rows);
 }
 
 function assetPixelSize(asset = {}) {
@@ -468,6 +522,7 @@ function previewRuntime() {
   const data = window.__PCE_VN_PREVIEW__ || { doc: { scenes: [] }, urls: {}, meta: {} };
   const SCREEN_W = (data.screen && data.screen.w) || 320;
   const SCREEN_H = (data.screen && data.screen.h) || 224;
+  const MSG = data.message || { x: 16, y: 152, cols: 18, rows: 4, cell: 16 };
   const scenesById = {};
   (data.doc.scenes || []).forEach((s) => { scenesById[s.id] = s; });
 
@@ -478,9 +533,9 @@ function previewRuntime() {
     '#pv-stage-wrap{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;}',
     '#pv-stage{position:relative;width:' + SCREEN_W + 'px;height:' + SCREEN_H + 'px;background:#000;transform-origin:center center;overflow:hidden;box-shadow:0 0 0 1px #000,0 10px 36px rgba(0,0,0,.6);}',
     '#pv-stage img{position:absolute;image-rendering:pixelated;transform-origin:top left;}',
-    '#pv-msg{position:absolute;left:8px;right:8px;bottom:8px;min-height:52px;background:rgba(4,8,16,.82);border:1px solid rgba(120,160,210,.55);border-radius:4px;padding:6px 8px;font-size:12px;line-height:1.5;}',
-    '#pv-msg .pv-speaker{color:#8fd0ff;font-weight:700;font-size:11px;display:block;margin-bottom:2px;}',
-    '#pv-msg .pv-text{white-space:pre-wrap;word-break:break-word;}',
+    '#pv-msg{position:absolute;left:' + MSG.x + 'px;top:' + MSG.y + 'px;width:' + (MSG.cols * MSG.cell) + 'px;height:' + (MSG.rows * MSG.cell) + 'px;display:flex;flex-direction:column;}',
+    '.pv-row{height:' + MSG.cell + 'px;display:flex;}',
+    '.pv-cell{width:' + MSG.cell + 'px;height:' + MSG.cell + 'px;line-height:' + MSG.cell + 'px;font-size:13px;text-align:center;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.9);overflow:hidden;}',
     '#pv-msg.pv-hidden,#pv-choice.pv-hidden{display:none;}',
     '#pv-choice{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;gap:6px;min-width:140px;}',
     '#pv-choice button{font:inherit;font-size:12px;padding:6px 14px;border-radius:4px;border:1px solid rgba(120,160,210,.6);background:rgba(8,14,24,.92);color:#e8eef5;cursor:pointer;}',
@@ -498,7 +553,7 @@ function previewRuntime() {
   root.id = 'pv-root';
   root.innerHTML =
     '<div id="pv-stage-wrap"><div id="pv-stage">'
-    + '<div id="pv-msg" class="pv-hidden"><span class="pv-speaker"></span><span class="pv-text"></span></div>'
+    + '<div id="pv-msg" class="pv-hidden"></div>'
     + '<div id="pv-choice" class="pv-hidden"></div>'
     + '</div></div>'
     + '<div id="pv-bar"><button id="pv-restart">最初から</button><span id="pv-scene"></span>'
@@ -629,29 +684,72 @@ function previewRuntime() {
     else if (c.effect === 'shake') { stage.classList.remove('pv-shake'); void stage.offsetWidth; stage.classList.add('pv-shake'); }
   }
 
+  // runtime と同じ折り返し規則（\n 強制改行・18 文字折り返し・最大 4 行）
+  function layoutLines(text) {
+    const lines = [''];
+    let col = 0;
+    const src = String(text || '');
+    for (let i = 0; i < src.length; i += 1) {
+      const ch = src[i];
+      if (ch === '\r') continue;
+      if (lines.length > MSG.rows) break;
+      if (ch === '\n') {
+        if (lines.length >= MSG.rows) break;
+        lines.push('');
+        col = 0;
+        continue;
+      }
+      lines[lines.length - 1] += ch;
+      col += 1;
+      if (col >= MSG.cols) {
+        if (lines.length >= MSG.rows) break;
+        lines.push('');
+        col = 0;
+      }
+    }
+    return lines.slice(0, MSG.rows);
+  }
+  function paintMsg(text) {
+    const lines = layoutLines(text);
+    msgBox.innerHTML = '';
+    for (let r = 0; r < MSG.rows; r += 1) {
+      const row = document.createElement('div');
+      row.className = 'pv-row';
+      const line = lines[r] || '';
+      for (let c = 0; c < line.length; c += 1) {
+        const cell = document.createElement('span');
+        cell.className = 'pv-cell';
+        cell.textContent = line[c];
+        row.appendChild(cell);
+      }
+      msgBox.appendChild(row);
+    }
+  }
+
+  function messageText(c) {
+    const speaker = String(c.speaker || '').trim();
+    const text = String(c.text || '').trim();
+    return speaker ? speaker + '「' + text + '」' : text;
+  }
+
   function showEnd() {
     hideChoice();
     msgBox.classList.remove('pv-hidden');
-    msgBox.querySelector('.pv-speaker').style.display = 'none';
-    msgBox.querySelector('.pv-text').textContent = '― END ―';
+    paintMsg('― END ―');
     pending = null;
   }
 
   function showMessage(c) {
     hideChoice();
     msgBox.classList.remove('pv-hidden');
-    const sp = msgBox.querySelector('.pv-speaker');
-    const tx = msgBox.querySelector('.pv-text');
-    sp.textContent = c.speaker || '';
-    sp.style.display = c.speaker ? 'block' : 'none';
-    const full = c.text || '';
+    const full = messageText(c);
     let shown = 0;
     let done = false;
-    tx.textContent = '';
+    paintMsg('');
     function next() { clearTimers(); pending = null; run(); }
     function complete() {
       done = true;
-      tx.textContent = full;
+      paintMsg(full);
       if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
       if (c.advanceMode === 'auto') autoTimer = setTimeout(next, Math.max(0, c.autoWaitFrames || 0) * 1000 / 60);
     }
@@ -661,7 +759,7 @@ function previewRuntime() {
     else {
       typeTimer = setInterval(() => {
         shown += 1;
-        tx.textContent = full.slice(0, shown);
+        paintMsg(full.slice(0, shown));
         if (shown >= full.length) complete();
       }, speed);
     }
@@ -834,6 +932,7 @@ export function activatePlugin({ root, api, registerCapability }) {
             <button class="btn-primary" type="button" data-action="save">保存</button>
           </div>
         </div>
+        <div class="pce-vn-glyph-budget" data-role="glyph-budget" style="display:none"></div>
         <div class="pce-vn-commands" data-role="commands"></div>
         <div class="form-error" data-role="error"></div>
       </section>
@@ -853,6 +952,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   const commandSearchInput = root.querySelector('[data-role="command-search"]');
   const commandPaletteEl = root.querySelector('[data-role="command-palette"]');
   const errorEl = root.querySelector('[data-role="error"]');
+  const glyphBudgetEl = root.querySelector('[data-role="glyph-budget"]');
   let assets = [];
   let doc = defaultDoc();
   let selectedId = 'opening';
@@ -863,8 +963,15 @@ export function activatePlugin({ root, api, registerCapability }) {
   let suppressCommandClick = false;
   let previewToken = 0;
   let commandClipboard = null;
+  let messagePreviewTimer = null;
+  let previewAudioEl = null;
   const assetDataUrlCache = new Map();
   const assetApi = api.assets || {};
+
+  function stopMessagePreview() {
+    if (messagePreviewTimer) { clearInterval(messagePreviewTimer); messagePreviewTimer = null; }
+    if (previewAudioEl) { try { previewAudioEl.pause(); } catch (_) {} previewAudioEl = null; }
+  }
 
   const listPceAssets = (options = {}) => assetApi.listPceAssets
     ? assetApi.listPceAssets(options)
@@ -923,28 +1030,128 @@ export function activatePlugin({ root, api, registerCapability }) {
     wrap.className = 'pce-vn-stage-wrap';
     const stage = document.createElement('div');
     stage.className = 'pce-vn-stage';
-    if (state.background?.assetId && urls[state.background.assetId]) {
-      stage.appendChild(makeStageImg(state.background, 'background', urls[state.background.assetId], command.type === 'background'));
-    }
-    Object.values(state.sprites)
-      .sort((a, b) => a.slot - b.slot)
-      .forEach((s) => {
-        if (s.assetId && urls[s.assetId]) {
-          stage.appendChild(makeStageImg(s, 'sprite', urls[s.assetId], command.type === 'sprite' && s.slot === command.slot));
-        }
-      });
+    appendStageLayers(stage, state, urls, command);
     wrap.appendChild(stage);
     block.append(head, wrap);
     return block;
   }
 
+  function appendStageLayers(stage, state, urls, command) {
+    if (state.background?.assetId && urls[state.background.assetId]) {
+      stage.appendChild(makeStageImg(state.background, 'background', urls[state.background.assetId], command?.type === 'background'));
+    }
+    Object.values(state.sprites)
+      .sort((a, b) => a.slot - b.slot)
+      .forEach((s) => {
+        if (s.assetId && urls[s.assetId]) {
+          stage.appendChild(makeStageImg(s, 'sprite', urls[s.assetId], command?.type === 'sprite' && s.slot === command.slot));
+        }
+      });
+  }
+
+  function buildMessageStageNode(state, urls, command) {
+    const block = document.createElement('div');
+    block.className = 'pce-vn-stage-block';
+    const head = document.createElement('div');
+    head.className = 'pce-vn-stage-head';
+    const title = document.createElement('strong');
+    title.textContent = previewTitle(command);
+    const controls = document.createElement('div');
+    controls.className = 'pce-vn-stage-controls';
+    const info = document.createElement('span');
+    info.textContent = `speed ${command.textSpeedFrames}f/字${command.voiceAssetId ? ` ・ ADPCM ${command.voiceAssetId}` : ''}`;
+    const play = document.createElement('button');
+    play.className = 'btn-sm';
+    play.type = 'button';
+    play.dataset.role = 'message-play';
+    play.textContent = '▶ 再生';
+    controls.append(info, play);
+    head.append(title, controls);
+    const wrap = document.createElement('div');
+    wrap.className = 'pce-vn-stage-wrap';
+    const stage = document.createElement('div');
+    stage.className = 'pce-vn-stage';
+    appendStageLayers(stage, state, urls, command);
+    const overlay = document.createElement('div');
+    overlay.className = 'pce-vn-stage-message';
+    overlay.dataset.role = 'message-overlay';
+    overlay.style.left = `${MESSAGE_AREA.x}px`;
+    overlay.style.top = `${MESSAGE_AREA.y}px`;
+    overlay.style.width = `${MESSAGE_AREA.cols * MESSAGE_AREA.cell}px`;
+    overlay.style.height = `${MESSAGE_AREA.rows * MESSAGE_AREA.cell}px`;
+    stage.appendChild(overlay);
+    wrap.appendChild(stage);
+    block.append(head, wrap);
+    return block;
+  }
+
+  function paintMessageOverlay(overlay, text) {
+    const lines = layoutMessageLines(text);
+    overlay.innerHTML = '';
+    for (let r = 0; r < MESSAGE_AREA.rows; r += 1) {
+      const row = document.createElement('div');
+      row.className = 'pce-vn-msg-row';
+      const line = lines[r] || '';
+      for (let c = 0; c < line.length; c += 1) {
+        const cell = document.createElement('span');
+        cell.className = 'pce-vn-msg-cell';
+        cell.textContent = line[c];
+        row.appendChild(cell);
+      }
+      overlay.appendChild(row);
+    }
+  }
+
+  function startMessagePreview(node, command, token) {
+    const overlay = node.querySelector('[data-role="message-overlay"]');
+    const playBtn = node.querySelector('[data-role="message-play"]');
+    if (!overlay) return;
+    const full = messageFullText(command);
+    paintMessageOverlay(overlay, full);
+    const play = () => {
+      if (token !== previewToken) return;
+      stopMessagePreview();
+      const speed = Math.max(0, command.textSpeedFrames || 0) * 1000 / 60;
+      if (speed <= 0 || !full) {
+        paintMessageOverlay(overlay, full);
+      } else {
+        let shown = 0;
+        paintMessageOverlay(overlay, '');
+        messagePreviewTimer = setInterval(() => {
+          if (token !== previewToken) { stopMessagePreview(); return; }
+          shown += 1;
+          paintMessageOverlay(overlay, full.slice(0, shown));
+          if (shown >= full.length) { clearInterval(messagePreviewTimer); messagePreviewTimer = null; }
+        }, speed);
+      }
+      const voice = command.voiceAssetId ? assetById(command.voiceAssetId) : null;
+      if (voice?.source) {
+        void resolveAssetDataUrl(voice).then((url) => {
+          if (token !== previewToken || !url) return;
+          const audio = new Audio(url);
+          previewAudioEl = audio;
+          audio.play().catch(() => {});
+        });
+      }
+    };
+    if (playBtn) playBtn.addEventListener('click', play);
+  }
+
   function fitStageNodes() {
+    const panel = commandPreviewEl.parentElement;
+    const panelH = panel ? panel.clientHeight : 0;
     commandPreviewEl.querySelectorAll('.pce-vn-stage-wrap').forEach((wrap) => {
       const stage = wrap.querySelector('.pce-vn-stage');
       if (!stage) return;
       const avail = wrap.clientWidth || commandPreviewEl.clientWidth || PCE_SCREEN_WIDTH;
-      const scale = Math.max(0.1, avail / PCE_SCREEN_WIDTH);
+      // stage が幅いっぱいだと縦がパネル可視領域を超えて見切れるため、高さでも頭打ちにする。
+      const head = wrap.previousElementSibling;
+      const headH = head ? head.offsetHeight : 0;
+      const maxStageH = Math.max(160, (panelH || 360) - headH - 16);
+      const scale = Math.max(0.1, Math.min(avail / PCE_SCREEN_WIDTH, maxStageH / PCE_SCREEN_HEIGHT));
+      const stageW = PCE_SCREEN_WIDTH * scale;
       stage.style.transform = `scale(${scale})`;
+      stage.style.left = `${Math.max(0, (avail - stageW) / 2)}px`;
       wrap.style.height = `${PCE_SCREEN_HEIGHT * scale}px`;
     });
   }
@@ -1187,6 +1394,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (rerenderCommands) renderCommands(current);
     if (rerenderDetail) renderCommandDetail(current);
     if (updatePreview) void renderCommandPreview();
+    updateGlyphBudget();
   }
 
   function commitCurrentUiToDoc() {
@@ -1498,8 +1706,23 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (!current) return;
     const command = ensureSelectedCommand(current);
     const token = ++previewToken;
+    stopMessagePreview();
     if (!command) {
       renderCommandPreviewText(null);
+      return;
+    }
+    if (command.type === 'message') {
+      const state = computeVisualState(current.commands, selectedCommandIndex);
+      const ids = new Set();
+      if (state.background?.assetId) ids.add(state.background.assetId);
+      Object.values(state.sprites).forEach((s) => { if (s.assetId) ids.add(s.assetId); });
+      const urls = {};
+      await Promise.all([...ids].map(async (id) => { urls[id] = await resolveAssetDataUrl(assetById(id)); }));
+      if (token !== previewToken) return;
+      const node = buildMessageStageNode(state, urls, command);
+      commandPreviewEl.replaceChildren(node);
+      fitStageNodes();
+      startMessagePreview(node, command, token);
       return;
     }
     if (command.type === 'background' || command.type === 'sprite') {
@@ -1553,10 +1776,29 @@ export function activatePlugin({ root, api, registerCapability }) {
     void renderCommandPreview();
   }
 
+  function updateGlyphBudget() {
+    if (!glyphBudgetEl) return;
+    const count = countScriptGlyphs(doc);
+    if (count > VN_MAX_GLYPH_COUNT) {
+      glyphBudgetEl.dataset.level = 'error';
+      glyphBudgetEl.textContent = `フォント: 使用文字 ${count} 種類 / 上限 ${VN_MAX_GLYPH_COUNT}。`
+        + `超過した ${count - VN_MAX_GLYPH_COUNT} 文字はゲーム内で空白になります。使う文字種を減らしてください。`;
+      glyphBudgetEl.style.display = '';
+    } else if (count >= VN_GLYPH_WARN_COUNT) {
+      glyphBudgetEl.dataset.level = 'warn';
+      glyphBudgetEl.textContent = `フォント: 使用文字 ${count} 種類 / 上限 ${VN_MAX_GLYPH_COUNT}（残り ${VN_MAX_GLYPH_COUNT - count}）。`;
+      glyphBudgetEl.style.display = '';
+    } else {
+      glyphBudgetEl.style.display = 'none';
+      glyphBudgetEl.textContent = '';
+    }
+  }
+
   function render() {
     renderSceneList();
     renderCommandPalette();
     renderForm();
+    updateGlyphBudget();
   }
 
   async function load(options = {}) {
@@ -1680,6 +1922,7 @@ export function activatePlugin({ root, api, registerCapability }) {
         urls,
         meta,
         screen: { w: PCE_SCREEN_WIDTH, h: PCE_SCREEN_HEIGHT },
+        message: MESSAGE_AREA,
       };
       const win = window.open('', `pce-vn-preview-${selectedId}`, 'width=720,height=560');
       if (!win) {
@@ -1965,6 +2208,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     deactivate() {
       teardownAssetRefreshEvents();
       window.removeEventListener('resize', handleWindowResize);
+      stopMessagePreview();
     },
   };
 }

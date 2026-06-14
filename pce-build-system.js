@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const { app } = require('electron');
 const assetManager = require('./pce-asset-manager');
 const vnManager = require('./pce-vn-manager');
@@ -450,16 +450,77 @@ function resolveOptionalExternalFile(value) {
   return raw && fs.existsSync(raw) ? path.resolve(raw) : null;
 }
 
-function ensurePceCdDataPaddingFile(commandInfo) {
-  const paddingSectors = PCE_CD_DATA_BASE_SECTOR - 1 - PCE_CD_IPL_PROGRAM_SECTORS;
-  if (paddingSectors <= 0) return null;
-  const paddingPath = path.join(path.dirname(commandInfo.isoPath), 'pce_cd_data_padding.bin');
-  const byteLength = paddingSectors * PCE_CD_SECTOR_BYTES;
+function writePceCdPaddingFile(paddingPath, paddingSectors) {
+  const byteLength = Math.max(0, paddingSectors) * PCE_CD_SECTOR_BYTES;
   ensureDirSync(path.dirname(paddingPath));
   if (!fs.existsSync(paddingPath) || fs.statSync(paddingPath).size !== byteLength) {
     fs.writeFileSync(paddingPath, Buffer.alloc(byteLength));
   }
   return paddingPath;
+}
+
+function ensurePceCdDataPaddingFile(commandInfo) {
+  // Provisional size, assuming the program image is PCE_CD_IPL_PROGRAM_SECTORS
+  // long. The real program sector count is only known after the ELF is built,
+  // so finalizePceCdDataPadding() rewrites this file with the correct size
+  // before pce-mkcd runs (otherwise the embedded CD sectors, which assume the
+  // first data file starts at PCE_CD_DATA_BASE_SECTOR, would be off).
+  const paddingSectors = PCE_CD_DATA_BASE_SECTOR - 1 - PCE_CD_IPL_PROGRAM_SECTORS;
+  if (paddingSectors <= 0) return null;
+  const paddingPath = path.join(path.dirname(commandInfo.isoPath), 'pce_cd_data_padding.bin');
+  commandInfo.paddingPath = paddingPath;
+  return writePceCdPaddingFile(paddingPath, paddingSectors);
+}
+
+// Parse pce-mkcd -v output for the ELF program's placement and return the first
+// sector free after it (= program start sector + program sector count). The
+// verbose line looks like: Writing "out/TST.elf" (...) to ISO @ sector 1, size 18
+function parseMkcdFirstDataSector(verboseOutput, elfBasename) {
+  if (!verboseOutput || !elfBasename) return null;
+  const elfBase = elfBasename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`"[^"]*${elfBase}"[^\\n]*@ sector (\\d+), size (\\d+)`);
+  const match = String(verboseOutput).match(re);
+  if (!match) return null;
+  return Number(match[1]) + Number(match[2]);
+}
+
+// Probe pce-mkcd to find the first CD sector free after the boot sector and the
+// program image, by building a throwaway ISO with only the ELF. Returns the
+// sector index where the first data file would land if no padding were added.
+function measurePceCdFirstDataSector(commandInfo) {
+  if (!commandInfo.iplPath || !commandInfo.elfPath || !fs.existsSync(commandInfo.elfPath)) return null;
+  const probeIso = path.join(path.dirname(commandInfo.isoPath), 'pce_cd_layout_probe.iso');
+  try {
+    const result = spawnSync(
+      commandInfo.mkcdCommand,
+      ['-v', '--ipl', commandInfo.iplPath, probeIso, commandInfo.elfPath],
+      { cwd: commandInfo.cwd, env: commandInfo.env, encoding: 'utf-8', windowsHide: true },
+    );
+    if (result.status !== 0) return null;
+    return parseMkcdFirstDataSector(`${result.stdout || ''}\n${result.stderr || ''}`, path.basename(commandInfo.elfPath));
+  } catch (_) {
+    return null;
+  } finally {
+    try { if (fs.existsSync(probeIso)) fs.unlinkSync(probeIso); } catch (_) {}
+  }
+}
+
+// Resize the data padding file so the first data file lands exactly on
+// PCE_CD_DATA_BASE_SECTOR regardless of the actual program image size.
+function finalizePceCdDataPadding(commandInfo, log) {
+  if (!commandInfo.paddingPath) return;
+  const firstDataSector = measurePceCdFirstDataSector(commandInfo);
+  if (firstDataSector === null) {
+    log?.(`PCE-CD: プログラムのセクタ数を測定できませんでした。padding を既定値 (${PCE_CD_IPL_PROGRAM_SECTORS} sector 想定) で続行します。`, 'warn');
+    return;
+  }
+  const paddingSectors = PCE_CD_DATA_BASE_SECTOR - firstDataSector;
+  if (paddingSectors < 0) {
+    log?.(`PCE-CD: プログラムが大きすぎて最初のデータが sector ${firstDataSector} になり、想定の ${PCE_CD_DATA_BASE_SECTOR} を超えます。生成済みの埋め込みセクタとずれるため、scene/asset を減らしてください。`, 'error');
+    return;
+  }
+  writePceCdPaddingFile(commandInfo.paddingPath, paddingSectors);
+  log?.(`PCE-CD: program ${firstDataSector} sector、data padding を ${paddingSectors} sector に調整 (data 開始 sector ${PCE_CD_DATA_BASE_SECTOR})`, 'info');
 }
 
 function buildPceMkcdArgs(projectDir, config, commandInfo) {
@@ -616,6 +677,7 @@ function buildProject(onLog, options = {}) {
         const prepared = vnManager.prepareVisualNovelBuild(projectDir, config);
         if (prepared?.generated) {
           generated.visualNovel = prepared.generated;
+          (prepared.generated.warnings || []).forEach((warning) => log(warning, 'warn'));
         }
         if (prepared?.configPatch) {
           config = mergeVisualNovelConfig(config, prepared.configPatch);
@@ -694,6 +756,7 @@ function buildProject(onLog, options = {}) {
           romInfo = postprocessCc65PceRom(commandInfo.binPath, commandInfo.romPath);
         }
         if (commandInfo.targetMedia === 'cd') {
+          finalizePceCdDataPadding(commandInfo, log);
           const mkcd = spawn(commandInfo.mkcdCommand, commandInfo.mkcdArgs, {
             cwd: commandInfo.cwd,
             env: commandInfo.env,

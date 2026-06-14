@@ -180,6 +180,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.equal(prepared.configPatch.targetMedia, 'cd');
   assert.equal(prepared.configPatch.toolchain, 'llvm-mos');
   assert.deepEqual(prepared.configPatch.cd.dataFiles, [
+    'assets/generated/vn/font.bin',
     'assets/generated/vn/scenes/000_opening.bin',
     'assets/generated/voice/adpcm.bin',
   ]);
@@ -200,7 +201,14 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.match(header, /typedef struct \{\n  pce_vn_cd_sector_t sector;/);
   assert.match(header, /pce_vn_command_t/);
   assert.match(source, /PCE_RAM_BANK_AT\(132, 6\);/);
+  // CD build streams font tiles from a data file: only the small ref is in RAM.
+  assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_data = \{/);
+  assert.match(header, /typedef struct \{[\s\S]*?\} pce_vn_cd_data_ref_t;/);
+  assert.match(header, /extern const pce_vn_cd_data_ref_t pce_vn_font_data;/);
+  // The embedded byte array only survives in the non-CD (#else) fallback path.
   assert.match(source, /PCE_VN_FONT_SECTION pce_vn_font_tiles\[\]/);
+  assert.equal(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'font.bin')), true);
+  assert.equal(prepared.generated.fontDataPath, 'assets/generated/vn/font.bin');
   assert.match(source, /#define PCE_VN_DATA_SECTION __attribute__\(\(section\("\.ram_bank132"\)\)\)/);
   assert.match(source, /pce_ram_bank132_map\(\);/);
   assert.match(source, /const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations\[\]/);
@@ -216,6 +224,37 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.equal(message.textSpeedFrames, 3);
   assert.equal(message.mouthAnimationIndex, 1);
   assert.equal(pack[message.glyphOffset + message.glyphCount], 0xff);
+});
+
+test('PCE VN manager encodes message newlines as line-break glyphs', () => {
+  const projectDir = makeTempDir('pce-vn-newline-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [{ type: 'message', text: 'あ\nい' }],
+      nextSceneId: '',
+    }],
+  });
+
+  const prepared = vnManager.prepareVisualNovelBuild(projectDir, { cd: { dataFiles: [] } });
+  const header = fs.readFileSync(prepared.generated.headerPath, 'utf-8');
+  const pack = readPack(projectDir, prepared.generated.scenePackPaths[0]);
+  const message = messageRecord(pack, 0);
+  // glyphs: あ, newline marker, い (GLYPH_END is excluded from glyph_count)
+  assert.equal(message.glyphCount, 3);
+  assert.equal(pack[message.glyphOffset + 1], 0xfe);
+  assert.equal(pack[message.glyphOffset + message.glyphCount], 0xff);
+  assert.match(header, /PCE_VN_GLYPH_NEWLINE 0xfeu/);
+
+  const runtime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
+    'utf-8',
+  );
+  assert.match(runtime, /glyph == PCE_VN_GLYPH_NEWLINE/);
 });
 
 test('PCE VN manager default scene does not auto-play the first CD-DA asset', () => {
@@ -300,6 +339,7 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   assert.equal(normalized.scenes[1].commands[5].frames, 45);
   assert.equal(normalized.scenes[1].commands[6].sceneId, 'opening');
   assert.deepEqual(vnManager.collectCdDataFiles(projectDir), [
+    'assets/generated/vn/font.bin',
     'assets/generated/vn/scenes/000_opening.bin',
     'assets/generated/bg_a/tiles.bin',
     'assets/generated/bg_a/map_vram.bin',
@@ -322,8 +362,9 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   assert.match(header, /PCE_VN_SPRITE_FLIP_Y 4u/);
   assert.match(header, /PCE_VN_EFFECT_FADE_OUT 0u/);
   assert.match(header, /PCE_VN_EFFECT_SHAKE 3u/);
-  assert.match(source, /\{ \{ 64u, 0u, 0u \}, 1u, \d+u, -1 \}/);
-  assert.match(source, /\{ \{ 77u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  // Font data file holds sector 64; scene packs follow after it and their assets.
+  assert.match(source, /\{ \{ 65u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  assert.match(source, /\{ \{ 78u, 0u, 0u \}, 1u, \d+u, -1 \}/);
   assert.equal(openingPack[5], 4);
   assert.equal(openingPack[7], 1);
   assert.deepEqual(commandRecord(openingPack, 0), {
@@ -592,7 +633,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /static void upload_ui_tiles\(void\)/);
   assert.match(source, /static uint16_t draw_blank_top\[2\] __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(source, /static uint16_t draw_glyph_top\[2\] __attribute__\(\(section\("\.bss"\)\)\);/);
-  assert.match(source, /map_vn_data\(\);\n    pce_editor_vram_copy/);
+  // upload_font_tiles streams the glyph font from CD into VRAM at boot.
+  assert.match(source, /pce_vn_cd_data_ref_t font;/);
+  assert.match(source, /font = pce_vn_font_data;\n    map_resident_data\(\);/);
+  assert.match(source, /\(void\)pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);\n        cd_transfer_wait\(\);\n        pce_editor_vram_copy\(vram_dest, cd_transfer_scratch, chunk\);/);
   assert.match(source, /upload_ui_palette\(\);\n    upload_font_tiles\(\);\n    clear_screen_map\(\);/);
   assert.doesNotMatch(source, /vce_write_color\(0u, 0x0000u\);/);
   assert.match(source, /static void draw_blank_cell\(uint8_t x, uint8_t y\)/);
@@ -937,7 +981,10 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.deepEqual(result.generated.visualNovel.scenePackPaths, ['assets/generated/vn/scenes/000_opening.bin']);
   const source = fs.readFileSync(path.join(projectDir, 'src', 'generated', 'vn.c'), 'utf-8');
   assert.match(source, /const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs\[\]/);
-  assert.match(source, /\{ \{ 64u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  // Font data file occupies CD sector 64; the scene pack follows at sector 65.
+  assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_data = \{ \{ 64u, 0u, 0u \}, \d+u, \d+u \};/);
+  assert.match(source, /\{ \{ 65u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'font.bin')));
   assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'scenes', '000_opening.bin')));
   const syncedRuntime = fs.readFileSync(runtimePath, 'utf-8');
   assert.match(syncedRuntime, /adpcm_stream_active = 1u;/);
