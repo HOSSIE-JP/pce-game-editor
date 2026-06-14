@@ -142,8 +142,10 @@ static uint8_t cdda_looping = 0;
 static uint8_t cdda_track = 0;
 static uint16_t cdda_frames_remaining = 0;
 static const pce_editor_cdda_asset_t *cdda_current = (const pce_editor_cdda_asset_t *)0;
+static uint8_t adpcm_stream_active = 0;
 static uint8_t adpcm_stream_looping = 0;
 static uint8_t adpcm_stream_index = 0;
+static uint8_t adpcm_stream_buffered_fallback = 0;
 static uint8_t adpcm_stream_monitor_frames = 0;
 #endif
 typedef struct
@@ -248,8 +250,10 @@ static void init_runtime_state(void)
     cdda_track = 0u;
     cdda_frames_remaining = 0u;
     cdda_current = (const pce_editor_cdda_asset_t *)0;
+    adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
     adpcm_stream_index = 0u;
+    adpcm_stream_buffered_fallback = 0u;
     adpcm_stream_monitor_frames = 0u;
     active_scene_pack.data = vn_active_scene_pack_data;
     active_scene_pack.size = 0u;
@@ -287,9 +291,9 @@ static void init_runtime_state(void)
 static void delay_frame(void)
 {
 #if defined(__PCE_CD__)
+    service_adpcm_streaming();
     pce_cdb_wait_vblank();
     service_cdda_playback();
-    service_adpcm_streaming();
 #else
     volatile uint16_t delay;
     for (delay = 0; delay < 6200u; delay++) {}
@@ -1442,6 +1446,10 @@ static uint8_t VN_BANKED_CODE load_adpcm_voice(signed int voice_index, uint8_t a
         if (!allow_stop_playback) return 0u;
         pce_cdb_adpcm_stop();
         (void)wait_adpcm_transfer_ready();
+        adpcm_stream_active = 0u;
+        adpcm_stream_looping = 0u;
+        adpcm_stream_buffered_fallback = 0u;
+        adpcm_stream_monitor_frames = 0u;
     }
     if ((!adpcm_voice_snapshot.data && !adpcm_voice_snapshot.has_cd) || !adpcm_voice_snapshot.data_size) return 0u;
     loaded_adpcm_valid = 0u;
@@ -1505,6 +1513,10 @@ static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
         pce_cdb_adpcm_stop();
         (void)wait_adpcm_transfer_ready();
     }
+    adpcm_stream_active = 0u;
+    adpcm_stream_looping = 0u;
+    adpcm_stream_buffered_fallback = 0u;
+    adpcm_stream_monitor_frames = 0u;
     loaded_adpcm_valid = 0u;
     prepare_cd_data_access();
     pce_cdb_adpcm_reset();
@@ -1524,9 +1536,11 @@ static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
         return 0u;
     }
     map_resident_data();
+    adpcm_stream_active = 1u;
     adpcm_stream_looping = adpcm_voice_snapshot.loop ? 1u : 0u;
     adpcm_stream_index = (uint8_t)voice_index;
-    adpcm_stream_monitor_frames = adpcm_voice_fits_buffer() ? VN_ADPCM_STREAM_MONITOR_FRAMES : 0u;
+    adpcm_stream_buffered_fallback = adpcm_voice_fits_buffer() ? 1u : 0u;
+    adpcm_stream_monitor_frames = VN_ADPCM_STREAM_MONITOR_FRAMES;
     restore_display_after_adpcm(restore_display);
     return 1u;
 #else
@@ -1541,7 +1555,9 @@ static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice(signed int voice_index, 
     uint8_t divider;
     if (!copy_adpcm_voice(voice_index)) return 0u;
     if (!adpcm_voice_fits_buffer()) return 0u;
+    adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
+    adpcm_stream_buffered_fallback = 0u;
     adpcm_stream_monitor_frames = 0u;
     if (!load_adpcm_voice(voice_index, 1u, 1u))
     {
@@ -1557,6 +1573,11 @@ static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice(signed int voice_index, 
         return 0u;
     }
     map_resident_data();
+    adpcm_stream_active = adpcm_voice_snapshot.loop ? 0u : 1u;
+    adpcm_stream_looping = 0u;
+    adpcm_stream_index = (uint8_t)voice_index;
+    adpcm_stream_buffered_fallback = 0u;
+    adpcm_stream_monitor_frames = adpcm_voice_snapshot.loop ? 0u : 1u;
     restore_display_after_adpcm(restore_display);
     return 1u;
 #else
@@ -1594,8 +1615,13 @@ static void VN_BANKED_CODE stop_adpcm_voice(void)
 #if defined(__PCE_CD__)
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
     pce_cdb_adpcm_stop();
+    (void)wait_adpcm_transfer_ready();
+    pce_cdb_adpcm_reset();
+    (void)wait_adpcm_transfer_ready();
     loaded_adpcm_valid = 0u;
+    adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
+    adpcm_stream_buffered_fallback = 0u;
     adpcm_stream_monitor_frames = 0u;
     restore_display_after_adpcm(restore_display);
 #endif
@@ -1605,20 +1631,35 @@ static void VN_BANKED_CODE service_adpcm_streaming(void)
 {
 #if defined(__PCE_CD__)
     uint16_t status;
-    if (!adpcm_stream_looping && !adpcm_stream_monitor_frames) return;
+    if (!adpcm_stream_active) return;
     status = pce_cdb_adpcm_status();
     if (adpcm_stream_monitor_frames)
     {
         adpcm_stream_monitor_frames--;
-        if (!adpcm_stream_monitor_frames && (status & ADPCM_STOPPED))
+        if (adpcm_stream_monitor_frames) return;
+        if ((status & ADPCM_STOPPED) && adpcm_stream_buffered_fallback)
         {
+            adpcm_stream_active = 0u;
             (void)play_adpcm_buffered_voice((signed int)adpcm_stream_index, (uint8_t)!pending_display_enable);
             return;
         }
     }
-    if (!adpcm_stream_looping) return;
     if (!(status & ADPCM_STOPPED)) return;
-    (void)stream_adpcm_voice((signed int)adpcm_stream_index);
+    if (adpcm_stream_looping)
+    {
+        (void)stream_adpcm_voice((signed int)adpcm_stream_index);
+        return;
+    }
+    pce_cdb_adpcm_stop();
+    (void)wait_adpcm_transfer_ready();
+    pce_cdb_adpcm_reset();
+    (void)wait_adpcm_transfer_ready();
+    loaded_adpcm_valid = 0u;
+    adpcm_stream_active = 0u;
+    adpcm_stream_looping = 0u;
+    adpcm_stream_buffered_fallback = 0u;
+    adpcm_stream_monitor_frames = 0u;
+    restore_display_after_adpcm((uint8_t)!pending_display_enable);
 #endif
 }
 
