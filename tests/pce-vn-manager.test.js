@@ -708,7 +708,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /upload_sprite_table\(\);\n    if \(display_active\)\n    \{\n        sprite_layer_enable\(\);\n        if \(requires_pattern_upload\) delay_frame\(\);/);
   assert.match(source, /#define VN_CD_SECTOR_BYTES 2048u/);
   assert.match(source, /#define VN_MAP_ROW_BYTES \(VN_MAP_WIDTH \* 2u\)/);
-  assert.match(source, /static uint8_t cd_transfer_scratch\[VN_CD_SECTOR_BYTES\];/);
+  // cd_transfer_scratch lives in bank132 (MPR6), not console_ram, to relieve the
+  // scarce work RAM. The CD->VRAM helpers map MPR6 before touching it.
+  assert.match(source, /static uint8_t cd_transfer_scratch\[VN_CD_SECTOR_BYTES\] __attribute__\(\(section\("\.ram_bank132"\)\)\);/);
+  assert.match(source, /map_vn_data\(\);\n    while \(remaining\)\n    \{[\s\S]*?cd_transfer_scratch/);
   assert.match(source, /static uint8_t vn_active_scene_pack_data\[PCE_VN_SCENE_PACK_CACHE_BYTES\];/);
   assert.match(source, /static vn_sprite_slot_t sprite_slots_storage\[VN_SPRITE_SLOT_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(source, /#define sprite_slots sprite_slots_storage/);

@@ -135,7 +135,10 @@ static pce_editor_sprite_draw_meta_t sprite_draw_meta;
 static vdc_sprite_t sprite_shadow[64];
 #endif
 #if defined(__PCE_CD__)
-static uint8_t cd_transfer_scratch[VN_CD_SECTOR_BYTES];
+/* Moved out of the scarce console_ram work RAM into the now-mostly-empty VN data
+   bank (MPR6). Only the CD->VRAM transfer helpers touch it, and they map MPR6 to
+   bank132 (map_vn_data) before the pce_cdb_cd_read / vram copy loop. */
+static uint8_t cd_transfer_scratch[VN_CD_SECTOR_BYTES] __attribute__((section(".ram_bank132")));
 static uint8_t vn_active_scene_pack_data[PCE_VN_SCENE_PACK_CACHE_BYTES];
 static uint8_t cdda_active = 0;
 static uint8_t cdda_has_frame_limit = 0;
@@ -584,6 +587,9 @@ static uint8_t cd_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *r
     cd_sector_from_ref(&sector, &ref->cd->sector);
     remaining = (uint16_t)ref->size;
     vram_dest = dest;
+    /* cd_transfer_scratch lives in bank132; MPR6 must point at it for the CD
+       read target and the VRAM copy source. ref was already read above. */
+    map_vn_data();
     while (remaining)
     {
         uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
@@ -624,6 +630,8 @@ static uint8_t cd_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t 
     prepare_cd_data_access();
     cd_sector_from_ref(&sector, &ref->cd->sector);
     remaining = (uint16_t)ref->size;
+    /* cd_transfer_scratch is in bank132; map MPR6 to it (ref already read). */
+    map_vn_data();
     while (row < copy_height_tiles && remaining)
     {
         uint16_t local_offset = 0u;
@@ -937,6 +945,8 @@ static void upload_font_tiles(void)
     sector.md = font.sector.md;
     sector.hi = font.sector.hi;
     remaining = font.byte_size;
+    /* cd_transfer_scratch is in bank132; ensure MPR6 points at it for the loop. */
+    map_vn_data();
     while (remaining)
     {
         const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
