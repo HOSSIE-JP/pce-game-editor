@@ -2110,6 +2110,15 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
                 animation = &animation_value;
             }
         }
+        /* pce_vn_sprite_animations and pce_editor_sprite_draw_meta live in banked
+           CD RAM (bank132 / resident). The copies above must complete while those
+           banks are still mapped: upload_palette / ensure_sprite_patterns_loaded
+           remap MPR slots, and at -Oz the compiler would otherwise sink these
+           const-data loads past those calls and read them from the wrong bank.
+           That made the sprite draw as the whole sheet (use_animation_frame read
+           garbage) with a mis-addressed pattern base. This barrier pins the reads
+           before the remaps. */
+        __asm__ volatile("" ::: "memory");
         upload_palette(&sprite->palette, (uint16_t)(256u + (sprite_draw_meta.palette_bank * 16u)), 1);
         (void)ensure_sprite_patterns_loaded(sprite_index, sprite);
         satb_index = (uint8_t)(satb_index + show_character_sprite_frame(
