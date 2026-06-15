@@ -6,7 +6,7 @@
 
 - CD-ROM2 build では、背景 tiles/map、sprite pattern、ADPCM 本体のような大きい payload は RAM bank へ詰め込まず、`cd.dataFiles` に並べます。BG/sprite 表示 data は `cd_transfer_scratch` 経由で VRAM へ転送し、ADPCM は ADPCM RAM または streaming 経路へ送ります。
 - CPU が頻繁に読む小さい runtime data だけを RAM bank に置きます。表示 asset の実体は CD data file 優先です。
-- `cd.dataFiles` は sector 64 以降に並ぶ前提で generated metadata に sector を埋め込みます。build は IPL program の後ろへ padding file を挟み、ISO 上の最初の data file が sector 64 から始まるようにします。
+- `cd.dataFiles` は sector 64 以降に並ぶ前提で generated metadata に sector を埋め込みます。build は IPL program の後ろへ padding file を挟み、ISO 上の最初の data file が sector 64 から始まるようにします。padding サイズは固定ではなく、ELF build 後に `pce-mkcd -v` でプログラム像の実セクタ数を測定して `64 - program終端sector` で決めます（`finalizePceCdDataPadding()` / `parseMkcdFirstDataSector()`）。**RAM bank の配置やデータ量を変えて program 像のサイズが変わると、固定 padding では data 開始 sector がずれ、埋め込み済みの sector 参照（`pce_vn_font_data` / `pce_vn_scene_packs[]` / asset の `cd_data_ref`）が全部ずれて全画面が壊れます。** font tiles の CD streaming 化のように program サイズに影響する変更をしたら、必ず実 ISO で data 開始 sector が 64 のままか確認してください。
 - VN runtime は `template/template_pce_vn_cd/src/pce_vn_runtime.c` が単一の実体です。project 側へ同期されるので、bank ルール変更は必ず template を直します。
 
 ## CD-ROM2 RAM Bank Map

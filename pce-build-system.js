@@ -807,6 +807,8 @@ function loadCurrentSource() {
 module.exports = {
   DEFAULT_PROJECT_NAME,
   DEFAULT_TOOLCHAIN,
+  PCE_CD_DATA_BASE_SECTOR,
+  parseMkcdFirstDataSector,
   buildCommandForProject,
   collectCddaTracks,
   buildProject,

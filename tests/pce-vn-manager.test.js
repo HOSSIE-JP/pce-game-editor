@@ -1007,3 +1007,25 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   const syncedRuntime = fs.readFileSync(runtimePath, 'utf-8');
   assert.match(syncedRuntime, /adpcm_stream_active = 1u;/);
 });
+
+test('PCE build system derives CD data padding from the measured program size', () => {
+  const buildSystem = loadPceBuildSystem();
+  // pce-mkcd -v reports the ELF program placement; the first data file must land
+  // on PCE_CD_DATA_BASE_SECTOR regardless of how many sectors the program takes.
+  const verbose = [
+    'Adding 386 sectors of padding required by CD-ROM specification.',
+    'Writing "sector_0" (__cd_sector_0) to ISO @ sector 0, size 1',
+    'Writing "out/TST.elf" (__cd_out_tst_elf) to ISO @ sector 1, size 18',
+    'Finished writing ISO, size 450',
+  ].join('\n');
+  const firstData18 = buildSystem.parseMkcdFirstDataSector(verbose, 'TST.elf');
+  assert.equal(firstData18, 19);
+  // A 18-sector program needs 45 padding sectors to reach sector 64 (was 43 when
+  // the resident font tiles still made the program 20 sectors long).
+  assert.equal(buildSystem.PCE_CD_DATA_BASE_SECTOR - firstData18, 45);
+  const firstData20 = buildSystem.parseMkcdFirstDataSector(
+    'Writing "out/TST.elf" (__cd_out_tst_elf) to ISO @ sector 1, size 20', 'TST.elf');
+  assert.equal(buildSystem.PCE_CD_DATA_BASE_SECTOR - firstData20, 43);
+  // Unparseable output falls back to null so the build keeps the provisional pad.
+  assert.equal(buildSystem.parseMkcdFirstDataSector('no useful output', 'TST.elf'), null);
+});
