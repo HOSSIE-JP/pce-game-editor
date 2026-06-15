@@ -733,6 +733,10 @@
   image-rendering: pixelated;
 }
 
+.pce-sprite-editor-sheet-stage canvas {
+  cursor: pointer;
+}
+
 .pce-sprite-editor-animation-rows {
   min-height: 112px;
   max-height: 210px;

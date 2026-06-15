@@ -218,6 +218,95 @@ function assetPixelSize(asset = {}) {
   };
 }
 
+// スプライト asset の options から、プレビュー描画に必要な最小メタ情報を取り出す。
+// 別ウィンドウ preview の data.meta にもこの形で埋め込む。
+function spriteAnimationMeta(asset = {}) {
+  const options = asset?.options || {};
+  return {
+    cellWidth: Number(options.cellWidth) || 0,
+    cellHeight: Number(options.cellHeight) || 0,
+    animations: Array.isArray(options.animations) ? options.animations : [],
+  };
+}
+
+// スプライトシート画像から、指定アニメーションの各フレーム切り出し矩形を計算する。
+// runtime の show_character_sprite_frame と同じ firstCell / frameStrideCells 規則で、
+// 1 フレームはシート上の連続した frameW×frameH 矩形になる（行ストライド = シート幅）。
+// アニメ情報が無い asset では null を返し、呼び出し側はシート全体表示にフォールバックする。
+function spriteFrameGeometry(source, animationId) {
+  const src = source || {};
+  const sheetW = Number(src.width) || 0;
+  const sheetH = Number(src.height) || 0;
+  const cellW = Number(src.cellWidth) || 0;
+  const cellH = Number(src.cellHeight) || 0;
+  const animations = Array.isArray(src.animations) ? src.animations : [];
+  if (!sheetW || !sheetH || !cellW || !cellH || !animations.length) return null;
+  const wanted = animationId || 'default';
+  const anim = animations.find((a) => a && (a.id || 'default') === wanted)
+    || animations.find((a) => a && (a.id || 'default') === 'default')
+    || animations[0];
+  if (!anim) return null;
+  const cols = Math.max(1, Math.floor(sheetW / cellW));
+  const frameW = Math.min(sheetW, Math.max(cellW, Number(anim.frameWidth) || sheetW));
+  const frameH = Math.min(sheetH, Math.max(cellH, Number(anim.frameHeight) || sheetH));
+  const frameCount = Math.max(1, Math.min(64, Number(anim.frameCount) || 1));
+  const stride = Math.max(1, Number(anim.frameStrideCells) || 1);
+  const firstCell = Math.max(0, Number(anim.firstCell) || 0);
+  const frameDelay = Math.max(1, Math.min(60, Number(anim.frameDelay) || 8));
+  const loop = anim.loop !== false;
+  const frames = [];
+  for (let f = 0; f < frameCount; f += 1) {
+    const cell = firstCell + (f * stride);
+    const cx = (cell % cols) * cellW;
+    const cy = Math.floor(cell / cols) * cellH;
+    if (f > 0 && (cy + frameH) > sheetH) break;
+    frames.push({ x: cx, y: cy });
+  }
+  if (!frames.length) frames.push({ x: 0, y: 0 });
+  return { sheetW, sheetH, frameW, frameH, frames, frameDelay, loop };
+}
+
+// 切り出し矩形を背景画像として div に適用し、複数フレームなら requestAnimationFrame で
+// runtime と同じ 60fps frameDelay 間隔で巡回させる。DOM から外れたら自動停止する。
+function applySpriteFrame(node, url, geo, flipX, flipY) {
+  node.style.backgroundImage = 'url("' + url + '")';
+  node.style.backgroundRepeat = 'no-repeat';
+  node.style.backgroundSize = geo.sheetW + 'px ' + geo.sheetH + 'px';
+  node.style.width = geo.frameW + 'px';
+  node.style.height = geo.frameH + 'px';
+  node.style.imageRendering = 'pixelated';
+  const sx = flipX ? -1 : 1;
+  const sy = flipY ? -1 : 1;
+  if (sx !== 1 || sy !== 1) {
+    node.style.transformOrigin = 'center center';
+    node.style.transform = 'scale(' + sx + ',' + sy + ')';
+  }
+  const setFrame = (i) => {
+    node.style.backgroundPosition = '-' + geo.frames[i].x + 'px -' + geo.frames[i].y + 'px';
+  };
+  setFrame(0);
+  if (geo.frames.length <= 1) return;
+  const frameMs = geo.frameDelay * (1000 / 60);
+  const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+  let idx = 0;
+  let prev = now();
+  let acc = 0;
+  const step = () => {
+    if (!node.isConnected) return;
+    const t = now();
+    acc += t - prev;
+    prev = t;
+    while (acc >= frameMs) {
+      acc -= frameMs;
+      idx += 1;
+      if (idx >= geo.frames.length) idx = geo.loop ? 0 : geo.frames.length - 1;
+    }
+    setFrame(idx);
+    if (geo.loop || idx < geo.frames.length - 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 // 表示系コマンドを先頭から uptoIndex まで畳み込み、その時点の画面状態を返す
 function computeVisualState(commands = [], uptoIndex = -1) {
   const state = { background: null, sprites: {} };
@@ -649,10 +738,22 @@ function previewRuntime() {
   function hideChoice() { choiceBox.classList.add('pv-hidden'); choiceBox.innerHTML = ''; choiceState = null; }
 
   function makeImg(layer, kind) {
+    const meta = data.meta[layer.assetId] || {};
+    if (kind === 'sprite') {
+      const geo = spriteFrameGeometry(meta, layer.animationId);
+      if (geo) {
+        const node = document.createElement('div');
+        node.className = 'pv-layer';
+        node.style.position = 'absolute';
+        node.style.left = (layer.x || 0) + 'px';
+        node.style.top = (layer.y || 0) + 'px';
+        applySpriteFrame(node, data.urls[layer.assetId], geo, layer.flipX, layer.flipY);
+        return node;
+      }
+    }
     const img = document.createElement('img');
     img.className = 'pv-layer';
     img.src = data.urls[layer.assetId];
-    const meta = data.meta[layer.assetId] || {};
     const x = kind === 'background' ? (layer.x || 0) * 8 : (layer.x || 0);
     const y = kind === 'background' ? (layer.y || 0) * 8 : (layer.y || 0);
     img.style.left = x + 'px';
@@ -670,7 +771,7 @@ function previewRuntime() {
   }
 
   function renderStage() {
-    Array.prototype.slice.call(stage.querySelectorAll('img.pv-layer')).forEach((n) => n.remove());
+    Array.prototype.slice.call(stage.querySelectorAll('.pv-layer')).forEach((n) => n.remove());
     if (state.background && state.background.assetId && data.urls[state.background.assetId]) {
       stage.insertBefore(makeImg(state.background, 'background'), msgBox);
     }
@@ -862,7 +963,7 @@ function previewRuntime() {
       if (t === 'background') { state.background = { assetId: c.assetId, x: c.x, y: c.y }; renderStage(); pc += 1; continue; }
       if (t === 'sprite') {
         if (c.visible === false) delete state.sprites[c.slot];
-        else state.sprites[c.slot] = { slot: c.slot, assetId: c.assetId, x: c.x, y: c.y, flipX: c.flipX, flipY: c.flipY };
+        else state.sprites[c.slot] = { slot: c.slot, assetId: c.assetId, x: c.x, y: c.y, flipX: c.flipX, flipY: c.flipY, animationId: c.animationId };
         renderStage();
         pc += 1;
         continue;
@@ -943,6 +1044,7 @@ function buildPreviewHtml(payload) {
   const json = JSON.stringify(payload).replace(/</g, '\\u003c');
   return '<!doctype html><html lang="ja"><head><meta charset="utf-8" /><title>VN プレビュー</title></head><body>'
     + '<scr' + 'ipt>window.__PCE_VN_PREVIEW__=' + json + ';</scr' + 'ipt>'
+    + '<scr' + 'ipt>' + spriteFrameGeometry.toString() + '\n' + applySpriteFrame.toString() + '</scr' + 'ipt>'
     + '<scr' + 'ipt>(' + previewRuntime.toString() + ')();</scr' + 'ipt>'
     + '</body></html>';
 }
@@ -1052,6 +1154,20 @@ export function activatePlugin({ root, api, registerCapability }) {
   }
 
   function makeStageImg(layer, kind, url, active) {
+    if (kind === 'sprite') {
+      const asset = assetById(layer.assetId);
+      const geo = asset && spriteFrameGeometry({ ...assetPixelSize(asset), ...spriteAnimationMeta(asset) }, layer.animationId);
+      if (geo) {
+        const node = document.createElement('div');
+        node.className = 'pce-vn-stage-sprite';
+        node.style.position = 'absolute';
+        node.style.left = `${layer.x || 0}px`;
+        node.style.top = `${layer.y || 0}px`;
+        applySpriteFrame(node, url, geo, layer.flipX, layer.flipY);
+        if (active) node.classList.add('is-active');
+        return node;
+      }
+    }
     const img = document.createElement('img');
     img.src = url;
     img.alt = assetById(layer.assetId)?.name || layer.assetId || '';
@@ -2006,6 +2122,12 @@ export function activatePlugin({ root, api, registerCapability }) {
         urls[id] = url;
         const size = assetPixelSize(asset);
         meta[id] = { type: asset.type, name: asset.name || asset.id, width: size.width, height: size.height };
+        if (asset.type === 'sprite') {
+          const anim = spriteAnimationMeta(asset);
+          meta[id].cellWidth = anim.cellWidth;
+          meta[id].cellHeight = anim.cellHeight;
+          meta[id].animations = anim.animations;
+        }
       }));
       const payload = {
         doc: snapshot,

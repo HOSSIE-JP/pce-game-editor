@@ -652,6 +652,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     grid.frames.forEach((frame) => {
       ctx.strokeRect(Math.round(frame.x * scale) + 0.5, Math.round(frame.y * scale) + 0.5, frame.width * scale, frame.height * scale);
     });
+    drawSheetTimeLabels(ctx, grid, scale);
     const selected = frameRect(
       clampInt(els.previewRow.value, 0, Math.max(0, grid.rows - 1), 0),
       clampInt(els.previewFrame.value, 0, Math.max(0, grid.columns - 1), 0),
@@ -660,6 +661,70 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     ctx.lineWidth = 2;
     ctx.strokeRect(selected.x * scale + 1, selected.y * scale + 1, selected.width * scale - 2, selected.height * scale - 2);
     ctx.restore();
+  }
+
+  // Draws the per-frame Time value in the top-right corner of each active sheet cell.
+  function drawSheetTimeLabels(ctx, grid, scale) {
+    const counts = readRowFrameCounts(grid);
+    const matrix = parseSpriteTime(els.form.elements.time.value, grid.rows, grid.columns);
+    const fontSize = Math.max(9, Math.min(22, Math.floor(8 * scale)));
+    const padX = Math.max(3, Math.floor(2 * scale));
+    const padY = Math.max(1, Math.floor(1.5 * scale));
+    ctx.save();
+    ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+    ctx.textBaseline = 'top';
+    for (let row = 0; row < grid.rows; row += 1) {
+      const count = Math.min(clampInt(counts[row], 0, grid.columns, 0), grid.columns);
+      for (let frame = 0; frame < count; frame += 1) {
+        const cell = grid.frames.find((item) => item.row === row && item.frame === frame);
+        if (!cell) continue;
+        const label = String(matrix[row]?.[frame] ?? '0');
+        const textWidth = Math.ceil(ctx.measureText(label).width);
+        const boxWidth = textWidth + padX * 2;
+        const boxHeight = fontSize + padY * 2;
+        const x = cell.x * scale + Math.max(1, cell.width * scale - boxWidth - 1);
+        const y = cell.y * scale + 1;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
+        ctx.fillRect(x, y, boxWidth, boxHeight);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(label, x + padX, y + padY);
+      }
+    }
+    ctx.restore();
+  }
+
+  // Picks the frame/row under a Sprite Sheet pointer event and reflects it in the
+  // Frame Preview and Animation ROWS highlight.
+  function selectFrameFromSheet(event) {
+    if (!selectedAsset() || !sourceImage) return;
+    const canvas = els.sheetCanvas;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const scale = clampInt(els.sheetScale.value, 1, 16, 4);
+    const imgX = (event.clientX - rect.left) * (canvas.width / rect.width) / scale;
+    const imgY = (event.clientY - rect.top) * (canvas.height / rect.height) / scale;
+    const { grid } = readFrameConfig();
+    const row = clampInt(Math.floor(imgY / Math.max(1, grid.height)), 0, Math.max(0, grid.rows - 1), 0);
+    const counts = readRowFrameCounts(grid);
+    const maxFrame = Math.max(0, Math.min(grid.columns, counts[row] || 0) - 1);
+    const frame = clampInt(Math.floor(imgX / Math.max(1, grid.width)), 0, maxFrame, 0);
+    stopPlayback();
+    els.previewRow.value = String(row);
+    els.previewFrame.value = String(frame);
+    renderAnimationRows();
+    drawFramePreview();
+    drawSheetPreview();
+  }
+
+  // Steps the integer zoom of the preview/sheet canvases via mouse wheel.
+  function zoomFromWheel(input, event, redraw) {
+    event.preventDefault();
+    const current = clampInt(input.value, 1, 16, 4);
+    const next = clampInt(current + (event.deltaY < 0 ? 1 : -1), 1, 16, current);
+    if (next === current) return;
+    stopPlayback();
+    input.value = String(next);
+    redraw();
   }
 
   function advanceFrame() {
@@ -1220,6 +1285,16 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     stopPlayback();
     updatePreviewTime(els.previewTime.value);
   });
+  els.sheetCanvas.addEventListener('click', selectFrameFromSheet);
+  els.previewStage.addEventListener('wheel', (event) => {
+    zoomFromWheel(els.frameScale, event, () => drawFramePreview());
+  }, { passive: false });
+  els.sheetStage.addEventListener('wheel', (event) => {
+    zoomFromWheel(els.sheetScale, event, () => {
+      drawSheetPreview();
+      drawFramePreview();
+    });
+  }, { passive: false });
   els.animationRows.addEventListener('click', (event) => {
     const pick = event.target?.closest?.('[data-pick-row]');
     if (!pick) return;

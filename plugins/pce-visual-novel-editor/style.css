@@ -475,7 +475,8 @@
   transform-origin: top left;
 }
 
-.pce-vn-stage img.is-active {
+.pce-vn-stage img.is-active,
+.pce-vn-stage .pce-vn-stage-sprite.is-active {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
