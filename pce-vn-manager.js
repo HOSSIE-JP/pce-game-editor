@@ -27,6 +27,7 @@ const VN_COMMAND_IF = 10;
 const VN_COMMAND_SWITCH = 11;
 const VN_COMMAND_LABEL = 12;
 const VN_COMMAND_GOTO = 13;
+const VN_COMMAND_INPUTCHECK = 14;
 const VN_BG_TRANSITION_CUT = 0;
 const VN_BG_TRANSITION_FADE = 1;
 const VN_SPRITE_VISIBLE = 1;
@@ -34,8 +35,35 @@ const VN_SPRITE_FLIP_X = 2;
 const VN_SPRITE_FLIP_Y = 4;
 const VN_AUDIO_KIND_ADPCM = 0;
 const VN_AUDIO_KIND_CDDA = 1;
+const VN_AUDIO_KIND_PSG = 2;
 const VN_AUDIO_ACTION_PLAY = 0x10;
 const VN_AUDIO_ACTION_STOP = 0x20;
+// Input check command modes (stored in command flags).
+const VN_INPUT_MODE_SYNC = 0;
+const VN_INPUT_MODE_ASYNC = 1;
+const VN_INPUT_MODE_CANCEL = 2;
+// Joypad button bits, matching the VN runtime PAD_* constants.
+const VN_PAD_I = 0x01;
+const VN_PAD_II = 0x02;
+const VN_PAD_SELECT = 0x04;
+const VN_PAD_RUN = 0x08;
+const VN_PAD_UP = 0x10;
+const VN_PAD_RIGHT = 0x20;
+const VN_PAD_DOWN = 0x40;
+const VN_PAD_LEFT = 0x80;
+const VN_INPUT_BUTTON_BITS = {
+  up: VN_PAD_UP,
+  down: VN_PAD_DOWN,
+  left: VN_PAD_LEFT,
+  right: VN_PAD_RIGHT,
+  select: VN_PAD_SELECT,
+  run: VN_PAD_RUN,
+  i: VN_PAD_I,
+  ii: VN_PAD_II,
+};
+const VN_INPUT_BUTTON_KEYS = ['up', 'down', 'left', 'right', 'select', 'run', 'i', 'ii'];
+// Sentinel meaning "no text color override" in a message record (use default UI white).
+const VN_MESSAGE_COLOR_NONE = 0xffff;
 const VN_EFFECT_FADE_OUT = 0;
 const VN_EFFECT_FADE_IN = 1;
 const VN_EFFECT_BLANK = 2;
@@ -73,7 +101,7 @@ const VN_SCENE_PACK_CACHE_BYTES = 4096;
 const VN_SCENE_PACK_VERSION = 1;
 const VN_SCENE_PACK_HEADER_SIZE = 20;
 const VN_SCENE_PACK_COMMAND_SIZE = 19;
-const VN_SCENE_PACK_MESSAGE_SIZE = 11;
+const VN_SCENE_PACK_MESSAGE_SIZE = 13;
 const VN_SCENE_PACK_CHOICE_SIZE = 6;
 const VN_SCENE_PACK_OPTION_SIZE = 7;
 const VN_SCENE_PACK_SWITCH_SIZE = 5;
@@ -278,13 +306,60 @@ function assetTypeForId(assetDoc = { assets: [] }, assetId = '') {
   return findAsset(assetDoc, assetId)?.type || '';
 }
 
+// Snap a hex color string to a normalized "#rrggbb" form, or '' if blank/invalid.
+function normalizeHexColor(value) {
+  if (value == null) return '';
+  let s = String(value).trim();
+  if (!s) return '';
+  if (s[0] === '#') s = s.slice(1);
+  if (s.length === 3) s = s.split('').map((ch) => ch + ch).join('');
+  if (!/^[0-9a-fA-F]{6}$/.test(s)) return '';
+  return `#${s.toLowerCase()}`;
+}
+
+function hexToRgb(hex) {
+  const s = hex.replace('#', '');
+  return {
+    r: parseInt(s.slice(0, 2), 16),
+    g: parseInt(s.slice(2, 4), 16),
+    b: parseInt(s.slice(4, 6), 16),
+  };
+}
+
+// Snap a hex color to the nearest PCE-displayable color (3 bits/channel),
+// returned as a normalized "#rrggbb" string, or '' when no color is set.
+function normalizeMessageColor(value) {
+  const hex = normalizeHexColor(value);
+  if (!hex) return '';
+  const pce = assetManager.pceColorFromRgb(hexToRgb(hex));
+  const to8 = (c) => Math.round((c & 7) * 255 / 7);
+  return `#${[to8(pce.r), to8(pce.g), to8(pce.b)].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
+}
+
+// Convert a message textColor to a 9-bit PCE palette word, or the
+// VN_MESSAGE_COLOR_NONE sentinel when no override is set.
+function messageColorWord(value) {
+  const hex = normalizeHexColor(value);
+  if (!hex) return VN_MESSAGE_COLOR_NONE;
+  return assetManager.pcePaletteWord(assetManager.pceColorFromRgb(hexToRgb(hex)));
+}
+
+// Resolve a message body: only fall back to the placeholder when the field is
+// absent. An explicitly empty body stays empty so it can clear the window.
+function resolveMessageText(raw, index) {
+  const fallback = index === 0 ? 'メッセージを入力してください。' : '';
+  const value = raw.text == null ? fallback : String(raw.text);
+  return value.trim().slice(0, 96);
+}
+
 function normalizeMessageCommand(message = {}, index = 0, valid = assetIdsByType()) {
   const raw = message && typeof message === 'object' ? message : {};
   const voiceAssetId = String(raw.voiceAssetId || '').trim();
   return {
     type: 'message',
     speaker: String(raw.speaker || '').trim().slice(0, 16),
-    text: String(raw.text || (index === 0 ? 'メッセージを入力してください。' : '')).trim().slice(0, 96),
+    text: resolveMessageText(raw, index),
+    textColor: normalizeMessageColor(raw.textColor),
     voiceAssetId: valid.adpcm?.has(voiceAssetId) ? voiceAssetId : '',
     textSpeedFrames: clampInt(raw.textSpeedFrames ?? raw.speed, 0, 30, 2),
     advanceMode: String(raw.advanceMode || 'button') === 'auto' ? 'auto' : 'button',
@@ -408,6 +483,44 @@ function normalizeSwitchCommand(command = {}) {
   };
 }
 
+function normalizeInputButtons(value) {
+  const list = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const buttons = [];
+  list.forEach((entry) => {
+    const key = String(entry || '').trim().toLowerCase();
+    if (VN_INPUT_BUTTON_BITS[key] !== undefined && !seen.has(key)) {
+      seen.add(key);
+      buttons.push(key);
+    }
+  });
+  // Keep a stable canonical order.
+  return VN_INPUT_BUTTON_KEYS.filter((key) => seen.has(key));
+}
+
+function inputButtonsMask(buttons = []) {
+  return buttons.reduce((mask, key) => mask | (VN_INPUT_BUTTON_BITS[key] || 0), 0) & 0xff;
+}
+
+function normalizeInputMode(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'async') return 'async';
+  if (raw === 'cancel') return 'cancel';
+  return 'sync';
+}
+
+function normalizeInputCheckCommand(command = {}) {
+  const raw = command && typeof command === 'object' ? command : {};
+  const mode = normalizeInputMode(raw.mode);
+  const buttons = mode === 'cancel' ? [] : normalizeInputButtons(raw.buttons);
+  return {
+    type: 'inputcheck',
+    buttons: buttons.length ? buttons : (mode === 'cancel' ? [] : ['i']),
+    mode,
+    targetLabel: mode === 'cancel' ? '' : normalizeLabelName(raw.targetLabel || raw.label || raw.target || '', ''),
+  };
+}
+
 function normalizeEffectKind(value = '') {
   const raw = String(value || '').trim();
   if (raw === 'fadeIn' || raw === 'fade-in' || raw === 'in') return 'fadeIn';
@@ -456,14 +569,24 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
     const action = String(raw.action || 'play') === 'stop' ? 'stop' : 'play';
     const assetId = String(raw.assetId || raw.bgmAssetId || raw.voiceAssetId || '').trim();
     const actualType = assetTypeForId(assetDoc, assetId);
-    const kind = String(raw.kind || (actualType === 'adpcm' ? 'adpcm' : 'cdda')) === 'adpcm' ? 'adpcm' : 'cdda';
-    const validAsset = kind === 'adpcm' ? valid.adpcm?.has(assetId) : valid['cdda-track']?.has(assetId);
+    const kindHint = String(raw.kind
+      || (actualType === 'adpcm' ? 'adpcm' : (actualType === 'psg-song' || actualType === 'psg-sfx' ? 'psg' : 'cdda')));
+    const kind = kindHint === 'adpcm' ? 'adpcm' : (kindHint === 'psg' ? 'psg' : 'cdda');
+    const validAsset = kind === 'adpcm'
+      ? valid.adpcm?.has(assetId)
+      : (kind === 'psg'
+        ? (valid['psg-song']?.has(assetId) || valid['psg-sfx']?.has(assetId))
+        : valid['cdda-track']?.has(assetId));
     return {
       type: 'audio',
       kind,
       action,
       assetId: action === 'play' && validAsset ? assetId : '',
+      channel: clampInt(raw.channel, 0, 5, 0),
     };
+  }
+  if (type === 'inputcheck') {
+    return normalizeInputCheckCommand(raw);
   }
   if (type === 'preload') {
     return {
@@ -958,6 +1081,16 @@ function indexAssets(assets, type) {
   return map;
 }
 
+// Index PSG assets in the same order the asset manager emits pce_editor_psg_assets[]
+// (psg-song and psg-sfx share a single array, kept in document order).
+function indexPsgAssets(assets) {
+  const map = new Map();
+  assets
+    .filter((asset) => asset.type === 'psg-song' || asset.type === 'psg-sfx')
+    .forEach((asset, index) => map.set(asset.id, index));
+  return map;
+}
+
 function buildSpriteAnimationIndex(assetDoc = { assets: [] }, spriteIndex = new Map()) {
   const meta = [];
   const index = new Map();
@@ -1157,6 +1290,7 @@ function encodeMessageRecord(message = {}) {
   pushU8(bytes, message.autoWaitFrames);
   pushS16(bytes, message.mouthAnimationIndex);
   pushU8(bytes, message.mouthSlot);
+  pushU16(bytes, message.textColor);
   return Buffer.from(bytes);
 }
 
@@ -1303,6 +1437,7 @@ function generateVnSources(projectDir, options = {}) {
   const spriteIndex = indexAssets(assetDoc.assets || [], 'sprite');
   const adpcmIndex = indexAssets(assetDoc.assets || [], 'adpcm');
   const cddaIndex = indexAssets(assetDoc.assets || [], 'cdda-track');
+  const psgIndex = indexPsgAssets(assetDoc.assets || []);
   const spriteAnimations = buildSpriteAnimationIndex(assetDoc, spriteIndex);
   if (spriteAnimations.meta.length > VN_MAX_U8_COUNT) {
     throw new Error(`PCE VN supports up to ${VN_MAX_U8_COUNT} sprite animations`);
@@ -1426,6 +1561,7 @@ function generateVnSources(projectDir, options = {}) {
           autoWaitFrames: command.autoWaitFrames,
           mouthAnimationIndex,
           mouthSlot,
+          textColor: messageColorWord(command.textColor),
         });
         pushCommand({
           type: VN_COMMAND_MESSAGE,
@@ -1445,20 +1581,46 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'audio') {
-        const isAdpcm = command.kind === 'adpcm';
+        const kindCode = command.kind === 'adpcm'
+          ? VN_AUDIO_KIND_ADPCM
+          : (command.kind === 'psg' ? VN_AUDIO_KIND_PSG : VN_AUDIO_KIND_CDDA);
         const action = command.action === 'stop' ? VN_AUDIO_ACTION_STOP : VN_AUDIO_ACTION_PLAY;
-        const assetIndex = command.action === 'play'
-          ? (isAdpcm ? (adpcmIndex.get(command.assetId) ?? -1) : (cddaIndex.get(command.assetId) ?? -1))
-          : -1;
-        const flags = (isAdpcm ? VN_AUDIO_KIND_ADPCM : VN_AUDIO_KIND_CDDA) | action;
+        const lookupIndex = () => {
+          if (kindCode === VN_AUDIO_KIND_ADPCM) return adpcmIndex.get(command.assetId) ?? -1;
+          if (kindCode === VN_AUDIO_KIND_PSG) return psgIndex.get(command.assetId) ?? -1;
+          return cddaIndex.get(command.assetId) ?? -1;
+        };
+        const assetIndex = command.action === 'play' ? lookupIndex() : -1;
+        const flags = kindCode | action;
         pushCommand({
           type: VN_COMMAND_AUDIO,
           assetIndex,
-          slot: 0,
+          // For PSG, slot carries the base channel (0-5).
+          slot: kindCode === VN_AUDIO_KIND_PSG ? clampInt(command.channel, 0, 5, 0) : 0,
           flags,
           arg0: 0,
           arg1: 0,
           x: 0,
+          y: 0,
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
+        return;
+      }
+      if (command.type === 'inputcheck') {
+        const mode = command.mode === 'async'
+          ? VN_INPUT_MODE_ASYNC
+          : (command.mode === 'cancel' ? VN_INPUT_MODE_CANCEL : VN_INPUT_MODE_SYNC);
+        pushCommand({
+          type: VN_COMMAND_INPUTCHECK,
+          assetIndex: -1,
+          slot: 0,
+          flags: mode,
+          arg0: inputButtonsMask(command.buttons),
+          arg1: 0,
+          x: command.mode === 'cancel' ? VN_NO_COMMAND : labelCommand(command.targetLabel),
           y: 0,
           messageIndex: -1,
           animationIndex: -1,
@@ -1735,6 +1897,7 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_COMMAND_SWITCH ${VN_COMMAND_SWITCH}u`,
     `#define PCE_VN_COMMAND_LABEL ${VN_COMMAND_LABEL}u`,
     `#define PCE_VN_COMMAND_GOTO ${VN_COMMAND_GOTO}u`,
+    `#define PCE_VN_COMMAND_INPUTCHECK ${VN_COMMAND_INPUTCHECK}u`,
     `#define PCE_VN_BG_TRANSITION_CUT ${VN_BG_TRANSITION_CUT}u`,
     `#define PCE_VN_BG_TRANSITION_FADE ${VN_BG_TRANSITION_FADE}u`,
     `#define PCE_VN_SPRITE_VISIBLE ${VN_SPRITE_VISIBLE}u`,
@@ -1742,8 +1905,13 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_SPRITE_FLIP_Y ${VN_SPRITE_FLIP_Y}u`,
     `#define PCE_VN_AUDIO_KIND_ADPCM ${VN_AUDIO_KIND_ADPCM}u`,
     `#define PCE_VN_AUDIO_KIND_CDDA ${VN_AUDIO_KIND_CDDA}u`,
+    `#define PCE_VN_AUDIO_KIND_PSG ${VN_AUDIO_KIND_PSG}u`,
     `#define PCE_VN_AUDIO_ACTION_PLAY ${VN_AUDIO_ACTION_PLAY}u`,
     `#define PCE_VN_AUDIO_ACTION_STOP ${VN_AUDIO_ACTION_STOP}u`,
+    `#define PCE_VN_INPUT_MODE_SYNC ${VN_INPUT_MODE_SYNC}u`,
+    `#define PCE_VN_INPUT_MODE_ASYNC ${VN_INPUT_MODE_ASYNC}u`,
+    `#define PCE_VN_INPUT_MODE_CANCEL ${VN_INPUT_MODE_CANCEL}u`,
+    `#define PCE_VN_MESSAGE_COLOR_NONE ${VN_MESSAGE_COLOR_NONE}u`,
     `#define PCE_VN_EFFECT_FADE_OUT ${VN_EFFECT_FADE_OUT}u`,
     `#define PCE_VN_EFFECT_FADE_IN ${VN_EFFECT_FADE_IN}u`,
     `#define PCE_VN_EFFECT_BLANK ${VN_EFFECT_BLANK}u`,
@@ -1793,6 +1961,7 @@ function generateVnSources(projectDir, options = {}) {
     '  unsigned char auto_wait_frames;',
     '  signed int mouth_animation_index;',
     '  unsigned char mouth_slot;',
+    '  unsigned int text_color;',
     '} pce_vn_message_t;',
     '',
     'typedef struct {',
@@ -2198,6 +2367,16 @@ module.exports = {
   VN_COMMAND_SWITCH,
   VN_COMMAND_LABEL,
   VN_COMMAND_GOTO,
+  VN_COMMAND_INPUTCHECK,
+  VN_AUDIO_KIND_PSG,
+  VN_INPUT_MODE_SYNC,
+  VN_INPUT_MODE_ASYNC,
+  VN_INPUT_MODE_CANCEL,
+  VN_SCENE_PACK_MESSAGE_SIZE,
+  VN_MESSAGE_COLOR_NONE,
+  inputButtonsMask,
+  messageColorWord,
+  normalizeMessageColor,
   collectCdDataFiles,
   collectGlyphs,
   collectGlyphsRaw,

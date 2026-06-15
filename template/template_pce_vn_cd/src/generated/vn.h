@@ -15,6 +15,7 @@
 #define PCE_VN_COMMAND_SWITCH 11u
 #define PCE_VN_COMMAND_LABEL 12u
 #define PCE_VN_COMMAND_GOTO 13u
+#define PCE_VN_COMMAND_INPUTCHECK 14u
 #define PCE_VN_BG_TRANSITION_CUT 0u
 #define PCE_VN_BG_TRANSITION_FADE 1u
 #define PCE_VN_SPRITE_VISIBLE 1u
@@ -22,8 +23,13 @@
 #define PCE_VN_SPRITE_FLIP_Y 4u
 #define PCE_VN_AUDIO_KIND_ADPCM 0u
 #define PCE_VN_AUDIO_KIND_CDDA 1u
+#define PCE_VN_AUDIO_KIND_PSG 2u
 #define PCE_VN_AUDIO_ACTION_PLAY 16u
 #define PCE_VN_AUDIO_ACTION_STOP 32u
+#define PCE_VN_INPUT_MODE_SYNC 0u
+#define PCE_VN_INPUT_MODE_ASYNC 1u
+#define PCE_VN_INPUT_MODE_CANCEL 2u
+#define PCE_VN_MESSAGE_COLOR_NONE 65535u
 #define PCE_VN_EFFECT_FADE_OUT 0u
 #define PCE_VN_EFFECT_FADE_IN 1u
 #define PCE_VN_EFFECT_BLANK 2u
@@ -47,7 +53,7 @@
 #define PCE_VN_SCENE_PACK_VERSION 1u
 #define PCE_VN_SCENE_PACK_HEADER_SIZE 20u
 #define PCE_VN_SCENE_PACK_COMMAND_SIZE 19u
-#define PCE_VN_SCENE_PACK_MESSAGE_SIZE 11u
+#define PCE_VN_SCENE_PACK_MESSAGE_SIZE 13u
 #define PCE_VN_SCENE_PACK_CHOICE_SIZE 6u
 #define PCE_VN_SCENE_PACK_OPTION_SIZE 7u
 #define PCE_VN_SCENE_PACK_SWITCH_SIZE 5u
@@ -73,6 +79,7 @@ typedef struct {
   unsigned char auto_wait_frames;
   signed int mouth_animation_index;
   unsigned char mouth_slot;
+  unsigned int text_color;
 } pce_vn_message_t;
 
 typedef struct {
@@ -125,14 +132,25 @@ typedef struct {
   pce_vn_cd_sector_t sector;
   unsigned int sector_count;
   unsigned int byte_size;
+} pce_vn_cd_data_ref_t;
+
+typedef struct {
+  pce_vn_cd_sector_t sector;
+  unsigned int sector_count;
+  unsigned int byte_size;
   signed int next_scene;
 } pce_vn_scene_pack_t;
 
 #define PCE_VN_FONT_TILE_BASE 712u
 #define PCE_VN_CHOICE_CURSOR_GLYPH 1u
 #define PCE_VN_GLYPH_END 0xffu
+#define PCE_VN_GLYPH_NEWLINE 0xfeu
 
+#if defined(__PCE_CD__)
+extern const pce_vn_cd_data_ref_t pce_vn_font_data;
+#else
 extern const unsigned char pce_vn_font_tiles[];
+#endif
 extern const unsigned char pce_vn_font_glyph_count;
 void pce_vn_font_tiles_map(void);
 extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];

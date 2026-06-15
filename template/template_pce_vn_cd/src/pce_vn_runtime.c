@@ -26,6 +26,15 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define PAD_DOWN 0x40u
 #define PAD_LEFT 0x80u
 
+/* PSG MMIO registers (hardware addresses). */
+#define PCE_PSG_SELECT (*(volatile uint8_t *)0x0800)
+#define PCE_PSG_GLOBAL (*(volatile uint8_t *)0x0801)
+#define PCE_PSG_FREQ_LO (*(volatile uint8_t *)0x0802)
+#define PCE_PSG_FREQ_HI (*(volatile uint8_t *)0x0803)
+#define PCE_PSG_CONTROL (*(volatile uint8_t *)0x0804)
+#define PCE_PSG_BALANCE (*(volatile uint8_t *)0x0805)
+#define PCE_PSG_WAVE (*(volatile uint8_t *)0x0806)
+
 #define PCE_VCE_ADDR_LO (*(volatile uint8_t *)0x0402)
 #define PCE_VCE_ADDR_HI (*(volatile uint8_t *)0x0403)
 #define PCE_VCE_DATA_LO (*(volatile uint8_t *)0x0404)
@@ -126,6 +135,23 @@ static uint8_t message_col = 0;
 static uint8_t message_row = 0;
 static uint8_t message_complete = 0;
 static uint8_t message_auto_wait = 0;
+/* Effective per-character reveal frames for the active message (after ADPCM sync). */
+static uint8_t message_text_speed = 0;
+/* Input-check command state (single watcher). */
+static uint8_t sync_input_active = 0;
+static uint8_t sync_input_mask = 0;
+static uint16_t sync_input_target = PCE_VN_NO_COMMAND;
+static uint8_t async_input_active = 0;
+static uint8_t async_input_mask = 0;
+static uint16_t async_input_target = PCE_VN_NO_COMMAND;
+/* PSG sequencer state. */
+static uint8_t psg_active = 0;
+static uint8_t psg_is_song = 0;
+static uint8_t psg_base_channel = 0;
+static uint8_t psg_used_mask = 0;
+static uint16_t psg_step = 0;
+static uint8_t psg_frame = 0;
+static const pce_editor_psg_asset_t *psg_current = (const pce_editor_psg_asset_t *)0;
 static uint16_t vn_rng_state = 0xace1u;
 static signed int vn_variables[PCE_VN_VARIABLE_STORAGE_COUNT];
 typedef struct
@@ -1009,6 +1035,7 @@ static uint8_t VN_BANKED_CODE scene_pack_read_message(const vn_scene_pack_cache_
     message->auto_wait_frames = scene_pack_u8(cache, (uint16_t)(offset + 7u));
     message->mouth_animation_index = scene_pack_s16(cache, (uint16_t)(offset + 8u));
     message->mouth_slot = scene_pack_u8(cache, (uint16_t)(offset + 10u));
+    message->text_color = scene_pack_u16(cache, (uint16_t)(offset + 11u));
     return 1u;
 }
 
@@ -1159,6 +1186,20 @@ static void upload_ui_palette(void)
     for (i = 1u; i < 16u; i++)
     {
         vce_write_color((uint16_t)(base + i), 0x01ffu);
+    }
+}
+
+/* Tint the UI text foreground (palette 15, slots 1-15) to a message's color, or
+   restore the default white when the message has no override. Affects the body
+   text and speaker label drawn with this palette. */
+static void apply_message_text_color(uint16_t color)
+{
+    uint8_t i;
+    const uint16_t base = (uint16_t)(VN_UI_PALETTE * 16u);
+    const uint16_t fg = (color == PCE_VN_MESSAGE_COLOR_NONE) ? 0x01ffu : (uint16_t)(color & 0x01ffu);
+    for (i = 1u; i < 16u; i++)
+    {
+        vce_write_color((uint16_t)(base + i), fg);
     }
 }
 
@@ -2002,6 +2043,133 @@ static void VN_BANKED_CODE service_adpcm_playback(void)
 #endif
 }
 
+/* --- PSG sequencer ---------------------------------------------------------
+ * Plays a generated PSG asset (psg-song loops, psg-sfx is one-shot) by walking
+ * its step pattern one tracker-step at a time. The command's base channel is
+ * added to each step's channel so the same asset can be routed to different
+ * PSG voices; the resulting channel is clamped to the 6 available (0-5). */
+
+static void VN_BANKED_CODE psg_load_basic_wave(uint8_t channel)
+{
+    uint8_t i;
+    PCE_PSG_SELECT = (uint8_t)(channel & 0x07u);
+    PCE_PSG_CONTROL = 0x40u; /* enable write to the waveform buffer */
+    for (i = 0u; i < 32u; i++)
+    {
+        /* Simple square-ish timbre; the editor only stores tone/volume per step. */
+        PCE_PSG_WAVE = (uint8_t)((i < 16u) ? 31u : 0u);
+    }
+}
+
+static void VN_BANKED_CODE psg_set_voice(uint8_t channel, uint16_t period, uint8_t volume)
+{
+    PCE_PSG_SELECT = (uint8_t)(channel & 0x07u);
+    PCE_PSG_FREQ_LO = (uint8_t)(period & 0xffu);
+    PCE_PSG_FREQ_HI = (uint8_t)((period >> 8) & 0x0fu);
+    PCE_PSG_BALANCE = 0xffu;
+    PCE_PSG_CONTROL = volume ? (uint8_t)(0x80u | (volume & 0x1fu)) : 0u;
+}
+
+static uint8_t VN_BANKED_CODE psg_frames_per_step(const pce_editor_psg_asset_t *asset)
+{
+    uint16_t bpm = (asset && asset->bpm) ? asset->bpm : 150u;
+    uint16_t frames = (uint16_t)(3600u / (bpm * 4u));
+    if (frames < 2u) frames = 2u;
+    if (frames > 24u) frames = 24u;
+    return (uint8_t)frames;
+}
+
+static uint8_t VN_BANKED_CODE psg_resolve_channel(uint8_t base, uint8_t step_channel)
+{
+    uint16_t ch = (uint16_t)base + (uint16_t)step_channel;
+    if (ch > 5u) ch = 5u;
+    return (uint8_t)ch;
+}
+
+static void VN_BANKED_CODE psg_apply_step_row(uint16_t step_no)
+{
+    uint16_t i;
+    if (!psg_current || !psg_current->pattern) return;
+    for (i = 0u; i < psg_current->pattern_count; i++)
+    {
+        const pce_editor_psg_step_t *step = &psg_current->pattern[i];
+        if (step->step == step_no)
+        {
+            const uint8_t ch = psg_resolve_channel(psg_base_channel, step->channel);
+            psg_used_mask = (uint8_t)(psg_used_mask | (uint8_t)(1u << ch));
+            psg_set_voice(ch, step->period, step->volume);
+        }
+    }
+}
+
+static void VN_BANKED_CODE stop_psg(void)
+{
+    uint8_t ch;
+    for (ch = 0u; ch < 6u; ch++)
+    {
+        if (psg_used_mask & (uint8_t)(1u << ch))
+        {
+            psg_set_voice(ch, 0u, 0u);
+        }
+    }
+    psg_active = 0u;
+    psg_is_song = 0u;
+    psg_used_mask = 0u;
+    psg_step = 0u;
+    psg_frame = 0u;
+    psg_current = (const pce_editor_psg_asset_t *)0;
+}
+
+static void VN_BANKED_CODE play_psg_asset(signed int asset_index, uint8_t base_channel)
+{
+    uint8_t ch;
+    if (asset_index < 0 || (uint8_t)asset_index >= pce_editor_psg_asset_count) return;
+    stop_psg();
+    psg_current = &pce_editor_psg_assets[(uint8_t)asset_index];
+    psg_base_channel = base_channel > 5u ? 5u : base_channel;
+    psg_is_song = psg_current->is_song ? 1u : 0u;
+    psg_step = 0u;
+    psg_frame = 0u;
+    psg_used_mask = 0u;
+    PCE_PSG_GLOBAL = 0xffu;
+    /* Pre-load a waveform into every channel the pattern may reach. */
+    for (ch = psg_base_channel; ch <= 5u; ch++)
+    {
+        psg_load_basic_wave(ch);
+    }
+    if (!psg_current->pattern || !psg_current->pattern_count)
+    {
+        psg_current = (const pce_editor_psg_asset_t *)0;
+        return;
+    }
+    psg_active = 1u;
+    psg_apply_step_row(0u);
+}
+
+static void VN_BANKED_CODE tick_psg(void)
+{
+    uint8_t frames_per_step;
+    if (!psg_active || !psg_current) return;
+    psg_frame++;
+    frames_per_step = psg_frames_per_step(psg_current);
+    if (psg_frame < frames_per_step) return;
+    psg_frame = 0u;
+    psg_step++;
+    if (psg_step >= psg_current->steps)
+    {
+        if (psg_is_song)
+        {
+            psg_step = 0u;
+        }
+        else
+        {
+            stop_psg();
+            return;
+        }
+    }
+    psg_apply_step_row(psg_step);
+}
+
 static void show_scene(uint8_t scene_index)
 {
     uint8_t i;
@@ -2032,6 +2200,13 @@ static void show_scene(uint8_t scene_index)
     active_choice_index = -1;
     wait_frames_remaining = 0u;
     message_complete = 1u;
+    /* Input-check watchers and their target labels are scene-local. */
+    sync_input_active = 0u;
+    sync_input_mask = 0u;
+    sync_input_target = PCE_VN_NO_COMMAND;
+    async_input_active = 0u;
+    async_input_mask = 0u;
+    async_input_target = PCE_VN_NO_COMMAND;
     for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
     {
         sprite_slots[i].sprite_index = -1;
@@ -2238,6 +2413,7 @@ static void start_message(uint8_t message_index)
         message_row = 0u;
         message_complete = 0u;
         message_auto_wait = message->auto_wait_frames;
+        apply_message_text_color(message->text_color);
         if (message->mouth_animation_index >= 0 && message->mouth_slot < VN_SPRITE_SLOT_COUNT)
         {
             sprite_slots[message->mouth_slot].animation_index = message->mouth_animation_index;
@@ -2245,7 +2421,21 @@ static void start_message(uint8_t message_index)
             sprite_slots[message->mouth_slot].timer = 0u;
             pending_sprite_refresh = 1u;
         }
-        if (!message->text_speed_frames)
+        /* Start the voice first so its length can drive the reveal cadence. */
+        play_adpcm_voice(message->voice_index);
+        message_text_speed = message->text_speed_frames;
+#if defined(__PCE_CD__)
+        /* When an ADPCM voice plays, pace the typewriter so the last glyph lands
+           as the clip ends: per-char frames = total clip frames / glyph count. */
+        if (message->voice_index >= 0 && adpcm_play_active && adpcm_play_frames_remaining && message->glyph_count)
+        {
+            uint16_t per = (uint16_t)(adpcm_play_frames_remaining / message->glyph_count);
+            if (per < 1u) per = 1u;
+            if (per > 255u) per = 255u;
+            message_text_speed = (uint8_t)per;
+        }
+#endif
+        if (!message_text_speed)
         {
             draw_message_text(message);
             message_complete = 1u;
@@ -2254,7 +2444,6 @@ static void start_message(uint8_t message_index)
         {
             message_complete = draw_message_next_glyph(message);
         }
-        play_adpcm_voice(message->voice_index);
         if (!pending_display_enable) delay_frame();
     }
 }
@@ -2273,13 +2462,13 @@ static void tick_active_message(void)
     pce_vn_message_t *message = VN_MESSAGE_SCRATCH;
     if (active_message_index < 0 || message_complete) return;
     if (!scene_pack_read_message(&active_scene_pack, (uint8_t)active_message_index, message)) return;
-    if (!message->text_speed_frames)
+    if (!message_text_speed)
     {
         finish_active_message();
         return;
     }
     message_frame_timer++;
-    if (message_frame_timer < message->text_speed_frames) return;
+    if (message_frame_timer < message_text_speed) return;
     message_frame_timer = 0u;
     message_complete = draw_message_next_glyph(message);
 }
@@ -2412,6 +2601,8 @@ static void draw_choice_options(void)
     vn_choice_ref_t *choice = VN_CHOICE_SCRATCH;
     if (active_choice_index < 0) return;
     if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, choice)) return;
+    /* Choices always use the default UI text color, not a prior message's tint. */
+    apply_message_text_color(PCE_VN_MESSAGE_COLOR_NONE);
     clear_window_cells();
     for (row = 0u; row < choice->option_count && row < VN_TEXT_ROWS; row++)
     {
@@ -2577,6 +2768,11 @@ static uint8_t execute_command(const pce_vn_command_t *command)
             if (action == PCE_VN_AUDIO_ACTION_STOP) stop_adpcm_voice();
             else play_adpcm_voice(command->asset_index);
         }
+        else if (kind == PCE_VN_AUDIO_KIND_PSG)
+        {
+            if (action == PCE_VN_AUDIO_ACTION_STOP) stop_psg();
+            else play_psg_asset(command->asset_index, command->slot);
+        }
         else
         {
             if (action == PCE_VN_AUDIO_ACTION_STOP) stop_cdda_track();
@@ -2665,6 +2861,32 @@ static uint8_t execute_command(const pce_vn_command_t *command)
     else if (command->type == PCE_VN_COMMAND_LABEL)
     {
         return VN_EXEC_CONTINUE;
+    }
+    else if (command->type == PCE_VN_COMMAND_INPUTCHECK)
+    {
+        const uint8_t mode = (uint8_t)command->flags;
+        const uint8_t mask = command->arg0;
+        if (mode == PCE_VN_INPUT_MODE_CANCEL)
+        {
+            async_input_active = 0u;
+            async_input_mask = 0u;
+            async_input_target = PCE_VN_NO_COMMAND;
+        }
+        else if (mode == PCE_VN_INPUT_MODE_ASYNC)
+        {
+            /* Arm the watcher and keep running the script. */
+            async_input_active = 1u;
+            async_input_mask = mask;
+            async_input_target = command->x;
+        }
+        else
+        {
+            /* Synchronous: block here until one of the buttons is pressed. */
+            sync_input_active = 1u;
+            sync_input_mask = mask;
+            sync_input_target = command->x;
+            return VN_EXEC_WAIT;
+        }
     }
     else if (command->type == PCE_VN_COMMAND_JUMP)
     {
@@ -2840,9 +3062,32 @@ int main(void)
         }
 #endif
         pressed = (uint8_t)(pad & (uint8_t)~last_pad);
-        if (active_choice_index >= 0)
+        if (async_input_active && (pressed & async_input_mask))
+        {
+            /* Background watcher matched: jump to its label and resume there. */
+            const uint16_t target = async_input_target;
+            async_input_active = 0u;
+            async_input_mask = 0u;
+            async_input_target = PCE_VN_NO_COMMAND;
+            (void)jump_to_command(target);
+            advance_story();
+        }
+        else if (active_choice_index >= 0)
         {
             (void)handle_choice_input(pressed);
+        }
+        else if (sync_input_active)
+        {
+            /* Synchronous wait: block until one of the requested buttons is hit. */
+            if (pressed & sync_input_mask)
+            {
+                const uint16_t target = sync_input_target;
+                sync_input_active = 0u;
+                sync_input_mask = 0u;
+                sync_input_target = PCE_VN_NO_COMMAND;
+                (void)jump_to_command(target);
+                advance_story();
+            }
         }
         else if (wait_frames_remaining)
         {
@@ -2853,10 +3098,15 @@ int main(void)
         {
             if (active_message_index >= 0 && !message_complete)
             {
+                /* First press: skip the typewriter wait and reveal the whole
+                   page; the voice keeps playing until the next page advance. */
                 finish_active_message();
             }
             else
             {
+                /* Advancing off a finished message page: if its voice is still
+                   playing (e.g. the reveal was skipped), end it now. */
+                if (active_message_index >= 0 && adpcm_playback_active()) stop_adpcm_voice();
                 advance_story();
             }
         }
@@ -2871,6 +3121,7 @@ int main(void)
                 else advance_story();
             }
         }
+        tick_psg();
         tick_sprite_animations();
         if (pending_sprite_refresh) refresh_scene_sprites();
         last_pad = pad;

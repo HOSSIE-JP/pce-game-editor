@@ -65,7 +65,7 @@ function commandRecord(buffer, index) {
 
 function messageRecord(buffer, index) {
   const table = u16(buffer, 12);
-  const offset = table + (index * 11);
+  const offset = table + (index * 13);
   return {
     glyphOffset: u16(buffer, offset),
     glyphCount: buffer[offset + 2],
@@ -75,6 +75,7 @@ function messageRecord(buffer, index) {
     autoWaitFrames: buffer[offset + 7],
     mouthAnimationIndex: s16(buffer, offset + 8),
     mouthSlot: buffer[offset + 10],
+    textColor: u16(buffer, offset + 11),
   };
 }
 
@@ -560,6 +561,148 @@ test('PCE VN manager emits variable, branch, switch, label, and goto commands', 
   assert.equal(commandRecord(pack, 10).flags, 4);
   assert.equal(commandRecord(pack, 10).x, 1);
   assert.equal(commandRecord(pack, 10).y, 6);
+});
+
+test('PCE VN manager encodes PSG audio playback with a base channel', () => {
+  const projectDir = makeTempDir('pce-vn-psg-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [
+      { id: 'chime', name: 'chime', type: 'psg-sfx', options: {} },
+      { id: 'theme', name: 'theme', type: 'psg-song', options: {} },
+    ],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'audio', kind: 'psg', action: 'play', assetId: 'theme', channel: 3 },
+        { type: 'audio', kind: 'psg', action: 'stop' },
+      ],
+    }],
+  });
+
+  const normalized = vnManager.readSceneDocument(projectDir);
+  assert.equal(normalized.scenes[0].commands[0].kind, 'psg');
+  assert.equal(normalized.scenes[0].commands[0].channel, 3);
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+  assert.match(header, /PCE_VN_AUDIO_KIND_PSG 2u/);
+  const play = commandRecord(pack, 0);
+  assert.equal(play.type, vnManager.VN_COMMAND_AUDIO);
+  // flags = kind(2) | action play(0x10); slot carries the base channel.
+  assert.equal(play.flags, vnManager.VN_AUDIO_KIND_PSG | 0x10);
+  assert.equal(play.slot, 3);
+  assert.equal(play.assetIndex, 1); // 'theme' is the 2nd PSG asset (song after sfx)
+  const stop = commandRecord(pack, 1);
+  assert.equal(stop.flags, vnManager.VN_AUDIO_KIND_PSG | 0x20);
+  assert.equal(stop.assetIndex, -1);
+
+  const runtime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
+    'utf-8',
+  );
+  assert.match(runtime, /kind == PCE_VN_AUDIO_KIND_PSG/);
+  assert.match(runtime, /play_psg_asset\(command->asset_index, command->slot\)/);
+});
+
+test('PCE VN manager encodes the input check command with button mask and modes', () => {
+  const projectDir = makeTempDir('pce-vn-input-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'inputcheck', mode: 'sync', buttons: ['i', 'right'], targetLabel: 'go' },
+        { type: 'inputcheck', mode: 'async', buttons: ['ii'], targetLabel: 'go' },
+        { type: 'inputcheck', mode: 'cancel' },
+        { type: 'label', name: 'go' },
+        { type: 'wait', frames: 1 },
+      ],
+    }],
+  });
+
+  const normalized = vnManager.readSceneDocument(projectDir);
+  assert.deepEqual(normalized.scenes[0].commands[0].buttons, ['right', 'i']);
+  assert.equal(normalized.scenes[0].commands[2].mode, 'cancel');
+  assert.deepEqual(normalized.scenes[0].commands[2].buttons, []);
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+  assert.match(header, /PCE_VN_COMMAND_INPUTCHECK 14u/);
+  assert.match(header, /PCE_VN_INPUT_MODE_SYNC 0u/);
+  assert.match(header, /PCE_VN_INPUT_MODE_ASYNC 1u/);
+  assert.match(header, /PCE_VN_INPUT_MODE_CANCEL 2u/);
+  const labelIndex = 3; // 'go' label is the 4th command
+  const sync = commandRecord(pack, 0);
+  assert.equal(sync.type, vnManager.VN_COMMAND_INPUTCHECK);
+  assert.equal(sync.flags, vnManager.VN_INPUT_MODE_SYNC);
+  assert.equal(sync.arg0, vnManager.inputButtonsMask(['i', 'right']));
+  assert.equal(sync.x, labelIndex);
+  const asyncCmd = commandRecord(pack, 1);
+  assert.equal(asyncCmd.flags, vnManager.VN_INPUT_MODE_ASYNC);
+  const cancel = commandRecord(pack, 2);
+  assert.equal(cancel.flags, vnManager.VN_INPUT_MODE_CANCEL);
+  assert.equal(cancel.x, 0xffff); // no target for cancel
+
+  const runtime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
+    'utf-8',
+  );
+  assert.match(runtime, /command->type == PCE_VN_COMMAND_INPUTCHECK/);
+  assert.match(runtime, /sync_input_active = 1u;/);
+  assert.match(runtime, /async_input_active = 1u;/);
+});
+
+test('PCE VN manager normalizes message text color and clears empty bodies', () => {
+  const projectDir = makeTempDir('pce-vn-color-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'message', text: 'あか', textColor: '#ff0000' },
+        { type: 'message', text: '' },
+      ],
+    }],
+  });
+
+  const normalized = vnManager.readSceneDocument(projectDir);
+  // First message keeps a PCE-snapped red; second message stays empty (cleared).
+  assert.equal(normalized.scenes[0].commands[0].textColor, '#ff0000');
+  assert.equal(normalized.scenes[0].commands[1].text, '');
+  assert.equal(normalized.scenes[0].commands[1].textColor, '');
+
+  // 9-bit PCE word for pure red is G(0)<<6 | R(7)<<3 | B(0) = 0x38.
+  assert.equal(vnManager.messageColorWord('#ff0000'), 0x38);
+  assert.equal(vnManager.messageColorWord(''), vnManager.VN_MESSAGE_COLOR_NONE);
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+  assert.match(header, /PCE_VN_SCENE_PACK_MESSAGE_SIZE 13u/);
+  assert.match(header, /unsigned int text_color;/);
+  assert.equal(messageRecord(pack, 0).textColor, 0x38);
+  assert.equal(messageRecord(pack, 1).textColor, vnManager.VN_MESSAGE_COLOR_NONE);
+
+  const runtime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
+    'utf-8',
+  );
+  assert.match(runtime, /apply_message_text_color\(message->text_color\)/);
+  assert.match(runtime, /message->text_color = scene_pack_u16/);
 });
 
 test('PCE VN manager allows script totals past 255 when each scene pack fits', () => {
