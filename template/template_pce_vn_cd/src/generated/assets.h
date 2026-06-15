@@ -22,7 +22,12 @@ typedef struct {
 typedef struct {
   pce_editor_cd_sector_t sector;
   unsigned int sector_count;
+  unsigned int byte_size;
+  unsigned char compression;
 } pce_editor_cd_data_ref_t;
+
+#define PCE_EDITOR_CD_COMPRESSION_NONE 0u
+#define PCE_EDITOR_CD_COMPRESSION_RLE 1u
 
 typedef struct {
   const unsigned char *data;

@@ -120,6 +120,25 @@ function generatedInfo(asset = {}) {
   return asset.data?.generated || {};
 }
 
+function normalizeCompression(value) {
+  const raw = String(value ?? '').trim().toLowerCase();
+  return ['none', 'raw', 'off', 'false', '0'].includes(raw) ? 'none' : 'auto';
+}
+
+function compressionLabel(asset = {}) {
+  if (!isImageAsset(asset)) return '-';
+  const generated = generatedInfo(asset);
+  const compression = generated.compression || {};
+  const entry = asset.type === 'sprite' ? compression.tiles : (compression.tiles?.codec === 'rle' ? compression.tiles : compression.map);
+  const policy = normalizeCompression(asset.options?.compression ?? compression.policy);
+  if (entry?.codec === 'rle') {
+    const raw = Number(entry.rawBytes || 0);
+    const size = Number(entry.byteLength || 0);
+    return raw && size ? `RLE ${Math.round(size / raw * 100)}%` : 'RLE';
+  }
+  return policy === 'none' ? 'None' : 'Auto/raw';
+}
+
 function dataUrlToPng(dataUrl) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -222,12 +241,13 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
                 <th><button class="asset-sort-th" type="button" data-sort-key="name">Name <span data-sort-indicator>↕</span></button></th>
                 <th>Source</th>
                 <th>Tiles</th>
+                <th>Compression</th>
                 <th>Warn</th>
                 <th class="asset-actions-cell"></th>
               </tr>
             </thead>
             <tbody data-role="asset-rows">
-              <tr class="asset-row-empty"><td colspan="7">読み込み中...</td></tr>
+              <tr class="asset-row-empty"><td colspan="8">読み込み中...</td></tr>
             </tbody>
           </table>
         </div>
@@ -285,6 +305,11 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
                   </select>
                   <label class="form-label">Transparent</label>
                   <input class="form-input" data-field="transparentIndex" type="number" min="0" max="15" />
+                  <label class="form-label">Compression</label>
+                  <select class="form-select" data-field="compression">
+                    <option value="auto">Auto</option>
+                    <option value="none">None</option>
+                  </select>
                   <label class="form-label">PSG period</label>
                   <input class="form-input" data-field="period" type="number" min="1" max="4095" />
                   <label class="form-label">BPM / Steps</label>
@@ -398,12 +423,14 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     height: root.querySelector('[data-field="height"]'),
     cellSize: root.querySelector('[data-field="cellSize"]'),
     transparentIndex: root.querySelector('[data-field="transparentIndex"]'),
+    compression: root.querySelector('[data-field="compression"]'),
     period: root.querySelector('[data-field="period"]'),
     bpm: root.querySelector('[data-field="bpm"]'),
     steps: root.querySelector('[data-field="steps"]'),
     sampleRate: root.querySelector('[data-field="sampleRate"]'),
     track: root.querySelector('[data-field="track"]'),
     loop: root.querySelector('[data-field="loop"]'),
+    stream: root.querySelector('[data-field="stream"]'),
   };
 
   let assets = [];
@@ -557,7 +584,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   function renderRows() {
     const visible = sortAssetsForDisplay(filteredAssets());
     if (!visible.length) {
-      rowsEl.innerHTML = '<tr class="asset-row-empty"><td colspan="7">アセットがありません</td></tr>';
+      rowsEl.innerHTML = '<tr class="asset-row-empty"><td colspan="8">アセットがありません</td></tr>';
       return;
     }
     const assetRowHtml = (asset, leaf, depth) => {
@@ -577,6 +604,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           <td${indent}><strong>${esc(leaf || asset.name || asset.id)}</strong><div class="pce-assets-muted">${esc(asset.id)}</div></td>
           <td class="asset-path-cell">${esc(asset.source || '(generated)')}</td>
           <td>${esc(tileText)}</td>
+          <td>${esc(compressionLabel(asset))}</td>
           <td>${warnings.length ? `<span class="asset-warning">${warnings.length}</span>` : '<span class="pce-assets-muted">0</span>'}</td>
           <td class="asset-actions-cell"><button class="icon-btn-xs" type="button" data-row-delete="${esc(asset.id)}" title="削除" aria-label="削除">✕</button></td>
         </tr>
@@ -590,7 +618,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       return `
         <tr class="asset-group-row" data-group-path="${esc(node.path)}">
           <td></td>
-          <td colspan="6" class="asset-group-cell" style="padding-left:${indent}px">
+          <td colspan="7" class="asset-group-cell" style="padding-left:${indent}px">
             <span class="asset-group-toggle">${collapsed ? '▸' : '▾'}</span>
             <span class="asset-group-name">${esc(node.name)}</span>
             <span class="pce-assets-muted">${assetGroupLeafCount(node)}</span>
@@ -682,6 +710,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       height: isImage,
       cellSize: isImage && isSprite,
       transparentIndex: isImage,
+      compression: isImage,
       period: isPsg,
       bpm: isPsg,
       steps: isPsg,
@@ -827,6 +856,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     fields.height.value = options.height ?? 0;
     fields.cellSize.value = `${options.cellWidth || 16}x${options.cellHeight || 16}`;
     fields.transparentIndex.value = options.transparentIndex ?? 0;
+    fields.compression.value = normalizeCompression(options.compression);
     fields.period.value = options.period ?? 512;
     fields.bpm.value = options.bpm ?? 150;
     fields.steps.value = options.steps ?? 32;
@@ -885,6 +915,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           cellWidth,
           cellHeight,
           transparentIndex: asNumber(fields.transparentIndex.value, 0),
+          compression: normalizeCompression(fields.compression.value),
           animations: type === 'sprite' ? collectAnimationRows() : [],
         };
     return {
@@ -954,11 +985,14 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         <div class="pce-assets-stat"><span>${asset.type === 'sprite' ? 'Pattern' : 'Tile'}</span><strong>${esc(generated.tileCount || 0)}</strong></div>
         <div class="pce-assets-stat"><span>Palette</span><strong>${esc(generated.paletteCount || 0)}</strong></div>
         <div class="pce-assets-stat"><span>VRAM bytes</span><strong>${esc(generated.vramBytes || 0)}</strong></div>
+        <div class="pce-assets-stat"><span>Compression</span><strong>${esc(compressionLabel(asset))}</strong></div>
       `;
       files = [
         ['palette', generated.paletteFile],
         [asset.type === 'sprite' ? 'patterns' : 'tiles', generated.tilesFile],
+        [asset.type === 'sprite' ? 'patterns.rle' : 'tiles.rle', generated.tilesCompressedFile],
         ['map', asset.type === 'sprite' ? '' : generated.mapFile],
+        ['map.rle', asset.type === 'sprite' ? '' : generated.mapVramCompressedFile],
         ['preview', generated.previewFile],
       ].filter((entry) => entry[1]);
       const colors = generated.paletteColors?.length ? generated.paletteColors : [];
@@ -1255,6 +1289,13 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
                 <span class="form-label">Transparent index</span>
                 <input class="form-input" name="transparentIndex" type="number" min="0" max="15" value="0" />
               </label>
+              <label class="form-group">
+                <span class="form-label">Compression</span>
+                <select class="form-select" name="compression">
+                  <option value="auto" selected>Auto</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
             </div>
             <div class="pce-assets-import-source">
               <button class="btn-sm" type="button" data-pick-image>画像を選択</button>
@@ -1377,6 +1418,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             cellWidth,
             cellHeight,
             transparentIndex: asNumber(form.elements.transparentIndex.value, 0),
+            compression: normalizeCompression(form.elements.compression.value),
             width: finalWidth,
             height: finalHeight,
           });

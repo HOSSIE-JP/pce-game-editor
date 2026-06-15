@@ -6,5 +6,22 @@
   "tileCount": 576,
   "paletteCount": 1,
   "vramBytes": 20480,
+  "compression": {
+    "policy": "auto",
+    "tiles": {
+      "codec": "rle",
+      "file": "assets/generated/vn_classroom_bg/tiles.rle",
+      "rawBytes": 18432,
+      "byteLength": 15522,
+      "savedBytes": 2910
+    },
+    "map": {
+      "codec": "rle",
+      "file": "assets/generated/vn_classroom_bg/map_vram.rle",
+      "rawBytes": 2048,
+      "byteLength": 1197,
+      "savedBytes": 851
+    }
+  },
   "warnings": []
 }

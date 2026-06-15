@@ -6,6 +6,23 @@
   "tileCount": 32,
   "paletteCount": 1,
   "vramBytes": 4096,
+  "compression": {
+    "policy": "auto",
+    "tiles": {
+      "codec": "rle",
+      "file": "assets/generated/mika_sprite/patterns.rle",
+      "rawBytes": 4096,
+      "byteLength": 3023,
+      "savedBytes": 1073
+    },
+    "map": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 0,
+      "byteLength": 0,
+      "savedBytes": 0
+    }
+  },
   "warnings": [
     "Image uses 85 PCE colors; remapped to 15 opaque color slots"
   ]

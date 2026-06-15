@@ -6,5 +6,22 @@
   "tileCount": 32,
   "paletteCount": 1,
   "vramBytes": 4096,
+  "compression": {
+    "policy": "auto",
+    "tiles": {
+      "codec": "rle",
+      "file": "assets/generated/akari_sprite/patterns.rle",
+      "rawBytes": 4096,
+      "byteLength": 3202,
+      "savedBytes": 894
+    },
+    "map": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 0,
+      "byteLength": 0,
+      "savedBytes": 0
+    }
+  },
   "warnings": []
 }

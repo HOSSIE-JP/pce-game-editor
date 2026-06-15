@@ -8,6 +8,7 @@
       "source": "assets/images/vn_classroom_bg.png",
       "options": {
         "kind": "background",
+        "compression": "auto",
         "paletteBank": 0,
         "tileBase": 128,
         "mapBase": 0,
@@ -23,8 +24,10 @@
         "generated": {
           "paletteFile": "assets/generated/vn_classroom_bg/palette.bin",
           "tilesFile": "assets/generated/vn_classroom_bg/tiles.bin",
+          "tilesCompressedFile": "assets/generated/vn_classroom_bg/tiles.rle",
           "mapFile": "assets/generated/vn_classroom_bg/map.bin",
           "mapVramFile": "assets/generated/vn_classroom_bg/map_vram.bin",
+          "mapVramCompressedFile": "assets/generated/vn_classroom_bg/map_vram.rle",
           "previewFile": "assets/generated/vn_classroom_bg/preview.json",
           "tileCount": 576,
           "paletteCount": 1,
@@ -48,6 +51,23 @@
             "#ffdb92",
             "#b6b692"
           ],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/vn_classroom_bg/tiles.rle",
+              "rawBytes": 18432,
+              "byteLength": 15522,
+              "savedBytes": 2910
+            },
+            "map": {
+              "codec": "rle",
+              "file": "assets/generated/vn_classroom_bg/map_vram.rle",
+              "rawBytes": 2048,
+              "byteLength": 1197,
+              "savedBytes": 851
+            }
+          },
           "outputFile": "",
           "byteLength": 0,
           "sampleRate": 0,
@@ -153,7 +173,26 @@
           "paletteCount": 0,
           "vramBytes": 0,
           "paletteColors": [],
-          "mapVramFile": ""
+          "mapVramFile": "",
+          "tilesCompressedFile": "",
+          "mapVramCompressedFile": "",
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          }
         },
         "import": {
           "originalFileName": "opening_theme.wav",
@@ -209,6 +248,7 @@
       "source": "assets/sprites/akari_sprite.png",
       "options": {
         "kind": "sprite",
+        "compression": "auto",
         "paletteBank": 1,
         "tileBase": 880,
         "mapBase": 0,
@@ -237,7 +277,10 @@
         "generated": {
           "paletteFile": "assets/generated/akari_sprite/palette.bin",
           "tilesFile": "assets/generated/akari_sprite/patterns.bin",
+          "tilesCompressedFile": "assets/generated/akari_sprite/patterns.rle",
           "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
           "previewFile": "assets/generated/akari_sprite/preview.json",
           "tileCount": 32,
           "paletteCount": 1,
@@ -261,13 +304,29 @@
             "#000000",
             "#000000"
           ],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/akari_sprite/patterns.rle",
+              "rawBytes": 4096,
+              "byteLength": 3202,
+              "savedBytes": 894
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
           "outputFile": "",
           "byteLength": 0,
           "sampleRate": 0,
           "channels": 0,
           "durationSeconds": 0,
-          "waveform": [],
-          "mapVramFile": ""
+          "waveform": []
         },
         "import": {
           "originalFileName": "akari_sprite.png",
@@ -373,7 +432,26 @@
           "mapVramFile": "",
           "codec": "oki-msm5205",
           "encoderVersion": 2,
-          "nibbleOrder": "msn-first"
+          "nibbleOrder": "msn-first",
+          "tilesCompressedFile": "",
+          "mapVramCompressedFile": "",
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          }
         },
         "import": {
           "originalFileName": "akari_voice.wav",
@@ -381,8 +459,7 @@
           "converter": "Internal WAV/ADPCM encoder",
           "codec": "oki-msm5205",
           "encoderVersion": 2,
-          "nibbleOrder": "msn-first",
-          "regeneratedAt": "2026-06-11T12:54:56.923Z"
+          "nibbleOrder": "msn-first"
         }
       }
     },
@@ -393,6 +470,7 @@
       "source": "assets/images/rooftop_dusk_bg.png",
       "options": {
         "kind": "background",
+        "compression": "auto",
         "paletteBank": 0,
         "tileBase": 128,
         "mapBase": 0,
@@ -408,8 +486,10 @@
         "generated": {
           "paletteFile": "assets/generated/rooftop_dusk_bg/palette.bin",
           "tilesFile": "assets/generated/rooftop_dusk_bg/tiles.bin",
+          "tilesCompressedFile": "assets/generated/rooftop_dusk_bg/tiles.rle",
           "mapFile": "assets/generated/rooftop_dusk_bg/map.bin",
           "mapVramFile": "assets/generated/rooftop_dusk_bg/map_vram.bin",
+          "mapVramCompressedFile": "assets/generated/rooftop_dusk_bg/map_vram.rle",
           "previewFile": "assets/generated/rooftop_dusk_bg/preview.json",
           "tileCount": 576,
           "paletteCount": 1,
@@ -433,6 +513,23 @@
             "#000000",
             "#000000"
           ],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/rooftop_dusk_bg/tiles.rle",
+              "rawBytes": 18432,
+              "byteLength": 10409,
+              "savedBytes": 8023
+            },
+            "map": {
+              "codec": "rle",
+              "file": "assets/generated/rooftop_dusk_bg/map_vram.rle",
+              "rawBytes": 2048,
+              "byteLength": 1197,
+              "savedBytes": 851
+            }
+          },
           "outputFile": "",
           "byteLength": 0,
           "sampleRate": 0,
@@ -454,6 +551,7 @@
       "source": "assets/sprites/mika_sprite.png",
       "options": {
         "kind": "sprite",
+        "compression": "auto",
         "paletteBank": 1,
         "tileBase": 880,
         "mapBase": 0,
@@ -482,7 +580,10 @@
         "generated": {
           "paletteFile": "assets/generated/mika_sprite/palette.bin",
           "tilesFile": "assets/generated/mika_sprite/patterns.bin",
+          "tilesCompressedFile": "assets/generated/mika_sprite/patterns.rle",
           "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
           "previewFile": "assets/generated/mika_sprite/preview.json",
           "tileCount": 32,
           "paletteCount": 1,
@@ -508,13 +609,29 @@
             "#b64949",
             "#db6d49"
           ],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/mika_sprite/patterns.rle",
+              "rawBytes": 4096,
+              "byteLength": 3023,
+              "savedBytes": 1073
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
           "outputFile": "",
           "byteLength": 0,
           "sampleRate": 0,
           "channels": 0,
           "durationSeconds": 0,
-          "waveform": [],
-          "mapVramFile": ""
+          "waveform": []
         },
         "import": {
           "originalFileName": "mika_sprite.png",

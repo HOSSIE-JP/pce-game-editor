@@ -207,7 +207,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
           </div>
           <label class="form-group">
             <span class="form-label">compression</span>
-            <select class="form-select" name="compression"><option>NONE</option><option>BEST</option><option>AUTO</option><option>APLIB</option><option>FAST</option><option>LZ4W</option></select>
+            <select class="form-select" name="compression"><option>AUTO</option><option>NONE</option></select>
           </label>
           <label class="form-group">
             <span class="form-label">collision</span>
@@ -770,6 +770,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
         y: clampInt(els.form.elements.y.value, 0, 255, 104),
         cellWidth,
         cellHeight,
+        compression: els.form.elements.compression.value === 'NONE' ? 'none' : 'auto',
         animations,
         spriteEditor: {
           frameWidth,
@@ -1032,7 +1033,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
             time: `[[${Array.from({ length: details.frameCount }, () => String(details.frameDelay)).join(',')}]]`,
             rowFrameCounts: [details.frameCount],
             rowDefaultTimes: [String(details.frameDelay)],
-            compression: 'NONE',
+            compression: 'AUTO',
             collision: 'NONE',
             optType: 'BALANCED',
             optLevel: 'FAST',

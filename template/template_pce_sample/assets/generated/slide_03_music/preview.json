@@ -3,8 +3,27 @@
   "kind": "background",
   "width": 256,
   "height": 224,
-  "tileCount": 880,
+  "tileCount": 896,
   "paletteCount": 1,
-  "vramBytes": 29952,
-  "warnings": []
+  "vramBytes": 32256,
+  "compression": {
+    "policy": "auto",
+    "tiles": {
+      "codec": "rle",
+      "file": "assets/generated/slide_03_music/tiles.rle",
+      "rawBytes": 28672,
+      "byteLength": 26681,
+      "savedBytes": 1991
+    },
+    "map": {
+      "codec": "rle",
+      "file": "assets/generated/slide_03_music/map_vram.rle",
+      "rawBytes": 3584,
+      "byteLength": 1868,
+      "savedBytes": 1716
+    }
+  },
+  "warnings": [
+    "BG tiles overlap the sample UI/font VRAM area at tile 704"
+  ]
 }

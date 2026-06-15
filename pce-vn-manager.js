@@ -2002,14 +2002,36 @@ function addCdDataFile(files, seen, relativePath) {
   files.push(normalized);
 }
 
+function generatedCompressionEntry(generated = {}, slot = 'tiles') {
+  const compression = generated.compression || {};
+  const entry = slot === 'map' ? compression.map : compression.tiles;
+  return entry && typeof entry === 'object' ? entry : {};
+}
+
+function generatedVisualCdDataFile(projectDir, generated = {}, slot = 'tiles') {
+  const rawPath = slot === 'map' ? generated.mapVramFile : generated.tilesFile;
+  const compressedPath = slot === 'map' ? generated.mapVramCompressedFile : generated.tilesCompressedFile;
+  const entry = generatedCompressionEntry(generated, slot);
+  const normalizedCompressed = normalizeRelativePath(compressedPath || '');
+  if (
+    entry.codec === 'rle'
+    && normalizedCompressed
+    && normalizeRelativePath(entry.file || '') === normalizedCompressed
+    && fs.existsSync(path.join(projectDir, normalizedCompressed))
+  ) {
+    return normalizedCompressed;
+  }
+  return rawPath;
+}
+
 function addAssetCdDataFiles(projectDir, files, seen, asset) {
   if (!asset) return;
   const generated = asset.data?.generated || {};
   if (asset.type === 'image') {
-    addExistingCdDataFile(projectDir, files, seen, generated.tilesFile);
-    addExistingCdDataFile(projectDir, files, seen, generated.mapVramFile);
+    addExistingCdDataFile(projectDir, files, seen, generatedVisualCdDataFile(projectDir, generated, 'tiles'));
+    addExistingCdDataFile(projectDir, files, seen, generatedVisualCdDataFile(projectDir, generated, 'map'));
   } else if (asset.type === 'sprite') {
-    addExistingCdDataFile(projectDir, files, seen, generated.tilesFile);
+    addExistingCdDataFile(projectDir, files, seen, generatedVisualCdDataFile(projectDir, generated, 'tiles'));
   } else if (asset.type === 'adpcm') {
     addExistingCdDataFile(projectDir, files, seen, generated.outputFile);
   }
@@ -2073,6 +2095,52 @@ function collectCddaTracks(projectDir) {
     .filter((relativePath) => fs.existsSync(path.join(projectDir, relativePath)));
 }
 
+function addManagedGeneratedPath(files, relativePath) {
+  const normalized = normalizeRelativePath(relativePath || '');
+  if (normalized) files.add(normalized);
+}
+
+function collectManagedGeneratedCdDataFiles(projectDir) {
+  const managed = new Set();
+  addManagedGeneratedPath(managed, VN_FONT_DATA_FILE);
+  const scenePackDir = normalizeRelativePath(VN_SCENE_PACK_DIR);
+  try {
+    const assetDoc = assetManager.readAssetDocument(projectDir);
+    (assetDoc.assets || []).forEach((asset) => {
+      const generated = asset.data?.generated || {};
+      if (asset.type === 'image') {
+        addManagedGeneratedPath(managed, generated.tilesFile);
+        addManagedGeneratedPath(managed, generated.tilesCompressedFile);
+        addManagedGeneratedPath(managed, generated.mapVramFile);
+        addManagedGeneratedPath(managed, generated.mapVramCompressedFile);
+      } else if (asset.type === 'sprite') {
+        addManagedGeneratedPath(managed, generated.tilesFile);
+        addManagedGeneratedPath(managed, generated.tilesCompressedFile);
+      } else if (asset.type === 'adpcm') {
+        addManagedGeneratedPath(managed, generated.outputFile);
+      }
+    });
+  } catch (_) {}
+  (readSceneDocument(projectDir).scenes || []).forEach((scene, sceneIndex) => {
+    addManagedGeneratedPath(managed, scenePackRelativePath(scene, sceneIndex));
+  });
+  managed.add(scenePackDir);
+  return managed;
+}
+
+function mergeCdDataFiles(projectDir, generatedDataFiles = [], configuredDataFiles = []) {
+  const managed = collectManagedGeneratedCdDataFiles(projectDir);
+  const scenePackPrefix = `${normalizeRelativePath(VN_SCENE_PACK_DIR)}/`;
+  const merged = new Set(generatedDataFiles.map((entry) => normalizeRelativePath(entry || '')).filter(Boolean));
+  (Array.isArray(configuredDataFiles) ? configuredDataFiles : []).forEach((entry) => {
+    const normalized = normalizeRelativePath(entry || '');
+    if (!normalized || merged.has(normalized)) return;
+    if (managed.has(normalized) || normalized.startsWith(scenePackPrefix)) return;
+    merged.add(normalized);
+  });
+  return Array.from(merged);
+}
+
 function prepareVisualNovelBuild(projectDir, config = {}) {
   syncVisualNovelRuntime(projectDir);
   ensureSceneFile(projectDir);
@@ -2080,7 +2148,7 @@ function prepareVisualNovelBuild(projectDir, config = {}) {
   const dataFiles = collectCdDataFiles(projectDir);
   const cddaTracks = collectCddaTracks(projectDir);
   const cd = config.cd && typeof config.cd === 'object' ? config.cd : {};
-  const mergedDataFiles = Array.from(new Set([...dataFiles, ...(Array.isArray(cd.dataFiles) ? cd.dataFiles : [])]));
+  const mergedDataFiles = mergeCdDataFiles(projectDir, dataFiles, cd.dataFiles);
   const mergedCddaTracks = Array.from(new Set([...(Array.isArray(cd.cddaTracks) ? cd.cddaTracks : []), ...cddaTracks]));
   const generated = generateVnSources(projectDir, { cdDataFiles: mergedDataFiles });
   return {

@@ -69,7 +69,7 @@ test('PCE sprite editor preserves editor metadata shape from assets', async () =
   assert.equal(state.frameHeight, 16);
   assert.deepEqual(state.rowFrameCounts, [2, 1]);
   assert.deepEqual(state.rowDefaultTimes, ['5', '7']);
-  assert.equal(state.compression, 'FAST');
+  assert.equal(state.compression, 'AUTO');
   assert.equal(state.collision, 'BOX');
   assert.equal(state.optType, 'SPRITE');
   assert.equal(state.optLevel, 'MEDIUM');

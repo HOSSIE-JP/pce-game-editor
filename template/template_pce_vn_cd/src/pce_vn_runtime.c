@@ -82,9 +82,18 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #if defined(__PCE_CD__)
 #define VN_BANKED_CODE __attribute__((noinline, section(".ram_bank129")))
 #define VN_BANKED_CODE2 __attribute__((noinline, section(".ram_bank130")))
+#define VN_BANKED_CODE2_INLINE __attribute__((always_inline, section(".ram_bank130")))
 #else
 #define VN_BANKED_CODE
 #define VN_BANKED_CODE2
+#define VN_BANKED_CODE2_INLINE
+#endif
+
+#ifndef PCE_EDITOR_CD_COMPRESSION_NONE
+#define PCE_EDITOR_CD_COMPRESSION_NONE 0u
+#endif
+#ifndef PCE_EDITOR_CD_COMPRESSION_RLE
+#define PCE_EDITOR_CD_COMPRESSION_RLE 1u
 #endif
 
 static uint8_t current_scene = 0;
@@ -99,6 +108,8 @@ static uint8_t preloaded_bg_valid = 0;
 static uint8_t preloaded_bg_index = 0;
 static uint8_t preloaded_bg_x = 0;
 static uint8_t preloaded_bg_y = 0;
+static uint8_t preloaded_scene_visual_valid = 0;
+static uint8_t preloaded_scene_index = 0;
 static uint8_t loaded_sprite_pattern_valid = 0;
 static uint8_t loaded_sprite_pattern_index = 0;
 static uint8_t loaded_adpcm_valid = 0;
@@ -208,7 +219,7 @@ static uint16_t draw_glyph_bottom[2] __attribute__((section(".bss")));
 #define VN_SWITCH_SCRATCH ((vn_switch_ref_t *)(void *)vn_switch_scratch_storage)
 #define VN_SWITCH_CASE_SCRATCH ((pce_vn_switch_case_t *)(void *)vn_switch_case_scratch_storage)
 static void advance_story(void);
-static void VN_BANKED_CODE2 preload_scene_assets(signed int scene_index, uint8_t allow_visual_upload);
+static void VN_BANKED_CODE2 preload_scene_assets(signed int scene_index, uint8_t allow_visual_upload, uint8_t stop_at_first_wait);
 static uint8_t VN_BANKED_CODE load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache);
 static uint8_t VN_BANKED_CODE scene_pack_command_count(const vn_scene_pack_cache_t *cache);
 #if defined(__PCE_CD__)
@@ -245,6 +256,8 @@ static void init_runtime_state(void)
     preloaded_bg_index = 0u;
     preloaded_bg_x = 0u;
     preloaded_bg_y = 0u;
+    preloaded_scene_visual_valid = 0u;
+    preloaded_scene_index = 0u;
     loaded_sprite_pattern_valid = 0u;
     loaded_sprite_pattern_index = 0u;
     loaded_adpcm_valid = 0u;
@@ -550,6 +563,226 @@ static void cd_transfer_wait(void)
     for (wait = 0u; wait < 65535u; wait++) {}
 }
 
+static void mask_buffered_adpcm_completion_irq(void);
+static void prepare_cd_data_access(void);
+
+typedef struct
+{
+    pce_sector_t sector;
+    uint16_t bytes_remaining;
+    uint16_t buffered;
+    uint16_t cursor;
+} vn_cd_byte_stream_t;
+
+typedef struct
+{
+    uint8_t have_low;
+    uint8_t low;
+    uint16_t bytes_written;
+} vn_vram_byte_writer_t;
+
+typedef struct
+{
+    uint16_t dest;
+    uint8_t copy_width_tiles;
+    uint8_t copy_height_tiles;
+    uint8_t row;
+    uint8_t byte_in_row;
+    uint8_t have_low;
+    uint8_t low;
+} vn_bg_map_stream_writer_t;
+
+static inline void VN_BANKED_CODE2_INLINE cd_byte_stream_init(vn_cd_byte_stream_t *stream, const pce_editor_cd_data_ref_t *cd)
+{
+    if (!stream || !cd) return;
+    cd_sector_from_ref(&stream->sector, &cd->sector);
+    stream->bytes_remaining = cd->byte_size;
+    stream->buffered = 0u;
+    stream->cursor = 0u;
+}
+
+static inline uint8_t VN_BANKED_CODE2_INLINE cd_byte_stream_read(vn_cd_byte_stream_t *stream, uint8_t *value)
+{
+    uint16_t chunk;
+    if (!stream || !value) return 0u;
+    if (!stream->buffered)
+    {
+        if (!stream->bytes_remaining) return 0u;
+        chunk = stream->bytes_remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : stream->bytes_remaining;
+        (void)pce_cdb_cd_read(stream->sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)cd_transfer_scratch, chunk);
+        cd_transfer_wait();
+        cd_sector_advance(&stream->sector);
+        stream->bytes_remaining = (uint16_t)(stream->bytes_remaining - chunk);
+        stream->buffered = chunk;
+        stream->cursor = 0u;
+    }
+    *value = cd_transfer_scratch[stream->cursor++];
+    stream->buffered--;
+    return 1u;
+}
+
+static inline void VN_BANKED_CODE2_INLINE vram_byte_writer_begin(uint16_t dest, vn_vram_byte_writer_t *writer)
+{
+    if (!writer) return;
+    writer->have_low = 0u;
+    writer->low = 0u;
+    writer->bytes_written = 0u;
+    pce_vdc_set_copy_word();
+    pce_vdc_poke(VDC_REG_VRAM_WRITE_ADDR, dest);
+}
+
+static inline void VN_BANKED_CODE2_INLINE vram_byte_writer_write(vn_vram_byte_writer_t *writer, uint8_t value)
+{
+    if (!writer) return;
+    if (!writer->have_low)
+    {
+        writer->low = value;
+        writer->have_low = 1u;
+        return;
+    }
+    pce_vdc_poke(VDC_REG_VRAM_DATA, (uint16_t)writer->low | ((uint16_t)value << 8));
+    writer->have_low = 0u;
+    writer->bytes_written = (uint16_t)(writer->bytes_written + 2u);
+}
+
+static inline void VN_BANKED_CODE2_INLINE vram_byte_writer_finish(vn_vram_byte_writer_t *writer)
+{
+    if (!writer || !writer->have_low) return;
+    pce_vdc_poke(VDC_REG_VRAM_DATA, writer->low);
+    writer->have_low = 0u;
+    writer->bytes_written++;
+}
+
+static inline void VN_BANKED_CODE2_INLINE bg_map_stream_writer_begin(vn_bg_map_stream_writer_t *writer, uint16_t dest, uint8_t copy_width_tiles, uint8_t copy_height_tiles)
+{
+    if (!writer) return;
+    writer->dest = dest;
+    writer->copy_width_tiles = copy_width_tiles;
+    writer->copy_height_tiles = copy_height_tiles;
+    writer->row = 0u;
+    writer->byte_in_row = 0u;
+    writer->have_low = 0u;
+    writer->low = 0u;
+    pce_vdc_set_copy_word();
+    pce_vdc_poke(VDC_REG_VRAM_WRITE_ADDR, dest);
+}
+
+static inline void VN_BANKED_CODE2_INLINE bg_map_stream_writer_write(vn_bg_map_stream_writer_t *writer, uint8_t value)
+{
+    const uint8_t copy_bytes = writer ? (uint8_t)(writer->copy_width_tiles * 2u) : 0u;
+    if (!writer || writer->row >= writer->copy_height_tiles) return;
+    if (writer->byte_in_row < copy_bytes)
+    {
+        if (!writer->have_low)
+        {
+            writer->low = value;
+            writer->have_low = 1u;
+        }
+        else
+        {
+            pce_vdc_poke(VDC_REG_VRAM_DATA, (uint16_t)writer->low | ((uint16_t)value << 8));
+            writer->have_low = 0u;
+        }
+    }
+    writer->byte_in_row++;
+    if (writer->byte_in_row >= VN_MAP_ROW_BYTES)
+    {
+        writer->row++;
+        writer->byte_in_row = 0u;
+        writer->have_low = 0u;
+        if (writer->row < writer->copy_height_tiles)
+        {
+            pce_vdc_poke(VDC_REG_VRAM_WRITE_ADDR, (uint16_t)(writer->dest + ((uint16_t)writer->row * VN_MAP_WIDTH)));
+        }
+    }
+}
+
+static uint8_t VN_BANKED_CODE2 cd_rle_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref)
+{
+    vn_cd_byte_stream_t stream;
+    vn_vram_byte_writer_t writer;
+    uint16_t produced = 0u;
+    uint8_t token;
+    if (!ref || !ref->cd || !ref->cd->byte_size || !ref->size) return 0u;
+    prepare_cd_data_access();
+    map_vn_data();
+    cd_byte_stream_init(&stream, ref->cd);
+    vram_byte_writer_begin(dest, &writer);
+    while (produced < ref->size)
+    {
+        uint8_t count;
+        uint8_t value;
+        if (!cd_byte_stream_read(&stream, &token)) return 0u;
+        if (token & 0x80u)
+        {
+            count = (uint8_t)((token & 0x7fu) + 3u);
+            if (!cd_byte_stream_read(&stream, &value)) return 0u;
+            while (count-- && produced < ref->size)
+            {
+                vram_byte_writer_write(&writer, value);
+                produced++;
+            }
+        }
+        else
+        {
+            count = (uint8_t)((token & 0x7fu) + 1u);
+            while (count-- && produced < ref->size)
+            {
+                if (!cd_byte_stream_read(&stream, &value)) return 0u;
+                vram_byte_writer_write(&writer, value);
+                produced++;
+            }
+        }
+    }
+    vram_byte_writer_finish(&writer);
+    mask_buffered_adpcm_completion_irq();
+    return (uint8_t)(produced == ref->size);
+}
+
+static uint8_t VN_BANKED_CODE2 cd_rle_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref, uint8_t copy_width_tiles, uint8_t copy_height_tiles)
+{
+    vn_cd_byte_stream_t stream;
+    vn_bg_map_stream_writer_t writer;
+    uint16_t produced = 0u;
+    uint16_t required;
+    uint8_t token;
+    if (!ref || !ref->cd || !ref->cd->byte_size || !ref->size || !copy_width_tiles || !copy_height_tiles) return 0u;
+    required = (uint16_t)(VN_MAP_ROW_BYTES * copy_height_tiles);
+    if (ref->size < required) return 0u;
+    prepare_cd_data_access();
+    map_vn_data();
+    cd_byte_stream_init(&stream, ref->cd);
+    bg_map_stream_writer_begin(&writer, dest, copy_width_tiles, copy_height_tiles);
+    while (produced < required)
+    {
+        uint8_t count;
+        uint8_t value;
+        if (!cd_byte_stream_read(&stream, &token)) return 0u;
+        if (token & 0x80u)
+        {
+            count = (uint8_t)((token & 0x7fu) + 3u);
+            if (!cd_byte_stream_read(&stream, &value)) return 0u;
+            while (count-- && produced < required)
+            {
+                bg_map_stream_writer_write(&writer, value);
+                produced++;
+            }
+        }
+        else
+        {
+            count = (uint8_t)((token & 0x7fu) + 1u);
+            while (count-- && produced < required)
+            {
+                if (!cd_byte_stream_read(&stream, &value)) return 0u;
+                bg_map_stream_writer_write(&writer, value);
+                produced++;
+            }
+        }
+    }
+    mask_buffered_adpcm_completion_irq();
+    return (uint8_t)(writer.row >= copy_height_tiles);
+}
+
 static void mask_buffered_adpcm_completion_irq(void)
 {
 #if defined(__PCE_CD__)
@@ -583,6 +816,7 @@ static uint8_t cd_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *r
     uint16_t remaining;
     uint16_t vram_dest;
     if (!ref || !ref->cd || !ref->cd->sector_count || !ref->size) return 0u;
+    if (ref->cd->compression == PCE_EDITOR_CD_COMPRESSION_RLE) return cd_rle_ref_to_vram(dest, ref);
     prepare_cd_data_access();
     cd_sector_from_ref(&sector, &ref->cd->sector);
     remaining = (uint16_t)ref->size;
@@ -627,6 +861,7 @@ static uint8_t cd_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t 
     if (!copy_width_tiles || !copy_height_tiles) return 0u;
     row_bytes = (uint16_t)(copy_width_tiles * 2u);
     if (ref->size < (uint16_t)(VN_MAP_ROW_BYTES * copy_height_tiles)) return 0u;
+    if (ref->cd->compression == PCE_EDITOR_CD_COMPRESSION_RLE) return cd_rle_bg_map_ref_to_vram(dest, ref, copy_width_tiles, copy_height_tiles);
     prepare_cd_data_access();
     cd_sector_from_ref(&sector, &ref->cd->sector);
     remaining = (uint16_t)ref->size;
@@ -1771,16 +2006,25 @@ static void show_scene(uint8_t scene_index)
 {
     uint8_t i;
     uint8_t keep_display_for_transition;
+    uint8_t use_preloaded_scene_visual;
     map_vn_data();
     if (!pce_vn_scene_count) return;
     if (scene_index >= pce_vn_scene_count) scene_index = pce_vn_start_scene;
     if (!load_scene_pack_into_cache(scene_index, &active_scene_pack)) return;
     keep_display_for_transition = (uint8_t)(current_bg_index >= 0 && !pending_display_enable);
+    use_preloaded_scene_visual = (uint8_t)(pending_display_enable
+        && preloaded_scene_visual_valid
+        && preloaded_scene_index == scene_index);
     if (!keep_display_for_transition)
     {
         display_disable();
         pending_display_enable = 1u;
-        clear_screen_map();
+        if (!use_preloaded_scene_visual)
+        {
+            clear_screen_map();
+            preloaded_bg_valid = 0u;
+            preloaded_scene_visual_valid = 0u;
+        }
     }
     current_scene = scene_index;
     current_command = 0;
@@ -1799,7 +2043,8 @@ static void show_scene(uint8_t scene_index)
     }
     pending_scene_sprite_clear = keep_display_for_transition ? 1u : 0u;
     pending_sprite_refresh = 1u;
-    preload_scene_assets((signed int)scene_index, 1u);
+    preload_scene_assets((signed int)scene_index, 1u, 1u);
+    preloaded_scene_visual_valid = 0u;
 }
 
 static void VN_BANKED_CODE refresh_scene_sprites(void)
@@ -2051,14 +2296,44 @@ static void preload_adpcm_voice(signed int voice_index)
 #endif
 }
 
-static void VN_BANKED_CODE2 preload_scene_assets(signed int scene_index, uint8_t allow_visual_upload)
+static uint8_t VN_BANKED_CODE2 preload_scan_boundary(const pce_vn_command_t *command)
+{
+    if (!command) return 0u;
+    if (command->type == PCE_VN_COMMAND_MESSAGE) return 1u;
+    if (command->type == PCE_VN_COMMAND_CHOICE) return 1u;
+    if (command->type == PCE_VN_COMMAND_WAIT) return 1u;
+    if (command->type == PCE_VN_COMMAND_JUMP) return 1u;
+    return 0u;
+}
+
+static void VN_BANKED_CODE2 preload_scene_assets(signed int scene_index, uint8_t allow_visual_upload, uint8_t stop_at_first_wait)
 {
     uint8_t command_count;
     uint8_t i;
+    uint8_t target_scene;
+    uint8_t restore_current_scene;
     map_vn_data();
     if (scene_index < 0 || (uint8_t)scene_index >= pce_vn_scene_count) return;
-    if ((uint8_t)scene_index != current_scene) return;
-    if (!load_scene_pack_into_cache((uint8_t)scene_index, &active_scene_pack)) return;
+    target_scene = (uint8_t)scene_index;
+    restore_current_scene = (uint8_t)(target_scene != current_scene);
+    if (!load_scene_pack_into_cache(target_scene, &active_scene_pack))
+    {
+        if (restore_current_scene)
+        {
+            (void)load_scene_pack_into_cache(current_scene, &active_scene_pack);
+        }
+        return;
+    }
+    if (allow_visual_upload && pending_display_enable && restore_current_scene)
+    {
+        if (!preloaded_scene_visual_valid || preloaded_scene_index != target_scene)
+        {
+            clear_screen_map();
+            preloaded_bg_valid = 0u;
+            preloaded_scene_visual_valid = 1u;
+            preloaded_scene_index = target_scene;
+        }
+    }
     command_count = scene_pack_command_count(&active_scene_pack);
     for (i = 0u; i < command_count; i++)
     {
@@ -2114,6 +2389,11 @@ static void VN_BANKED_CODE2 preload_scene_assets(signed int scene_index, uint8_t
                 preload_adpcm_voice(command->asset_index);
             }
         }
+        if (stop_at_first_wait && preload_scan_boundary(command)) break;
+    }
+    if (restore_current_scene)
+    {
+        (void)load_scene_pack_into_cache(current_scene, &active_scene_pack);
     }
 }
 
@@ -2308,7 +2588,8 @@ static uint8_t execute_command(const pce_vn_command_t *command)
     }
     else if (command->type == PCE_VN_COMMAND_PRELOAD)
     {
-        preload_scene_assets(command->scene_index, pending_display_enable);
+        const uint8_t target_is_current = (uint8_t)(command->scene_index >= 0 && (uint8_t)command->scene_index == current_scene);
+        preload_scene_assets(command->scene_index, pending_display_enable, target_is_current ? 0u : 1u);
     }
     else if (command->type == PCE_VN_COMMAND_CHOICE)
     {
@@ -2415,6 +2696,8 @@ static uint8_t execute_command(const pce_vn_command_t *command)
             pending_display_enable = 1u;
             hide_sprites_for_asset_load();
             clear_screen_map();
+            preloaded_bg_valid = 0u;
+            preloaded_scene_visual_valid = 0u;
         }
         else if (command->flags == PCE_VN_EFFECT_SHAKE)
         {

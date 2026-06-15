@@ -13,12 +13,12 @@
     "systemCardPath": "",
     "isoName": "",
     "dataFiles": [
-      "assets/generated/vn_classroom_bg/tiles.bin",
-      "assets/generated/vn_classroom_bg/map_vram.bin",
-      "assets/generated/akari_sprite/patterns.bin",
-      "assets/generated/rooftop_dusk_bg/tiles.bin",
-      "assets/generated/rooftop_dusk_bg/map_vram.bin",
-      "assets/generated/mika_sprite/patterns.bin",
+      "assets/generated/vn_classroom_bg/tiles.rle",
+      "assets/generated/vn_classroom_bg/map_vram.rle",
+      "assets/generated/akari_sprite/patterns.rle",
+      "assets/generated/rooftop_dusk_bg/tiles.rle",
+      "assets/generated/rooftop_dusk_bg/map_vram.rle",
+      "assets/generated/mika_sprite/patterns.rle",
       "assets/generated/akari_voice/adpcm.bin"
     ],
     "cddaTracks": [

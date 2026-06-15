@@ -8,6 +8,7 @@
       "source": "assets/images/slides/slide_01_seaside.png",
       "options": {
         "kind": "background",
+        "compression": "auto",
         "paletteBank": 0,
         "tileBase": 128,
         "mapBase": 0,
@@ -23,30 +24,58 @@
         "generated": {
           "paletteFile": "assets/generated/slide_01_seaside/palette.bin",
           "tilesFile": "assets/generated/slide_01_seaside/tiles.bin",
+          "tilesCompressedFile": "assets/generated/slide_01_seaside/tiles.rle",
           "mapFile": "assets/generated/slide_01_seaside/map.bin",
+          "mapVramFile": "assets/generated/slide_01_seaside/map_vram.bin",
+          "mapVramCompressedFile": "assets/generated/slide_01_seaside/map_vram.rle",
           "previewFile": "assets/generated/slide_01_seaside/preview.json",
-          "tileCount": 871,
+          "tileCount": 896,
           "paletteCount": 1,
-          "vramBytes": 29664,
-          "warnings": [],
+          "vramBytes": 32256,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
           "paletteColors": [
-            "#496d49",
             "#000000",
+            "#002424",
+            "#6d4949",
+            "#db6d49",
+            "#ffb649",
+            "#b66d49",
+            "#ff9249",
             "#242424",
-            "#244924",
-            "#6d926d",
-            "#49db6d",
-            "#6ddb92",
-            "#246d49",
-            "#24b66d",
-            "#6db692",
-            "#24ff92",
-            "#49ffb6",
-            "#92ffdb",
-            "#492424",
-            "#924949",
-            "#494924"
-          ]
+            "#242449",
+            "#494924",
+            "#ffdb92",
+            "#494949",
+            "#b6926d",
+            "#926d6d",
+            "#494992",
+            "#db926d"
+          ],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/slide_01_seaside/tiles.rle",
+              "rawBytes": 28672,
+              "byteLength": 26672,
+              "savedBytes": 2000
+            },
+            "map": {
+              "codec": "rle",
+              "file": "assets/generated/slide_01_seaside/map_vram.rle",
+              "rawBytes": 3584,
+              "byteLength": 1868,
+              "savedBytes": 1716
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
         },
         "import": {
           "originalFileName": "slide_01_seaside.png",
@@ -62,6 +91,7 @@
       "source": "assets/images/slides/slide_02_arcade.png",
       "options": {
         "kind": "background",
+        "compression": "auto",
         "paletteBank": 0,
         "tileBase": 128,
         "mapBase": 0,
@@ -77,30 +107,58 @@
         "generated": {
           "paletteFile": "assets/generated/slide_02_arcade/palette.bin",
           "tilesFile": "assets/generated/slide_02_arcade/tiles.bin",
+          "tilesCompressedFile": "assets/generated/slide_02_arcade/tiles.rle",
           "mapFile": "assets/generated/slide_02_arcade/map.bin",
+          "mapVramFile": "assets/generated/slide_02_arcade/map_vram.bin",
+          "mapVramCompressedFile": "assets/generated/slide_02_arcade/map_vram.rle",
           "previewFile": "assets/generated/slide_02_arcade/preview.json",
-          "tileCount": 888,
+          "tileCount": 896,
           "paletteCount": 1,
-          "vramBytes": 30208,
-          "warnings": [],
+          "vramBytes": 32256,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
           "paletteColors": [
             "#000000",
-            "#244924",
-            "#499249",
-            "#b6dbb6",
-            "#49db6d",
-            "#246d49",
-            "#6dffb6",
-            "#49ffb6",
-            "#240000",
-            "#6d2424",
-            "#924949",
-            "#b69292",
-            "#6d4924",
-            "#6d6d49",
-            "#b6db6d",
-            "#000000"
-          ]
+            "#24246d",
+            "#242449",
+            "#492449",
+            "#000024",
+            "#926d49",
+            "#6d496d",
+            "#ffb649",
+            "#6d4949",
+            "#494992",
+            "#db6d49",
+            "#ffb66d",
+            "#000000",
+            "#9292b6",
+            "#db6d92",
+            "#dbb6b6"
+          ],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/slide_02_arcade/tiles.rle",
+              "rawBytes": 28672,
+              "byteLength": 27415,
+              "savedBytes": 1257
+            },
+            "map": {
+              "codec": "rle",
+              "file": "assets/generated/slide_02_arcade/map_vram.rle",
+              "rawBytes": 3584,
+              "byteLength": 1868,
+              "savedBytes": 1716
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
         },
         "import": {
           "originalFileName": "slide_02_arcade.png",
@@ -116,6 +174,7 @@
       "source": "assets/images/slides/slide_03_music.png",
       "options": {
         "kind": "background",
+        "compression": "auto",
         "paletteBank": 0,
         "tileBase": 128,
         "mapBase": 0,
@@ -131,30 +190,58 @@
         "generated": {
           "paletteFile": "assets/generated/slide_03_music/palette.bin",
           "tilesFile": "assets/generated/slide_03_music/tiles.bin",
+          "tilesCompressedFile": "assets/generated/slide_03_music/tiles.rle",
           "mapFile": "assets/generated/slide_03_music/map.bin",
+          "mapVramFile": "assets/generated/slide_03_music/map_vram.bin",
+          "mapVramCompressedFile": "assets/generated/slide_03_music/map_vram.rle",
           "previewFile": "assets/generated/slide_03_music/preview.json",
-          "tileCount": 880,
+          "tileCount": 896,
           "paletteCount": 1,
-          "vramBytes": 29952,
-          "warnings": [],
+          "vramBytes": 32256,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
           "paletteColors": [
-            "#6db66d",
             "#000000",
             "#242424",
-            "#244924",
-            "#496d49",
-            "#499249",
-            "#6d6d6d",
-            "#92ffb6",
-            "#6db692",
-            "#92dbb6",
-            "#6d9292",
-            "#dbffff",
-            "#240000",
+            "#000024",
+            "#dbb692",
+            "#49496d",
+            "#492449",
+            "#ffdbb6",
+            "#242449",
+            "#b6926d",
             "#492424",
+            "#6d6d6d",
             "#6d4949",
+            "#926d49",
+            "#92926d",
+            "#b66d6d",
             "#000000"
-          ]
+          ],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/slide_03_music/tiles.rle",
+              "rawBytes": 28672,
+              "byteLength": 26681,
+              "savedBytes": 1991
+            },
+            "map": {
+              "codec": "rle",
+              "file": "assets/generated/slide_03_music/map_vram.rle",
+              "rawBytes": 3584,
+              "byteLength": 1868,
+              "savedBytes": 1716
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
         },
         "import": {
           "originalFileName": "slide_03_music.png",
@@ -170,6 +257,7 @@
       "source": "assets/images/slides/slide_04_festival.png",
       "options": {
         "kind": "background",
+        "compression": "auto",
         "paletteBank": 0,
         "tileBase": 128,
         "mapBase": 0,
@@ -185,30 +273,58 @@
         "generated": {
           "paletteFile": "assets/generated/slide_04_festival/palette.bin",
           "tilesFile": "assets/generated/slide_04_festival/tiles.bin",
+          "tilesCompressedFile": "assets/generated/slide_04_festival/tiles.rle",
           "mapFile": "assets/generated/slide_04_festival/map.bin",
+          "mapVramFile": "assets/generated/slide_04_festival/map_vram.bin",
+          "mapVramCompressedFile": "assets/generated/slide_04_festival/map_vram.rle",
           "previewFile": "assets/generated/slide_04_festival/preview.json",
-          "tileCount": 894,
+          "tileCount": 896,
           "paletteCount": 1,
-          "vramBytes": 30400,
-          "warnings": [],
+          "vramBytes": 32256,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
           "paletteColors": [
             "#000000",
-            "#244924",
-            "#246d24",
-            "#6d926d",
-            "#24db49",
-            "#6dff92",
-            "#249249",
-            "#49db92",
-            "#6dffb6",
-            "#6d0024",
-            "#240000",
+            "#000024",
             "#492424",
-            "#6d4924",
-            "#6d6d49",
-            "#b6b692",
-            "#000000"
-          ]
+            "#242424",
+            "#6d2424",
+            "#924924",
+            "#002449",
+            "#db926d",
+            "#24246d",
+            "#6d496d",
+            "#49496d",
+            "#b64924",
+            "#242449",
+            "#b69292",
+            "#926d6d",
+            "#ffb66d"
+          ],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/slide_04_festival/tiles.rle",
+              "rawBytes": 28672,
+              "byteLength": 27229,
+              "savedBytes": 1443
+            },
+            "map": {
+              "codec": "rle",
+              "file": "assets/generated/slide_04_festival/map_vram.rle",
+              "rawBytes": 3584,
+              "byteLength": 1868,
+              "savedBytes": 1716
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
         },
         "import": {
           "originalFileName": "slide_04_festival.png",
@@ -224,6 +340,7 @@
       "source": "assets/images/slides/slide_05_cockpit.png",
       "options": {
         "kind": "background",
+        "compression": "auto",
         "paletteBank": 0,
         "tileBase": 128,
         "mapBase": 0,
@@ -239,30 +356,58 @@
         "generated": {
           "paletteFile": "assets/generated/slide_05_cockpit/palette.bin",
           "tilesFile": "assets/generated/slide_05_cockpit/tiles.bin",
+          "tilesCompressedFile": "assets/generated/slide_05_cockpit/tiles.rle",
           "mapFile": "assets/generated/slide_05_cockpit/map.bin",
+          "mapVramFile": "assets/generated/slide_05_cockpit/map_vram.bin",
+          "mapVramCompressedFile": "assets/generated/slide_05_cockpit/map_vram.rle",
           "previewFile": "assets/generated/slide_05_cockpit/preview.json",
-          "tileCount": 892,
+          "tileCount": 896,
           "paletteCount": 1,
-          "vramBytes": 30336,
-          "warnings": [],
+          "vramBytes": 32256,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
           "paletteColors": [
-            "#240000",
             "#000000",
+            "#242449",
+            "#002424",
+            "#000024",
             "#242424",
-            "#246d24",
-            "#494949",
-            "#6d6d6d",
-            "#929292",
-            "#dbdbdb",
-            "#6ddb92",
-            "#49926d",
-            "#244949",
-            "#240024",
-            "#db2492",
-            "#6d2449",
             "#492424",
-            "#000000"
-          ]
+            "#b6926d",
+            "#b6dbb6",
+            "#926d49",
+            "#6d6d6d",
+            "#4992db",
+            "#6d2424",
+            "#494949",
+            "#494924",
+            "#24496d",
+            "#929292"
+          ],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/slide_05_cockpit/tiles.rle",
+              "rawBytes": 28672,
+              "byteLength": 25632,
+              "savedBytes": 3040
+            },
+            "map": {
+              "codec": "rle",
+              "file": "assets/generated/slide_05_cockpit/map_vram.rle",
+              "rawBytes": 3584,
+              "byteLength": 1868,
+              "savedBytes": 1716
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
         },
         "import": {
           "originalFileName": "slide_05_cockpit.png",

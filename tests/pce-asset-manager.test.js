@@ -196,6 +196,45 @@ function writeFile(projectDir, relativePath, bytes) {
   fs.writeFileSync(absPath, bytes);
 }
 
+function makeRleRun(length, byte) {
+  const chunks = [];
+  let remaining = length;
+  while (remaining > 0) {
+    const run = Math.min(130, remaining);
+    if (run >= 3) {
+      chunks.push(0x80 | (run - 3), byte & 0xff);
+      remaining -= run;
+    } else {
+      chunks.push(run - 1);
+      for (let i = 0; i < run; i += 1) chunks.push(byte & 0xff);
+      remaining -= run;
+    }
+  }
+  return Buffer.from(chunks);
+}
+
+function decodePceRle(buffer, expectedLength) {
+  const output = [];
+  let offset = 0;
+  while (offset < buffer.length && output.length < expectedLength) {
+    const token = buffer[offset];
+    offset += 1;
+    if (token & 0x80) {
+      const count = (token & 0x7f) + 3;
+      const value = buffer[offset];
+      offset += 1;
+      for (let i = 0; i < count && output.length < expectedLength; i += 1) output.push(value);
+    } else {
+      const count = (token & 0x7f) + 1;
+      for (let i = 0; i < count && output.length < expectedLength; i += 1) {
+        output.push(buffer[offset]);
+        offset += 1;
+      }
+    }
+  }
+  return Buffer.from(output);
+}
+
 test('PCE asset schema supports BG image, sprite, generated metadata, and legacy mosaic', () => {
   const assetManager = loadAssetManager();
   const image = assetManager.normalizeAsset({
@@ -455,6 +494,7 @@ test('PCE image import generates BG and sprite assets with the internal converte
   assert.equal(bg.asset.type, 'image');
   assert.equal(bg.asset.options.tileBase, 128);
   assert.equal(bg.asset.options.mapBase, 0);
+  assert.equal(bg.asset.options.compression, 'auto');
   assert.equal(bg.commandInfo.mode, 'internal-pce');
   assert.equal(bg.commandInfo.command, 'Internal PCE image converter');
   assert.deepEqual(bg.commandInfo.args, []);
@@ -465,8 +505,12 @@ test('PCE image import generates BG and sprite assets with the internal converte
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.tilesFile)).length, 256);
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.mapFile)).length, 16);
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.mapVramFile)).readUInt16LE(0) & 0x0fff, 128);
+  assert.equal(bg.asset.data.generated.compression.map.codec, 'rle');
+  assert.equal(fs.existsSync(path.join(projectDir, bg.asset.data.generated.mapVramCompressedFile)), true);
+  assert.ok(fs.statSync(path.join(projectDir, bg.asset.data.generated.mapVramCompressedFile)).size < fs.statSync(path.join(projectDir, bg.asset.data.generated.mapVramFile)).size);
   assert.equal(bg.asset.data.generated.tileCount, 8);
   assert.equal(sprite.asset.type, 'sprite');
+  assert.equal(sprite.asset.options.compression, 'auto');
   assert.equal(sprite.commandInfo.mode, 'internal-pce');
   assert.equal(sprite.commandInfo.outputKind, 'sprite');
   assert.equal(fs.existsSync(path.join(projectDir, sprite.asset.data.generated.paletteFile)), true);
@@ -503,6 +547,32 @@ test('PCE background generation refreshes stale map tile references before sourc
   const saved = assetManager.readAssetDocument(projectDir);
   assert.equal(refreshed.readUInt16LE(0) & 0x0fff, 128);
   assert.equal(saved.assets[0].data.import.converter, 'Internal PCE image converter');
+  assert.equal(typeof saved.assets[0].data.import.regeneratedAt, 'string');
+});
+
+test('PCE visual generation refreshes stale compressed sidecars before source output', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-stale-compression-');
+  const imported = assetManager.importImage(projectDir, {
+    sourceFileName: 'solid.png',
+    convertedDataUrl: makeSolidPngDataUrl(32, 16, [0, 146, 219, 255]),
+    kind: 'background',
+    id: 'solid_bg',
+  });
+  const generated = imported.asset.data.generated;
+  assert.equal(generated.compression.tiles.codec, 'rle');
+  const tilesPath = path.join(projectDir, generated.tilesFile);
+  const compressedPath = path.join(projectDir, generated.tilesCompressedFile);
+  fs.writeFileSync(compressedPath, makeRleRun(fs.readFileSync(tilesPath).length, 0xff));
+
+  assetManager.generateAssetSources(projectDir);
+
+  const raw = fs.readFileSync(tilesPath);
+  const refreshed = fs.readFileSync(compressedPath);
+  assert.notDeepEqual(refreshed, makeRleRun(raw.length, 0xff));
+  assert.deepEqual(decodePceRle(refreshed, raw.length), raw);
+  const saved = assetManager.readAssetDocument(projectDir);
+  assert.equal(saved.assets[0].data.generated.compression.tiles.byteLength, refreshed.length);
   assert.equal(typeof saved.assets[0].data.import.regeneratedAt, 'string');
 });
 
@@ -786,11 +856,11 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.match(header, /extern const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\];/);
   assert.doesNotMatch(source, /PCE_RAM_BANK_AT\(129, 3\);/);
   assert.doesNotMatch(source, /pce_editor_image_bg_map_bank129/);
-  assert.match(source, /pce_editor_image_bg_tiles_cd = \{ \{ 64u, 0u, 0u \}, 1u \};/);
-  assert.match(source, /pce_editor_image_bg_map_cd = \{ \{ 65u, 0u, 0u \}, 1u \};/);
+  assert.match(source, /pce_editor_image_bg_tiles_cd = \{ \{ 64u, 0u, 0u \}, 1u, 2048u, 0u \};/);
+  assert.match(source, /pce_editor_image_bg_map_cd = \{ \{ 65u, 0u, 0u \}, 1u, 2048u, 0u \};/);
   assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_tiles_cd \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_map_cd \}, 36u, 16u, 128u, 0u, 0u \}/);
-  assert.match(source, /pce_editor_sprite_hero_patterns_cd = \{ \{ 66u, 0u, 0u \}, 2u \};/);
-  assert.match(source, /pce_editor_adpcm_voice_data_cd = \{ \{ 68u, 0u, 0u \}, 2u \};/);
+  assert.match(source, /pce_editor_sprite_hero_patterns_cd = \{ \{ 66u, 0u, 0u \}, 2u, 4096u, 0u \};/);
+  assert.match(source, /pce_editor_adpcm_voice_data_cd = \{ \{ 68u, 0u, 0u \}, 2u, 4096u, 0u \};/);
   assert.match(source, /\{ \(const unsigned char \*\)0, 4096ul, 16000u, 0u, 14u, 0u, 1u, &pce_editor_adpcm_voice_data_cd \}/);
   assert.match(header, /pce_editor_cd_sector_t start_sector;/);
   assert.match(header, /pce_editor_cd_sector_t end_sector;/);
@@ -814,6 +884,75 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.doesNotMatch(source, /static const unsigned char pce_editor_adpcm_voice_data\[\]/);
 });
 
+test('PCE CD asset source generation uses compressed BG and sprite sidecars when available', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-cd-assets-compressed-');
+  const bgTilesRle = makeRleRun(2048, 0x22);
+  const bgMapRle = makeRleRun(2048, 0x80);
+  const spritePatternsRle = makeRleRun(4096, 0x33);
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/generated/bg/palette.bin', Buffer.alloc(32, 0x01));
+  writeFile(projectDir, 'assets/generated/bg/tiles.bin', Buffer.alloc(2048, 0x22));
+  writeFile(projectDir, 'assets/generated/bg/tiles.rle', bgTilesRle);
+  writeFile(projectDir, 'assets/generated/bg/map_vram.bin', Buffer.alloc(2048, 0x80));
+  writeFile(projectDir, 'assets/generated/bg/map_vram.rle', bgMapRle);
+  writeFile(projectDir, 'assets/generated/hero/palette.bin', Buffer.alloc(32, 0x02));
+  writeFile(projectDir, 'assets/generated/hero/patterns.bin', Buffer.alloc(4096, 0x33));
+  writeFile(projectDir, 'assets/generated/hero/patterns.rle', spritePatternsRle);
+  writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
+    version: 2,
+    assets: [
+      {
+        id: 'bg',
+        type: 'image',
+        source: 'assets/images/bg.png',
+        options: { width: 288, height: 128, compression: 'auto' },
+        data: { generated: {
+          paletteFile: 'assets/generated/bg/palette.bin',
+          tilesFile: 'assets/generated/bg/tiles.bin',
+          tilesCompressedFile: 'assets/generated/bg/tiles.rle',
+          mapVramFile: 'assets/generated/bg/map_vram.bin',
+          mapVramCompressedFile: 'assets/generated/bg/map_vram.rle',
+          compression: {
+            policy: 'auto',
+            tiles: { codec: 'rle', file: 'assets/generated/bg/tiles.rle', rawBytes: 2048, byteLength: bgTilesRle.length },
+            map: { codec: 'rle', file: 'assets/generated/bg/map_vram.rle', rawBytes: 2048, byteLength: bgMapRle.length },
+          },
+        } },
+      },
+      {
+        id: 'hero',
+        type: 'sprite',
+        source: 'assets/sprites/hero.png',
+        options: { width: 64, height: 128, cellWidth: 16, cellHeight: 16, compression: 'auto' },
+        data: { generated: {
+          paletteFile: 'assets/generated/hero/palette.bin',
+          tilesFile: 'assets/generated/hero/patterns.bin',
+          tilesCompressedFile: 'assets/generated/hero/patterns.rle',
+          compression: {
+            policy: 'auto',
+            tiles: { codec: 'rle', file: 'assets/generated/hero/patterns.rle', rawBytes: 4096, byteLength: spritePatternsRle.length },
+          },
+        } },
+      },
+    ],
+  }, null, 2));
+
+  const result = assetManager.generateAssetSources(projectDir);
+  const source = fs.readFileSync(result.sourcePath, 'utf-8');
+
+  assert.deepEqual(assetManager.collectCdDataFiles(projectDir), [
+    'assets/generated/bg/tiles.rle',
+    'assets/generated/bg/map_vram.rle',
+    'assets/generated/hero/patterns.rle',
+  ]);
+  assert.match(source, new RegExp(`pce_editor_image_bg_tiles_cd = \\{ \\{ 64u, 0u, 0u \\}, 1u, ${bgTilesRle.length}u, 1u \\};`));
+  assert.match(source, new RegExp(`pce_editor_image_bg_map_cd = \\{ \\{ 65u, 0u, 0u \\}, 1u, ${bgMapRle.length}u, 1u \\};`));
+  assert.match(source, new RegExp(`pce_editor_sprite_hero_patterns_cd = \\{ \\{ 66u, 0u, 0u \\}, 1u, ${spritePatternsRle.length}u, 1u \\};`));
+  assert.match(source, /\{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_tiles_cd \}/);
+  assert.match(source, /\{ \(const unsigned char \*\)0, 4096u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_sprite_hero_patterns_cd \}/);
+});
+
 test('PCE sample template registers slideshow images and PSG BGM assets', () => {
   const templateDir = path.join(__dirname, '..', 'template', 'template_pce_sample');
   const doc = JSON.parse(fs.readFileSync(path.join(templateDir, 'assets', 'pce-assets.json'), 'utf-8'));
@@ -829,6 +968,20 @@ test('PCE sample template registers slideshow images and PSG BGM assets', () => 
   assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.data.generated.paletteFile))));
   assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.data.generated.tilesFile))));
   assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.data.generated.mapFile))));
+  assert.ok(slides.every((asset) => asset.options.compression === 'auto'));
+  assert.ok(slides.every((asset) => asset.data.generated.compression?.tiles?.codec === 'rle'));
+  assert.ok(slides.every((asset) => asset.data.generated.compression?.map?.codec === 'rle'));
+  assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.data.generated.tilesCompressedFile))));
+  assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.data.generated.mapVramCompressedFile))));
+  slides.forEach((asset) => {
+    const generated = asset.data.generated;
+    const tiles = fs.readFileSync(path.join(templateDir, generated.tilesFile));
+    const tilesRle = fs.readFileSync(path.join(templateDir, generated.tilesCompressedFile));
+    const map = fs.readFileSync(path.join(templateDir, generated.mapVramFile));
+    const mapRle = fs.readFileSync(path.join(templateDir, generated.mapVramCompressedFile));
+    assert.deepEqual(decodePceRle(tilesRle, tiles.length), tiles);
+    assert.deepEqual(decodePceRle(mapRle, map.length), map);
+  });
   assert.ok(bgm);
   assert.equal(bgm.type, 'psg-song');
   assert.equal(bgm.options.kind, 'song');
@@ -852,4 +1005,22 @@ test('PCE sample template registers slideshow images and PSG BGM assets', () => 
   assert.ok(generatedSource.includes('PCE_EDITOR_BANKED_SECTION(".rom_bank1")'));
   assert.match(generatedSource, /pce_editor_image_slide_01_seaside_tiles_chunks/);
   assert.match(generatedSource, /pce_editor_map_asset_bank/);
+});
+
+test('PCE visual novel template compressed visual assets decode to raw data', () => {
+  const templateDir = path.join(__dirname, '..', 'template', 'template_pce_vn_cd');
+  const doc = JSON.parse(fs.readFileSync(path.join(templateDir, 'assets', 'pce-assets.json'), 'utf-8'));
+  const visuals = doc.assets.filter((entry) => entry.type === 'image' || entry.type === 'sprite');
+  assert.ok(visuals.length >= 4);
+  visuals.forEach((asset) => {
+    const generated = asset.data.generated;
+    const tiles = fs.readFileSync(path.join(templateDir, generated.tilesFile));
+    const tilesRle = fs.readFileSync(path.join(templateDir, generated.tilesCompressedFile));
+    assert.deepEqual(decodePceRle(tilesRle, tiles.length), tiles);
+    if (asset.type === 'image') {
+      const map = fs.readFileSync(path.join(templateDir, generated.mapVramFile));
+      const mapRle = fs.readFileSync(path.join(templateDir, generated.mapVramCompressedFile));
+      assert.deepEqual(decodePceRle(mapRle, map.length), map);
+    }
+  });
 });

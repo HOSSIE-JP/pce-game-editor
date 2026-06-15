@@ -25,6 +25,11 @@ const PCE_BG_MAP_WIDTH_TILES = 64;
 const PCE_BG_MAP_HEIGHT_TILES = 32;
 const PCE_BG_AUTO_MAP_BASE = 0;
 const PCE_BG_AUTO_TILE_BASE = Math.ceil((PCE_BG_MAP_WIDTH_TILES * PCE_BG_MAP_HEIGHT_TILES) / 16);
+const PCE_VISUAL_COMPRESSION_NONE = 'none';
+const PCE_VISUAL_COMPRESSION_AUTO = 'auto';
+const PCE_VISUAL_COMPRESSION_RLE = 'rle';
+const PCE_EDITOR_CD_COMPRESSION_NONE = 0;
+const PCE_EDITOR_CD_COMPRESSION_RLE = 1;
 const PCE_ADPCM_CODEC = audioConverter.PCE_ADPCM_CODEC || 'oki-msm5205';
 const PCE_ADPCM_ENCODER_VERSION = audioConverter.PCE_ADPCM_ENCODER_VERSION || 2;
 const PCE_ADPCM_NIBBLE_ORDER = audioConverter.PCE_ADPCM_NIBBLE_ORDER || 'msn-first';
@@ -32,6 +37,7 @@ const PCE_ADPCM_MIN_SAMPLE_RATE = audioConverter.PCE_ADPCM_MIN_SAMPLE_RATE || 40
 const PCE_ADPCM_MAX_SAMPLE_RATE = audioConverter.PCE_ADPCM_MAX_SAMPLE_RATE || 32000;
 const DEFAULT_BG_OPTIONS = Object.freeze({
   kind: 'background',
+  compression: PCE_VISUAL_COMPRESSION_AUTO,
   paletteBank: 0,
   tileBase: PCE_BG_AUTO_TILE_BASE,
   mapBase: PCE_BG_AUTO_MAP_BASE,
@@ -45,6 +51,7 @@ const DEFAULT_BG_OPTIONS = Object.freeze({
 });
 const DEFAULT_SPRITE_OPTIONS = Object.freeze({
   kind: 'sprite',
+  compression: PCE_VISUAL_COMPRESSION_AUTO,
   paletteBank: 0,
   tileBase: 880,
   mapBase: 0,
@@ -209,12 +216,25 @@ function autoBackgroundVramOptions() {
   };
 }
 
+function normalizeVisualCompression(value, fallback = PCE_VISUAL_COMPRESSION_AUTO) {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (!raw) return fallback;
+  if (['none', 'raw', 'off', 'false', '0'].includes(raw)) return PCE_VISUAL_COMPRESSION_NONE;
+  if (['rle', 'pce-rle', 'pce_rle'].includes(raw)) return PCE_VISUAL_COMPRESSION_RLE;
+  if (['auto', 'best', 'fast', 'aplib', 'lz4w', 'true', '1'].includes(raw)) return PCE_VISUAL_COMPRESSION_AUTO;
+  return fallback;
+}
+
 function normalizeImageOptions(asset = {}) {
   const rawOptions = asset.options && typeof asset.options === 'object' ? { ...asset.options } : {};
   const isSprite = asset.type === 'sprite' || rawOptions.kind === 'sprite';
   const defaults = isSprite ? DEFAULT_SPRITE_OPTIONS : DEFAULT_BG_OPTIONS;
   const options = { ...defaults, ...rawOptions };
   options.kind = isSprite ? 'sprite' : 'background';
+  options.compression = normalizeVisualCompression(
+    rawOptions.compression ?? rawOptions.spriteEditor?.compression,
+    defaults.compression,
+  );
   options.paletteBank = clampInt(options.paletteBank, 0, 15, defaults.paletteBank);
   options.tileBase = clampInt(options.tileBase, 0, 2047, defaults.tileBase);
   options.mapBase = clampInt(options.mapBase, 0, 2047, defaults.mapBase);
@@ -245,6 +265,45 @@ function normalizeImageOptions(asset = {}) {
   return options;
 }
 
+function normalizeGeneratedCompressionSlot(slot = {}) {
+  if (!slot || typeof slot !== 'object') {
+    return {
+      codec: PCE_VISUAL_COMPRESSION_NONE,
+      file: '',
+      rawBytes: 0,
+      byteLength: 0,
+      savedBytes: 0,
+    };
+  }
+  const codec = normalizeVisualCompression(slot.codec || slot.method || slot.compression, PCE_VISUAL_COMPRESSION_NONE) === PCE_VISUAL_COMPRESSION_RLE
+    ? PCE_VISUAL_COMPRESSION_RLE
+    : PCE_VISUAL_COMPRESSION_NONE;
+  const rawBytes = clampInt(slot.rawBytes ?? slot.uncompressedBytes, 0, 0x7fffffff, 0);
+  const byteLength = clampInt(slot.byteLength ?? slot.compressedBytes, 0, 0x7fffffff, 0);
+  return {
+    codec,
+    file: normalizeAssetSource(slot.file || slot.path || ''),
+    rawBytes,
+    byteLength,
+    savedBytes: clampInt(slot.savedBytes, 0, 0x7fffffff, Math.max(0, rawBytes - byteLength)),
+  };
+}
+
+function normalizeGeneratedCompression(compression = {}) {
+  if (!compression || typeof compression !== 'object') {
+    return {
+      policy: PCE_VISUAL_COMPRESSION_AUTO,
+      tiles: normalizeGeneratedCompressionSlot(),
+      map: normalizeGeneratedCompressionSlot(),
+    };
+  }
+  return {
+    policy: normalizeVisualCompression(compression.policy ?? compression.requested, PCE_VISUAL_COMPRESSION_AUTO),
+    tiles: normalizeGeneratedCompressionSlot(compression.tiles),
+    map: normalizeGeneratedCompressionSlot(compression.map),
+  };
+}
+
 function normalizeGeneratedData(data = {}) {
   if (!data || typeof data !== 'object') return {};
   const generated = data.generated && typeof data.generated === 'object'
@@ -252,8 +311,10 @@ function normalizeGeneratedData(data = {}) {
         ...data.generated,
         paletteFile: normalizeAssetSource(data.generated.paletteFile || ''),
         tilesFile: normalizeAssetSource(data.generated.tilesFile || ''),
+        tilesCompressedFile: normalizeAssetSource(data.generated.tilesCompressedFile || ''),
         mapFile: normalizeAssetSource(data.generated.mapFile || ''),
         mapVramFile: normalizeAssetSource(data.generated.mapVramFile || ''),
+        mapVramCompressedFile: normalizeAssetSource(data.generated.mapVramCompressedFile || ''),
         outputFile: normalizeAssetSource(data.generated.outputFile || ''),
         previewFile: normalizeAssetSource(data.generated.previewFile || ''),
         tileCount: clampInt(data.generated.tileCount, 0, 65535, 0),
@@ -272,6 +333,7 @@ function normalizeGeneratedData(data = {}) {
         waveform: Array.isArray(data.generated.waveform)
           ? data.generated.waveform.map((value) => Math.max(0, Math.min(1, Number(value) || 0))).slice(0, 256)
           : [],
+        compression: normalizeGeneratedCompression(data.generated.compression),
       }
     : null;
   return generated ? { ...data, generated } : { ...data };
@@ -618,20 +680,24 @@ function buildInternalPceConversionPlan(projectDir, asset) {
   const generatedDir = path.join(projectDir, 'assets', 'generated', normalized.id);
   const paletteFile = relativeGeneratedPath(normalized.id, 'palette.bin');
   const tilesFile = relativeGeneratedPath(normalized.id, kind === 'sprite' ? 'patterns.bin' : 'tiles.bin');
+  const tilesCompressedFile = relativeGeneratedPath(normalized.id, kind === 'sprite' ? 'patterns.rle' : 'tiles.rle');
   const mapFile = kind === 'sprite' ? '' : relativeGeneratedPath(normalized.id, 'map.bin');
   const mapVramFile = kind === 'sprite' ? '' : relativeGeneratedPath(normalized.id, 'map_vram.bin');
+  const mapVramCompressedFile = kind === 'sprite' ? '' : relativeGeneratedPath(normalized.id, 'map_vram.rle');
   const previewFile = relativeGeneratedPath(normalized.id, 'preview.json');
   const paletteAbs = path.join(projectDir, paletteFile);
   const tilesAbs = path.join(projectDir, tilesFile);
+  const tilesCompressedAbs = path.join(projectDir, tilesCompressedFile);
   const mapAbs = mapFile ? path.join(projectDir, mapFile) : '';
   const mapVramAbs = mapVramFile ? path.join(projectDir, mapVramFile) : '';
+  const mapVramCompressedAbs = mapVramCompressedFile ? path.join(projectDir, mapVramCompressedFile) : '';
   return {
     kind,
     command: PCE_INTERNAL_IMAGE_CONVERTER,
     args: [],
     cwd: projectDir,
-    files: { paletteFile, tilesFile, mapFile, mapVramFile, previewFile },
-    absFiles: { paletteAbs, tilesAbs, mapAbs, mapVramAbs, previewAbs: path.join(projectDir, previewFile) },
+    files: { paletteFile, tilesFile, tilesCompressedFile, mapFile, mapVramFile, mapVramCompressedFile, previewFile },
+    absFiles: { paletteAbs, tilesAbs, tilesCompressedAbs, mapAbs, mapVramAbs, mapVramCompressedAbs, previewAbs: path.join(projectDir, previewFile) },
     generatedDir,
   };
 }
@@ -1022,6 +1088,80 @@ function encodePceSprites(indexed) {
   return Buffer.concat(patterns);
 }
 
+function encodePceRleBuffer(input) {
+  if (!Buffer.isBuffer(input) || input.length === 0) return Buffer.alloc(0);
+  const output = [];
+  let offset = 0;
+  while (offset < input.length) {
+    let runLength = 1;
+    while (
+      offset + runLength < input.length
+      && runLength < 130
+      && input[offset + runLength] === input[offset]
+    ) {
+      runLength += 1;
+    }
+    if (runLength >= 3) {
+      output.push(0x80 | (runLength - 3), input[offset]);
+      offset += runLength;
+      continue;
+    }
+
+    const literalStart = offset;
+    offset += runLength;
+    while (offset < input.length && offset - literalStart < 128) {
+      runLength = 1;
+      while (
+        offset + runLength < input.length
+        && runLength < 130
+        && input[offset + runLength] === input[offset]
+      ) {
+        runLength += 1;
+      }
+      if (runLength >= 3) break;
+      if ((offset - literalStart) + runLength > 128) {
+        offset = literalStart + 128;
+        break;
+      }
+      offset += runLength;
+    }
+    const literalLength = offset - literalStart;
+    output.push(literalLength - 1);
+    for (let i = literalStart; i < offset; i += 1) output.push(input[i]);
+  }
+  return Buffer.from(output);
+}
+
+function selectVisualCompression(rawBuffer, policy = PCE_VISUAL_COMPRESSION_AUTO) {
+  const normalizedPolicy = normalizeVisualCompression(policy);
+  if (!Buffer.isBuffer(rawBuffer) || rawBuffer.length === 0 || normalizedPolicy === PCE_VISUAL_COMPRESSION_NONE) {
+    return { codec: PCE_VISUAL_COMPRESSION_NONE, buffer: Buffer.alloc(0), rawBytes: rawBuffer?.length || 0, byteLength: 0, savedBytes: 0 };
+  }
+  const compressed = encodePceRleBuffer(rawBuffer);
+  const shouldUse = normalizedPolicy === PCE_VISUAL_COMPRESSION_RLE || compressed.length < rawBuffer.length;
+  if (!shouldUse) {
+    return { codec: PCE_VISUAL_COMPRESSION_NONE, buffer: Buffer.alloc(0), rawBytes: rawBuffer.length, byteLength: 0, savedBytes: 0 };
+  }
+  return {
+    codec: PCE_VISUAL_COMPRESSION_RLE,
+    buffer: compressed,
+    rawBytes: rawBuffer.length,
+    byteLength: compressed.length,
+    savedBytes: Math.max(0, rawBuffer.length - compressed.length),
+  };
+}
+
+function writeVisualCompressionSidecar(rawBuffer, absPath, policy) {
+  const result = selectVisualCompression(rawBuffer, policy);
+  if (result.codec === PCE_VISUAL_COMPRESSION_RLE && absPath) {
+    ensureDirSync(path.dirname(absPath));
+    fs.writeFileSync(absPath, result.buffer);
+  } else if (absPath && fs.existsSync(absPath)) {
+    fs.unlinkSync(absPath);
+  }
+  return result;
+}
+
 function runInternalPceImageConversion(plan, sourceAbs, asset, options = {}) {
   ensureDirSync(plan.generatedDir);
   if (options.dryRun) {
@@ -1029,14 +1169,19 @@ function runInternalPceImageConversion(plan, sourceAbs, asset, options = {}) {
   }
   const decoded = decodePngImage(fs.readFileSync(sourceAbs));
   const indexed = convertDecodedToIndexed16(decoded, normalizeImageOptions(asset));
+  const imageOptions = normalizeImageOptions(asset);
   fs.writeFileSync(plan.absFiles.paletteAbs, encodePcePaletteBuffer(indexed.palette));
   if (plan.kind === 'background') {
     const encoded = encodePceBackground(indexed, asset);
     fs.writeFileSync(plan.absFiles.tilesAbs, encoded.tiles);
     fs.writeFileSync(plan.absFiles.mapAbs, encoded.map);
     fs.writeFileSync(plan.absFiles.mapVramAbs, encoded.vramMap);
+    writeVisualCompressionSidecar(encoded.tiles, plan.absFiles.tilesCompressedAbs, imageOptions.compression);
+    writeVisualCompressionSidecar(encoded.vramMap, plan.absFiles.mapVramCompressedAbs, imageOptions.compression);
   } else {
-    fs.writeFileSync(plan.absFiles.tilesAbs, encodePceSprites(indexed));
+    const patterns = encodePceSprites(indexed);
+    fs.writeFileSync(plan.absFiles.tilesAbs, patterns);
+    writeVisualCompressionSidecar(patterns, plan.absFiles.tilesCompressedAbs, imageOptions.compression);
   }
   return {
     ok: true,
@@ -1051,19 +1196,58 @@ function uniqueWarnings(warnings = []) {
   return Array.from(new Set(warnings.map((warning) => String(warning || '').trim()).filter(Boolean)));
 }
 
+function generatedCompressionSlot(policy, rawBuffer, compressedBuffer, compressedFile) {
+  const normalizedPolicy = normalizeVisualCompression(policy);
+  const rawBytes = Buffer.isBuffer(rawBuffer) ? rawBuffer.length : 0;
+  const byteLength = Buffer.isBuffer(compressedBuffer) ? compressedBuffer.length : 0;
+  const useCompressed = normalizedPolicy !== PCE_VISUAL_COMPRESSION_NONE
+    && byteLength > 0
+    && (normalizedPolicy === PCE_VISUAL_COMPRESSION_RLE || byteLength < rawBytes);
+  if (!useCompressed) {
+    return {
+      codec: PCE_VISUAL_COMPRESSION_NONE,
+      file: '',
+      rawBytes,
+      byteLength: 0,
+      savedBytes: 0,
+    };
+  }
+  return {
+    codec: PCE_VISUAL_COMPRESSION_RLE,
+    file: compressedFile,
+    rawBytes,
+    byteLength,
+    savedBytes: Math.max(0, rawBytes - byteLength),
+  };
+}
+
 function createGeneratedMetadata(projectDir, asset, plan, sourceRel, imageSize, extraWarnings = []) {
   const palette = fs.existsSync(plan.absFiles.paletteAbs) ? fs.readFileSync(plan.absFiles.paletteAbs) : Buffer.alloc(0);
   const tiles = fs.existsSync(plan.absFiles.tilesAbs) ? fs.readFileSync(plan.absFiles.tilesAbs) : Buffer.alloc(0);
+  const tilesCompressed = fs.existsSync(plan.absFiles.tilesCompressedAbs) ? fs.readFileSync(plan.absFiles.tilesCompressedAbs) : Buffer.alloc(0);
   const map = plan.absFiles.mapAbs && fs.existsSync(plan.absFiles.mapAbs) ? fs.readFileSync(plan.absFiles.mapAbs) : Buffer.alloc(0);
   const vramMap = plan.absFiles.mapVramAbs && fs.existsSync(plan.absFiles.mapVramAbs) ? fs.readFileSync(plan.absFiles.mapVramAbs) : Buffer.alloc(0);
+  const vramMapCompressed = plan.absFiles.mapVramCompressedAbs && fs.existsSync(plan.absFiles.mapVramCompressedAbs) ? fs.readFileSync(plan.absFiles.mapVramCompressedAbs) : Buffer.alloc(0);
   const isSprite = asset.type === 'sprite';
+  const options = normalizeImageOptions(asset);
+  const tilesCompression = generatedCompressionSlot(options.compression, tiles, tilesCompressed, plan.files.tilesCompressedFile);
+  const mapCompression = isSprite
+    ? generatedCompressionSlot(PCE_VISUAL_COMPRESSION_NONE, Buffer.alloc(0), Buffer.alloc(0), '')
+    : generatedCompressionSlot(options.compression, vramMap, vramMapCompressed, plan.files.mapVramCompressedFile);
   const generated = {
     ...plan.files,
+    tilesCompressedFile: tilesCompression.codec === PCE_VISUAL_COMPRESSION_RLE ? plan.files.tilesCompressedFile : '',
+    mapVramCompressedFile: mapCompression.codec === PCE_VISUAL_COMPRESSION_RLE ? plan.files.mapVramCompressedFile : '',
     tileCount: isSprite ? Math.floor(tiles.length / 128) : Math.floor(tiles.length / 32),
     paletteCount: Math.ceil(palette.length / 32),
     vramBytes: tiles.length + (isSprite ? 0 : (vramMap.length || map.length)),
     warnings: [],
     paletteColors: readPaletteColors(palette),
+    compression: {
+      policy: options.compression,
+      tiles: tilesCompression,
+      map: mapCompression,
+    },
   };
   generated.warnings = uniqueWarnings([...extraWarnings, ...buildImageWarnings(asset, imageSize, generated)]);
   const preview = {
@@ -1074,6 +1258,7 @@ function createGeneratedMetadata(projectDir, asset, plan, sourceRel, imageSize, 
     tileCount: generated.tileCount,
     paletteCount: generated.paletteCount,
     vramBytes: generated.vramBytes,
+    compression: generated.compression,
     warnings: generated.warnings,
   };
   ensureDirSync(path.dirname(plan.absFiles.previewAbs));
@@ -1084,6 +1269,31 @@ function createGeneratedMetadata(projectDir, asset, plan, sourceRel, imageSize, 
 function readFirstTileIndex(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 2) return null;
   return buffer.readUInt16LE(0) & 0x0fff;
+}
+
+function generatedCompressionNeedsRefresh(projectDir, asset, slots = ['tiles']) {
+  if (!asset || (asset.type !== 'image' && asset.type !== 'sprite')) return false;
+  const options = normalizeImageOptions(asset);
+  const generated = asset.data?.generated || {};
+  const compression = normalizeGeneratedCompression(generated.compression);
+  if (compression.policy !== options.compression) return true;
+  return slots.some((slot) => {
+    const entry = compression[slot] || {};
+    const rawFile = slot === 'map' ? generated.mapVramFile : generated.tilesFile;
+    const raw = readGeneratedBuffer(projectDir, rawFile);
+    if (!raw.length) return false;
+    const expected = selectVisualCompression(raw, options.compression);
+    const compressedFile = slot === 'map' ? generated.mapVramCompressedFile : generated.tilesCompressedFile;
+    const normalizedCompressed = normalizeAssetSource(compressedFile || '');
+    if (expected.codec !== PCE_VISUAL_COMPRESSION_RLE) {
+      return entry.codec === PCE_VISUAL_COMPRESSION_RLE;
+    }
+    if (!normalizedCompressed || entry.codec !== PCE_VISUAL_COMPRESSION_RLE) return true;
+    if (normalizeAssetSource(entry.file || '') !== normalizedCompressed) return true;
+    if (entry.rawBytes !== raw.length || entry.byteLength !== expected.buffer.length) return true;
+    const compressed = readGeneratedBuffer(projectDir, normalizedCompressed);
+    return !compressed.length || Buffer.compare(compressed, expected.buffer) !== 0;
+  });
 }
 
 function backgroundGeneratedAssetNeedsRefresh(projectDir, asset) {
@@ -1106,10 +1316,25 @@ function backgroundGeneratedAssetNeedsRefresh(projectDir, asset) {
   if (expectedVramMapBytes && vramMap.length !== expectedVramMapBytes) return true;
   if (vramFirstTile !== null && vramFirstTile !== tileBase) return true;
   if (mapFirstTile !== null && mapFirstTile !== tileBase) return true;
+  if (generatedCompressionNeedsRefresh(projectDir, asset, ['tiles', 'map'])) return true;
   return false;
 }
 
-function regenerateBackgroundGeneratedAsset(projectDir, asset) {
+function spriteGeneratedAssetNeedsRefresh(projectDir, asset) {
+  if (!asset || asset.type !== 'sprite') return false;
+  const options = normalizeImageOptions(asset);
+  const generated = asset.data?.generated || {};
+  const patterns = readGeneratedBuffer(projectDir, generated.tilesFile);
+  const widthPatterns = Math.max(1, Math.ceil((options.width || options.cellWidth || 16) / 16));
+  const heightPatterns = Math.max(1, Math.ceil((options.height || options.cellHeight || 16) / 16));
+  const expectedPatternBytes = widthPatterns * heightPatterns * 128;
+  if (!patterns.length) return true;
+  if (expectedPatternBytes && patterns.length !== expectedPatternBytes) return true;
+  if (generatedCompressionNeedsRefresh(projectDir, asset, ['tiles'])) return true;
+  return false;
+}
+
+function regenerateVisualGeneratedAsset(projectDir, asset) {
   const sourceRel = normalizeAssetSource(asset.source || '');
   if (!sourceRel) return asset;
   const { absPath: sourceAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
@@ -1132,11 +1357,11 @@ function regenerateBackgroundGeneratedAsset(projectDir, asset) {
   });
 }
 
-function ensureBackgroundGeneratedAssets(projectDir, doc) {
+function ensureVisualGeneratedAssets(projectDir, doc) {
   let changed = false;
   doc.assets = (doc.assets || []).map((asset) => {
-    if (!backgroundGeneratedAssetNeedsRefresh(projectDir, asset)) return asset;
-    const regenerated = regenerateBackgroundGeneratedAsset(projectDir, asset);
+    if (!backgroundGeneratedAssetNeedsRefresh(projectDir, asset) && !spriteGeneratedAssetNeedsRefresh(projectDir, asset)) return asset;
+    const regenerated = regenerateVisualGeneratedAsset(projectDir, asset);
     if (regenerated !== asset) changed = true;
     return regenerated;
   });
@@ -1180,6 +1405,7 @@ function importImage(projectDir, payload = {}, options = {}) {
     options: {
       ...payload.options,
       kind,
+      compression: payload.compression ?? payload.options?.compression,
       paletteBank: payload.paletteBank ?? payload.options?.paletteBank,
       tileBase: payload.tileBase ?? payload.options?.tileBase,
       mapBase: payload.mapBase ?? payload.options?.mapBase,
@@ -1599,15 +1825,20 @@ function emitCdFileRef(name, buffer, relativePath = '', options = {}) {
   const layout = options.cdLayout?.get(normalizeRelativePath(relativePath));
   const sector = layout?.sector || 0;
   const sectorCount = layout?.sectorCount || Math.ceil(buffer.length / CD_SECTOR_BYTES);
+  const byteSize = clampInt(options.byteSize ?? buffer.length, 0, 0x7fffffff, buffer.length);
+  const uncompressedSize = clampInt(options.uncompressedSize ?? buffer.length, 0, 0x7fffffff, buffer.length);
+  const compression = normalizeVisualCompression(options.compression, PCE_VISUAL_COMPRESSION_NONE) === PCE_VISUAL_COMPRESSION_RLE
+    ? PCE_EDITOR_CD_COMPRESSION_RLE
+    : PCE_EDITOR_CD_COMPRESSION_NONE;
   const cdRefName = `${name}_cd`;
   return {
     lines: [
       '#if defined(__PCE_CD__)',
-      `static const pce_editor_cd_data_ref_t ${cdRefName} = { { ${(sector & 0xff)}u, ${((sector >> 8) & 0xff)}u, ${((sector >> 16) & 0xff)}u }, ${sectorCount}u };`,
+      `static const pce_editor_cd_data_ref_t ${cdRefName} = { { ${(sector & 0xff)}u, ${((sector >> 8) & 0xff)}u, ${((sector >> 16) & 0xff)}u }, ${sectorCount}u, ${byteSize}u, ${compression}u };`,
       '#endif',
     ],
     pointer: '(const unsigned char *)0',
-    size: buffer.length,
+    size: uncompressedSize,
     chunks: '(const pce_editor_data_chunk_t *)0',
     chunkCount: 0,
     cd: `&${cdRefName}`,
@@ -1626,6 +1857,41 @@ function readGeneratedBuffer(projectDir, relativePath) {
   } catch (_err) {
     return Buffer.alloc(0);
   }
+}
+
+function generatedCompressionEntry(generated = {}, slot = 'tiles') {
+  const compression = normalizeGeneratedCompression(generated.compression);
+  return slot === 'map' ? compression.map : compression.tiles;
+}
+
+function generatedCdPayload(projectDir, generated = {}, slot = 'tiles') {
+  const rawPath = slot === 'map' ? generated.mapVramFile : generated.tilesFile;
+  const compressedPath = slot === 'map' ? generated.mapVramCompressedFile : generated.tilesCompressedFile;
+  const raw = readGeneratedBuffer(projectDir, rawPath);
+  const entry = generatedCompressionEntry(generated, slot);
+  if (
+    entry.codec === PCE_VISUAL_COMPRESSION_RLE
+    && compressedPath
+    && entry.file === normalizeAssetSource(compressedPath)
+  ) {
+    const compressed = readGeneratedBuffer(projectDir, compressedPath);
+    if (compressed.length > 0) {
+      return {
+        buffer: compressed,
+        relativePath: compressedPath,
+        uncompressedSize: raw.length || entry.rawBytes || 0,
+        byteSize: compressed.length,
+        compression: PCE_VISUAL_COMPRESSION_RLE,
+      };
+    }
+  }
+  return {
+    buffer: raw,
+    relativePath: rawPath,
+    uncompressedSize: raw.length,
+    byteSize: raw.length,
+    compression: PCE_VISUAL_COMPRESSION_NONE,
+  };
 }
 
 function cPointer(name, buffer) {
@@ -1647,17 +1913,33 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
     const ident = toCIdentifier(`pce_editor_${type}_${asset.id}`);
     const generated = asset.data.generated || {};
     const palette = readGeneratedBuffer(projectDir, generated.paletteFile);
-    const tiles = readGeneratedBuffer(projectDir, generated.tilesFile);
+    const tilesPayload = useCdFiles
+      ? generatedCdPayload(projectDir, generated, 'tiles')
+      : { buffer: readGeneratedBuffer(projectDir, generated.tilesFile), relativePath: generated.tilesFile, uncompressedSize: 0, byteSize: 0, compression: PCE_VISUAL_COMPRESSION_NONE };
+    const tiles = tilesPayload.buffer;
     const mapFile = useCdFiles && !isSprite && generated.mapVramFile ? generated.mapVramFile : generated.mapFile;
-    const map = isSprite ? Buffer.alloc(0) : readGeneratedBuffer(projectDir, mapFile);
+    const mapPayload = useCdFiles && !isSprite && generated.mapVramFile
+      ? generatedCdPayload(projectDir, generated, 'map')
+      : { buffer: isSprite ? Buffer.alloc(0) : readGeneratedBuffer(projectDir, mapFile), relativePath: mapFile, uncompressedSize: 0, byteSize: 0, compression: PCE_VISUAL_COMPRESSION_NONE };
+    const map = mapPayload.buffer;
     const paletteRef = emitDataRef(`${ident}_palette`, palette, bankAllocator, { threshold: Number.MAX_SAFE_INTEGER, allowBanking: generationOptions.allowBanking });
     const tilesRef = useCdFiles
-      ? emitCdFileRef(`${ident}_${isSprite ? 'patterns' : 'tiles'}`, tiles, generated.tilesFile, { cdLayout: generationOptions.cdLayout })
+      ? emitCdFileRef(`${ident}_${isSprite ? 'patterns' : 'tiles'}`, tiles, tilesPayload.relativePath, {
+          cdLayout: generationOptions.cdLayout,
+          uncompressedSize: tilesPayload.uncompressedSize,
+          byteSize: tilesPayload.byteSize,
+          compression: tilesPayload.compression,
+        })
       : emitDataRef(`${ident}_${isSprite ? 'patterns' : 'tiles'}`, tiles, bankAllocator, { allowBanking: generationOptions.allowBanking });
     const mapRef = isSprite
       ? emitDataRef(`${ident}_map`, map, bankAllocator, { allowBanking: generationOptions.allowBanking })
       : (useCdFiles && generated.mapVramFile
-          ? emitCdFileRef(`${ident}_map`, map, generated.mapVramFile, { cdLayout: generationOptions.cdLayout })
+          ? emitCdFileRef(`${ident}_map`, map, mapPayload.relativePath, {
+              cdLayout: generationOptions.cdLayout,
+              uncompressedSize: mapPayload.uncompressedSize,
+              byteSize: mapPayload.byteSize,
+              compression: mapPayload.compression,
+            })
           : emitDataRef(`${ident}_map`, map, bankAllocator, { allowBanking: generationOptions.allowBanking }));
     arrayLines.push(...paletteRef.lines);
     arrayLines.push(...tilesRef.lines);
@@ -1871,8 +2153,8 @@ function collectCdDataFiles(projectDir) {
   (doc.assets || []).forEach((asset) => {
     const generated = asset.data?.generated || {};
     if (asset.type === 'image' || asset.type === 'sprite') {
-      files.push(generated.tilesFile || '');
-      if (asset.type === 'image') files.push(generated.mapVramFile || '');
+      files.push(generatedCdPayload(projectDir, generated, 'tiles').relativePath || '');
+      if (asset.type === 'image') files.push(generatedCdPayload(projectDir, generated, 'map').relativePath || '');
     } else if (asset.type === 'adpcm') {
       files.push(generated.outputFile || '');
     }
@@ -2043,7 +2325,7 @@ function normalizeCdDataFileList(projectDir, entries = []) {
 
 function generateAssetSources(projectDir, options = {}) {
   const doc = readAssetDocument(projectDir);
-  ensureBackgroundGeneratedAssets(projectDir, doc);
+  ensureVisualGeneratedAssets(projectDir, doc);
   ensureAdpcmGeneratedAssets(projectDir, doc);
   const image = doc.assets.find((asset) => asset.type === 'image');
   const sound = doc.assets.find((asset) => asset.type === 'psg-sfx' || asset.type === 'psg-song');
@@ -2089,7 +2371,12 @@ function generateAssetSources(projectDir, options = {}) {
     'typedef struct {',
     '  pce_editor_cd_sector_t sector;',
     '  unsigned int sector_count;',
+    '  unsigned int byte_size;',
+    '  unsigned char compression;',
     '} pce_editor_cd_data_ref_t;',
+    '',
+    '#define PCE_EDITOR_CD_COMPRESSION_NONE 0u',
+    '#define PCE_EDITOR_CD_COMPRESSION_RLE 1u',
     '',
     'typedef struct {',
     '  const unsigned char *data;',
