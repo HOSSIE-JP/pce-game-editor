@@ -76,6 +76,68 @@
   border: 1px solid rgba(200, 40, 40, 0.55);
 }
 
+/* 1 シーンあたりの scene pack メモリ使用量インジケータ。 */
+.pce-vn-scene-budget {
+  margin: 8px 12px 0;
+  font-size: 11px;
+}
+
+.pce-vn-scene-budget-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  color: var(--muted);
+}
+
+.pce-vn-scene-budget[data-level="warn"] [data-role="scene-budget-value"] { color: #8a6d00; }
+.pce-vn-scene-budget[data-level="error"] [data-role="scene-budget-value"] { color: #a11; font-weight: 700; }
+
+.pce-vn-scene-budget-bar {
+  margin-top: 3px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(127, 127, 127, 0.22);
+  overflow: hidden;
+}
+
+.pce-vn-scene-budget-bar [data-role="scene-budget-fill"] {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent, #3a8);
+  transition: width 0.12s ease;
+}
+
+.pce-vn-scene-budget[data-level="warn"] [data-role="scene-budget-fill"] { background: #e6a700; }
+.pce-vn-scene-budget[data-level="error"] [data-role="scene-budget-fill"] { background: #d23; }
+
+.pce-vn-scene-budget-note {
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.pce-vn-scene-budget[data-level="warn"] .pce-vn-scene-budget-note { color: #8a6d00; }
+.pce-vn-scene-budget[data-level="error"] .pce-vn-scene-budget-note { color: #a11; }
+
+.pce-vn-scene-budget-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.pce-vn-scene-budget-badge[data-level="warn"] {
+  color: #8a6d00;
+  background: rgba(240, 180, 0, 0.18);
+}
+
+.pce-vn-scene-budget-badge[data-level="error"] {
+  color: #fff;
+  background: #d23;
+}
+
 .pce-vn-actions {
   display: flex;
   align-items: center;

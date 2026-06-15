@@ -135,6 +135,55 @@ function countScriptGlyphs(doc) {
   return seen.size;
 }
 
+// pce-vn-manager.js の scene pack バイナリ仕様を反映した定数。runtime は scene 入場時に
+// 1 シーンを VN_SCENE_PACK_LIMIT バイトの active cache へ読み込むため、これを超えると
+// ビルドが失敗する（シーン分割が必要）。下の見積りはエディタ上の早期警告で、最終的な
+// 判定はビルド時の buildScenePack が行う。
+const VN_SCENE_PACK_LIMIT = 4096;
+const VN_PACK_HEADER_SIZE = 20;
+const VN_PACK_COMMAND_SIZE = 19;
+const VN_PACK_MESSAGE_SIZE = 11;
+const VN_PACK_CHOICE_SIZE = 6;
+const VN_PACK_OPTION_SIZE = 7;
+const VN_PACK_SWITCH_SIZE = 5;
+const VN_PACK_SWITCH_CASE_SIZE = 4;
+const VN_MAX_CHOICE_OPTIONS = 4;
+const VN_MAX_SWITCH_CASES = 16;
+
+// 1 シーンの scene pack バイト数を見積もる（buildScenePack と同じ加算規則）。
+function estimateScenePackBytes(scene = {}) {
+  const commands = Array.isArray(scene.commands) ? scene.commands : [];
+  let messageCount = 0;
+  let choiceCount = 0;
+  let switchCount = 0;
+  let dataBytes = 0;
+  commands.forEach((command) => {
+    if (command?.type === 'message') {
+      messageCount += 1;
+      // 表示文字列の各文字 (\r 除く、\n も 1 byte) + 終端マーカー 1 byte。
+      const glyphs = [...messageFullText(command)].filter((ch) => ch !== '\r').length;
+      dataBytes += glyphs + 1;
+    } else if (command?.type === 'choice') {
+      choiceCount += 1;
+      const options = (command.choices || []).slice(0, VN_MAX_CHOICE_OPTIONS);
+      options.forEach((option) => {
+        dataBytes += String(option?.label || '').length + 1;
+      });
+      dataBytes += options.length * VN_PACK_OPTION_SIZE;
+    } else if (command?.type === 'switch') {
+      switchCount += 1;
+      const cases = (command.cases || []).slice(0, VN_MAX_SWITCH_CASES);
+      dataBytes += cases.length * VN_PACK_SWITCH_CASE_SIZE;
+    }
+  });
+  return VN_PACK_HEADER_SIZE
+    + (commands.length * VN_PACK_COMMAND_SIZE)
+    + (messageCount * VN_PACK_MESSAGE_SIZE)
+    + (choiceCount * VN_PACK_CHOICE_SIZE)
+    + (switchCount * VN_PACK_SWITCH_SIZE)
+    + dataBytes;
+}
+
 // runtime と同じ折り返し規則: \n で強制改行、18 文字で自動折り返し、最大 4 行。
 function layoutMessageLines(text) {
   const lines = [''];
@@ -932,6 +981,14 @@ export function activatePlugin({ root, api, registerCapability }) {
             <button class="btn-primary" type="button" data-action="save">保存</button>
           </div>
         </div>
+        <div class="pce-vn-scene-budget" data-role="scene-budget" data-level="ok">
+          <div class="pce-vn-scene-budget-head">
+            <span data-role="scene-budget-label">Scene メモリ</span>
+            <span data-role="scene-budget-value"></span>
+          </div>
+          <div class="pce-vn-scene-budget-bar"><span data-role="scene-budget-fill"></span></div>
+          <div class="pce-vn-scene-budget-note" data-role="scene-budget-note" style="display:none"></div>
+        </div>
         <div class="pce-vn-glyph-budget" data-role="glyph-budget" style="display:none"></div>
         <div class="pce-vn-commands" data-role="commands"></div>
         <div class="form-error" data-role="error"></div>
@@ -953,6 +1010,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   const commandPaletteEl = root.querySelector('[data-role="command-palette"]');
   const errorEl = root.querySelector('[data-role="error"]');
   const glyphBudgetEl = root.querySelector('[data-role="glyph-budget"]');
+  const sceneBudgetEl = root.querySelector('[data-role="scene-budget"]');
   let assets = [];
   let doc = defaultDoc();
   let selectedId = 'opening';
@@ -1395,6 +1453,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (rerenderDetail) renderCommandDetail(current);
     if (updatePreview) void renderCommandPreview();
     updateGlyphBudget();
+    updateSceneBudget();
   }
 
   function commitCurrentUiToDoc() {
@@ -1405,10 +1464,15 @@ export function activatePlugin({ root, api, registerCapability }) {
     sceneList.innerHTML = doc.scenes.map((item) => {
       const firstMessage = item.commands.find((command) => command.type === 'message');
       const canDelete = doc.scenes.length > 1;
+      const bytes = estimateScenePackBytes(item);
+      const level = bytes > VN_SCENE_PACK_LIMIT ? 'error' : (bytes / VN_SCENE_PACK_LIMIT >= 0.85 ? 'warn' : 'ok');
+      const badge = level === 'ok'
+        ? ''
+        : `<span class="pce-vn-scene-budget-badge" data-level="${level}" title="scene pack ${bytes} / ${VN_SCENE_PACK_LIMIT} byte">${level === 'error' ? '⚠ 超過' : `${Math.round((bytes / VN_SCENE_PACK_LIMIT) * 100)}%`}</span>`;
       return `
         <div class="pce-vn-scene-row ${item.id === selectedId ? 'active' : ''}" data-scene-row="${esc(item.id)}">
           <button type="button" data-scene-id="${esc(item.id)}" class="pce-vn-scene-select">
-            <strong>${esc(item.id)}</strong>
+            <strong>${esc(item.id)}${badge}</strong>
             <span>${esc(firstMessage?.text || `${item.commands.length} commands`)}</span>
           </button>
           <button
@@ -1794,11 +1858,38 @@ export function activatePlugin({ root, api, registerCapability }) {
     }
   }
 
+  function updateSceneBudget() {
+    if (!sceneBudgetEl) return;
+    const current = scene();
+    const bytes = current ? estimateScenePackBytes(current) : 0;
+    const ratio = bytes / VN_SCENE_PACK_LIMIT;
+    const percent = Math.round(ratio * 100);
+    const level = bytes > VN_SCENE_PACK_LIMIT ? 'error' : (ratio >= 0.85 ? 'warn' : 'ok');
+    sceneBudgetEl.dataset.level = level;
+    sceneBudgetEl.querySelector('[data-role="scene-budget-value"]').textContent =
+      `${bytes} / ${VN_SCENE_PACK_LIMIT} byte (${percent}%)`;
+    const fill = sceneBudgetEl.querySelector('[data-role="scene-budget-fill"]');
+    fill.style.width = `${Math.min(100, percent)}%`;
+    const note = sceneBudgetEl.querySelector('[data-role="scene-budget-note"]');
+    if (level === 'error') {
+      note.textContent = `このシーンは scene pack 上限 ${VN_SCENE_PACK_LIMIT} byte を ${bytes - VN_SCENE_PACK_LIMIT} byte 超過しています。`
+        + 'このままではビルドが失敗します。Jump で別シーンに分割してください。';
+      note.style.display = '';
+    } else if (level === 'warn') {
+      note.textContent = `残り ${VN_SCENE_PACK_LIMIT - bytes} byte。上限に近づいています。長くなる場合はシーン分割を検討してください。`;
+      note.style.display = '';
+    } else {
+      note.style.display = 'none';
+      note.textContent = '';
+    }
+  }
+
   function render() {
     renderSceneList();
     renderCommandPalette();
     renderForm();
     updateGlyphBudget();
+    updateSceneBudget();
   }
 
   async function load(options = {}) {
