@@ -2,6 +2,65 @@
   --asset-preview-width: 430px;
 }
 
+/* "/"-separated asset names render as collapsible folder groups. */
+.asset-group-row {
+  cursor: pointer;
+  user-select: none;
+}
+
+.asset-group-row:hover {
+  background: var(--panel-hover, rgba(127, 127, 127, 0.12));
+}
+
+.asset-group-cell {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.asset-group-toggle {
+  display: inline-block;
+  width: 1em;
+  color: var(--muted);
+}
+
+.asset-group-name {
+  margin: 0 6px;
+}
+
+.asset-group-cell .pce-assets-muted {
+  display: inline;
+  margin: 0;
+}
+
+/* Sortable Type / Name column headers. */
+.asset-sort-th {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.asset-sort-th[data-sort-key] [data-sort-indicator] {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.asset-sort-th.active {
+  color: var(--accent, var(--text));
+}
+
+.asset-sort-th.active [data-sort-indicator] {
+  color: var(--accent, var(--text));
+}
+
 .pce-assets-subtitle,
 .pce-assets-muted {
   margin: 3px 0 0;

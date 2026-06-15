@@ -20,6 +20,56 @@ function extname(filePath = '') {
   return match ? match[1] : '';
 }
 
+// Split an asset's display name on "/" into folder segments + a leaf label, so
+// names like "voice/chapter1/akari" structure the list into nested groups.
+function assetNameParts(asset = {}) {
+  const raw = String(asset.name || asset.id || '').trim();
+  const segments = raw.split('/').map((part) => part.trim()).filter(Boolean);
+  if (segments.length <= 1) {
+    return { folders: [], leaf: segments[0] || String(asset.id || '') };
+  }
+  return { folders: segments.slice(0, -1), leaf: segments[segments.length - 1] };
+}
+
+// Build a folder tree from a flat, ordered asset list. Each node keeps child
+// folders (insertion order) and leaf assets (insertion order) so the existing
+// manual ordering is preserved within every group.
+function buildAssetGroupTree(list = []) {
+  const root = { path: '', folders: new Map(), leaves: [] };
+  list.forEach((asset) => {
+    const { folders, leaf } = assetNameParts(asset);
+    let node = root;
+    folders.forEach((segment) => {
+      if (!node.folders.has(segment)) {
+        node.folders.set(segment, {
+          path: node.path ? `${node.path}/${segment}` : segment,
+          name: segment,
+          folders: new Map(),
+          leaves: [],
+        });
+      }
+      node = node.folders.get(segment);
+    });
+    node.leaves.push({ asset, leaf });
+  });
+  return root;
+}
+
+function assetGroupLeafCount(node) {
+  let total = node.leaves.length;
+  node.folders.forEach((child) => { total += assetGroupLeafCount(child); });
+  return total;
+}
+
+function assetFullName(asset = {}) {
+  const { folders, leaf } = assetNameParts(asset);
+  return [...folders, leaf].join('/');
+}
+
+function compareText(left, right) {
+  return String(left ?? '').localeCompare(String(right ?? ''), 'ja', { numeric: true, sensitivity: 'base' });
+}
+
 function asNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -168,8 +218,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             <thead>
               <tr>
                 <th class="asset-drag-th"></th>
-                <th>Type</th>
-                <th>Name</th>
+                <th><button class="asset-sort-th" type="button" data-sort-key="type">Type <span data-sort-indicator>↕</span></button></th>
+                <th><button class="asset-sort-th" type="button" data-sort-key="name">Name <span data-sort-indicator>↕</span></button></th>
                 <th>Source</th>
                 <th>Tiles</th>
                 <th>Warn</th>
@@ -360,6 +410,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   let selectedId = '';
   let draggedId = '';
   let psgAudioContext = null;
+  // Folder paths (from "/"-separated asset names) the user has collapsed.
+  const collapsedGroups = new Set();
+  // Sort by Type or Name; 'manual' keeps the drag-and-drop order.
+  let sortState = { key: 'manual', direction: 'asc' };
   let psgPreviewNodes = [];
   let psgPreviewToken = 0;
   const assetApi = api.assets || {};
@@ -470,13 +524,43 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     });
   }
 
+  function sortAssetsForDisplay(list) {
+    if (sortState.key === 'manual') return list;
+    const direction = sortState.direction === 'desc' ? -1 : 1;
+    const value = (asset) => (sortState.key === 'type'
+      ? `${typeLabel(asset)} ${assetFullName(asset)}`
+      : assetFullName(asset));
+    return list
+      .map((asset, index) => ({ asset, index }))
+      .sort((a, b) => (compareText(value(a.asset), value(b.asset)) * direction) || (a.index - b.index))
+      .map((entry) => entry.asset);
+  }
+
+  function updateSortHeaders() {
+    root.querySelectorAll('[data-sort-key]').forEach((button) => {
+      const active = sortState.key !== 'manual' && button.dataset.sortKey === sortState.key;
+      button.classList.toggle('active', active);
+      const indicator = button.querySelector('[data-sort-indicator]');
+      if (indicator) indicator.textContent = active ? (sortState.direction === 'desc' ? '▼' : '▲') : '↕';
+    });
+  }
+
+  // Cycle a column header: off -> asc -> desc -> off (back to manual order).
+  function toggleSort(key) {
+    if (sortState.key !== key) sortState = { key, direction: 'asc' };
+    else if (sortState.direction === 'asc') sortState = { key, direction: 'desc' };
+    else sortState = { key: 'manual', direction: 'asc' };
+    updateSortHeaders();
+    renderRows();
+  }
+
   function renderRows() {
-    const visible = filteredAssets();
+    const visible = sortAssetsForDisplay(filteredAssets());
     if (!visible.length) {
       rowsEl.innerHTML = '<tr class="asset-row-empty"><td colspan="7">アセットがありません</td></tr>';
       return;
     }
-    rowsEl.innerHTML = visible.map((asset) => {
+    const assetRowHtml = (asset, leaf, depth) => {
       const generated = generatedInfo(asset);
       const warnings = [...(generated.warnings || []), asset.pathError].filter(Boolean);
       const tileText = isImageAsset(asset)
@@ -485,18 +569,59 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           : isAudioAsset(asset) ? `${generated.sampleRate || asset.options?.sampleRate || 0} Hz`
             : asset.type === 'palette' ? `${asset.options?.colors?.length || generated.paletteColors?.length || 0} colors`
               : '-';
+      const indent = depth > 0 ? ` style="padding-left:${12 + depth * 16}px"` : '';
       return `
         <tr class="asset-row ${asset.id === selectedId ? 'active' : ''}" data-id="${esc(asset.id)}" draggable="true">
           <td class="asset-drag-cell"><span class="drag-handle" title="並び替え">&#8942;&#8942;</span></td>
           <td><span class="asset-type-pill type-${esc(asset.type)}">${esc(typeLabel(asset))}</span></td>
-          <td><strong>${esc(asset.name || asset.id)}</strong><div class="pce-assets-muted">${esc(asset.id)}</div></td>
+          <td${indent}><strong>${esc(leaf || asset.name || asset.id)}</strong><div class="pce-assets-muted">${esc(asset.id)}</div></td>
           <td class="asset-path-cell">${esc(asset.source || '(generated)')}</td>
           <td>${esc(tileText)}</td>
           <td>${warnings.length ? `<span class="asset-warning">${warnings.length}</span>` : '<span class="pce-assets-muted">0</span>'}</td>
           <td class="asset-actions-cell"><button class="icon-btn-xs" type="button" data-row-delete="${esc(asset.id)}" title="削除" aria-label="削除">✕</button></td>
         </tr>
       `;
-    }).join('');
+    };
+    // While searching, force every group open so matches are never hidden.
+    const expandAll = searchEl.value.trim() !== '';
+    const groupRowHtml = (node, depth) => {
+      const collapsed = !expandAll && collapsedGroups.has(node.path);
+      const indent = 12 + depth * 16;
+      return `
+        <tr class="asset-group-row" data-group-path="${esc(node.path)}">
+          <td></td>
+          <td colspan="6" class="asset-group-cell" style="padding-left:${indent}px">
+            <span class="asset-group-toggle">${collapsed ? '▸' : '▾'}</span>
+            <span class="asset-group-name">${esc(node.name)}</span>
+            <span class="pce-assets-muted">${assetGroupLeafCount(node)}</span>
+          </td>
+        </tr>
+      `;
+    };
+    const renderNode = (node, depth) => {
+      let html = '';
+      // When sorting by Type/Name, also order folders alphabetically; in manual
+      // mode keep their first-seen (drag) order.
+      const folders = [...node.folders.values()];
+      if (sortState.key !== 'manual') {
+        folders.sort((a, b) => compareText(a.name, b.name) * (sortState.direction === 'desc' ? -1 : 1));
+      }
+      folders.forEach((child) => {
+        html += groupRowHtml(child, depth);
+        if (expandAll || !collapsedGroups.has(child.path)) html += renderNode(child, depth + 1);
+      });
+      node.leaves.forEach(({ asset, leaf }) => { html += assetRowHtml(asset, leaf, depth); });
+      return html;
+    };
+    rowsEl.innerHTML = renderNode(buildAssetGroupTree(visible), 0);
+    rowsEl.querySelectorAll('.asset-group-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        const path = row.dataset.groupPath || '';
+        if (collapsedGroups.has(path)) collapsedGroups.delete(path);
+        else collapsedGroups.add(path);
+        renderRows();
+      });
+    });
     rowsEl.querySelectorAll('.asset-row').forEach((row) => {
       row.addEventListener('click', (event) => {
         if (event.target?.closest?.('[data-row-delete]')) return;
@@ -1349,7 +1474,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
               </label>
               <label class="form-group" data-adpcm-only>
                 <span class="form-label">Streaming</span>
-                <label class="pce-assets-check"><input name="stream" type="checkbox" /><span>CDから直接再生</span></label>
+                <label class="pce-assets-check"><input name="stream" type="checkbox" checked /><span>CDから直接再生</span></label>
               </label>
             </div>
             <div class="pce-assets-import-source">
@@ -1494,6 +1619,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
 
   searchEl.addEventListener('input', renderRows);
   typeFilterEl.addEventListener('change', renderRows);
+  root.querySelectorAll('[data-sort-key]').forEach((button) => {
+    button.addEventListener('click', () => toggleSort(button.dataset.sortKey));
+  });
+  updateSortHeaders();
   fields.type.addEventListener('change', () => {
     const draftAsset = collectFormAsset();
     setFieldVisibility(draftAsset);

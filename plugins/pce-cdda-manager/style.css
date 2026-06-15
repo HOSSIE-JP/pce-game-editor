@@ -179,11 +179,27 @@
   font-size: 11px;
 }
 
+.pce-cdda-group-row {
+  cursor: pointer;
+  user-select: none;
+}
+
+.pce-cdda-group-row:hover td {
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .pce-cdda-group-row td {
   padding-left: calc(10px + var(--asset-group-indent, 0px));
   background: rgba(255, 255, 255, 0.025);
   color: var(--muted);
   font-size: 11px;
+}
+
+.pce-cdda-group-toggle {
+  display: inline-block;
+  width: 1em;
+  margin-right: 4px;
+  color: var(--muted);
 }
 
 .pce-cdda-group-row span {

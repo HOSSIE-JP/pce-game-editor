@@ -535,6 +535,18 @@
   color: var(--muted);
   font-size: 11px;
   font-weight: 800;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pce-sprite-editor-group:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.pce-sprite-editor-group-toggle {
+  display: inline-block;
+  width: 1em;
+  margin-right: 4px;
 }
 
 .pce-sprite-editor-item {

@@ -294,6 +294,8 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
   let assets = [];
   let selectedId = '';
   let importBusy = false;
+  // Folder paths (from "/"-separated names) the user has collapsed in the list.
+  const collapsedGroups = new Set();
   let sourceImage = null;
   let previewToken = 0;
   let playing = false;
@@ -353,14 +355,19 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
       els.list.innerHTML = '<div class="pce-sprite-editor-empty">Sprite asset がありません</div>';
       return;
     }
+    // A group is hidden when an ancestor folder is collapsed; the collapsed
+    // folder's own header still shows so it can be reopened.
+    const underCollapsed = (path) => [...collapsedGroups].some((c) => path === c || path.startsWith(`${c}/`));
     const html = [];
     let previousGroup = '';
     list.forEach((asset) => {
       const group = assetGroupParts(asset).join('/');
-      if (group && group !== previousGroup) {
-        html.push(`<div class="pce-sprite-editor-group"><span>${esc(group)}</span></div>`);
+      if (group && group !== previousGroup && !group.split('/').slice(0, -1).some((_, i, segs) => collapsedGroups.has(segs.slice(0, i + 1).join('/')))) {
+        const collapsed = collapsedGroups.has(group);
+        html.push(`<div class="pce-sprite-editor-group" data-group-path="${esc(group)}"><span class="pce-sprite-editor-group-toggle">${collapsed ? '▸' : '▾'}</span><span>${esc(group)}</span></div>`);
       }
       previousGroup = group;
+      if (group && underCollapsed(group)) return;
       const metrics = spriteSheetMetrics(asset);
       html.push(`
         <button class="pce-sprite-editor-item${asset.id === selectedId ? ' active' : ''}" type="button" data-asset-id="${esc(asset.id)}">
@@ -1160,6 +1167,14 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
       event.preventDefault();
       event.stopPropagation();
       void deleteAsset(del.dataset.deleteAsset);
+      return;
+    }
+    const groupHeader = event.target?.closest?.('[data-group-path]');
+    if (groupHeader) {
+      const path = groupHeader.dataset.groupPath || '';
+      if (collapsedGroups.has(path)) collapsedGroups.delete(path);
+      else if (path) collapsedGroups.add(path);
+      renderAssetList();
       return;
     }
     const item = event.target?.closest?.('[data-asset-id]');

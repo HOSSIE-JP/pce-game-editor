@@ -189,6 +189,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   let draggedId = '';
   let importBusy = false;
   let sortState = { key: 'track', direction: 'asc' };
+  // Folder paths (from "/"-separated names) the user has collapsed in the list.
+  const collapsedGroups = new Set();
   const assetApi = api.assets || {};
 
   const listPceAssets = (options = {}) => assetApi.listPceAssets
@@ -345,25 +347,40 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     let previousGroup = [];
     return list.map((asset) => {
       const group = assetGroupParts(asset);
+      const pathAt = (depth) => group.slice(0, depth + 1).join('/');
       let shared = 0;
       while (shared < previousGroup.length && shared < group.length && previousGroup[shared] === group[shared]) {
         shared += 1;
       }
       let html = '';
-      for (let depth = shared; depth < group.length; depth += 1) {
-        const path = group.slice(0, depth + 1).join(' / ');
-        html += `
-          <tr class="pce-cdda-group-row">
-            <td colspan="${colSpan}" style="--asset-group-indent:${depth * 14}px">
-              <span>${esc(group[depth])}</span>
-              <code>${esc(path)}</code>
-            </td>
-          </tr>
-        `;
+      let ancestorCollapsed = false;
+      for (let depth = 0; depth < group.length; depth += 1) {
+        const path = pathAt(depth);
+        const collapsed = collapsedGroups.has(path);
+        if (depth >= shared && !ancestorCollapsed) {
+          html += `
+            <tr class="pce-cdda-group-row" data-group-path="${esc(path)}">
+              <td colspan="${colSpan}" style="--asset-group-indent:${depth * 14}px">
+                <span class="pce-cdda-group-toggle">${collapsed ? '▸' : '▾'}</span>
+                <span>${esc(group[depth])}</span>
+                <code>${esc(group.slice(0, depth + 1).join(' / '))}</code>
+              </td>
+            </tr>
+          `;
+        }
+        if (collapsed) ancestorCollapsed = true;
       }
       previousGroup = group;
-      return html + rowRenderer(asset);
+      // Hide an asset row when any of its ancestor groups is collapsed.
+      return html + (ancestorCollapsed ? '' : rowRenderer(asset));
     });
+  }
+
+  function toggleGroupCollapse(path) {
+    if (!path) return;
+    if (collapsedGroups.has(path)) collapsedGroups.delete(path);
+    else collapsedGroups.add(path);
+    renderRows();
   }
 
   function selectedAsset() {
@@ -491,6 +508,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         </tr>
       `;
     }).join('');
+    rowsEl.querySelectorAll('.pce-cdda-group-row').forEach((row) => {
+      row.addEventListener('click', () => toggleGroupCollapse(row.dataset.groupPath || ''));
+    });
     rowsEl.querySelectorAll('.pce-cdda-row').forEach((row) => {
       row.addEventListener('click', (event) => {
         if (event.target?.closest?.('button')) return;
