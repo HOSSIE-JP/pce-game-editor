@@ -13,6 +13,38 @@ const MIN_CENTER_WIDTH = 340;
 const MIN_RIGHT_WIDTH = 320;
 const MAX_RIGHT_WIDTH = 720;
 
+// 入力チェックコマンドのボタン定義（runtime の PAD_* と同順・OR 条件用）。
+const INPUT_BUTTONS = [
+  { key: 'up', label: '↑' },
+  { key: 'down', label: '↓' },
+  { key: 'left', label: '←' },
+  { key: 'right', label: '→' },
+  { key: 'select', label: 'SEL' },
+  { key: 'run', label: 'RUN' },
+  { key: 'i', label: 'I' },
+  { key: 'ii', label: 'II' },
+];
+const INPUT_BUTTON_KEYS = INPUT_BUTTONS.map((button) => button.key);
+
+// PCE 表示可能色（3bit/ch）へスナップした "#rrggbb" を返す。空入力は '' のまま。
+function snapHexToPce(value) {
+  if (value == null) return '';
+  let s = String(value).trim();
+  if (!s) return '';
+  if (s[0] === '#') s = s.slice(1);
+  if (s.length === 3) s = s.split('').map((ch) => ch + ch).join('');
+  if (!/^[0-9a-fA-F]{6}$/.test(s)) return '';
+  const snap = (hex) => {
+    const n = Math.max(0, Math.min(255, parseInt(hex, 16) || 0));
+    const q = Math.max(0, Math.min(7, Math.round(n / 255 * 7)));
+    return Math.round(q * 255 / 7);
+  };
+  const r = snap(s.slice(0, 2));
+  const g = snap(s.slice(2, 4));
+  const b = snap(s.slice(4, 6));
+  return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
+}
+
 const COMMAND_DEFINITIONS = [
   { type: 'background', label: 'BG', category: '表示', description: '背景画像と切替' },
   { type: 'sprite', label: 'Sprite', category: '表示', description: '立ち絵の表示/非表示' },
@@ -23,11 +55,13 @@ const COMMAND_DEFINITIONS = [
   { type: 'switch', label: 'Switch', category: '分岐', description: '変数値で複数ラベルへ分岐' },
   { type: 'label', label: 'Label', category: '分岐', description: 'GOTO/分岐の移動先' },
   { type: 'goto', label: 'GOTO', category: '分岐', description: '指定ラベルへ移動' },
+  { type: 'inputcheck', label: 'Input', category: '分岐', description: '入力でラベルへGOTO' },
   { type: 'jump', label: 'Jump', category: '分岐', description: '別シーンへ移動' },
   { type: 'preload', label: 'Preload', category: '分岐', description: '次シーンを先読み' },
   { type: 'wait', label: 'Wait', category: '制御', description: '指定フレーム待機' },
-  { type: 'audio', label: 'Audio', category: '音声', description: 'CD-DA/ADPCM再生停止' },
+  { type: 'audio', label: 'Audio', category: '音声', description: 'CD-DA/ADPCM/PSG再生停止' },
   { type: 'effect', label: 'Effect', category: '演出', description: 'フェード/揺れ' },
+  { type: 'spritetext', label: 'SpriteText', category: '演出', description: '短い文字をスプライトで重ねる' },
 ];
 const COMMAND_CATEGORIES = [...new Set(COMMAND_DEFINITIONS.map((item) => item.category))];
 
@@ -142,7 +176,9 @@ function countScriptGlyphs(doc) {
 const VN_SCENE_PACK_LIMIT = 4096;
 const VN_PACK_HEADER_SIZE = 20;
 const VN_PACK_COMMAND_SIZE = 19;
-const VN_PACK_MESSAGE_SIZE = 11;
+// 13 bytes: glyphOffset(2)+glyphCount(1)+voice(2)+speed(1)+advance(1)+autoWait(1)
+//           +mouthAnim(2)+mouthSlot(1)+textColor(2). pce-vn-manager.js と一致させる。
+const VN_PACK_MESSAGE_SIZE = 13;
 const VN_PACK_CHOICE_SIZE = 6;
 const VN_PACK_OPTION_SIZE = 7;
 const VN_PACK_SWITCH_SIZE = 5;
@@ -309,7 +345,7 @@ function applySpriteFrame(node, url, geo, flipX, flipY) {
 
 // 表示系コマンドを先頭から uptoIndex まで畳み込み、その時点の画面状態を返す
 function computeVisualState(commands = [], uptoIndex = -1) {
-  const state = { background: null, sprites: {} };
+  const state = { background: null, sprites: {}, spriteTexts: {} };
   const last = Math.min(uptoIndex, commands.length - 1);
   for (let i = 0; i <= last; i += 1) {
     const command = commands[i];
@@ -330,9 +366,22 @@ function computeVisualState(commands = [], uptoIndex = -1) {
           animationId: command.animationId,
         };
       }
+    } else if (command.type === 'spritetext') {
+      if (command.visible === false) {
+        delete state.spriteTexts[command.slot];
+      } else {
+        state.spriteTexts[command.slot] = {
+          slot: command.slot,
+          text: command.text,
+          x: command.x,
+          y: command.y,
+          color: command.color,
+        };
+      }
     } else if (command.type === 'effect' && command.effect === 'blank') {
       state.background = null;
       state.sprites = {};
+      state.spriteTexts = {};
     }
   }
   return state;
@@ -365,10 +414,16 @@ function defaultCommand(type, assets = []) {
     return { type: 'sprite', slot: 0, assetId, x: 128, y: DEFAULT_CHARACTER_Y, animationId: 'default', flipX: false, flipY: false, durationFrames: 0, visible: true };
   }
   if (type === 'audio') {
-    return { type: 'audio', kind: 'cdda', action: 'play', assetId: first('cdda-track') };
+    return { type: 'audio', kind: 'cdda', action: 'play', assetId: first('cdda-track'), channel: 0 };
+  }
+  if (type === 'inputcheck') {
+    return { type: 'inputcheck', buttons: ['i'], mode: 'sync', targetLabel: '' };
   }
   if (type === 'effect') {
     return { type: 'effect', effect: 'shake', frames: 16, intensity: 4 };
+  }
+  if (type === 'spritetext') {
+    return { type: 'spritetext', slot: 0, text: 'PRESS RUN BUTTON', x: 64, y: 184, color: '#ffffff', blinkFrames: 30, visible: true };
   }
   if (type === 'variable') {
     return { type: 'variable', variableName: 'flag_1', operation: 'set', value: 0, min: 0, max: 9 };
@@ -401,6 +456,7 @@ function defaultCommand(type, assets = []) {
     type: 'message',
     speaker: '',
     text: 'メッセージを入力してください。',
+    textColor: '',
     voiceAssetId: first('adpcm'),
     textSpeedFrames: 2,
     advanceMode: 'button',
@@ -459,11 +515,34 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
     };
   }
   if (raw.type === 'audio') {
-    const kind = raw.kind === 'adpcm' ? 'adpcm' : 'cdda';
+    const kind = raw.kind === 'adpcm' ? 'adpcm' : (raw.kind === 'psg' ? 'psg' : 'cdda');
     const action = raw.action === 'stop' ? 'stop' : 'play';
     const asset = byId(raw.assetId);
-    const valid = kind === 'adpcm' ? asset?.type === 'adpcm' : asset?.type === 'cdda-track';
-    return { type: 'audio', kind, action, assetId: action === 'play' && valid ? asset.id : '' };
+    const valid = kind === 'adpcm'
+      ? asset?.type === 'adpcm'
+      : (kind === 'psg'
+        ? (asset?.type === 'psg-song' || asset?.type === 'psg-sfx')
+        : asset?.type === 'cdda-track');
+    return {
+      type: 'audio',
+      kind,
+      action,
+      assetId: action === 'play' && valid ? asset.id : '',
+      channel: clamp(raw.channel, 0, 5, 0),
+    };
+  }
+  if (raw.type === 'inputcheck') {
+    const mode = raw.mode === 'async' ? 'async' : (raw.mode === 'cancel' ? 'cancel' : 'sync');
+    const seen = new Set((Array.isArray(raw.buttons) ? raw.buttons : [])
+      .map((b) => String(b || '').trim().toLowerCase())
+      .filter((b) => INPUT_BUTTON_KEYS.includes(b)));
+    const buttons = INPUT_BUTTON_KEYS.filter((key) => seen.has(key));
+    return {
+      type: 'inputcheck',
+      buttons: mode === 'cancel' ? [] : (buttons.length ? buttons : ['i']),
+      mode,
+      targetLabel: mode === 'cancel' ? '' : labelName(raw.targetLabel || raw.label || raw.target || '', ''),
+    };
   }
   if (raw.type === 'preload') {
     return { type: 'preload', sceneId: safeId(raw.sceneId || raw.nextSceneId || raw.targetSceneId, '') };
@@ -559,10 +638,25 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       intensity: effect === 'shake' ? clamp(raw.intensity ?? raw.power ?? raw.amplitude, 1, 16, 4) : 0,
     };
   }
+  if (raw.type === 'spritetext') {
+    return {
+      type: 'spritetext',
+      slot: clamp(raw.slot, 0, 3, 0),
+      text: String(raw.text == null ? '' : raw.text).replace(/\r/g, '').slice(0, 64),
+      x: clamp(raw.x, 0, 319, 0),
+      y: clamp(raw.y, 0, 223, 0),
+      color: snapHexToPce(raw.color) || '#ffffff',
+      blinkFrames: clamp(raw.blinkFrames ?? raw.blink, 0, 255, 0),
+      visible: raw.visible !== false,
+    };
+  }
+  // 本文は未指定(null/undefined)のときだけ既定文言を補完。空文字はクリア意図として保持。
+  const messageText = (raw.text == null ? (index === 0 ? 'メッセージを入力してください。' : '') : String(raw.text)).trim().slice(0, 96);
   return {
     type: 'message',
     speaker: String(raw.speaker || '').trim().slice(0, 16),
-    text: String(raw.text || (index === 0 ? 'メッセージを入力してください。' : '')).trim().slice(0, 96),
+    text: messageText,
+    textColor: snapHexToPce(raw.textColor),
     voiceAssetId: byId(raw.voiceAssetId)?.type === 'adpcm' ? raw.voiceAssetId : '',
     textSpeedFrames: clamp(raw.textSpeedFrames ?? raw.speed, 0, 30, 2),
     advanceMode: raw.advanceMode === 'auto' ? 'auto' : 'button',
@@ -714,7 +808,7 @@ function previewRuntime() {
   let scene = null;
   let pc = 0;
   let vars = {};
-  let state = { background: null, sprites: {} };
+  let state = { background: null, sprites: {}, spriteTexts: {} };
   let typeTimer = null;
   let waitTimer = null;
   let autoTimer = null;
@@ -779,6 +873,20 @@ function previewRuntime() {
       const s = state.sprites[slot];
       if (s && s.assetId && data.urls[s.assetId]) stage.insertBefore(makeImg(s, 'sprite'), msgBox);
     });
+    Object.keys(state.spriteTexts || {}).map(Number).sort((a, b) => a - b).forEach((slot) => {
+      const st = state.spriteTexts[slot];
+      if (!st) return;
+      const node = document.createElement('div');
+      node.className = 'pv-layer';
+      node.style.position = 'absolute';
+      node.style.left = (st.x || 0) + 'px';
+      node.style.top = (st.y || 0) + 'px';
+      node.style.color = st.color || '#ffffff';
+      node.style.font = '16px/16px monospace';
+      node.style.whiteSpace = 'pre';
+      node.textContent = st.text || '';
+      stage.insertBefore(node, msgBox);
+    });
     sceneLabel.textContent = 'Scene: ' + (scene ? scene.id : '-');
   }
 
@@ -828,7 +936,7 @@ function previewRuntime() {
     audio[kind] = a;
   }
   function applyEffect(c) {
-    if (c.effect === 'blank') { state.background = null; state.sprites = {}; renderStage(); }
+    if (c.effect === 'blank') { state.background = null; state.sprites = {}; state.spriteTexts = {}; renderStage(); }
     else if (c.effect === 'fadeOut') { stage.style.transition = 'opacity .2s'; stage.style.opacity = '0'; }
     else if (c.effect === 'fadeIn') { stage.style.transition = 'opacity .2s'; stage.style.opacity = '1'; }
     else if (c.effect === 'shake') { stage.classList.remove('pv-shake'); void stage.offsetWidth; stage.classList.add('pv-shake'); }
@@ -968,6 +1076,13 @@ function previewRuntime() {
         pc += 1;
         continue;
       }
+      if (t === 'spritetext') {
+        if (c.visible === false) delete state.spriteTexts[c.slot];
+        else state.spriteTexts[c.slot] = { slot: c.slot, text: c.text, x: c.x, y: c.y, color: c.color };
+        renderStage();
+        pc += 1;
+        continue;
+      }
       if (t === 'audio') { handleAudio(c); pc += 1; continue; }
       if (t === 'variable') { applyVar(c); pc += 1; continue; }
       if (t === 'effect') { applyEffect(c); pc += 1; continue; }
@@ -1009,7 +1124,7 @@ function previewRuntime() {
     scene = scenesById[sceneId] || null;
     pc = 0;
     vars = {};
-    state = { background: null, sprites: {} };
+    state = { background: null, sprites: {}, spriteTexts: {} };
     pending = null;
     choiceState = null;
     renderStage();
@@ -1221,6 +1336,24 @@ export function activatePlugin({ root, api, registerCapability }) {
           stage.appendChild(makeStageImg(s, 'sprite', urls[s.assetId], command?.type === 'sprite' && s.slot === command.slot));
         }
       });
+    Object.values(state.spriteTexts || {})
+      .sort((a, b) => a.slot - b.slot)
+      .forEach((st) => {
+        // Approximate the hardware-sprite overlay with positioned text. The real
+        // glyphs use the generated sprite font; this is for placement feedback.
+        const node = document.createElement('div');
+        node.className = 'pce-vn-stage-spritetext';
+        node.style.position = 'absolute';
+        node.style.left = `${st.x || 0}px`;
+        node.style.top = `${st.y || 0}px`;
+        node.style.color = st.color || '#ffffff';
+        node.style.font = '16px/16px monospace';
+        node.style.whiteSpace = 'pre';
+        node.style.letterSpacing = '0';
+        node.textContent = st.text || '';
+        if (command?.type === 'spritetext' && st.slot === command.slot) node.classList.add('is-active');
+        stage.appendChild(node);
+      });
   }
 
   function buildMessageStageNode(state, urls, command) {
@@ -1233,7 +1366,9 @@ export function activatePlugin({ root, api, registerCapability }) {
     const controls = document.createElement('div');
     controls.className = 'pce-vn-stage-controls';
     const info = document.createElement('span');
-    info.textContent = `speed ${command.textSpeedFrames}f/字${command.voiceAssetId ? ` ・ ADPCM ${command.voiceAssetId}` : ''}`;
+    info.textContent = command.voiceAssetId
+      ? `ADPCM同期 ・ ${command.voiceAssetId}`
+      : `speed ${command.textSpeedFrames}f/字`;
     const play = document.createElement('button');
     play.className = 'btn-sm';
     play.type = 'button';
@@ -1253,6 +1388,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     overlay.style.top = `${MESSAGE_AREA.y}px`;
     overlay.style.width = `${MESSAGE_AREA.cols * MESSAGE_AREA.cell}px`;
     overlay.style.height = `${MESSAGE_AREA.rows * MESSAGE_AREA.cell}px`;
+    if (command.textColor) overlay.style.color = command.textColor;
     stage.appendChild(overlay);
     wrap.appendChild(stage);
     block.append(head, wrap);
@@ -1285,7 +1421,13 @@ export function activatePlugin({ root, api, registerCapability }) {
     const play = () => {
       if (token !== previewToken) return;
       stopMessagePreview();
-      const speed = Math.max(0, command.textSpeedFrames || 0) * 1000 / 60;
+      // ADPCM 選択時は再生長に同期した 1 文字あたりの間隔を使う（runtime と同じ考え方）。
+      const adpcmSeconds = command.voiceAssetId
+        ? Number(assetById(command.voiceAssetId)?.data?.generated?.durationSeconds) || 0
+        : 0;
+      const speed = (adpcmSeconds > 0 && full.length)
+        ? Math.max(1, (adpcmSeconds * 1000) / full.length)
+        : Math.max(0, command.textSpeedFrames || 0) * 1000 / 60;
       if (speed <= 0 || !full) {
         paintMessageOverlay(overlay, full);
       } else {
@@ -1424,8 +1566,12 @@ export function activatePlugin({ root, api, registerCapability }) {
       return `${name} slot ${command.slot} (${command.x}, ${command.y})`;
     }
     if (command.type === 'message') return `${command.speaker ? `${command.speaker}: ` : ''}${command.text || '本文なし'}`;
-    if (command.type === 'audio') return `${command.kind}:${command.action}${command.assetId ? ` ${command.assetId}` : ''}`;
+    if (command.type === 'audio') return `${command.kind}:${command.action}${command.assetId ? ` ${command.assetId}` : ''}${command.kind === 'psg' && command.action === 'play' ? ` ch${command.channel || 0}` : ''}`;
     if (command.type === 'effect') return command.effect === 'shake' ? `shake ${command.frames}f / ${command.intensity}` : `${command.effect} ${command.frames}f`;
+    if (command.type === 'spritetext') {
+      if (command.visible === false) return `slot ${command.slot} 消去`;
+      return `"${command.text || ''}" slot ${command.slot} (${command.x}, ${command.y})${command.blinkFrames ? ` blink ${command.blinkFrames}f` : ''}`;
+    }
     if (command.type === 'variable') return command.operation === 'random'
       ? `${command.variableName} = random(${command.min}..${command.max})`
       : `${command.variableName} ${command.operation} ${command.value}`;
@@ -1435,6 +1581,11 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (command.type === 'switch') return `${command.variableName} / ${(command.cases || []).length} branches`;
     if (command.type === 'label') return command.name || 'label未指定';
     if (command.type === 'goto') return command.targetLabel ? `label ${command.targetLabel}` : 'label未指定';
+    if (command.type === 'inputcheck') {
+      if (command.mode === 'cancel') return '入力待ち終了';
+      const buttons = (command.buttons || []).map((key) => (INPUT_BUTTONS.find((b) => b.key === key)?.label || key)).join('+') || 'なし';
+      return `${command.mode === 'async' ? 'async' : 'sync'} ${buttons} -> ${command.targetLabel || '未指定'}`;
+    }
     if (command.type === 'jump') return command.sceneId ? `scene ${command.sceneId}` : 'scene未指定';
     if (command.type === 'wait') return `${command.frames} frames`;
     return command.type;
@@ -1475,6 +1626,19 @@ export function activatePlugin({ root, api, registerCapability }) {
         kind: detailForm.elements.kind.value,
         action: detailForm.elements.action.value,
         assetId: detailForm.elements.assetId.value,
+        channel: detailForm.elements.channel?.value ?? 0,
+      }, assets);
+    }
+    if (type === 'inputcheck') {
+      const mode = detailForm.elements.mode?.value || 'sync';
+      const buttons = Array.from(detailForm.querySelectorAll('[data-input-button]'))
+        .filter((input) => input.checked)
+        .map((input) => input.dataset.inputButton);
+      return normalizeCommand({
+        type,
+        mode,
+        buttons,
+        targetLabel: detailForm.elements.targetLabel?.value || '',
       }, assets);
     }
     if (type === 'effect') {
@@ -1542,10 +1706,26 @@ export function activatePlugin({ root, api, registerCapability }) {
         choices,
       }, assets);
     }
+    if (type === 'spritetext') {
+      const stColorHex = (detailForm.elements.colorHex?.value || '').trim() || detailForm.elements.color?.value || '';
+      return normalizeCommand({
+        type,
+        slot: detailForm.elements.slot.value,
+        text: detailForm.elements.text.value,
+        x: detailForm.elements.x.value,
+        y: detailForm.elements.y.value,
+        color: stColorHex,
+        blinkFrames: detailForm.elements.blinkFrames.value,
+        visible: detailForm.elements.visible.checked,
+      }, assets);
+    }
+    const colorEnabled = detailForm.elements.textColorEnabled?.checked;
+    const colorHex = (detailForm.elements.textColorHex?.value || '').trim() || detailForm.elements.textColor?.value || '';
     return normalizeCommand({
       type,
       speaker: detailForm.elements.speaker.value,
       text: detailForm.elements.text.value,
+      textColor: colorEnabled ? colorHex : '',
       voiceAssetId: detailForm.elements.voiceAssetId.value,
       textSpeedFrames: detailForm.elements.textSpeedFrames.value,
       advanceMode: detailForm.elements.advanceMode.value,
@@ -1682,13 +1862,21 @@ export function activatePlugin({ root, api, registerCapability }) {
       `;
     }
     if (command.type === 'audio') {
-      const audioAssets = command.kind === 'adpcm' ? byType(['adpcm']) : byType(['cdda-track']);
+      const audioAssets = command.kind === 'adpcm'
+        ? byType(['adpcm'])
+        : (command.kind === 'psg' ? byType(['psg-song', 'psg-sfx']) : byType(['cdda-track']));
+      const channelField = command.kind === 'psg'
+        ? `<label class="form-group"><span class="form-label">基準ch</span><input class="form-input" name="channel" type="number" min="0" max="5" value="${esc(command.channel || 0)}" /></label>`
+        : '';
       return `
         <div class="pce-vn-grid">
-          <label class="form-group"><span class="form-label">Kind</span><select class="form-select" name="kind"><option value="cdda" ${command.kind !== 'adpcm' ? 'selected' : ''}>CD-DA</option><option value="adpcm" ${command.kind === 'adpcm' ? 'selected' : ''}>ADPCM</option></select></label>
+          <label class="form-group"><span class="form-label">Kind</span><select class="form-select" name="kind"><option value="cdda" ${command.kind !== 'adpcm' && command.kind !== 'psg' ? 'selected' : ''}>CD-DA</option><option value="adpcm" ${command.kind === 'adpcm' ? 'selected' : ''}>ADPCM</option><option value="psg" ${command.kind === 'psg' ? 'selected' : ''}>PSG</option></select></label>
           <label class="form-group"><span class="form-label">Action</span><select class="form-select" name="action"><option value="play" ${command.action !== 'stop' ? 'selected' : ''}>play</option><option value="stop" ${command.action === 'stop' ? 'selected' : ''}>stop</option></select></label>
         </div>
-        <label class="form-group"><span class="form-label">Asset</span><select class="form-select" name="assetId">${optionsFor(audioAssets, command.assetId, 'なし')}</select></label>
+        <div class="pce-vn-grid">
+          <label class="form-group"><span class="form-label">Asset</span><select class="form-select" name="assetId">${optionsFor(audioAssets, command.assetId, 'なし')}</select></label>
+          ${channelField}
+        </div>
       `;
     }
     if (command.type === 'effect') {
@@ -1754,6 +1942,27 @@ export function activatePlugin({ root, api, registerCapability }) {
         <label class="form-group"><span class="form-label">Label</span><select class="form-select" name="targetLabel">${labelOptions(command.targetLabel, 'なし')}</select></label>
       `;
     }
+    if (command.type === 'inputcheck') {
+      const selected = new Set(Array.isArray(command.buttons) ? command.buttons : []);
+      const mode = command.mode || 'sync';
+      const toggles = INPUT_BUTTONS.map((button) => `
+        <label class="pce-vn-input-toggle ${selected.has(button.key) ? 'active' : ''}">
+          <input type="checkbox" data-input-button="${button.key}" ${selected.has(button.key) ? 'checked' : ''} ${mode === 'cancel' ? 'disabled' : ''} />
+          <span>${esc(button.label)}</span>
+        </label>
+      `).join('');
+      const targetField = mode === 'cancel'
+        ? ''
+        : `<label class="form-group"><span class="form-label">移動先ラベル</span><select class="form-select" name="targetLabel">${labelOptions(command.targetLabel, 'なし')}</select></label>`;
+      const buttonGroup = mode === 'cancel'
+        ? ''
+        : `<div class="form-group"><span class="form-label">ボタン (OR条件)</span><div class="pce-vn-input-toggles" data-role="input-toggles">${toggles}</div></div>`;
+      return `
+        <label class="form-group"><span class="form-label">Mode</span><select class="form-select" name="mode"><option value="sync" ${mode === 'sync' ? 'selected' : ''}>sync (同期待機)</option><option value="async" ${mode === 'async' ? 'selected' : ''}>async (待機開始/次へ)</option><option value="cancel" ${mode === 'cancel' ? 'selected' : ''}>cancel (待機終了)</option></select></label>
+        ${buttonGroup}
+        ${targetField}
+      `;
+    }
     if (command.type === 'preload' || command.type === 'jump') {
       return `
         <label class="form-group"><span class="form-label">Scene</span><select class="form-select" name="sceneId">${sceneOptions(command.sceneId, 'なし')}</select></label>
@@ -1781,14 +1990,50 @@ export function activatePlugin({ root, api, registerCapability }) {
         <button class="btn-sm" type="button" data-choice-add>選択肢追加</button>
       `;
     }
+    if (command.type === 'spritetext') {
+      const stColor = command.color || '#ffffff';
+      return `
+        <label class="form-group"><span class="form-label">文字 (最大32グリフ)</span><input class="form-input form-input-mono" name="text" value="${esc(command.text || '')}" placeholder="PRESS RUN BUTTON" /></label>
+        <div class="pce-vn-grid tight">
+          <label class="form-group"><span class="form-label">Slot</span><input class="form-input" name="slot" type="number" min="0" max="3" value="${esc(command.slot)}" /></label>
+          <label class="form-group"><span class="form-label">X</span><input class="form-input" name="x" type="number" min="0" max="319" value="${esc(command.x)}" /></label>
+          <label class="form-group"><span class="form-label">Y</span><input class="form-input" name="y" type="number" min="0" max="223" value="${esc(command.y)}" /></label>
+          <label class="form-group"><span class="form-label">Blink</span><input class="form-input" name="blinkFrames" type="number" min="0" max="255" value="${esc(command.blinkFrames || 0)}" /></label>
+        </div>
+        <div class="pce-vn-grid">
+          <label class="form-group"><span class="form-label">文字色</span>
+            <span class="pce-vn-color-row">
+              <input type="color" name="color" value="${esc(stColor)}" />
+              <input class="form-input form-input-mono" name="colorHex" value="${esc(command.color || '')}" placeholder="#rrggbb" />
+            </span>
+          </label>
+          <label class="pce-vn-check"><input name="visible" type="checkbox" ${command.visible !== false ? 'checked' : ''} /><span>visible</span></label>
+        </div>
+        <small class="pce-vn-hint">ハードウェアスプライトで描画。立ち絵と同じ SATB(64)/16-per-line を共有するので短く。同時表示は1色（後勝ち）。</small>
+      `;
+    }
+    const hasColor = Boolean(command.textColor);
+    const colorValue = command.textColor || '#ffffff';
+    const speedHint = command.voiceAssetId
+      ? '<small class="pce-vn-hint">ADPCM選択時は再生長に同期（Speedは無視）</small>'
+      : '';
     return `
       <div class="pce-vn-grid">
         <label class="form-group"><span class="form-label">話者</span><input class="form-input" name="speaker" value="${esc(command.speaker || '')}" /></label>
         <label class="form-group"><span class="form-label">ADPCM</span><select class="form-select" name="voiceAssetId">${optionsFor(byType(['adpcm']), command.voiceAssetId, 'なし')}</select></label>
       </div>
-      <label class="form-group"><span class="form-label">本文</span><textarea class="form-input" name="text" rows="3">${esc(command.text || '')}</textarea></label>
+      <label class="form-group"><span class="form-label">本文</span><textarea class="form-input" name="text" rows="3" placeholder="空欄でメッセージをクリア">${esc(command.text || '')}</textarea></label>
+      <div class="pce-vn-grid">
+        <label class="form-group"><span class="form-label">文字色</span>
+          <span class="pce-vn-color-row">
+            <label class="pce-vn-check"><input name="textColorEnabled" type="checkbox" ${hasColor ? 'checked' : ''} /><span>指定</span></label>
+            <input type="color" name="textColor" value="${esc(colorValue)}" ${hasColor ? '' : 'disabled'} />
+            <input class="form-input form-input-mono" name="textColorHex" value="${esc(command.textColor || '')}" placeholder="#rrggbb" ${hasColor ? '' : 'disabled'} />
+          </span>
+        </label>
+      </div>
       <div class="pce-vn-grid tight">
-        <label class="form-group"><span class="form-label">Speed</span><input class="form-input" name="textSpeedFrames" type="number" min="0" max="30" value="${esc(command.textSpeedFrames)}" /></label>
+        <label class="form-group"><span class="form-label">Speed</span><input class="form-input" name="textSpeedFrames" type="number" min="0" max="30" value="${esc(command.textSpeedFrames)}" ${command.voiceAssetId ? 'disabled' : ''} />${speedHint}</label>
         <label class="form-group"><span class="form-label">Advance</span><select class="form-select" name="advanceMode"><option value="button" ${command.advanceMode !== 'auto' ? 'selected' : ''}>button</option><option value="auto" ${command.advanceMode === 'auto' ? 'selected' : ''}>auto</option></select></label>
         <label class="form-group"><span class="form-label">Wait</span><input class="form-input" name="autoWaitFrames" type="number" min="0" max="255" value="${esc(command.autoWaitFrames)}" /></label>
         <label class="form-group"><span class="form-label">Mouth slot</span><input class="form-input" name="mouthSlot" type="number" min="0" max="3" value="${esc(command.mouthSlot)}" /></label>
@@ -1905,8 +2150,9 @@ export function activatePlugin({ root, api, registerCapability }) {
       startMessagePreview(node, command, token);
       return;
     }
-    if (command.type === 'background' || command.type === 'sprite') {
-      renderCommandPreviewLoading(command, assetById(command.assetId), command.type === 'background' ? '背景' : 'Sprite');
+    if (command.type === 'background' || command.type === 'sprite' || command.type === 'spritetext') {
+      const loadingLabel = command.type === 'background' ? '背景' : (command.type === 'spritetext' ? 'SpriteText' : 'Sprite');
+      renderCommandPreviewLoading(command, command.type === 'spritetext' ? null : assetById(command.assetId), loadingLabel);
       const state = computeVisualState(current.commands, selectedCommandIndex);
       const ids = new Set();
       if (state.background?.assetId) ids.add(state.background.assetId);
@@ -2348,7 +2594,9 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   detailForm.addEventListener('change', (event) => {
     const name = event.target?.name || '';
-    const rerenderDetail = name === 'type' || name === 'kind' || name === 'assetId';
+    const isInputToggle = Boolean(event.target?.dataset?.inputButton);
+    const rerenderDetail = isInputToggle
+      || ['type', 'kind', 'assetId', 'mode', 'voiceAssetId', 'textColorEnabled', 'textColor', 'textColorHex', 'color', 'colorHex'].includes(name);
     updateSelectedCommandFromDetail({ rerenderDetail, rerenderCommands: true, updatePreview: true });
   });
 

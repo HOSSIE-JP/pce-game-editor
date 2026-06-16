@@ -27,6 +27,8 @@ const VN_COMMAND_IF = 10;
 const VN_COMMAND_SWITCH = 11;
 const VN_COMMAND_LABEL = 12;
 const VN_COMMAND_GOTO = 13;
+const VN_COMMAND_INPUTCHECK = 14;
+const VN_COMMAND_SPRITETEXT = 15;
 const VN_BG_TRANSITION_CUT = 0;
 const VN_BG_TRANSITION_FADE = 1;
 const VN_SPRITE_VISIBLE = 1;
@@ -34,8 +36,35 @@ const VN_SPRITE_FLIP_X = 2;
 const VN_SPRITE_FLIP_Y = 4;
 const VN_AUDIO_KIND_ADPCM = 0;
 const VN_AUDIO_KIND_CDDA = 1;
+const VN_AUDIO_KIND_PSG = 2;
 const VN_AUDIO_ACTION_PLAY = 0x10;
 const VN_AUDIO_ACTION_STOP = 0x20;
+// Input check command modes (stored in command flags).
+const VN_INPUT_MODE_SYNC = 0;
+const VN_INPUT_MODE_ASYNC = 1;
+const VN_INPUT_MODE_CANCEL = 2;
+// Joypad button bits, matching the VN runtime PAD_* constants.
+const VN_PAD_I = 0x01;
+const VN_PAD_II = 0x02;
+const VN_PAD_SELECT = 0x04;
+const VN_PAD_RUN = 0x08;
+const VN_PAD_UP = 0x10;
+const VN_PAD_RIGHT = 0x20;
+const VN_PAD_DOWN = 0x40;
+const VN_PAD_LEFT = 0x80;
+const VN_INPUT_BUTTON_BITS = {
+  up: VN_PAD_UP,
+  down: VN_PAD_DOWN,
+  left: VN_PAD_LEFT,
+  right: VN_PAD_RIGHT,
+  select: VN_PAD_SELECT,
+  run: VN_PAD_RUN,
+  i: VN_PAD_I,
+  ii: VN_PAD_II,
+};
+const VN_INPUT_BUTTON_KEYS = ['up', 'down', 'left', 'right', 'select', 'run', 'i', 'ii'];
+// Sentinel meaning "no text color override" in a message record (use default UI white).
+const VN_MESSAGE_COLOR_NONE = 0xffff;
 const VN_EFFECT_FADE_OUT = 0;
 const VN_EFFECT_FADE_IN = 1;
 const VN_EFFECT_BLANK = 2;
@@ -59,6 +88,22 @@ const VN_SCENE_PACK_DIR = path.join('assets', 'generated', 'vn', 'scenes');
 // Font tiles are streamed from this CD data file into VRAM at boot (no longer
 // resident in ram_bank132). One glyph = 16x16 px = 4 BG tiles = 128 bytes.
 const VN_FONT_DATA_FILE = path.join('assets', 'generated', 'vn', 'font.bin');
+// Sprite-format copy of the glyphs used by `spritetext` commands. Only the
+// characters referenced by spritetext are encoded here (BG-format font tiles
+// cannot be reused for hardware sprites), so this stays small even when the BG
+// font has hundreds of glyphs. One glyph = 16x16 px = 1 hardware sprite = 128
+// bytes of sprite pattern data.
+const VN_FONT_SPRITE_DATA_FILE = path.join('assets', 'generated', 'vn', 'font_sprite.bin');
+// VCE sprite palette bank reserved for spritetext glyphs. Lit pixels use color
+// index 15 of this bank; the runtime writes each command's color into that
+// entry at draw time. Keep clear of the sprite asset palette banks (default 1).
+const DEFAULT_FONT_SPRITE_PALETTE_BANK = 15;
+// Upper bound of drawable glyphs per spritetext command (matches the runtime
+// per-slot buffer). Newlines (0xfe) count toward this budget.
+const VN_SPRITETEXT_MAX_GLYPHS = 32;
+// Number of distinct sprite-font glyphs we will encode (index space 0..253,
+// 0xfe = newline marker in command glyph streams).
+const VN_FONT_SPRITE_MAX_GLYPH_COUNT = 254;
 const FONT_TILES_PER_GLYPH = 4;
 const FONT_BYTES_PER_GLYPH = 128;
 // glyph index space: 0..253 are drawable, 0xfe = newline, 0xff = end marker.
@@ -73,7 +118,7 @@ const VN_SCENE_PACK_CACHE_BYTES = 4096;
 const VN_SCENE_PACK_VERSION = 1;
 const VN_SCENE_PACK_HEADER_SIZE = 20;
 const VN_SCENE_PACK_COMMAND_SIZE = 19;
-const VN_SCENE_PACK_MESSAGE_SIZE = 11;
+const VN_SCENE_PACK_MESSAGE_SIZE = 13;
 const VN_SCENE_PACK_CHOICE_SIZE = 6;
 const VN_SCENE_PACK_OPTION_SIZE = 7;
 const VN_SCENE_PACK_SWITCH_SIZE = 5;
@@ -278,13 +323,68 @@ function assetTypeForId(assetDoc = { assets: [] }, assetId = '') {
   return findAsset(assetDoc, assetId)?.type || '';
 }
 
+// Snap a hex color string to a normalized "#rrggbb" form, or '' if blank/invalid.
+function normalizeHexColor(value) {
+  if (value == null) return '';
+  let s = String(value).trim();
+  if (!s) return '';
+  if (s[0] === '#') s = s.slice(1);
+  if (s.length === 3) s = s.split('').map((ch) => ch + ch).join('');
+  if (!/^[0-9a-fA-F]{6}$/.test(s)) return '';
+  return `#${s.toLowerCase()}`;
+}
+
+function hexToRgb(hex) {
+  const s = hex.replace('#', '');
+  return {
+    r: parseInt(s.slice(0, 2), 16),
+    g: parseInt(s.slice(2, 4), 16),
+    b: parseInt(s.slice(4, 6), 16),
+  };
+}
+
+// Snap a hex color to the nearest PCE-displayable color (3 bits/channel),
+// returned as a normalized "#rrggbb" string, or '' when no color is set.
+function normalizeMessageColor(value) {
+  const hex = normalizeHexColor(value);
+  if (!hex) return '';
+  const pce = assetManager.pceColorFromRgb(hexToRgb(hex));
+  const to8 = (c) => Math.round((c & 7) * 255 / 7);
+  return `#${[to8(pce.r), to8(pce.g), to8(pce.b)].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
+}
+
+// Convert a message textColor to a 9-bit PCE palette word, or the
+// VN_MESSAGE_COLOR_NONE sentinel when no override is set.
+function messageColorWord(value) {
+  const hex = normalizeHexColor(value);
+  if (!hex) return VN_MESSAGE_COLOR_NONE;
+  return assetManager.pcePaletteWord(assetManager.pceColorFromRgb(hexToRgb(hex)));
+}
+
+// Convert a spritetext color to a 9-bit PCE palette word. Unlike message text
+// this has no "none" sentinel: a blank/invalid color defaults to white (0x1ff).
+function spriteTextColorWord(value) {
+  const hex = normalizeHexColor(value);
+  if (!hex) return 0x1ff;
+  return assetManager.pcePaletteWord(assetManager.pceColorFromRgb(hexToRgb(hex)));
+}
+
+// Resolve a message body: only fall back to the placeholder when the field is
+// absent. An explicitly empty body stays empty so it can clear the window.
+function resolveMessageText(raw, index) {
+  const fallback = index === 0 ? 'メッセージを入力してください。' : '';
+  const value = raw.text == null ? fallback : String(raw.text);
+  return value.trim().slice(0, 96);
+}
+
 function normalizeMessageCommand(message = {}, index = 0, valid = assetIdsByType()) {
   const raw = message && typeof message === 'object' ? message : {};
   const voiceAssetId = String(raw.voiceAssetId || '').trim();
   return {
     type: 'message',
     speaker: String(raw.speaker || '').trim().slice(0, 16),
-    text: String(raw.text || (index === 0 ? 'メッセージを入力してください。' : '')).trim().slice(0, 96),
+    text: resolveMessageText(raw, index),
+    textColor: normalizeMessageColor(raw.textColor),
     voiceAssetId: valid.adpcm?.has(voiceAssetId) ? voiceAssetId : '',
     textSpeedFrames: clampInt(raw.textSpeedFrames ?? raw.speed, 0, 30, 2),
     advanceMode: String(raw.advanceMode || 'button') === 'auto' ? 'auto' : 'button',
@@ -408,6 +508,44 @@ function normalizeSwitchCommand(command = {}) {
   };
 }
 
+function normalizeInputButtons(value) {
+  const list = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const buttons = [];
+  list.forEach((entry) => {
+    const key = String(entry || '').trim().toLowerCase();
+    if (VN_INPUT_BUTTON_BITS[key] !== undefined && !seen.has(key)) {
+      seen.add(key);
+      buttons.push(key);
+    }
+  });
+  // Keep a stable canonical order.
+  return VN_INPUT_BUTTON_KEYS.filter((key) => seen.has(key));
+}
+
+function inputButtonsMask(buttons = []) {
+  return buttons.reduce((mask, key) => mask | (VN_INPUT_BUTTON_BITS[key] || 0), 0) & 0xff;
+}
+
+function normalizeInputMode(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'async') return 'async';
+  if (raw === 'cancel') return 'cancel';
+  return 'sync';
+}
+
+function normalizeInputCheckCommand(command = {}) {
+  const raw = command && typeof command === 'object' ? command : {};
+  const mode = normalizeInputMode(raw.mode);
+  const buttons = mode === 'cancel' ? [] : normalizeInputButtons(raw.buttons);
+  return {
+    type: 'inputcheck',
+    buttons: buttons.length ? buttons : (mode === 'cancel' ? [] : ['i']),
+    mode,
+    targetLabel: mode === 'cancel' ? '' : normalizeLabelName(raw.targetLabel || raw.label || raw.target || '', ''),
+  };
+}
+
 function normalizeEffectKind(value = '') {
   const raw = String(value || '').trim();
   if (raw === 'fadeIn' || raw === 'fade-in' || raw === 'in') return 'fadeIn';
@@ -456,14 +594,24 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
     const action = String(raw.action || 'play') === 'stop' ? 'stop' : 'play';
     const assetId = String(raw.assetId || raw.bgmAssetId || raw.voiceAssetId || '').trim();
     const actualType = assetTypeForId(assetDoc, assetId);
-    const kind = String(raw.kind || (actualType === 'adpcm' ? 'adpcm' : 'cdda')) === 'adpcm' ? 'adpcm' : 'cdda';
-    const validAsset = kind === 'adpcm' ? valid.adpcm?.has(assetId) : valid['cdda-track']?.has(assetId);
+    const kindHint = String(raw.kind
+      || (actualType === 'adpcm' ? 'adpcm' : (actualType === 'psg-song' || actualType === 'psg-sfx' ? 'psg' : 'cdda')));
+    const kind = kindHint === 'adpcm' ? 'adpcm' : (kindHint === 'psg' ? 'psg' : 'cdda');
+    const validAsset = kind === 'adpcm'
+      ? valid.adpcm?.has(assetId)
+      : (kind === 'psg'
+        ? (valid['psg-song']?.has(assetId) || valid['psg-sfx']?.has(assetId))
+        : valid['cdda-track']?.has(assetId));
     return {
       type: 'audio',
       kind,
       action,
       assetId: action === 'play' && validAsset ? assetId : '',
+      channel: clampInt(raw.channel, 0, 5, 0),
     };
+  }
+  if (type === 'inputcheck') {
+    return normalizeInputCheckCommand(raw);
   }
   if (type === 'preload') {
     return {
@@ -514,6 +662,24 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
       effect,
       frames: clampInt(raw.frames ?? raw.durationFrames, 0, 255, 16),
       intensity: effect === 'shake' ? clampInt(raw.intensity ?? raw.power ?? raw.amplitude, 1, 16, 4) : 0,
+    };
+  }
+  if (type === 'spritetext') {
+    // Overlay a short string drawn with hardware sprites on top of the BG/UI.
+    // `text` is intentionally length-capped: sprites share the 64-entry SATB and
+    // the 16-per-scanline limit with character sprites, so this is for accents
+    // like "PRESS RUN BUTTON", not full message bodies.
+    const text = String(raw.text == null ? '' : raw.text).replace(/\r/g, '').slice(0, 64);
+    const visible = raw.visible !== false;
+    return {
+      type: 'spritetext',
+      slot: clampInt(raw.slot, 0, 3, 0),
+      text,
+      x: clampInt(raw.x, 0, 319, 0),
+      y: clampInt(raw.y, 0, 223, 0),
+      color: normalizeMessageColor(raw.color) || '#ffffff',
+      blinkFrames: clampInt(raw.blinkFrames ?? raw.blink, 0, 255, 0),
+      visible,
     };
   }
   return null;
@@ -693,6 +859,30 @@ function collectGlyphsRaw(doc) {
 
 function collectGlyphs(doc) {
   return collectGlyphsRaw(doc).slice(0, VN_MAX_GLYPH_COUNT);
+}
+
+// Distinct characters used by `spritetext` commands across the whole VN. These
+// are encoded into the sprite-format font (font_sprite.bin), kept separate from
+// the BG glyph font so the BG font is not bloated by overlay-only characters.
+// Returns [] when no scene uses spritetext (no sprite font is generated then).
+function collectSpriteTextGlyphsRaw(doc) {
+  const glyphs = [];
+  const seen = new Set();
+  let used = false;
+  (doc.scenes || []).forEach((scene) => {
+    (scene.commands || []).forEach((command) => {
+      if (command.type !== 'spritetext') return;
+      used = true;
+      for (const char of String(command.text || '')) {
+        if (char === '\n' || char === '\r') continue;
+        if (!seen.has(char)) {
+          seen.add(char);
+          glyphs.push(char);
+        }
+      }
+    });
+  });
+  return used ? glyphs : [];
 }
 
 // Build-time budget report for the glyph font. After moving the tiles to a CD
@@ -922,6 +1112,32 @@ function encodeGlyphTileData(bitmaps) {
   return Buffer.from(bytes);
 }
 
+// Encode a 16x16 glyph bitmap (0/1 mask, 256 entries) as a single PCE 16x16
+// hardware sprite pattern (128 bytes). Lit pixels map to color index 15 (all
+// four bitplanes set); the runtime supplies the actual color via the reserved
+// sprite palette bank's entry 15. Layout matches encodePceSpritePattern in
+// pce-asset-manager.js: per row y, byte (plane*32 + y*2) = right half, +1 = left.
+function encodeGlyphSpritePattern(bitmap) {
+  const pattern = Buffer.alloc(128);
+  for (let y = 0; y < 16; y += 1) {
+    let left = 0;
+    let right = 0;
+    for (let x = 0; x < 8; x += 1) {
+      if (bitmap[(y * 16) + x]) left |= (0x80 >> x);
+      if (bitmap[(y * 16) + 8 + x]) right |= (0x80 >> x);
+    }
+    for (let plane = 0; plane < 4; plane += 1) {
+      pattern[(plane * 32) + (y * 2)] = right;
+      pattern[(plane * 32) + (y * 2) + 1] = left;
+    }
+  }
+  return pattern;
+}
+
+function encodeGlyphSpriteData(bitmaps) {
+  return Buffer.concat(bitmaps.map((bitmap) => encodeGlyphSpritePattern(bitmap)));
+}
+
 function renderGlyphBitmaps(glyphs, config = {}) {
   return renderGlyphBitmapsWithFfmpeg(glyphs, config)
     || renderGlyphBitmapsWithPython(glyphs, config)
@@ -955,6 +1171,16 @@ function bytesToCArray(name, buffer, qualifier = 'static const unsigned char') {
 function indexAssets(assets, type) {
   const map = new Map();
   assets.filter((asset) => asset.type === type).forEach((asset, index) => map.set(asset.id, index));
+  return map;
+}
+
+// Index PSG assets in the same order the asset manager emits pce_editor_psg_assets[]
+// (psg-song and psg-sfx share a single array, kept in document order).
+function indexPsgAssets(assets) {
+  const map = new Map();
+  assets
+    .filter((asset) => asset.type === 'psg-song' || asset.type === 'psg-sfx')
+    .forEach((asset, index) => map.set(asset.id, index));
   return map;
 }
 
@@ -1157,6 +1383,7 @@ function encodeMessageRecord(message = {}) {
   pushU8(bytes, message.autoWaitFrames);
   pushS16(bytes, message.mouthAnimationIndex);
   pushU8(bytes, message.mouthSlot);
+  pushU16(bytes, message.textColor);
   return Buffer.from(bytes);
 }
 
@@ -1224,6 +1451,14 @@ function buildScenePack(sceneBuild) {
     branch.caseOffset = caseRecords.length
       ? appendPackData(dataChunks, state, Buffer.concat(caseRecords))
       : 0;
+  });
+  // spritetext commands carry their glyph stream inline; append it to the pack
+  // data and patch the command's assetIndex to the resulting offset. Commands
+  // are encoded after this, so the patched offset is picked up below.
+  commands.forEach((command) => {
+    if (command.type !== VN_COMMAND_SPRITETEXT) return;
+    const glyphs = Buffer.isBuffer(command.spriteTextGlyphs) ? command.spriteTextGlyphs : Buffer.alloc(0);
+    command.assetIndex = glyphs.length ? appendPackData(dataChunks, state, glyphs) : 0;
   });
 
   const header = Buffer.alloc(VN_SCENE_PACK_HEADER_SIZE);
@@ -1299,10 +1534,62 @@ function generateVnSources(projectDir, options = {}) {
   const fontDataAbsPath = path.join(projectDir, fontDataPath);
   ensureDirSync(path.dirname(fontDataAbsPath));
   fs.writeFileSync(fontDataAbsPath, fontTiles);
+
+  // Sprite-format font for `spritetext` overlays. Only the characters used by
+  // spritetext are encoded, and only when at least one scene uses the command.
+  const spriteTextGlyphs = collectSpriteTextGlyphsRaw(doc).slice(0, VN_FONT_SPRITE_MAX_GLYPH_COUNT);
+  const spriteGlyphIndex = new Map(spriteTextGlyphs.map((glyph, index) => [glyph, index]));
+  const fontSpriteDataPath = normalizeRelativePath(VN_FONT_SPRITE_DATA_FILE);
+  const fontSpriteDataAbsPath = path.join(projectDir, fontSpriteDataPath);
+  const fontSpriteWarnings = [];
+  let fontSpriteTiles = Buffer.alloc(0);
+  let fontSpriteRenderer = '';
+  // Place the sprite font right after the BG glyph font, in 32-word pattern
+  // units (a 16x16 sprite pattern spans two units). This sits between the BG
+  // font and the sprite asset region (default sprite tileBase 880).
+  const fontSpritePatternBase = Math.ceil((fontBudget.endTile * 16) / 32);
+  const fontSpritePaletteBank = clampInt(
+    options.fontConfig?.spritePaletteBank ?? fontConfig.spritePaletteBank,
+    0, 15, DEFAULT_FONT_SPRITE_PALETTE_BANK,
+  );
+  if (spriteTextGlyphs.length) {
+    const fontSpriteRender = renderGlyphBitmaps(spriteTextGlyphs, fontConfig);
+    fontSpriteRenderer = fontSpriteRender.renderer;
+    fontSpriteTiles = encodeGlyphSpriteData(fontSpriteRender.bitmaps);
+    ensureDirSync(path.dirname(fontSpriteDataAbsPath));
+    fs.writeFileSync(fontSpriteDataAbsPath, fontSpriteTiles);
+    // Warn (non-fatal) when the sprite font would collide with sprite asset
+    // patterns or run past the SATB. Author controls glyph count, so this is a
+    // budget hint rather than a hard error.
+    const spriteFontEndWord = (fontSpritePatternBase + (spriteTextGlyphs.length * 2)) * 32;
+    const spriteAssetTileBases = (assetDoc.assets || [])
+      .filter((asset) => asset.type === 'sprite')
+      .map((asset) => Number(asset.options?.tileBase))
+      .filter((value) => Number.isFinite(value));
+    const minSpriteAssetWord = spriteAssetTileBases.length
+      ? Math.min(...spriteAssetTileBases) * 32
+      : 880 * 32;
+    if (spriteFontEndWord > 0x7f00) {
+      fontSpriteWarnings.push(`スプライトフォント: ${spriteTextGlyphs.length} グリフが VRAM 末尾 (SATB) を超えます。spritetext の文字種を減らしてください。`);
+    } else if (spriteFontEndWord > minSpriteAssetWord) {
+      fontSpriteWarnings.push(`スプライトフォント: ${spriteTextGlyphs.length} グリフがスプライト asset の pattern 領域 (tileBase) と重なる可能性があります。spritetext の文字種を減らすか sprite tileBase を上げてください。`);
+    }
+  } else if (fs.existsSync(fontSpriteDataAbsPath)) {
+    // No spritetext in the project: drop a stale generated file so the CD layout
+    // does not keep reserving a sector for it.
+    try { fs.unlinkSync(fontSpriteDataAbsPath); } catch (_) {}
+  }
+  const fontSpriteBudget = {
+    glyphCount: spriteTextGlyphs.length,
+    byteSize: fontSpriteTiles.length,
+    sectorCount: Math.max(1, Math.ceil(fontSpriteTiles.length / VN_CD_SECTOR_BYTES)),
+  };
+
   const imageIndex = indexAssets(assetDoc.assets || [], 'image');
   const spriteIndex = indexAssets(assetDoc.assets || [], 'sprite');
   const adpcmIndex = indexAssets(assetDoc.assets || [], 'adpcm');
   const cddaIndex = indexAssets(assetDoc.assets || [], 'cdda-track');
+  const psgIndex = indexPsgAssets(assetDoc.assets || []);
   const spriteAnimations = buildSpriteAnimationIndex(assetDoc, spriteIndex);
   if (spriteAnimations.meta.length > VN_MAX_U8_COUNT) {
     throw new Error(`PCE VN supports up to ${VN_MAX_U8_COUNT} sprite animations`);
@@ -1426,6 +1713,7 @@ function generateVnSources(projectDir, options = {}) {
           autoWaitFrames: command.autoWaitFrames,
           mouthAnimationIndex,
           mouthSlot,
+          textColor: messageColorWord(command.textColor),
         });
         pushCommand({
           type: VN_COMMAND_MESSAGE,
@@ -1445,20 +1733,46 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'audio') {
-        const isAdpcm = command.kind === 'adpcm';
+        const kindCode = command.kind === 'adpcm'
+          ? VN_AUDIO_KIND_ADPCM
+          : (command.kind === 'psg' ? VN_AUDIO_KIND_PSG : VN_AUDIO_KIND_CDDA);
         const action = command.action === 'stop' ? VN_AUDIO_ACTION_STOP : VN_AUDIO_ACTION_PLAY;
-        const assetIndex = command.action === 'play'
-          ? (isAdpcm ? (adpcmIndex.get(command.assetId) ?? -1) : (cddaIndex.get(command.assetId) ?? -1))
-          : -1;
-        const flags = (isAdpcm ? VN_AUDIO_KIND_ADPCM : VN_AUDIO_KIND_CDDA) | action;
+        const lookupIndex = () => {
+          if (kindCode === VN_AUDIO_KIND_ADPCM) return adpcmIndex.get(command.assetId) ?? -1;
+          if (kindCode === VN_AUDIO_KIND_PSG) return psgIndex.get(command.assetId) ?? -1;
+          return cddaIndex.get(command.assetId) ?? -1;
+        };
+        const assetIndex = command.action === 'play' ? lookupIndex() : -1;
+        const flags = kindCode | action;
         pushCommand({
           type: VN_COMMAND_AUDIO,
           assetIndex,
-          slot: 0,
+          // For PSG, slot carries the base channel (0-5).
+          slot: kindCode === VN_AUDIO_KIND_PSG ? clampInt(command.channel, 0, 5, 0) : 0,
           flags,
           arg0: 0,
           arg1: 0,
           x: 0,
+          y: 0,
+          messageIndex: -1,
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
+        return;
+      }
+      if (command.type === 'inputcheck') {
+        const mode = command.mode === 'async'
+          ? VN_INPUT_MODE_ASYNC
+          : (command.mode === 'cancel' ? VN_INPUT_MODE_CANCEL : VN_INPUT_MODE_SYNC);
+        pushCommand({
+          type: VN_COMMAND_INPUTCHECK,
+          assetIndex: -1,
+          slot: 0,
+          flags: mode,
+          arg0: inputButtonsMask(command.buttons),
+          arg1: 0,
+          x: command.mode === 'cancel' ? VN_NO_COMMAND : labelCommand(command.targetLabel),
           y: 0,
           messageIndex: -1,
           animationIndex: -1,
@@ -1693,6 +2007,31 @@ function generateVnSources(projectDir, options = {}) {
           choiceIndex: -1,
         });
       }
+      if (command.type === 'spritetext') {
+        const glyphBytes = [];
+        for (const char of String(command.text || '')) {
+          if (glyphBytes.length >= VN_SPRITETEXT_MAX_GLYPHS) break;
+          if (char === '\n') { glyphBytes.push(0xfe); continue; }
+          if (char === '\r') continue;
+          if (spriteGlyphIndex.has(char)) glyphBytes.push(spriteGlyphIndex.get(char));
+        }
+        pushCommand({
+          type: VN_COMMAND_SPRITETEXT,
+          // assetIndex is patched to the glyph data offset in buildScenePack.
+          assetIndex: 0,
+          slot: clampInt(command.slot, 0, 3, 0),
+          flags: command.visible ? VN_SPRITE_VISIBLE : 0,
+          arg0: clampInt(command.blinkFrames, 0, 255, 0),
+          arg1: glyphBytes.length,
+          x: clampInt(command.x, 0, 319, 0),
+          y: clampInt(command.y, 0, 223, 0),
+          messageIndex: spriteTextColorWord(command.color),
+          animationIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+          spriteTextGlyphs: Buffer.from(glyphBytes),
+        });
+      }
     });
     sceneBuild.packBuffer = buildScenePack(sceneBuild);
     writeScenePack(projectDir, sceneBuild);
@@ -1709,6 +2048,11 @@ function generateVnSources(projectDir, options = {}) {
   const fontLayout = cdLayout.get(fontDataPath) || {};
   const fontSectorCount = fontLayout.sectorCount || fontBudget.sectorCount;
   const fontDataInitializer = `{ ${cdSectorInitializer(fontLayout)}, ${fontSectorCount}u, ${fontBudget.byteSize}u }`;
+  const fontSpriteLayout = cdLayout.get(fontSpriteDataPath) || {};
+  const fontSpriteSectorCount = fontSpriteBudget.byteSize
+    ? (fontSpriteLayout.sectorCount || fontSpriteBudget.sectorCount)
+    : 0;
+  const fontSpriteDataInitializer = `{ ${cdSectorInitializer(fontSpriteLayout)}, ${fontSpriteSectorCount}u, ${fontSpriteBudget.byteSize}u }`;
   const scenePackMeta = sceneBuilds.map((sceneBuild, index) => {
     const layout = cdLayout.get(sceneBuild.packPath) || {};
     const sectorCount = layout.sectorCount || Math.max(1, Math.ceil(sceneBuild.packBuffer.length / VN_CD_SECTOR_BYTES));
@@ -1735,6 +2079,8 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_COMMAND_SWITCH ${VN_COMMAND_SWITCH}u`,
     `#define PCE_VN_COMMAND_LABEL ${VN_COMMAND_LABEL}u`,
     `#define PCE_VN_COMMAND_GOTO ${VN_COMMAND_GOTO}u`,
+    `#define PCE_VN_COMMAND_INPUTCHECK ${VN_COMMAND_INPUTCHECK}u`,
+    `#define PCE_VN_COMMAND_SPRITETEXT ${VN_COMMAND_SPRITETEXT}u`,
     `#define PCE_VN_BG_TRANSITION_CUT ${VN_BG_TRANSITION_CUT}u`,
     `#define PCE_VN_BG_TRANSITION_FADE ${VN_BG_TRANSITION_FADE}u`,
     `#define PCE_VN_SPRITE_VISIBLE ${VN_SPRITE_VISIBLE}u`,
@@ -1742,8 +2088,13 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_SPRITE_FLIP_Y ${VN_SPRITE_FLIP_Y}u`,
     `#define PCE_VN_AUDIO_KIND_ADPCM ${VN_AUDIO_KIND_ADPCM}u`,
     `#define PCE_VN_AUDIO_KIND_CDDA ${VN_AUDIO_KIND_CDDA}u`,
+    `#define PCE_VN_AUDIO_KIND_PSG ${VN_AUDIO_KIND_PSG}u`,
     `#define PCE_VN_AUDIO_ACTION_PLAY ${VN_AUDIO_ACTION_PLAY}u`,
     `#define PCE_VN_AUDIO_ACTION_STOP ${VN_AUDIO_ACTION_STOP}u`,
+    `#define PCE_VN_INPUT_MODE_SYNC ${VN_INPUT_MODE_SYNC}u`,
+    `#define PCE_VN_INPUT_MODE_ASYNC ${VN_INPUT_MODE_ASYNC}u`,
+    `#define PCE_VN_INPUT_MODE_CANCEL ${VN_INPUT_MODE_CANCEL}u`,
+    `#define PCE_VN_MESSAGE_COLOR_NONE ${VN_MESSAGE_COLOR_NONE}u`,
     `#define PCE_VN_EFFECT_FADE_OUT ${VN_EFFECT_FADE_OUT}u`,
     `#define PCE_VN_EFFECT_FADE_IN ${VN_EFFECT_FADE_IN}u`,
     `#define PCE_VN_EFFECT_BLANK ${VN_EFFECT_BLANK}u`,
@@ -1793,6 +2144,7 @@ function generateVnSources(projectDir, options = {}) {
     '  unsigned char auto_wait_frames;',
     '  signed int mouth_animation_index;',
     '  unsigned char mouth_slot;',
+    '  unsigned int text_color;',
     '} pce_vn_message_t;',
     '',
     'typedef struct {',
@@ -1858,6 +2210,8 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_CHOICE_CURSOR_GLYPH ${glyphIndex.get('>') ?? 0}u`,
     '#define PCE_VN_GLYPH_END 0xffu',
     '#define PCE_VN_GLYPH_NEWLINE 0xfeu',
+    `#define PCE_VN_FONT_SPRITE_PATTERN_BASE ${fontSpritePatternBase}u`,
+    `#define PCE_VN_FONT_SPRITE_PALETTE_BANK ${fontSpritePaletteBank}u`,
     '',
     '#if defined(__PCE_CD__)',
     'extern const pce_vn_cd_data_ref_t pce_vn_font_data;',
@@ -1866,6 +2220,12 @@ function generateVnSources(projectDir, options = {}) {
     '#endif',
     'extern const unsigned char pce_vn_font_glyph_count;',
     'void pce_vn_font_tiles_map(void);',
+    '#if defined(__PCE_CD__)',
+    'extern const pce_vn_cd_data_ref_t pce_vn_font_sprite_data;',
+    '#else',
+    'extern const unsigned char pce_vn_font_sprite_tiles[];',
+    '#endif',
+    'extern const unsigned char pce_vn_font_sprite_glyph_count;',
     'extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];',
     'extern const unsigned char pce_vn_sprite_animation_count;',
     'extern const signed int pce_vn_variable_initial_values[];',
@@ -1904,6 +2264,15 @@ function generateVnSources(projectDir, options = {}) {
     '  pce_ram_bank132_map();',
     '#endif',
     '}',
+    '',
+    '#if defined(__PCE_CD__)',
+    `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_sprite_data = ${fontSpriteDataInitializer};`,
+    '#else',
+    ...(fontSpriteTiles.length
+      ? bytesToCArray('PCE_VN_FONT_SECTION pce_vn_font_sprite_tiles', fontSpriteTiles, 'const unsigned char')
+      : ['const unsigned char PCE_VN_FONT_SECTION pce_vn_font_sprite_tiles[] = { 0u };']),
+    '#endif',
+    `const unsigned char PCE_VN_DATA_SECTION pce_vn_font_sprite_glyph_count = ${fontSpriteBudget.glyphCount}u;`,
     '',
     'const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations[] = {',
     ...(animationMeta.length ? animationMeta : ['  { 0u, 0u, 1u, 8u, 1u, 1u, 1u, 1u }']),
@@ -1948,7 +2317,13 @@ function generateVnSources(projectDir, options = {}) {
     fontTileBase,
     fontEndTile: fontBudget.endTile,
     droppedGlyphCount: fontBudget.droppedGlyphCount,
-    warnings: fontBudget.warnings,
+    fontSpriteDataPath,
+    fontSpriteGlyphCount: fontSpriteBudget.glyphCount,
+    fontSpriteByteSize: fontSpriteBudget.byteSize,
+    fontSpritePatternBase,
+    fontSpritePaletteBank,
+    fontSpriteRenderer,
+    warnings: [...fontBudget.warnings, ...fontSpriteWarnings],
   };
 }
 
@@ -2060,6 +2435,9 @@ function collectCdDataFiles(projectDir) {
   // Shared glyph font is streamed into VRAM at boot; place it first so its
   // CD sector stays stable regardless of scene edits.
   addCdDataFile(files, seen, VN_FONT_DATA_FILE);
+  // The sprite-format font is only generated when spritetext is used; include it
+  // only when the file actually exists so we never reserve a sector for nothing.
+  addExistingCdDataFile(projectDir, files, seen, VN_FONT_SPRITE_DATA_FILE);
   (doc.scenes || []).forEach((scene, sceneIndex) => {
     addCdDataFile(files, seen, scenePackRelativePath(scene, sceneIndex));
     collectSceneCommandAssetIds(scene).forEach((assetId) => {
@@ -2103,6 +2481,7 @@ function addManagedGeneratedPath(files, relativePath) {
 function collectManagedGeneratedCdDataFiles(projectDir) {
   const managed = new Set();
   addManagedGeneratedPath(managed, VN_FONT_DATA_FILE);
+  addManagedGeneratedPath(managed, VN_FONT_SPRITE_DATA_FILE);
   const scenePackDir = normalizeRelativePath(VN_SCENE_PACK_DIR);
   try {
     const assetDoc = assetManager.readAssetDocument(projectDir);
@@ -2179,6 +2558,7 @@ module.exports = {
   VN_SCENE_PACK_CACHE_BYTES,
   VN_FONT_FILE,
   VN_FONT_DATA_FILE,
+  VN_FONT_SPRITE_DATA_FILE,
   VN_MAX_GLYPH_COUNT,
   DEFAULT_FONT_TILE_BASE,
   DEFAULT_FONT_CONFIG,
@@ -2198,12 +2578,26 @@ module.exports = {
   VN_COMMAND_SWITCH,
   VN_COMMAND_LABEL,
   VN_COMMAND_GOTO,
+  VN_COMMAND_INPUTCHECK,
+  VN_COMMAND_SPRITETEXT,
+  VN_SPRITE_VISIBLE,
+  VN_AUDIO_KIND_PSG,
+  VN_INPUT_MODE_SYNC,
+  VN_INPUT_MODE_ASYNC,
+  VN_INPUT_MODE_CANCEL,
+  VN_SCENE_PACK_MESSAGE_SIZE,
+  VN_MESSAGE_COLOR_NONE,
+  inputButtonsMask,
+  messageColorWord,
+  normalizeMessageColor,
   collectCdDataFiles,
   collectGlyphs,
   collectGlyphsRaw,
+  collectSpriteTextGlyphsRaw,
   computeFontBudget,
   defaultSceneDocument,
   encodeGlyphTileData,
+  encodeGlyphSpriteData,
   ensureSceneFile,
   generateVnSources,
   getFontFilePath,

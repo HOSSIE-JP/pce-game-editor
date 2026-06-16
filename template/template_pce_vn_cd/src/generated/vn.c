@@ -10,6 +10,9 @@ PCE_RAM_BANK_AT(132, 6);
 
 #include "vn.h"
 
+#if defined(__PCE_CD__)
+const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_data = { { 64u, 0u, 0u }, 3u, 4352u };
+#else
 const unsigned char PCE_VN_FONT_SECTION pce_vn_font_tiles[] = {
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -323,6 +326,7 @@ const unsigned char PCE_VN_FONT_SECTION pce_vn_font_tiles[] = {
   0xc0, 0xc0, 0x66, 0x66, 0x7e, 0x7e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0xc0,
   0xc0, 0xc0, 0xc0, 0xc0, 0x66, 0x66, 0x7e, 0x7e, 0x00, 0x00, 0x00, 0x00
 };
+#endif
 const unsigned char PCE_VN_DATA_SECTION pce_vn_font_glyph_count = 34;
 
 void pce_vn_font_tiles_map(void)
@@ -331,6 +335,13 @@ void pce_vn_font_tiles_map(void)
   pce_ram_bank132_map();
 #endif
 }
+
+#if defined(__PCE_CD__)
+const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_sprite_data = { { 0u, 0u, 0u }, 0u, 0u };
+#else
+const unsigned char PCE_VN_FONT_SECTION pce_vn_font_sprite_tiles[] = { 0u };
+#endif
+const unsigned char PCE_VN_DATA_SECTION pce_vn_font_sprite_glyph_count = 0u;
 
 const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations[] = {
   { 0u, 0u, 1u, 8u, 4u, 8u, 32u, 1u },
@@ -344,8 +355,8 @@ const signed int PCE_VN_DATA_SECTION pce_vn_variable_initial_values[] = {
 const unsigned char PCE_VN_DATA_SECTION pce_vn_variable_count = 0;
 
 const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs[] = {
-  { { 64u, 0u, 0u }, 1u, 137u, 1 },
-  { { 77u, 0u, 0u }, 1u, 146u, -1 }
+  { { 67u, 0u, 0u }, 1u, 141u, 1 },
+  { { 79u, 0u, 0u }, 1u, 150u, -1 }
 };
 const unsigned char PCE_VN_DATA_SECTION pce_vn_scene_count = 2;
 const unsigned char PCE_VN_DATA_SECTION pce_vn_start_scene = 0u;

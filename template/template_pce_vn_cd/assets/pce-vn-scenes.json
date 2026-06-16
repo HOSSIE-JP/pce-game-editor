@@ -10,7 +10,9 @@
           "assetId": "vn_classroom_bg",
           "transition": "cut",
           "fadeOutFrames": 0,
-          "fadeInFrames": 0
+          "fadeInFrames": 0,
+          "x": 0,
+          "y": 0
         },
         {
           "type": "sprite",
@@ -28,6 +30,7 @@
           "type": "message",
           "speaker": "",
           "text": "320がめんです",
+          "textColor": "",
           "voiceAssetId": "",
           "textSpeedFrames": 2,
           "advanceMode": "button",
@@ -39,6 +42,7 @@
           "type": "message",
           "speaker": "",
           "text": "18もじx4ぎょう",
+          "textColor": "",
           "voiceAssetId": "",
           "textSpeedFrames": 2,
           "advanceMode": "button",
@@ -57,7 +61,9 @@
           "assetId": "rooftop_dusk_bg",
           "transition": "fade",
           "fadeOutFrames": 16,
-          "fadeInFrames": 16
+          "fadeInFrames": 16,
+          "x": 0,
+          "y": 0
         },
         {
           "type": "sprite",
@@ -75,6 +81,7 @@
           "type": "message",
           "speaker": "",
           "text": "ゆうやけの おくじょうです",
+          "textColor": "",
           "voiceAssetId": "",
           "textSpeedFrames": 2,
           "advanceMode": "button",
@@ -86,6 +93,7 @@
           "type": "message",
           "speaker": "",
           "text": "ばしょと ひとを きりかえ",
+          "textColor": "",
           "voiceAssetId": "",
           "textSpeedFrames": 2,
           "advanceMode": "button",
