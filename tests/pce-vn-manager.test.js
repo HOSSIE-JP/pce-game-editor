@@ -663,6 +663,87 @@ test('PCE VN manager encodes the input check command with button mask and modes'
   assert.match(runtime, /async_input_active = 1u;/);
 });
 
+test('PCE VN manager encodes spritetext overlays with a sprite-format font', () => {
+  const projectDir = makeTempDir('pce-vn-spritetext-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'spritetext', slot: 0, text: 'PRESS RUN', x: 96, y: 180, color: '#ffff00', blinkFrames: 30, visible: true },
+        { type: 'spritetext', slot: 0, visible: false },
+        { type: 'wait', frames: 1 },
+      ],
+      nextSceneId: '',
+    }],
+  });
+
+  // Two unique scenes share one sprite font; only spritetext chars are encoded.
+  const normalized = vnManager.readSceneDocument(projectDir);
+  assert.equal(normalized.scenes[0].commands[0].type, 'spritetext');
+  assert.deepEqual(vnManager.collectSpriteTextGlyphsRaw(normalized), ['P', 'R', 'E', 'S', ' ', 'U', 'N']);
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  assert.match(header, /PCE_VN_COMMAND_SPRITETEXT 15u/);
+  assert.match(header, /#define PCE_VN_FONT_SPRITE_PATTERN_BASE \d+u/);
+  assert.match(header, /#define PCE_VN_FONT_SPRITE_PALETTE_BANK 15u/);
+  assert.match(source, /pce_vn_font_sprite_glyph_count = 7u;/);
+  assert.equal(generated.fontSpriteGlyphCount, 7);
+  assert.equal(generated.fontSpriteByteSize, 7 * 128);
+  // The sprite-format font file exists and is exactly one 128-byte pattern/glyph.
+  const fontSprite = fs.readFileSync(path.join(projectDir, vnManager.VN_FONT_SPRITE_DATA_FILE));
+  assert.equal(fontSprite.length, 7 * 128);
+
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+  const show = commandRecord(pack, 0);
+  assert.equal(show.type, vnManager.VN_COMMAND_SPRITETEXT);
+  assert.equal(show.slot, 0);
+  assert.equal(show.flags, vnManager.VN_SPRITE_VISIBLE);
+  assert.equal(show.arg0, 30); // blinkFrames
+  assert.equal(show.arg1, 9); // glyph count incl. space
+  assert.equal(show.x, 96);
+  assert.equal(show.y, 180);
+  assert.equal(show.messageIndex, 0x1f8); // #ffff00 -> 9-bit GRB
+  // Glyph stream is stored inline at assetIndex: "PRESS RUN" -> indices.
+  assert.deepEqual([...pack.subarray(show.assetIndex, show.assetIndex + 9)], [0, 1, 2, 3, 3, 4, 1, 5, 6]);
+
+  const hide = commandRecord(pack, 1);
+  assert.equal(hide.type, vnManager.VN_COMMAND_SPRITETEXT);
+  assert.equal(hide.flags, 0); // visible:false clears the slot
+  assert.equal(hide.arg1, 0);
+
+  const runtime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
+    'utf-8',
+  );
+  assert.match(runtime, /command->type == PCE_VN_COMMAND_SPRITETEXT/);
+  assert.match(runtime, /draw_spritetext_slots\(uint8_t satb_index\)/);
+  assert.match(runtime, /upload_font_sprite_patterns\(void\)/);
+  assert.match(runtime, /static void tick_spritetext\(void\)/);
+});
+
+test('PCE VN manager omits the sprite font when no scene uses spritetext', () => {
+  const projectDir = makeTempDir('pce-vn-no-spritetext-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{ id: 'opening', commands: [{ type: 'message', text: 'hi' }], nextSceneId: '' }],
+  });
+
+  const generated = vnManager.generateVnSources(projectDir);
+  assert.equal(generated.fontSpriteGlyphCount, 0);
+  assert.equal(fs.existsSync(path.join(projectDir, vnManager.VN_FONT_SPRITE_DATA_FILE)), false);
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  assert.match(source, /pce_vn_font_sprite_glyph_count = 0u;/);
+});
+
 test('PCE VN manager normalizes message text color and clears empty bodies', () => {
   const projectDir = makeTempDir('pce-vn-color-');
   const vnManager = loadVnManager();
@@ -851,7 +932,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /pce_vn_cd_data_ref_t font;/);
   assert.match(source, /font = pce_vn_font_data;\n    map_resident_data\(\);/);
   assert.match(source, /\(void\)pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);\n        cd_transfer_wait\(\);\n        pce_editor_vram_copy\(vram_dest, cd_transfer_scratch, chunk\);/);
-  assert.match(source, /upload_ui_palette\(\);\n    upload_font_tiles\(\);\n    clear_screen_map\(\);/);
+  assert.match(source, /upload_ui_palette\(\);\n    upload_font_tiles\(\);\n    upload_font_sprite_patterns\(\);\n    clear_screen_map\(\);/);
   assert.doesNotMatch(source, /vce_write_color\(0u, 0x0000u\);/);
   assert.match(source, /static void draw_blank_cell\(uint8_t x, uint8_t y\)/);
   assert.match(source, /static void clear_window_cells\(void\)/);

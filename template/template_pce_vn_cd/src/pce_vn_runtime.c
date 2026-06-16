@@ -168,6 +168,26 @@ typedef struct
 static vn_sprite_slot_t sprite_slots_storage[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 #define sprite_slots sprite_slots_storage
 static pce_editor_sprite_draw_meta_t sprite_draw_meta;
+
+/* spritetext overlay slots: short strings drawn with hardware sprites on top of
+   the BG/UI (e.g. a blinking "PRESS RUN BUTTON"). They share the 64-entry SATB
+   with the character sprite slots, so keep the strings short. */
+#define VN_SPRITETEXT_SLOT_COUNT 4u
+#define VN_SPRITETEXT_MAX_GLYPHS 32u
+#define VN_SPRITETEXT_GLYPH_NEWLINE 0xfeu
+typedef struct
+{
+    uint8_t glyphs[VN_SPRITETEXT_MAX_GLYPHS];
+    uint8_t glyph_count;
+    uint16_t x;
+    uint16_t y;
+    uint16_t color;
+    uint8_t blink_frames;
+    uint8_t blink_timer;
+    uint8_t blink_on;
+    uint8_t visible;
+} vn_spritetext_slot_t;
+static vn_spritetext_slot_t spritetext_slots[VN_SPRITETEXT_SLOT_COUNT] __attribute__((section(".bss")));
 #if defined(__PCE__)
 static vdc_sprite_t sprite_shadow[64];
 #endif
@@ -245,6 +265,7 @@ static uint16_t draw_glyph_bottom[2] __attribute__((section(".bss")));
 #define VN_SWITCH_SCRATCH ((vn_switch_ref_t *)(void *)vn_switch_scratch_storage)
 #define VN_SWITCH_CASE_SCRATCH ((pce_vn_switch_case_t *)(void *)vn_switch_case_scratch_storage)
 static void advance_story(void);
+static void clear_spritetext_slots(void);
 static void VN_BANKED_CODE2 preload_scene_assets(signed int scene_index, uint8_t allow_visual_upload, uint8_t stop_at_first_wait);
 static uint8_t VN_BANKED_CODE load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache);
 static uint8_t VN_BANKED_CODE scene_pack_command_count(const vn_scene_pack_cache_t *cache);
@@ -332,6 +353,7 @@ static void init_runtime_state(void)
     {
         vn_variables[i] = 0;
     }
+    clear_spritetext_slots();
 }
 
 static void delay_frame(void)
@@ -1236,6 +1258,47 @@ static void upload_font_tiles(void)
     mask_buffered_adpcm_completion_irq();
 #elif defined(__PCE__)
     pce_editor_vram_copy((uint16_t)(PCE_VN_FONT_TILE_BASE * 16u), pce_vn_font_tiles, (uint16_t)(pce_vn_font_glyph_count * 128u));
+#endif
+}
+
+/* Stream the sprite-format glyph font (used by spritetext overlays) into VRAM
+   once at boot. Each glyph is one 16x16 sprite pattern (128 bytes); the pattern
+   number for glyph g is PCE_VN_FONT_SPRITE_PATTERN_BASE + g*2.
+   In .ram_bank130 to keep the resident bank128 within budget (mirrors the
+   banked CD->VRAM helpers); called once from init_video at boot. */
+static void VN_BANKED_CODE2 upload_font_sprite_patterns(void)
+{
+#if defined(__PCE_CD__)
+    pce_vn_cd_data_ref_t font;
+    pce_sector_t sector = {0};
+    uint16_t remaining;
+    uint16_t vram_dest = (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE * 32u);
+    map_vn_data();
+    font = pce_vn_font_sprite_data;
+    map_resident_data();
+    if (!font.byte_size || !font.sector_count) return;
+    prepare_cd_data_access();
+    sector.lo = font.sector.lo;
+    sector.md = font.sector.md;
+    sector.hi = font.sector.hi;
+    remaining = font.byte_size;
+    map_vn_data();
+    while (remaining)
+    {
+        const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
+        (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)cd_transfer_scratch, chunk);
+        cd_transfer_wait();
+        pce_editor_vram_copy(vram_dest, cd_transfer_scratch, chunk);
+        vram_dest = (uint16_t)(vram_dest + ((chunk + 1u) / 2u));
+        remaining = (uint16_t)(remaining - chunk);
+        cd_sector_advance(&sector);
+    }
+    mask_buffered_adpcm_completion_irq();
+#elif defined(__PCE__)
+    if (pce_vn_font_sprite_glyph_count)
+    {
+        pce_editor_vram_copy((uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE * 32u), pce_vn_font_sprite_tiles, (uint16_t)(pce_vn_font_sprite_glyph_count * 128u));
+    }
 #endif
 }
 
@@ -2216,10 +2279,61 @@ static void show_scene(uint8_t scene_index)
         sprite_slots[i].frame = 0u;
         sprite_slots[i].timer = 0u;
     }
+    clear_spritetext_slots();
     pending_scene_sprite_clear = keep_display_for_transition ? 1u : 0u;
     pending_sprite_refresh = 1u;
     preload_scene_assets((signed int)scene_index, 1u, 1u);
     preloaded_scene_visual_valid = 0u;
+}
+
+/* Append the visible spritetext overlays to the SATB starting at satb_index and
+   return how many hardware sprite entries were written. Each glyph is one 16x16
+   sprite using the boot-loaded sprite font; lit pixels read color index 15 of
+   the reserved sprite palette bank, which we set to the slot's color here.
+   Note: all spritetext shares one palette entry, so if two slots are visible at
+   once the last color written wins.
+   Placed in .ram_bank130 (VN_BANKED_CODE2) so -Oz does not fold it into
+   refresh_scene_sprites (.ram_bank129) and it does not bloat the resident
+   bank128; banks 128/129/130 are all mapped (MPR2/3/4) and inter-callable. */
+static uint8_t VN_BANKED_CODE2 draw_spritetext_slots(uint8_t satb_index)
+{
+    uint8_t written = 0u;
+#if defined(__PCE__)
+    uint8_t s;
+    const uint16_t attr = (uint16_t)(VDC_SPRITE_FG | VDC_SPRITE_COLOR(PCE_VN_FONT_SPRITE_PALETTE_BANK));
+    for (s = 0u; s < VN_SPRITETEXT_SLOT_COUNT; s++)
+    {
+        const vn_spritetext_slot_t *slot = &spritetext_slots[s];
+        uint8_t col = 0u;
+        uint8_t row = 0u;
+        uint8_t i;
+        if (!slot->visible || !slot->glyph_count) continue;
+        if (slot->blink_frames && !slot->blink_on) continue;
+        vce_write_color((uint16_t)(256u + (PCE_VN_FONT_SPRITE_PALETTE_BANK * 16u) + 15u), slot->color);
+        for (i = 0u; i < slot->glyph_count; i++)
+        {
+            const uint8_t glyph = slot->glyphs[i];
+            vdc_sprite_t *entry;
+            if (glyph == VN_SPRITETEXT_GLYPH_NEWLINE)
+            {
+                col = 0u;
+                row++;
+                continue;
+            }
+            if ((uint8_t)(satb_index + written) >= 64u) return written;
+            entry = &sprite_shadow[(uint8_t)(satb_index + written)];
+            entry->x = (uint16_t)((int16_t)slot->x + ((uint16_t)col * 16u) + 32 + screen_shake_x);
+            entry->y = (uint16_t)((int16_t)slot->y + ((uint16_t)row * 16u) + 64 + screen_shake_y);
+            entry->pattern = (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE + ((uint16_t)glyph * 2u));
+            entry->attr = attr;
+            written++;
+            col++;
+        }
+    }
+#else
+    (void)satb_index;
+#endif
+    return written;
 }
 
 static void VN_BANKED_CODE refresh_scene_sprites(void)
@@ -2307,6 +2421,7 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
             slot->flags
         ));
     }
+    satb_index = (uint8_t)(satb_index + draw_spritetext_slots(satb_index));
     upload_sprite_table();
     if (display_active)
     {
@@ -2343,6 +2458,38 @@ static void tick_sprite_animations(void)
         changed = 1u;
     }
     if (changed) pending_sprite_refresh = 1u;
+}
+
+/* Advance blink timers for spritetext overlays and request a sprite refresh on
+   each on/off toggle. Static (blink_frames == 0) overlays are left untouched. */
+static void tick_spritetext(void)
+{
+    uint8_t i;
+    uint8_t changed = 0u;
+    for (i = 0u; i < VN_SPRITETEXT_SLOT_COUNT; i++)
+    {
+        vn_spritetext_slot_t *slot = &spritetext_slots[i];
+        if (!slot->visible || !slot->blink_frames) continue;
+        slot->blink_timer++;
+        if (slot->blink_timer < slot->blink_frames) continue;
+        slot->blink_timer = 0u;
+        slot->blink_on = (uint8_t)(slot->blink_on ? 0u : 1u);
+        changed = 1u;
+    }
+    if (changed) pending_sprite_refresh = 1u;
+}
+
+static void clear_spritetext_slots(void)
+{
+    uint8_t i;
+    for (i = 0u; i < VN_SPRITETEXT_SLOT_COUNT; i++)
+    {
+        spritetext_slots[i].visible = 0u;
+        spritetext_slots[i].glyph_count = 0u;
+        spritetext_slots[i].blink_frames = 0u;
+        spritetext_slots[i].blink_timer = 0u;
+        spritetext_slots[i].blink_on = 1u;
+    }
 }
 
 static void animate_sprite_slot(uint8_t slot, uint16_t target_x, uint16_t target_y, uint8_t frames)
@@ -2935,6 +3082,37 @@ static uint8_t execute_command(const pce_vn_command_t *command)
             shake_screen(command->arg0, command->arg1);
         }
     }
+    else if (command->type == PCE_VN_COMMAND_SPRITETEXT)
+    {
+        slot = command->slot < VN_SPRITETEXT_SLOT_COUNT ? command->slot : 0u;
+        if (command->flags & PCE_VN_SPRITE_VISIBLE)
+        {
+            uint8_t count = command->arg1;
+            uint8_t i;
+            const uint16_t glyph_offset = (uint16_t)command->asset_index;
+            if (count > VN_SPRITETEXT_MAX_GLYPHS) count = VN_SPRITETEXT_MAX_GLYPHS;
+            /* scene_pack_u8 range-checks internally and returns 0 when out of
+               bounds, so a truncated pack just yields blank glyphs. */
+            for (i = 0u; i < count; i++)
+            {
+                spritetext_slots[slot].glyphs[i] = scene_pack_u8(&active_scene_pack, (uint16_t)(glyph_offset + i));
+            }
+            spritetext_slots[slot].glyph_count = count;
+            spritetext_slots[slot].x = command->x;
+            spritetext_slots[slot].y = command->y;
+            spritetext_slots[slot].color = (uint16_t)command->message_index;
+            spritetext_slots[slot].blink_frames = command->arg0;
+            spritetext_slots[slot].blink_timer = 0u;
+            spritetext_slots[slot].blink_on = 1u;
+            spritetext_slots[slot].visible = 1u;
+        }
+        else
+        {
+            spritetext_slots[slot].visible = 0u;
+            spritetext_slots[slot].glyph_count = 0u;
+        }
+        pending_sprite_refresh = 1u;
+    }
     return VN_EXEC_CONTINUE;
 }
 
@@ -3025,6 +3203,7 @@ static void init_video(void)
 #endif
     upload_ui_palette();
     upload_font_tiles();
+    upload_font_sprite_patterns();
     clear_screen_map();
     set_screen_offset(0, 0);
 }
@@ -3123,6 +3302,7 @@ int main(void)
         }
         tick_psg();
         tick_sprite_animations();
+        tick_spritetext();
         if (pending_sprite_refresh) refresh_scene_sprites();
         last_pad = pad;
         delay_frame();

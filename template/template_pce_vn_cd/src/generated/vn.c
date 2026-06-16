@@ -336,6 +336,13 @@ void pce_vn_font_tiles_map(void)
 #endif
 }
 
+#if defined(__PCE_CD__)
+const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_sprite_data = { { 0u, 0u, 0u }, 0u, 0u };
+#else
+const unsigned char PCE_VN_FONT_SECTION pce_vn_font_sprite_tiles[] = { 0u };
+#endif
+const unsigned char PCE_VN_DATA_SECTION pce_vn_font_sprite_glyph_count = 0u;
+
 const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations[] = {
   { 0u, 0u, 1u, 8u, 4u, 8u, 32u, 1u },
   { 1u, 0u, 1u, 8u, 4u, 8u, 32u, 1u }

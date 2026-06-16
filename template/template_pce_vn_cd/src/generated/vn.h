@@ -16,6 +16,7 @@
 #define PCE_VN_COMMAND_LABEL 12u
 #define PCE_VN_COMMAND_GOTO 13u
 #define PCE_VN_COMMAND_INPUTCHECK 14u
+#define PCE_VN_COMMAND_SPRITETEXT 15u
 #define PCE_VN_BG_TRANSITION_CUT 0u
 #define PCE_VN_BG_TRANSITION_FADE 1u
 #define PCE_VN_SPRITE_VISIBLE 1u
@@ -145,6 +146,8 @@ typedef struct {
 #define PCE_VN_CHOICE_CURSOR_GLYPH 1u
 #define PCE_VN_GLYPH_END 0xffu
 #define PCE_VN_GLYPH_NEWLINE 0xfeu
+#define PCE_VN_FONT_SPRITE_PATTERN_BASE 424u
+#define PCE_VN_FONT_SPRITE_PALETTE_BANK 15u
 
 #if defined(__PCE_CD__)
 extern const pce_vn_cd_data_ref_t pce_vn_font_data;
@@ -153,6 +156,12 @@ extern const unsigned char pce_vn_font_tiles[];
 #endif
 extern const unsigned char pce_vn_font_glyph_count;
 void pce_vn_font_tiles_map(void);
+#if defined(__PCE_CD__)
+extern const pce_vn_cd_data_ref_t pce_vn_font_sprite_data;
+#else
+extern const unsigned char pce_vn_font_sprite_tiles[];
+#endif
+extern const unsigned char pce_vn_font_sprite_glyph_count;
 extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];
 extern const unsigned char pce_vn_sprite_animation_count;
 extern const signed int pce_vn_variable_initial_values[];

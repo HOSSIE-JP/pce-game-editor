@@ -61,6 +61,7 @@ const COMMAND_DEFINITIONS = [
   { type: 'wait', label: 'Wait', category: '制御', description: '指定フレーム待機' },
   { type: 'audio', label: 'Audio', category: '音声', description: 'CD-DA/ADPCM/PSG再生停止' },
   { type: 'effect', label: 'Effect', category: '演出', description: 'フェード/揺れ' },
+  { type: 'spritetext', label: 'SpriteText', category: '演出', description: '短い文字をスプライトで重ねる' },
 ];
 const COMMAND_CATEGORIES = [...new Set(COMMAND_DEFINITIONS.map((item) => item.category))];
 
@@ -344,7 +345,7 @@ function applySpriteFrame(node, url, geo, flipX, flipY) {
 
 // 表示系コマンドを先頭から uptoIndex まで畳み込み、その時点の画面状態を返す
 function computeVisualState(commands = [], uptoIndex = -1) {
-  const state = { background: null, sprites: {} };
+  const state = { background: null, sprites: {}, spriteTexts: {} };
   const last = Math.min(uptoIndex, commands.length - 1);
   for (let i = 0; i <= last; i += 1) {
     const command = commands[i];
@@ -365,9 +366,22 @@ function computeVisualState(commands = [], uptoIndex = -1) {
           animationId: command.animationId,
         };
       }
+    } else if (command.type === 'spritetext') {
+      if (command.visible === false) {
+        delete state.spriteTexts[command.slot];
+      } else {
+        state.spriteTexts[command.slot] = {
+          slot: command.slot,
+          text: command.text,
+          x: command.x,
+          y: command.y,
+          color: command.color,
+        };
+      }
     } else if (command.type === 'effect' && command.effect === 'blank') {
       state.background = null;
       state.sprites = {};
+      state.spriteTexts = {};
     }
   }
   return state;
@@ -407,6 +421,9 @@ function defaultCommand(type, assets = []) {
   }
   if (type === 'effect') {
     return { type: 'effect', effect: 'shake', frames: 16, intensity: 4 };
+  }
+  if (type === 'spritetext') {
+    return { type: 'spritetext', slot: 0, text: 'PRESS RUN BUTTON', x: 64, y: 184, color: '#ffffff', blinkFrames: 30, visible: true };
   }
   if (type === 'variable') {
     return { type: 'variable', variableName: 'flag_1', operation: 'set', value: 0, min: 0, max: 9 };
@@ -621,6 +638,18 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       intensity: effect === 'shake' ? clamp(raw.intensity ?? raw.power ?? raw.amplitude, 1, 16, 4) : 0,
     };
   }
+  if (raw.type === 'spritetext') {
+    return {
+      type: 'spritetext',
+      slot: clamp(raw.slot, 0, 3, 0),
+      text: String(raw.text == null ? '' : raw.text).replace(/\r/g, '').slice(0, 64),
+      x: clamp(raw.x, 0, 319, 0),
+      y: clamp(raw.y, 0, 223, 0),
+      color: snapHexToPce(raw.color) || '#ffffff',
+      blinkFrames: clamp(raw.blinkFrames ?? raw.blink, 0, 255, 0),
+      visible: raw.visible !== false,
+    };
+  }
   // 本文は未指定(null/undefined)のときだけ既定文言を補完。空文字はクリア意図として保持。
   const messageText = (raw.text == null ? (index === 0 ? 'メッセージを入力してください。' : '') : String(raw.text)).trim().slice(0, 96);
   return {
@@ -779,7 +808,7 @@ function previewRuntime() {
   let scene = null;
   let pc = 0;
   let vars = {};
-  let state = { background: null, sprites: {} };
+  let state = { background: null, sprites: {}, spriteTexts: {} };
   let typeTimer = null;
   let waitTimer = null;
   let autoTimer = null;
@@ -844,6 +873,20 @@ function previewRuntime() {
       const s = state.sprites[slot];
       if (s && s.assetId && data.urls[s.assetId]) stage.insertBefore(makeImg(s, 'sprite'), msgBox);
     });
+    Object.keys(state.spriteTexts || {}).map(Number).sort((a, b) => a - b).forEach((slot) => {
+      const st = state.spriteTexts[slot];
+      if (!st) return;
+      const node = document.createElement('div');
+      node.className = 'pv-layer';
+      node.style.position = 'absolute';
+      node.style.left = (st.x || 0) + 'px';
+      node.style.top = (st.y || 0) + 'px';
+      node.style.color = st.color || '#ffffff';
+      node.style.font = '16px/16px monospace';
+      node.style.whiteSpace = 'pre';
+      node.textContent = st.text || '';
+      stage.insertBefore(node, msgBox);
+    });
     sceneLabel.textContent = 'Scene: ' + (scene ? scene.id : '-');
   }
 
@@ -893,7 +936,7 @@ function previewRuntime() {
     audio[kind] = a;
   }
   function applyEffect(c) {
-    if (c.effect === 'blank') { state.background = null; state.sprites = {}; renderStage(); }
+    if (c.effect === 'blank') { state.background = null; state.sprites = {}; state.spriteTexts = {}; renderStage(); }
     else if (c.effect === 'fadeOut') { stage.style.transition = 'opacity .2s'; stage.style.opacity = '0'; }
     else if (c.effect === 'fadeIn') { stage.style.transition = 'opacity .2s'; stage.style.opacity = '1'; }
     else if (c.effect === 'shake') { stage.classList.remove('pv-shake'); void stage.offsetWidth; stage.classList.add('pv-shake'); }
@@ -1033,6 +1076,13 @@ function previewRuntime() {
         pc += 1;
         continue;
       }
+      if (t === 'spritetext') {
+        if (c.visible === false) delete state.spriteTexts[c.slot];
+        else state.spriteTexts[c.slot] = { slot: c.slot, text: c.text, x: c.x, y: c.y, color: c.color };
+        renderStage();
+        pc += 1;
+        continue;
+      }
       if (t === 'audio') { handleAudio(c); pc += 1; continue; }
       if (t === 'variable') { applyVar(c); pc += 1; continue; }
       if (t === 'effect') { applyEffect(c); pc += 1; continue; }
@@ -1074,7 +1124,7 @@ function previewRuntime() {
     scene = scenesById[sceneId] || null;
     pc = 0;
     vars = {};
-    state = { background: null, sprites: {} };
+    state = { background: null, sprites: {}, spriteTexts: {} };
     pending = null;
     choiceState = null;
     renderStage();
@@ -1285,6 +1335,24 @@ export function activatePlugin({ root, api, registerCapability }) {
         if (s.assetId && urls[s.assetId]) {
           stage.appendChild(makeStageImg(s, 'sprite', urls[s.assetId], command?.type === 'sprite' && s.slot === command.slot));
         }
+      });
+    Object.values(state.spriteTexts || {})
+      .sort((a, b) => a.slot - b.slot)
+      .forEach((st) => {
+        // Approximate the hardware-sprite overlay with positioned text. The real
+        // glyphs use the generated sprite font; this is for placement feedback.
+        const node = document.createElement('div');
+        node.className = 'pce-vn-stage-spritetext';
+        node.style.position = 'absolute';
+        node.style.left = `${st.x || 0}px`;
+        node.style.top = `${st.y || 0}px`;
+        node.style.color = st.color || '#ffffff';
+        node.style.font = '16px/16px monospace';
+        node.style.whiteSpace = 'pre';
+        node.style.letterSpacing = '0';
+        node.textContent = st.text || '';
+        if (command?.type === 'spritetext' && st.slot === command.slot) node.classList.add('is-active');
+        stage.appendChild(node);
       });
   }
 
@@ -1500,6 +1568,10 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (command.type === 'message') return `${command.speaker ? `${command.speaker}: ` : ''}${command.text || '本文なし'}`;
     if (command.type === 'audio') return `${command.kind}:${command.action}${command.assetId ? ` ${command.assetId}` : ''}${command.kind === 'psg' && command.action === 'play' ? ` ch${command.channel || 0}` : ''}`;
     if (command.type === 'effect') return command.effect === 'shake' ? `shake ${command.frames}f / ${command.intensity}` : `${command.effect} ${command.frames}f`;
+    if (command.type === 'spritetext') {
+      if (command.visible === false) return `slot ${command.slot} 消去`;
+      return `"${command.text || ''}" slot ${command.slot} (${command.x}, ${command.y})${command.blinkFrames ? ` blink ${command.blinkFrames}f` : ''}`;
+    }
     if (command.type === 'variable') return command.operation === 'random'
       ? `${command.variableName} = random(${command.min}..${command.max})`
       : `${command.variableName} ${command.operation} ${command.value}`;
@@ -1632,6 +1704,19 @@ export function activatePlugin({ root, api, registerCapability }) {
         variableName: detailForm.elements.variableName.value,
         defaultIndex: detailForm.elements.defaultIndex.value,
         choices,
+      }, assets);
+    }
+    if (type === 'spritetext') {
+      const stColorHex = (detailForm.elements.colorHex?.value || '').trim() || detailForm.elements.color?.value || '';
+      return normalizeCommand({
+        type,
+        slot: detailForm.elements.slot.value,
+        text: detailForm.elements.text.value,
+        x: detailForm.elements.x.value,
+        y: detailForm.elements.y.value,
+        color: stColorHex,
+        blinkFrames: detailForm.elements.blinkFrames.value,
+        visible: detailForm.elements.visible.checked,
       }, assets);
     }
     const colorEnabled = detailForm.elements.textColorEnabled?.checked;
@@ -1905,6 +1990,28 @@ export function activatePlugin({ root, api, registerCapability }) {
         <button class="btn-sm" type="button" data-choice-add>選択肢追加</button>
       `;
     }
+    if (command.type === 'spritetext') {
+      const stColor = command.color || '#ffffff';
+      return `
+        <label class="form-group"><span class="form-label">文字 (最大32グリフ)</span><input class="form-input form-input-mono" name="text" value="${esc(command.text || '')}" placeholder="PRESS RUN BUTTON" /></label>
+        <div class="pce-vn-grid tight">
+          <label class="form-group"><span class="form-label">Slot</span><input class="form-input" name="slot" type="number" min="0" max="3" value="${esc(command.slot)}" /></label>
+          <label class="form-group"><span class="form-label">X</span><input class="form-input" name="x" type="number" min="0" max="319" value="${esc(command.x)}" /></label>
+          <label class="form-group"><span class="form-label">Y</span><input class="form-input" name="y" type="number" min="0" max="223" value="${esc(command.y)}" /></label>
+          <label class="form-group"><span class="form-label">Blink</span><input class="form-input" name="blinkFrames" type="number" min="0" max="255" value="${esc(command.blinkFrames || 0)}" /></label>
+        </div>
+        <div class="pce-vn-grid">
+          <label class="form-group"><span class="form-label">文字色</span>
+            <span class="pce-vn-color-row">
+              <input type="color" name="color" value="${esc(stColor)}" />
+              <input class="form-input form-input-mono" name="colorHex" value="${esc(command.color || '')}" placeholder="#rrggbb" />
+            </span>
+          </label>
+          <label class="pce-vn-check"><input name="visible" type="checkbox" ${command.visible !== false ? 'checked' : ''} /><span>visible</span></label>
+        </div>
+        <small class="pce-vn-hint">ハードウェアスプライトで描画。立ち絵と同じ SATB(64)/16-per-line を共有するので短く。同時表示は1色（後勝ち）。</small>
+      `;
+    }
     const hasColor = Boolean(command.textColor);
     const colorValue = command.textColor || '#ffffff';
     const speedHint = command.voiceAssetId
@@ -2043,8 +2150,9 @@ export function activatePlugin({ root, api, registerCapability }) {
       startMessagePreview(node, command, token);
       return;
     }
-    if (command.type === 'background' || command.type === 'sprite') {
-      renderCommandPreviewLoading(command, assetById(command.assetId), command.type === 'background' ? '背景' : 'Sprite');
+    if (command.type === 'background' || command.type === 'sprite' || command.type === 'spritetext') {
+      const loadingLabel = command.type === 'background' ? '背景' : (command.type === 'spritetext' ? 'SpriteText' : 'Sprite');
+      renderCommandPreviewLoading(command, command.type === 'spritetext' ? null : assetById(command.assetId), loadingLabel);
       const state = computeVisualState(current.commands, selectedCommandIndex);
       const ids = new Set();
       if (state.background?.assetId) ids.add(state.background.assetId);
@@ -2488,7 +2596,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     const name = event.target?.name || '';
     const isInputToggle = Boolean(event.target?.dataset?.inputButton);
     const rerenderDetail = isInputToggle
-      || ['type', 'kind', 'assetId', 'mode', 'voiceAssetId', 'textColorEnabled', 'textColor', 'textColorHex'].includes(name);
+      || ['type', 'kind', 'assetId', 'mode', 'voiceAssetId', 'textColorEnabled', 'textColor', 'textColorHex', 'color', 'colorHex'].includes(name);
     updateSelectedCommandFromDetail({ rerenderDetail, rerenderCommands: true, updatePreview: true });
   });
 
