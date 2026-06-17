@@ -70,10 +70,23 @@
   border: 1px solid rgba(240, 180, 0, 0.5);
 }
 
+.pce-vn-glyph-budget[data-level="ok"] {
+  color: var(--muted);
+  background: rgba(127, 127, 127, 0.08);
+  border: 1px solid rgba(127, 127, 127, 0.22);
+}
+
 .pce-vn-glyph-budget[data-level="error"] {
   color: #a11;
   background: rgba(200, 40, 40, 0.12);
   border: 1px solid rgba(200, 40, 40, 0.55);
+}
+
+/* このシーンが使う文字数（情報表示・per-scene の上限ではない）。 */
+.pce-vn-scene-glyph {
+  color: var(--muted);
+  margin-left: auto;
+  padding-left: 8px;
 }
 
 /* 1 シーンあたりの scene pack メモリ使用量インジケータ。 */
