@@ -154,7 +154,8 @@ static signed int active_message_index;
 static signed int active_choice_index;
 static uint8_t choice_selected_index = 0;
 static uint16_t wait_frames_remaining = 0;
-static uint8_t message_glyph_pos = 0;
+static uint8_t message_glyph_pos = 0;   /* entry index into the current message (0..glyph_count) */
+static uint16_t message_glyph_byte = 0;  /* byte cursor into the variable-length glyph stream */
 static uint8_t message_frame_timer = 0;
 static uint8_t message_col = 0;
 static uint8_t message_row = 0;
@@ -296,7 +297,7 @@ static uint8_t VN_BANKED_CODE load_scene_pack_into_cache(uint8_t scene_index, vn
 static uint8_t VN_BANKED_CODE scene_pack_command_count(const vn_scene_pack_cache_t *cache);
 #if defined(__PCE_CD__)
 static void service_cdda_playback(void);
-static void VN_BANKED_CODE service_adpcm_playback(void);
+static void VN_BANKED_CODE2 service_adpcm_playback(void);
 #endif
 
 static void map_vn_data(void)
@@ -364,6 +365,7 @@ static void init_runtime_state(void)
     choice_selected_index = 0u;
     wait_frames_remaining = 0u;
     message_glyph_pos = 0u;
+    message_glyph_byte = 0u;
     message_frame_timer = 0u;
     message_col = 0u;
     message_row = 0u;
@@ -1040,7 +1042,7 @@ static uint8_t VN_BANKED_CODE scene_pack_command_count(const vn_scene_pack_cache
     return scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_COMMAND_COUNT);
 }
 
-static uint8_t VN_BANKED_CODE scene_pack_read_command(const vn_scene_pack_cache_t *cache, uint8_t command_index, pce_vn_command_t *command)
+static uint8_t VN_BANKED_CODE2 scene_pack_read_command(const vn_scene_pack_cache_t *cache, uint8_t command_index, pce_vn_command_t *command)
 {
     uint16_t offset;
     if (!command) return 0u;
@@ -1063,7 +1065,7 @@ static uint8_t VN_BANKED_CODE scene_pack_read_command(const vn_scene_pack_cache_
     return 1u;
 }
 
-static uint8_t VN_BANKED_CODE scene_pack_read_message(const vn_scene_pack_cache_t *cache, uint8_t message_index, pce_vn_message_t *message)
+static uint8_t VN_BANKED_CODE2 scene_pack_read_message(const vn_scene_pack_cache_t *cache, uint8_t message_index, pce_vn_message_t *message)
 {
     uint16_t offset;
     uint16_t glyph_offset;
@@ -1073,7 +1075,8 @@ static uint8_t VN_BANKED_CODE scene_pack_read_message(const vn_scene_pack_cache_
         + ((uint16_t)message_index * PCE_VN_SCENE_PACK_MESSAGE_SIZE));
     if (!scene_pack_has_range(cache, offset, PCE_VN_SCENE_PACK_MESSAGE_SIZE)) return 0u;
     glyph_offset = scene_pack_u16(cache, offset);
-    if (!scene_pack_has_range(cache, glyph_offset, 1u)) return 0u;
+    /* Each glyph entry (and the 0xffff terminator) is 16-bit. */
+    if (!scene_pack_has_range(cache, glyph_offset, 2u)) return 0u;
     message->glyphs = &cache->data[glyph_offset];
     message->glyph_count = scene_pack_u8(cache, (uint16_t)(offset + 2u));
     message->voice_index = scene_pack_s16(cache, (uint16_t)(offset + 3u));
@@ -1109,7 +1112,8 @@ static uint8_t VN_BANKED_CODE2 scene_pack_read_choice_option(const vn_scene_pack
     offset = (uint16_t)(choice->options_offset + ((uint16_t)option_index * PCE_VN_SCENE_PACK_OPTION_SIZE));
     if (!scene_pack_has_range(cache, offset, PCE_VN_SCENE_PACK_OPTION_SIZE)) return 0u;
     glyph_offset = scene_pack_u16(cache, offset);
-    if (!scene_pack_has_range(cache, glyph_offset, 1u)) return 0u;
+    /* Each glyph entry (and the 0xffff terminator) is 16-bit. */
+    if (!scene_pack_has_range(cache, glyph_offset, 2u)) return 0u;
     option->glyphs = &cache->data[glyph_offset];
     option->glyph_count = scene_pack_u8(cache, (uint16_t)(offset + 2u));
     option->value = scene_pack_s16(cache, (uint16_t)(offset + 3u));
@@ -1514,7 +1518,30 @@ static void VN_BANKED_CODE2 clear_window_cells(void)
    tile columns (x two tile rows) are each rebuilt from the current glyph plus the
    previous glyph (which may share the left tile), then written once — no VRAM
    read-back. glyph 0 / newline / end add no pixels and break the neighbor chain. */
-static void VN_BANKED_CODE2 draw_message_glyph_at(uint8_t glyph, uint8_t col, uint8_t row)
+/* Decode the BG message/choice glyph entry at byte offset `pos`. Encoding (see
+   pce-vn-manager.js): a single byte 0x00..0xfc is a direct glyph index; 0xfd is an
+   escape prefix followed by a 16-bit little-endian index (used for indices >= 253);
+   0xfe is newline and 0xff is end. The newline and end bytes decode to the 16-bit
+   sentinels PCE_VN_GLYPH_NEWLINE / _END so that escaped indices (bounded well below
+   0xfffe) can never collide with them. Callers advance their own cursor by
+   vn_glyph_stride() — kept by-value (no pointer mutation) for the HuC6280 backend. */
+static uint16_t VN_BANKED_CODE2 vn_glyph_decode(const uint8_t *glyphs, uint16_t pos)
+{
+    const uint8_t b = glyphs[pos];
+    if (b == PCE_VN_GLYPH_ESCAPE)
+        return (uint16_t)((uint16_t)glyphs[pos + 1u] | ((uint16_t)glyphs[pos + 2u] << 8));
+    if (b == 0xfeu) return PCE_VN_GLYPH_NEWLINE;
+    if (b == 0xffu) return PCE_VN_GLYPH_END;
+    return (uint16_t)b;
+}
+
+/* Bytes consumed by the glyph entry at `pos` (3 for an escape entry, else 1). */
+static uint16_t VN_BANKED_CODE2 vn_glyph_stride(const uint8_t *glyphs, uint16_t pos)
+{
+    return (glyphs[pos] == PCE_VN_GLYPH_ESCAPE) ? 3u : 1u;
+}
+
+static void VN_BANKED_CODE2 draw_message_glyph_at(uint16_t glyph, uint8_t col, uint8_t row)
 {
     const uint16_t px0 = (uint16_t)col * VN_GLYPH_W;
     const uint8_t tc0 = (uint8_t)(px0 >> 3);
@@ -1554,11 +1581,13 @@ static void VN_BANKED_CODE2 draw_message_glyph_at(uint8_t glyph, uint8_t col, ui
     composer_row = row;
 }
 
-static uint8_t draw_message_next_glyph(const pce_vn_message_t *message)
+static uint8_t VN_BANKED_CODE2 draw_message_next_glyph(const pce_vn_message_t *message)
 {
-    uint8_t glyph;
+    uint16_t glyph;
     if (!message || !message->glyphs || message_glyph_pos >= message->glyph_count) return 1u;
-    glyph = message->glyphs[message_glyph_pos++];
+    glyph = vn_glyph_decode(message->glyphs, message_glyph_byte);
+    message_glyph_byte = (uint16_t)(message_glyph_byte + vn_glyph_stride(message->glyphs, message_glyph_byte));
+    message_glyph_pos++;
     if (glyph == PCE_VN_GLYPH_END) return 1u;
     if (glyph == PCE_VN_GLYPH_NEWLINE)
     {
@@ -1578,15 +1607,17 @@ static uint8_t draw_message_next_glyph(const pce_vn_message_t *message)
     return message_glyph_pos >= message->glyph_count ? 1u : 0u;
 }
 
-static void draw_message_text(const pce_vn_message_t *message)
+static void VN_BANKED_CODE2 draw_message_text(const pce_vn_message_t *message)
 {
     uint8_t i;
     uint8_t col = 0;
     uint8_t row = 0;
+    uint16_t pos = 0u;
     if (!message || !message->glyphs) return;
     for (i = 0; i < message->glyph_count; i++)
     {
-        const uint8_t glyph = message->glyphs[i];
+        const uint16_t glyph = vn_glyph_decode(message->glyphs, pos);
+        pos = (uint16_t)(pos + vn_glyph_stride(message->glyphs, pos));
         if (glyph == PCE_VN_GLYPH_END) break;
         if (glyph == PCE_VN_GLYPH_NEWLINE)
         {
@@ -1843,14 +1874,14 @@ static void stop_cdda_track(void)
 #endif
 }
 
-static unsigned int VN_BANKED_CODE adpcm_code_sample_rate(uint8_t code)
+static unsigned int VN_BANKED_CODE2 adpcm_code_sample_rate(uint8_t code)
 {
     uint8_t value;
     value = code > VN_ADPCM_MAX_RATE_CODE ? VN_ADPCM_MAX_RATE_CODE : code;
     return VN_ADPCM_BASE_SAMPLE_RATE / (16u - (unsigned int)value);
 }
 
-static uint8_t VN_BANKED_CODE adpcm_rate_code(unsigned int sample_rate)
+static uint8_t VN_BANKED_CODE2 adpcm_rate_code(unsigned int sample_rate)
 {
     unsigned int rate;
     unsigned int actual;
@@ -1875,7 +1906,7 @@ static uint8_t VN_BANKED_CODE adpcm_rate_code(unsigned int sample_rate)
     return best;
 }
 
-static uint8_t VN_BANKED_CODE adpcm_legacy_divider(unsigned int sample_rate, unsigned int base_rate)
+static uint8_t VN_BANKED_CODE2 adpcm_legacy_divider(unsigned int sample_rate, unsigned int base_rate)
 {
     unsigned int rate;
     unsigned int computed;
@@ -2218,7 +2249,7 @@ static void VN_BANKED_CODE stop_adpcm_voice(void)
 #endif
 }
 
-static void VN_BANKED_CODE service_adpcm_playback(void)
+static void VN_BANKED_CODE2 service_adpcm_playback(void)
 {
 #if defined(__PCE_CD__)
     if (!adpcm_play_active) return;
@@ -2287,7 +2318,7 @@ static uint8_t VN_BANKED_CODE psg_resolve_channel(uint8_t base, uint8_t step_cha
     return (uint8_t)ch;
 }
 
-static void VN_BANKED_CODE psg_apply_step_row(uint16_t step_no)
+static void VN_BANKED_CODE2 psg_apply_step_row(uint16_t step_no)
 {
     uint16_t i;
     if (!psg_current || !psg_current->pattern) return;
@@ -2321,7 +2352,7 @@ static void VN_BANKED_CODE stop_psg(void)
     psg_current = (const pce_editor_psg_asset_t *)0;
 }
 
-static void VN_BANKED_CODE play_psg_asset(signed int asset_index, uint8_t base_channel)
+static void VN_BANKED_CODE2 play_psg_asset(signed int asset_index, uint8_t base_channel)
 {
     uint8_t ch;
     if (asset_index < 0 || (uint8_t)asset_index >= pce_editor_psg_asset_count) return;
@@ -2347,7 +2378,7 @@ static void VN_BANKED_CODE play_psg_asset(signed int asset_index, uint8_t base_c
     psg_apply_step_row(0u);
 }
 
-static void VN_BANKED_CODE tick_psg(void)
+static void VN_BANKED_CODE2 tick_psg(void)
 {
     uint8_t frames_per_step;
     if (!psg_active || !psg_current) return;
@@ -2693,6 +2724,7 @@ static void start_message(uint8_t message_index)
         active_choice_index = -1;
         wait_frames_remaining = 0u;
         message_glyph_pos = 0u;
+        message_glyph_byte = 0u;
         message_frame_timer = 0u;
         message_col = 0u;
         message_row = 0u;
@@ -2892,12 +2924,14 @@ static void draw_choice_options(void)
     for (row = 0u; row < choice->option_count && row < VN_TEXT_ROWS; row++)
     {
         uint8_t col;
+        uint16_t pos = 0u;
         pce_vn_choice_option_t *option = VN_CHOICE_OPTION_SCRATCH;
         if (!scene_pack_read_choice_option(&active_scene_pack, choice, row, option)) continue;
         draw_message_glyph_at(row == choice_selected_index ? PCE_VN_CHOICE_CURSOR_GLYPH : 0u, 0u, row);
         for (col = 0u; col < option->glyph_count && col + 1u < VN_TEXT_COLS; col++)
         {
-            const uint8_t glyph = option->glyphs[col];
+            const uint16_t glyph = vn_glyph_decode(option->glyphs, pos);
+            pos = (uint16_t)(pos + vn_glyph_stride(option->glyphs, pos));
             if (glyph == PCE_VN_GLYPH_END) break;
             draw_message_glyph_at(glyph, (uint8_t)(col + 1u), row);
         }

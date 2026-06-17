@@ -58,9 +58,11 @@ npm run mcp     # 起動中エディターの REST bridge につなぐ MCP sidec
 
 ### メモリバンク / CD-ROM2
 - 大きい画像 / sprite / ADPCM payload は `cd.dataFiles` に置き、RAM bank に詰め込まないでください。
-- VN runtime のバンク割り当て: **bank129 = 実行コード**、**bank132 = VN generated data**、**bank130-131 = 例外的な小さい fallback data**。
+- VN runtime のバンク割り当て: **bank128 = 常駐 .text/.rodata**（既定）、**bank129 = banked code (`VN_BANKED_CODE`)**、**bank130 = banked code 2 (`VN_BANKED_CODE2`)**、**bank132 = VN generated data**。128/129/130 は `PCE_RAM_BANK_AT(128,2)/(129,3)/(130,4)` で MPR slot 2/3/4 に**同時マップ（co-resident）**なので、3 バンク間の関数移動・相互呼び出しは透過的（バンク切替なし）。
+- **コード用バンクは 128/129/130 の実質 3 つ（約24KB）が上限**。MPR slot5 = bank131 は BIOS を壊すため使えず（[[vn-12px-font-mask-storage]]）、slot6 は bank132(data)。全機能（ADPCM/PSG/sprite/choice 等）を使うプロジェクトはこの 3 バンクがほぼ満杯になる。**未使用機能は DCE で落ちる**ため、Audio/Sprite コマンド追加で関連コードがリンクされ `ld.lld: .ram_bank129 ... overflowed` が出ることがある。対処は機能を諦めるのではなく **`VN_BANKED_CODE` ↔ `VN_BANKED_CODE2` の付け替えで 3 バンクの使用量を均す**こと（`mos-pce-cd-clang -Wl,--print-memory-usage` で各バンク%を確認）。根本的に足りないときは runtime コード自体の削減が必要。
 - CD-ROM2 VN の BG `map_vram.bin` は `VN_MAP_WIDTH`(=32) タイル幅の「ソース行」として扱い、`mapBase` から一括転送しないでください。`width_tiles` 分だけを行単位で BAT へ転送し、左右/上下余白は `clear_screen_map()` の blank tile を残します。画面は **256x224**・**BAT 32x32**。BG 画像は 256px(32 タイル)以下。
 - メッセージフォントは **12x12**（1 行 17 文字 x 4 行）。`font.bin` は 12x12 1bpp マスク(24byte/字)で、起動時に VRAM へストリーム後、runtime のグリフコンポジタ（`draw_message_glyph_at` 他、**bank130**）が 12px ピッチで read-modify-write 合成します。常駐ピクセルバッファは持たず（console_ram 圧迫回避）、コンポジタコードを bank128 に置かないこと。
+- 文字種上限は **VRAM 依存（既定 tileBase で約1000 = `VN_MAX_GLYPH_COUNT`）**。メッセージ/選択肢の glyph ストリームはエスケープ符号化（index 0..252=1byte、253 以上=`0xfd`+16bit LE。stream byte `0xfe`=改行/`0xff`=終端 → runtime は 16bit `PCE_VN_GLYPH_NEWLINE`(0xfffe)/`PCE_VN_GLYPH_END`(0xffff) へ復号）。**runtime のグリフカーソルは値渡し+直接インクリメント**（`vn_glyph_decode`/`vn_glyph_stride` を `pos = pos + stride`）で実装すること。ポインタ経由 `(*pos)++` は HuC6280/llvm-mos でカーソルが進まず**先頭文字が全カラムに連続表示**される。表示バグは生成 scene pack の glyph stream を直接デコードしてエンコーダ/runtime を切り分ける。spritetext 用フォントは別系統で 254・1byte のまま。
 
 ### ADPCM
 - `divider` は音量ではなく **ADPCM 再生 rate code**。`sampleRate` から `32000 / (16 - code)` に最も近い `0..15` の code を補完します（代表値: 32000Hz→15、16000Hz→14、8000Hz→12、4000Hz→8）。旧実装の `round(32000/sampleRate - 1)` などは読み込み時と runtime で補正します。

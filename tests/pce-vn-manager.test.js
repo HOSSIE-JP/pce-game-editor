@@ -224,6 +224,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.equal(message.voiceIndex, 0);
   assert.equal(message.textSpeedFrames, 3);
   assert.equal(message.mouthAnimationIndex, 1);
+  // ASCII glyphs are written as single bytes; the stream terminates with 0xff.
   assert.equal(pack[message.glyphOffset + message.glyphCount], 0xff);
 });
 
@@ -245,17 +246,60 @@ test('PCE VN manager encodes message newlines as line-break glyphs', () => {
   const header = fs.readFileSync(prepared.generated.headerPath, 'utf-8');
   const pack = readPack(projectDir, prepared.generated.scenePackPaths[0]);
   const message = messageRecord(pack, 0);
-  // glyphs: あ, newline marker, い (GLYPH_END is excluded from glyph_count)
+  // glyphs: あ, newline marker, い (GLYPH_END is excluded from glyph_count). With
+  // few glyphs each entry is a single byte; 0xfe marks the newline, 0xff ends the
+  // stream. The runtime decodes 0xfe/0xff to PCE_VN_GLYPH_NEWLINE/_END (16-bit).
   assert.equal(message.glyphCount, 3);
   assert.equal(pack[message.glyphOffset + 1], 0xfe);
   assert.equal(pack[message.glyphOffset + message.glyphCount], 0xff);
-  assert.match(header, /PCE_VN_GLYPH_NEWLINE 0xfeu/);
+  assert.match(header, /PCE_VN_GLYPH_NEWLINE 0xfffeu/);
 
   const runtime = fs.readFileSync(
     path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
     'utf-8',
   );
   assert.match(runtime, /glyph == PCE_VN_GLYPH_NEWLINE/);
+});
+
+test('PCE VN manager escape-encodes glyph indices past 252', () => {
+  const vnManager = loadVnManager();
+  const enc = (index) => { const b = []; vnManager.pushGlyphIndexEntry(b, index); return b; };
+  // 0..252 stay one byte; 253+ become 0xfd + 16-bit little-endian index.
+  assert.deepEqual(enc(0), [0x00]);
+  assert.deepEqual(enc(252), [0xfc]);
+  assert.deepEqual(enc(253), [0xfd, 0xfd, 0x00]);
+  assert.deepEqual(enc(300), [0xfd, 0x2c, 0x01]);
+  assert.deepEqual(enc(999), [0xfd, 0xe7, 0x03]);
+
+  // The runtime decoder understands the escape prefix and maps the newline/end
+  // stream bytes back to the 16-bit sentinels (so escaped indices never collide).
+  const runtime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
+    'utf-8',
+  );
+  assert.match(runtime, /b == PCE_VN_GLYPH_ESCAPE/);
+  assert.match(runtime, /return PCE_VN_GLYPH_NEWLINE;/);
+  assert.match(runtime, /return PCE_VN_GLYPH_END;/);
+});
+
+test('PCE VN font budget raises the glyph cap well past the old 254 limit', () => {
+  const vnManager = loadVnManager();
+  const tileBase = vnManager.DEFAULT_FONT_TILE_BASE;
+  // 300 distinct glyphs (impossible under the old 254 cap) build with no drops.
+  const wide = vnManager.computeFontBudget(300, tileBase);
+  assert.equal(wide.usedGlyphCount, 300);
+  assert.equal(wide.droppedGlyphCount, 0);
+  assert.equal(wide.errors.length, 0);
+  // The headline cap is far above 254 but still finite (VRAM-bound).
+  assert.ok(vnManager.VN_MAX_GLYPH_COUNT > 254);
+  // Beyond the headline cap, the extra glyphs are dropped with a warning.
+  const dropped = vnManager.computeFontBudget(4000, tileBase);
+  assert.equal(dropped.usedGlyphCount, vnManager.VN_MAX_GLYPH_COUNT);
+  assert.equal(dropped.droppedGlyphCount, 4000 - vnManager.VN_MAX_GLYPH_COUNT);
+  assert.ok(dropped.warnings.length > 0);
+  // A high tileBase pushes even the capped mask region past the SATB: build error.
+  const overflow = vnManager.computeFontBudget(vnManager.VN_MAX_GLYPH_COUNT, 1500);
+  assert.ok(overflow.errors.length > 0, 'expected a VRAM-overflow build error');
 });
 
 test('PCE VN manager default scene does not auto-play the first CD-DA asset', () => {
@@ -957,7 +1001,9 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /const uint16_t px0 = \(uint16_t\)col \* VN_GLYPH_W;/);
   assert.match(source, /clear_window_cells\(\);/);
   assert.doesNotMatch(source, /fill_window_rect/);
-  assert.match(source, /static uint8_t draw_message_next_glyph/);
+  // draw_message_next_glyph / draw_message_text live in bank130 (VN_BANKED_CODE2)
+  // to keep the resident bank128 and the bank129 interpreter within budget.
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 draw_message_next_glyph/);
   assert.match(source, /play_adpcm_voice\(message->voice_index\);/);
   assert.match(source, /draw_message_text\(message\);/);
   assert.match(source, /static void fade_palette/);
@@ -1050,8 +1096,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /pack = pce_vn_scene_packs\[scene_index\];/);
   assert.match(source, /pack\.byte_size > PCE_VN_SCENE_PACK_CACHE_BYTES/);
   assert.match(source, /pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)&cache->data\[offset\], chunk\);/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE scene_pack_read_command\(const vn_scene_pack_cache_t \*cache, uint8_t command_index, pce_vn_command_t \*command\)/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE scene_pack_read_message\(const vn_scene_pack_cache_t \*cache, uint8_t message_index, pce_vn_message_t \*message\)/);
+  // scene_pack_read_command / scene_pack_read_message are in bank130 to relieve
+  // the bank129 interpreter (audio + sprite content was overflowing bank129).
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 scene_pack_read_command\(const vn_scene_pack_cache_t \*cache, uint8_t command_index, pce_vn_command_t \*command\)/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 scene_pack_read_message\(const vn_scene_pack_cache_t \*cache, uint8_t message_index, pce_vn_message_t \*message\)/);
   assert.match(source, /static uint8_t VN_BANKED_CODE2 scene_pack_read_choice\(const vn_scene_pack_cache_t \*cache, uint8_t choice_index, vn_choice_ref_t \*choice\)/);
   assert.match(source, /static uint8_t VN_BANKED_CODE2 scene_pack_read_switch\(const vn_scene_pack_cache_t \*cache, uint8_t switch_index, vn_switch_ref_t \*branch\)/);
   assert.doesNotMatch(source, /pce_vn_commands\[/);
@@ -1066,7 +1114,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /adpcm_stream_buffered_fallback|adpcm_stream_monitor_frames/);
   assert.match(source, /#define VN_ADPCM_FRAME_RATE 60ul/);
   assert.match(source, /#define VN_ADPCM_END_PAD_FRAMES 2ul/);
-  assert.match(source, /static void VN_BANKED_CODE service_adpcm_playback\(void\);/);
+  assert.match(source, /static void VN_BANKED_CODE2 service_adpcm_playback\(void\);/);
   assert.match(source, /static void cd_sector_from_ref\(pce_sector_t \*dest, const pce_editor_cd_sector_t \*source\)/);
   assert.match(source, /dest->hi = source \? source->hi : 0u;/);
   assert.match(source, /static void cd_sector_from_uint\(pce_sector_t \*dest, unsigned long value\)/);
@@ -1106,7 +1154,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /voice->cd && voice->cd->sector_count/);
   assert.match(source, /typedef struct\s*\{[\s\S]*unsigned long data_size;[\s\S]*pce_editor_cd_sector_t cd_sector;[\s\S]*uint8_t has_cd;[\s\S]*\} vn_adpcm_voice_t;/);
   assert.match(source, /#define VN_ADPCM_BASE_SAMPLE_RATE 32000u/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE adpcm_rate_code\(unsigned int sample_rate\)/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 adpcm_rate_code\(unsigned int sample_rate\)/);
   assert.match(source, /actual = adpcm_code_sample_rate\(code\);/);
   assert.match(source, /if \(divider < 8u\) return computed;/);
   assert.match(source, /adpcm_legacy_divider\(sample_rate, VN_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE\)/);
@@ -1164,7 +1212,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /Buffered one-shot playback does not need BIOS status polling/);
   assert.match(source, /map_resident_data\(\);\n    \/\*[\s\S]*?EmulatorJS mednafen_pce core unable to deliver joypad edges afterward\.[\s\S]*?\*\/\n    adpcm_play_active = 1u;\n    adpcm_play_frames_remaining = adpcm_voice_snapshot\.loop \? 0u : adpcm_voice_frame_count\(\);\n    adpcm_stream_active = 0u;\n    adpcm_stream_looping = 0u;\n    adpcm_stream_index = \(uint8_t\)voice_index;[\s\S]*?Standard EmulatorJS mednafen_pce can wedge the CPU[\s\S]*?mask_buffered_adpcm_completion_irq\(\);[\s\S]*?pad_edge_reset_pending = 1u;\n    restore_display_after_adpcm\(restore_display\);/);
   assert.match(source, /static void VN_BANKED_CODE stop_adpcm_voice\(void\)[\s\S]*const uint8_t restore_display = \(uint8_t\)!pending_display_enable;[\s\S]*pce_cdb_irq_enable\(PCE_CDB_MASK_IRQ_EXTERNAL\);[\s\S]*pce_cdb_adpcm_stop\(\);[\s\S]*pce_cdb_adpcm_reset\(\);[\s\S]*restore_display_after_adpcm\(restore_display\);/);
-  const adpcmServiceMatch = source.match(/static void VN_BANKED_CODE service_adpcm_playback\(void\)\n\{[\s\S]*?\n}\n\nstatic void show_scene/);
+  const adpcmServiceMatch = source.match(/static void VN_BANKED_CODE2 service_adpcm_playback\(void\)\n\{[\s\S]*?\n}\n\nstatic void show_scene/);
   assert.ok(adpcmServiceMatch);
   assert.match(adpcmServiceMatch[0], /if \(!adpcm_play_active\) return;/);
   assert.match(adpcmServiceMatch[0], /adpcm_play_frames_remaining--;/);

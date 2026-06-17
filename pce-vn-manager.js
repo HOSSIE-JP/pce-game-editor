@@ -7,8 +7,30 @@ const assetManager = require('./pce-asset-manager');
 
 const VN_SCENE_FILE = path.join('assets', 'pce-vn-scenes.json');
 const VN_FONT_FILE = path.join('assets', 'pce-font.json');
-const GLYPH_END = 0xff;
-const GLYPH_NEWLINE = 0xfe;
+// BG message / choice glyph streams stay byte-oriented so the common case costs
+// one byte per glyph, but a 0xfd escape prefix lets the project-wide font exceed
+// the old 254-glyph cap: glyph indices 0..252 are written as a single byte, while
+// indices >= 253 are written as 0xfd followed by a 16-bit little-endian index. The
+// stream byte 0xfe is the newline marker and 0xff the terminator. The runtime
+// decodes these back to PCE_VN_GLYPH_NEWLINE (0xfffe) / PCE_VN_GLYPH_END (0xffff),
+// values that escaped indices (<= VN_MAX_GLYPH_COUNT) can never collide with. The
+// masks live in VRAM (not a RAM bank); the real ceiling is VRAM, not the index
+// width (see computeFontBudget / VN_MAX_GLYPH_COUNT).
+const GLYPH_END_BYTE = 0xff;
+const GLYPH_NEWLINE_BYTE = 0xfe;
+const GLYPH_ESCAPE_BYTE = 0xfd;
+const GLYPH_DIRECT_MAX = 0xfc; // highest glyph index encodable as a single byte
+// Append one glyph index to a stream: a single byte for 0..252, otherwise an
+// escape prefix plus a 16-bit little-endian index. Returns nothing; the caller
+// tracks the entry count (one per glyph/newline) for glyph_count.
+function pushGlyphIndexEntry(bytes, index) {
+  const i = index & 0xffff;
+  if (i <= GLYPH_DIRECT_MAX) {
+    bytes.push(i);
+    return;
+  }
+  bytes.push(GLYPH_ESCAPE_BYTE, i & 0xff, (i >> 8) & 0xff);
+}
 const DEFAULT_FONT_TILE_BASE = 712;
 const PCE_SCREEN_WIDTH = 256;
 const PCE_SCREEN_HEIGHT = 224;
@@ -117,15 +139,19 @@ const FONT_BYTES_PER_GLYPH = FONT_GLYPH_MASK_WORDS * 2; // 24
 // (mirrors the runtime VN_MSG_TILE_COUNT), plus one dedicated blank tile.
 const VN_MSG_STRIP_TILES = 208;
 const VN_SATB_VRAM_WORD = 0x7f00;
-// glyph index space: 0..253 are drawable, 0xfe = newline, 0xff = end marker.
-// Masks live in VRAM (not a RAM bank), so the full 254-entry space is usable.
-const VN_MAX_GLYPH_COUNT = 254;
+// BG message/choice glyph index space is 16-bit (0..0xfffd drawable, 0xfffe =
+// newline, 0xffff = end). The binding limit is no longer the index width but the
+// VRAM the 12-word glyph masks occupy below the SATB; computeFontBudget() does the
+// precise per-tileBase check. VN_MAX_GLYPH_COUNT is the headline cap we slice to
+// and surface in the editor: at the default tileBase it stays clear of both the
+// VRAM soft ceiling and the sprite pattern region.
+const VN_MAX_GLYPH_COUNT = 1000;
 // VRAM is 0x8000 words; SATB sits at 0x7f00 (tile 0x7f00/16 = 2032). Font tiles
 // must end strictly below that. Sprite patterns are auto-placed above the font
 // block by the asset converter, so warn well before the hard SATB ceiling.
 const VN_FONT_VRAM_TILE_HARD_CEILING = 2032;
 const VN_FONT_VRAM_TILE_SOFT_CEILING = 1728;
-const VN_GLYPH_COUNT_SOFT_WARN = 224;
+const VN_GLYPH_COUNT_SOFT_WARN = 900;
 const VN_SCENE_PACK_CACHE_BYTES = 4096;
 const VN_SCENE_PACK_VERSION = 1;
 const VN_SCENE_PACK_HEADER_SIZE = 20;
@@ -898,9 +924,10 @@ function collectSpriteTextGlyphsRaw(doc) {
 }
 
 // Build-time budget report for the glyph font. Masks stream to VRAM (after the
-// 208-tile strip + blank tile), so the binding limits are (a) the 254-entry glyph
-// index space and (b) the VRAM the mask region occupies below the SATB. Returns
-// the byte/sector footprint plus warnings/errors.
+// 208-tile strip + blank tile), so with the 16-bit glyph index the binding limit
+// is the VRAM the mask region occupies below the SATB (the index width no longer
+// caps it). VN_MAX_GLYPH_COUNT is a headline slice; the VRAM check below is the
+// real guard. Returns the byte/sector footprint plus warnings/errors.
 function computeFontBudget(rawGlyphCount, tileBase) {
   const usedGlyphCount = Math.min(rawGlyphCount, VN_MAX_GLYPH_COUNT);
   const droppedGlyphCount = Math.max(0, rawGlyphCount - VN_MAX_GLYPH_COUNT);
@@ -1703,18 +1730,23 @@ function generateVnSources(projectDir, options = {}) {
           throw new Error('PCE VN supports up to 255 messages per scene');
         }
         const bytes = [];
+        let entryCount = 0;
         for (const glyph of messageDisplayText(command)) {
           if (glyph === '\r') continue;
           if (glyph === '\n') {
-            bytes.push(GLYPH_NEWLINE);
+            bytes.push(GLYPH_NEWLINE_BYTE);
+            entryCount += 1;
             continue;
           }
-          bytes.push(glyphIndex.get(glyph) ?? 0);
+          pushGlyphIndexEntry(bytes, glyphIndex.get(glyph) ?? 0);
+          entryCount += 1;
         }
-        if (bytes.length > VN_MAX_U8_COUNT) {
+        // glyph_count is the number of entries (glyphs + newlines), excluding the
+        // terminator. It is stored as a u8, so cap at 255 entries.
+        if (entryCount > VN_MAX_U8_COUNT) {
           throw new Error(`PCE VN message in scene "${sceneBuild.sceneId}" exceeds 255 glyphs`);
         }
-        bytes.push(GLYPH_END);
+        bytes.push(GLYPH_END_BYTE);
         const mouthSlot = clampInt(command.mouthSlot, 0, 3, 0);
         const mouthSpriteId = slotSpriteAssets[mouthSlot] || '';
         const mouthAnimationIndex = command.mouthAnimationId && mouthSpriteId
@@ -1726,7 +1758,7 @@ function generateVnSources(projectDir, options = {}) {
         const messageIndex = sceneBuild.messages.length;
         sceneBuild.messages.push({
           glyphs: Buffer.from(bytes),
-          glyphCount: Math.max(0, bytes.length - 1),
+          glyphCount: entryCount,
           voiceIndex,
           textSpeedFrames: command.textSpeedFrames,
           advanceMode: command.advanceMode === 'auto' ? VN_ADVANCE_AUTO : VN_ADVANCE_BUTTON,
@@ -1826,17 +1858,20 @@ function generateVnSources(projectDir, options = {}) {
         const options = (command.choices || []).slice(0, 4);
         const encodedOptions = options.map((option) => {
           const bytes = [];
+          let entryCount = 0;
           for (const glyph of String(option.label || '')) {
-            bytes.push(glyphIndex.get(glyph) ?? 0);
+            if (glyph === '\r' || glyph === '\n') continue;
+            pushGlyphIndexEntry(bytes, glyphIndex.get(glyph) ?? 0);
+            entryCount += 1;
           }
-          if (bytes.length > VN_MAX_U8_COUNT) {
+          if (entryCount > VN_MAX_U8_COUNT) {
             throw new Error(`PCE VN choice label in scene "${sceneBuild.sceneId}" exceeds 255 glyphs`);
           }
-          bytes.push(GLYPH_END);
+          bytes.push(GLYPH_END_BYTE);
           const target = option.targetSceneId && sceneIndex.has(option.targetSceneId) ? sceneIndex.get(option.targetSceneId) : -1;
           return {
             glyphs: Buffer.from(bytes),
-            glyphCount: Math.max(0, bytes.length - 1),
+            glyphCount: entryCount,
             value: option.value,
             targetScene: target,
           };
@@ -2228,8 +2263,9 @@ function generateVnSources(projectDir, options = {}) {
     '',
     `#define PCE_VN_FONT_TILE_BASE ${Number(fontConfig.tileBase || DEFAULT_FONT_TILE_BASE)}u`,
     `#define PCE_VN_CHOICE_CURSOR_GLYPH ${glyphIndex.get('>') ?? 0}u`,
-    '#define PCE_VN_GLYPH_END 0xffu',
-    '#define PCE_VN_GLYPH_NEWLINE 0xfeu',
+    '#define PCE_VN_GLYPH_END 0xffffu',
+    '#define PCE_VN_GLYPH_NEWLINE 0xfffeu',
+    '#define PCE_VN_GLYPH_ESCAPE 0xfdu',
     `#define PCE_VN_FONT_SPRITE_PATTERN_BASE ${fontSpritePatternBase}u`,
     `#define PCE_VN_FONT_SPRITE_PALETTE_BANK ${fontSpritePaletteBank}u`,
     '',
@@ -2364,11 +2400,11 @@ function previewFontText(projectDir, payload = {}) {
       glyphs.push(char);
     }
   }
-  const render = renderGlyphBitmaps(glyphs.slice(0, 254), config);
+  const render = renderGlyphBitmaps(glyphs.slice(0, VN_MAX_GLYPH_COUNT), config);
   return {
     config,
     text,
-    glyphs: glyphs.slice(0, 254).map((glyph, index) => ({ glyph, bitmap: render.bitmaps[index] })),
+    glyphs: glyphs.slice(0, VN_MAX_GLYPH_COUNT).map((glyph, index) => ({ glyph, bitmap: render.bitmaps[index] })),
     renderer: render.renderer,
     fontPath: render.fontPath,
   };
@@ -2582,7 +2618,12 @@ module.exports = {
   VN_MAX_GLYPH_COUNT,
   DEFAULT_FONT_TILE_BASE,
   DEFAULT_FONT_CONFIG,
-  GLYPH_END,
+  GLYPH_END_BYTE,
+  GLYPH_NEWLINE_BYTE,
+  GLYPH_ESCAPE_BYTE,
+  GLYPH_DIRECT_MAX,
+  pushGlyphIndexEntry,
+  VN_GLYPH_COUNT_SOFT_WARN,
   VN_VERSION,
   VN_COMMAND_BACKGROUND,
   VN_COMMAND_SPRITE,

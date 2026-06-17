@@ -150,37 +150,9 @@ function messageFullText(command = {}) {
   return speaker ? `${speaker}「${text}」` : text;
 }
 
-// pce-vn-manager.js の collectGlyphsRaw と同じ規則で、スクリプト全体の異なる
-// 文字種数を数える。フォントタイルは使用文字ぶんだけ生成され CD からストリーム
-// されるため、本体 RAM は溢れないが glyph index 空間は 254 種が上限。
-const VN_MAX_GLYPH_COUNT = 254;
-const VN_GLYPH_WARN_COUNT = 224;
-function sceneGlyphSet(sceneItem) {
-  const seen = new Set();
-  (sceneItem?.commands || []).forEach((command) => {
-    let text = '';
-    if (command?.type === 'message') text = messageFullText(command);
-    else if (command?.type === 'choice') text = (command.choices || []).map((choice) => choice?.label || '').join('');
-    for (const ch of String(text)) {
-      if (ch !== '\n' && ch !== '\r') seen.add(ch);
-    }
-  });
-  return seen;
-}
-
-function countScriptGlyphs(doc) {
-  const seen = new Set([' ', '>']);
-  (doc?.scenes || []).forEach((sceneItem) => {
-    sceneGlyphSet(sceneItem).forEach((ch) => seen.add(ch));
-  });
-  return seen.size;
-}
-
-// このシーンが使う異なる文字数（情報表示用）。フォントはプロジェクト全体で共有
-// されるため per-scene の上限はないが、どのシーンが文字種を多く使うかの目安になる。
-function countSceneGlyphs(sceneItem) {
-  return sceneGlyphSet(sceneItem).size;
-}
+// グリフフォントは 16bit エスケープ符号化で 254 種を大きく超えられ（実用上限は
+// VRAM 依存で約 1000 種）、超過時はビルドが VRAM オーバーフローのエラーで検知する
+// ため、エディタ側の文字種カウント/フォント上限インジケータは廃止した。
 
 // pce-vn-manager.js の scene pack バイナリ仕様を反映した定数。runtime は scene 入場時に
 // 1 シーンを VN_SCENE_PACK_LIMIT バイトの active cache へ読み込むため、これを超えると
@@ -1215,12 +1187,10 @@ export function activatePlugin({ root, api, registerCapability }) {
           <div class="pce-vn-scene-budget-head">
             <span data-role="scene-budget-label">Scene メモリ</span>
             <span data-role="scene-budget-value"></span>
-            <span class="pce-vn-scene-glyph" data-role="scene-glyph-value" title="このシーンで使う異なる文字数。フォントはプロジェクト全体で共有され、上限は全シーン合計で254種です。"></span>
           </div>
           <div class="pce-vn-scene-budget-bar"><span data-role="scene-budget-fill"></span></div>
           <div class="pce-vn-scene-budget-note" data-role="scene-budget-note" style="display:none"></div>
         </div>
-        <div class="pce-vn-glyph-budget" data-role="glyph-budget" data-level="ok"></div>
         <div class="pce-vn-commands" data-role="commands"></div>
         <div class="form-error" data-role="error"></div>
       </section>
@@ -1240,7 +1210,6 @@ export function activatePlugin({ root, api, registerCapability }) {
   const commandSearchInput = root.querySelector('[data-role="command-search"]');
   const commandPaletteEl = root.querySelector('[data-role="command-palette"]');
   const errorEl = root.querySelector('[data-role="error"]');
-  const glyphBudgetEl = root.querySelector('[data-role="glyph-budget"]');
   const sceneBudgetEl = root.querySelector('[data-role="scene-budget"]');
   let assets = [];
   let doc = defaultDoc();
@@ -1762,7 +1731,6 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (rerenderCommands) renderCommands(current);
     if (rerenderDetail) renderCommandDetail(current);
     if (updatePreview) void renderCommandPreview();
-    updateGlyphBudget();
     updateSceneBudget();
   }
 
@@ -2216,25 +2184,6 @@ export function activatePlugin({ root, api, registerCapability }) {
     void renderCommandPreview();
   }
 
-  function updateGlyphBudget() {
-    if (!glyphBudgetEl) return;
-    // Project-wide unique glyph count vs the 254-entry font limit (always shown).
-    const count = countScriptGlyphs(doc);
-    const remaining = VN_MAX_GLYPH_COUNT - count;
-    glyphBudgetEl.style.display = '';
-    if (count > VN_MAX_GLYPH_COUNT) {
-      glyphBudgetEl.dataset.level = 'error';
-      glyphBudgetEl.textContent = `フォント(全シーン共通): 使用文字 ${count} / 上限 ${VN_MAX_GLYPH_COUNT}。`
-        + `超過した ${count - VN_MAX_GLYPH_COUNT} 文字はゲーム内で空白になります。使う文字種を減らしてください。`;
-    } else if (count >= VN_GLYPH_WARN_COUNT) {
-      glyphBudgetEl.dataset.level = 'warn';
-      glyphBudgetEl.textContent = `フォント(全シーン共通): 使用文字 ${count} / 上限 ${VN_MAX_GLYPH_COUNT}（残り ${remaining}）。上限に近づいています。`;
-    } else {
-      glyphBudgetEl.dataset.level = 'ok';
-      glyphBudgetEl.textContent = `フォント(全シーン共通): 使用文字 ${count} / 上限 ${VN_MAX_GLYPH_COUNT}（残り ${remaining}）`;
-    }
-  }
-
   function updateSceneBudget() {
     if (!sceneBudgetEl) return;
     const current = scene();
@@ -2245,8 +2194,6 @@ export function activatePlugin({ root, api, registerCapability }) {
     sceneBudgetEl.dataset.level = level;
     sceneBudgetEl.querySelector('[data-role="scene-budget-value"]').textContent =
       `${bytes} / ${VN_SCENE_PACK_LIMIT} byte (${percent}%)`;
-    const sceneGlyphEl = sceneBudgetEl.querySelector('[data-role="scene-glyph-value"]');
-    if (sceneGlyphEl) sceneGlyphEl.textContent = current ? `文字 ${countSceneGlyphs(current)} 種類` : '';
     const fill = sceneBudgetEl.querySelector('[data-role="scene-budget-fill"]');
     fill.style.width = `${Math.min(100, percent)}%`;
     const note = sceneBudgetEl.querySelector('[data-role="scene-budget-note"]');
@@ -2267,7 +2214,6 @@ export function activatePlugin({ root, api, registerCapability }) {
     renderSceneList();
     renderCommandPalette();
     renderForm();
-    updateGlyphBudget();
     updateSceneBudget();
   }
 
