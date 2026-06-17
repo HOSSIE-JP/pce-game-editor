@@ -144,8 +144,9 @@ typedef struct {
 
 #define PCE_VN_FONT_TILE_BASE 712u
 #define PCE_VN_CHOICE_CURSOR_GLYPH 1u
-#define PCE_VN_GLYPH_END 0xffu
-#define PCE_VN_GLYPH_NEWLINE 0xfeu
+#define PCE_VN_GLYPH_END 0xffffu
+#define PCE_VN_GLYPH_NEWLINE 0xfffeu
+#define PCE_VN_GLYPH_ESCAPE 0xfdu
 #define PCE_VN_FONT_SPRITE_PATTERN_BASE 424u
 #define PCE_VN_FONT_SPRITE_PALETTE_BANK 15u
 

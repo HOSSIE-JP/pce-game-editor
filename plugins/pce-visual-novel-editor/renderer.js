@@ -151,10 +151,12 @@ function messageFullText(command = {}) {
 }
 
 // pce-vn-manager.js の collectGlyphsRaw と同じ規則で、スクリプト全体の異なる
-// 文字種数を数える。フォントタイルは使用文字ぶんだけ生成され CD からストリーム
-// されるため、本体 RAM は溢れないが glyph index 空間は 254 種が上限。
-const VN_MAX_GLYPH_COUNT = 254;
-const VN_GLYPH_WARN_COUNT = 224;
+// 文字種数を数える。フォントマスクは使用文字ぶんだけ生成され CD から VRAM へ
+// ストリームされるため本体 RAM は溢れず、glyph index も 16bit エスケープ符号化で
+// 254 種を超えられる。実際の上限は VRAM（既定レイアウトで約 1000 種）。
+// pce-vn-manager.js の VN_MAX_GLYPH_COUNT / VN_GLYPH_COUNT_SOFT_WARN と一致させる。
+const VN_MAX_GLYPH_COUNT = 1000;
+const VN_GLYPH_WARN_COUNT = 900;
 function sceneGlyphSet(sceneItem) {
   const seen = new Set();
   (sceneItem?.commands || []).forEach((command) => {
@@ -1215,7 +1217,7 @@ export function activatePlugin({ root, api, registerCapability }) {
           <div class="pce-vn-scene-budget-head">
             <span data-role="scene-budget-label">Scene メモリ</span>
             <span data-role="scene-budget-value"></span>
-            <span class="pce-vn-scene-glyph" data-role="scene-glyph-value" title="このシーンで使う異なる文字数。フォントはプロジェクト全体で共有され、上限は全シーン合計で254種です。"></span>
+            <span class="pce-vn-scene-glyph" data-role="scene-glyph-value" title="このシーンで使う異なる文字数。フォントはプロジェクト全体で共有され、上限は全シーン合計で約1000種（VRAM 依存）です。"></span>
           </div>
           <div class="pce-vn-scene-budget-bar"><span data-role="scene-budget-fill"></span></div>
           <div class="pce-vn-scene-budget-note" data-role="scene-budget-note" style="display:none"></div>
@@ -2218,7 +2220,7 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   function updateGlyphBudget() {
     if (!glyphBudgetEl) return;
-    // Project-wide unique glyph count vs the 254-entry font limit (always shown).
+    // Project-wide unique glyph count vs the VRAM-bound font limit (always shown).
     const count = countScriptGlyphs(doc);
     const remaining = VN_MAX_GLYPH_COUNT - count;
     glyphBudgetEl.style.display = '';

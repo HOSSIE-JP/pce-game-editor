@@ -224,6 +224,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.equal(message.voiceIndex, 0);
   assert.equal(message.textSpeedFrames, 3);
   assert.equal(message.mouthAnimationIndex, 1);
+  // ASCII glyphs are written as single bytes; the stream terminates with 0xff.
   assert.equal(pack[message.glyphOffset + message.glyphCount], 0xff);
 });
 
@@ -245,17 +246,60 @@ test('PCE VN manager encodes message newlines as line-break glyphs', () => {
   const header = fs.readFileSync(prepared.generated.headerPath, 'utf-8');
   const pack = readPack(projectDir, prepared.generated.scenePackPaths[0]);
   const message = messageRecord(pack, 0);
-  // glyphs: あ, newline marker, い (GLYPH_END is excluded from glyph_count)
+  // glyphs: あ, newline marker, い (GLYPH_END is excluded from glyph_count). With
+  // few glyphs each entry is a single byte; 0xfe marks the newline, 0xff ends the
+  // stream. The runtime decodes 0xfe/0xff to PCE_VN_GLYPH_NEWLINE/_END (16-bit).
   assert.equal(message.glyphCount, 3);
   assert.equal(pack[message.glyphOffset + 1], 0xfe);
   assert.equal(pack[message.glyphOffset + message.glyphCount], 0xff);
-  assert.match(header, /PCE_VN_GLYPH_NEWLINE 0xfeu/);
+  assert.match(header, /PCE_VN_GLYPH_NEWLINE 0xfffeu/);
 
   const runtime = fs.readFileSync(
     path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
     'utf-8',
   );
   assert.match(runtime, /glyph == PCE_VN_GLYPH_NEWLINE/);
+});
+
+test('PCE VN manager escape-encodes glyph indices past 252', () => {
+  const vnManager = loadVnManager();
+  const enc = (index) => { const b = []; vnManager.pushGlyphIndexEntry(b, index); return b; };
+  // 0..252 stay one byte; 253+ become 0xfd + 16-bit little-endian index.
+  assert.deepEqual(enc(0), [0x00]);
+  assert.deepEqual(enc(252), [0xfc]);
+  assert.deepEqual(enc(253), [0xfd, 0xfd, 0x00]);
+  assert.deepEqual(enc(300), [0xfd, 0x2c, 0x01]);
+  assert.deepEqual(enc(999), [0xfd, 0xe7, 0x03]);
+
+  // The runtime decoder understands the escape prefix and maps the newline/end
+  // stream bytes back to the 16-bit sentinels (so escaped indices never collide).
+  const runtime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
+    'utf-8',
+  );
+  assert.match(runtime, /b == PCE_VN_GLYPH_ESCAPE/);
+  assert.match(runtime, /return PCE_VN_GLYPH_NEWLINE;/);
+  assert.match(runtime, /return PCE_VN_GLYPH_END;/);
+});
+
+test('PCE VN font budget raises the glyph cap well past the old 254 limit', () => {
+  const vnManager = loadVnManager();
+  const tileBase = vnManager.DEFAULT_FONT_TILE_BASE;
+  // 300 distinct glyphs (impossible under the old 254 cap) build with no drops.
+  const wide = vnManager.computeFontBudget(300, tileBase);
+  assert.equal(wide.usedGlyphCount, 300);
+  assert.equal(wide.droppedGlyphCount, 0);
+  assert.equal(wide.errors.length, 0);
+  // The headline cap is far above 254 but still finite (VRAM-bound).
+  assert.ok(vnManager.VN_MAX_GLYPH_COUNT > 254);
+  // Beyond the headline cap, the extra glyphs are dropped with a warning.
+  const dropped = vnManager.computeFontBudget(4000, tileBase);
+  assert.equal(dropped.usedGlyphCount, vnManager.VN_MAX_GLYPH_COUNT);
+  assert.equal(dropped.droppedGlyphCount, 4000 - vnManager.VN_MAX_GLYPH_COUNT);
+  assert.ok(dropped.warnings.length > 0);
+  // A high tileBase pushes even the capped mask region past the SATB: build error.
+  const overflow = vnManager.computeFontBudget(vnManager.VN_MAX_GLYPH_COUNT, 1500);
+  assert.ok(overflow.errors.length > 0, 'expected a VRAM-overflow build error');
 });
 
 test('PCE VN manager default scene does not auto-play the first CD-DA asset', () => {
