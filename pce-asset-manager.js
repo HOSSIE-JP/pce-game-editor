@@ -21,7 +21,7 @@ const CD_AUDIO_MIN_SECTOR = 450;
 const CDDA_SECTORS_PER_SECOND = 75;
 const CDDA_PLAYBACK_GUARD_FRAMES = 2;
 const CD_MSF_LEAD_IN_SECTORS = 150;
-const PCE_BG_MAP_WIDTH_TILES = 64;
+const PCE_BG_MAP_WIDTH_TILES = 32;
 const PCE_BG_MAP_HEIGHT_TILES = 32;
 const PCE_BG_AUTO_MAP_BASE = 0;
 const PCE_BG_AUTO_TILE_BASE = Math.ceil((PCE_BG_MAP_WIDTH_TILES * PCE_BG_MAP_HEIGHT_TILES) / 16);
@@ -634,7 +634,7 @@ function buildImageWarnings(asset, imageSize, generated = {}) {
   } else {
     if (width && width % 8 !== 0) warnings.push('BG image width is not aligned to 8px tiles');
     if (height && height % 8 !== 0) warnings.push('BG image height is not aligned to 8px tiles');
-    if (width > 320 || height > 224) warnings.push('BG image exceeds the v1 recommended 320x224 viewport');
+    if (width > 256 || height > 224) warnings.push('BG image exceeds the v1 recommended 256x224 viewport');
     const tileCount = generated.tileCount || 0;
     const tileStartWord = options.tileBase * 16;
     const tileEndWord = tileStartWord + (tileCount * 16);
@@ -1056,8 +1056,14 @@ function encodePceBackground(indexed, asset) {
   const tiles = [];
   const widthTiles = indexed.width / 8;
   const heightTiles = indexed.height / 8;
+  // The runtime BAT (and the streamed map_vram.bin source rows) are
+  // PCE_BG_MAP_WIDTH_TILES wide; a wider BG cannot be laid out without the rows
+  // wrapping, so reject it with an actionable error instead of overflowing.
+  if (widthTiles > PCE_BG_MAP_WIDTH_TILES || heightTiles > PCE_BG_MAP_HEIGHT_TILES) {
+    throw new Error(`BG image ${indexed.width}x${indexed.height} exceeds the ${PCE_BG_MAP_WIDTH_TILES * 8}x${PCE_BG_MAP_HEIGHT_TILES * 8} BG limit; resize the background to fit the 256x224 screen.`);
+  }
   const map = Buffer.alloc(widthTiles * heightTiles * 2);
-  const vramMap = Buffer.alloc(64 * heightTiles * 2);
+  const vramMap = Buffer.alloc(PCE_BG_MAP_WIDTH_TILES * heightTiles * 2);
   let mapOffset = 0;
   for (let tileY = 0; tileY < indexed.height; tileY += 8) {
     for (let tileX = 0; tileX < indexed.width; tileX += 8) {
@@ -1066,7 +1072,7 @@ function encodePceBackground(indexed, asset) {
       tiles.push(tile);
       const word = ((options.paletteBank & 0x0f) << 12) | ((options.tileBase + tileIndex) & 0x0fff);
       map.writeUInt16LE(word, mapOffset);
-      vramMap.writeUInt16LE(word, (((tileY / 8) * 64) + (tileX / 8)) * 2);
+      vramMap.writeUInt16LE(word, (((tileY / 8) * PCE_BG_MAP_WIDTH_TILES) + (tileX / 8)) * 2);
       mapOffset += 2;
     }
   }

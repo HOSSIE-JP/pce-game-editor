@@ -17,12 +17,14 @@ function clamp(value, min, max, fallback) {
   return Math.max(min, Math.min(max, asNumber(value, fallback)));
 }
 
+const GLYPH_PX = 12;
+
 function drawGlyph(ctx, bitmap, px, py, scale = 1) {
   if (!Array.isArray(bitmap)) return;
   ctx.fillStyle = '#ffffff';
-  for (let y = 0; y < 16; y += 1) {
-    for (let x = 0; x < 16; x += 1) {
-      if (bitmap[(y * 16) + x]) ctx.fillRect(px + (x * scale), py + (y * scale), scale, scale);
+  for (let y = 0; y < GLYPH_PX; y += 1) {
+    for (let x = 0; x < GLYPH_PX; x += 1) {
+      if (bitmap[(y * GLYPH_PX) + x]) ctx.fillRect(px + (x * scale), py + (y * scale), scale, scale);
     }
   }
 }
@@ -33,7 +35,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       <aside class="pce-font-settings">
         <div class="pce-font-header">
           <h2>Font</h2>
-          <p>16x16 / 18文字x4行の VN メッセージ用ビットマップフォントを作成します。</p>
+          <p>12x12 / 17文字x4行の VN メッセージ用ビットマップフォントを作成します。</p>
         </div>
         <form class="settings-form compact-form pce-font-form" data-role="form">
           <label class="form-group">
@@ -67,7 +69,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         <section class="pce-font-panel">
           <div class="pce-font-panel-title">
             <h2>ゲーム内表示イメージ</h2>
-            <span>18文字 x 4行 / 16x16</span>
+            <span>17文字 x 4行 / 12x12</span>
           </div>
           <div class="pce-font-screen">
             <canvas width="288" height="64" data-role="text-canvas"></canvas>
@@ -82,7 +84,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           <div class="pce-font-atlas-wrap">
             <canvas width="512" height="128" data-role="atlas-canvas"></canvas>
           </div>
-          <p class="pce-font-hint">読みにくい場合は Font size を 14-16、Threshold を 24-48、Y offset を -1 から 1 の範囲で調整してください。</p>
+          <p class="pce-font-hint">読みにくい場合は Font size を 10-12、Threshold を 24-48、Y offset を -1 から 1 の範囲で調整してください。</p>
         </section>
       </main>
     </div>
@@ -96,19 +98,19 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
 
   let settings = {
     fontPath: '',
-    fontSize: 15,
+    fontSize: 11,
     threshold: 32,
     xOffset: 0,
     yOffset: 0,
     tileBase: 712,
-    previewText: '320がめんのテストです\n18もじx4ぎょうです\nくろいよはくをのこします',
+    previewText: '256がめんのテストです\n17もじx4ぎょうです\nくろいよはくをのこします',
   };
 
   function collectSettings() {
     return {
       version: 1,
       fontPath: form.elements.fontPath.value.trim(),
-      fontSize: clamp(form.elements.fontSize.value, 8, 32, 15),
+      fontSize: clamp(form.elements.fontSize.value, 8, 32, 11),
       threshold: clamp(form.elements.threshold.value, 1, 254, 32),
       xOffset: clamp(form.elements.xOffset.value, -8, 8, 0),
       yOffset: clamp(form.elements.yOffset.value, -8, 8, 0),
@@ -120,7 +122,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   function fillForm(nextSettings) {
     settings = { ...settings, ...(nextSettings || {}) };
     form.elements.fontPath.value = settings.fontPath || '';
-    form.elements.fontSize.value = settings.fontSize ?? 15;
+    form.elements.fontSize.value = settings.fontSize ?? 11;
     form.elements.threshold.value = settings.threshold ?? 32;
     form.elements.xOffset.value = settings.xOffset ?? 0;
     form.elements.yOffset.value = settings.yOffset ?? 0;
@@ -145,12 +147,12 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         if (row >= 4) break;
         continue;
       }
-      if (col >= 18) {
+      if (col >= 17) {
         col = 0;
         row += 1;
       }
       if (row >= 4) break;
-      drawGlyph(ctx, glyphMap.get(char) || glyphMap.get(' '), col * 16, row * 16, 1);
+      drawGlyph(ctx, glyphMap.get(char) || glyphMap.get(' '), col * 12, row * 16, 1);
       col += 1;
     }
 
@@ -168,7 +170,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       const y = Math.floor(index / 16) * 32;
       atlasCtx.strokeStyle = '#24465c';
       atlasCtx.strokeRect(x + 0.5, y + 0.5, 31, 31);
-      drawGlyph(atlasCtx, entry.bitmap, x + 8, y + 8, 1);
+      drawGlyph(atlasCtx, entry.bitmap, x + 10, y + 10, 1);
     });
 
     metaEl.innerHTML = `

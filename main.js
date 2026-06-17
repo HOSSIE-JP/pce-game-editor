@@ -2752,7 +2752,7 @@ function generateExportHtml({
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     main { width: 100%; max-width: 640px; padding: 8px; flex: 1;
       display: flex; flex-direction: column; gap: 8px; }
-    .screen-stage { width: 100%; aspect-ratio: 320 / 224; background: #000;
+    .screen-stage { width: 100%; aspect-ratio: 256 / 224; background: #000;
       border-radius: 8px; overflow: hidden; border: 1px solid #1a2a42;
       position: relative; transform-origin: center; }
     .screen-stage:fullscreen { width: 100vw; height: 100vh; border-radius: 0;
@@ -2998,7 +2998,7 @@ function generateExportHtml({
     <div id="dropZone">
       <div class="screen-stage">
         <div class="screen-rotator">
-          <canvas id="screen" width="320" height="224"></canvas>
+          <canvas id="screen" width="256" height="224"></canvas>
           <div class="virtual-gamepad" aria-label="Virtual gamepad">
             <div class="analog-stick" data-stick="direction" role="application" aria-label="Analog direction stick">
               <span class="stick-thumb" aria-hidden="true"></span>

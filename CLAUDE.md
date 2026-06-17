@@ -59,7 +59,8 @@ npm run mcp     # 起動中エディターの REST bridge につなぐ MCP sidec
 ### メモリバンク / CD-ROM2
 - 大きい画像 / sprite / ADPCM payload は `cd.dataFiles` に置き、RAM bank に詰め込まないでください。
 - VN runtime のバンク割り当て: **bank129 = 実行コード**、**bank132 = VN generated data**、**bank130-131 = 例外的な小さい fallback data**。
-- CD-ROM2 VN の BG `map_vram.bin` は 64 タイル幅の「ソース行」として扱い、`mapBase` から一括転送しないでください。`width_tiles` 分だけを行単位で BAT へ転送し、左右/上下余白は `clear_screen_map()` の blank tile を残します。
+- CD-ROM2 VN の BG `map_vram.bin` は `VN_MAP_WIDTH`(=32) タイル幅の「ソース行」として扱い、`mapBase` から一括転送しないでください。`width_tiles` 分だけを行単位で BAT へ転送し、左右/上下余白は `clear_screen_map()` の blank tile を残します。画面は **256x224**・**BAT 32x32**。BG 画像は 256px(32 タイル)以下。
+- メッセージフォントは **12x12**（1 行 17 文字 x 4 行）。`font.bin` は 12x12 1bpp マスク(24byte/字)で、起動時に VRAM へストリーム後、runtime のグリフコンポジタ（`draw_message_glyph_at` 他、**bank130**）が 12px ピッチで read-modify-write 合成します。常駐ピクセルバッファは持たず（console_ram 圧迫回避）、コンポジタコードを bank128 に置かないこと。
 
 ### ADPCM
 - `divider` は音量ではなく **ADPCM 再生 rate code**。`sampleRate` から `32000 / (16 - code)` に最も近い `0..15` の code を補完します（代表値: 32000Hz→15、16000Hz→14、8000Hz→12、4000Hz→8）。旧実装の `round(32000/sampleRate - 1)` などは読み込み時と runtime で補正します。

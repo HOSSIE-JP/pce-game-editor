@@ -26,7 +26,7 @@
 - VN runtime の ADPCM 自然終了後処理では、再生済みの one-shot / stream に追加で `pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()` を投げないでください。明示的な AUDIO stop は stop/reset しますが、自然終了後の余分な reset は標準 EmulatorJS/WASM core で joypad edge が戻らない原因になり得ます。
 - ADPCM 1 asset の安全上限は `min(65535, 65536 - adpcmAddress)` bytes です。4-bit ADPCM なので再生時間は概算で `bytes * 2 / sampleRate` 秒です。
 - VN sprite 表示では generated `pce_editor_sprite_draw_meta[]` の compact metadata を使い、単一 frame/default animation は sheet 全体表示として扱います。VDC memory control は `VN_VDC_MEMORY_CONTROL` を使い、sprite cycle bit を落とさないでください。
-- CD-ROM2 VN の BG `map_vram.bin` は64タイル幅の「ソース行」として扱い、`mapBase` から一括転送しないでください。`width_tiles` 分だけを行単位でBATへ転送し、左右/上下余白は `clear_screen_map()` のblank tileを残します。
+- CD-ROM2 VN の BG `map_vram.bin` は `VN_MAP_WIDTH`(=32)タイル幅の「ソース行」として扱い、`mapBase` から一括転送しないでください。`width_tiles` 分だけを行単位でBATへ転送し、左右/上下余白は `clear_screen_map()` のblank tileを残します。画面は 256x224・BAT 32x32 で、BG 画像は 256px(32 タイル)以下にしてください。
 - PCE の描画崩れ、VRAM/SATB/VDC レジスタ調査、Test Play の実画面デバッグでは、利用可能なら Geargrafx MCP を優先して使ってください。
 - Super CD-ROM2 / ADPCM の挙動確認では、標準 EmulatorJS/WASM だけを正としないでください。Geargrafx で正常動作し、標準 WASM だけが ADPCM 再生後に入力待ちから進まない場合があります。まず ADPCM あり/なしの比較、frame counter、`simulateInput()` 直接注入、読み込まれた core (`mednafen_pce-wasm.data` など) を確認し、runtime を壊す変更で回避しようとしないでください。
 - Test Play の外部エミュレーター起動は `pce-external-emulator` plugin が担当します。プロジェクト設定の `testPlay.externalEmulator.executablePath` / `extraArgs` は、Test Play role が `pce-external-emulator` のときだけ有効です。macOS の Geargrafx 既定値は `/Applications/Geargrafx.app/Contents/MacOS/geargrafx` で、保存済み `.app` bundle path は main process で `Contents/MacOS` の実行ファイルへ解決してから ROM / CUE path を渡します。

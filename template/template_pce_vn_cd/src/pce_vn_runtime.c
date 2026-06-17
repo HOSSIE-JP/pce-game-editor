@@ -40,7 +40,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define PCE_VCE_DATA_LO (*(volatile uint8_t *)0x0404)
 #define PCE_VCE_DATA_HI (*(volatile uint8_t *)0x0405)
 
-#define VN_MAP_WIDTH 64u
+#define VN_MAP_WIDTH 32u
 #define VN_MAP_HEIGHT 32u
 #define VN_BG_SCROLL_WIDTH 512u
 #define VN_BG_SCROLL_HEIGHT 256u
@@ -50,22 +50,47 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE 16000u
 #define VN_ADPCM_MAX_RATE_CODE 15u
 #define VN_SATB_ADDR 0x7f00u
-#define VN_WINDOW_X 2u
-#define VN_WINDOW_Y 19u
-#define VN_WINDOW_W 36u
+/* 256x224 layout: BG 224x136 (top, centered), message window 208x64 (bottom,
+   centered). Window = 26x8 tiles at BAT (3,20). Glyphs are 12x12 composited at
+   a 12px horizontal pitch (17 chars) and a 16px vertical pitch (4 rows), so the
+   message text no longer aligns to the 8x8 tile grid: see the glyph compositor. */
+#define VN_WINDOW_X 3u
+#define VN_WINDOW_Y 20u
+#define VN_WINDOW_W 26u
 #define VN_WINDOW_H 8u
-#define VN_TEXT_X 2u
-#define VN_TEXT_Y 19u
-#define VN_TEXT_COLS 18u
+#define VN_TEXT_X 3u
+#define VN_TEXT_Y 20u
+#define VN_TEXT_COLS 17u
 #define VN_TEXT_ROWS 4u
+#define VN_GLYPH_W 12u
+#define VN_GLYPH_H 12u
+/* Vertical pad to center a 12px glyph inside the 16px (2-tile) line band. */
+#define VN_GLYPH_Y_OFFSET 2u
+#define VN_MSG_TILE_COLS 26u
+#define VN_MSG_TILE_ROWS 8u
+#define VN_MSG_TILE_COUNT (VN_MSG_TILE_COLS * VN_MSG_TILE_ROWS)
+/* The 208-tile message strip the compositor owns starts at the (generated)
+   font tile base; the BAT window cells point at these tiles permanently and
+   only the tile pixel data is rewritten while text reveals. */
+#define VN_MSG_STRIP_TILE_BASE PCE_VN_FONT_TILE_BASE
+/* One dedicated, always-zero tile for the BG/UI blank fill (the old blank tile
+   aliased the font base, which is now dynamic strip data). */
+#define PCE_VN_BLANK_TILE (PCE_VN_FONT_TILE_BASE + VN_MSG_TILE_COUNT)
+/* 12x12 glyph masks live in VRAM (12 words/glyph) right after the blank tile; the
+   compositor reads each glyph's mask back with pce_vdc_copy_from_vram. RAM banks
+   cannot hold a resident mask table: bank128 is full, MPR5 corrupts the System
+   Card BIOS, and a table in bank132 grows the loaded image and breaks the CD data
+   sector layout. */
+#define PCE_VN_FONT_MASK_VRAM_WORD (((uint16_t)PCE_VN_BLANK_TILE + 1u) * 16u)
+#define VN_GLYPH_MASK_WORDS 12u
 #define VN_UI_PALETTE 15u
-#define VN_UI_BLANK_TILE PCE_VN_FONT_TILE_BASE
+#define VN_UI_BLANK_TILE PCE_VN_BLANK_TILE
 #define VN_CD_SECTOR_BYTES 2048u
 #define VN_VDC_CONTROL_BASE (VDC_CONTROL_IRQ_VBLANK | VDC_CONTROL_DRAM_REFRESH | VDC_CONTROL_VRAM_ADD_1)
 #define VN_VDC_DISPLAY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG | VDC_CONTROL_ENABLE_SPRITE)
 #define VN_VDC_BG_ONLY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG)
 #define VN_VDC_BLANK_CONTROL VN_VDC_CONTROL_BASE
-#define VN_VDC_MEMORY_CONTROL (VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_64_32)
+#define VN_VDC_MEMORY_CONTROL (VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_32_32)
 #define VN_CDB_VDC_CONTROL_SHADOW_LO ((volatile uint8_t *)0x20f3)
 #define VN_CDB_VDC_CONTROL_SHADOW_HI ((volatile uint8_t *)0x20f4)
 #define VN_SPRITE_SLOT_COUNT 4u
@@ -254,10 +279,10 @@ static uint8_t vn_choice_scratch_storage[sizeof(vn_choice_ref_t)] __attribute__(
 static uint8_t vn_choice_option_scratch_storage[sizeof(pce_vn_choice_option_t)] __attribute__((section(".bss")));
 static uint8_t vn_switch_scratch_storage[sizeof(vn_switch_ref_t)] __attribute__((section(".bss")));
 static uint8_t vn_switch_case_scratch_storage[sizeof(pce_vn_switch_case_t)] __attribute__((section(".bss")));
-static uint16_t draw_blank_top[2] __attribute__((section(".bss")));
-static uint16_t draw_blank_bottom[2] __attribute__((section(".bss")));
-static uint16_t draw_glyph_top[2] __attribute__((section(".bss")));
-static uint16_t draw_glyph_bottom[2] __attribute__((section(".bss")));
+/* The 12px-pitch glyph compositor keeps no resident pixel buffer (RAM banks cannot
+   hold one — see PCE_VN_FONT_MASK_VRAM_WORD): glyph masks live in VRAM and it
+   read-modify-writes the strip tiles directly in VRAM, using only small stack
+   scratch. See draw_message_glyph_at. */
 #define VN_COMMAND_SCRATCH ((pce_vn_command_t *)(void *)vn_command_scratch_storage)
 #define VN_MESSAGE_SCRATCH ((pce_vn_message_t *)(void *)vn_message_scratch_storage)
 #define VN_CHOICE_SCRATCH ((vn_choice_ref_t *)(void *)vn_choice_scratch_storage)
@@ -440,8 +465,8 @@ static void set_screen_offset(signed char x, signed char y)
 static void VN_BANKED_CODE restore_video_after_cdb_call(uint8_t restore_display)
 {
 #if defined(__PCE_CD__)
-    pce_vdc_set_resolution(320, 224, VCE_COLORBURST_ON);
-    pce_vdc_bg_set_size(VDC_BG_SIZE_64_32);
+    pce_vdc_set_resolution(256, 224, VCE_COLORBURST_ON);
+    pce_vdc_bg_set_size(VDC_BG_SIZE_32_32);
     pce_vdc_poke(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL);
     pce_vdc_set_copy_word();
     pce_vdc_sprite_set_table_start(VN_SATB_ADDR);
@@ -1228,12 +1253,14 @@ static void apply_message_text_color(uint16_t color)
 static void upload_font_tiles(void)
 {
 #if defined(__PCE_CD__)
-    /* Font tiles are streamed from a CD data file straight into VRAM at boot;
-       only the small pce_vn_font_data ref (sector/size) lives in ram_bank132. */
+    /* 12x12 glyph masks (12 words/glyph) are streamed from the CD font.bin into the
+       VRAM mask region at boot; the compositor reads each glyph's mask back from
+       VRAM when revealing message text. Only the small pce_vn_font_data ref
+       (sector/size) lives in ram_bank132. */
     pce_vn_cd_data_ref_t font;
     pce_sector_t sector = {0};
     uint16_t remaining;
-    uint16_t vram_dest = (uint16_t)(PCE_VN_FONT_TILE_BASE * 16u);
+    uint16_t vram_dest = (uint16_t)PCE_VN_FONT_MASK_VRAM_WORD;
     map_vn_data();
     font = pce_vn_font_data;
     map_resident_data();
@@ -1257,7 +1284,7 @@ static void upload_font_tiles(void)
     }
     mask_buffered_adpcm_completion_irq();
 #elif defined(__PCE__)
-    pce_editor_vram_copy((uint16_t)(PCE_VN_FONT_TILE_BASE * 16u), pce_vn_font_tiles, (uint16_t)(pce_vn_font_glyph_count * 128u));
+    pce_editor_vram_copy((uint16_t)PCE_VN_FONT_MASK_VRAM_WORD, pce_vn_font_tiles, (uint16_t)(pce_vn_font_glyph_count * (VN_GLYPH_MASK_WORDS * 2u)));
 #endif
 }
 
@@ -1330,18 +1357,33 @@ static uint16_t ui_tile(uint16_t tile)
     return (uint16_t)((VN_UI_PALETTE << 12) | tile);
 }
 
+/* Zero the dedicated blank tile once at boot; the BG/UI blank fill points at it.
+   enc must be in section .bss (see the msg_* / clear_line scratch note). */
+static uint8_t blank_tile_enc[32] __attribute__((section(".bss")));
+static void upload_blank_tile(void)
+{
+    uint8_t i;
+    for (i = 0u; i < 32u; i++) blank_tile_enc[i] = 0u;
+    pce_editor_vram_copy((uint16_t)(PCE_VN_BLANK_TILE * 16u), blank_tile_enc, 32u);
+}
+
+/* Screen/rect clear line buffers. Like the compositor scratch, these MUST be
+   file-scope statics in section .bss: without the section attribute they were
+   placed in a region that read back as garbage in this banked build, so
+   clear_screen_map / clear_map_rect_at_dest wrote garbage tile refs into the
+   margins (everything outside the BG and message window). */
+static uint16_t clear_line[VN_MAP_WIDTH] __attribute__((section(".bss")));
 static void clear_screen_map(void)
 {
     uint8_t row;
     uint8_t col;
-    static uint16_t line[VN_MAP_WIDTH];
     for (col = 0; col < VN_MAP_WIDTH; col++)
     {
-        line[col] = ui_tile(VN_UI_BLANK_TILE);
+        clear_line[col] = ui_tile(VN_UI_BLANK_TILE);
     }
     for (row = 0; row < VN_MAP_HEIGHT; row++)
     {
-        write_map_words((uint16_t)(row * VN_MAP_WIDTH), line, VN_MAP_WIDTH);
+        write_map_words((uint16_t)(row * VN_MAP_WIDTH), clear_line, VN_MAP_WIDTH);
     }
 }
 
@@ -1353,7 +1395,6 @@ static void clear_map_rect_at_dest(uint16_t map_dest, uint8_t width_tiles, uint8
     uint8_t y;
     uint8_t copy_width;
     uint8_t copy_height;
-    static uint16_t line[VN_MAP_WIDTH];
     if (!width_tiles || !height_tiles) return;
     x = (uint8_t)(map_dest % VN_MAP_WIDTH);
     y = (uint8_t)(map_dest / VN_MAP_WIDTH);
@@ -1365,55 +1406,152 @@ static void clear_map_rect_at_dest(uint16_t map_dest, uint8_t width_tiles, uint8
     if (!copy_width || !copy_height) return;
     for (col = 0; col < copy_width; col++)
     {
-        line[col] = ui_tile(VN_UI_BLANK_TILE);
+        clear_line[col] = ui_tile(VN_UI_BLANK_TILE);
     }
     for (row = 0; row < copy_height; row++)
     {
-        write_map_words((uint16_t)(map_dest + ((uint16_t)row * VN_MAP_WIDTH)), line, copy_width);
+        write_map_words((uint16_t)(map_dest + ((uint16_t)row * VN_MAP_WIDTH)), clear_line, copy_width);
     }
 }
 
-static void draw_blank_cell(uint8_t x, uint8_t y)
+/* ---- 12x12 glyph compositor -------------------------------------------------
+   Message text uses a 12px horizontal pitch that does not align to the 8x8 tile
+   grid, so glyphs are composited at runtime. A strip tile may be shared by two
+   adjacent glyphs (the previous glyph's right edge + the current glyph's left
+   edge). Instead of reading the tile back from VRAM to accumulate, the compositor
+   keeps the previous glyph's 12x12 mask in RAM and re-draws BOTH glyphs into the
+   shared tile, so each tile is rebuilt from scratch and written once. This never
+   reads VRAM back (the standard WASM core mishandles VRAM read-back) and never
+   touches VDC memory/cycle control. Only the current glyph's mask is read from
+   VRAM (1 read/char). */
+static uint16_t composer_prev_mask[VN_GLYPH_MASK_WORDS] __attribute__((section(".bss"))); /* previous glyph's 12 mask rows */
+static uint8_t composer_prev_col __attribute__((section(".bss")));   /* column of the previous visible glyph */
+static uint8_t composer_prev_valid __attribute__((section(".bss"))); /* 1 if composer_prev_mask holds a left neighbor */
+static uint8_t composer_row __attribute__((section(".bss")));        /* text row the previous glyph belongs to */
+
+/* Build a PCE 4bpp 8x8 tile (16 words) from an 8-scanline 1bpp mask. A lit pixel
+   is color index 15 (all four bitplanes set), so every plane byte equals the row
+   mask; bit 0x80 is the leftmost pixel. */
+static void VN_BANKED_CODE2 encode_msg_tile(const uint8_t *mask8, uint8_t *out32)
 {
-    const uint16_t blank = ui_tile(VN_UI_BLANK_TILE);
-    draw_blank_top[0] = blank;
-    draw_blank_top[1] = blank;
-    draw_blank_bottom[0] = blank;
-    draw_blank_bottom[1] = blank;
-    write_map_words((uint16_t)((y * VN_MAP_WIDTH) + x), draw_blank_top, 2u);
-    write_map_words((uint16_t)(((y + 1u) * VN_MAP_WIDTH) + x), draw_blank_bottom, 2u);
+    uint8_t sy;
+    for (sy = 0u; sy < 8u; sy++)
+    {
+        const uint8_t m = mask8[sy];
+        out32[(sy * 2u)] = m;            /* plane 0 */
+        out32[(sy * 2u) + 1u] = m;       /* plane 1 */
+        out32[16u + (sy * 2u)] = m;      /* plane 2 */
+        out32[16u + (sy * 2u) + 1u] = m; /* plane 3 */
+    }
 }
 
-static void clear_window_cells(void)
+/* OR a 12x12 glyph's pixels for one 8x8 tile (column tile_x0..+7, sub-band 0/1)
+   into mask8. gpx0 is the glyph's left pixel; pixels outside the tile are ignored. */
+static void VN_BANKED_CODE2 add_glyph_tile(const uint16_t *gmask, uint16_t gpx0,
+    uint8_t tile_x0, uint8_t sub, uint8_t *mask8)
 {
-    uint8_t row;
-    uint8_t col;
-    for (row = 0; row < VN_TEXT_ROWS; row++)
+    uint8_t sy;
+    for (sy = 0u; sy < 8u; sy++)
     {
-        for (col = 0; col < VN_TEXT_COLS; col++)
+        const uint8_t band_y = (uint8_t)((sub * 8u) + sy);
+        uint8_t gy;
+        uint16_t mrow;
+        uint8_t gx;
+        if (band_y < VN_GLYPH_Y_OFFSET) continue;
+        gy = (uint8_t)(band_y - VN_GLYPH_Y_OFFSET);
+        if (gy >= VN_GLYPH_H) continue;
+        mrow = gmask[gy];
+        for (gx = 0u; gx < VN_GLYPH_W; gx++)
         {
-            draw_blank_cell((uint8_t)(VN_TEXT_X + (col * 2u)), (uint8_t)(VN_TEXT_Y + (row * 2u)));
+            if (mrow & (uint16_t)(0x8000u >> gx))
+            {
+                const uint16_t xg = gpx0 + gx;
+                if (xg >= tile_x0 && xg < (uint16_t)(tile_x0 + 8u))
+                {
+                    mask8[sy] |= (uint8_t)(0x80u >> (uint8_t)(xg - tile_x0));
+                }
+            }
         }
     }
 }
 
-static void draw_glyph(uint8_t glyph, uint8_t x, uint8_t y)
+/* Compositor scratch buffers. These are file-scope statics, NOT function-local
+   arrays: on llvm-mos large stack arrays inside the banked (VN_BANKED_CODE2)
+   message code were read back as zero, corrupting the BAT/strip writes. The VN is
+   single-threaded and these functions never re-enter, so sharing statics is safe.
+   (clear_screen_map uses the same static-buffer pattern.) */
+static uint16_t msg_bat_row[VN_MSG_TILE_COLS] __attribute__((section(".bss")));
+static uint8_t msg_enc[32] __attribute__((section(".bss")));
+static uint8_t msg_mask8[8] __attribute__((section(".bss")));
+static uint16_t msg_gmask[VN_GLYPH_MASK_WORDS] __attribute__((section(".bss")));
+
+static void VN_BANKED_CODE2 clear_window_cells(void)
 {
-    uint16_t tile = (uint16_t)(PCE_VN_FONT_TILE_BASE + ((uint16_t)glyph * 4u));
-    draw_glyph_top[0] = ui_tile(tile);
-    draw_glyph_top[1] = ui_tile((uint16_t)(tile + 1u));
-    draw_glyph_bottom[0] = ui_tile((uint16_t)(tile + 2u));
-    draw_glyph_bottom[1] = ui_tile((uint16_t)(tile + 3u));
-    write_map_words((uint16_t)((y * VN_MAP_WIDTH) + x), draw_glyph_top, 2u);
-    write_map_words((uint16_t)(((y + 1u) * VN_MAP_WIDTH) + x), draw_glyph_bottom, 2u);
+    uint8_t tr;
+    uint8_t tc;
+    /* Point the 26x8 window BAT cells at the sequential strip tiles (once). */
+    for (tr = 0u; tr < VN_MSG_TILE_ROWS; tr++)
+    {
+        for (tc = 0u; tc < VN_MSG_TILE_COLS; tc++)
+        {
+            msg_bat_row[tc] = ui_tile((uint16_t)(VN_MSG_STRIP_TILE_BASE
+                + ((uint16_t)tr * VN_MSG_TILE_COLS) + tc));
+        }
+        write_map_words((uint16_t)(((VN_TEXT_Y + tr) * VN_MAP_WIDTH) + VN_TEXT_X),
+            msg_bat_row, VN_MSG_TILE_COLS);
+    }
+    /* Blank every strip tile's pixel data. */
+    for (tc = 0u; tc < 32u; tc++) msg_enc[tc] = 0u;
+    for (tr = 0u; tr < VN_MSG_TILE_COUNT; tr++)
+    {
+        pce_editor_vram_copy((uint16_t)((VN_MSG_STRIP_TILE_BASE + tr) * 16u), msg_enc, 32u);
+    }
+    composer_prev_valid = 0u;
+    composer_row = 0xffu;
 }
 
-static void draw_message_glyph_at(uint8_t glyph, uint8_t col, uint8_t row)
+/* Draw a 12x12 glyph at logical column `col` of text `row`. The up-to-two affected
+   tile columns (x two tile rows) are each rebuilt from the current glyph plus the
+   previous glyph (which may share the left tile), then written once — no VRAM
+   read-back. glyph 0 / newline / end add no pixels and break the neighbor chain. */
+static void VN_BANKED_CODE2 draw_message_glyph_at(uint8_t glyph, uint8_t col, uint8_t row)
 {
-    const uint8_t x = (uint8_t)(VN_TEXT_X + (col * 2u));
-    const uint8_t y = (uint8_t)(VN_TEXT_Y + (row * 2u));
-    if (glyph == 0u) draw_blank_cell(x, y);
-    else draw_glyph(glyph, x, y);
+    const uint16_t px0 = (uint16_t)col * VN_GLYPH_W;
+    const uint8_t tc0 = (uint8_t)(px0 >> 3);
+    const uint8_t tc1 = (uint8_t)((px0 + VN_GLYPH_W - 1u) >> 3);
+    const uint16_t prev_px0 = (uint16_t)composer_prev_col * VN_GLYPH_W;
+    uint8_t use_prev;
+    uint8_t tc;
+    uint8_t k;
+    if (glyph == 0u || glyph == PCE_VN_GLYPH_NEWLINE || glyph == PCE_VN_GLYPH_END)
+    {
+        composer_prev_valid = 0u; /* a blank/newline breaks the shared-tile chain */
+        return;
+    }
+    if (row != composer_row) composer_prev_valid = 0u; /* new row: no left neighbor */
+    use_prev = composer_prev_valid;
+    pce_vdc_copy_from_vram(msg_gmask,
+        (uint16_t)(PCE_VN_FONT_MASK_VRAM_WORD + ((uint16_t)glyph * VN_GLYPH_MASK_WORDS)),
+        (uint16_t)(VN_GLYPH_MASK_WORDS * 2u));
+    for (tc = tc0; tc <= tc1 && tc < VN_MSG_TILE_COLS; tc++)
+    {
+        const uint8_t tile_x0 = (uint8_t)(tc * 8u);
+        uint8_t sub;
+        for (sub = 0u; sub < 2u; sub++)
+        {
+            const uint16_t tile = (uint16_t)(VN_MSG_STRIP_TILE_BASE
+                + ((uint16_t)((row * 2u) + sub) * VN_MSG_TILE_COLS) + tc);
+            for (k = 0u; k < 8u; k++) msg_mask8[k] = 0u;
+            add_glyph_tile(msg_gmask, px0, tile_x0, sub, msg_mask8);
+            if (use_prev) add_glyph_tile(composer_prev_mask, prev_px0, tile_x0, sub, msg_mask8);
+            encode_msg_tile(msg_mask8, msg_enc);
+            pce_editor_vram_copy((uint16_t)(tile * 16u), msg_enc, 32u);
+        }
+    }
+    for (k = 0u; k < VN_GLYPH_MASK_WORDS; k++) composer_prev_mask[k] = msg_gmask[k];
+    composer_prev_col = col;
+    composer_prev_valid = 1u;
+    composer_row = row;
 }
 
 static uint8_t draw_message_next_glyph(const pce_vn_message_t *message)
@@ -3185,16 +3323,16 @@ static void init_video(void)
 #if defined(__PCE_CD__)
     pce_ram_bank129_map();
     pce_ram_bank130_map();
-    pce_vdc_set_resolution(320, 224, VCE_COLORBURST_ON);
-    pce_vdc_bg_set_size(VDC_BG_SIZE_64_32);
+    pce_vdc_set_resolution(256, 224, VCE_COLORBURST_ON);
+    pce_vdc_bg_set_size(VDC_BG_SIZE_32_32);
     pce_vdc_poke(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL);
     pce_vdc_set_copy_word();
     set_vdc_control(VN_VDC_BLANK_CONTROL);
     pce_vdc_sprite_set_table_start(VN_SATB_ADDR);
     pce_cdb_irq_enable((uint8_t)(PCE_CDB_MASK_IRQ_EXTERNAL | PCE_CDB_MASK_VBLANK_NO_BIOS));
 #elif defined(__PCE__)
-    pce_vdc_set_resolution(320, 224, VCE_COLORBURST_ON);
-    pce_vdc_bg_set_size(VDC_BG_SIZE_64_32);
+    pce_vdc_set_resolution(256, 224, VCE_COLORBURST_ON);
+    pce_vdc_bg_set_size(VDC_BG_SIZE_32_32);
     pce_vdc_poke(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL);
     pce_vdc_set_copy_word();
     pce_vdc_bg_enable();
@@ -3204,6 +3342,7 @@ static void init_video(void)
     upload_ui_palette();
     upload_font_tiles();
     upload_font_sprite_patterns();
+    upload_blank_tile();
     clear_screen_map();
     set_screen_offset(0, 0);
 }

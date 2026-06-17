@@ -171,7 +171,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.equal(normalized.scenes[0].commands[1].type, 'sprite');
   assert.equal(normalized.scenes[0].commands[1].x, 319);
   assert.equal(normalized.scenes[0].commands[1].y, 0);
-  assert.equal(normalized.scenes[0].commands[2].x, 128);
+  assert.equal(normalized.scenes[0].commands[2].x, 96);
   assert.equal(normalized.scenes[0].commands[2].y, 24);
   assert.equal(normalized.scenes[0].commands[3].type, 'audio');
   assert.equal(normalized.scenes[0].commands[4].textSpeedFrames, 3);
@@ -921,22 +921,40 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /#define VN_VDC_CONTROL_BASE \(VDC_CONTROL_IRQ_VBLANK \| VDC_CONTROL_DRAM_REFRESH \| VDC_CONTROL_VRAM_ADD_1\)/);
   assert.match(source, /#define VN_VDC_DISPLAY_CONTROL \(VN_VDC_CONTROL_BASE \| VDC_CONTROL_ENABLE_BG \| VDC_CONTROL_ENABLE_SPRITE\)/);
   assert.match(source, /#define VN_VDC_BLANK_CONTROL VN_VDC_CONTROL_BASE/);
-  assert.match(source, /#define VN_UI_BLANK_TILE PCE_VN_FONT_TILE_BASE/);
+  assert.match(source, /#define VN_UI_BLANK_TILE PCE_VN_BLANK_TILE/);
   assert.doesNotMatch(source, /static const uint8_t vn_ui_black_tile\[32\]/);
   assert.doesNotMatch(source, /vce_write_color\(\(uint16_t\)\(base \+ 1u\), 0x0000u\);/);
   assert.match(source, /for \(i = 1u; i < 16u; i\+\+\)/);
   assert.doesNotMatch(source, /static void upload_ui_tiles\(void\)/);
-  assert.match(source, /static uint16_t draw_blank_top\[2\] __attribute__\(\(section\("\.bss"\)\)\);/);
-  assert.match(source, /static uint16_t draw_glyph_top\[2\] __attribute__\(\(section\("\.bss"\)\)\);/);
-  // upload_font_tiles streams the glyph font from CD into VRAM at boot.
+  // The 12px compositor keeps no resident pixel buffer (RAM banks cannot hold one);
+  // glyph masks live in VRAM and it read-modify-writes the strip tiles in VRAM.
+  assert.doesNotMatch(source, /PCE_RAM_BANK_AT\(131,/);
+  assert.doesNotMatch(source, /static uint8_t msg_row_mask/);
+  assert.match(source, /#define PCE_VN_FONT_MASK_VRAM_WORD/);
+  // Shared strip tiles are rebuilt from the previous + current glyph (no VRAM
+  // read-back to accumulate); only the current glyph's mask is read from VRAM.
+  assert.doesNotMatch(source, /read_msg_tile_mask/);
+  assert.match(source, /static void VN_BANKED_CODE2 add_glyph_tile\(/);
+  assert.match(source, /static uint16_t composer_prev_mask\[VN_GLYPH_MASK_WORDS\]/);
+  // Compositor scratch must be static (section .bss), not stack arrays: large stack
+  // arrays in banked code were read back as zero, corrupting the BAT/strip writes.
+  assert.match(source, /static uint16_t msg_bat_row\[VN_MSG_TILE_COLS\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  // Screen/rect clear + blank-tile buffers must also be section .bss, else they
+  // wrote garbage tile refs into the margins (worse across scene transitions).
+  assert.match(source, /static uint16_t clear_line\[VN_MAP_WIDTH\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(source, /static uint8_t blank_tile_enc\[32\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  // upload_font_tiles streams the glyph masks from CD into VRAM at boot.
   assert.match(source, /pce_vn_cd_data_ref_t font;/);
   assert.match(source, /font = pce_vn_font_data;\n    map_resident_data\(\);/);
   assert.match(source, /\(void\)pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);\n        cd_transfer_wait\(\);\n        pce_editor_vram_copy\(vram_dest, cd_transfer_scratch, chunk\);/);
-  assert.match(source, /upload_ui_palette\(\);\n    upload_font_tiles\(\);\n    upload_font_sprite_patterns\(\);\n    clear_screen_map\(\);/);
+  assert.match(source, /upload_ui_palette\(\);\n    upload_font_tiles\(\);\n    upload_font_sprite_patterns\(\);\n    upload_blank_tile\(\);\n    clear_screen_map\(\);/);
   assert.doesNotMatch(source, /vce_write_color\(0u, 0x0000u\);/);
-  assert.match(source, /static void draw_blank_cell\(uint8_t x, uint8_t y\)/);
-  assert.match(source, /static void clear_window_cells\(void\)/);
-  assert.match(source, /draw_blank_cell\(\(uint8_t\)\(VN_TEXT_X \+ \(col \* 2u\)\), \(uint8_t\)\(VN_TEXT_Y \+ \(row \* 2u\)\)\);/);
+  assert.match(source, /static void VN_BANKED_CODE2 encode_msg_tile\(const uint8_t \*mask8, uint8_t \*out32\)/);
+  assert.match(source, /static void VN_BANKED_CODE2 clear_window_cells\(void\)/);
+  // The 12x12 compositor reads each glyph mask back from VRAM and blits it at a
+  // 12px pitch instead of placing tile-aligned pre-baked glyphs.
+  assert.match(source, /pce_vdc_copy_from_vram\(msg_gmask,/);
+  assert.match(source, /const uint16_t px0 = \(uint16_t\)col \* VN_GLYPH_W;/);
   assert.match(source, /clear_window_cells\(\);/);
   assert.doesNotMatch(source, /fill_window_rect/);
   assert.match(source, /static uint8_t draw_message_next_glyph/);
@@ -966,14 +984,14 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /PCE_CDB_USE_GRAPHICS_DRIVER\(0\);/);
   assert.match(source, /#define VN_BANKED_CODE __attribute__\(\(noinline, section\("\.ram_bank129"\)\)\)/);
   assert.match(source, /#define VN_BANKED_CODE2 __attribute__\(\(noinline, section\("\.ram_bank130"\)\)\)/);
-  assert.match(source, /#define VN_VDC_MEMORY_CONTROL \(VDC_CYCLE_4_SLOTS \| VDC_BG_SIZE_64_32\)/);
+  assert.match(source, /#define VN_VDC_MEMORY_CONTROL \(VDC_CYCLE_4_SLOTS \| VDC_BG_SIZE_32_32\)/);
   assert.match(source, /static void map_resident_data\(void\)/);
   assert.match(source, /pce_ram_bank128_map\(\);/);
   assert.match(source, /static void set_vdc_control\(uint16_t control\)/);
   assert.match(source, /\*VN_CDB_VDC_CONTROL_SHADOW_LO = \(uint8_t\)\(control & 0xffu\);/);
   assert.match(source, /\*VN_CDB_VDC_CONTROL_SHADOW_HI = \(uint8_t\)\(control >> 8\);/);
   assert.match(source, /static void VN_BANKED_CODE restore_video_after_cdb_call\(uint8_t restore_display\)/);
-  assert.match(source, /pce_vdc_set_resolution\(320, 224, VCE_COLORBURST_ON\);[\s\S]*pce_vdc_bg_set_size\(VDC_BG_SIZE_64_32\);[\s\S]*pce_vdc_poke\(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL\);/);
+  assert.match(source, /pce_vdc_set_resolution\(256, 224, VCE_COLORBURST_ON\);[\s\S]*pce_vdc_bg_set_size\(VDC_BG_SIZE_32_32\);[\s\S]*pce_vdc_poke\(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL\);/);
   assert.match(source, /pce_vdc_sprite_set_table_start\(VN_SATB_ADDR\);[\s\S]*apply_screen_offset\(\);[\s\S]*set_vdc_control\(restore_display \? VN_VDC_DISPLAY_CONTROL : VN_VDC_BLANK_CONTROL\);/);
   assert.match(source, /static void sprite_layer_disable\(void\)/);
   assert.match(source, /set_vdc_control\(VN_VDC_BG_ONLY_CONTROL\);/);
@@ -1281,7 +1299,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /pce_cdb_cd_scan\(\)/);
   assert.doesNotMatch(source, /PCE_CDB_LOCATION_TYPE_TRACK, end/);
   assert.match(source, /play_cdda_track\(cdda\);/);
-  assert.match(source, /pce_ram_bank129_map\(\);\n    pce_ram_bank130_map\(\);\n    pce_vdc_set_resolution\(320, 224, VCE_COLORBURST_ON\);/);
+  assert.match(source, /pce_ram_bank129_map\(\);\n    pce_ram_bank130_map\(\);\n    pce_vdc_set_resolution\(256, 224, VCE_COLORBURST_ON\);/);
   assert.match(source, /set_vdc_control\(VN_VDC_BLANK_CONTROL\);\n    pce_vdc_sprite_set_table_start\(VN_SATB_ADDR\);\n    pce_cdb_irq_enable\(\(uint8_t\)\(PCE_CDB_MASK_IRQ_EXTERNAL \| PCE_CDB_MASK_VBLANK_NO_BIOS\)\);/);
   assert.match(source, /if \(!load_scene_pack_into_cache\(scene_index, &active_scene_pack\)\) return;/);
   assert.match(source, /pending_sprite_refresh = 1u;\n    preload_scene_assets\(\(signed int\)scene_index, 1u, 1u\);/);

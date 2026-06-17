@@ -10,7 +10,8 @@ const VN_FONT_FILE = path.join('assets', 'pce-font.json');
 const GLYPH_END = 0xff;
 const GLYPH_NEWLINE = 0xfe;
 const DEFAULT_FONT_TILE_BASE = 712;
-const PCE_SCREEN_WIDTH = 320;
+const PCE_SCREEN_WIDTH = 256;
+const PCE_SCREEN_HEIGHT = 224;
 const DEFAULT_CHARACTER_Y = 24;
 const VN_VERSION = 2;
 const VN_COMMAND_BACKGROUND = 0;
@@ -104,9 +105,20 @@ const VN_SPRITETEXT_MAX_GLYPHS = 32;
 // Number of distinct sprite-font glyphs we will encode (index space 0..253,
 // 0xfe = newline marker in command glyph streams).
 const VN_FONT_SPRITE_MAX_GLYPH_COUNT = 254;
-const FONT_TILES_PER_GLYPH = 4;
-const FONT_BYTES_PER_GLYPH = 128;
+// Message glyphs are 12x12 px. font.bin stores one 12x12 1bpp mask per glyph
+// (12 words = 24 bytes; per row the high byte = pixels 0..7, low byte high nibble
+// = pixels 8..11, so VRAM word bit 0x8000 = leftmost pixel). The runtime streams
+// the masks to VRAM and composites them into the message strip at a 12px pitch
+// via pce_vdc_copy_from_vram. (Was 16x16 pre-baked as 4 BG tiles = 128 bytes.)
+const FONT_GLYPH_PX = 12;
+const FONT_GLYPH_MASK_WORDS = 12;
+const FONT_BYTES_PER_GLYPH = FONT_GLYPH_MASK_WORDS * 2; // 24
+// Fixed 26x8-tile VRAM region the runtime compositor owns for the message window
+// (mirrors the runtime VN_MSG_TILE_COUNT), plus one dedicated blank tile.
+const VN_MSG_STRIP_TILES = 208;
+const VN_SATB_VRAM_WORD = 0x7f00;
 // glyph index space: 0..253 are drawable, 0xfe = newline, 0xff = end marker.
+// Masks live in VRAM (not a RAM bank), so the full 254-entry space is usable.
 const VN_MAX_GLYPH_COUNT = 254;
 // VRAM is 0x8000 words; SATB sits at 0x7f00 (tile 0x7f00/16 = 2032). Font tiles
 // must end strictly below that. Sprite patterns are auto-placed above the font
@@ -128,12 +140,12 @@ const VN_CD_SECTOR_BYTES = 2048;
 const DEFAULT_FONT_CONFIG = {
   version: 1,
   fontPath: '',
-  fontSize: 15,
+  fontSize: 11,
   threshold: 32,
   xOffset: 0,
   yOffset: 0,
   tileBase: DEFAULT_FONT_TILE_BASE,
-  previewText: '320がめんです\n18もじx4ぎょう',
+  previewText: '256がめんです\n17もじx4ぎょう',
 };
 
 function ensureDirSync(dirPath) {
@@ -272,7 +284,7 @@ function defaultSceneDocument(assetDoc = { assets: [] }) {
   commands.push({
     type: 'message',
     speaker: 'アカリ',
-    text: '320がめんです',
+    text: '256がめんです',
     voiceAssetId,
     textSpeedFrames: 2,
     advanceMode: 'button',
@@ -283,7 +295,7 @@ function defaultSceneDocument(assetDoc = { assets: [] }) {
   commands.push({
     type: 'message',
     speaker: 'アカリ',
-    text: '18もじx4ぎょう',
+    text: '17もじx4ぎょう',
     voiceAssetId: '',
     textSpeedFrames: 2,
     advanceMode: 'button',
@@ -885,16 +897,22 @@ function collectSpriteTextGlyphsRaw(doc) {
   return used ? glyphs : [];
 }
 
-// Build-time budget report for the glyph font. After moving the tiles to a CD
-// data file the binding limits are (a) the 254-entry glyph index space and
-// (b) the VRAM tile span the streamed tiles occupy. Returns the byte/sector
-// footprint plus human-readable warnings/errors so the build can surface them.
+// Build-time budget report for the glyph font. Masks stream to VRAM (after the
+// 208-tile strip + blank tile), so the binding limits are (a) the 254-entry glyph
+// index space and (b) the VRAM the mask region occupies below the SATB. Returns
+// the byte/sector footprint plus warnings/errors.
 function computeFontBudget(rawGlyphCount, tileBase) {
   const usedGlyphCount = Math.min(rawGlyphCount, VN_MAX_GLYPH_COUNT);
   const droppedGlyphCount = Math.max(0, rawGlyphCount - VN_MAX_GLYPH_COUNT);
   const byteSize = usedGlyphCount * FONT_BYTES_PER_GLYPH;
   const sectorCount = Math.max(1, Math.ceil(byteSize / VN_CD_SECTOR_BYTES));
-  const endTile = tileBase + (usedGlyphCount * FONT_TILES_PER_GLYPH);
+  // VRAM layout: [strip 208 tiles][blank tile][glyph masks: glyphs*12 words]. The
+  // blank tile sits at (tileBase + 208); the mask region starts one tile later. The
+  // runtime derives the same addresses from PCE_VN_FONT_TILE_BASE.
+  const blankTile = tileBase + VN_MSG_STRIP_TILES; // dedicated blank tile
+  const maskBaseWord = (blankTile + 1) * 16;
+  const maskEndWord = maskBaseWord + (usedGlyphCount * FONT_GLYPH_MASK_WORDS);
+  const endTile = Math.ceil(maskEndWord / 16); // tile-aligned end (spritetext font + reporting)
   const warnings = [];
   const errors = [];
   if (droppedGlyphCount > 0) {
@@ -903,13 +921,12 @@ function computeFontBudget(rawGlyphCount, tileBase) {
   } else if (usedGlyphCount >= VN_GLYPH_COUNT_SOFT_WARN) {
     warnings.push(`フォント: 使用文字が ${usedGlyphCount} 種類で上限 ${VN_MAX_GLYPH_COUNT} に近づいています。`);
   }
-  if (endTile > VN_FONT_VRAM_TILE_HARD_CEILING) {
-    errors.push(`フォント: タイル配置 (tileBase ${tileBase} + ${usedGlyphCount} グリフ) が VRAM 末尾 (SATB tile ${VN_FONT_VRAM_TILE_HARD_CEILING}) を超えます。`
-      + `tileBase を下げるか文字種を減らしてください。`);
+  if (maskEndWord > VN_SATB_VRAM_WORD) {
+    errors.push(`フォント: グリフマスク領域 (tileBase ${tileBase} + 208タイル + ${usedGlyphCount} グリフ) が VRAM 末尾 (SATB word 0x7f00) を超えます。tileBase を下げるか文字種を減らしてください。`);
   } else if (endTile > VN_FONT_VRAM_TILE_SOFT_CEILING) {
-    warnings.push(`フォント: タイル末尾が ${endTile} でスプライトパターン領域に接近しています (推奨上限 ${VN_FONT_VRAM_TILE_SOFT_CEILING})。`);
+    warnings.push(`フォント: グリフマスク末尾が tile ${endTile} でスプライトパターン領域に接近しています (推奨上限 ${VN_FONT_VRAM_TILE_SOFT_CEILING})。`);
   }
-  return { usedGlyphCount, rawGlyphCount, droppedGlyphCount, byteSize, sectorCount, tileBase, endTile, warnings, errors };
+  return { usedGlyphCount, rawGlyphCount, droppedGlyphCount, byteSize, sectorCount, tileBase, blankTile, maskBaseWord, maskEndWord, endTile, warnings, errors };
 }
 
 function fontCandidates(config = {}) {
@@ -953,13 +970,13 @@ function fontCandidates(config = {}) {
 }
 
 function fallbackGlyphBitmap(glyph, glyphIndex) {
-  const bitmap = new Array(256).fill(0);
+  const bitmap = new Array(FONT_GLYPH_PX * FONT_GLYPH_PX).fill(0);
   if (glyph === ' ') return bitmap;
-  for (let y = 1; y < 15; y += 1) {
-    for (let x = 1; x < 15; x += 1) {
-      const border = x === 1 || x === 14 || y === 1 || y === 14;
+  for (let y = 1; y < FONT_GLYPH_PX - 1; y += 1) {
+    for (let x = 1; x < FONT_GLYPH_PX - 1; x += 1) {
+      const border = x === 1 || x === FONT_GLYPH_PX - 2 || y === 1 || y === FONT_GLYPH_PX - 2;
       const pattern = ((x * 17 + y * 31 + glyph.charCodeAt(0) + glyphIndex) % 7) === 0;
-      bitmap[(y * 16) + x] = border || pattern ? 1 : 0;
+      bitmap[(y * FONT_GLYPH_PX) + x] = border || pattern ? 1 : 0;
     }
   }
   return bitmap;
@@ -981,7 +998,8 @@ function escapeFfmpegDrawText(value) {
 }
 
 function renderGlyphBitmapWithFfmpeg(glyph, fontPath, config = {}) {
-  if (glyph === ' ') return new Array(256).fill(0);
+  const pixelCount = FONT_GLYPH_PX * FONT_GLYPH_PX;
+  if (glyph === ' ') return new Array(pixelCount).fill(0);
   const normalized = normalizeFontConfig(config);
   const filter = [
     `drawtext=fontfile='${escapeFfmpegFilterValue(fontPath)}'`,
@@ -994,17 +1012,17 @@ function renderGlyphBitmapWithFfmpeg(glyph, fontPath, config = {}) {
   const proc = spawnSync('ffmpeg', [
     '-v', 'error',
     '-f', 'lavfi',
-    '-i', 'color=c=black:s=16x16',
+    '-i', `color=c=black:s=${FONT_GLYPH_PX}x${FONT_GLYPH_PX}`,
     '-vf', filter,
     '-frames:v', '1',
     '-f', 'rawvideo',
     '-pix_fmt', 'gray',
     '-',
   ], { maxBuffer: 1024 * 64 });
-  if (proc.error || proc.status !== 0 || !Buffer.isBuffer(proc.stdout) || proc.stdout.length < 256) {
+  if (proc.error || proc.status !== 0 || !Buffer.isBuffer(proc.stdout) || proc.stdout.length < pixelCount) {
     return null;
   }
-  return Array.from(proc.stdout.subarray(0, 256), (value) => (value >= normalized.threshold ? 1 : 0));
+  return Array.from(proc.stdout.subarray(0, pixelCount), (value) => (value >= normalized.threshold ? 1 : 0));
 }
 
 function renderGlyphBitmapsWithFfmpeg(glyphs, config = {}) {
@@ -1056,14 +1074,14 @@ if font is None:
 
 bitmaps = []
 for glyph in payload.get("glyphs", []):
-    img = Image.new("L", (16, 16), 0)
+    img = Image.new("L", (${FONT_GLYPH_PX}, ${FONT_GLYPH_PX}), 0)
     if glyph != " ":
         draw = ImageDraw.Draw(img)
         bbox = draw.textbbox((0, 0), glyph, font=font)
         width = max(1, bbox[2] - bbox[0])
         height = max(1, bbox[3] - bbox[1])
-        x = (16 - width) // 2 - bbox[0]
-        y = (16 - height) // 2 - bbox[1]
+        x = (${FONT_GLYPH_PX} - width) // 2 - bbox[0]
+        y = (${FONT_GLYPH_PX} - height) // 2 - bbox[1]
         draw.text((x, y), glyph, fill=255, font=font)
     threshold = int(payload.get("threshold", 32))
     bitmaps.append([1 if value >= threshold else 0 for value in img.getdata()])
@@ -1084,47 +1102,49 @@ print(json.dumps({"ok": True, "bitmaps": bitmaps, "fontPath": font_path_used}, e
   return null;
 }
 
-function encode8x8Tile(bitmap, offsetX, offsetY) {
-  const lowPlanes = [];
-  const highPlanes = [];
-  for (let y = 0; y < 8; y += 1) {
-    const planes = [0, 0, 0, 0];
-    for (let x = 0; x < 8; x += 1) {
-      const value = bitmap[((offsetY + y) * 16) + offsetX + x] ? 15 : 0;
-      for (let plane = 0; plane < 4; plane += 1) {
-        if (value & (1 << plane)) planes[plane] |= (1 << (7 - x));
-      }
+// Encode a 12x12 glyph bitmap (0/1, 144 entries) as 12 mask words (24 bytes).
+// Per row: high byte = pixels 0..7, low byte high-nibble = pixels 8..11, so the
+// VRAM word's bit 0x8000 is the leftmost pixel. Bytes are emitted VRAM-word
+// little-endian (low byte first) to match pce_editor_vram_copy / the runtime
+// pce_vdc_copy_from_vram readback.
+function encodeGlyphMask12(bitmap) {
+  const buf = Buffer.alloc(FONT_BYTES_PER_GLYPH);
+  for (let y = 0; y < FONT_GLYPH_PX; y += 1) {
+    let hi = 0;
+    let lo = 0;
+    for (let x = 0; x < FONT_GLYPH_PX; x += 1) {
+      if (!bitmap[(y * FONT_GLYPH_PX) + x]) continue;
+      if (x < 8) hi |= (0x80 >> x);
+      else lo |= (0x80 >> (x - 8));
     }
-    lowPlanes.push(planes[0], planes[1]);
-    highPlanes.push(planes[2], planes[3]);
+    buf[y * 2] = lo;
+    buf[(y * 2) + 1] = hi;
   }
-  return lowPlanes.concat(highPlanes);
+  return buf;
 }
 
-function encodeGlyphTileData(bitmaps) {
-  const bytes = [];
-  bitmaps.forEach((bitmap) => {
-    bytes.push(...encode8x8Tile(bitmap, 0, 0));
-    bytes.push(...encode8x8Tile(bitmap, 8, 0));
-    bytes.push(...encode8x8Tile(bitmap, 0, 8));
-    bytes.push(...encode8x8Tile(bitmap, 8, 8));
-  });
-  return Buffer.from(bytes);
+function encodeGlyphMaskData(bitmaps) {
+  return Buffer.concat(bitmaps.map((bitmap) => encodeGlyphMask12(bitmap)));
 }
 
-// Encode a 16x16 glyph bitmap (0/1 mask, 256 entries) as a single PCE 16x16
-// hardware sprite pattern (128 bytes). Lit pixels map to color index 15 (all
-// four bitplanes set); the runtime supplies the actual color via the reserved
-// sprite palette bank's entry 15. Layout matches encodePceSpritePattern in
-// pce-asset-manager.js: per row y, byte (plane*32 + y*2) = right half, +1 = left.
+// Encode a 12x12 glyph bitmap (0/1, 144 entries) as a single PCE 16x16 hardware
+// sprite pattern (128 bytes), centering the 12x12 art in the 16x16 cell. Lit
+// pixels map to color index 15 (all four bitplanes set); the runtime supplies
+// the actual color via the reserved sprite palette bank's entry 15. Layout
+// matches encodePceSpritePattern: per row y, byte (plane*32 + y*2) = right half,
+// +1 = left half.
 function encodeGlyphSpritePattern(bitmap) {
   const pattern = Buffer.alloc(128);
-  for (let y = 0; y < 16; y += 1) {
+  const off = (16 - FONT_GLYPH_PX) >> 1; // center 12 in 16 -> 2px pad
+  for (let gy = 0; gy < FONT_GLYPH_PX; gy += 1) {
+    const y = gy + off;
     let left = 0;
     let right = 0;
-    for (let x = 0; x < 8; x += 1) {
-      if (bitmap[(y * 16) + x]) left |= (0x80 >> x);
-      if (bitmap[(y * 16) + 8 + x]) right |= (0x80 >> x);
+    for (let gx = 0; gx < FONT_GLYPH_PX; gx += 1) {
+      if (!bitmap[(gy * FONT_GLYPH_PX) + gx]) continue;
+      const x = gx + off; // 2..13
+      if (x < 8) left |= (0x80 >> x);
+      else right |= (0x80 >> (x - 8));
     }
     for (let plane = 0; plane < 4; plane += 1) {
       pattern[(plane * 32) + (y * 2)] = right;
@@ -1148,8 +1168,8 @@ function renderGlyphBitmaps(glyphs, config = {}) {
     };
 }
 
-function renderGlyphTileData(glyphs, config = {}) {
-  return encodeGlyphTileData(renderGlyphBitmaps(glyphs, config).bitmaps);
+function renderGlyphMaskData(glyphs, config = {}) {
+  return encodeGlyphMaskData(renderGlyphBitmaps(glyphs, config).bitmaps);
 }
 
 function toCIdentifier(value) {
@@ -1528,8 +1548,8 @@ function generateVnSources(projectDir, options = {}) {
     throw new Error(fontBudget.errors.join(' '));
   }
   const fontRender = renderGlyphBitmaps(glyphs, fontConfig);
-  const fontTiles = encodeGlyphTileData(fontRender.bitmaps);
-  // Font tiles live on the CD as a streamed data file, not in ram_bank132.
+  const fontTiles = encodeGlyphMaskData(fontRender.bitmaps);
+  // Glyph masks live on the CD as a streamed data file, not in ram_bank132.
   const fontDataPath = normalizeRelativePath(VN_FONT_DATA_FILE);
   const fontDataAbsPath = path.join(projectDir, fontDataPath);
   ensureDirSync(path.dirname(fontDataAbsPath));
@@ -2596,7 +2616,8 @@ module.exports = {
   collectSpriteTextGlyphsRaw,
   computeFontBudget,
   defaultSceneDocument,
-  encodeGlyphTileData,
+  encodeGlyphMask12,
+  encodeGlyphMaskData,
   encodeGlyphSpriteData,
   ensureSceneFile,
   generateVnSources,
@@ -2609,7 +2630,7 @@ module.exports = {
   readFontConfig,
   readSceneDocument,
   renderGlyphBitmaps,
-  renderGlyphTileData,
+  renderGlyphMaskData,
   syncVisualNovelRuntime,
   writeFontConfig,
   writeSceneDocument,

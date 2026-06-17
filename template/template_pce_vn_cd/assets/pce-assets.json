@@ -4,7 +4,7 @@
     {
       "id": "vn_classroom_bg",
       "type": "image",
-      "name": "288x128 駅ホーム背景",
+      "name": "224x136 駅ホーム背景",
       "source": "assets/images/vn_classroom_bg.png",
       "options": {
         "kind": "background",
@@ -14,8 +14,8 @@
         "mapBase": 0,
         "x": 16,
         "y": 16,
-        "width": 288,
-        "height": 128,
+        "width": 224,
+        "height": 136,
         "cellWidth": 8,
         "cellHeight": 8,
         "transparentIndex": 0
@@ -466,7 +466,7 @@
     {
       "id": "rooftop_dusk_bg",
       "type": "image",
-      "name": "288x128 夕暮れ屋上背景",
+      "name": "224x136 夕暮れ屋上背景",
       "source": "assets/images/rooftop_dusk_bg.png",
       "options": {
         "kind": "background",
@@ -476,8 +476,8 @@
         "mapBase": 0,
         "x": 16,
         "y": 16,
-        "width": 288,
-        "height": 128,
+        "width": 224,
+        "height": 136,
         "cellWidth": 8,
         "cellHeight": 8,
         "transparentIndex": 0
