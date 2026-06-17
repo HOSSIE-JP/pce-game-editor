@@ -1001,7 +1001,9 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /const uint16_t px0 = \(uint16_t\)col \* VN_GLYPH_W;/);
   assert.match(source, /clear_window_cells\(\);/);
   assert.doesNotMatch(source, /fill_window_rect/);
-  assert.match(source, /static uint8_t draw_message_next_glyph/);
+  // draw_message_next_glyph / draw_message_text live in bank130 (VN_BANKED_CODE2)
+  // to keep the resident bank128 and the bank129 interpreter within budget.
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 draw_message_next_glyph/);
   assert.match(source, /play_adpcm_voice\(message->voice_index\);/);
   assert.match(source, /draw_message_text\(message\);/);
   assert.match(source, /static void fade_palette/);
@@ -1094,8 +1096,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /pack = pce_vn_scene_packs\[scene_index\];/);
   assert.match(source, /pack\.byte_size > PCE_VN_SCENE_PACK_CACHE_BYTES/);
   assert.match(source, /pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)&cache->data\[offset\], chunk\);/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE scene_pack_read_command\(const vn_scene_pack_cache_t \*cache, uint8_t command_index, pce_vn_command_t \*command\)/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE scene_pack_read_message\(const vn_scene_pack_cache_t \*cache, uint8_t message_index, pce_vn_message_t \*message\)/);
+  // scene_pack_read_command / scene_pack_read_message are in bank130 to relieve
+  // the bank129 interpreter (audio + sprite content was overflowing bank129).
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 scene_pack_read_command\(const vn_scene_pack_cache_t \*cache, uint8_t command_index, pce_vn_command_t \*command\)/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 scene_pack_read_message\(const vn_scene_pack_cache_t \*cache, uint8_t message_index, pce_vn_message_t \*message\)/);
   assert.match(source, /static uint8_t VN_BANKED_CODE2 scene_pack_read_choice\(const vn_scene_pack_cache_t \*cache, uint8_t choice_index, vn_choice_ref_t \*choice\)/);
   assert.match(source, /static uint8_t VN_BANKED_CODE2 scene_pack_read_switch\(const vn_scene_pack_cache_t \*cache, uint8_t switch_index, vn_switch_ref_t \*branch\)/);
   assert.doesNotMatch(source, /pce_vn_commands\[/);
@@ -1110,7 +1114,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /adpcm_stream_buffered_fallback|adpcm_stream_monitor_frames/);
   assert.match(source, /#define VN_ADPCM_FRAME_RATE 60ul/);
   assert.match(source, /#define VN_ADPCM_END_PAD_FRAMES 2ul/);
-  assert.match(source, /static void VN_BANKED_CODE service_adpcm_playback\(void\);/);
+  assert.match(source, /static void VN_BANKED_CODE2 service_adpcm_playback\(void\);/);
   assert.match(source, /static void cd_sector_from_ref\(pce_sector_t \*dest, const pce_editor_cd_sector_t \*source\)/);
   assert.match(source, /dest->hi = source \? source->hi : 0u;/);
   assert.match(source, /static void cd_sector_from_uint\(pce_sector_t \*dest, unsigned long value\)/);
@@ -1150,7 +1154,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /voice->cd && voice->cd->sector_count/);
   assert.match(source, /typedef struct\s*\{[\s\S]*unsigned long data_size;[\s\S]*pce_editor_cd_sector_t cd_sector;[\s\S]*uint8_t has_cd;[\s\S]*\} vn_adpcm_voice_t;/);
   assert.match(source, /#define VN_ADPCM_BASE_SAMPLE_RATE 32000u/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE adpcm_rate_code\(unsigned int sample_rate\)/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 adpcm_rate_code\(unsigned int sample_rate\)/);
   assert.match(source, /actual = adpcm_code_sample_rate\(code\);/);
   assert.match(source, /if \(divider < 8u\) return computed;/);
   assert.match(source, /adpcm_legacy_divider\(sample_rate, VN_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE\)/);
@@ -1208,7 +1212,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /Buffered one-shot playback does not need BIOS status polling/);
   assert.match(source, /map_resident_data\(\);\n    \/\*[\s\S]*?EmulatorJS mednafen_pce core unable to deliver joypad edges afterward\.[\s\S]*?\*\/\n    adpcm_play_active = 1u;\n    adpcm_play_frames_remaining = adpcm_voice_snapshot\.loop \? 0u : adpcm_voice_frame_count\(\);\n    adpcm_stream_active = 0u;\n    adpcm_stream_looping = 0u;\n    adpcm_stream_index = \(uint8_t\)voice_index;[\s\S]*?Standard EmulatorJS mednafen_pce can wedge the CPU[\s\S]*?mask_buffered_adpcm_completion_irq\(\);[\s\S]*?pad_edge_reset_pending = 1u;\n    restore_display_after_adpcm\(restore_display\);/);
   assert.match(source, /static void VN_BANKED_CODE stop_adpcm_voice\(void\)[\s\S]*const uint8_t restore_display = \(uint8_t\)!pending_display_enable;[\s\S]*pce_cdb_irq_enable\(PCE_CDB_MASK_IRQ_EXTERNAL\);[\s\S]*pce_cdb_adpcm_stop\(\);[\s\S]*pce_cdb_adpcm_reset\(\);[\s\S]*restore_display_after_adpcm\(restore_display\);/);
-  const adpcmServiceMatch = source.match(/static void VN_BANKED_CODE service_adpcm_playback\(void\)\n\{[\s\S]*?\n}\n\nstatic void show_scene/);
+  const adpcmServiceMatch = source.match(/static void VN_BANKED_CODE2 service_adpcm_playback\(void\)\n\{[\s\S]*?\n}\n\nstatic void show_scene/);
   assert.ok(adpcmServiceMatch);
   assert.match(adpcmServiceMatch[0], /if \(!adpcm_play_active\) return;/);
   assert.match(adpcmServiceMatch[0], /adpcm_play_frames_remaining--;/);

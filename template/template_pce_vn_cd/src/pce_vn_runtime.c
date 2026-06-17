@@ -297,7 +297,7 @@ static uint8_t VN_BANKED_CODE load_scene_pack_into_cache(uint8_t scene_index, vn
 static uint8_t VN_BANKED_CODE scene_pack_command_count(const vn_scene_pack_cache_t *cache);
 #if defined(__PCE_CD__)
 static void service_cdda_playback(void);
-static void VN_BANKED_CODE service_adpcm_playback(void);
+static void VN_BANKED_CODE2 service_adpcm_playback(void);
 #endif
 
 static void map_vn_data(void)
@@ -1042,7 +1042,7 @@ static uint8_t VN_BANKED_CODE scene_pack_command_count(const vn_scene_pack_cache
     return scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_COMMAND_COUNT);
 }
 
-static uint8_t VN_BANKED_CODE scene_pack_read_command(const vn_scene_pack_cache_t *cache, uint8_t command_index, pce_vn_command_t *command)
+static uint8_t VN_BANKED_CODE2 scene_pack_read_command(const vn_scene_pack_cache_t *cache, uint8_t command_index, pce_vn_command_t *command)
 {
     uint16_t offset;
     if (!command) return 0u;
@@ -1065,7 +1065,7 @@ static uint8_t VN_BANKED_CODE scene_pack_read_command(const vn_scene_pack_cache_
     return 1u;
 }
 
-static uint8_t VN_BANKED_CODE scene_pack_read_message(const vn_scene_pack_cache_t *cache, uint8_t message_index, pce_vn_message_t *message)
+static uint8_t VN_BANKED_CODE2 scene_pack_read_message(const vn_scene_pack_cache_t *cache, uint8_t message_index, pce_vn_message_t *message)
 {
     uint16_t offset;
     uint16_t glyph_offset;
@@ -1525,7 +1525,7 @@ static void VN_BANKED_CODE2 clear_window_cells(void)
    sentinels PCE_VN_GLYPH_NEWLINE / _END so that escaped indices (bounded well below
    0xfffe) can never collide with them. Callers advance their own cursor by
    vn_glyph_stride() — kept by-value (no pointer mutation) for the HuC6280 backend. */
-static uint16_t vn_glyph_decode(const uint8_t *glyphs, uint16_t pos)
+static uint16_t VN_BANKED_CODE2 vn_glyph_decode(const uint8_t *glyphs, uint16_t pos)
 {
     const uint8_t b = glyphs[pos];
     if (b == PCE_VN_GLYPH_ESCAPE)
@@ -1536,7 +1536,7 @@ static uint16_t vn_glyph_decode(const uint8_t *glyphs, uint16_t pos)
 }
 
 /* Bytes consumed by the glyph entry at `pos` (3 for an escape entry, else 1). */
-static uint16_t vn_glyph_stride(const uint8_t *glyphs, uint16_t pos)
+static uint16_t VN_BANKED_CODE2 vn_glyph_stride(const uint8_t *glyphs, uint16_t pos)
 {
     return (glyphs[pos] == PCE_VN_GLYPH_ESCAPE) ? 3u : 1u;
 }
@@ -1581,7 +1581,7 @@ static void VN_BANKED_CODE2 draw_message_glyph_at(uint16_t glyph, uint8_t col, u
     composer_row = row;
 }
 
-static uint8_t draw_message_next_glyph(const pce_vn_message_t *message)
+static uint8_t VN_BANKED_CODE2 draw_message_next_glyph(const pce_vn_message_t *message)
 {
     uint16_t glyph;
     if (!message || !message->glyphs || message_glyph_pos >= message->glyph_count) return 1u;
@@ -1607,7 +1607,7 @@ static uint8_t draw_message_next_glyph(const pce_vn_message_t *message)
     return message_glyph_pos >= message->glyph_count ? 1u : 0u;
 }
 
-static void draw_message_text(const pce_vn_message_t *message)
+static void VN_BANKED_CODE2 draw_message_text(const pce_vn_message_t *message)
 {
     uint8_t i;
     uint8_t col = 0;
@@ -1874,14 +1874,14 @@ static void stop_cdda_track(void)
 #endif
 }
 
-static unsigned int VN_BANKED_CODE adpcm_code_sample_rate(uint8_t code)
+static unsigned int VN_BANKED_CODE2 adpcm_code_sample_rate(uint8_t code)
 {
     uint8_t value;
     value = code > VN_ADPCM_MAX_RATE_CODE ? VN_ADPCM_MAX_RATE_CODE : code;
     return VN_ADPCM_BASE_SAMPLE_RATE / (16u - (unsigned int)value);
 }
 
-static uint8_t VN_BANKED_CODE adpcm_rate_code(unsigned int sample_rate)
+static uint8_t VN_BANKED_CODE2 adpcm_rate_code(unsigned int sample_rate)
 {
     unsigned int rate;
     unsigned int actual;
@@ -1906,7 +1906,7 @@ static uint8_t VN_BANKED_CODE adpcm_rate_code(unsigned int sample_rate)
     return best;
 }
 
-static uint8_t VN_BANKED_CODE adpcm_legacy_divider(unsigned int sample_rate, unsigned int base_rate)
+static uint8_t VN_BANKED_CODE2 adpcm_legacy_divider(unsigned int sample_rate, unsigned int base_rate)
 {
     unsigned int rate;
     unsigned int computed;
@@ -2249,7 +2249,7 @@ static void VN_BANKED_CODE stop_adpcm_voice(void)
 #endif
 }
 
-static void VN_BANKED_CODE service_adpcm_playback(void)
+static void VN_BANKED_CODE2 service_adpcm_playback(void)
 {
 #if defined(__PCE_CD__)
     if (!adpcm_play_active) return;
@@ -2318,7 +2318,7 @@ static uint8_t VN_BANKED_CODE psg_resolve_channel(uint8_t base, uint8_t step_cha
     return (uint8_t)ch;
 }
 
-static void VN_BANKED_CODE psg_apply_step_row(uint16_t step_no)
+static void VN_BANKED_CODE2 psg_apply_step_row(uint16_t step_no)
 {
     uint16_t i;
     if (!psg_current || !psg_current->pattern) return;
@@ -2352,7 +2352,7 @@ static void VN_BANKED_CODE stop_psg(void)
     psg_current = (const pce_editor_psg_asset_t *)0;
 }
 
-static void VN_BANKED_CODE play_psg_asset(signed int asset_index, uint8_t base_channel)
+static void VN_BANKED_CODE2 play_psg_asset(signed int asset_index, uint8_t base_channel)
 {
     uint8_t ch;
     if (asset_index < 0 || (uint8_t)asset_index >= pce_editor_psg_asset_count) return;
@@ -2378,7 +2378,7 @@ static void VN_BANKED_CODE play_psg_asset(signed int asset_index, uint8_t base_c
     psg_apply_step_row(0u);
 }
 
-static void VN_BANKED_CODE tick_psg(void)
+static void VN_BANKED_CODE2 tick_psg(void)
 {
     uint8_t frames_per_step;
     if (!psg_active || !psg_current) return;
