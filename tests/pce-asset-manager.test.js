@@ -270,7 +270,7 @@ test('PCE asset schema supports BG image, sprite, generated metadata, and legacy
 
   assert.equal(image.options.kind, 'background');
   assert.equal(image.options.cellWidth, 8);
-  assert.equal(image.options.tileBase, 128);
+  assert.equal(image.options.tileBase, 64);
   assert.equal(image.options.mapBase, 0);
   assert.equal(image.data.generated.tileCount, 12);
   assert.equal(sprite.options.kind, 'sprite');
@@ -492,7 +492,7 @@ test('PCE image import generates BG and sprite assets with the internal converte
   });
 
   assert.equal(bg.asset.type, 'image');
-  assert.equal(bg.asset.options.tileBase, 128);
+  assert.equal(bg.asset.options.tileBase, 64);
   assert.equal(bg.asset.options.mapBase, 0);
   assert.equal(bg.asset.options.compression, 'auto');
   assert.equal(bg.commandInfo.mode, 'internal-pce');
@@ -504,7 +504,7 @@ test('PCE image import generates BG and sprite assets with the internal converte
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.paletteFile)).length, 32);
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.tilesFile)).length, 256);
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.mapFile)).length, 16);
-  assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.mapVramFile)).readUInt16LE(0) & 0x0fff, 128);
+  assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.mapVramFile)).readUInt16LE(0) & 0x0fff, 64);
   assert.equal(bg.asset.data.generated.compression.map.codec, 'rle');
   assert.equal(fs.existsSync(path.join(projectDir, bg.asset.data.generated.mapVramCompressedFile)), true);
   assert.ok(fs.statSync(path.join(projectDir, bg.asset.data.generated.mapVramCompressedFile)).size < fs.statSync(path.join(projectDir, bg.asset.data.generated.mapVramFile)).size);
@@ -545,7 +545,7 @@ test('PCE background generation refreshes stale map tile references before sourc
 
   const refreshed = fs.readFileSync(mapVramPath);
   const saved = assetManager.readAssetDocument(projectDir);
-  assert.equal(refreshed.readUInt16LE(0) & 0x0fff, 128);
+  assert.equal(refreshed.readUInt16LE(0) & 0x0fff, 64);
   assert.equal(saved.assets[0].data.import.converter, 'Internal PCE image converter');
   assert.equal(typeof saved.assets[0].data.import.regeneratedAt, 'string');
 });
@@ -766,7 +766,7 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.match(source, /static const unsigned char pce_editor_sprite_spr_patterns\[\]/);
   assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_beep_pattern\[\]/);
   assert.match(source, /static const unsigned char pce_editor_adpcm_voice_data\[\]/);
-  assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_tiles, 64u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_map, 8u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, 2u, 2u, 128u, 0u, 0u \}/);
+  assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_tiles, 64u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_map, 8u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, 2u, 2u, 64u, 0u, 0u \}/);
   assert.match(source, /\{ pce_editor_adpcm_voice_data, 4ul, 16000u, 0u, 14u, 0u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
   assert.match(source, /const unsigned char pce_editor_bg_asset_count = 1/);
   assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] = \{\n  \{ 16u, 16u, 1u, 1u, 384u, 0u \}\n\};/);
@@ -858,7 +858,7 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.doesNotMatch(source, /pce_editor_image_bg_map_bank129/);
   assert.match(source, /pce_editor_image_bg_tiles_cd = \{ \{ 64u, 0u, 0u \}, 1u, 2048u, 0u \};/);
   assert.match(source, /pce_editor_image_bg_map_cd = \{ \{ 65u, 0u, 0u \}, 1u, 2048u, 0u \};/);
-  assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_tiles_cd \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_map_cd \}, 36u, 16u, 128u, 0u, 0u \}/);
+  assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_tiles_cd \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_map_cd \}, 36u, 16u, 64u, 0u, 0u \}/);
   assert.match(source, /pce_editor_sprite_hero_patterns_cd = \{ \{ 66u, 0u, 0u \}, 2u, 4096u, 0u \};/);
   assert.match(source, /pce_editor_adpcm_voice_data_cd = \{ \{ 68u, 0u, 0u \}, 2u, 4096u, 0u \};/);
   assert.match(source, /\{ \(const unsigned char \*\)0, 4096ul, 16000u, 0u, 14u, 0u, 1u, &pce_editor_adpcm_voice_data_cd \}/);

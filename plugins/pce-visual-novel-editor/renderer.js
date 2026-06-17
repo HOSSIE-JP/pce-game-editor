@@ -1,9 +1,10 @@
 const SCENE_FILE = 'assets/pce-vn-scenes.json';
-const PCE_SCREEN_WIDTH = 320;
+const PCE_SCREEN_WIDTH = 256;
 const PCE_SCREEN_HEIGHT = 224;
 // ゲーム側 runtime のメッセージ領域に一致させる。
-// VN_TEXT_X=2,VN_TEXT_Y=19 タイル (×8px)、18 文字 × 4 行、1 文字 16×16px。
-const MESSAGE_AREA = { x: 16, y: 152, cols: 18, rows: 4, cell: 16 };
+// 256x224 画面、メッセージ窓 208x64px を下部中央 (x=24,y=160) に配置。
+// 1 文字 12×12px を 12px 横ピッチで 17 文字、16px 行ピッチで 4 行。
+const MESSAGE_AREA = { x: 24, y: 160, cols: 17, rows: 4, cellW: 12, cellH: 16 };
 const DEFAULT_CHARACTER_Y = 24;
 const COLUMN_LAYOUT_KEY = 'pce-vn-editor.columnLayout.v1';
 const DEFAULT_COLUMN_LAYOUT = { left: 320, right: 440 };
@@ -752,9 +753,9 @@ function normalizeDoc(doc, assets) {
 // toString() でそのまま埋め込むため、window.__PCE_VN_PREVIEW__ だけを入力にする。
 function previewRuntime() {
   const data = window.__PCE_VN_PREVIEW__ || { doc: { scenes: [] }, urls: {}, meta: {} };
-  const SCREEN_W = (data.screen && data.screen.w) || 320;
+  const SCREEN_W = (data.screen && data.screen.w) || 256;
   const SCREEN_H = (data.screen && data.screen.h) || 224;
-  const MSG = data.message || { x: 16, y: 152, cols: 18, rows: 4, cell: 16 };
+  const MSG = data.message || { x: 24, y: 160, cols: 17, rows: 4, cellW: 12, cellH: 16 };
   const scenesById = {};
   (data.doc.scenes || []).forEach((s) => { scenesById[s.id] = s; });
 
@@ -765,9 +766,9 @@ function previewRuntime() {
     '#pv-stage-wrap{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;}',
     '#pv-stage{position:relative;width:' + SCREEN_W + 'px;height:' + SCREEN_H + 'px;background:#000;transform-origin:center center;overflow:hidden;box-shadow:0 0 0 1px #000,0 10px 36px rgba(0,0,0,.6);}',
     '#pv-stage img{position:absolute;image-rendering:pixelated;transform-origin:top left;}',
-    '#pv-msg{position:absolute;left:' + MSG.x + 'px;top:' + MSG.y + 'px;width:' + (MSG.cols * MSG.cell) + 'px;height:' + (MSG.rows * MSG.cell) + 'px;display:flex;flex-direction:column;}',
-    '.pv-row{height:' + MSG.cell + 'px;display:flex;}',
-    '.pv-cell{width:' + MSG.cell + 'px;height:' + MSG.cell + 'px;line-height:' + MSG.cell + 'px;font-size:13px;text-align:center;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.9);overflow:hidden;}',
+    '#pv-msg{position:absolute;left:' + MSG.x + 'px;top:' + MSG.y + 'px;width:' + (MSG.cols * MSG.cellW) + 'px;height:' + (MSG.rows * MSG.cellH) + 'px;display:flex;flex-direction:column;}',
+    '.pv-row{height:' + MSG.cellH + 'px;display:flex;}',
+    '.pv-cell{width:' + MSG.cellW + 'px;height:' + MSG.cellH + 'px;line-height:' + MSG.cellH + 'px;font-size:11px;text-align:center;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.9);overflow:hidden;}',
     '#pv-msg.pv-hidden,#pv-choice.pv-hidden{display:none;}',
     '#pv-choice{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;gap:6px;min-width:140px;}',
     '#pv-choice button{font:inherit;font-size:12px;padding:6px 14px;border-radius:4px;border:1px solid rgba(120,160,210,.6);background:rgba(8,14,24,.92);color:#e8eef5;cursor:pointer;}',
@@ -1386,8 +1387,8 @@ export function activatePlugin({ root, api, registerCapability }) {
     overlay.dataset.role = 'message-overlay';
     overlay.style.left = `${MESSAGE_AREA.x}px`;
     overlay.style.top = `${MESSAGE_AREA.y}px`;
-    overlay.style.width = `${MESSAGE_AREA.cols * MESSAGE_AREA.cell}px`;
-    overlay.style.height = `${MESSAGE_AREA.rows * MESSAGE_AREA.cell}px`;
+    overlay.style.width = `${MESSAGE_AREA.cols * MESSAGE_AREA.cellW}px`;
+    overlay.style.height = `${MESSAGE_AREA.rows * MESSAGE_AREA.cellH}px`;
     if (command.textColor) overlay.style.color = command.textColor;
     stage.appendChild(overlay);
     wrap.appendChild(stage);
