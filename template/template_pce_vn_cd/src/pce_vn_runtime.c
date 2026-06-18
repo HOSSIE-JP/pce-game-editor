@@ -122,10 +122,24 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_BANKED_CODE __attribute__((noinline, section(".ram_bank129")))
 #define VN_BANKED_CODE2 __attribute__((noinline, section(".ram_bank130")))
 #define VN_BANKED_CODE2_INLINE __attribute__((always_inline, section(".ram_bank130")))
+/* Overlay code (Path B Phase B1). Linked in the SAME compilation as the rest of
+   the runtime (so zp imaginary registers and resident symbols resolve), but
+   placed in section .vn_overlay which the linker fragment (overlay_insert.ld)
+   locates at CPU 0x8000 (MPR slot 4) with a benign LMA inside the loaded image.
+   The bytes are objcopy'd out of main.elf into overlay.bin and streamed into
+   physical bank133 at boot (load_overlay_code); bank133 time-shares slot 4 with
+   bank130. Functions tagged VN_OVERLAY_CODE run with bank133 mapped into slot 4,
+   so while they execute bank130 is NOT visible: they must call ONLY resident
+   slot2/slot3 code (bank128/bank129), inlined helpers, console_ram, or the CD
+   BIOS -- never another bank130 function. Callers wrap them with the
+   call_overlay_* dispatchers (resident bank128) which map bank133, call, then
+   restore bank130. */
+#define VN_OVERLAY_CODE __attribute__((noinline, section(".vn_overlay")))
 #else
 #define VN_BANKED_CODE
 #define VN_BANKED_CODE2
 #define VN_BANKED_CODE2_INLINE
+#define VN_OVERLAY_CODE
 #endif
 
 #ifndef PCE_EDITOR_CD_COMPRESSION_NONE
@@ -777,7 +791,7 @@ static inline void VN_BANKED_CODE2_INLINE bg_map_stream_writer_write(vn_bg_map_s
     }
 }
 
-static uint8_t VN_BANKED_CODE2 cd_rle_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref)
+static uint8_t VN_OVERLAY_CODE cd_rle_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref)
 {
     vn_cd_byte_stream_t stream;
     vn_vram_byte_writer_t writer;
@@ -819,7 +833,7 @@ static uint8_t VN_BANKED_CODE2 cd_rle_ref_to_vram(uint16_t dest, const pce_edito
     return (uint8_t)(produced == ref->size);
 }
 
-static uint8_t VN_BANKED_CODE2 cd_rle_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref, uint8_t copy_width_tiles, uint8_t copy_height_tiles)
+static uint8_t VN_OVERLAY_CODE cd_rle_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref, uint8_t copy_width_tiles, uint8_t copy_height_tiles)
 {
     vn_cd_byte_stream_t stream;
     vn_bg_map_stream_writer_t writer;
@@ -890,13 +904,45 @@ static void prepare_cd_data_access(void)
     restore_video_after_cdb_call(restore_display_after_pause);
 }
 
+/* Resident (bank128/slot2) dispatchers for the bank133 overlay. They map bank133
+   into slot 4, call the relocated cd_rle_* function (which runs at 0x8000), then
+   restore bank130. They must stay resident (untagged = .text/slot2) so they are
+   not unmapped when bank133 takes slot 4. Arguments live in console_ram/zp and on
+   the hardware stack, all mapped regardless of slot 4, so they survive the swap.
+   On non-CD builds there is no banking; the calls are direct. */
+static uint8_t call_overlay_cd_rle_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref)
+{
+#if defined(__PCE_CD__)
+    uint8_t result;
+    pce_ram_bank133_map();
+    result = cd_rle_ref_to_vram(dest, ref);
+    pce_ram_bank130_map();
+    return result;
+#else
+    return cd_rle_ref_to_vram(dest, ref);
+#endif
+}
+
+static uint8_t call_overlay_cd_rle_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref, uint8_t copy_width_tiles, uint8_t copy_height_tiles)
+{
+#if defined(__PCE_CD__)
+    uint8_t result;
+    pce_ram_bank133_map();
+    result = cd_rle_bg_map_ref_to_vram(dest, ref, copy_width_tiles, copy_height_tiles);
+    pce_ram_bank130_map();
+    return result;
+#else
+    return cd_rle_bg_map_ref_to_vram(dest, ref, copy_width_tiles, copy_height_tiles);
+#endif
+}
+
 static uint8_t cd_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref)
 {
     pce_sector_t sector = {0};
     uint16_t remaining;
     uint16_t vram_dest;
     if (!ref || !ref->cd || !ref->cd->sector_count || !ref->size) return 0u;
-    if (ref->cd->compression == PCE_EDITOR_CD_COMPRESSION_RLE) return cd_rle_ref_to_vram(dest, ref);
+    if (ref->cd->compression == PCE_EDITOR_CD_COMPRESSION_RLE) return call_overlay_cd_rle_ref_to_vram(dest, ref);
     prepare_cd_data_access();
     cd_sector_from_ref(&sector, &ref->cd->sector);
     remaining = (uint16_t)ref->size;
@@ -941,7 +987,7 @@ static uint8_t cd_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t 
     if (!copy_width_tiles || !copy_height_tiles) return 0u;
     row_bytes = (uint16_t)(copy_width_tiles * 2u);
     if (ref->size < (uint16_t)(VN_MAP_ROW_BYTES * copy_height_tiles)) return 0u;
-    if (ref->cd->compression == PCE_EDITOR_CD_COMPRESSION_RLE) return cd_rle_bg_map_ref_to_vram(dest, ref, copy_width_tiles, copy_height_tiles);
+    if (ref->cd->compression == PCE_EDITOR_CD_COMPRESSION_RLE) return call_overlay_cd_rle_bg_map_ref_to_vram(dest, ref, copy_width_tiles, copy_height_tiles);
     prepare_cd_data_access();
     cd_sector_from_ref(&sector, &ref->cd->sector);
     remaining = (uint16_t)ref->size;
