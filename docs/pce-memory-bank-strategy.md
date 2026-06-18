@@ -16,8 +16,21 @@
 | 128 | 2 | llvm-mos 既定の常駐 `.text` / `.rodata` | 起動・薄い制御・小さい rodata 用。大きい runtime や asset を押し込まない。CD BIOS や VN data access 後に常駐 metadata を読む場合は `map_resident_data()` で戻す |
 | 129 | 3 | VN runtime の banked code | `PCE_RAM_BANK_AT(129, 3)` と `VN_BANKED_CODE` で command interpreter / sprite refresh / ADPCM 制御、scene pack command/message reader を置く。asset data を置かない |
 | 130 | 4 | VN runtime の 2 本目の banked code | `PCE_RAM_BANK_AT(130, 4)` と `VN_BANKED_CODE2` で scene pack choice/switch reader、preload scan helper、CD RLE streaming 展開を置く。asset data を置かない |
-| 131 | 5 | CD fallback の小さい CPU-readable data | 例外的な fallback 用。通常の画像・sprite・ADPCM payload には使わない |
-| 132 | 6 | VN generated data ＋ CD転送スクラッチ | `PCE_VN_DATA_SECTION`。sprite animation、variable 初期値、scene pack directory、font tiles の CD data ref (`pce_vn_font_data`) を置く。**font tiles 本体は bank132 に常駐させず CD data file (`assets/generated/vn/font.bin`) からストリーム**。scene script 本体も CD data file。font streaming で空いた領域に **`cd_transfer_scratch`(2KB) を `section(".ram_bank132")` で移設**し、逼迫する console_ram を空ける |
+| 131 | 5 | CD fallback の小さい CPU-readable data | 例外的な fallback 用。通常の画像・sprite・ADPCM payload には使わない。**コードは置けない**（System Card/CD-BIOS が slot5=0xA000 で実行されるため physical bank131 にコードを置くと暴走する） |
+| 132 | 6 | VN generated data ＋ CD転送スクラッチ | `PCE_VN_DATA_SECTION`。sprite animation、variable 初期値、scene pack directory、font tiles の CD data ref (`pce_vn_font_data`) を置く。**font tiles 本体は bank132 に常駐させず CD data file (`assets/generated/vn/font.bin`) からストリーム**。scene script 本体も CD data file。font streaming で空いた領域に **`cd_transfer_scratch`(2KB) を `section(".ram_bank132")` で移設**し、逼迫する console_ram を空ける。末尾 4KB (CPU 0xd000-0xdfff) はオーバーレイ blob の良性 LMA に使用（下記） |
+| 133 | 4 | コードオーバーレイ（Path B）。bank130 と slot4 を時分割 | IPL は bank128-132 しか自動ロードしないため bank133 は CD data file (`assets/generated/vn/overlay.bin`) からブート時に `pce_cdb_cd_read` で CPU 0x8000 へストリーム。`VN_OVERLAY_CODE`(`section(".vn_overlay")`) タグの関数を置く。System Card 非干渉（bank131 と違い安全） |
+
+## コードオーバーレイ（Path B / Phase B1）
+
+3 つの常駐コードバンク（128/129/130 ＝計約24KB）を超えるエンジンコードを、未使用の物理 bank133 へ退避してブート時に CD からロードし、bank130 と MPR slot4 を時分割する機構。**追加・拡張の具体手順、検証手順、残課題は専用の引き継ぎガイド [pce-vn-overlay-pathb.md](pce-vn-overlay-pathb.md) を参照。**
+
+- **配置タグ**: `pce_vn_runtime.c` で `VN_OVERLAY_CODE`（CD build では `__attribute__((noinline, section(".vn_overlay")))`、非 CD では空）を付けた関数がオーバーレイに入る。現状は CD RLE 展開 (`cd_rle_ref_to_vram` / `cd_rle_bg_map_ref_to_vram`) を退避し bank130 を約3.3KB 緩和（実測 95%→55%）。
+- **同一コンパイル**: オーバーレイは本体と同じ link に含めるため、llvm-mos の zero-page 仮想レジスタや常駐シンボルがそのまま解決される（B0 の別リンク方式が抱えた `R_MOS_ADDR8 out of range` 等の壁を回避）。
+- **リンカ fragment**: `pce-vn-manager.js` が `src/generated/overlay_insert.ld`（`INSERT AFTER .ram_bank132`）を生成し、`-Wl,-T` で本体 link に差し込む。`.vn_overlay 0x8000 : AT(0x0184d000)` で **VMA=CPU 0x8000（slot4 実行アドレス）・LMA=bank132 末尾の良性アドレス**に置く。
+- **抽出と mkcd 回避**: link 後に `llvm-objcopy --only-section=.vn_overlay` で `overlay.bin` を抽出（予約サイズ 2 sector=4KB に pad）し、`--remove-section=.rela.vn_overlay` で**オーバーレイ内部 relocation テーブルだけを除去**する。pce-mkcd は ELF の relocation を再適用するため、オーバーレイの 0x8000 VMA を持つ reloc を残すと `File address 0x8001 out of range` で失敗する。lld が既に適用済みなので `overlay.bin` は完成形、mkcd へは除去後の elf を渡す。
+- **CD sector 予約**: `overlay.bin` のサイズは link 前に固定予約（`VN_OVERLAY_RESERVED_SECTORS`）して `generateVnSources` が CD sector を確定し、link 後に実バイトで同サイズ上書きするので sector がずれない。実コードが予約を超えると build error。
+- **ランタイム dispatch**: `cd_rle_*` の呼び出し元（常駐 bank128）は `call_overlay_*` ラッパ経由で **bank133 を slot4 に map → 呼び出し → bank130 を復帰**する。**slot4 を共有する bank130/bank133 間の直接相互呼び出しは禁止**（オーバーレイ実行中は bank130 が見えない）。オーバーレイ関数は slot2/slot3（bank128/129）・inline ヘルパ・console_ram・CD BIOS のみ呼ぶこと。新しい関数を退避する前に `llvm-objdump -d --section=.vn_overlay` で slot4(0x8000-0x9fff) への非内部 JSR/JMP が無いことを確認する。
+- **オーバーレイサイズ上限**: 良性 LMA が bank132 末尾 4KB（0xd000-0xdfff）にあるため `.vn_overlay` セクションは 4KB 以下。超える場合は LMA とリザーブ方針の見直しが必要。
 
 ## 実装ルール
 

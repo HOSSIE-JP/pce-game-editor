@@ -111,6 +111,32 @@ const VN_SCENE_PACK_DIR = path.join('assets', 'generated', 'vn', 'scenes');
 // Font tiles are streamed from this CD data file into VRAM at boot (no longer
 // resident in ram_bank132). One glyph = 16x16 px = 4 BG tiles = 128 bytes.
 const VN_FONT_DATA_FILE = path.join('assets', 'generated', 'vn', 'font.bin');
+// Overlay code blob (Path B, Phase B1). The overlay functions now live in
+// pce_vn_runtime.c (section .vn_overlay), compiled in the SAME link as the main
+// program so zp imaginary registers and resident symbols resolve. The linker
+// fragment overlay_insert.ld locates .vn_overlay at CPU 0x8000 (MPR slot 4) with
+// a benign LMA in the loaded image (VN_OVERLAY_LMA, bank132's unused tail), then
+// finalizeOverlayBlob() objcopy's the section out of main.elf into overlay.bin.
+// It is carried as a CD data file and streamed into physical RAM bank133 at boot
+// (the IPL only auto-loads banks 128-132), time-shared into slot 4 with bank130.
+// overlay.bin is reserved at a fixed size up front (so its CD sector is assigned
+// before the link) and the extracted section is padded to that size afterwards.
+const VN_OVERLAY_DATA_FILE = path.join('assets', 'generated', 'vn', 'overlay.bin');
+const VN_OVERLAY_FRAGMENT_FILE = path.join('src', 'generated', 'overlay_insert.ld');
+const VN_OVERLAY_SECTION = '.vn_overlay';
+const VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000; // CPU address the overlay is linked at / loaded to
+// Reserved on-CD/bank133 size for the overlay blob, in whole CD sectors. The
+// extracted .vn_overlay must fit this; it is also bounded by VN_OVERLAY_LMA's
+// headroom inside bank132 (0xd000..0xdfff = 4 KB). Two sectors (4 KB) covers the
+// current cd_rle_* overlay (~3.3 KB) with headroom.
+const VN_OVERLAY_RESERVED_SECTORS = 2;
+const VN_OVERLAY_RESERVED_BYTES = VN_OVERLAY_RESERVED_SECTORS * 2048; // 2048 = VN_CD_SECTOR_BYTES (defined below)
+// LMA (physical/load address) for the .vn_overlay section: bank132's unused tail
+// (region 0x0184c000..0x0184dfff, CPU 0xc000..0xdfff in slot 6). The IPL loads
+// these bytes into bank132 RAM we never read (the real copy is CD-loaded into
+// bank133), so the in-image copy is benign. Keep the section <= 4 KB so it stays
+// within the bank132 region.
+const VN_OVERLAY_LMA = 0x0184d000;
 // Sprite-format copy of the glyphs used by `spritetext` commands. Only the
 // characters referenced by spritetext are encoded here (BG-format font tiles
 // cannot be reused for hardware sprites), so this stays small even when the BG
@@ -2108,6 +2134,21 @@ function generateVnSources(projectDir, options = {}) {
     ? (fontSpriteLayout.sectorCount || fontSpriteBudget.sectorCount)
     : 0;
   const fontSpriteDataInitializer = `{ ${cdSectorInitializer(fontSpriteLayout)}, ${fontSpriteSectorCount}u, ${fontSpriteBudget.byteSize}u }`;
+  // Overlay code blob CD ref. The blob is extracted from main.elf AFTER this link
+  // (finalizeOverlayBlob), but its on-CD footprint is reserved up front at a fixed
+  // size so the CD sector assigned here matches what mkcd writes. ensureOverlayBin
+  // guarantees overlay.bin already exists at the reserved size, so cdLayout (which
+  // stats files) puts it on a stable sector. Zeroed only when reservation was
+  // skipped (no toolchain), in which case the runtime loader is a no-op.
+  const overlayDataPath = normalizeRelativePath(VN_OVERLAY_DATA_FILE);
+  const overlayAbsPath = path.join(projectDir, overlayDataPath);
+  const overlayExists = fs.existsSync(overlayAbsPath);
+  const overlayLayout = overlayExists ? (cdLayout.get(overlayDataPath) || {}) : {};
+  const overlayByteSize = overlayExists ? fs.statSync(overlayAbsPath).size : 0;
+  const overlaySectorCount = overlayExists
+    ? (overlayLayout.sectorCount || Math.max(1, Math.ceil(overlayByteSize / VN_CD_SECTOR_BYTES)))
+    : 0;
+  const overlayDataInitializer = `{ ${cdSectorInitializer(overlayLayout)}, ${overlaySectorCount}u, ${overlayByteSize}u }`;
   const scenePackMeta = sceneBuilds.map((sceneBuild, index) => {
     const layout = cdLayout.get(sceneBuild.packPath) || {};
     const sectorCount = layout.sectorCount || Math.max(1, Math.ceil(sceneBuild.packBuffer.length / VN_CD_SECTOR_BYTES));
@@ -2271,6 +2312,8 @@ function generateVnSources(projectDir, options = {}) {
     '',
     '#if defined(__PCE_CD__)',
     'extern const pce_vn_cd_data_ref_t pce_vn_font_data;',
+    `#define PCE_VN_OVERLAY_LOAD_ADDR ${VN_OVERLAY_VRAM_LOAD_ADDR}u`,
+    'extern const pce_vn_cd_data_ref_t pce_vn_overlay_data;',
     '#else',
     'extern const unsigned char pce_vn_font_tiles[];',
     '#endif',
@@ -2309,6 +2352,7 @@ function generateVnSources(projectDir, options = {}) {
     '',
     '#if defined(__PCE_CD__)',
     `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_data = ${fontDataInitializer};`,
+    `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_overlay_data = ${overlayDataInitializer};`,
     '#else',
     ...bytesToCArray('PCE_VN_FONT_SECTION pce_vn_font_tiles', fontTiles, 'const unsigned char'),
     '#endif',
@@ -2491,6 +2535,9 @@ function collectCdDataFiles(projectDir) {
   // Shared glyph font is streamed into VRAM at boot; place it first so its
   // CD sector stays stable regardless of scene edits.
   addCdDataFile(files, seen, VN_FONT_DATA_FILE);
+  // Overlay code blob, streamed into bank133 at boot. Placed right after the font
+  // so its CD sector stays stable across scene edits. Only when it was built.
+  addExistingCdDataFile(projectDir, files, seen, VN_OVERLAY_DATA_FILE);
   // The sprite-format font is only generated when spritetext is used; include it
   // only when the file actually exists so we never reserve a sector for nothing.
   addExistingCdDataFile(projectDir, files, seen, VN_FONT_SPRITE_DATA_FILE);
@@ -2516,8 +2563,111 @@ function syncVisualNovelRuntime(projectDir, logger) {
   const changed = targets
     .map(([fileName, targetPath]) => copyIfChanged(path.join(sourceDir, fileName), targetPath))
     .some(Boolean);
+  // Remove the obsolete Phase B0 standalone overlay TU if a previous build left it
+  // in the project; the overlay code now lives in pce_vn_runtime.c.
+  const legacyOverlaySrc = path.join(projectDir, 'src', 'pce_vn_overlay.c');
+  if (fs.existsSync(legacyOverlaySrc)) {
+    try { fs.unlinkSync(legacyOverlaySrc); } catch (_) { /* best-effort */ }
+  }
   if (changed) logger?.info?.('PCE visual novel runtime を src/ に同期しました');
   return { changed };
+}
+
+// Absolute path of the linker fragment that places the .vn_overlay section. The
+// main link must include it via -Wl,-T (see overlayLinkerArgs()).
+function overlayFragmentPath(projectDir) {
+  return path.join(projectDir, VN_OVERLAY_FRAGMENT_FILE);
+}
+
+// Extra clang/link args that splice the overlay section into the main link, or []
+// when no fragment has been written (non-VN or reservation skipped).
+function overlayLinkerArgs(projectDir) {
+  const fragment = overlayFragmentPath(projectDir);
+  return fs.existsSync(fragment) ? [`-Wl,-T,${fragment}`] : [];
+}
+
+// Write the INSERT linker fragment. It locates .vn_overlay at CPU 0x8000 (run
+// address in MPR slot 4) with its LMA in bank132's unused tail, so the section is
+// PROGBITS (objcopy can extract it) and the in-image copy the IPL loads is benign.
+// INSERT AFTER keeps the SDK's own SECTIONS (zp/imag-regs, banks) intact.
+function writeOverlayFragment(projectDir) {
+  const fragment = overlayFragmentPath(projectDir);
+  ensureDirSync(path.dirname(fragment));
+  const lma = `0x${VN_OVERLAY_LMA.toString(16)}`;
+  const vma = `0x${VN_OVERLAY_VRAM_LOAD_ADDR.toString(16)}`;
+  const body = [
+    'SECTIONS {',
+    `  ${VN_OVERLAY_SECTION} ${vma} : AT(${lma}) {`,
+    '    __vn_overlay_start = .;',
+    `    KEEP(*(${VN_OVERLAY_SECTION} ${VN_OVERLAY_SECTION}.*))`,
+    '    __vn_overlay_end = .;',
+    '  }',
+    '} INSERT AFTER .ram_bank132;',
+    '',
+  ].join('\n');
+  const prev = fs.existsSync(fragment) ? fs.readFileSync(fragment, 'utf-8') : null;
+  if (prev !== body) fs.writeFileSync(fragment, body);
+  return fragment;
+}
+
+// Ensure overlay.bin exists at exactly the reserved size BEFORE generateVnSources
+// runs, so buildCdDataLayout (which stats files) assigns a stable CD sector that
+// matches what mkcd writes. The real bytes are filled in by finalizeOverlayBlob
+// after the link; this just reserves the footprint (zero-fill placeholder when
+// missing or wrong-sized; an existing correctly-sized blob is left untouched).
+function ensureOverlayReservation(projectDir) {
+  const overlayBin = path.join(projectDir, VN_OVERLAY_DATA_FILE);
+  ensureDirSync(path.dirname(overlayBin));
+  const ok = fs.existsSync(overlayBin) && fs.statSync(overlayBin).size === VN_OVERLAY_RESERVED_BYTES;
+  if (!ok) fs.writeFileSync(overlayBin, Buffer.alloc(VN_OVERLAY_RESERVED_BYTES));
+  return { byteSize: VN_OVERLAY_RESERVED_BYTES, sectorCount: VN_OVERLAY_RESERVED_SECTORS };
+}
+
+// Post-link: objcopy the .vn_overlay section out of the freshly linked main.elf
+// into overlay.bin (padded to the reserved size so the reserved CD sector still
+// matches), THEN strip the section's relocation table (.rela.vn_overlay) from
+// main.elf in place. The strip is required because pce-mkcd RE-APPLIES the ELF's
+// relocations when it assembles the image, and the overlay's internal relocations
+// live at the overlay's run-address VMA (CPU 0x8000, MPR slot 4) which is outside
+// the encoded bank range mkcd accepts ("File address 0x8001 out of range"). lld
+// already applied those relocations in the executable, so the extracted overlay.bin
+// is final machine code; dropping .rela.vn_overlay just stops mkcd from re-applying
+// them. The .vn_overlay section itself stays (its benign LMA copy loads into
+// bank132's unused tail and keeps the dispatcher's direct calls resolvable); the
+// resident code banks are unaffected, so bank130 stays relieved. Errors if the
+// section is missing or exceeds the reservation. Returns {realSize, byteSize} or
+// null when there is no toolchain / elf.
+function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
+  if (!clangPath || !elfPath || !fs.existsSync(elfPath)) return null;
+  const binDir = path.dirname(clangPath);
+  const ext = /\.(exe|cmd|bat)$/i.exec(path.basename(clangPath));
+  const objcopy = path.join(binDir, 'llvm-objcopy' + (ext ? ext[0] : ''));
+  const run = (args, label) => {
+    const r = spawnSync(objcopy, args, { encoding: 'utf-8' });
+    if (r.error || r.status !== 0) {
+      throw new Error(`overlay ${label} failed: ${r.stderr || r.stdout || r.error || `exit ${r.status}`}`);
+    }
+  };
+  const overlayBin = path.join(projectDir, VN_OVERLAY_DATA_FILE);
+  ensureDirSync(path.dirname(overlayBin));
+  run(['-O', 'binary', `--only-section=${VN_OVERLAY_SECTION}`, elfPath, overlayBin], 'objcopy extract');
+  const realSize = fs.existsSync(overlayBin) ? fs.statSync(overlayBin).size : 0;
+  if (realSize === 0) {
+    throw new Error(`overlay section ${VN_OVERLAY_SECTION} was empty in ${path.basename(elfPath)} — overlay code not linked`);
+  }
+  if (realSize > VN_OVERLAY_RESERVED_BYTES) {
+    throw new Error(`overlay code ${realSize} bytes exceeds reserved ${VN_OVERLAY_RESERVED_BYTES} bytes (${VN_OVERLAY_RESERVED_SECTORS} sectors). Move fewer functions into VN_OVERLAY_CODE or raise VN_OVERLAY_RESERVED_SECTORS (and confirm the bank132-tail LMA still fits).`);
+  }
+  if (realSize < VN_OVERLAY_RESERVED_BYTES) {
+    const buf = Buffer.alloc(VN_OVERLAY_RESERVED_BYTES);
+    fs.readFileSync(overlayBin).copy(buf);
+    fs.writeFileSync(overlayBin, buf);
+  }
+  // Strip the overlay's relocation table so mkcd does not re-apply overlay-internal
+  // relocations at the out-of-range 0x8000 VMA (the section itself stays).
+  run(['--remove-section', `.rela${VN_OVERLAY_SECTION}`, elfPath], 'objcopy strip rela');
+  logger?.info?.(`PCE VN overlay blob: ${realSize} bytes (reserved ${VN_OVERLAY_RESERVED_BYTES}) を main.elf から ${VN_OVERLAY_DATA_FILE} に抽出 (.rela${VN_OVERLAY_SECTION} 除去)`);
+  return { realSize, byteSize: VN_OVERLAY_RESERVED_BYTES };
 }
 
 function collectCddaTracks(projectDir) {
@@ -2537,6 +2687,7 @@ function addManagedGeneratedPath(files, relativePath) {
 function collectManagedGeneratedCdDataFiles(projectDir) {
   const managed = new Set();
   addManagedGeneratedPath(managed, VN_FONT_DATA_FILE);
+  addManagedGeneratedPath(managed, VN_OVERLAY_DATA_FILE);
   addManagedGeneratedPath(managed, VN_FONT_SPRITE_DATA_FILE);
   const scenePackDir = normalizeRelativePath(VN_SCENE_PACK_DIR);
   try {
@@ -2576,9 +2727,17 @@ function mergeCdDataFiles(projectDir, generatedDataFiles = [], configuredDataFil
   return Array.from(merged);
 }
 
-function prepareVisualNovelBuild(projectDir, config = {}) {
+function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null) {
   syncVisualNovelRuntime(projectDir);
   ensureSceneFile(projectDir);
+  // Reserve the overlay blob's CD footprint and write the linker fragment BEFORE
+  // generating sources / computing the CD layout. The actual overlay bytes are
+  // extracted from main.elf after the link by finalizeOverlayBlob(); reserving a
+  // fixed size up front keeps the CD sector stable across that two-step flow.
+  // (clangPath is unused here now — extraction needs the linked main.elf and runs
+  // in the build system post-link.)
+  ensureOverlayReservation(projectDir);
+  writeOverlayFragment(projectDir);
   generateVnSources(projectDir);
   const dataFiles = collectCdDataFiles(projectDir);
   const cddaTracks = collectCddaTracks(projectDir);
@@ -2672,6 +2831,9 @@ module.exports = {
   readSceneDocument,
   renderGlyphBitmaps,
   renderGlyphMaskData,
+  finalizeOverlayBlob,
+  overlayLinkerArgs,
+  overlayFragmentPath,
   syncVisualNovelRuntime,
   writeFontConfig,
   writeSceneDocument,

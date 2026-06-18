@@ -152,6 +152,8 @@ typedef struct {
 
 #if defined(__PCE_CD__)
 extern const pce_vn_cd_data_ref_t pce_vn_font_data;
+#define PCE_VN_OVERLAY_LOAD_ADDR 32768u
+extern const pce_vn_cd_data_ref_t pce_vn_overlay_data;
 #else
 extern const unsigned char pce_vn_font_tiles[];
 #endif

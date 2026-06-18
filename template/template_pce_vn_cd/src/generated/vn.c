@@ -12,6 +12,7 @@ PCE_RAM_BANK_AT(132, 6);
 
 #if defined(__PCE_CD__)
 const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_data = { { 64u, 0u, 0u }, 3u, 4352u };
+const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_overlay_data = { { 0u, 0u, 0u }, 0u, 0u };
 #else
 const unsigned char PCE_VN_FONT_SECTION pce_vn_font_tiles[] = {
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

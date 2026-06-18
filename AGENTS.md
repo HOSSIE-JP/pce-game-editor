@@ -7,6 +7,7 @@
 - PCE プラグイン、アセット、ビルド、Test Play を変更する前に `PLUGIN.md` を読んでください。
 - Test Play や実機/エミュレーター表示崩れを調査する前に `docs/pce-testplay-debugging.md` を読んでください。
 - CD-ROM2 / VN runtime のメモリバンク配置を変更する前に `docs/pce-memory-bank-strategy.md` を読んでください。
+- VN runtime のコードが 3 常駐バンク(128/129/130)に収まらず溢れたとき、または bank133 コードオーバーレイ(Path B)を追加・拡張するときは `docs/pce-vn-overlay-pathb.md` を読んでください。
 - 公開 API、プラグイン manifest、IPC、ビルド仕様を変更する場合は、同じ作業内で `PLUGIN.md` または `docs/` 配下の関連ファイルを更新してください。
 - ユーザーに見える機能追加・仕様変更・既知制約の追加を行う場合は、同じ作業内で `README.md`、`docs/user-guide.md`、`PLUGIN.md`、関連する `docs/` のいずれかを更新し、最終回答で更新したドキュメントを明記してください。
 - 外部リポジトリからコードをコピーしないでください。外部情報は挙動理解だけに使い、実装は独自に行ってください。
@@ -18,7 +19,7 @@
 - PCE 固有のプロジェクト移行処理は `pce-project-migration.js` に置き、共通ライブラリへ戻さないでください。
 - 画像アセットは内蔵 PCE 変換を使い、Superfamiconv には依存しません。
 - CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を前提に扱います。IPL / System Card はユーザー所有ファイルとして扱い、リポジトリへ同梱しません。
-- CD-ROM2 の大きい画像/sprite/ADPCM payload は `cd.dataFiles` に置き、RAM bank には詰め込まないでください。VN runtime は bank129 を実行コード、bank132 を VN generated data、bank130-131 を例外的な小さい fallback data として扱います。
+- CD-ROM2 の大きい画像/sprite/ADPCM payload は `cd.dataFiles` に置き、RAM bank には詰め込まないでください。VN runtime のバンク割り当ては bank128/129/130 を常駐コード（slot2/3/4 に co-resident、`VN_BANKED_CODE`/`VN_BANKED_CODE2`）、bank132 を VN generated data、bank133 を CD ロードのコードオーバーレイ（slot4 を bank130 と時分割、`VN_OVERLAY_CODE`）として扱います。bank131 は System Card が slot5 で使うためコードに使えません。詳細は `docs/pce-memory-bank-strategy.md` と `docs/pce-vn-overlay-pathb.md`。
 - ADPCM の `divider` は音量ではなく ADPCM 再生 rate code です。`sampleRate` から `32000 / (16 - code)` に最も近い `0..15` の code を補完し、代表値は 32000Hz -> 15、16000Hz -> 14、8000Hz -> 12、4000Hz -> 8 です。旧実装で保存された `round(32000 / sampleRate - 1)` や `round(16000 / sampleRate - 1)` の値は読み込み時と runtime で補正します。
 - ADPCM generated metadata の `codec`、`nibbleOrder`、`encoderVersion` が現行値と違う場合は source WAV から再生成してください。同じ `oki-msm5205/msn-first` 表記でも、古い `encoderVersion` のバイナリは先頭ノイズが出る可能性があります。
 - ADPCM preload は ADPCM RAM への先読みだけです。`loaded_adpcm_valid` が立っていても、実際の再生時には必ず `pce_cdb_adpcm_play()` を呼んでください。

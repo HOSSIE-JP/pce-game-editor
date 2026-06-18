@@ -621,7 +621,9 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
       toolchain,
       targetMedia,
       command,
-      args: ['-Oz', '-DPCE_EDITOR_TARGET_CD=1', '-o', elfPath, ...sources],
+      // VN projects splice the bank133 overlay section into this link via -Wl,-T
+      // (overlayLinkerArgs is [] for non-VN / when no fragment was written).
+      args: ['-Oz', '-DPCE_EDITOR_TARGET_CD=1', ...vnManager.overlayLinkerArgs(projectDir), '-o', elfPath, ...sources],
       cwd: projectDir,
       env: buildSpawnEnv(command, toolchain),
       elfPath,
@@ -674,7 +676,8 @@ function buildProject(onLog, options = {}) {
 
     if (isVisualNovelProject(projectDir, config)) {
       try {
-        const prepared = vnManager.prepareVisualNovelBuild(projectDir, config);
+        // VN projects are always CD; the overlay blob is built with the CD clang.
+        const prepared = vnManager.prepareVisualNovelBuild(projectDir, config, setupManager.getLlvmMosPceCdPath());
         if (prepared?.generated) {
           generated.visualNovel = prepared.generated;
           (prepared.generated.warnings || []).forEach((warning) => log(warning, 'warn'));
@@ -756,6 +759,13 @@ function buildProject(onLog, options = {}) {
           romInfo = postprocessCc65PceRom(commandInfo.binPath, commandInfo.romPath);
         }
         if (commandInfo.targetMedia === 'cd') {
+          if (isVisualNovelProject(projectDir, config)) {
+            // Extract the bank133 overlay code from the freshly linked main.elf
+            // into overlay.bin (padded to the reserved size) before the CD image
+            // is assembled. Must run before finalizePceCdDataPadding/mkcd so the
+            // overlay sits on its reserved CD sector with the real bytes.
+            vnManager.finalizeOverlayBlob(projectDir, commandInfo.elfPath, toolPath, { info: (m) => log(m, 'info') });
+          }
           finalizePceCdDataPadding(commandInfo, log);
           const mkcd = spawn(commandInfo.mkcdCommand, commandInfo.mkcdArgs, {
             cwd: commandInfo.cwd,
