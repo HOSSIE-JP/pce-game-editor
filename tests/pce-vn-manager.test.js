@@ -206,6 +206,16 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_data = \{/);
   assert.match(header, /typedef struct \{[\s\S]*?\} pce_vn_cd_data_ref_t;/);
   assert.match(header, /extern const pce_vn_cd_data_ref_t pce_vn_font_data;/);
+  // Overlay code (bank133, time-shared into MPR slot 4) is streamed from CD. The
+  // ref + load addr are always emitted; with no toolchain to build the blob the
+  // ref is zeroed (sector_count 0) and the runtime loader skips it.
+  assert.match(header, /#define PCE_VN_OVERLAY_LOAD_ADDR 32768u/);
+  assert.match(header, /extern const pce_vn_cd_data_ref_t pce_vn_overlay_data;/);
+  assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_overlay_data = \{/);
+  // The runtime declares bank133 and the CD->bank133 loader.
+  const runtimeSrc = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'), 'utf-8');
+  assert.match(runtimeSrc, /PCE_RAM_BANK_AT\(133, 4\);/);
+  assert.match(runtimeSrc, /static void load_overlay_code\(void\)/);
   // The embedded byte array only survives in the non-CD (#else) fallback path.
   assert.match(source, /PCE_VN_FONT_SECTION pce_vn_font_tiles\[\]/);
   assert.equal(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'font.bin')), true);

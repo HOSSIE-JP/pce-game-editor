@@ -111,6 +111,13 @@ const VN_SCENE_PACK_DIR = path.join('assets', 'generated', 'vn', 'scenes');
 // Font tiles are streamed from this CD data file into VRAM at boot (no longer
 // resident in ram_bank132). One glyph = 16x16 px = 4 BG tiles = 128 bytes.
 const VN_FONT_DATA_FILE = path.join('assets', 'generated', 'vn', 'font.bin');
+// Overlay code blob (Path B). Compiled/linked separately from the main program at
+// CPU 0x8000 (MPR slot 4) from src/pce_vn_overlay.c, then streamed from CD into
+// physical RAM bank133 at boot and time-shared into slot 4. Carried as a CD data
+// file because the IPL only auto-loads banks 128-132 (a bank133 section is NOBITS).
+const VN_OVERLAY_SRC_FILE = 'pce_vn_overlay.c';
+const VN_OVERLAY_DATA_FILE = path.join('assets', 'generated', 'vn', 'overlay.bin');
+const VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000; // CPU address the overlay is linked at / loaded to
 // Sprite-format copy of the glyphs used by `spritetext` commands. Only the
 // characters referenced by spritetext are encoded here (BG-format font tiles
 // cannot be reused for hardware sprites), so this stays small even when the BG
@@ -2108,6 +2115,17 @@ function generateVnSources(projectDir, options = {}) {
     ? (fontSpriteLayout.sectorCount || fontSpriteBudget.sectorCount)
     : 0;
   const fontSpriteDataInitializer = `{ ${cdSectorInitializer(fontSpriteLayout)}, ${fontSpriteSectorCount}u, ${fontSpriteBudget.byteSize}u }`;
+  // Overlay code blob CD ref. Zeroed (sector_count 0) when no overlay.bin was built
+  // (e.g. tests with no toolchain); the runtime loader skips loading then.
+  const overlayDataPath = normalizeRelativePath(VN_OVERLAY_DATA_FILE);
+  const overlayAbsPath = path.join(projectDir, overlayDataPath);
+  const overlayExists = fs.existsSync(overlayAbsPath);
+  const overlayLayout = overlayExists ? (cdLayout.get(overlayDataPath) || {}) : {};
+  const overlayByteSize = overlayExists ? fs.statSync(overlayAbsPath).size : 0;
+  const overlaySectorCount = overlayExists
+    ? (overlayLayout.sectorCount || Math.max(1, Math.ceil(overlayByteSize / VN_CD_SECTOR_BYTES)))
+    : 0;
+  const overlayDataInitializer = `{ ${cdSectorInitializer(overlayLayout)}, ${overlaySectorCount}u, ${overlayByteSize}u }`;
   const scenePackMeta = sceneBuilds.map((sceneBuild, index) => {
     const layout = cdLayout.get(sceneBuild.packPath) || {};
     const sectorCount = layout.sectorCount || Math.max(1, Math.ceil(sceneBuild.packBuffer.length / VN_CD_SECTOR_BYTES));
@@ -2271,6 +2289,8 @@ function generateVnSources(projectDir, options = {}) {
     '',
     '#if defined(__PCE_CD__)',
     'extern const pce_vn_cd_data_ref_t pce_vn_font_data;',
+    `#define PCE_VN_OVERLAY_LOAD_ADDR ${VN_OVERLAY_VRAM_LOAD_ADDR}u`,
+    'extern const pce_vn_cd_data_ref_t pce_vn_overlay_data;',
     '#else',
     'extern const unsigned char pce_vn_font_tiles[];',
     '#endif',
@@ -2309,6 +2329,7 @@ function generateVnSources(projectDir, options = {}) {
     '',
     '#if defined(__PCE_CD__)',
     `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_data = ${fontDataInitializer};`,
+    `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_overlay_data = ${overlayDataInitializer};`,
     '#else',
     ...bytesToCArray('PCE_VN_FONT_SECTION pce_vn_font_tiles', fontTiles, 'const unsigned char'),
     '#endif',
@@ -2491,6 +2512,9 @@ function collectCdDataFiles(projectDir) {
   // Shared glyph font is streamed into VRAM at boot; place it first so its
   // CD sector stays stable regardless of scene edits.
   addCdDataFile(files, seen, VN_FONT_DATA_FILE);
+  // Overlay code blob, streamed into bank133 at boot. Placed right after the font
+  // so its CD sector stays stable across scene edits. Only when it was built.
+  addExistingCdDataFile(projectDir, files, seen, VN_OVERLAY_DATA_FILE);
   // The sprite-format font is only generated when spritetext is used; include it
   // only when the file actually exists so we never reserve a sector for nothing.
   addExistingCdDataFile(projectDir, files, seen, VN_FONT_SPRITE_DATA_FILE);
@@ -2512,12 +2536,58 @@ function syncVisualNovelRuntime(projectDir, logger) {
   const targets = [
     ['main.c', path.join(projectDir, 'src', 'main.c')],
     ['pce_vn_runtime.c', path.join(projectDir, 'src', 'pce_vn_runtime.c')],
+    [VN_OVERLAY_SRC_FILE, path.join(projectDir, 'src', VN_OVERLAY_SRC_FILE)],
   ];
   const changed = targets
     .map(([fileName, targetPath]) => copyIfChanged(path.join(sourceDir, fileName), targetPath))
     .some(Boolean);
   if (changed) logger?.info?.('PCE visual novel runtime を src/ に同期しました');
   return { changed };
+}
+
+// Compile + link + objcopy src/pce_vn_overlay.c into a raw blob located at CPU
+// 0x8000 (assets/generated/vn/overlay.bin), padded to a CD-sector multiple. The
+// blob is carried as a CD data file and streamed into bank133 at boot. Linked
+// separately from the main program (ld.lld with a fixed-address script) because
+// the IPL won't auto-load a bank133 section (NOBITS). Returns {byteSize,
+// sectorCount} or null when no toolchain / no overlay source.
+function buildOverlayBlob(projectDir, clangPath, logger) {
+  const overlaySrc = path.join(projectDir, 'src', VN_OVERLAY_SRC_FILE);
+  if (!clangPath || !fs.existsSync(overlaySrc)) return null;
+  const binDir = path.dirname(clangPath);
+  // Derive sibling tools from the clang path; mirror its extension (e.g. .exe on Windows).
+  const ext = /\.(exe|cmd|bat)$/i.exec(path.basename(clangPath));
+  const toolName = (base) => base + (ext ? ext[0] : '');
+  const ld = path.join(binDir, toolName('ld.lld'));
+  const objcopy = path.join(binDir, toolName('llvm-objcopy'));
+  const genDir = path.join(projectDir, 'src', 'generated');
+  ensureDirSync(genDir);
+  const overlayBin = path.join(projectDir, VN_OVERLAY_DATA_FILE);
+  ensureDirSync(path.dirname(overlayBin));
+  const objPath = path.join(genDir, 'overlay.o');
+  const elfPath = path.join(genDir, 'overlay.elf');
+  const ldScript = path.join(genDir, 'overlay.ld');
+  const run = (cmd, args, label) => {
+    const r = spawnSync(cmd, args, { encoding: 'utf-8' });
+    if (r.error || r.status !== 0) {
+      throw new Error(`overlay ${label} failed: ${r.stderr || r.stdout || r.error || `exit ${r.status}`}`);
+    }
+  };
+  run(clangPath, ['-Oz', '-DPCE_EDITOR_TARGET_CD=1', '-c', '-o', objPath, overlaySrc], 'compile');
+  fs.writeFileSync(ldScript,
+    `SECTIONS {\n  . = ${VN_OVERLAY_VRAM_LOAD_ADDR};\n  .ovl : { *(.ovl_entry) *(.ovl_text) *(.text*) *(.rodata*) }\n}\n`);
+  run(ld, ['-T', ldScript, '--unresolved-symbols=ignore-all', '-o', elfPath, objPath], 'link');
+  run(objcopy, ['-O', 'binary', '--only-section=.ovl', elfPath, overlayBin], 'objcopy');
+  const realSize = fs.statSync(overlayBin).size;
+  const sectorCount = Math.max(1, Math.ceil(realSize / VN_CD_SECTOR_BYTES));
+  const padded = sectorCount * VN_CD_SECTOR_BYTES;
+  if (realSize < padded) {
+    const buf = Buffer.alloc(padded);
+    fs.readFileSync(overlayBin).copy(buf);
+    fs.writeFileSync(overlayBin, buf);
+  }
+  logger?.info?.(`PCE VN overlay blob: ${realSize} bytes (${sectorCount} sector) を ${VN_OVERLAY_DATA_FILE} に生成`);
+  return { byteSize: padded, realSize, sectorCount };
 }
 
 function collectCddaTracks(projectDir) {
@@ -2537,6 +2607,7 @@ function addManagedGeneratedPath(files, relativePath) {
 function collectManagedGeneratedCdDataFiles(projectDir) {
   const managed = new Set();
   addManagedGeneratedPath(managed, VN_FONT_DATA_FILE);
+  addManagedGeneratedPath(managed, VN_OVERLAY_DATA_FILE);
   addManagedGeneratedPath(managed, VN_FONT_SPRITE_DATA_FILE);
   const scenePackDir = normalizeRelativePath(VN_SCENE_PACK_DIR);
   try {
@@ -2576,9 +2647,12 @@ function mergeCdDataFiles(projectDir, generatedDataFiles = [], configuredDataFil
   return Array.from(merged);
 }
 
-function prepareVisualNovelBuild(projectDir, config = {}) {
+function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null) {
   syncVisualNovelRuntime(projectDir);
   ensureSceneFile(projectDir);
+  // Build the overlay code blob before generating sources, so its CD sector/size
+  // are known when the overlay data ref is emitted and the CD layout is computed.
+  buildOverlayBlob(projectDir, clangPath);
   generateVnSources(projectDir);
   const dataFiles = collectCdDataFiles(projectDir);
   const cddaTracks = collectCddaTracks(projectDir);

@@ -11,6 +11,11 @@
 PCE_RAM_BANK_AT(128, 2);
 PCE_RAM_BANK_AT(129, 3);
 PCE_RAM_BANK_AT(130, 4);
+/* bank133 = transition/upload overlay, time-shared with bank130 in MPR slot 4
+   (0x8000). Its code is NOT in the boot image (the IPL only loads banks 128-132);
+   load_overlay_code() streams it from CD into bank133 RAM at boot. bank133 is
+   never used by the System Card (unlike bank131/MPR5), so it is safe for code. */
+PCE_RAM_BANK_AT(133, 4);
 PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #endif
 
@@ -3352,6 +3357,41 @@ static void advance_story(void)
     enable_display_if_pending();
 }
 
+#if defined(__PCE_CD__)
+/* Stream the overlay code blob (pce_vn_overlay_data) from CD into bank133 RAM.
+   bank133 is mapped into slot 4 (0x8000) as the read destination, then bank130
+   (play code) is restored. Mirrors upload_font_tiles' CD-read loop but writes the
+   bytes straight into the slot-4 window instead of via cd_transfer_scratch+VRAM. */
+static void load_overlay_code(void)
+{
+    pce_vn_cd_data_ref_t ovl;
+    pce_sector_t sector = {0};
+    uint16_t remaining;
+    uint16_t dest = (uint16_t)PCE_VN_OVERLAY_LOAD_ADDR;
+    map_vn_data();
+    ovl = pce_vn_overlay_data;
+    map_resident_data();
+    if (!ovl.byte_size || !ovl.sector_count) return;
+    prepare_cd_data_access();
+    sector.lo = ovl.sector.lo;
+    sector.md = ovl.sector.md;
+    sector.hi = ovl.sector.hi;
+    remaining = ovl.byte_size;
+    pce_ram_bank133_map();
+    while (remaining)
+    {
+        const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
+        (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, dest, chunk);
+        cd_transfer_wait();
+        dest = (uint16_t)(dest + chunk);
+        remaining = (uint16_t)(remaining - chunk);
+        cd_sector_advance(&sector);
+    }
+    mask_buffered_adpcm_completion_irq();
+    pce_ram_bank130_map();
+}
+#endif
+
 static void init_video(void)
 {
 #if defined(__PCE_CD__)
@@ -3379,6 +3419,14 @@ static void init_video(void)
     upload_blank_tile();
     clear_screen_map();
     set_screen_offset(0, 0);
+#if defined(__PCE_CD__)
+    /* Stream the transition/upload overlay into bank133 at boot. It is invoked
+       later by mapping bank133 into slot 4, running an entry, and restoring
+       bank130 (see the overlay jump table / set_background wrapping in a later
+       phase). The CD->bank133->slot4 load/map/execute path is verified in
+       Geargrafx (overlay ran from slot 4 with MPR4=bank133). */
+    load_overlay_code();
+#endif
 }
 
 int main(void)

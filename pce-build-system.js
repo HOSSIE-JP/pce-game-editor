@@ -674,7 +674,8 @@ function buildProject(onLog, options = {}) {
 
     if (isVisualNovelProject(projectDir, config)) {
       try {
-        const prepared = vnManager.prepareVisualNovelBuild(projectDir, config);
+        // VN projects are always CD; the overlay blob is built with the CD clang.
+        const prepared = vnManager.prepareVisualNovelBuild(projectDir, config, setupManager.getLlvmMosPceCdPath());
         if (prepared?.generated) {
           generated.visualNovel = prepared.generated;
           (prepared.generated.warnings || []).forEach((warning) => log(warning, 'warn'));
