@@ -189,6 +189,8 @@ const VN_SCENE_PACK_SWITCH_SIZE = 5;
 const VN_SCENE_PACK_SWITCH_CASE_SIZE = 4;
 const VN_SCENE_PACK_MAGIC = Buffer.from('PVNS');
 const VN_CD_SECTOR_BYTES = 2048;
+const VN_ADPCM_FRAME_RATE = 60;
+const VN_ADPCM_END_PAD_FRAMES = 2;
 const DEFAULT_FONT_CONFIG = {
   version: 1,
   fontPath: '',
@@ -299,6 +301,43 @@ function firstAssetId(assets, type) {
 
 function findAsset(assetDoc = { assets: [] }, id = '') {
   return (assetDoc.assets || []).find((asset) => asset.id === id) || null;
+}
+
+function generatedFileByteLength(projectDir = '', relativePath = '') {
+  if (!projectDir || !relativePath) return 0;
+  const root = path.resolve(projectDir);
+  const filePath = path.resolve(projectDir, normalizeRelativePath(relativePath));
+  if (filePath !== root && !filePath.startsWith(root + path.sep)) return 0;
+  try {
+    const stat = fs.statSync(filePath);
+    return stat.isFile() ? stat.size : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function adpcmVoiceFrameCount(asset = {}, projectDir = '') {
+  if (!asset || asset.type !== 'adpcm' || asset.options?.loop) return 0;
+  const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
+  const byteLength = (Number(generated.byteLength) || 0) || generatedFileByteLength(projectDir, generated.outputFile);
+  const sampleRate = Number(asset.options?.sampleRate || generated.sampleRate) || 16000;
+  let frames = 0;
+  if (byteLength > 0 && sampleRate > 0) {
+    frames = Math.ceil((byteLength * 2 * VN_ADPCM_FRAME_RATE) / sampleRate);
+  } else {
+    const durationSeconds = Number(generated.durationSeconds) || 0;
+    if (durationSeconds > 0) frames = Math.ceil(durationSeconds * VN_ADPCM_FRAME_RATE);
+  }
+  if (!frames) return 0;
+  return Math.min(65535, frames + VN_ADPCM_END_PAD_FRAMES);
+}
+
+function voiceSyncedTextSpeedFrames(command = {}, glyphCount = 0, assetDoc = { assets: [] }, projectDir = '') {
+  const fallback = clampInt(command.textSpeedFrames, 0, 255, 2);
+  if (!command.voiceAssetId || !glyphCount) return fallback;
+  const frames = adpcmVoiceFrameCount(findAsset(assetDoc, command.voiceAssetId), projectDir);
+  if (!frames) return fallback;
+  return clampInt(Math.ceil(frames / glyphCount), 1, 255, 1);
 }
 
 function spritePixelWidth(asset = {}) {
@@ -1786,7 +1825,7 @@ function generateVnSources(projectDir, options = {}) {
           glyphs: Buffer.from(bytes),
           glyphCount: entryCount,
           voiceIndex,
-          textSpeedFrames: command.textSpeedFrames,
+          textSpeedFrames: voiceSyncedTextSpeedFrames(command, entryCount, assetDoc, projectDir),
           advanceMode: command.advanceMode === 'auto' ? VN_ADVANCE_AUTO : VN_ADVANCE_BUTTON,
           autoWaitFrames: command.autoWaitFrames,
           mouthAnimationIndex,

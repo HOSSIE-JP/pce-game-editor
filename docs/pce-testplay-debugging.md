@@ -41,7 +41,7 @@
 6. Geargrafx が正常で標準 WASM だけが止まる場合、VN runtime の割り込みや ADPCM 終了処理をむやみに変えないでください。ADPCM one-shot / buffered / streaming 再生は、再生開始後に毎フレーム `pce_cdb_adpcm_status()` で自然終了監視しないでください。標準 WASM core では ADPCM 終了まで status polling した後に joypad edge が戻らないことがあります。現行 runtime は data size と sample rate から求めた frame counter で自然終了や streaming loop を管理します。
 7. 標準 WASM core では buffered ADPCM one-shot の完了IRQで CPU が止まることがあります。現行 runtime は ADPCM load / CD data read / stop など BIOS 操作時だけ external IRQ を有効にし、非loop buffered 再生中は `PCE_CDB_MASK_IRQ_EXTERNAL` で完了IRQをマスクします。
 8. CD data read、CD-DA pause/play、ADPCM load/stop/reset の BIOS helper を追加・移動した場合は、必要な直前だけ external IRQ を有効にし、buffered ADPCM one-shot が再生中なら helper 後に再度完了IRQをマスクします。
-9. ADPCM BIOS call 直後の message advance edge が標準 WASM core だけで落ちる場合があります。現行 runtime は ADPCM 再生開始後に次の joypad edge 判定を一度だけ初期化し、`message.voiceAssetId` 付き message でも次 command へ進めるようにしています。
+9. ADPCM BIOS call 直後の message advance edge が標準 WASM core だけで落ちる場合があります。現行 runtime は ADPCM 再生開始後に次の joypad edge 判定を一度だけ初期化し、`message.voiceAssetId` 付き message でも次 command へ進めるようにしています。この初期化では現在押されている button を baseline にし、押しっぱなしの I/RUN を新規 edge として扱わないでください。`last_pad` を 0 に戻すと、ADPCM message 開始直後に `finish_active_message()` が走り typewriter が即スキップされます。
 10. 自然終了済みの ADPCM へ追加の `pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()` を投げると、標準 WASM core で joypad edge が戻らない原因になります。明示的な AUDIO stop と自然終了 cleanup は分けて扱います。
 11. それでも標準 WASM だけが止まる場合、実機寄り確認は外部エミュレーターを優先し、標準 WASM 側の制約として記録します。
 

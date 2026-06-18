@@ -248,12 +248,16 @@ static uint8_t cdda_looping = 0;
 static uint8_t cdda_track = 0;
 static uint16_t cdda_frames_remaining = 0;
 static const pce_editor_cdda_asset_t *cdda_current = (const pce_editor_cdda_asset_t *)0;
+static uint8_t cdda_resume_pending = 0;
+static uint8_t cdda_resume_defer_depth = 0;
 static uint8_t adpcm_play_active = 0;
 static uint16_t adpcm_play_frames_remaining = 0;
 static uint8_t adpcm_stream_active = 0;
 static uint8_t adpcm_stream_looping = 0;
 static uint8_t adpcm_stream_index = 0;
-/* EmulatorJS mednafen_pce can lose the next joypad edge after ADPCM BIOS calls. */
+/* EmulatorJS mednafen_pce can lose the next joypad edge after ADPCM BIOS calls.
+   Re-baseline to the current pad state; do not synthesize a fresh edge from a
+   button that was already held while ADPCM playback started. */
 static uint8_t pad_edge_reset_pending = 0;
 #endif
 typedef struct
@@ -361,6 +365,8 @@ static void init_runtime_state(void)
     cdda_track = 0u;
     cdda_frames_remaining = 0u;
     cdda_current = (const pce_editor_cdda_asset_t *)0;
+    cdda_resume_pending = 0u;
+    cdda_resume_defer_depth = 0u;
     adpcm_play_active = 0u;
     adpcm_play_frames_remaining = 0u;
     adpcm_stream_active = 0u;
@@ -658,7 +664,11 @@ static void cd_transfer_wait(void)
 }
 
 static void mask_buffered_adpcm_completion_irq(void);
-static void prepare_cd_data_access(void);
+static void VN_BANKED_CODE begin_cdda_deferred_resume(void);
+static void VN_BANKED_CODE end_cdda_deferred_resume(void);
+static void VN_BANKED_CODE prepare_cd_data_access(void);
+static void VN_BANKED_CODE resume_cdda_after_cd_data_access(void);
+static void VN_BANKED_CODE cancel_cdda_after_cd_data_conflict(void);
 
 typedef struct
 {
@@ -806,11 +816,19 @@ static uint8_t VN_OVERLAY_CODE cd_rle_ref_to_vram(uint16_t dest, const pce_edito
     {
         uint8_t count;
         uint8_t value;
-        if (!cd_byte_stream_read(&stream, &token)) return 0u;
+        if (!cd_byte_stream_read(&stream, &token))
+        {
+            resume_cdda_after_cd_data_access();
+            return 0u;
+        }
         if (token & 0x80u)
         {
             count = (uint8_t)((token & 0x7fu) + 3u);
-            if (!cd_byte_stream_read(&stream, &value)) return 0u;
+            if (!cd_byte_stream_read(&stream, &value))
+            {
+                resume_cdda_after_cd_data_access();
+                return 0u;
+            }
             while (count-- && produced < ref->size)
             {
                 vram_byte_writer_write(&writer, value);
@@ -822,7 +840,11 @@ static uint8_t VN_OVERLAY_CODE cd_rle_ref_to_vram(uint16_t dest, const pce_edito
             count = (uint8_t)((token & 0x7fu) + 1u);
             while (count-- && produced < ref->size)
             {
-                if (!cd_byte_stream_read(&stream, &value)) return 0u;
+                if (!cd_byte_stream_read(&stream, &value))
+                {
+                    resume_cdda_after_cd_data_access();
+                    return 0u;
+                }
                 vram_byte_writer_write(&writer, value);
                 produced++;
             }
@@ -830,6 +852,7 @@ static uint8_t VN_OVERLAY_CODE cd_rle_ref_to_vram(uint16_t dest, const pce_edito
     }
     vram_byte_writer_finish(&writer);
     mask_buffered_adpcm_completion_irq();
+    resume_cdda_after_cd_data_access();
     return (uint8_t)(produced == ref->size);
 }
 
@@ -851,11 +874,19 @@ static uint8_t VN_OVERLAY_CODE cd_rle_bg_map_ref_to_vram(uint16_t dest, const pc
     {
         uint8_t count;
         uint8_t value;
-        if (!cd_byte_stream_read(&stream, &token)) return 0u;
+        if (!cd_byte_stream_read(&stream, &token))
+        {
+            resume_cdda_after_cd_data_access();
+            return 0u;
+        }
         if (token & 0x80u)
         {
             count = (uint8_t)((token & 0x7fu) + 3u);
-            if (!cd_byte_stream_read(&stream, &value)) return 0u;
+            if (!cd_byte_stream_read(&stream, &value))
+            {
+                resume_cdda_after_cd_data_access();
+                return 0u;
+            }
             while (count-- && produced < required)
             {
                 bg_map_stream_writer_write(&writer, value);
@@ -867,13 +898,18 @@ static uint8_t VN_OVERLAY_CODE cd_rle_bg_map_ref_to_vram(uint16_t dest, const pc
             count = (uint8_t)((token & 0x7fu) + 1u);
             while (count-- && produced < required)
             {
-                if (!cd_byte_stream_read(&stream, &value)) return 0u;
+                if (!cd_byte_stream_read(&stream, &value))
+                {
+                    resume_cdda_after_cd_data_access();
+                    return 0u;
+                }
                 bg_map_stream_writer_write(&writer, value);
                 produced++;
             }
         }
     }
     mask_buffered_adpcm_completion_irq();
+    resume_cdda_after_cd_data_access();
     return (uint8_t)(writer.row >= copy_height_tiles);
 }
 
@@ -887,7 +923,45 @@ static void mask_buffered_adpcm_completion_irq(void)
 #endif
 }
 
-static void prepare_cd_data_access(void)
+static unsigned long VN_BANKED_CODE cdda_sector_u24(const pce_editor_cd_sector_t *sector)
+{
+    if (!sector) return 0ul;
+    return (unsigned long)sector->lo
+        | ((unsigned long)sector->md << 8)
+        | ((unsigned long)sector->hi << 16);
+}
+
+static void VN_BANKED_CODE cdda_sector_from_remaining(pce_sector_t *dest, const pce_editor_cdda_asset_t *cdda)
+{
+    unsigned long start;
+    unsigned long elapsed_frames = 0ul;
+    unsigned long sector_offset = 0ul;
+    if (!dest || !cdda)
+    {
+        if (dest) cd_sector_from_uint(dest, 0ul);
+        return;
+    }
+    start = cdda_sector_u24(&cdda->start_sector);
+    if (cdda->play_frames && cdda_frames_remaining < cdda->play_frames)
+    {
+        elapsed_frames = (unsigned long)(cdda->play_frames - cdda_frames_remaining);
+        sector_offset = (elapsed_frames * 75ul) / 60ul;
+    }
+    cd_sector_from_uint(dest, start + sector_offset);
+}
+
+static void VN_BANKED_CODE begin_cdda_deferred_resume(void)
+{
+    if (cdda_resume_defer_depth != 255u) cdda_resume_defer_depth++;
+}
+
+static void VN_BANKED_CODE end_cdda_deferred_resume(void)
+{
+    if (cdda_resume_defer_depth) cdda_resume_defer_depth--;
+    if (!cdda_resume_defer_depth) resume_cdda_after_cd_data_access();
+}
+
+static void VN_BANKED_CODE prepare_cd_data_access(void)
 {
     const uint8_t restore_display_after_pause = (uint8_t)!pending_display_enable;
 #if defined(__PCE_CD__)
@@ -896,12 +970,40 @@ static void prepare_cd_data_access(void)
     if (!cdda_active) return;
     (void)pce_cdb_cdda_pause();
     cdda_active = 0u;
+    cdda_resume_pending = 1u;
+    restore_video_after_cdb_call(restore_display_after_pause);
+}
+
+static void VN_BANKED_CODE resume_cdda_after_cd_data_access(void)
+{
+    pce_sector_t start = {0};
+    pce_sector_t end = {0};
+    const uint8_t restore_display_after_cdda = (uint8_t)!pending_display_enable;
+    if (!cdda_resume_pending) return;
+    if (cdda_resume_defer_depth) return;
+    if (!cdda_current || !cdda_track)
+    {
+        cancel_cdda_after_cd_data_conflict();
+        return;
+    }
+    cdda_sector_from_remaining(&start, cdda_current);
+    pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, start, PCE_CDB_LOCATION_TYPE_UNTIL_END, end, PCE_CDB_CDDA_PLAY_REPEAT);
+    cdda_active = 1u;
+    cdda_resume_pending = 0u;
+    restore_video_after_cdb_call(restore_display_after_cdda);
+    mask_buffered_adpcm_completion_irq();
+}
+
+static void VN_BANKED_CODE cancel_cdda_after_cd_data_conflict(void)
+{
+    cdda_active = 0u;
+    cdda_resume_pending = 0u;
     cdda_has_frame_limit = 0u;
     cdda_looping = 0u;
     cdda_track = 0u;
     cdda_frames_remaining = 0u;
     cdda_current = (const pce_editor_cdda_asset_t *)0;
-    restore_video_after_cdb_call(restore_display_after_pause);
 }
 
 /* Resident (bank128/slot2) dispatchers for the bank133 overlay. They map bank133
@@ -961,6 +1063,7 @@ static uint8_t cd_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *r
         cd_sector_advance(&sector);
     }
     mask_buffered_adpcm_completion_irq();
+    resume_cdda_after_cd_data_access();
     return 1u;
 }
 
@@ -1009,6 +1112,7 @@ static uint8_t cd_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t 
         cd_sector_advance(&sector);
     }
     mask_buffered_adpcm_completion_irq();
+    resume_cdda_after_cd_data_access();
     return (uint8_t)(row >= copy_height_tiles);
 }
 #endif
@@ -1080,6 +1184,7 @@ static uint8_t VN_BANKED_CODE load_scene_pack_into_cache(uint8_t scene_index, vn
         cache->scene_index = scene_index;
         cache->valid = scene_pack_is_valid(cache);
         mask_buffered_adpcm_completion_irq();
+        resume_cdda_after_cd_data_access();
         return cache->valid;
     }
 #else
@@ -1338,6 +1443,7 @@ static void upload_font_tiles(void)
         cd_sector_advance(&sector);
     }
     mask_buffered_adpcm_completion_irq();
+    resume_cdda_after_cd_data_access();
 #elif defined(__PCE__)
     pce_editor_vram_copy((uint16_t)PCE_VN_FONT_MASK_VRAM_WORD, pce_vn_font_tiles, (uint16_t)(pce_vn_font_glyph_count * (VN_GLYPH_MASK_WORDS * 2u)));
 #endif
@@ -1376,6 +1482,7 @@ static void VN_BANKED_CODE2 upload_font_sprite_patterns(void)
         cd_sector_advance(&sector);
     }
     mask_buffered_adpcm_completion_irq();
+    resume_cdda_after_cd_data_access();
 #elif defined(__PCE__)
     if (pce_vn_font_sprite_glyph_count)
     {
@@ -2133,18 +2240,21 @@ static uint8_t VN_BANKED_CODE load_adpcm_voice(signed int voice_index, uint8_t a
     if (!loaded)
     {
         map_resident_data();
+        resume_cdda_after_cd_data_access();
         restore_display_after_adpcm(restore_display);
         return 0u;
     }
     if (!wait_adpcm_transfer_ready())
     {
         map_resident_data();
+        resume_cdda_after_cd_data_access();
         restore_display_after_adpcm(restore_display);
         return 0u;
     }
     map_resident_data();
     loaded_adpcm_valid = 1u;
     loaded_adpcm_index = (uint8_t)voice_index;
+    resume_cdda_after_cd_data_access();
     restore_display_after_adpcm(restore_display);
     return 1u;
 #else
@@ -2180,6 +2290,7 @@ static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
     if (!wait_adpcm_transfer_ready())
     {
         map_resident_data();
+        resume_cdda_after_cd_data_access();
         restore_display_after_adpcm(restore_display);
         return 0u;
     }
@@ -2189,10 +2300,12 @@ static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
     if (pce_cdb_adpcm_stream(sector, length, divider))
     {
         map_resident_data();
+        resume_cdda_after_cd_data_access();
         restore_display_after_adpcm(restore_display);
         return 0u;
     }
     map_resident_data();
+    cancel_cdda_after_cd_data_conflict();
     adpcm_play_active = 1u;
     adpcm_play_frames_remaining = adpcm_voice_frame_count();
     adpcm_stream_active = 1u;
@@ -2461,7 +2574,12 @@ static void show_scene(uint8_t scene_index)
     map_vn_data();
     if (!pce_vn_scene_count) return;
     if (scene_index >= pce_vn_scene_count) scene_index = pce_vn_start_scene;
-    if (!load_scene_pack_into_cache(scene_index, &active_scene_pack)) return;
+    begin_cdda_deferred_resume();
+    if (!load_scene_pack_into_cache(scene_index, &active_scene_pack))
+    {
+        end_cdda_deferred_resume();
+        return;
+    }
     keep_display_for_transition = (uint8_t)(current_bg_index >= 0 && !pending_display_enable);
     use_preloaded_scene_visual = (uint8_t)(pending_display_enable
         && preloaded_scene_visual_valid
@@ -2504,6 +2622,7 @@ static void show_scene(uint8_t scene_index)
     pending_sprite_refresh = 1u;
     preload_scene_assets((signed int)scene_index, 1u, 1u);
     preloaded_scene_visual_valid = 0u;
+    end_cdda_deferred_resume();
 }
 
 /* Append the visible spritetext overlays to the SATB starting at satb_index and
@@ -2789,20 +2908,8 @@ static void start_message(uint8_t message_index)
             sprite_slots[message->mouth_slot].timer = 0u;
             pending_sprite_refresh = 1u;
         }
-        /* Start the voice first so its length can drive the reveal cadence. */
-        play_adpcm_voice(message->voice_index);
         message_text_speed = message->text_speed_frames;
-#if defined(__PCE_CD__)
-        /* When an ADPCM voice plays, pace the typewriter so the last glyph lands
-           as the clip ends: per-char frames = total clip frames / glyph count. */
-        if (message->voice_index >= 0 && adpcm_play_active && adpcm_play_frames_remaining && message->glyph_count)
-        {
-            uint16_t per = (uint16_t)(adpcm_play_frames_remaining / message->glyph_count);
-            if (per < 1u) per = 1u;
-            if (per > 255u) per = 255u;
-            message_text_speed = (uint8_t)per;
-        }
-#endif
+        play_adpcm_voice(message->voice_index);
         if (!message_text_speed)
         {
             draw_message_text(message);
@@ -2882,12 +2989,14 @@ static void VN_BANKED_CODE2 preload_scene_assets(signed int scene_index, uint8_t
     if (scene_index < 0 || (uint8_t)scene_index >= pce_vn_scene_count) return;
     target_scene = (uint8_t)scene_index;
     restore_current_scene = (uint8_t)(target_scene != current_scene);
+    begin_cdda_deferred_resume();
     if (!load_scene_pack_into_cache(target_scene, &active_scene_pack))
     {
         if (restore_current_scene)
         {
             (void)load_scene_pack_into_cache(current_scene, &active_scene_pack);
         }
+        end_cdda_deferred_resume();
         return;
     }
     if (allow_visual_upload && pending_display_enable && restore_current_scene)
@@ -2961,6 +3070,7 @@ static void VN_BANKED_CODE2 preload_scene_assets(signed int scene_index, uint8_t
     {
         (void)load_scene_pack_into_cache(current_scene, &active_scene_pack);
     }
+    end_cdda_deferred_resume();
 }
 
 static void draw_choice_options(void)
@@ -3435,6 +3545,7 @@ static void load_overlay_code(void)
     }
     mask_buffered_adpcm_completion_irq();
     pce_ram_bank130_map();
+    resume_cdda_after_cd_data_access();
 }
 #endif
 
@@ -3492,7 +3603,6 @@ int main(void)
 #if defined(__PCE_CD__)
     if (pad_edge_reset_pending)
     {
-        last_pad = 0u;
         pad_edge_reset_pending = 0u;
     }
 #endif
@@ -3503,7 +3613,7 @@ int main(void)
 #if defined(__PCE_CD__)
         if (pad_edge_reset_pending)
         {
-            last_pad = 0u;
+            last_pad = pad;
             pad_edge_reset_pending = 0u;
         }
 #endif

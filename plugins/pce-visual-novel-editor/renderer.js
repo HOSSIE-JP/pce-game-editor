@@ -13,6 +13,7 @@ const MAX_LEFT_WIDTH = 520;
 const MIN_CENTER_WIDTH = 340;
 const MIN_RIGHT_WIDTH = 320;
 const MAX_RIGHT_WIDTH = 720;
+const ADPCM_END_PAD_SECONDS = 2 / 60;
 
 // 入力チェックコマンドのボタン定義（runtime の PAD_* と同順・OR 条件用）。
 const INPUT_BUTTONS = [
@@ -237,6 +238,26 @@ function assetPixelSize(asset = {}) {
     width: Number.isFinite(width) && width > 0 ? Math.round(width) : null,
     height: Number.isFinite(height) && height > 0 ? Math.round(height) : null,
   };
+}
+
+function previewPathForAsset(asset = {}) {
+  const generated = asset?.data?.generated || {};
+  if (asset?.type === 'cdda-track' && generated.outputFile) return generated.outputFile;
+  return asset?.source || '';
+}
+
+function audioDurationSeconds(asset = {}) {
+  const generated = asset?.data?.generated || {};
+  if (asset?.type === 'adpcm') {
+    const byteLength = Number(generated.byteLength) || 0;
+    const sampleRate = Number(asset?.options?.sampleRate || generated.sampleRate) || 16000;
+    if (byteLength > 0 && sampleRate > 0) return (byteLength * 2 / sampleRate) + ADPCM_END_PAD_SECONDS;
+  }
+  const duration = Number(generated.durationSeconds);
+  if (asset?.type === 'adpcm' && Number.isFinite(duration) && duration > 0) {
+    return duration + ADPCM_END_PAD_SECONDS;
+  }
+  return Number.isFinite(duration) && duration > 0 ? duration : 0;
 }
 
 // スプライト asset の options から、プレビュー描画に必要な最小メタ情報を取り出す。
@@ -800,6 +821,7 @@ function previewRuntime() {
   let pending = null;
   let choiceState = null;
   const audio = { cdda: null, adpcm: null };
+  const blockedAudio = { cdda: false, adpcm: false };
 
   function s16(value) {
     let v = Number(value) | 0;
@@ -812,7 +834,57 @@ function previewRuntime() {
     if (waitTimer) { clearTimeout(waitTimer); waitTimer = null; }
     if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
   }
-  function stopAudio(kind) { const a = audio[kind]; if (a) { a.pause(); audio[kind] = null; } }
+  function updateAudioHint() {
+    const blocked = Object.keys(blockedAudio).filter((kind) => blockedAudio[kind]);
+    if (blocked.length) {
+      root.querySelector('#pv-hint').textContent = '音声開始待ち: クリック / Enter で再試行';
+      return;
+    }
+    root.querySelector('#pv-hint').textContent = 'クリック / Enter で進む ・ Esc で閉じる';
+  }
+  function tryPlayAudio(kind) {
+    const a = audio[kind];
+    if (!a) return;
+    if (a.ended) return;
+    const result = a.play();
+    if (result && typeof result.then === 'function') {
+      result.then(() => {
+        blockedAudio[kind] = false;
+        updateAudioHint();
+      }).catch(() => {
+        if (audio[kind] === a) {
+          blockedAudio[kind] = true;
+          updateAudioHint();
+        }
+      });
+    }
+  }
+  function retryAudioPlayback() {
+    tryPlayAudio('cdda');
+    tryPlayAudio('adpcm');
+  }
+  function stopAudio(kind) {
+    const a = audio[kind];
+    if (a) a.pause();
+    audio[kind] = null;
+    blockedAudio[kind] = false;
+    updateAudioHint();
+  }
+  function playAudio(kind, assetId, loop) {
+    if (!assetId || !data.urls[assetId]) return;
+    stopAudio(kind);
+    const a = new Audio(data.urls[assetId]);
+    a.loop = Boolean(loop);
+    a.addEventListener('ended', () => {
+      if (audio[kind] === a) {
+        audio[kind] = null;
+        blockedAudio[kind] = false;
+        updateAudioHint();
+      }
+    });
+    audio[kind] = a;
+    tryPlayAudio(kind);
+  }
   function hideMsg() { msgBox.classList.add('pv-hidden'); }
   function hideChoice() { choiceBox.classList.add('pv-hidden'); choiceBox.innerHTML = ''; choiceState = null; }
 
@@ -913,12 +985,7 @@ function previewRuntime() {
   function handleAudio(c) {
     const kind = c.kind === 'adpcm' ? 'adpcm' : 'cdda';
     if (c.action === 'stop') { stopAudio(kind); return; }
-    if (!c.assetId || !data.urls[c.assetId]) return;
-    stopAudio(kind);
-    const a = new Audio(data.urls[c.assetId]);
-    if (kind === 'cdda') a.loop = true;
-    a.play().catch(() => {});
-    audio[kind] = a;
+    playAudio(kind, c.assetId, kind === 'cdda');
   }
   function applyEffect(c) {
     if (c.effect === 'blank') { state.background = null; state.sprites = {}; state.spriteTexts = {}; renderStage(); }
@@ -989,6 +1056,7 @@ function previewRuntime() {
     let shown = 0;
     let done = false;
     paintMsg('');
+    if (c.voiceAssetId) playAudio('adpcm', c.voiceAssetId, false);
     function next() { clearTimers(); pending = null; run(); }
     function complete() {
       done = true;
@@ -996,8 +1064,12 @@ function previewRuntime() {
       if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
       if (c.advanceMode === 'auto') autoTimer = setTimeout(next, Math.max(0, c.autoWaitFrames || 0) * 1000 / 60);
     }
-    pending = function () { if (!done) complete(); else next(); };
-    const speed = Math.max(0, c.textSpeedFrames || 0) * 1000 / 60;
+    pending = function () { if (!done) complete(); else { if (c.voiceAssetId) stopAudio('adpcm'); next(); } };
+    const voiceMeta = c.voiceAssetId ? (data.meta[c.voiceAssetId] || {}) : {};
+    const voiceSeconds = Number(voiceMeta.durationSeconds) || 0;
+    const voiceFrames = voiceSeconds > 0 && !voiceMeta.loop ? Math.max(1, Math.ceil(voiceSeconds * 60)) : 0;
+    const voiceSpeed = voiceFrames && full.length ? Math.max(1, Math.ceil(voiceFrames / full.length)) * 1000 / 60 : 0;
+    const speed = voiceSpeed || (Math.max(0, c.textSpeedFrames || 0) * 1000 / 60);
     if (speed <= 0 || !full) complete();
     else {
       typeTimer = setInterval(() => {
@@ -1119,6 +1191,7 @@ function previewRuntime() {
   }
 
   document.addEventListener('click', (e) => {
+    retryAudioPlayback();
     if (e.target.closest('#pv-bar')) return;
     if (e.target.closest('#pv-choice')) return;
     if (choiceState) return;
@@ -1126,6 +1199,7 @@ function previewRuntime() {
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { window.close(); return; }
+    if (e.key === 'Enter' || e.key === ' ') retryAudioPlayback();
     if (choiceState) {
       if (e.key === 'ArrowUp') { e.preventDefault(); choiceState.move(-1); }
       else if (e.key === 'ArrowDown') { e.preventDefault(); choiceState.move(1); }
@@ -1243,9 +1317,10 @@ export function activatePlugin({ root, api, registerCapability }) {
   const assetById = (id) => assets.find((asset) => asset.id === id) || null;
 
   async function resolveAssetDataUrl(asset) {
-    if (!asset?.id || !asset?.source) return '';
+    const previewPath = previewPathForAsset(asset);
+    if (!asset?.id || !previewPath) return '';
     if (assetDataUrlCache.has(asset.id)) return assetDataUrlCache.get(asset.id);
-    const result = await previewPceAssetSource(asset.source);
+    const result = await previewPceAssetSource(previewPath);
     const url = result?.dataUrl || '';
     assetDataUrlCache.set(asset.id, url);
     return url;
@@ -1406,7 +1481,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       stopMessagePreview();
       // ADPCM 選択時は再生長に同期した 1 文字あたりの間隔を使う（runtime と同じ考え方）。
       const adpcmSeconds = command.voiceAssetId
-        ? Number(assetById(command.voiceAssetId)?.data?.generated?.durationSeconds) || 0
+        ? audioDurationSeconds(assetById(command.voiceAssetId))
         : 0;
       const speed = (adpcmSeconds > 0 && full.length)
         ? Math.max(1, (adpcmSeconds * 1000) / full.length)
@@ -2149,8 +2224,9 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (command.type === 'audio') {
       const asset = command.action === 'play' ? assetById(command.assetId) : null;
       renderCommandPreviewLoading(command, asset, '音声');
-      if (!asset?.source) return;
-      const result = await previewPceAssetSource(asset.source);
+      const previewPath = previewPathForAsset(asset);
+      if (!previewPath) return;
+      const result = await previewPceAssetSource(previewPath);
       if (token !== previewToken) return;
       commandPreviewEl.innerHTML = '';
       if (!result?.dataUrl) {
@@ -2330,7 +2406,14 @@ export function activatePlugin({ root, api, registerCapability }) {
         if (!url) return;
         urls[id] = url;
         const size = assetPixelSize(asset);
-        meta[id] = { type: asset.type, name: asset.name || asset.id, width: size.width, height: size.height };
+        meta[id] = {
+          type: asset.type,
+          name: asset.name || asset.id,
+          width: size.width,
+          height: size.height,
+          durationSeconds: audioDurationSeconds(asset),
+          loop: Boolean(asset.options?.loop),
+        };
         if (asset.type === 'sprite') {
           const anim = spriteAnimationMeta(asset);
           meta[id].cellWidth = anim.cellWidth;

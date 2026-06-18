@@ -20,11 +20,13 @@
 - 画像アセットは内蔵 PCE 変換を使い、Superfamiconv には依存しません。
 - CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を前提に扱います。IPL / System Card はユーザー所有ファイルとして扱い、リポジトリへ同梱しません。
 - CD-ROM2 の大きい画像/sprite/ADPCM payload は `cd.dataFiles` に置き、RAM bank には詰め込まないでください。VN runtime のバンク割り当ては bank128/129/130 を常駐コード（slot2/3/4 に co-resident、`VN_BANKED_CODE`/`VN_BANKED_CODE2`）、bank132 を VN generated data、bank133 を CD ロードのコードオーバーレイ（slot4 を bank130 と時分割、`VN_OVERLAY_CODE`）として扱います。bank131 は System Card が slot5 で使うためコードに使えません。詳細は `docs/pce-memory-bank-strategy.md` と `docs/pce-vn-overlay-pathb.md`。
+- VN runtime へ新しい helper を足すとき、無属性の関数は bank128 に入りやすく、数百 byte でも `ld.lld: section '.rodata'/.data/.zp.data will not fit in region 'ram_bank128'` を起こします。bank128 は起動・薄い常駐 dispatch・小さい resident metadata 用に残し、CD/ADPCM/CD-DA/VDC 復元のような runtime helper はまず `VN_BANKED_CODE` / `VN_BANKED_CODE2` へ置けないか確認してください。特に `VN_OVERLAY_CODE` から呼ぶ可能性がある helper は、overlay 実行中に bank130 が見えないため `VN_BANKED_CODE`（bank129）か本当に必要な最小限の bank128 に置き、bank130 へ置かないでください。
 - ADPCM の `divider` は音量ではなく ADPCM 再生 rate code です。`sampleRate` から `32000 / (16 - code)` に最も近い `0..15` の code を補完し、代表値は 32000Hz -> 15、16000Hz -> 14、8000Hz -> 12、4000Hz -> 8 です。旧実装で保存された `round(32000 / sampleRate - 1)` や `round(16000 / sampleRate - 1)` の値は読み込み時と runtime で補正します。
 - ADPCM generated metadata の `codec`、`nibbleOrder`、`encoderVersion` が現行値と違う場合は source WAV から再生成してください。同じ `oki-msm5205/msn-first` 表記でも、古い `encoderVersion` のバイナリは先頭ノイズが出る可能性があります。
 - ADPCM preload は ADPCM RAM への先読みだけです。`loaded_adpcm_valid` が立っていても、実際の再生時には必ず `pce_cdb_adpcm_play()` を呼んでください。
 - VN runtime の短い ADPCM one-shot / buffered 再生は、再生開始後に毎フレーム `pce_cdb_adpcm_status()` で自然終了監視しないでください。標準 EmulatorJS/WASM core では、ADPCM 終了まで status polling した後に joypad edge が戻らないことがあります。
 - VN runtime の ADPCM 自然終了後処理では、再生済みの one-shot / stream に追加で `pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()` を投げないでください。明示的な AUDIO stop は stop/reset しますが、自然終了後の余分な reset は標準 EmulatorJS/WASM core で joypad edge が戻らない原因になり得ます。
+- ADPCM 再生開始後の joypad edge 初期化では、現在押されている button を `last_pad` の baseline にしてください。`last_pad = 0` に戻すと、押しっぱなしの I/RUN が新規 edge として扱われ、`message.voiceAssetId` 付き message の typewriter が即 `finish_active_message()` でスキップされます。
 - ADPCM 1 asset の安全上限は `min(65535, 65536 - adpcmAddress)` bytes です。4-bit ADPCM なので再生時間は概算で `bytes * 2 / sampleRate` 秒です。
 - VN sprite 表示では generated `pce_editor_sprite_draw_meta[]` の compact metadata を使い、単一 frame/default animation は sheet 全体表示として扱います。VDC memory control は `VN_VDC_MEMORY_CONTROL` を使い、sprite cycle bit を落とさないでください。
 - CD-ROM2 VN の BG `map_vram.bin` は `VN_MAP_WIDTH`(=32)タイル幅の「ソース行」として扱い、`mapBase` から一括転送しないでください。`width_tiles` 分だけを行単位でBATへ転送し、左右/上下余白は `clear_screen_map()` のblank tileを残します。画面は 256x224・BAT 32x32 で、BG 画像は 256px(32 タイル)以下にしてください。
