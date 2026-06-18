@@ -390,18 +390,20 @@ Visual Novel project では `assets/pce-vn-scenes.json` の `commands` が表示
 ### 演出 command
 
 ```jsonc
-{ "type": "effect", "effect": "fadeOut", "frames": 16 }
+{ "type": "effect", "effect": "fadeOut", "frames": 16, "color": "#000000" }
 { "type": "effect", "effect": "fadeIn", "frames": 16 }
 { "type": "effect", "effect": "blank", "frames": 0 }
 { "type": "effect", "effect": "shake", "frames": 20, "intensity": 6 }
+{ "type": "effect", "effect": "flash", "frames": 4, "color": "#ffffff" }
 ```
 
 | field | 値 | 説明 |
 |---|---|---|
 | `type` | `"effect"` | 画面演出 command |
-| `effect` | `"fadeOut"` / `"fadeIn"` / `"blank"` / `"shake"` | 暗転、復帰、画面消去、画面シェイク |
-| `frames` | `0..255` | fade / shake の実行 frame 数。`blank` では保持されるが実行時間には使わない |
+| `effect` | `"fadeOut"` / `"fadeIn"` / `"blank"` / `"shake"` / `"flash"` | 指定色へのフェードアウト、復帰、画面消去、画面シェイク、指定色フラッシュ |
+| `frames` | `0..255` | fade / shake / flash の実行 frame 数。`blank` では保持されるが実行時間には使わない |
 | `intensity` | `1..16` | `shake` の揺れ幅。`shake` 以外では `0` に正規化される |
+| `color` | `#rrggbb` | `fadeOut` / `flash` の色。PCE 表示色（各チャンネル 3bit）へ丸めて command record の `x` に 9-bit GRB として格納する。未指定時は `fadeOut` が黒、`flash` が白 |
 
 ### スプライト文字オーバーレイ command (`spritetext`)
 
@@ -645,7 +647,7 @@ PCE-CD / Super CD-ROM2 build では、llvm-mos の既定 `.text` / `.rodata` は
 
 VN sprite runtime は `pce_editor_sprite_draw_meta[]` を `sprite_draw_meta` へコピーしてから SATB を組みます。animation metadata は `frame_count > 1` かつ sheet 範囲内のときだけ 1 frame の表示サイズとして使い、単一 frame/default animation は sheet 全体表示へ戻します。VDC memory control は `VN_VDC_MEMORY_CONTROL` (`VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_64_32`) を使い、BG size 更新時に sprite cycle bit を落とさないことを前提にしています。
 
-CD-ROM2 VN runtime は `map_vram.bin` を `mapBase` から丸ごとVRAMへ置くblobとして扱いません。raw `map_vram.bin` または RLE sidecar は1行64タイルのソースとしてCDから読み、各行の `width_tiles` 分だけを `mapBase + command.y * 64 + command.x + row * 64` にコピーします。これにより、背景画像より広い画面領域の左右/上下余白は blank tile のまま残り、CD map paddingの0 wordが古いVRAM tileを参照して縦縞になる事故を防ぎます。BG command の fade は BG palette bank だけを暗く/明るくし、display layer 全体を無効化しないため、メッセージ UI palette までは暗転しません。
+CD-ROM2 VN runtime は `map_vram.bin` を `mapBase` から丸ごとVRAMへ置くblobとして扱いません。raw `map_vram.bin` または RLE sidecar は1行64タイルのソースとしてCDから読み、各行の `width_tiles` 分だけを `mapBase + command.y * 64 + command.x + row * 64` にコピーします。これにより、背景画像より広い画面領域の左右/上下余白は blank tile のまま残り、CD map paddingの0 wordが古いVRAM tileを参照して縦縞になる事故を防ぎます。BG command の fade は BG palette bank だけを暗く/明るくし、display layer 全体を無効化しないため、メッセージ UI palette までは暗転しません。UI も含めて指定色へ落としたい場合は `effect: "fadeOut"` と `color` を使います。
 
 `pce_vn_runtime.c` 内の `set_background()`、`play_adpcm_voice()` などは現状 `static` な内部実装です。外部 plugin や game code から直接呼ぶ公開 C API ではなく、公開面は scene JSON と generated C struct / 配列です。
 

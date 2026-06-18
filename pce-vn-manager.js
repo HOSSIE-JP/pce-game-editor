@@ -92,6 +92,7 @@ const VN_EFFECT_FADE_OUT = 0;
 const VN_EFFECT_FADE_IN = 1;
 const VN_EFFECT_BLANK = 2;
 const VN_EFFECT_SHAKE = 3;
+const VN_EFFECT_FLASH = 4;
 const VN_ADVANCE_BUTTON = 0;
 const VN_ADVANCE_AUTO = 1;
 const VN_VAR_OP_DEFINE = 0;
@@ -107,6 +108,7 @@ const VN_COMPARE_GT = 4;
 const VN_COMPARE_GTE = 5;
 const VN_NO_COMMAND = 0xffff;
 const VN_MAX_U8_COUNT = 255;
+const VN_SCENE_FLAG_FULL_SCREEN_BG = 1;
 const VN_SCENE_PACK_DIR = path.join('assets', 'generated', 'vn', 'scenes');
 // Font tiles are streamed from this CD data file into VRAM at boot (no longer
 // resident in ram_bank132). One glyph = 16x16 px = 4 BG tiles = 128 bytes.
@@ -340,10 +342,48 @@ function voiceSyncedTextSpeedFrames(command = {}, glyphCount = 0, assetDoc = { a
   return clampInt(Math.ceil(frames / glyphCount), 1, 255, 1);
 }
 
+function assetPixelSize(asset = {}) {
+  const raw = asset && typeof asset === 'object' ? asset : {};
+  const options = raw.options && typeof raw.options === 'object' ? raw.options : {};
+  const generated = raw.data?.generated && typeof raw.data.generated === 'object' ? raw.data.generated : {};
+  return {
+    width: Math.round(Number(options.width || generated.width) || 0),
+    height: Math.round(Number(options.height || generated.height) || 0),
+  };
+}
+
+function validateFullScreenBgScene(scene = {}, assetDoc = { assets: [] }) {
+  if (!scene.fullScreenBg) return;
+  const sceneId = scene.id || 'scene';
+  (scene.commands || []).forEach((command) => {
+    if (!command) return;
+    if (command.type === 'message' || command.type === 'choice') {
+      throw new Error(`PCE VN scene "${sceneId}" uses fullScreenBg and cannot contain ${command.type} commands`);
+    }
+    if (command.type === 'sprite' && command.visible !== false) {
+      throw new Error(`PCE VN scene "${sceneId}" uses fullScreenBg and cannot show sprites`);
+    }
+    if (command.type === 'spritetext' && command.visible !== false) {
+      throw new Error(`PCE VN scene "${sceneId}" uses fullScreenBg and cannot show spritetext`);
+    }
+    if (command.type === 'background') {
+      if (command.x || command.y) {
+        throw new Error(`PCE VN scene "${sceneId}" uses fullScreenBg; background commands must use x:0 and y:0`);
+      }
+      const asset = findAsset(assetDoc, command.assetId);
+      const size = assetPixelSize(asset);
+      if (size.width !== PCE_SCREEN_WIDTH || size.height !== PCE_SCREEN_HEIGHT) {
+        throw new Error(`PCE VN scene "${sceneId}" uses fullScreenBg; background "${command.assetId || '(none)'}" must be ${PCE_SCREEN_WIDTH}x${PCE_SCREEN_HEIGHT}px`);
+      }
+    }
+  });
+}
+
 function spritePixelWidth(asset = {}) {
-  const options = asset.options && typeof asset.options === 'object' ? asset.options : {};
-  const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
-  const width = Number(options.width || generated.width);
+  const raw = asset && typeof asset === 'object' ? asset : {};
+  const options = raw.options && typeof raw.options === 'object' ? raw.options : {};
+  const generated = raw.data?.generated && typeof raw.data.generated === 'object' ? raw.data.generated : {};
+  const width = assetPixelSize(asset).width;
   if (Number.isFinite(width) && width > 0) return Math.min(PCE_SCREEN_WIDTH, Math.round(width));
   const cellWidth = Number(options.cellWidth || generated.cellWidth);
   const columns = Number(options.cellColumns || generated.cellColumns || generated.columns);
@@ -400,11 +440,24 @@ function defaultSceneDocument(assetDoc = { assets: [] }) {
     scenes: [
       {
         id: 'opening',
+        fullScreenBg: false,
         commands,
         nextSceneId: '',
       },
     ],
   };
+}
+
+function normalizeFullScreenBg(value) {
+  const raw = String(value ?? '').trim().toLowerCase();
+  return value === true
+    || raw === 'true'
+    || raw === '1'
+    || raw === 'full'
+    || raw === 'fullscreen'
+    || raw === 'full-screen'
+    || raw === 'fullscreenbg'
+    || raw === 'full-screen-bg';
 }
 
 function assetIdsByType(assetDoc = { assets: [] }) {
@@ -469,6 +522,11 @@ function messageColorWord(value) {
 function spriteTextColorWord(value) {
   const hex = normalizeHexColor(value);
   if (!hex) return 0x1ff;
+  return assetManager.pcePaletteWord(assetManager.pceColorFromRgb(hexToRgb(hex)));
+}
+
+function effectColorWord(value, fallback = '#000000') {
+  const hex = normalizeHexColor(value) || normalizeHexColor(fallback) || '#000000';
   return assetManager.pcePaletteWord(assetManager.pceColorFromRgb(hexToRgb(hex)));
 }
 
@@ -654,6 +712,7 @@ function normalizeEffectKind(value = '') {
   if (raw === 'fadeIn' || raw === 'fade-in' || raw === 'in') return 'fadeIn';
   if (raw === 'blank' || raw === 'black') return 'blank';
   if (raw === 'shake' || raw === 'screenShake' || raw === 'screen-shake') return 'shake';
+  if (raw === 'flash') return 'flash';
   return 'fadeOut';
 }
 
@@ -760,11 +819,13 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
   }
   if (type === 'effect') {
     const effect = normalizeEffectKind(raw.effect || raw.kind || raw.name);
+    const defaultColor = effect === 'flash' ? '#ffffff' : (effect === 'fadeOut' ? '#000000' : '');
     return {
       type: 'effect',
       effect,
       frames: clampInt(raw.frames ?? raw.durationFrames, 0, 255, 16),
       intensity: effect === 'shake' ? clampInt(raw.intensity ?? raw.power ?? raw.amplitude, 1, 16, 4) : 0,
+      color: normalizeMessageColor(raw.color) || defaultColor,
     };
   }
   if (type === 'spritetext') {
@@ -826,6 +887,7 @@ function normalizeScene(scene = {}, index = 0, valid = assetIdsByType(), assetDo
     : legacyCommandsForScene(raw, valid, assetDoc);
   return {
     id: safeId(raw.id, index === 0 ? 'opening' : `scene_${index + 1}`),
+    fullScreenBg: normalizeFullScreenBg(raw.fullScreenBg ?? raw.fullscreenBg ?? raw.fullScreenBackground ?? raw.layout ?? raw.displayMode),
     commands,
     nextSceneId: safeId(raw.nextSceneId, ''),
   };
@@ -1580,7 +1642,7 @@ function buildScenePack(sceneBuild) {
   header.writeUInt8(messages.length, 6);
   header.writeUInt8(choices.length, 7);
   header.writeUInt8(switches.length, 8);
-  header.writeUInt8(0, 9);
+  header.writeUInt8(sceneBuild.flags || 0, 9);
   header.writeUInt16LE(commandOffset, 10);
   header.writeUInt16LE(messageOffset, 12);
   header.writeUInt16LE(choiceOffset, 14);
@@ -1721,10 +1783,12 @@ function generateVnSources(projectDir, options = {}) {
   let commandCount = 0;
 
   doc.scenes.forEach((scene, sceneIdx) => {
+    validateFullScreenBgScene(scene, assetDoc);
     const sceneBuild = {
       sceneId: scene.id || `scene_${sceneIdx}`,
       packPath: scenePackRelativePath(scene, sceneIdx),
       nextScene: scene.nextSceneId && sceneIndex.has(scene.nextSceneId) ? sceneIndex.get(scene.nextSceneId) : -1,
+      flags: scene.fullScreenBg ? VN_SCENE_FLAG_FULL_SCREEN_BG : 0,
       commands: [],
       messages: [],
       choices: [],
@@ -2111,7 +2175,12 @@ function generateVnSources(projectDir, options = {}) {
       if (command.type === 'effect') {
         const effect = command.effect === 'fadeIn'
           ? VN_EFFECT_FADE_IN
-          : (command.effect === 'blank' ? VN_EFFECT_BLANK : (command.effect === 'shake' ? VN_EFFECT_SHAKE : VN_EFFECT_FADE_OUT));
+          : (command.effect === 'blank'
+            ? VN_EFFECT_BLANK
+            : (command.effect === 'shake'
+              ? VN_EFFECT_SHAKE
+              : (command.effect === 'flash' ? VN_EFFECT_FLASH : VN_EFFECT_FADE_OUT)));
+        const defaultColor = effect === VN_EFFECT_FLASH ? '#ffffff' : '#000000';
         pushCommand({
           type: VN_COMMAND_EFFECT,
           assetIndex: -1,
@@ -2119,7 +2188,7 @@ function generateVnSources(projectDir, options = {}) {
           flags: effect,
           arg0: clampInt(command.frames, 0, 255, 16),
           arg1: clampInt(command.intensity, 0, 16, 0),
-          x: 0,
+          x: effectColorWord(command.color, defaultColor),
           y: 0,
           messageIndex: -1,
           animationIndex: -1,
@@ -2234,6 +2303,7 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_EFFECT_FADE_IN ${VN_EFFECT_FADE_IN}u`,
     `#define PCE_VN_EFFECT_BLANK ${VN_EFFECT_BLANK}u`,
     `#define PCE_VN_EFFECT_SHAKE ${VN_EFFECT_SHAKE}u`,
+    `#define PCE_VN_EFFECT_FLASH ${VN_EFFECT_FLASH}u`,
     `#define PCE_VN_ADVANCE_BUTTON ${VN_ADVANCE_BUTTON}u`,
     `#define PCE_VN_ADVANCE_AUTO ${VN_ADVANCE_AUTO}u`,
     `#define PCE_VN_VAR_OP_DEFINE ${VN_VAR_OP_DEFINE}u`,
@@ -2248,6 +2318,7 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_COMPARE_GT ${VN_COMPARE_GT}u`,
     `#define PCE_VN_COMPARE_GTE ${VN_COMPARE_GTE}u`,
     `#define PCE_VN_NO_COMMAND ${VN_NO_COMMAND}u`,
+    `#define PCE_VN_SCENE_FLAG_FULL_SCREEN_BG ${VN_SCENE_FLAG_FULL_SCREEN_BG}u`,
     `#define PCE_VN_VARIABLE_STORAGE_COUNT ${Math.max(1, variables.initialValues.length)}u`,
     `#define PCE_VN_SCENE_PACK_CACHE_BYTES ${VN_SCENE_PACK_CACHE_BYTES}u`,
     `#define PCE_VN_SCENE_PACK_VERSION ${VN_SCENE_PACK_VERSION}u`,
@@ -2846,7 +2917,9 @@ module.exports = {
   VN_INPUT_MODE_CANCEL,
   VN_SCENE_PACK_MESSAGE_SIZE,
   VN_MESSAGE_COLOR_NONE,
+  VN_SCENE_FLAG_FULL_SCREEN_BG,
   inputButtonsMask,
+  effectColorWord,
   messageColorWord,
   normalizeMessageColor,
   collectCdDataFiles,

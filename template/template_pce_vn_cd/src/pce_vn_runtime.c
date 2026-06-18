@@ -114,6 +114,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_SCENE_PACK_OFFSET_MESSAGE_COUNT 6u
 #define VN_SCENE_PACK_OFFSET_CHOICE_COUNT 7u
 #define VN_SCENE_PACK_OFFSET_SWITCH_COUNT 8u
+#define VN_SCENE_PACK_OFFSET_FLAGS 9u
 #define VN_SCENE_PACK_OFFSET_COMMAND_TABLE 10u
 #define VN_SCENE_PACK_OFFSET_MESSAGE_TABLE 12u
 #define VN_SCENE_PACK_OFFSET_CHOICE_TABLE 14u
@@ -182,13 +183,15 @@ static uint8_t message_complete = 0;
 static uint8_t message_auto_wait = 0;
 /* Effective per-character reveal frames for the active message (after ADPCM sync). */
 static uint8_t message_text_speed = 0;
+static uint16_t ui_text_color;
+static uint8_t current_scene_full_screen_bg = 0;
 /* Input-check command state (single watcher). */
 static uint8_t sync_input_active = 0;
 static uint8_t sync_input_mask = 0;
-static uint16_t sync_input_target = PCE_VN_NO_COMMAND;
+static uint16_t sync_input_target;
 static uint8_t async_input_active = 0;
 static uint8_t async_input_mask = 0;
-static uint16_t async_input_target = PCE_VN_NO_COMMAND;
+static uint16_t async_input_target;
 /* PSG sequencer state. */
 static uint8_t psg_active = 0;
 static uint8_t psg_is_song = 0;
@@ -396,6 +399,14 @@ static void init_runtime_state(void)
     message_row = 0u;
     message_complete = 1u;
     message_auto_wait = 0u;
+    ui_text_color = PCE_VN_MESSAGE_COLOR_NONE;
+    sync_input_active = 0u;
+    sync_input_mask = 0u;
+    sync_input_target = PCE_VN_NO_COMMAND;
+    async_input_active = 0u;
+    async_input_mask = 0u;
+    async_input_target = PCE_VN_NO_COMMAND;
+    current_scene_full_screen_bg = 0u;
     map_vn_data();
     for (i = 0u; i < pce_vn_variable_count && i < PCE_VN_VARIABLE_STORAGE_COUNT; i++)
     {
@@ -590,7 +601,7 @@ static uint8_t compare_values(signed int left, uint8_t operator_id, signed int r
     return (uint8_t)(left == right);
 }
 
-static uint8_t jump_to_command(uint16_t command_offset)
+static uint8_t VN_BANKED_CODE2 jump_to_command(uint16_t command_offset)
 {
     if (command_offset == PCE_VN_NO_COMMAND) return 0u;
     if (!load_scene_pack_into_cache(current_scene, &active_scene_pack)) return 0u;
@@ -923,7 +934,7 @@ static void mask_buffered_adpcm_completion_irq(void)
 #endif
 }
 
-static unsigned long VN_BANKED_CODE cdda_sector_u24(const pce_editor_cd_sector_t *sector)
+static unsigned long VN_BANKED_CODE2 cdda_sector_u24(const pce_editor_cd_sector_t *sector)
 {
     if (!sector) return 0ul;
     return (unsigned long)sector->lo
@@ -931,7 +942,7 @@ static unsigned long VN_BANKED_CODE cdda_sector_u24(const pce_editor_cd_sector_t
         | ((unsigned long)sector->hi << 16);
 }
 
-static void VN_BANKED_CODE cdda_sector_from_remaining(pce_sector_t *dest, const pce_editor_cdda_asset_t *cdda)
+static void VN_BANKED_CODE2 cdda_sector_from_remaining(pce_sector_t *dest, const pce_editor_cdda_asset_t *cdda)
 {
     unsigned long start;
     unsigned long elapsed_frames = 0ul;
@@ -1198,6 +1209,11 @@ static uint8_t VN_BANKED_CODE scene_pack_command_count(const vn_scene_pack_cache
     return scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_COMMAND_COUNT);
 }
 
+static uint8_t VN_BANKED_CODE scene_pack_full_screen_bg(const vn_scene_pack_cache_t *cache)
+{
+    return (uint8_t)(scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_FLAGS) & PCE_VN_SCENE_FLAG_FULL_SCREEN_BG);
+}
+
 static uint8_t VN_BANKED_CODE2 scene_pack_read_command(const vn_scene_pack_cache_t *cache, uint8_t command_index, pce_vn_command_t *command)
 {
     uint16_t offset;
@@ -1362,9 +1378,21 @@ static uint16_t scale_vce_color(uint16_t raw, uint8_t step, uint8_t frames)
     return (uint16_t)((g << 6) | (r << 3) | b);
 }
 
+static uint16_t VN_BANKED_CODE2 mix_vce_color(uint16_t from, uint16_t to, uint16_t step, uint8_t frames)
+{
+    uint16_t b;
+    uint16_t r;
+    uint16_t g;
+    if (!frames) return (uint16_t)(to & 0x01ffu);
+    b = (uint16_t)((((from & 0x0007u) * (frames - step)) + ((to & 0x0007u) * step)) / frames);
+    r = (uint16_t)((((((from >> 3) & 0x0007u) * (frames - step)) + (((to >> 3) & 0x0007u) * step)) / frames) << 3);
+    g = (uint16_t)((((((from >> 6) & 0x0007u) * (frames - step)) + (((to >> 6) & 0x0007u) * step)) / frames) << 6);
+    return (uint16_t)(g | r | b);
+}
+
 static void fade_palette(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t frames, uint8_t fade_in)
 {
-    uint8_t step;
+    uint16_t step;
     uint8_t i;
     uint16_t color_count;
     const uint8_t *data;
@@ -1375,7 +1403,7 @@ static void fade_palette(const pce_editor_data_ref_t *palette, uint16_t base_ind
     if (color_count > 16u) color_count = 16u;
     for (step = 0u; step <= frames; step++)
     {
-        const uint8_t scale = fade_in ? step : (uint8_t)(frames - step);
+        const uint8_t scale = fade_in ? (uint8_t)step : (uint8_t)(frames - step);
         for (i = 0u; i < color_count; i++)
         {
             const uint16_t raw = (uint16_t)(data[i * 2u] | ((uint16_t)data[(i * 2u) + 1u] << 8));
@@ -1385,15 +1413,84 @@ static void fade_palette(const pce_editor_data_ref_t *palette, uint16_t base_ind
     }
 }
 
-static void upload_ui_palette(void)
+static uint16_t ui_text_color_word(uint16_t color)
+{
+    return (color == PCE_VN_MESSAGE_COLOR_NONE) ? 0x01ffu : (uint16_t)(color & 0x01ffu);
+}
+
+static void write_ui_text_palette(uint16_t color)
 {
     uint8_t i;
-    uint16_t base = (uint16_t)(VN_UI_PALETTE * 16u);
-    vce_write_color((uint16_t)(base + 0u), 0x0000u);
+    const uint16_t base = (uint16_t)(VN_UI_PALETTE * 16u);
     for (i = 1u; i < 16u; i++)
     {
-        vce_write_color((uint16_t)(base + i), 0x01ffu);
+        vce_write_color((uint16_t)(base + i), (uint16_t)(color & 0x01ffu));
     }
+}
+
+static void VN_BANKED_CODE2 fade_current_screen_to_color(uint16_t target, uint8_t frames)
+{
+    uint16_t step;
+    uint8_t i;
+    uint16_t color_count = 0u;
+    uint16_t bg_base = 0u;
+    const uint8_t *data = (const uint8_t *)0;
+    const uint16_t ui_start = ui_text_color_word(ui_text_color);
+    target = (uint16_t)(target & 0x01ffu);
+    if (current_bg_index >= 0)
+    {
+        const pce_editor_bg_asset_t *bg = &pce_editor_bg_assets[(uint8_t)current_bg_index];
+        data = data_ref_ptr(&bg->palette);
+        if (data)
+        {
+            color_count = (uint16_t)(bg->palette.size / 2u);
+            if (color_count > 16u) color_count = 16u;
+            bg_base = (uint16_t)(bg->palette_bank * 16u);
+        }
+    }
+    for (step = 0u; step <= frames; step++)
+    {
+        if (data)
+        {
+            for (i = 0u; i < color_count; i++)
+            {
+                const uint16_t raw = (uint16_t)(data[i * 2u] | ((uint16_t)data[(i * 2u) + 1u] << 8));
+                vce_write_color((uint16_t)(bg_base + i), mix_vce_color(raw, target, step, frames));
+            }
+        }
+        write_ui_text_palette(mix_vce_color(ui_start, target, step, frames));
+        vce_write_color(0u, mix_vce_color(0x0000u, target, step, frames));
+        if (frames) delay_frame();
+    }
+}
+
+static void VN_BANKED_CODE2 restore_current_screen_palette(void)
+{
+    if (current_bg_index >= 0)
+    {
+        const pce_editor_bg_asset_t *bg = &pce_editor_bg_assets[(uint8_t)current_bg_index];
+        upload_palette(&bg->palette, (uint16_t)(bg->palette_bank * 16u), 0u);
+    }
+    write_ui_text_palette(ui_text_color_word(ui_text_color));
+}
+
+static void VN_BANKED_CODE2 flash_screen_color(uint16_t color, uint8_t frames)
+{
+    uint8_t i;
+    fade_current_screen_to_color(color, 0u);
+    if (!frames) frames = 1u;
+    for (i = 0u; i < frames; i++)
+    {
+        delay_frame();
+    }
+    restore_current_screen_palette();
+}
+
+static void upload_ui_palette(void)
+{
+    uint16_t base = (uint16_t)(VN_UI_PALETTE * 16u);
+    vce_write_color((uint16_t)(base + 0u), 0x0000u);
+    write_ui_text_palette(0x01ffu);
 }
 
 /* Tint the UI text foreground (palette 15, slots 1-15) to a message's color, or
@@ -1401,13 +1498,8 @@ static void upload_ui_palette(void)
    text and speaker label drawn with this palette. */
 static void apply_message_text_color(uint16_t color)
 {
-    uint8_t i;
-    const uint16_t base = (uint16_t)(VN_UI_PALETTE * 16u);
-    const uint16_t fg = (color == PCE_VN_MESSAGE_COLOR_NONE) ? 0x01ffu : (uint16_t)(color & 0x01ffu);
-    for (i = 1u; i < 16u; i++)
-    {
-        vce_write_color((uint16_t)(base + i), fg);
-    }
+    ui_text_color = color;
+    write_ui_text_palette(ui_text_color_word(color));
 }
 
 static void upload_font_tiles(void)
@@ -2445,7 +2537,7 @@ static void VN_BANKED_CODE2 service_adpcm_playback(void)
  * added to each step's channel so the same asset can be routed to different
  * PSG voices; the resulting channel is clamped to the 6 available (0-5). */
 
-static void VN_BANKED_CODE psg_load_basic_wave(uint8_t channel)
+static void VN_BANKED_CODE2 psg_load_basic_wave(uint8_t channel)
 {
     uint8_t i;
     PCE_PSG_SELECT = (uint8_t)(channel & 0x07u);
@@ -2457,7 +2549,7 @@ static void VN_BANKED_CODE psg_load_basic_wave(uint8_t channel)
     }
 }
 
-static void VN_BANKED_CODE psg_set_voice(uint8_t channel, uint16_t period, uint8_t volume)
+static void VN_BANKED_CODE2 psg_set_voice(uint8_t channel, uint16_t period, uint8_t volume)
 {
     PCE_PSG_SELECT = (uint8_t)(channel & 0x07u);
     PCE_PSG_FREQ_LO = (uint8_t)(period & 0xffu);
@@ -2466,7 +2558,7 @@ static void VN_BANKED_CODE psg_set_voice(uint8_t channel, uint16_t period, uint8
     PCE_PSG_CONTROL = volume ? (uint8_t)(0x80u | (volume & 0x1fu)) : 0u;
 }
 
-static uint8_t VN_BANKED_CODE psg_frames_per_step(const pce_editor_psg_asset_t *asset)
+static uint8_t VN_BANKED_CODE2 psg_frames_per_step(const pce_editor_psg_asset_t *asset)
 {
     uint16_t bpm = (asset && asset->bpm) ? asset->bpm : 150u;
     uint16_t frames = (uint16_t)(3600u / (bpm * 4u));
@@ -2475,7 +2567,7 @@ static uint8_t VN_BANKED_CODE psg_frames_per_step(const pce_editor_psg_asset_t *
     return (uint8_t)frames;
 }
 
-static uint8_t VN_BANKED_CODE psg_resolve_channel(uint8_t base, uint8_t step_channel)
+static uint8_t VN_BANKED_CODE2 psg_resolve_channel(uint8_t base, uint8_t step_channel)
 {
     uint16_t ch = (uint16_t)base + (uint16_t)step_channel;
     if (ch > 5u) ch = 5u;
@@ -2498,7 +2590,7 @@ static void VN_BANKED_CODE2 psg_apply_step_row(uint16_t step_no)
     }
 }
 
-static void VN_BANKED_CODE stop_psg(void)
+static void VN_BANKED_CODE2 stop_psg(void)
 {
     uint8_t ch;
     for (ch = 0u; ch < 6u; ch++)
@@ -2580,6 +2672,7 @@ static void show_scene(uint8_t scene_index)
         end_cdda_deferred_resume();
         return;
     }
+    current_scene_full_screen_bg = scene_pack_full_screen_bg(&active_scene_pack);
     keep_display_for_transition = (uint8_t)(current_bg_index >= 0 && !pending_display_enable);
     use_preloaded_scene_visual = (uint8_t)(pending_display_enable
         && preloaded_scene_visual_valid
@@ -3073,7 +3166,7 @@ static void VN_BANKED_CODE2 preload_scene_assets(signed int scene_index, uint8_t
     end_cdda_deferred_resume();
 }
 
-static void draw_choice_options(void)
+static void VN_BANKED_CODE2 draw_choice_options(void)
 {
     uint8_t row;
     vn_choice_ref_t *choice = VN_CHOICE_SCRATCH;
@@ -3203,81 +3296,12 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
     }
 }
 
-static uint8_t execute_command(const pce_vn_command_t *command)
+static uint8_t VN_BANKED_CODE2 execute_control_command(const pce_vn_command_t *command)
 {
-    uint8_t slot;
     if (!command) return VN_EXEC_CONTINUE;
-    if (command->type == PCE_VN_COMMAND_BACKGROUND)
+    if (command->type == PCE_VN_COMMAND_CHOICE)
     {
-        set_background(command->asset_index, command->flags, command->arg0, command->arg1, command->x, command->y);
-    }
-    else if (command->type == PCE_VN_COMMAND_SPRITE)
-    {
-        uint8_t was_visible;
-        uint16_t start_x;
-        uint16_t start_y;
-        slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
-        was_visible = (uint8_t)(sprite_slots[slot].visible && sprite_slots[slot].sprite_index >= 0);
-        start_x = sprite_slots[slot].x;
-        start_y = sprite_slots[slot].y;
-        sprite_slots[slot].sprite_index = command->asset_index;
-        sprite_slots[slot].animation_index = command->animation_index;
-        sprite_slots[slot].visible = (uint8_t)((command->flags & PCE_VN_SPRITE_VISIBLE) && command->asset_index >= 0);
-        sprite_slots[slot].flags = command->flags;
-        sprite_slots[slot].frame = 0u;
-        sprite_slots[slot].timer = 0u;
-        if (sprite_slots[slot].visible && was_visible && command->arg0)
-        {
-            sprite_slots[slot].x = start_x;
-            sprite_slots[slot].y = start_y;
-            animate_sprite_slot(slot, command->x, command->y, command->arg0);
-        }
-        else
-        {
-            sprite_slots[slot].x = command->x;
-            sprite_slots[slot].y = command->y;
-            pending_sprite_refresh = 1u;
-        }
-    }
-    else if (command->type == PCE_VN_COMMAND_AUDIO)
-    {
-        const uint8_t kind = (uint8_t)(command->flags & 0x0fu);
-        const uint8_t action = (uint8_t)(command->flags & 0xf0u);
-        if (kind == PCE_VN_AUDIO_KIND_ADPCM)
-        {
-            if (action == PCE_VN_AUDIO_ACTION_STOP) stop_adpcm_voice();
-            else play_adpcm_voice(command->asset_index);
-        }
-        else if (kind == PCE_VN_AUDIO_KIND_PSG)
-        {
-            if (action == PCE_VN_AUDIO_ACTION_STOP) stop_psg();
-            else play_psg_asset(command->asset_index, command->slot);
-        }
-        else
-        {
-            if (action == PCE_VN_AUDIO_ACTION_STOP) stop_cdda_track();
-            else if (command->asset_index >= 0 && (uint8_t)command->asset_index < pce_editor_cdda_asset_count)
-            {
-                const pce_editor_cdda_asset_t *cdda = &pce_editor_cdda_assets[(uint8_t)command->asset_index];
-                play_cdda_track(cdda);
-            }
-        }
-    }
-    else if (command->type == PCE_VN_COMMAND_MESSAGE)
-    {
-        if (command->message_index >= 0)
-        {
-            start_message((uint8_t)command->message_index);
-            return VN_EXEC_WAIT;
-        }
-    }
-    else if (command->type == PCE_VN_COMMAND_PRELOAD)
-    {
-        const uint8_t target_is_current = (uint8_t)(command->scene_index >= 0 && (uint8_t)command->scene_index == current_scene);
-        preload_scene_assets(command->scene_index, pending_display_enable, target_is_current ? 0u : 1u);
-    }
-    else if (command->type == PCE_VN_COMMAND_CHOICE)
-    {
+        if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
         if (command->choice_index >= 0)
         {
             start_choice((uint8_t)command->choice_index);
@@ -3368,6 +3392,89 @@ static uint8_t execute_command(const pce_vn_command_t *command)
             return VN_EXEC_WAIT;
         }
     }
+    return VN_EXEC_CONTINUE;
+}
+
+static uint8_t execute_command(const pce_vn_command_t *command)
+{
+    uint8_t slot;
+    if (!command) return VN_EXEC_CONTINUE;
+    if (command->type == PCE_VN_COMMAND_BACKGROUND)
+    {
+        set_background(command->asset_index, command->flags, command->arg0, command->arg1, command->x, command->y);
+    }
+    else if (command->type == PCE_VN_COMMAND_SPRITE)
+    {
+        uint8_t was_visible;
+        uint16_t start_x;
+        uint16_t start_y;
+        if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
+        slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
+        was_visible = (uint8_t)(sprite_slots[slot].visible && sprite_slots[slot].sprite_index >= 0);
+        start_x = sprite_slots[slot].x;
+        start_y = sprite_slots[slot].y;
+        sprite_slots[slot].sprite_index = command->asset_index;
+        sprite_slots[slot].animation_index = command->animation_index;
+        sprite_slots[slot].visible = (uint8_t)((command->flags & PCE_VN_SPRITE_VISIBLE) && command->asset_index >= 0);
+        sprite_slots[slot].flags = command->flags;
+        sprite_slots[slot].frame = 0u;
+        sprite_slots[slot].timer = 0u;
+        if (sprite_slots[slot].visible && was_visible && command->arg0)
+        {
+            sprite_slots[slot].x = start_x;
+            sprite_slots[slot].y = start_y;
+            animate_sprite_slot(slot, command->x, command->y, command->arg0);
+        }
+        else
+        {
+            sprite_slots[slot].x = command->x;
+            sprite_slots[slot].y = command->y;
+            pending_sprite_refresh = 1u;
+        }
+    }
+    else if (command->type == PCE_VN_COMMAND_AUDIO)
+    {
+        const uint8_t kind = (uint8_t)(command->flags & 0x0fu);
+        const uint8_t action = (uint8_t)(command->flags & 0xf0u);
+        if (kind == PCE_VN_AUDIO_KIND_ADPCM)
+        {
+            if (action == PCE_VN_AUDIO_ACTION_STOP) stop_adpcm_voice();
+            else play_adpcm_voice(command->asset_index);
+        }
+        else if (kind == PCE_VN_AUDIO_KIND_PSG)
+        {
+            if (action == PCE_VN_AUDIO_ACTION_STOP) stop_psg();
+            else play_psg_asset(command->asset_index, command->slot);
+        }
+        else
+        {
+            if (action == PCE_VN_AUDIO_ACTION_STOP) stop_cdda_track();
+            else if (command->asset_index >= 0 && (uint8_t)command->asset_index < pce_editor_cdda_asset_count)
+            {
+                const pce_editor_cdda_asset_t *cdda = &pce_editor_cdda_assets[(uint8_t)command->asset_index];
+                play_cdda_track(cdda);
+            }
+        }
+    }
+    else if (command->type == PCE_VN_COMMAND_MESSAGE)
+    {
+        if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
+        if (command->message_index >= 0)
+        {
+            start_message((uint8_t)command->message_index);
+            return VN_EXEC_WAIT;
+        }
+    }
+    else if (command->type == PCE_VN_COMMAND_PRELOAD)
+    {
+        const uint8_t target_is_current = (uint8_t)(command->scene_index >= 0 && (uint8_t)command->scene_index == current_scene);
+        preload_scene_assets(command->scene_index, pending_display_enable, target_is_current ? 0u : 1u);
+    }
+    else if (command->type == PCE_VN_COMMAND_CHOICE
+        || (command->type >= PCE_VN_COMMAND_VARIABLE && command->type <= PCE_VN_COMMAND_INPUTCHECK))
+    {
+        return execute_control_command(command);
+    }
     else if (command->type == PCE_VN_COMMAND_JUMP)
     {
         if (command->scene_index >= 0)
@@ -3385,9 +3492,9 @@ static uint8_t execute_command(const pce_vn_command_t *command)
     {
         if (command->flags == PCE_VN_EFFECT_FADE_OUT)
         {
-            if (current_bg_index >= 0 && !pending_display_enable)
+            if (!pending_display_enable)
             {
-                fade_palette(&pce_editor_bg_assets[(uint8_t)current_bg_index].palette, (uint16_t)(pce_editor_bg_assets[(uint8_t)current_bg_index].palette_bank * 16u), command->arg0, 0u);
+                fade_current_screen_to_color(command->x, command->arg0);
             }
             display_disable();
             pending_display_enable = 1u;
@@ -3414,9 +3521,14 @@ static uint8_t execute_command(const pce_vn_command_t *command)
         {
             shake_screen(command->arg0, command->arg1);
         }
+        else if (command->flags == PCE_VN_EFFECT_FLASH)
+        {
+            flash_screen_color(command->x, command->arg0);
+        }
     }
     else if (command->type == PCE_VN_COMMAND_SPRITETEXT)
     {
+        if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
         slot = command->slot < VN_SPRITETEXT_SLOT_COUNT ? command->slot : 0u;
         if (command->flags & PCE_VN_SPRITE_VISIBLE)
         {

@@ -62,7 +62,7 @@ const COMMAND_DEFINITIONS = [
   { type: 'preload', label: 'Preload', category: '分岐', description: '次シーンを先読み' },
   { type: 'wait', label: 'Wait', category: '制御', description: '指定フレーム待機' },
   { type: 'audio', label: 'Audio', category: '音声', description: 'CD-DA/ADPCM/PSG再生停止' },
-  { type: 'effect', label: 'Effect', category: '演出', description: 'フェード/揺れ' },
+  { type: 'effect', label: 'Effect', category: '演出', description: 'フェード/フラッシュ/揺れ' },
   { type: 'spritetext', label: 'SpriteText', category: '演出', description: '短い文字をスプライトで重ねる' },
 ];
 const COMMAND_CATEGORIES = [...new Set(COMMAND_DEFINITIONS.map((item) => item.category))];
@@ -349,8 +349,7 @@ function applySpriteFrame(node, url, geo, flipX, flipY) {
   requestAnimationFrame(step);
 }
 
-// 表示系コマンドを先頭から uptoIndex まで畳み込み、その時点の画面状態を返す
-function computeVisualState(commands = [], uptoIndex = -1) {
+function computeVisualState(commands = [], uptoIndex = -1, fullScreenBg = false) {
   const state = { background: null, sprites: {}, spriteTexts: {} };
   const last = Math.min(uptoIndex, commands.length - 1);
   for (let i = 0; i <= last; i += 1) {
@@ -358,7 +357,7 @@ function computeVisualState(commands = [], uptoIndex = -1) {
     if (!command) continue;
     if (command.type === 'background') {
       state.background = { assetId: command.assetId, x: command.x, y: command.y };
-    } else if (command.type === 'sprite') {
+    } else if (command.type === 'sprite' && !fullScreenBg) {
       if (command.visible === false) {
         delete state.sprites[command.slot];
       } else {
@@ -372,7 +371,7 @@ function computeVisualState(commands = [], uptoIndex = -1) {
           animationId: command.animationId,
         };
       }
-    } else if (command.type === 'spritetext') {
+    } else if (command.type === 'spritetext' && !fullScreenBg) {
       if (command.visible === false) {
         delete state.spriteTexts[command.slot];
       } else {
@@ -426,7 +425,7 @@ function defaultCommand(type, assets = []) {
     return { type: 'inputcheck', buttons: ['i'], mode: 'sync', targetLabel: '' };
   }
   if (type === 'effect') {
-    return { type: 'effect', effect: 'shake', frames: 16, intensity: 4 };
+    return { type: 'effect', effect: 'shake', frames: 16, intensity: 4, color: '' };
   }
   if (type === 'spritetext') {
     return { type: 'spritetext', slot: 0, text: 'PRESS RUN BUTTON', x: 64, y: 184, color: '#ffffff', blinkFrames: 30, visible: true };
@@ -478,6 +477,7 @@ function defaultDoc(assets = []) {
     startScene: 'opening',
     scenes: [{
       id: 'opening',
+      fullScreenBg: false,
       commands: [
         defaultCommand('background', assets),
         defaultCommand('sprite', assets),
@@ -635,13 +635,16 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       if (value === 'fadeIn' || value === 'fade-in' || value === 'in') return 'fadeIn';
       if (value === 'blank' || value === 'black') return 'blank';
       if (value === 'shake' || value === 'screenShake' || value === 'screen-shake') return 'shake';
+      if (value === 'flash') return 'flash';
       return 'fadeOut';
     })();
+    const defaultColor = effect === 'flash' ? '#ffffff' : (effect === 'fadeOut' ? '#000000' : '');
     return {
       type: 'effect',
       effect,
       frames: clamp(raw.frames ?? raw.durationFrames, 0, 255, 16),
       intensity: effect === 'shake' ? clamp(raw.intensity ?? raw.power ?? raw.amplitude, 1, 16, 4) : 0,
+      color: snapHexToPce(raw.color) || defaultColor,
     };
   }
   if (raw.type === 'spritetext') {
@@ -692,6 +695,10 @@ function normalizeDoc(doc, assets) {
       : legacyCommands(scene, assets);
     return {
       id: safeId(scene?.id, index === 0 ? 'opening' : `scene_${index + 1}`),
+      fullScreenBg: scene?.fullScreenBg === true
+        || scene?.fullscreenBg === true
+        || scene?.fullScreenBackground === true
+        || ['fullscreenbg', 'full-screen-bg', 'fullscreen', 'full'].includes(String(scene?.layout || scene?.displayMode || '').trim().toLowerCase()),
       commands: commands.length ? commands : fallback.scenes[0].commands,
       nextSceneId: safeId(scene?.nextSceneId, ''),
     };
@@ -775,6 +782,7 @@ function previewRuntime() {
     '.pv-row{height:' + MSG.cellH + 'px;display:flex;}',
     '.pv-cell{width:' + MSG.cellW + 'px;height:' + MSG.cellH + 'px;line-height:' + MSG.cellH + 'px;font-size:11px;text-align:center;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.9);overflow:hidden;}',
     '#pv-msg.pv-hidden,#pv-choice.pv-hidden{display:none;}',
+    '#pv-effect{position:absolute;inset:0;z-index:20;pointer-events:none;opacity:0;background:#fff;}',
     '#pv-choice{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;gap:6px;min-width:140px;}',
     '#pv-choice button{font:inherit;font-size:12px;padding:6px 14px;border-radius:4px;border:1px solid rgba(120,160,210,.6);background:rgba(8,14,24,.92);color:#e8eef5;cursor:pointer;}',
     '#pv-choice button.pv-active,#pv-choice button:hover{border-color:#8fd0ff;background:rgba(40,80,130,.7);}',
@@ -793,6 +801,7 @@ function previewRuntime() {
     '<div id="pv-stage-wrap"><div id="pv-stage">'
     + '<div id="pv-msg" class="pv-hidden"></div>'
     + '<div id="pv-choice" class="pv-hidden"></div>'
+    + '<div id="pv-effect"></div>'
     + '</div></div>'
     + '<div id="pv-bar"><button id="pv-restart">最初から</button><span id="pv-scene"></span>'
     + '<span id="pv-hint">クリック / Enter で進む ・ Esc で閉じる</span></div>';
@@ -802,6 +811,7 @@ function previewRuntime() {
   const stageWrap = root.querySelector('#pv-stage-wrap');
   const msgBox = root.querySelector('#pv-msg');
   const choiceBox = root.querySelector('#pv-choice');
+  const effectLayer = root.querySelector('#pv-effect');
   const sceneLabel = root.querySelector('#pv-scene');
 
   function fit() {
@@ -959,6 +969,12 @@ function previewRuntime() {
     scene = scenesById[id] || null;
     sceneId = id;
     pc = 0;
+    if (scene?.fullScreenBg) {
+      state.sprites = {};
+      state.spriteTexts = {};
+      hideMsg();
+      hideChoice();
+    }
   }
 
   function applyVar(c) {
@@ -988,9 +1004,35 @@ function previewRuntime() {
     playAudio(kind, c.assetId, kind === 'cdda');
   }
   function applyEffect(c) {
-    if (c.effect === 'blank') { state.background = null; state.sprites = {}; state.spriteTexts = {}; renderStage(); }
-    else if (c.effect === 'fadeOut') { stage.style.transition = 'opacity .2s'; stage.style.opacity = '0'; }
-    else if (c.effect === 'fadeIn') { stage.style.transition = 'opacity .2s'; stage.style.opacity = '1'; }
+    const frames = Math.max(0, Number(c.frames || 0));
+    const seconds = Math.max(0.01, frames / 60);
+    const color = c.color || (c.effect === 'flash' ? '#ffffff' : '#000000');
+    if (c.effect === 'blank') {
+      state.background = null;
+      state.sprites = {};
+      state.spriteTexts = {};
+      effectLayer.style.opacity = '0';
+      renderStage();
+    }
+    else if (c.effect === 'flash') {
+      effectLayer.style.transition = 'none';
+      effectLayer.style.background = color;
+      effectLayer.style.opacity = '1';
+      void effectLayer.offsetWidth;
+      effectLayer.style.transition = `opacity ${seconds}s linear`;
+      effectLayer.style.opacity = '0';
+    }
+    else if (c.effect === 'fadeOut') {
+      effectLayer.style.transition = `opacity ${seconds}s linear`;
+      effectLayer.style.background = color;
+      effectLayer.style.opacity = '1';
+    }
+    else if (c.effect === 'fadeIn') {
+      stage.style.transition = `opacity ${seconds}s linear`;
+      stage.style.opacity = '1';
+      effectLayer.style.transition = `opacity ${seconds}s linear`;
+      effectLayer.style.opacity = '0';
+    }
     else if (c.effect === 'shake') { stage.classList.remove('pv-shake'); void stage.offsetWidth; stage.classList.add('pv-shake'); }
   }
 
@@ -1127,6 +1169,7 @@ function previewRuntime() {
       const t = c.type;
       if (t === 'background') { state.background = { assetId: c.assetId, x: c.x, y: c.y }; renderStage(); pc += 1; continue; }
       if (t === 'sprite') {
+        if (scene.fullScreenBg) { pc += 1; continue; }
         if (c.visible === false) delete state.sprites[c.slot];
         else state.sprites[c.slot] = { slot: c.slot, assetId: c.assetId, x: c.x, y: c.y, flipX: c.flipX, flipY: c.flipY, animationId: c.animationId };
         renderStage();
@@ -1134,6 +1177,7 @@ function previewRuntime() {
         continue;
       }
       if (t === 'spritetext') {
+        if (scene.fullScreenBg) { pc += 1; continue; }
         if (c.visible === false) delete state.spriteTexts[c.slot];
         else state.spriteTexts[c.slot] = { slot: c.slot, text: c.text, x: c.x, y: c.y, color: c.color };
         renderStage();
@@ -1166,8 +1210,8 @@ function previewRuntime() {
         continue;
       }
       if (t === 'wait') { pc += 1; waitTimer = setTimeout(() => { waitTimer = null; run(); }, Math.max(0, c.frames || 0) * 1000 / 60); return; }
-      if (t === 'message') { pc += 1; showMessage(c); return; }
-      if (t === 'choice') { showChoice(c); return; }
+      if (t === 'message') { pc += 1; if (scene.fullScreenBg) continue; showMessage(c); return; }
+      if (t === 'choice') { if (scene.fullScreenBg) { pc += 1; continue; } showChoice(c); return; }
       pc += 1;
     }
   }
@@ -1177,6 +1221,7 @@ function previewRuntime() {
     stopAudio('cdda');
     stopAudio('adpcm');
     stage.style.opacity = '1';
+    effectLayer.style.opacity = '0';
     sceneId = scenesById[data.startScene] ? data.startScene : (data.doc.startScene || (data.doc.scenes[0] && data.doc.scenes[0].id));
     scene = scenesById[sceneId] || null;
     pc = 0;
@@ -1252,6 +1297,10 @@ export function activatePlugin({ root, api, registerCapability }) {
         <div class="pce-vn-edit-title">
           <h2 data-role="scene-title">Scene</h2>
           <div class="pce-vn-actions">
+            <label class="pce-vn-scene-toggle">
+              <input type="checkbox" data-role="scene-fullscreen-bg" />
+              <span>Full BG</span>
+            </label>
             <button class="btn-sm" type="button" data-action="preview" title="シーンをプレビュー再生">▶ プレビュー</button>
             <button class="icon-btn danger" type="button" data-action="delete-scene" title="シーン削除" aria-label="シーン削除">×</button>
             <button class="btn-primary" type="button" data-action="save">保存</button>
@@ -1285,6 +1334,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   const commandPaletteEl = root.querySelector('[data-role="command-palette"]');
   const errorEl = root.querySelector('[data-role="error"]');
   const sceneBudgetEl = root.querySelector('[data-role="scene-budget"]');
+  const sceneFullScreenBgInput = root.querySelector('[data-role="scene-fullscreen-bg"]');
   let assets = [];
   let doc = defaultDoc();
   let selectedId = 'opening';
@@ -1613,6 +1663,36 @@ export function activatePlugin({ root, api, registerCapability }) {
     return optionsFor(labels, current, label);
   }
 
+  function detailColorValue(colorName, hexName, fallback = '') {
+    const hex = snapHexToPce(detailForm.elements[hexName]?.value);
+    if (hex) return hex;
+    return snapHexToPce(detailForm.elements[colorName]?.value) || fallback;
+  }
+
+  function syncDetailColorInputs(target) {
+    const name = target?.name || '';
+    const pairs = [
+      ['textColor', 'textColorHex'],
+      ['color', 'colorHex'],
+    ];
+    const pair = pairs.find(([colorName, hexName]) => name === colorName || name === hexName);
+    if (!pair) return;
+    const [colorName, hexName] = pair;
+    const colorInput = detailForm.elements[colorName];
+    const hexInput = detailForm.elements[hexName];
+    if (!colorInput || !hexInput) return;
+    if (name === colorName) {
+      const snapped = snapHexToPce(colorInput.value);
+      if (snapped) {
+        colorInput.value = snapped;
+        hexInput.value = snapped;
+      }
+      return;
+    }
+    const snapped = snapHexToPce(hexInput.value);
+    if (snapped) colorInput.value = snapped;
+  }
+
   function commandSummary(command) {
     if (!command) return '';
     if (command.type === 'background') {
@@ -1625,7 +1705,10 @@ export function activatePlugin({ root, api, registerCapability }) {
     }
     if (command.type === 'message') return `${command.speaker ? `${command.speaker}: ` : ''}${command.text || '本文なし'}`;
     if (command.type === 'audio') return `${command.kind}:${command.action}${command.assetId ? ` ${command.assetId}` : ''}${command.kind === 'psg' && command.action === 'play' ? ` ch${command.channel || 0}` : ''}`;
-    if (command.type === 'effect') return command.effect === 'shake' ? `shake ${command.frames}f / ${command.intensity}` : `${command.effect} ${command.frames}f`;
+    if (command.type === 'effect') {
+      const color = command.effect === 'fadeOut' || command.effect === 'flash' ? ` ${command.color || ''}` : '';
+      return command.effect === 'shake' ? `shake ${command.frames}f / ${command.intensity}` : `${command.effect} ${command.frames}f${color}`;
+    }
     if (command.type === 'spritetext') {
       if (command.visible === false) return `slot ${command.slot} 消去`;
       return `"${command.text || ''}" slot ${command.slot} (${command.x}, ${command.y})${command.blinkFrames ? ` blink ${command.blinkFrames}f` : ''}`;
@@ -1700,11 +1783,15 @@ export function activatePlugin({ root, api, registerCapability }) {
       }, assets);
     }
     if (type === 'effect') {
+      const effect = detailForm.elements.effect.value;
+      const wasColorEffect = existing.effect === 'fadeOut' || existing.effect === 'flash';
+      const keepFormColor = wasColorEffect || existing.effect === effect;
       return normalizeCommand({
         type,
-        effect: detailForm.elements.effect.value,
+        effect,
         frames: detailForm.elements.frames.value,
         intensity: detailForm.elements.intensity.value,
+        color: keepFormColor ? detailColorValue('color', 'colorHex') : '',
       }, assets);
     }
     if (type === 'variable') {
@@ -1765,7 +1852,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       }, assets);
     }
     if (type === 'spritetext') {
-      const stColorHex = (detailForm.elements.colorHex?.value || '').trim() || detailForm.elements.color?.value || '';
+      const stColorHex = detailColorValue('color', 'colorHex', '#ffffff');
       return normalizeCommand({
         type,
         slot: detailForm.elements.slot.value,
@@ -1778,7 +1865,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       }, assets);
     }
     const colorEnabled = detailForm.elements.textColorEnabled?.checked;
-    const colorHex = (detailForm.elements.textColorHex?.value || '').trim() || detailForm.elements.textColor?.value || '';
+    const colorHex = detailColorValue('textColor', 'textColorHex');
     return normalizeCommand({
       type,
       speaker: detailForm.elements.speaker.value,
@@ -1825,7 +1912,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       return `
         <div class="pce-vn-scene-row ${item.id === selectedId ? 'active' : ''}" data-scene-row="${esc(item.id)}">
           <button type="button" data-scene-id="${esc(item.id)}" class="pce-vn-scene-select">
-            <strong>${esc(item.id)}${badge}</strong>
+            <strong>${esc(item.id)}${item.fullScreenBg ? '<span class="pce-vn-mode-badge">Full BG</span>' : ''}${badge}</strong>
             <span>${esc(firstMessage?.text || `${item.commands.length} commands`)}</span>
           </button>
           <button
@@ -1937,12 +2024,19 @@ export function activatePlugin({ root, api, registerCapability }) {
       `;
     }
     if (command.type === 'effect') {
+      const effectColor = command.color || (command.effect === 'fadeOut' ? '#000000' : '#ffffff');
       return `
         <div class="pce-vn-grid tight">
-          <label class="form-group"><span class="form-label">Effect</span><select class="form-select" name="effect"><option value="fadeOut" ${command.effect === 'fadeOut' ? 'selected' : ''}>fade out</option><option value="fadeIn" ${command.effect === 'fadeIn' ? 'selected' : ''}>fade in</option><option value="blank" ${command.effect === 'blank' ? 'selected' : ''}>blank</option><option value="shake" ${command.effect === 'shake' ? 'selected' : ''}>shake</option></select></label>
+          <label class="form-group"><span class="form-label">Effect</span><select class="form-select" name="effect"><option value="fadeOut" ${command.effect === 'fadeOut' ? 'selected' : ''}>fade out</option><option value="fadeIn" ${command.effect === 'fadeIn' ? 'selected' : ''}>fade in</option><option value="blank" ${command.effect === 'blank' ? 'selected' : ''}>blank</option><option value="shake" ${command.effect === 'shake' ? 'selected' : ''}>shake</option><option value="flash" ${command.effect === 'flash' ? 'selected' : ''}>flash</option></select></label>
           <label class="form-group"><span class="form-label">Frames</span><input class="form-input" name="frames" type="number" min="0" max="255" value="${esc(command.frames)}" /></label>
           <label class="form-group"><span class="form-label">Power</span><input class="form-input" name="intensity" type="number" min="1" max="16" value="${esc(command.intensity || 4)}" /></label>
         </div>
+        <label class="form-group"><span class="form-label">色</span>
+          <span class="pce-vn-color-row">
+            <input type="color" name="color" value="${esc(effectColor)}" />
+            <input class="form-input form-input-mono" name="colorHex" value="${esc(command.color || '')}" placeholder="#rrggbb" />
+          </span>
+        </label>
       `;
     }
     if (command.type === 'variable') {
@@ -2168,7 +2262,12 @@ export function activatePlugin({ root, api, registerCapability }) {
     else if (command.type === 'goto') text.textContent = command.targetLabel ? `goto ${command.targetLabel}` : 'label未指定';
     else if (command.type === 'jump' || command.type === 'preload') text.textContent = command.sceneId ? `Scene: ${command.sceneId}` : 'Scene未指定';
     else if (command.type === 'wait') text.textContent = `${command.frames} frames`;
-    else if (command.type === 'effect') text.textContent = command.effect === 'shake' ? `shake / ${command.frames} frames / power ${command.intensity}` : `${command.effect} / ${command.frames} frames`;
+    else if (command.type === 'effect') {
+      const color = command.effect === 'fadeOut' || command.effect === 'flash' ? ` / ${command.color || '#000000'}` : '';
+      text.textContent = command.effect === 'shake'
+        ? `shake / ${command.frames} frames / power ${command.intensity}`
+        : `${command.effect} / ${command.frames} frames${color}`;
+    }
     else text.textContent = commandSummary(command);
     body.append(strong, text);
     commandPreviewEl.replaceChildren(body);
@@ -2194,7 +2293,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       return;
     }
     if (command.type === 'message') {
-      const state = computeVisualState(current.commands, selectedCommandIndex);
+      const state = computeVisualState(current.commands, selectedCommandIndex, current.fullScreenBg);
       const ids = new Set();
       if (state.background?.assetId) ids.add(state.background.assetId);
       Object.values(state.sprites).forEach((s) => { if (s.assetId) ids.add(s.assetId); });
@@ -2210,7 +2309,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (command.type === 'background' || command.type === 'sprite' || command.type === 'spritetext') {
       const loadingLabel = command.type === 'background' ? '背景' : (command.type === 'spritetext' ? 'SpriteText' : 'Sprite');
       renderCommandPreviewLoading(command, command.type === 'spritetext' ? null : assetById(command.assetId), loadingLabel);
-      const state = computeVisualState(current.commands, selectedCommandIndex);
+      const state = computeVisualState(current.commands, selectedCommandIndex, current.fullScreenBg);
       const ids = new Set();
       if (state.background?.assetId) ids.add(state.background.assetId);
       Object.values(state.sprites).forEach((s) => { if (s.assetId) ids.add(s.assetId); });
@@ -2255,6 +2354,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (!current) return;
     ensureSelectedCommand(current);
     root.querySelector('[data-role="scene-title"]').textContent = current.id;
+    if (sceneFullScreenBgInput) sceneFullScreenBgInput.checked = Boolean(current.fullScreenBg);
     renderCommands(current);
     renderCommandDetail(current);
     void renderCommandPreview();
@@ -2635,14 +2735,16 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   detailForm.addEventListener('input', (event) => {
     if (event.target?.name === 'type') return;
+    syncDetailColorInputs(event.target);
     updateSelectedCommandFromDetail({ rerenderCommands: true, updatePreview: true });
   });
 
   detailForm.addEventListener('change', (event) => {
     const name = event.target?.name || '';
+    syncDetailColorInputs(event.target);
     const isInputToggle = Boolean(event.target?.dataset?.inputButton);
     const rerenderDetail = isInputToggle
-      || ['type', 'kind', 'assetId', 'mode', 'voiceAssetId', 'textColorEnabled', 'textColor', 'textColorHex', 'color', 'colorHex'].includes(name);
+      || ['type', 'kind', 'assetId', 'mode', 'effect', 'voiceAssetId', 'textColorEnabled', 'textColor', 'textColorHex', 'color', 'colorHex'].includes(name);
     updateSelectedCommandFromDetail({ rerenderDetail, rerenderCommands: true, updatePreview: true });
   });
 
@@ -2674,10 +2776,19 @@ export function activatePlugin({ root, api, registerCapability }) {
   root.querySelector('[data-action="reload"]').addEventListener('click', () => { void load({ force: true }); });
   root.querySelector('[data-action="save"]').addEventListener('click', save);
   root.querySelector('[data-action="preview"]').addEventListener('click', () => { void openScenePreview(); });
+  sceneFullScreenBgInput?.addEventListener('change', () => {
+    commitCurrentUiToDoc();
+    const current = scene();
+    if (!current) return;
+    current.fullScreenBg = Boolean(sceneFullScreenBgInput.checked);
+    renderSceneList();
+    renderCommands(current);
+    void renderCommandPreview();
+  });
   root.querySelector('[data-action="add-scene"]').addEventListener('click', () => {
     commitCurrentUiToDoc();
     const id = safeId(`scene_${doc.scenes.length + 1}`, 'scene');
-    doc.scenes.push({ id, commands: [defaultCommand('message', assets)], nextSceneId: '' });
+    doc.scenes.push({ id, fullScreenBg: false, commands: [defaultCommand('message', assets)], nextSceneId: '' });
     selectedId = id;
     selectedCommandIndex = 0;
     render();
