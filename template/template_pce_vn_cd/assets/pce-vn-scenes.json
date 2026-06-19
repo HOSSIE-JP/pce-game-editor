@@ -4,6 +4,7 @@
   "scenes": [
     {
       "id": "opening",
+      "fullScreenBg": false,
       "commands": [
         {
           "type": "background",
@@ -11,8 +12,444 @@
           "transition": "cut",
           "fadeOutFrames": 0,
           "fadeInFrames": 0,
+          "x": 2,
+          "y": 2
+        },
+        {
+          "type": "audio",
+          "kind": "cdda",
+          "action": "play",
+          "assetId": "opening_cdda",
+          "channel": 0
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
+          "assetId": "akari_sprite",
+          "x": 96,
+          "y": 24,
+          "animationId": "default",
+          "flipX": false,
+          "flipY": false,
+          "durationFrames": 0,
+          "visible": true
+        },
+        {
+          "type": "message",
+          "speaker": "Akari",
+          "text": "これはVNコマンドの\nサンプルです。\nBG Sprite Audioを\nじゅんに実行します。",
+          "textColor": "#ffdb92",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "spritetext",
+          "slot": 0,
+          "text": "PRESS RUN",
+          "x": 56,
+          "y": 16,
+          "color": "#ffdb00",
+          "blinkFrames": 24,
+          "visible": true
+        },
+        {
+          "type": "message",
+          "speaker": "Akari",
+          "text": "Messageはせりふ。\nADPCM voiceと\nmouth animationを\nどうじに使えます。",
+          "textColor": "#ffffff",
+          "voiceAssetId": "akari_voice",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": "mouth"
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
+          "assetId": "akari_sprite",
+          "x": 96,
+          "y": 24,
+          "animationId": "default",
+          "flipX": false,
+          "flipY": false,
+          "durationFrames": 0,
+          "visible": true
+        },
+        {
+          "type": "inputcheck",
+          "buttons": [
+            "run"
+          ],
+          "mode": "async",
+          "targetLabel": "skip_wait"
+        },
+        {
+          "type": "message",
+          "speaker": "Akari",
+          "text": "Input asyncを開始。\nRUNを押すと\nWaitを飛ばして\nラベルへ進みます。",
+          "textColor": "",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "wait",
+          "frames": 90
+        },
+        {
+          "type": "label",
+          "name": "skip_wait"
+        },
+        {
+          "type": "inputcheck",
+          "buttons": [],
+          "mode": "cancel",
+          "targetLabel": ""
+        },
+        {
+          "type": "spritetext",
+          "slot": 0,
+          "text": "",
           "x": 0,
-          "y": 0
+          "y": 0,
+          "color": "#ffffff",
+          "blinkFrames": 0,
+          "visible": false
+        },
+        {
+          "type": "audio",
+          "kind": "psg",
+          "action": "play",
+          "assetId": "vn_psg_chime",
+          "channel": 0
+        },
+        {
+          "type": "message",
+          "speaker": "Akari",
+          "text": "PSG chimeを\n鳴らしました。\nAudio stopのあと\nJumpで分岐です。",
+          "textColor": "",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "audio",
+          "kind": "psg",
+          "action": "stop",
+          "assetId": "",
+          "channel": 0
+        },
+        {
+          "type": "jump",
+          "sceneId": "branch_lab"
+        }
+      ],
+      "nextSceneId": "branch_lab"
+    },
+    {
+      "id": "branch_lab",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "background",
+          "assetId": "command_lab_bg",
+          "transition": "fade",
+          "fadeOutFrames": 12,
+          "fadeInFrames": 16,
+          "x": 2,
+          "y": 2
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
+          "assetId": "mika_sprite",
+          "x": 128,
+          "y": 24,
+          "animationId": "default",
+          "flipX": false,
+          "flipY": false,
+          "durationFrames": 0,
+          "visible": true
+        },
+        {
+          "type": "audio",
+          "kind": "adpcm",
+          "action": "play",
+          "assetId": "guide_voice",
+          "channel": 0
+        },
+        {
+          "type": "wait",
+          "frames": 20
+        },
+        {
+          "type": "audio",
+          "kind": "adpcm",
+          "action": "stop",
+          "assetId": "",
+          "channel": 0
+        },
+        {
+          "type": "variable",
+          "variableName": "route",
+          "operation": "define",
+          "value": 0,
+          "min": 0,
+          "max": 9
+        },
+        {
+          "type": "variable",
+          "variableName": "score",
+          "operation": "define",
+          "value": 0,
+          "min": 0,
+          "max": 9
+        },
+        {
+          "type": "variable",
+          "variableName": "score",
+          "operation": "set",
+          "value": 1,
+          "min": 0,
+          "max": 9
+        },
+        {
+          "type": "variable",
+          "variableName": "score",
+          "operation": "add",
+          "value": 2,
+          "min": 0,
+          "max": 9
+        },
+        {
+          "type": "variable",
+          "variableName": "score",
+          "operation": "sub",
+          "value": 1,
+          "min": 0,
+          "max": 9
+        },
+        {
+          "type": "variable",
+          "variableName": "dice",
+          "operation": "random",
+          "value": 0,
+          "min": 1,
+          "max": 6
+        },
+        {
+          "type": "message",
+          "speaker": "Mika",
+          "text": "Variableはdefine\nset add sub random。\nChoiceの結果も\n変数へ入ります。",
+          "textColor": "#dbffdb",
+          "voiceAssetId": "mika_voice",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": "mouth"
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
+          "assetId": "mika_sprite",
+          "x": 128,
+          "y": 24,
+          "animationId": "default",
+          "flipX": false,
+          "flipY": false,
+          "durationFrames": 0,
+          "visible": true
+        },
+        {
+          "type": "choice",
+          "variableName": "route",
+          "choices": [
+            {
+              "label": "IF",
+              "value": 1,
+              "targetSceneId": ""
+            },
+            {
+              "label": "SWITCH",
+              "value": 2,
+              "targetSceneId": ""
+            },
+            {
+              "label": "EFFECT",
+              "value": 3,
+              "targetSceneId": ""
+            }
+          ],
+          "defaultIndex": 0
+        },
+        {
+          "type": "if",
+          "variableName": "route",
+          "operator": "eq",
+          "value": 1,
+          "targetLabel": "go_if",
+          "elseLabel": "check_switch"
+        },
+        {
+          "type": "label",
+          "name": "check_switch"
+        },
+        {
+          "type": "switch",
+          "variableName": "route",
+          "cases": [
+            {
+              "value": 2,
+              "targetLabel": "go_switch"
+            },
+            {
+              "value": 3,
+              "targetLabel": "go_effect"
+            }
+          ],
+          "defaultLabel": "go_effect"
+        },
+        {
+          "type": "label",
+          "name": "go_if"
+        },
+        {
+          "type": "message",
+          "speaker": "Mika",
+          "text": "IFは変数をくらべ\ntrueならラベルへ。\nfalseはelseへ\n進められます。",
+          "textColor": "",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "goto",
+          "targetLabel": "after_branch"
+        },
+        {
+          "type": "label",
+          "name": "go_switch"
+        },
+        {
+          "type": "message",
+          "speaker": "Mika",
+          "text": "Switchは値ごとに\nラベルを選びます。\ndefaultも指定\nできます。",
+          "textColor": "",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "goto",
+          "targetLabel": "after_branch"
+        },
+        {
+          "type": "label",
+          "name": "go_effect"
+        },
+        {
+          "type": "message",
+          "speaker": "Mika",
+          "text": "Gotoは同じsceneの\nLabelへ移動します。\n分岐の合流にも\n使えます。",
+          "textColor": "",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "label",
+          "name": "after_branch"
+        },
+        {
+          "type": "audio",
+          "kind": "psg",
+          "action": "play",
+          "assetId": "vn_psg_confirm",
+          "channel": 2
+        },
+        {
+          "type": "message",
+          "speaker": "Mika",
+          "text": "Choice IF Switch\nLabel Gotoを確認。\nつぎはEffectと\nInput syncです。",
+          "textColor": "",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "audio",
+          "kind": "psg",
+          "action": "stop",
+          "assetId": "",
+          "channel": 0
+        },
+        {
+          "type": "jump",
+          "sceneId": "effect_lab"
+        }
+      ],
+      "nextSceneId": "effect_lab"
+    },
+    {
+      "id": "effect_lab",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "background",
+          "assetId": "rooftop_dusk_bg",
+          "transition": "fade",
+          "fadeOutFrames": 16,
+          "fadeInFrames": 16,
+          "x": 2,
+          "y": 2
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
+          "assetId": "akari_sprite",
+          "x": 128,
+          "y": 24,
+          "animationId": "blink",
+          "flipX": false,
+          "flipY": false,
+          "durationFrames": 0,
+          "visible": true
+        },
+        {
+          "type": "message",
+          "speaker": "Akari",
+          "text": "Spriteはanimationを\n指定できます。\nここではblinkを\nループ再生中です。",
+          "textColor": "",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
         },
         {
           "type": "sprite",
@@ -27,9 +464,23 @@
           "visible": true
         },
         {
+          "type": "effect",
+          "effect": "flash",
+          "frames": 6,
+          "intensity": 0,
+          "color": "#ffffff"
+        },
+        {
+          "type": "effect",
+          "effect": "shake",
+          "frames": 24,
+          "intensity": 5,
+          "color": ""
+        },
+        {
           "type": "message",
-          "speaker": "",
-          "text": "320がめんです",
+          "speaker": "Akari",
+          "text": "Effectはflashや\nshakeで画面を\n強調できます。",
           "textColor": "",
           "voiceAssetId": "",
           "textSpeedFrames": 2,
@@ -39,9 +490,42 @@
           "mouthAnimationId": ""
         },
         {
+          "type": "effect",
+          "effect": "fadeOut",
+          "frames": 16,
+          "intensity": 0,
+          "color": "#000000"
+        },
+        {
+          "type": "background",
+          "assetId": "command_lab_bg",
+          "transition": "cut",
+          "fadeOutFrames": 0,
+          "fadeInFrames": 0,
+          "x": 2,
+          "y": 2
+        },
+        {
+          "type": "effect",
+          "effect": "fadeIn",
+          "frames": 16,
+          "intensity": 0,
+          "color": ""
+        },
+        {
+          "type": "spritetext",
+          "slot": 1,
+          "text": "SPRITE TEXT",
+          "x": 32,
+          "y": 28,
+          "color": "#ffffff",
+          "blinkFrames": 18,
+          "visible": true
+        },
+        {
           "type": "message",
-          "speaker": "",
-          "text": "18もじx4ぎょう",
+          "speaker": "Akari",
+          "text": "SpriteTextは短い\n文字をスプライトで\n上に重ねます。",
           "textColor": "",
           "voiceAssetId": "",
           "textSpeedFrames": 2,
@@ -49,21 +533,36 @@
           "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
-        }
-      ],
-      "nextSceneId": "rooftop"
-    },
-    {
-      "id": "rooftop",
-      "commands": [
+        },
+        {
+          "type": "spritetext",
+          "slot": 1,
+          "text": "",
+          "x": 0,
+          "y": 0,
+          "color": "#ffffff",
+          "blinkFrames": 0,
+          "visible": false
+        },
+        {
+          "type": "effect",
+          "effect": "blank",
+          "frames": 1,
+          "intensity": 0,
+          "color": ""
+        },
+        {
+          "type": "wait",
+          "frames": 20
+        },
         {
           "type": "background",
-          "assetId": "rooftop_dusk_bg",
-          "transition": "fade",
-          "fadeOutFrames": 16,
-          "fadeInFrames": 16,
-          "x": 0,
-          "y": 0
+          "assetId": "command_lab_bg",
+          "transition": "cut",
+          "fadeOutFrames": 0,
+          "fadeInFrames": 0,
+          "x": 2,
+          "y": 2
         },
         {
           "type": "sprite",
@@ -79,8 +578,8 @@
         },
         {
           "type": "message",
-          "speaker": "",
-          "text": "ゆうやけの おくじょうです",
+          "speaker": "Mika",
+          "text": "Input syncは\n指定ボタンまで\nその場で待ちます。\nIかRUNを押してね。",
           "textColor": "",
           "voiceAssetId": "",
           "textSpeedFrames": 2,
@@ -90,9 +589,135 @@
           "mouthAnimationId": ""
         },
         {
+          "type": "inputcheck",
+          "buttons": [
+            "run",
+            "i"
+          ],
+          "mode": "sync",
+          "targetLabel": "sync_ok"
+        },
+        {
+          "type": "label",
+          "name": "sync_ok"
+        },
+        {
+          "type": "audio",
+          "kind": "psg",
+          "action": "play",
+          "assetId": "vn_psg_confirm",
+          "channel": 1
+        },
+        {
+          "type": "message",
+          "speaker": "Mika",
+          "text": "sync入力を確認。\n最後のsceneへ\nJumpします。",
+          "textColor": "",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "audio",
+          "kind": "psg",
+          "action": "stop",
+          "assetId": "",
+          "channel": 0
+        },
+        {
+          "type": "jump",
+          "sceneId": "ending"
+        }
+      ],
+      "nextSceneId": "ending"
+    },
+    {
+      "id": "ending",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "background",
+          "assetId": "command_lab_bg",
+          "transition": "fade",
+          "fadeOutFrames": 12,
+          "fadeInFrames": 16,
+          "x": 2,
+          "y": 2
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
+          "assetId": "akari_sprite",
+          "x": 96,
+          "y": 24,
+          "animationId": "default",
+          "flipX": false,
+          "flipY": false,
+          "durationFrames": 0,
+          "visible": true
+        },
+        {
+          "type": "message",
+          "speaker": "Akari",
+          "text": "このテンプレートは\n全コマンドを\n実例として\n確認できます。",
+          "textColor": "#ffdb92",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "auto",
+          "autoWaitFrames": 120,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "audio",
+          "kind": "cdda",
+          "action": "stop",
+          "assetId": "",
+          "channel": 0
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
+          "assetId": "akari_sprite",
+          "x": 96,
+          "y": 24,
+          "animationId": "blink",
+          "flipX": false,
+          "flipY": false,
+          "durationFrames": 0,
+          "visible": true
+        },
+        {
+          "type": "message",
+          "speaker": "Akari",
+          "text": "Messageの後で\nidleへ戻したい時は\nSprite defaultを\n置いてください。",
+          "textColor": "",
+          "voiceAssetId": "",
+          "textSpeedFrames": 2,
+          "advanceMode": "button",
+          "autoWaitFrames": 60,
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
+          "assetId": "akari_sprite",
+          "x": 96,
+          "y": 24,
+          "animationId": "default",
+          "flipX": false,
+          "flipY": false,
+          "durationFrames": 0,
+          "visible": true
+        },
+        {
           "type": "message",
           "speaker": "",
-          "text": "ばしょと ひとを きりかえ",
+          "text": "おつかれさまでした。\nスクリプトを開いて\n各コマンドの設定を\n見てください。",
           "textColor": "",
           "voiceAssetId": "",
           "textSpeedFrames": 2,

@@ -13,13 +13,24 @@
     "systemCardPath": "",
     "isoName": "",
     "dataFiles": [
+      "assets/generated/vn/font.bin",
+      "assets/generated/vn/overlay.bin",
+      "assets/generated/vn/font_sprite.bin",
+      "assets/generated/vn/scenes/000_opening.bin",
       "assets/generated/vn_classroom_bg/tiles.rle",
       "assets/generated/vn_classroom_bg/map_vram.rle",
       "assets/generated/akari_sprite/patterns.rle",
+      "assets/generated/akari_voice/adpcm.bin",
+      "assets/generated/vn/scenes/001_branch_lab.bin",
+      "assets/generated/command_lab_bg/tiles.rle",
+      "assets/generated/command_lab_bg/map_vram.rle",
+      "assets/generated/mika_sprite/patterns.rle",
+      "assets/generated/guide_voice/adpcm.bin",
+      "assets/generated/mika_voice/adpcm.bin",
+      "assets/generated/vn/scenes/002_effect_lab.bin",
       "assets/generated/rooftop_dusk_bg/tiles.rle",
       "assets/generated/rooftop_dusk_bg/map_vram.rle",
-      "assets/generated/mika_sprite/patterns.rle",
-      "assets/generated/akari_voice/adpcm.bin"
+      "assets/generated/vn/scenes/003_ending.bin"
     ],
     "cddaTracks": [
       "assets/generated/opening_cdda/cdda.wav"

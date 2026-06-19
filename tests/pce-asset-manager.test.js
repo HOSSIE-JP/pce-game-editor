@@ -262,6 +262,13 @@ test('PCE asset schema supports BG image, sprite, generated metadata, and legacy
     source: 'assets/sprites/hero.png',
     options: { cellWidth: 32, cellHeight: 64, paletteBank: 1 },
   });
+  const satbOverlapSprite = assetManager.normalizeAsset({
+    id: 'talking-hero',
+    type: 'sprite',
+    source: 'assets/sprites/talking-hero.png',
+    options: { width: 256, height: 128, cellWidth: 16, cellHeight: 16, tileBase: 768, paletteBank: 1 },
+    data: { generated: { vramBytes: 16384, warnings: ['Sprite patterns overlap the SATB VRAM area; lower tileBase or reduce sprite sheet size'] } },
+  });
   const psg = assetManager.normalizeAsset({ id: 'old-beep', type: 'psg-sequence', options: { period: 384 } });
   const adpcm = assetManager.normalizeAsset({ id: 'voice', type: 'adpcm', source: 'assets/adpcm/voice.wav', options: { sampleRate: 12000 } });
   const legacyAdpcm = assetManager.normalizeAsset({ id: 'legacy-voice', type: 'adpcm', source: 'assets/adpcm/legacy.wav', options: { sampleRate: 16000, divider: 1 } });
@@ -276,6 +283,7 @@ test('PCE asset schema supports BG image, sprite, generated metadata, and legacy
   assert.equal(sprite.options.kind, 'sprite');
   assert.equal(sprite.options.cellWidth, 32);
   assert.equal(sprite.options.cellHeight, 64);
+  assert.match(satbOverlapSprite.data.generated.warnings.join('\n'), /Sprite patterns overlap the SATB VRAM area/);
   assert.equal(psg.type, 'psg-sfx');
   assert.equal(psg.options.period, 384);
   assert.equal(adpcm.options.sampleRate, 12000);
@@ -484,6 +492,15 @@ test('PCE image import generates BG and sprite assets with the internal converte
     cellWidth: 32,
     cellHeight: 32,
   });
+  const overlapSprite = assetManager.importImage(projectDir, {
+    sourceFileName: 'talking-hero.png',
+    convertedDataUrl: makePngDataUrl(256, 128),
+    kind: 'sprite',
+    id: 'talking_hero',
+    cellWidth: 16,
+    cellHeight: 16,
+    tileBase: 768,
+  });
   const webp = assetManager.importImage(projectDir, {
     sourceFileName: 'cover.webp',
     convertedDataUrl: makePngDataUrl(16, 16),
@@ -518,6 +535,7 @@ test('PCE image import generates BG and sprite assets with the internal converte
   assert.equal(fs.readFileSync(path.join(projectDir, sprite.asset.data.generated.tilesFile)).length, 512);
   assert.equal(sprite.asset.data.generated.tileCount, 4);
   assert.match(sprite.asset.source, /^assets\/sprites\/hero\.png$/);
+  assert.match(overlapSprite.asset.data.generated.warnings.join('\n'), /Sprite patterns overlap the SATB VRAM area/);
   assert.equal(webp.asset.type, 'image');
   assert.equal(webp.asset.source, 'assets/images/cover_webp.png');
   assert.equal(fs.existsSync(path.join(projectDir, webp.asset.source)), true);
@@ -856,11 +874,11 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.match(header, /extern const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\];/);
   assert.doesNotMatch(source, /PCE_RAM_BANK_AT\(129, 3\);/);
   assert.doesNotMatch(source, /pce_editor_image_bg_map_bank129/);
-  assert.match(source, /pce_editor_image_bg_tiles_cd = \{ \{ 64u, 0u, 0u \}, 1u, 2048u, 0u \};/);
-  assert.match(source, /pce_editor_image_bg_map_cd = \{ \{ 65u, 0u, 0u \}, 1u, 2048u, 0u \};/);
+  assert.match(source, /pce_editor_image_bg_tiles_cd PCE_EDITOR_CD_REF_SECTION = \{ \{ 64u, 0u, 0u \}, 1u, 2048u, 0u \};/);
+  assert.match(source, /pce_editor_image_bg_map_cd PCE_EDITOR_CD_REF_SECTION = \{ \{ 65u, 0u, 0u \}, 1u, 2048u, 0u \};/);
   assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_tiles_cd \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_map_cd \}, 36u, 16u, 64u, 0u, 0u \}/);
-  assert.match(source, /pce_editor_sprite_hero_patterns_cd = \{ \{ 66u, 0u, 0u \}, 2u, 4096u, 0u \};/);
-  assert.match(source, /pce_editor_adpcm_voice_data_cd = \{ \{ 68u, 0u, 0u \}, 2u, 4096u, 0u \};/);
+  assert.match(source, /pce_editor_sprite_hero_patterns_cd PCE_EDITOR_CD_REF_SECTION = \{ \{ 66u, 0u, 0u \}, 2u, 4096u, 0u \};/);
+  assert.match(source, /pce_editor_adpcm_voice_data_cd PCE_EDITOR_CD_REF_SECTION = \{ \{ 68u, 0u, 0u \}, 2u, 4096u, 0u \};/);
   assert.match(source, /\{ \(const unsigned char \*\)0, 4096ul, 16000u, 0u, 14u, 0u, 1u, &pce_editor_adpcm_voice_data_cd \}/);
   assert.match(header, /pce_editor_cd_sector_t start_sector;/);
   assert.match(header, /pce_editor_cd_sector_t end_sector;/);
@@ -946,9 +964,9 @@ test('PCE CD asset source generation uses compressed BG and sprite sidecars when
     'assets/generated/bg/map_vram.rle',
     'assets/generated/hero/patterns.rle',
   ]);
-  assert.match(source, new RegExp(`pce_editor_image_bg_tiles_cd = \\{ \\{ 64u, 0u, 0u \\}, 1u, ${bgTilesRle.length}u, 1u \\};`));
-  assert.match(source, new RegExp(`pce_editor_image_bg_map_cd = \\{ \\{ 65u, 0u, 0u \\}, 1u, ${bgMapRle.length}u, 1u \\};`));
-  assert.match(source, new RegExp(`pce_editor_sprite_hero_patterns_cd = \\{ \\{ 66u, 0u, 0u \\}, 1u, ${spritePatternsRle.length}u, 1u \\};`));
+  assert.match(source, new RegExp(`pce_editor_image_bg_tiles_cd PCE_EDITOR_CD_REF_SECTION = \\{ \\{ 64u, 0u, 0u \\}, 1u, ${bgTilesRle.length}u, 1u \\};`));
+  assert.match(source, new RegExp(`pce_editor_image_bg_map_cd PCE_EDITOR_CD_REF_SECTION = \\{ \\{ 65u, 0u, 0u \\}, 1u, ${bgMapRle.length}u, 1u \\};`));
+  assert.match(source, new RegExp(`pce_editor_sprite_hero_patterns_cd PCE_EDITOR_CD_REF_SECTION = \\{ \\{ 66u, 0u, 0u \\}, 1u, ${spritePatternsRle.length}u, 1u \\};`));
   assert.match(source, /\{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_tiles_cd \}/);
   assert.match(source, /\{ \(const unsigned char \*\)0, 4096u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_sprite_hero_patterns_cd \}/);
 });

@@ -81,3 +81,32 @@ npm run mcp     # 起動中エディターの REST bridge につなぐ MCP sidec
 - PCE の描画崩れ、VRAM/SATB/VDC レジスタ調査、Test Play の実画面デバッグでは、利用可能なら **Geargrafx MCP を優先**してください（`geargrafx-debugging` / `geargrafx-romhacking` スキル、`mcp__geargrafx__*` ツール）。
 - Super CD-ROM2 / ADPCM の挙動確認では **標準 EmulatorJS/WASM だけを正としない**でください。Geargrafx で正常動作し標準 WASM だけが ADPCM 再生後に入力待ちから進まないことがあります。まず ADPCM あり/なし比較、frame counter、`simulateInput()` 直接注入、読み込まれた core を確認し、**runtime を壊す変更で回避しようとしない**でください。
 - Test Play の外部エミュレーター起動は `pce-external-emulator` plugin が担当。`testPlay.externalEmulator.executablePath` / `extraArgs` は Test Play role が `pce-external-emulator` のときだけ有効。macOS の Geargrafx 既定は `/Applications/Geargrafx.app/Contents/MacOS/geargrafx` で、`.app` bundle path は main process で `Contents/MacOS` の実行ファイルへ解決してから ROM / CUE path を渡します。
+
+## Claude Code 計画と実装時の利用モデルについて
+あなたが Opus 4.8で動いているなら以下に従ってください。
+設計、コードベースのリサーチ、レビューはメインセッションであるOpus 4.8で行ってください。
+実装はトークンを節約するためにCodexに依頼するか、Sonnet/GPT-5.3-Codex-Sparkでサブエージェントとして実行して。
+ただし、実装難易度が高い場合にはメインセッション（Opus 4.8）で実装してください。
+
+## Claude Code と Codex の役悪分担
+
+### Codexが担当する作業
+- 実装
+- コードレビュー（実装完了後に必ず実施）
+- リファクタリング・テスト生成
+
+### 委譲ルール
+1. 実装タスクを受けたら、規模を判定して Codex への委譲を検討する
+2. 実装完了後は `/codex:rescue` または `mcp__codex__codex` でレビューを依頼する
+3. Claude Code が詰まったら `/codex:rescure` スキルで Codex に引き継ぐ
+
+### Codex の呼び出し方
+
+```bash
+# CLI から直接
+codex <<EOF
+<依頼内容>
+EOF
+```
+
+または Claude Code が MCP ツール `mcp__codex__codex` を使って直接呼び出す。ß

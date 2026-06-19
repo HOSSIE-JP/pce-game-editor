@@ -25,6 +25,7 @@ const PCE_BG_MAP_WIDTH_TILES = 32;
 const PCE_BG_MAP_HEIGHT_TILES = 32;
 const PCE_BG_AUTO_MAP_BASE = 0;
 const PCE_BG_AUTO_TILE_BASE = Math.ceil((PCE_BG_MAP_WIDTH_TILES * PCE_BG_MAP_HEIGHT_TILES) / 16);
+const PCE_SATB_VRAM_WORD = 0x7f00;
 const PCE_VISUAL_COMPRESSION_NONE = 'none';
 const PCE_VISUAL_COMPRESSION_AUTO = 'auto';
 const PCE_VISUAL_COMPRESSION_RLE = 'rle';
@@ -628,8 +629,8 @@ function buildImageWarnings(asset, imageSize, generated = {}) {
     if (frameCount > 64) warnings.push('Sprite sheet contains more than 64 cells; PCE SATB displays up to 64 sprites');
     if (Math.floor(width / options.cellWidth) > 16) warnings.push('Many cells share the same scanline; hardware limit is 16 sprites per scanline');
     const patternWords = Math.ceil((generated.vramBytes || 0) / 2);
-    if (patternWords && (options.tileBase * 32) + patternWords > 32768) {
-      warnings.push('Sprite patterns exceed VRAM; lower tileBase or reduce sprite sheet size');
+    if (patternWords && (options.tileBase * 32) + patternWords > PCE_SATB_VRAM_WORD) {
+      warnings.push('Sprite patterns overlap the SATB VRAM area; lower tileBase or reduce sprite sheet size');
     }
   } else {
     if (width && width % 8 !== 0) warnings.push('BG image width is not aligned to 8px tiles');
@@ -1840,7 +1841,7 @@ function emitCdFileRef(name, buffer, relativePath = '', options = {}) {
   return {
     lines: [
       '#if defined(__PCE_CD__)',
-      `static const pce_editor_cd_data_ref_t ${cdRefName} = { { ${(sector & 0xff)}u, ${((sector >> 8) & 0xff)}u, ${((sector >> 16) & 0xff)}u }, ${sectorCount}u, ${byteSize}u, ${compression}u };`,
+      `static const pce_editor_cd_data_ref_t ${cdRefName} PCE_EDITOR_CD_REF_SECTION = { { ${(sector & 0xff)}u, ${((sector >> 8) & 0xff)}u, ${((sector >> 16) & 0xff)}u }, ${sectorCount}u, ${byteSize}u, ${compression}u };`,
       '#endif',
     ],
     pointer: '(const unsigned char *)0',
@@ -2497,6 +2498,7 @@ function generateAssetSources(projectDir, options = {}) {
     '#include <pce-cd.h>',
     ...cdBankDeclarations,
     '#define PCE_EDITOR_BANKED_SECTION(name) __attribute__((section(name)))',
+    '#define PCE_EDITOR_CD_REF_SECTION __attribute__((section(".ram_bank132")))',
     '#define PCE_EDITOR_RODATA_SECTION __attribute__((section(".rodata")))',
     '#elif defined(__PCE__) && !defined(__CC65__) && !defined(PCE_EDITOR_TARGET_CD)',
     '#define PCE_CONFIG_IMPLEMENTATION',
@@ -2504,8 +2506,10 @@ function generateAssetSources(projectDir, options = {}) {
     ...romBankDeclarations,
     '#define PCE_EDITOR_BANKED_SECTION(name) __attribute__((section(name)))',
     '#define PCE_EDITOR_RODATA_SECTION __attribute__((section(".rodata")))',
+    '#define PCE_EDITOR_CD_REF_SECTION PCE_EDITOR_RODATA_SECTION',
     '#else',
     '#define PCE_EDITOR_BANKED_SECTION(name)',
+    '#define PCE_EDITOR_CD_REF_SECTION',
     '#define PCE_EDITOR_RODATA_SECTION',
     '#endif',
     '',

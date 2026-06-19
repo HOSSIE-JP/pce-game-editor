@@ -1,19 +1,19 @@
 {
   "source": "assets/sprites/mika_sprite.png",
   "kind": "sprite",
-  "width": 64,
+  "width": 256,
   "height": 128,
-  "tileCount": 32,
+  "tileCount": 128,
   "paletteCount": 1,
-  "vramBytes": 4096,
+  "vramBytes": 16384,
   "compression": {
     "policy": "auto",
     "tiles": {
       "codec": "rle",
       "file": "assets/generated/mika_sprite/patterns.rle",
-      "rawBytes": 4096,
-      "byteLength": 3023,
-      "savedBytes": 1073
+      "rawBytes": 16384,
+      "byteLength": 11740,
+      "savedBytes": 4644
     },
     "map": {
       "codec": "none",
@@ -24,6 +24,7 @@
     }
   },
   "warnings": [
-    "Image uses 85 PCE colors; remapped to 15 opaque color slots"
+    "Image uses 85 PCE colors; remapped to 15 opaque color slots",
+    "Sprite sheet contains more than 64 cells; PCE SATB displays up to 64 sprites"
   ]
 }

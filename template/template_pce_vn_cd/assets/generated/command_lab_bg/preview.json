@@ -1,5 +1,5 @@
 {
-  "source": "assets/images/rooftop_dusk_bg.png",
+  "source": "assets/images/command_lab_bg.png",
   "kind": "background",
   "width": 224,
   "height": 136,
@@ -10,20 +10,18 @@
     "policy": "auto",
     "tiles": {
       "codec": "rle",
-      "file": "assets/generated/rooftop_dusk_bg/tiles.rle",
+      "file": "assets/generated/command_lab_bg/tiles.rle",
       "rawBytes": 15232,
-      "byteLength": 10235,
-      "savedBytes": 4997
+      "byteLength": 10056,
+      "savedBytes": 5176
     },
     "map": {
       "codec": "rle",
-      "file": "assets/generated/rooftop_dusk_bg/map_vram.rle",
+      "file": "assets/generated/command_lab_bg/map_vram.rle",
       "rawBytes": 1088,
       "byteLength": 996,
       "savedBytes": 92
     }
   },
-  "warnings": [
-    "Image uses 19 PCE colors; remapped to 15 opaque color slots"
-  ]
+  "warnings": []
 }

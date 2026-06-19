@@ -55,6 +55,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE 16000u
 #define VN_ADPCM_MAX_RATE_CODE 15u
 #define VN_SATB_ADDR 0x7f00u
+#define VN_SPRITE_HIDDEN_Y 0x00f0u
 /* 256x224 layout: BG 224x136 (top, centered), message window 208x64 (bottom,
    centered). Window = 26x8 tiles at BAT (3,20). Glyphs are 12x12 composited at
    a 12px horizontal pitch (17 chars) and a 16px vertical pitch (4 rows), so the
@@ -201,7 +202,8 @@ static uint16_t psg_step = 0;
 static uint8_t psg_frame = 0;
 static const pce_editor_psg_asset_t *psg_current = (const pce_editor_psg_asset_t *)0;
 static uint16_t vn_rng_state = 0xace1u;
-static signed int vn_variables[PCE_VN_VARIABLE_STORAGE_COUNT];
+static uint8_t vn_variable_lo[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
+static uint8_t vn_variable_hi[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
 typedef struct
 {
     signed int sprite_index;
@@ -251,6 +253,8 @@ static uint8_t cdda_looping = 0;
 static uint8_t cdda_track = 0;
 static uint16_t cdda_frames_remaining = 0;
 static const pce_editor_cdda_asset_t *cdda_current = (const pce_editor_cdda_asset_t *)0;
+static pce_sector_t cdda_resume_start __attribute__((section(".bss")));
+static pce_sector_t cdda_resume_end __attribute__((section(".bss")));
 static uint8_t cdda_resume_pending = 0;
 static uint8_t cdda_resume_defer_depth = 0;
 static uint8_t adpcm_play_active = 0;
@@ -319,6 +323,7 @@ static uint8_t vn_switch_case_scratch_storage[sizeof(pce_vn_switch_case_t)] __at
 static void advance_story(void);
 static void clear_spritetext_slots(void);
 static void VN_BANKED_CODE2 preload_scene_assets(signed int scene_index, uint8_t allow_visual_upload, uint8_t stop_at_first_wait);
+static void VN_BANKED_CODE refresh_scene_sprites(void);
 static uint8_t VN_BANKED_CODE load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache);
 static uint8_t VN_BANKED_CODE scene_pack_command_count(const vn_scene_pack_cache_t *cache);
 #if defined(__PCE_CD__)
@@ -410,11 +415,14 @@ static void init_runtime_state(void)
     map_vn_data();
     for (i = 0u; i < pce_vn_variable_count && i < PCE_VN_VARIABLE_STORAGE_COUNT; i++)
     {
-        vn_variables[i] = pce_vn_variable_initial_values[i];
+        const uint16_t value = (uint16_t)(int16_t)pce_vn_variable_initial_values[i];
+        vn_variable_lo[i] = (uint8_t)(value & 0xffu);
+        vn_variable_hi[i] = (uint8_t)(value >> 8);
     }
     for (; i < PCE_VN_VARIABLE_STORAGE_COUNT; i++)
     {
-        vn_variables[i] = 0;
+        vn_variable_lo[i] = 0u;
+        vn_variable_hi[i] = 0u;
     }
     clear_spritetext_slots();
 }
@@ -422,8 +430,12 @@ static void init_runtime_state(void)
 static void delay_frame(void)
 {
 #if defined(__PCE_CD__)
+    volatile uint16_t guard;
     service_adpcm_playback();
-    pce_cdb_wait_vblank();
+    for (guard = 0u; guard < 65535u; guard++)
+    {
+        if (*IO_VDC_STATUS & VDC_FLAG_VBLANK) break;
+    }
     service_cdda_playback();
 #else
     volatile uint16_t delay;
@@ -550,18 +562,27 @@ static signed int clamp_variable_value(int32_t value)
     return (signed int)value;
 }
 
-static signed int variable_value(signed int variable_index)
+static signed int VN_BANKED_CODE variable_value(signed int variable_index)
 {
+    uint8_t index;
+    uint16_t value;
     if (variable_index < 0 || (uint8_t)variable_index >= pce_vn_variable_count) return 0;
     if ((uint8_t)variable_index >= PCE_VN_VARIABLE_STORAGE_COUNT) return 0;
-    return vn_variables[(uint8_t)variable_index];
+    index = (uint8_t)variable_index;
+    value = (uint16_t)vn_variable_lo[index] | ((uint16_t)vn_variable_hi[index] << 8);
+    return (signed int)(int16_t)value;
 }
 
-static void set_variable_value(signed int variable_index, signed int value)
+static void VN_BANKED_CODE set_variable_value(signed int variable_index, signed int value)
 {
+    uint8_t index;
+    uint16_t raw;
     if (variable_index < 0 || (uint8_t)variable_index >= pce_vn_variable_count) return;
     if ((uint8_t)variable_index >= PCE_VN_VARIABLE_STORAGE_COUNT) return;
-    vn_variables[(uint8_t)variable_index] = value;
+    index = (uint8_t)variable_index;
+    raw = (uint16_t)(int16_t)value;
+    vn_variable_lo[index] = (uint8_t)(raw & 0xffu);
+    vn_variable_hi[index] = (uint8_t)(raw >> 8);
 }
 
 static uint16_t next_random_value(void)
@@ -818,6 +839,7 @@ static uint8_t VN_OVERLAY_CODE cd_rle_ref_to_vram(uint16_t dest, const pce_edito
     vn_vram_byte_writer_t writer;
     uint16_t produced = 0u;
     uint8_t token;
+    map_vn_data();
     if (!ref || !ref->cd || !ref->cd->byte_size || !ref->size) return 0u;
     prepare_cd_data_access();
     map_vn_data();
@@ -874,6 +896,7 @@ static uint8_t VN_OVERLAY_CODE cd_rle_bg_map_ref_to_vram(uint16_t dest, const pc
     uint16_t produced = 0u;
     uint16_t required;
     uint8_t token;
+    map_vn_data();
     if (!ref || !ref->cd || !ref->cd->byte_size || !ref->size || !copy_width_tiles || !copy_height_tiles) return 0u;
     required = (uint16_t)(VN_MAP_ROW_BYTES * copy_height_tiles);
     if (ref->size < required) return 0u;
@@ -934,31 +957,27 @@ static void mask_buffered_adpcm_completion_irq(void)
 #endif
 }
 
-static unsigned long VN_BANKED_CODE2 cdda_sector_u24(const pce_editor_cd_sector_t *sector)
+static void VN_BANKED_CODE cdda_sector_from_remaining(const pce_editor_cdda_asset_t *cdda)
 {
-    if (!sector) return 0ul;
-    return (unsigned long)sector->lo
-        | ((unsigned long)sector->md << 8)
-        | ((unsigned long)sector->hi << 16);
-}
-
-static void VN_BANKED_CODE2 cdda_sector_from_remaining(pce_sector_t *dest, const pce_editor_cdda_asset_t *cdda)
-{
-    unsigned long start;
+    unsigned long start = 0ul;
     unsigned long elapsed_frames = 0ul;
     unsigned long sector_offset = 0ul;
-    if (!dest || !cdda)
+    unsigned long value;
+    if (cdda)
     {
-        if (dest) cd_sector_from_uint(dest, 0ul);
-        return;
+        start = (unsigned long)cdda->start_sector.lo
+            | ((unsigned long)cdda->start_sector.md << 8)
+            | ((unsigned long)cdda->start_sector.hi << 16);
+        if (cdda->play_frames && cdda_frames_remaining < cdda->play_frames)
+        {
+            elapsed_frames = (unsigned long)(cdda->play_frames - cdda_frames_remaining);
+            sector_offset = (elapsed_frames * 75ul) / 60ul;
+        }
     }
-    start = cdda_sector_u24(&cdda->start_sector);
-    if (cdda->play_frames && cdda_frames_remaining < cdda->play_frames)
-    {
-        elapsed_frames = (unsigned long)(cdda->play_frames - cdda_frames_remaining);
-        sector_offset = (elapsed_frames * 75ul) / 60ul;
-    }
-    cd_sector_from_uint(dest, start + sector_offset);
+    value = start + sector_offset;
+    cdda_resume_start.lo = (uint8_t)(value & 0xfful);
+    cdda_resume_start.md = (uint8_t)((value >> 8) & 0xfful);
+    cdda_resume_start.hi = (uint8_t)((value >> 16) & 0xfful);
 }
 
 static void VN_BANKED_CODE begin_cdda_deferred_resume(void)
@@ -987,8 +1006,6 @@ static void VN_BANKED_CODE prepare_cd_data_access(void)
 
 static void VN_BANKED_CODE resume_cdda_after_cd_data_access(void)
 {
-    pce_sector_t start = {0};
-    pce_sector_t end = {0};
     const uint8_t restore_display_after_cdda = (uint8_t)!pending_display_enable;
     if (!cdda_resume_pending) return;
     if (cdda_resume_defer_depth) return;
@@ -997,9 +1014,12 @@ static void VN_BANKED_CODE resume_cdda_after_cd_data_access(void)
         cancel_cdda_after_cd_data_conflict();
         return;
     }
-    cdda_sector_from_remaining(&start, cdda_current);
+    cdda_resume_end.lo = 0u;
+    cdda_resume_end.md = 0u;
+    cdda_resume_end.hi = 0u;
+    cdda_sector_from_remaining(cdda_current);
     pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
-    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, start, PCE_CDB_LOCATION_TYPE_UNTIL_END, end, PCE_CDB_CDDA_PLAY_REPEAT);
+    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, cdda_resume_end, PCE_CDB_CDDA_PLAY_REPEAT);
     cdda_active = 1u;
     cdda_resume_pending = 0u;
     restore_video_after_cdb_call(restore_display_after_cdda);
@@ -1049,11 +1069,12 @@ static uint8_t call_overlay_cd_rle_bg_map_ref_to_vram(uint16_t dest, const pce_e
 #endif
 }
 
-static uint8_t cd_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref)
+static uint8_t VN_BANKED_CODE cd_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref)
 {
     pce_sector_t sector = {0};
     uint16_t remaining;
     uint16_t vram_dest;
+    map_vn_data();
     if (!ref || !ref->cd || !ref->cd->sector_count || !ref->size) return 0u;
     if (ref->cd->compression == PCE_EDITOR_CD_COMPRESSION_RLE) return call_overlay_cd_rle_ref_to_vram(dest, ref);
     prepare_cd_data_access();
@@ -1078,7 +1099,7 @@ static uint8_t cd_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *r
     return 1u;
 }
 
-static uint8_t cd_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref, uint8_t width_tiles, uint8_t height_tiles)
+static uint8_t VN_BANKED_CODE cd_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref, uint8_t width_tiles, uint8_t height_tiles)
 {
     pce_sector_t sector = {0};
     uint16_t remaining;
@@ -1088,6 +1109,7 @@ static uint8_t cd_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t 
     const uint8_t dest_col = (uint8_t)(dest % VN_MAP_WIDTH);
     const uint8_t dest_row = (uint8_t)(dest / VN_MAP_WIDTH);
     uint16_t row_bytes;
+    map_vn_data();
     if (!ref || !ref->cd || !ref->cd->sector_count || !ref->size || !width_tiles || !height_tiles) return 0u;
     if (dest_col >= VN_MAP_WIDTH || dest_row >= VN_MAP_HEIGHT) return 0u;
     if ((uint16_t)dest_col + copy_width_tiles > VN_MAP_WIDTH)
@@ -1945,7 +1967,9 @@ static void clear_sprites(void)
     uint8_t i;
     for (i = 0u; i < 64u; i++)
     {
-        sprite_shadow[i].y = 0u;
+        /* A zeroed SAT entry is still a real sprite on PCE. Park unused entries
+           below the 224-line display so transparent BG cells cannot reveal them. */
+        sprite_shadow[i].y = VN_SPRITE_HIDDEN_Y;
         sprite_shadow[i].x = 0u;
         sprite_shadow[i].pattern = 0u;
         sprite_shadow[i].attr = 0u;
@@ -2002,7 +2026,7 @@ static uint8_t show_character_sprite_frame(uint8_t satb_index, uint8_t sprite_in
     total_cells = (uint16_t)(cell_columns * cell_rows);
     use_animation_frame = (uint8_t)(
         animation &&
-        animation->frame_count > 1u &&
+        animation->frame_count >= 1u &&
         animation->frame_width_cells &&
         animation->frame_height_cells &&
         animation->frame_width_cells <= cell_columns &&
@@ -2227,6 +2251,7 @@ static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
     adpcm_voice_snapshot.divider = voice->divider;
     adpcm_voice_snapshot.loop = voice->loop;
     adpcm_voice_snapshot.stream = voice->stream;
+    map_vn_data();
     adpcm_voice_snapshot.has_cd = (uint8_t)(voice->cd && voice->cd->sector_count);
     if (adpcm_voice_snapshot.has_cd)
     {
@@ -3290,6 +3315,12 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
         pending_display_enable = 0u;
         delay_frame();
     }
+    else if (pending_display_enable)
+    {
+        display_enable();
+        pending_display_enable = 0u;
+        delay_frame();
+    }
     if (fade_transition)
     {
         fade_palette(&next_bg->palette, (uint16_t)(next_bg->palette_bank * 16u), fade_in_frames, 1u);
@@ -3467,8 +3498,8 @@ static uint8_t execute_command(const pce_vn_command_t *command)
     }
     else if (command->type == PCE_VN_COMMAND_PRELOAD)
     {
-        const uint8_t target_is_current = (uint8_t)(command->scene_index >= 0 && (uint8_t)command->scene_index == current_scene);
-        preload_scene_assets(command->scene_index, pending_display_enable, target_is_current ? 0u : 1u);
+        /* Retained for old scene data. Scene entry performs the useful preload. */
+        return VN_EXEC_CONTINUE;
     }
     else if (command->type == PCE_VN_COMMAND_CHOICE
         || (command->type >= PCE_VN_COMMAND_VARIABLE && command->type <= PCE_VN_COMMAND_INPUTCHECK))

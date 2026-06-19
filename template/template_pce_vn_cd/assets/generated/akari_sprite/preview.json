@@ -1,19 +1,19 @@
 {
   "source": "assets/sprites/akari_sprite.png",
   "kind": "sprite",
-  "width": 64,
+  "width": 256,
   "height": 128,
-  "tileCount": 32,
+  "tileCount": 128,
   "paletteCount": 1,
-  "vramBytes": 4096,
+  "vramBytes": 16384,
   "compression": {
     "policy": "auto",
     "tiles": {
       "codec": "rle",
       "file": "assets/generated/akari_sprite/patterns.rle",
-      "rawBytes": 4096,
-      "byteLength": 3202,
-      "savedBytes": 894
+      "rawBytes": 16384,
+      "byteLength": 13032,
+      "savedBytes": 3352
     },
     "map": {
       "codec": "none",
@@ -23,5 +23,7 @@
       "savedBytes": 0
     }
   },
-  "warnings": []
+  "warnings": [
+    "Sprite sheet contains more than 64 cells; PCE SATB displays up to 64 sprites"
+  ]
 }
