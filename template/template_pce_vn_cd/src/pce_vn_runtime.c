@@ -124,6 +124,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_BANKED_CODE __attribute__((noinline, section(".ram_bank129")))
 #define VN_BANKED_CODE2 __attribute__((noinline, section(".ram_bank130")))
 #define VN_BANKED_CODE2_INLINE __attribute__((always_inline, section(".ram_bank130")))
+#define VN_RESIDENT_CODE __attribute__((noinline, section(".text")))
 /* Overlay code (Path B Phase B1). Linked in the SAME compilation as the rest of
    the runtime (so zp imaginary registers and resident symbols resolve), but
    placed in section .vn_overlay which the linker fragment (overlay_insert.ld)
@@ -137,11 +138,14 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
    call_overlay_* dispatchers (resident bank128) which map bank133, call, then
    restore bank130. */
 #define VN_OVERLAY_CODE __attribute__((noinline, section(".vn_overlay")))
+#define VN_MAP_BANK130_FOR_CODE() pce_ram_bank130_map()
 #else
 #define VN_BANKED_CODE
 #define VN_BANKED_CODE2
 #define VN_BANKED_CODE2_INLINE
+#define VN_RESIDENT_CODE
 #define VN_OVERLAY_CODE
+#define VN_MAP_BANK130_FOR_CODE() ((void)0)
 #endif
 
 #ifndef PCE_EDITOR_CD_COMPRESSION_NONE
@@ -431,6 +435,7 @@ static void delay_frame(void)
 {
 #if defined(__PCE_CD__)
     volatile uint16_t guard;
+    pce_ram_bank130_map();
     service_adpcm_playback();
     for (guard = 0u; guard < 65535u; guard++)
     {
@@ -989,6 +994,7 @@ static void VN_BANKED_CODE end_cdda_deferred_resume(void)
 {
     if (cdda_resume_defer_depth) cdda_resume_defer_depth--;
     if (!cdda_resume_defer_depth) resume_cdda_after_cd_data_access();
+    VN_MAP_BANK130_FOR_CODE();
 }
 
 static void VN_BANKED_CODE prepare_cd_data_access(void)
@@ -1043,7 +1049,7 @@ static void VN_BANKED_CODE cancel_cdda_after_cd_data_conflict(void)
    not unmapped when bank133 takes slot 4. Arguments live in console_ram/zp and on
    the hardware stack, all mapped regardless of slot 4, so they survive the swap.
    On non-CD builds there is no banking; the calls are direct. */
-static uint8_t call_overlay_cd_rle_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref)
+static uint8_t VN_RESIDENT_CODE call_overlay_cd_rle_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref)
 {
 #if defined(__PCE_CD__)
     uint8_t result;
@@ -1056,7 +1062,7 @@ static uint8_t call_overlay_cd_rle_ref_to_vram(uint16_t dest, const pce_editor_d
 #endif
 }
 
-static uint8_t call_overlay_cd_rle_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref, uint8_t copy_width_tiles, uint8_t copy_height_tiles)
+static uint8_t VN_RESIDENT_CODE call_overlay_cd_rle_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref, uint8_t copy_width_tiles, uint8_t copy_height_tiles)
 {
 #if defined(__PCE_CD__)
     uint8_t result;
@@ -1218,6 +1224,7 @@ static uint8_t VN_BANKED_CODE load_scene_pack_into_cache(uint8_t scene_index, vn
         cache->valid = scene_pack_is_valid(cache);
         mask_buffered_adpcm_completion_irq();
         resume_cdda_after_cd_data_access();
+        VN_MAP_BANK130_FOR_CODE();
         return cache->valid;
     }
 #else
@@ -1558,6 +1565,7 @@ static void upload_font_tiles(void)
     }
     mask_buffered_adpcm_completion_irq();
     resume_cdda_after_cd_data_access();
+    VN_MAP_BANK130_FOR_CODE();
 #elif defined(__PCE__)
     pce_editor_vram_copy((uint16_t)PCE_VN_FONT_MASK_VRAM_WORD, pce_vn_font_tiles, (uint16_t)(pce_vn_font_glyph_count * (VN_GLYPH_MASK_WORDS * 2u)));
 #endif
@@ -1597,6 +1605,7 @@ static void VN_BANKED_CODE2 upload_font_sprite_patterns(void)
     }
     mask_buffered_adpcm_completion_irq();
     resume_cdda_after_cd_data_access();
+    VN_MAP_BANK130_FOR_CODE();
 #elif defined(__PCE__)
     if (pce_vn_font_sprite_glyph_count)
     {
@@ -2195,11 +2204,16 @@ static uint8_t VN_BANKED_CODE2 adpcm_legacy_divider(unsigned int sample_rate, un
 static uint8_t VN_BANKED_CODE adpcm_play_divider(unsigned int sample_rate, uint8_t divider)
 {
     uint8_t computed;
+#if defined(__PCE_CD__)
+    pce_ram_bank130_map();
+#endif
     if (!sample_rate) return divider > VN_ADPCM_MAX_RATE_CODE ? VN_ADPCM_MAX_RATE_CODE : divider;
     computed = adpcm_rate_code(sample_rate);
     if (divider > VN_ADPCM_MAX_RATE_CODE) return computed;
     if (divider < 8u) return computed;
+    VN_MAP_BANK130_FOR_CODE();
     if (divider == adpcm_legacy_divider(sample_rate, VN_ADPCM_LEGACY_BASE_SAMPLE_RATE)) return computed;
+    VN_MAP_BANK130_FOR_CODE();
     if (divider == adpcm_legacy_divider(sample_rate, VN_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE)) return computed;
     return divider;
 }
@@ -2222,9 +2236,13 @@ static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer(void)
 static uint16_t VN_BANKED_CODE adpcm_voice_frame_count(void)
 {
 #if defined(__PCE_CD__)
+    uint8_t divider;
     unsigned long rate;
     unsigned long frames;
-    rate = (unsigned long)adpcm_code_sample_rate(adpcm_play_divider(adpcm_voice_snapshot.sample_rate, adpcm_voice_snapshot.divider));
+    pce_ram_bank130_map();
+    divider = adpcm_play_divider(adpcm_voice_snapshot.sample_rate, adpcm_voice_snapshot.divider);
+    VN_MAP_BANK130_FOR_CODE();
+    rate = (unsigned long)adpcm_code_sample_rate(divider);
     if (!rate) rate = 16000ul;
     frames = ((adpcm_voice_snapshot.data_size * 2ul * VN_ADPCM_FRAME_RATE) + rate - 1ul) / rate;
     frames += VN_ADPCM_END_PAD_FRAMES;
@@ -2301,6 +2319,7 @@ static void VN_BANKED_CODE restore_display_after_adpcm(uint8_t restore_display)
 {
 #if defined(__PCE_CD__)
     restore_video_after_cdb_call(restore_display);
+    VN_MAP_BANK130_FOR_CODE();
 #else
     (void)restore_display;
 #endif
@@ -2737,6 +2756,7 @@ static void show_scene(uint8_t scene_index)
     }
     clear_spritetext_slots();
     pending_scene_sprite_clear = keep_display_for_transition ? 1u : 0u;
+    VN_MAP_BANK130_FOR_CODE();
     pending_sprite_refresh = 1u;
     preload_scene_assets((signed int)scene_index, 1u, 1u);
     preloaded_scene_visual_valid = 0u;
@@ -2878,6 +2898,7 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
             slot->flags
         ));
     }
+    VN_MAP_BANK130_FOR_CODE();
     satb_index = (uint8_t)(satb_index + draw_spritetext_slots(satb_index));
     upload_sprite_table();
     if (display_active)
@@ -3005,6 +3026,7 @@ static void shake_screen(uint8_t frames, uint8_t intensity)
 static void start_message(uint8_t message_index)
 {
     pce_vn_message_t *message = VN_MESSAGE_SCRATCH;
+    VN_MAP_BANK130_FOR_CODE();
     clear_window_cells();
     if (scene_pack_read_message(&active_scene_pack, message_index, message))
     {
@@ -3028,13 +3050,16 @@ static void start_message(uint8_t message_index)
         }
         message_text_speed = message->text_speed_frames;
         play_adpcm_voice(message->voice_index);
+        VN_MAP_BANK130_FOR_CODE();
         if (!message_text_speed)
         {
+            VN_MAP_BANK130_FOR_CODE();
             draw_message_text(message);
             message_complete = 1u;
         }
         else
         {
+            VN_MAP_BANK130_FOR_CODE();
             message_complete = draw_message_next_glyph(message);
         }
         if (!pending_display_enable) delay_frame();
@@ -3045,7 +3070,9 @@ static void finish_active_message(void)
 {
     pce_vn_message_t *message = VN_MESSAGE_SCRATCH;
     if (active_message_index < 0) return;
+    VN_MAP_BANK130_FOR_CODE();
     if (!scene_pack_read_message(&active_scene_pack, (uint8_t)active_message_index, message)) return;
+    VN_MAP_BANK130_FOR_CODE();
     draw_message_text(message);
     message_complete = 1u;
 }
@@ -3054,6 +3081,7 @@ static void tick_active_message(void)
 {
     pce_vn_message_t *message = VN_MESSAGE_SCRATCH;
     if (active_message_index < 0 || message_complete) return;
+    VN_MAP_BANK130_FOR_CODE();
     if (!scene_pack_read_message(&active_scene_pack, (uint8_t)active_message_index, message)) return;
     if (!message_text_speed)
     {
@@ -3063,6 +3091,7 @@ static void tick_active_message(void)
     message_frame_timer++;
     if (message_frame_timer < message_text_speed) return;
     message_frame_timer = 0u;
+    VN_MAP_BANK130_FOR_CODE();
     message_complete = draw_message_next_glyph(message);
 }
 
@@ -3220,6 +3249,7 @@ static void VN_BANKED_CODE2 draw_choice_options(void)
 static void start_choice(uint8_t choice_index)
 {
     vn_choice_ref_t *choice = VN_CHOICE_SCRATCH;
+    VN_MAP_BANK130_FOR_CODE();
     if (!scene_pack_read_choice(&active_scene_pack, choice_index, choice)) return;
     if (!choice->option_count) return;
     active_message_index = -1;
@@ -3227,6 +3257,7 @@ static void start_choice(uint8_t choice_index)
     wait_frames_remaining = 0u;
     active_choice_index = choice_index;
     choice_selected_index = choice->default_index < choice->option_count ? choice->default_index : 0u;
+    VN_MAP_BANK130_FOR_CODE();
     draw_choice_options();
 }
 
@@ -3234,12 +3265,14 @@ static uint8_t handle_choice_input(uint8_t pressed)
 {
     vn_choice_ref_t *choice = VN_CHOICE_SCRATCH;
     if (active_choice_index < 0) return 0u;
+    VN_MAP_BANK130_FOR_CODE();
     if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, choice)) return 0u;
     if (!choice->option_count) return 0u;
     if (pressed & PAD_UP)
     {
         if (choice_selected_index) choice_selected_index--;
         else choice_selected_index = (uint8_t)(choice->option_count - 1u);
+        VN_MAP_BANK130_FOR_CODE();
         draw_choice_options();
         return 1u;
     }
@@ -3247,14 +3280,17 @@ static uint8_t handle_choice_input(uint8_t pressed)
     {
         choice_selected_index++;
         if (choice_selected_index >= choice->option_count) choice_selected_index = 0u;
+        VN_MAP_BANK130_FOR_CODE();
         draw_choice_options();
         return 1u;
     }
     if (pressed & (PAD_I | PAD_II | PAD_RUN))
     {
         pce_vn_choice_option_t *option = VN_CHOICE_OPTION_SCRATCH;
+        VN_MAP_BANK130_FOR_CODE();
         if (!scene_pack_read_choice_option(&active_scene_pack, choice, choice_selected_index, option)) return 0u;
         active_choice_index = -1;
+        VN_MAP_BANK130_FOR_CODE();
         clear_window_cells();
         if (choice->variable_index >= 0)
         {
@@ -3474,8 +3510,16 @@ static uint8_t execute_command(const pce_vn_command_t *command)
         }
         else if (kind == PCE_VN_AUDIO_KIND_PSG)
         {
-            if (action == PCE_VN_AUDIO_ACTION_STOP) stop_psg();
-            else play_psg_asset(command->asset_index, command->slot);
+            if (action == PCE_VN_AUDIO_ACTION_STOP)
+            {
+                VN_MAP_BANK130_FOR_CODE();
+                stop_psg();
+            }
+            else
+            {
+                VN_MAP_BANK130_FOR_CODE();
+                play_psg_asset(command->asset_index, command->slot);
+            }
         }
         else
         {
@@ -3504,6 +3548,7 @@ static uint8_t execute_command(const pce_vn_command_t *command)
     else if (command->type == PCE_VN_COMMAND_CHOICE
         || (command->type >= PCE_VN_COMMAND_VARIABLE && command->type <= PCE_VN_COMMAND_INPUTCHECK))
     {
+        VN_MAP_BANK130_FOR_CODE();
         return execute_control_command(command);
     }
     else if (command->type == PCE_VN_COMMAND_JUMP)
@@ -3525,6 +3570,7 @@ static uint8_t execute_command(const pce_vn_command_t *command)
         {
             if (!pending_display_enable)
             {
+                VN_MAP_BANK130_FOR_CODE();
                 fade_current_screen_to_color(command->x, command->arg0);
             }
             display_disable();
@@ -3554,6 +3600,7 @@ static uint8_t execute_command(const pce_vn_command_t *command)
         }
         else if (command->flags == PCE_VN_EFFECT_FLASH)
         {
+            VN_MAP_BANK130_FOR_CODE();
             flash_screen_color(command->x, command->arg0);
         }
     }
@@ -3615,6 +3662,7 @@ static uint8_t VN_BANKED_CODE run_commands_until_wait(void)
             {
                 uint8_t result;
                 pce_vn_command_t *command = VN_COMMAND_SCRATCH;
+                VN_MAP_BANK130_FOR_CODE();
                 if (!scene_pack_read_command(&active_scene_pack, current_command, command))
                 {
                     current_command++;
@@ -3689,6 +3737,7 @@ static void load_overlay_code(void)
     mask_buffered_adpcm_completion_irq();
     pce_ram_bank130_map();
     resume_cdda_after_cd_data_access();
+    VN_MAP_BANK130_FOR_CODE();
 }
 #endif
 
@@ -3768,6 +3817,7 @@ int main(void)
             async_input_active = 0u;
             async_input_mask = 0u;
             async_input_target = PCE_VN_NO_COMMAND;
+            VN_MAP_BANK130_FOR_CODE();
             (void)jump_to_command(target);
             advance_story();
         }
@@ -3784,6 +3834,7 @@ int main(void)
                 sync_input_active = 0u;
                 sync_input_mask = 0u;
                 sync_input_target = PCE_VN_NO_COMMAND;
+                VN_MAP_BANK130_FOR_CODE();
                 (void)jump_to_command(target);
                 advance_story();
             }
@@ -3813,6 +3864,7 @@ int main(void)
         if (active_message_index >= 0 && message_complete)
         {
             pce_vn_message_t *message = VN_MESSAGE_SCRATCH;
+            VN_MAP_BANK130_FOR_CODE();
             if (scene_pack_read_message(&active_scene_pack, (uint8_t)active_message_index, message)
                 && message->advance_mode == PCE_VN_ADVANCE_AUTO)
             {
@@ -3820,6 +3872,7 @@ int main(void)
                 else advance_story();
             }
         }
+        VN_MAP_BANK130_FOR_CODE();
         tick_psg();
         tick_sprite_animations();
         tick_spritetext();

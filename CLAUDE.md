@@ -109,4 +109,7 @@ codex <<EOF
 EOF
 ```
 
-または Claude Code が MCP ツール `mcp__codex__codex` を使って直接呼び出す。ß
+または Claude Code が MCP ツール `mcp__codex__codex` を使って直接呼び出す。
+
+## 報告方法
+思考は英語でかまいませんが、最終的な報告は日本語で行なってください。
