@@ -67,7 +67,7 @@ test('PCE external emulator launches using project settings and generated ROM pa
 });
 
 test('PCE Test Play launcher honors direct handled hook results', () => {
-  const mainSource = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8');
+  const mainSource = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8').replace(/\r\n/g, '\n');
 
   assert.match(mainSource, /const handledByHook = Boolean\(hookResult\.ok && \(/);
   assert.match(mainSource, /hookResult\.handled \|\| \(hookResult\.result && hookResult\.result\.handled\)/);

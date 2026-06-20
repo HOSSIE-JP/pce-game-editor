@@ -1105,7 +1105,7 @@ static uint8_t VN_BANKED_CODE cd_data_ref_to_vram(uint16_t dest, const pce_edito
     return 1u;
 }
 
-static uint8_t VN_BANKED_CODE cd_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref, uint8_t width_tiles, uint8_t height_tiles)
+static uint8_t VN_BANKED_CODE2 cd_bg_map_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *ref, uint8_t width_tiles, uint8_t height_tiles)
 {
     pce_sector_t sector = {0};
     uint16_t remaining;
@@ -1943,6 +1943,7 @@ static void upload_bg_graphics(const pce_editor_bg_asset_t *bg, uint16_t map_des
 #if defined(__PCE_CD__)
     if (bg->map.cd && bg->map.size)
     {
+        VN_MAP_BANK130_FOR_CODE();
         if (cd_bg_map_ref_to_vram(map_dest, &bg->map, bg->width_tiles, bg->height_tiles)) return;
     }
 #endif

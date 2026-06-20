@@ -1091,11 +1091,11 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
     assert.equal(fs.readFileSync(wrapperPath, 'utf-8').trim(), '#include "pce_vn_runtime.c"');
   }
 
-  const source = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'), 'utf-8');
-  const showSceneMatch = source.match(/static void show_scene[\s\S]*?\n}\n\nstatic void VN_BANKED_CODE refresh_scene_sprites/);
-  const setBackgroundMatch = source.match(/static void set_background[\s\S]*?\n}\n\nstatic uint8_t VN_BANKED_CODE2 execute_control_command/);
-  const preloadSceneMatch = source.match(/static void VN_BANKED_CODE2 preload_scene_assets[\s\S]*?\n}\n\nstatic void VN_BANKED_CODE2 draw_choice_options/);
-  const executeCommandMatch = source.match(/static uint8_t execute_command[\s\S]*?\n}\n\nstatic uint8_t VN_BANKED_CODE run_commands_until_wait/);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'), 'utf-8').replace(/\r\n/g, '\n');
+  const showSceneMatch = source.match(/static void show_scene[\s\S]*?\}\s*\/\* Append the visible spritetext overlays/);
+  const setBackgroundMatch = source.match(/static void set_background[\s\S]*?\}\s*static uint8_t VN_BANKED_CODE2 execute_control_command/);
+  const preloadSceneMatch = source.match(/static void VN_BANKED_CODE2 preload_scene_assets[\s\S]*?\}\s*static void VN_BANKED_CODE2 draw_choice_options/);
+  const executeCommandMatch = source.match(/static uint8_t execute_command[\s\S]*?\}\s*static uint8_t VN_BANKED_CODE run_commands_until_wait/);
   assert.ok(showSceneMatch);
   assert.ok(setBackgroundMatch);
   assert.ok(preloadSceneMatch);
@@ -1306,7 +1306,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /cd_sector_advance\(&sector\);\n    \}\n    mask_buffered_adpcm_completion_irq\(\);\n    resume_cdda_after_cd_data_access\(\);\n    return 1u;/);
   assert.doesNotMatch(source, /pce_cdb_cd_busy\(\)/);
   assert.match(source, /cd_sector_advance\(&sector\);/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE cd_bg_map_ref_to_vram\(uint16_t dest, const pce_editor_data_ref_t \*ref, uint8_t width_tiles, uint8_t height_tiles\)/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 cd_bg_map_ref_to_vram\(uint16_t dest, const pce_editor_data_ref_t \*ref, uint8_t width_tiles, uint8_t height_tiles\)/);
   assert.match(source, /const uint8_t dest_col = \(uint8_t\)\(dest % VN_MAP_WIDTH\);/);
   assert.match(source, /row_bytes = \(uint16_t\)\(copy_width_tiles \* 2u\);/);
   assert.match(source, /pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);/);
@@ -1316,7 +1316,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /if \(ref->cd->compression == PCE_EDITOR_CD_COMPRESSION_RLE\) return call_overlay_cd_rle_bg_map_ref_to_vram\(dest, ref, copy_width_tiles, copy_height_tiles\);/);
   assert.match(source, /static uint16_t bg_map_dest_from_tile\(const pce_editor_bg_asset_t \*bg, uint16_t tile_x, uint16_t tile_y\)/);
   assert.match(source, /copy_data_ref_to_vram\(\(uint16_t\)\(bg->tile_base \* 16u\), &bg->tiles, 16u\);\n    map_resident_data\(\);/);
-  assert.match(source, /if \(bg->map\.cd && bg->map\.size\)\n    \{\n        if \(cd_bg_map_ref_to_vram\(map_dest, &bg->map, bg->width_tiles, bg->height_tiles\)\) return;\n    \}/);
+  assert.match(source, /if \(bg->map\.cd && bg->map\.size\)\n    \{\n        VN_MAP_BANK130_FOR_CODE\(\);\n        if \(cd_bg_map_ref_to_vram\(map_dest, &bg->map, bg->width_tiles, bg->height_tiles\)\) return;\n    \}/);
   assert.doesNotMatch(source, /copy_data_ref_to_vram\(bg->map_base, &bg->map, 16u\);/);
   assert.match(source, /cd_sector_from_ref\(&sector, &ref->cd->sector\);/);
   assert.match(source, /voice->cd && voice->cd->sector_count/);
