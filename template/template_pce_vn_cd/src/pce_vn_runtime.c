@@ -108,6 +108,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_COMMAND_STEP_GUARD 1024u
 #define VN_ADPCM_FRAME_RATE 60ul
 #define VN_ADPCM_END_PAD_FRAMES 2ul
+#define VN_BG_IMPLICIT_FADE_FRAMES 6u
+#define VN_BG_UPLOAD_DISPLAY_DISABLE() display_disable()
 #define VN_SPRITE_REFRESH_NONE 0u
 #define VN_SPRITE_REFRESH_PATTERNS 1u
 #define VN_SPRITE_REFRESH_FULL 2u
@@ -228,6 +230,10 @@ typedef struct
     uint8_t flags;
     uint8_t frame;
     uint8_t timer;
+    uint8_t anim_frame_count;
+    uint8_t anim_frame_delay;
+    uint8_t anim_loop;
+    const uint8_t *anim_frame_delays;
 } vn_sprite_slot_t;
 static vn_sprite_slot_t sprite_slots_storage[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 #define sprite_slots sprite_slots_storage
@@ -2114,11 +2120,15 @@ static void VN_RESIDENT_CODE upload_sprite_pattern_words(uint8_t satb_index, uin
     for (i = 0u; i < count; i++)
     {
         const uint8_t entry_index = (uint8_t)(satb_index + i);
-        pce_vdc_poke(VDC_REG_VRAM_WRITE_ADDR, (uint16_t)(VN_SATB_ADDR + ((uint16_t)entry_index * 4u) + 2u));
-        pce_vdc_poke(VDC_REG_VRAM_DATA, sprite_shadow[entry_index].pattern);
+        *IO_VDC_INDEX = VDC_REG_VRAM_WRITE_ADDR;
+        *IO_VDC_DATA = (uint16_t)(VN_SATB_ADDR + ((uint16_t)entry_index * 4u) + 2u);
+        *IO_VDC_INDEX = VDC_REG_VRAM_DATA;
+        *IO_VDC_DATA = sprite_shadow[entry_index].pattern;
     }
-    pce_vdc_poke(VDC_REG_DMA_CONTROL, VDC_DMA_SRC_INC);
-    pce_vdc_poke(VDC_REG_SATB_START, VN_SATB_ADDR);
+    *IO_VDC_INDEX = VDC_REG_DMA_CONTROL;
+    *IO_VDC_DATA = VDC_DMA_SRC_INC;
+    *IO_VDC_INDEX = VDC_REG_SATB_START;
+    *IO_VDC_DATA = VN_SATB_ADDR;
 #else
     (void)satb_index;
     (void)count;
@@ -2887,6 +2897,10 @@ static void show_scene(uint8_t scene_index)
         sprite_slots[i].flags = 0u;
         sprite_slots[i].frame = 0u;
         sprite_slots[i].timer = 0u;
+        sprite_slots[i].anim_frame_count = 0u;
+        sprite_slots[i].anim_frame_delay = 0u;
+        sprite_slots[i].anim_loop = 0u;
+        sprite_slots[i].anim_frame_delays = (const uint8_t *)0;
     }
     clear_spritetext_slots();
     pending_scene_sprite_clear = keep_display_for_transition ? 1u : 0u;
@@ -3129,35 +3143,52 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
     pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
 }
 
+static void VN_BANKED_CODE cache_sprite_animation(uint8_t slot_index)
+{
+    vn_sprite_slot_t *slot;
+    pce_vn_sprite_anim_t animation;
+    if (slot_index >= VN_SPRITE_SLOT_COUNT) return;
+    slot = &sprite_slots[slot_index];
+    slot->anim_frame_count = 0u;
+    slot->anim_frame_delay = 0u;
+    slot->anim_loop = 0u;
+    slot->anim_frame_delays = (const uint8_t *)0;
+    if (slot->sprite_index < 0 || slot->animation_index < 0) return;
+    map_vn_data();
+    if ((uint8_t)slot->animation_index >= pce_vn_sprite_animation_count) return;
+    animation = pce_vn_sprite_animations[(uint8_t)slot->animation_index];
+    if (animation.sprite_index != (uint8_t)slot->sprite_index) return;
+    slot->anim_frame_count = animation.frame_count;
+    slot->anim_frame_delay = animation.frame_delay;
+    slot->anim_loop = animation.loop;
+    slot->anim_frame_delays = animation.frame_delays;
+}
+
 static void tick_sprite_animations(void)
 {
     uint8_t i;
     uint8_t changed = 0u;
-    map_vn_data();
     for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
     {
         vn_sprite_slot_t *slot = &sprite_slots[i];
-        pce_vn_sprite_anim_t animation;
         uint8_t frame_delay;
-        if (!slot->visible || slot->animation_index < 0) continue;
-        if ((uint8_t)slot->animation_index >= pce_vn_sprite_animation_count) continue;
-        animation = pce_vn_sprite_animations[(uint8_t)slot->animation_index];
-        if (animation.frame_count <= 1u) continue;
+        if (!slot->visible || slot->anim_frame_count <= 1u) continue;
         /* Per-frame display time: each frame holds for its own delay (frame_delays
-           lives in resident rodata, so it stays readable after the bank132 copy).
-           Fall back to the uniform frame_delay for legacy data with no table. */
-        frame_delay = (animation.frame_delays && slot->frame < animation.frame_count)
-            ? animation.frame_delays[slot->frame]
-            : animation.frame_delay;
-        if (!frame_delay) frame_delay = animation.frame_delay;
+           lives in resident rodata and is cached on the slot when the animation
+           changes, so ADPCM frames do not reread the bank132 animation table.
+           This replaces the old animation.frame_delays[slot->frame] hot read. */
+        frame_delay = (slot->anim_frame_delays && slot->frame < slot->anim_frame_count)
+            ? slot->anim_frame_delays[slot->frame]
+            : slot->anim_frame_delay;
+        if (!frame_delay) frame_delay = slot->anim_frame_delay;
         slot->timer++;
         if (slot->timer < frame_delay) continue;
         slot->timer = 0u;
-        if (slot->frame + 1u < animation.frame_count)
+        if (slot->frame + 1u < slot->anim_frame_count)
         {
             slot->frame++;
         }
-        else if (animation.loop)
+        else if (slot->anim_loop)
         {
             slot->frame = 0u;
         }
@@ -3276,6 +3307,7 @@ static void start_message(uint8_t message_index)
             sprite_slots[message->mouth_slot].animation_index = message->mouth_animation_index;
             sprite_slots[message->mouth_slot].frame = 0u;
             sprite_slots[message->mouth_slot].timer = 0u;
+            cache_sprite_animation(message->mouth_slot);
             REQUEST_SPRITE_REFRESH_FULL();
         }
         message_text_speed = message->text_speed_frames;
@@ -3532,6 +3564,13 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
 {
     const pce_editor_bg_asset_t *next_bg;
     const uint8_t fade_transition = (uint8_t)(transition == PCE_VN_BG_TRANSITION_FADE);
+    const uint8_t implicit_fade = (uint8_t)(transition == PCE_VN_BG_TRANSITION_CUT
+        && current_bg_index >= 0
+        && !pending_display_enable);
+    const uint8_t bg_fade_out_frames = fade_transition ? fade_out_frames
+        : (implicit_fade ? VN_BG_IMPLICIT_FADE_FRAMES : 0u);
+    const uint8_t bg_fade_in_frames = fade_transition ? fade_in_frames
+        : (implicit_fade ? VN_BG_IMPLICIT_FADE_FRAMES : 0u);
     const uint8_t next_x = tile_x < VN_MAP_WIDTH ? (uint8_t)tile_x : 0u;
     const uint8_t next_y = tile_y < VN_MAP_HEIGHT ? (uint8_t)tile_y : 0u;
     const uint8_t bg_position_changed = (uint8_t)(current_bg_x != next_x || current_bg_y != next_y);
@@ -3539,9 +3578,14 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
     uint8_t bg_ready;
     if (bg_index < 0 || (uint8_t)bg_index >= pce_editor_bg_asset_count) return;
     next_bg = &pce_editor_bg_assets[(uint8_t)bg_index];
-    if (fade_transition && current_bg_index >= 0 && !pending_display_enable)
+    if (bg_fade_out_frames && current_bg_index >= 0 && !pending_display_enable)
     {
-        fade_palette(&pce_editor_bg_assets[(uint8_t)current_bg_index].palette, (uint16_t)(pce_editor_bg_assets[(uint8_t)current_bg_index].palette_bank * 16u), fade_out_frames, 0u);
+        fade_palette(&pce_editor_bg_assets[(uint8_t)current_bg_index].palette, (uint16_t)(pce_editor_bg_assets[(uint8_t)current_bg_index].palette_bank * 16u), bg_fade_out_frames, 0u);
+    }
+    if ((fade_transition || implicit_fade) && !pending_display_enable)
+    {
+        VN_BG_UPLOAD_DISPLAY_DISABLE();
+        pending_display_enable = 1u;
     }
     if (pending_scene_sprite_clear)
     {
@@ -3570,7 +3614,7 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
     current_bg_index = bg_index;
     current_bg_x = next_x;
     current_bg_y = next_y;
-    if (transition == PCE_VN_BG_TRANSITION_FADE && pending_display_enable)
+    if ((fade_transition || implicit_fade) && pending_display_enable)
     {
         display_enable();
         pending_display_enable = 0u;
@@ -3582,9 +3626,9 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
         pending_display_enable = 0u;
         delay_frame();
     }
-    if (fade_transition)
+    if (bg_fade_in_frames)
     {
-        fade_palette(&next_bg->palette, (uint16_t)(next_bg->palette_bank * 16u), fade_in_frames, 1u);
+        fade_palette(&next_bg->palette, (uint16_t)(next_bg->palette_bank * 16u), bg_fade_in_frames, 1u);
     }
 }
 
@@ -3711,6 +3755,7 @@ static uint8_t execute_command(const pce_vn_command_t *command)
         sprite_slots[slot].flags = command->flags;
         sprite_slots[slot].frame = 0u;
         sprite_slots[slot].timer = 0u;
+        cache_sprite_animation(slot);
         if (sprite_slots[slot].visible && was_visible && command->arg0)
         {
             sprite_slots[slot].x = start_x;
@@ -3723,6 +3768,7 @@ static uint8_t execute_command(const pce_vn_command_t *command)
             sprite_slots[slot].y = command->y;
             REQUEST_SPRITE_REFRESH_FULL();
         }
+        if (pending_sprite_refresh) refresh_scene_sprites();
     }
     else if (command->type == PCE_VN_COMMAND_AUDIO)
     {
@@ -4096,12 +4142,14 @@ int main(void)
         }
         VN_MAP_BANK130_FOR_CODE();
         tick_psg();
+        /* Do not restore the old ADPCM gate:
         if (!adpcm_playback_active())
         {
             tick_sprite_animations();
-            tick_spritetext();
-            if (pending_sprite_refresh) refresh_scene_sprites();
-        }
+        } */
+        tick_sprite_animations();
+        tick_spritetext();
+        if (pending_sprite_refresh) refresh_scene_sprites();
         last_pad = pad;
         delay_frame();
     }

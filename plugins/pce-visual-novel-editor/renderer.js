@@ -780,7 +780,7 @@ function previewRuntime() {
     '#pv-stage img{position:absolute;image-rendering:pixelated;transform-origin:top left;}',
     '#pv-msg{position:absolute;left:' + MSG.x + 'px;top:' + MSG.y + 'px;width:' + (MSG.cols * MSG.cellW) + 'px;height:' + (MSG.rows * MSG.cellH) + 'px;display:flex;flex-direction:column;}',
     '.pv-row{height:' + MSG.cellH + 'px;display:flex;}',
-    '.pv-cell{width:' + MSG.cellW + 'px;height:' + MSG.cellH + 'px;line-height:' + MSG.cellH + 'px;font-size:11px;text-align:center;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.9);overflow:hidden;}',
+    '.pv-cell{width:' + MSG.cellW + 'px;height:' + MSG.cellH + 'px;line-height:' + MSG.cellH + 'px;font-size:11px;text-align:center;color:inherit;text-shadow:0 1px 2px rgba(0,0,0,.9);overflow:hidden;}',
     '#pv-msg.pv-hidden,#pv-choice.pv-hidden{display:none;}',
     '#pv-effect{position:absolute;inset:0;z-index:20;pointer-events:none;opacity:0;background:#fff;}',
     '#pv-choice{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;gap:6px;min-width:140px;}',
@@ -1061,8 +1061,13 @@ function previewRuntime() {
     }
     return lines.slice(0, MSG.rows);
   }
-  function paintMsg(text) {
+  function messageColor(c) {
+    const color = String((c && c.textColor) || '').trim();
+    return /^#[0-9a-f]{6}$/i.test(color) ? color : '#fff';
+  }
+  function paintMsg(text, color) {
     const lines = layoutLines(text);
+    msgBox.style.color = color || '#fff';
     msgBox.innerHTML = '';
     for (let r = 0; r < MSG.rows; r += 1) {
       const row = document.createElement('div');
@@ -1087,7 +1092,7 @@ function previewRuntime() {
   function showEnd() {
     hideChoice();
     msgBox.classList.remove('pv-hidden');
-    paintMsg('― END ―');
+    paintMsg('― END ―', '#fff');
     pending = null;
   }
 
@@ -1095,14 +1100,15 @@ function previewRuntime() {
     hideChoice();
     msgBox.classList.remove('pv-hidden');
     const full = messageText(c);
+    const color = messageColor(c);
     let shown = 0;
     let done = false;
-    paintMsg('');
+    paintMsg('', color);
     if (c.voiceAssetId) playAudio('adpcm', c.voiceAssetId, false);
     function next() { clearTimers(); pending = null; run(); }
     function complete() {
       done = true;
-      paintMsg(full);
+      paintMsg(full, color);
       if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
       if (c.advanceMode === 'auto') autoTimer = setTimeout(next, Math.max(0, c.autoWaitFrames || 0) * 1000 / 60);
     }
@@ -1116,7 +1122,7 @@ function previewRuntime() {
     else {
       typeTimer = setInterval(() => {
         shown += 1;
-        paintMsg(full.slice(0, shown));
+        paintMsg(full.slice(0, shown), color);
         if (shown >= full.length) complete();
       }, speed);
     }
