@@ -18,6 +18,90 @@ const PCE_CD_SECTOR_BYTES = 2048;
 const PCE_CD_IPL_PROGRAM_SECTORS = 20;
 const PCE_CD_DATA_BASE_SECTOR = 64;
 
+// Windows cannot spawn .bat/.cmd directly — shell: true is required.
+function needsShell(command) {
+  return process.platform === 'win32' && /\.(bat|cmd)$/i.test(command);
+}
+
+// Quote one token for cmd.exe so a .bat/.cmd wrapper receives it intact even when it
+// contains spaces or shell metacharacters. Only used on the Windows shell path.
+function quoteForCmd(token) {
+  const s = String(token);
+  if (s !== '' && !/[\s"&|<>^()%!]/.test(s)) return s;
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+// Normalize a (command, args) pair into spawn() inputs. When the target is a Windows
+// .bat/.cmd wrapper we must use a shell, but passing an args array together with
+// shell:true makes Node concatenate the args UNESCAPED and emits DEP0190
+// ("Passing args to a child process with shell option true can lead to security
+// vulnerabilities"). So on the shell path we pre-quote everything into a single
+// command string and pass NO args array; otherwise we run the executable directly
+// with shell:false. Spread the result into spawn/spawnSync: spawn(file, args, { ...,
+// shell }).
+function resolveSpawn(command, args) {
+  if (needsShell(command)) {
+    return { file: [command, ...args].map(quoteForCmd).join(' '), args: [], shell: true };
+  }
+  return { file: command, args, shell: false };
+}
+
+// pce-mkcd.exe is the one Windows tool in llvm-mos-sdk built with MinGW-GCC (the LLVM
+// tools are statically/MSVC-linked), so it dynamically imports libstdc++-6.dll,
+// libgcc_s_seh-1.dll and libwinpthread-1.dll. The SDK does not ship these next to the
+// exe, so at runtime they are resolved from the ambient PATH. From a terminal that has
+// a MinGW/MSYS2 (or Git-for-Windows) bin on PATH this happens to work, but Electron's
+// PATH usually does not — it then either fails to find them (exit 0xC0000135) or, worse,
+// loads an ABI-incompatible copy and SEGFAULTS at runtime (exit 0xC0000005 /
+// 3221225781). The directory that holds the EXE is always searched before PATH, so the
+// robust fix is to co-locate a compatible, self-consistent set next to pce-mkcd.exe.
+const PCE_MKCD_RUNTIME_DLLS = ['libstdc++-6.dll', 'libgcc_s_seh-1.dll', 'libwinpthread-1.dll'];
+
+function findMinGwRuntimeSourceDir() {
+  const candidates = [];
+  if (process.env.MINGW_PREFIX) candidates.push(path.join(process.env.MINGW_PREFIX, 'bin'));
+  for (const root of ['C:\\msys64', 'C:\\msys2']) {
+    candidates.push(path.join(root, 'ucrt64', 'bin'), path.join(root, 'mingw64', 'bin'));
+  }
+  for (const pf of [process.env['ProgramFiles'], process.env['ProgramFiles(x86)'], 'C:\\Program Files']) {
+    if (pf) candidates.push(path.join(pf, 'Git', 'mingw64', 'bin'), path.join(pf, 'Git', 'usr', 'bin'));
+  }
+  for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
+    if (dir) candidates.push(dir.trim());
+  }
+  // Only accept a directory that has the COMPLETE set, so we never copy a mismatched mix.
+  return candidates.find((dir) => {
+    try { return dir && PCE_MKCD_RUNTIME_DLLS.every((dll) => fs.existsSync(path.join(dir, dll))); }
+    catch (_) { return false; }
+  }) || null;
+}
+
+// Ensure pce-mkcd.exe's MinGW runtime DLLs sit next to the exe so it loads a known-good
+// set regardless of the ambient PATH. No-op off Windows or when already present. Returns
+// true if the exe can run (DLLs co-located or already complete), false if they are
+// missing and no source could be found (caller surfaces an actionable error).
+function ensurePceMkcdRuntimeDlls(mkcdCommand, log) {
+  if (process.platform !== 'win32' || !mkcdCommand) return true;
+  const binDir = path.dirname(mkcdCommand);
+  const missing = PCE_MKCD_RUNTIME_DLLS.filter((dll) => !fs.existsSync(path.join(binDir, dll)));
+  if (missing.length === 0) return true;
+  const sourceDir = findMinGwRuntimeSourceDir();
+  if (!sourceDir) {
+    log?.(`pce-mkcd の実行に必要な MinGW ランタイム DLL (${missing.join(', ')}) が ${binDir} に無く、コピー元 (MinGW/MSYS2/Git の bin) も見つかりません。これらを pce-mkcd.exe と同じフォルダに置いてください。`, 'error');
+    return false;
+  }
+  try {
+    for (const dll of missing) {
+      fs.copyFileSync(path.join(sourceDir, dll), path.join(binDir, dll));
+    }
+    log?.(`pce-mkcd 用 MinGW ランタイム DLL (${missing.join(', ')}) を ${sourceDir} から ${binDir} にコピーしました。`, 'info');
+    return true;
+  } catch (err) {
+    log?.(`pce-mkcd 用ランタイム DLL のコピーに失敗しました: ${err.message || err}`, 'error');
+    return false;
+  }
+}
+
 function ensureDirSync(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
@@ -491,10 +575,11 @@ function measurePceCdFirstDataSector(commandInfo) {
   if (!commandInfo.iplPath || !commandInfo.elfPath || !fs.existsSync(commandInfo.elfPath)) return null;
   const probeIso = path.join(path.dirname(commandInfo.isoPath), 'pce_cd_layout_probe.iso');
   try {
+    const sp = resolveSpawn(commandInfo.mkcdCommand, ['-v', '--ipl', commandInfo.iplPath, probeIso, commandInfo.elfPath]);
     const result = spawnSync(
-      commandInfo.mkcdCommand,
-      ['-v', '--ipl', commandInfo.iplPath, probeIso, commandInfo.elfPath],
-      { cwd: commandInfo.cwd, env: commandInfo.env, encoding: 'utf-8', windowsHide: true },
+      sp.file,
+      sp.args,
+      { cwd: commandInfo.cwd, env: commandInfo.env, encoding: 'utf-8', windowsHide: true, shell: sp.shell },
     );
     if (result.status !== 0) return null;
     return parseMkcdFirstDataSector(`${result.stdout || ''}\n${result.stderr || ''}`, path.basename(commandInfo.elfPath));
@@ -739,10 +824,12 @@ function buildProject(onLog, options = {}) {
       return;
     }
 
-    const proc = spawn(commandInfo.command, commandInfo.args, {
+    const buildSpawn = resolveSpawn(commandInfo.command, commandInfo.args);
+    const proc = spawn(buildSpawn.file, buildSpawn.args, {
       cwd: commandInfo.cwd,
       env: commandInfo.env,
       windowsHide: true,
+      shell: buildSpawn.shell,
     });
 
     proc.stdout.on('data', (data) => data.toString().split(/\r?\n/).filter(Boolean).forEach((line) => log(line, 'info')));
@@ -766,11 +853,29 @@ function buildProject(onLog, options = {}) {
             // overlay sits on its reserved CD sector with the real bytes.
             vnManager.finalizeOverlayBlob(projectDir, commandInfo.elfPath, toolPath, { info: (m) => log(m, 'info') });
           }
+          // pce-mkcd mmaps the ELF and crashes (SIGSEGV / 0xC0000005) on a missing or
+          // zero-length input instead of reporting a clean error. Guard here so a
+          // half-written/empty main.elf surfaces an actionable message rather than the
+          // cryptic "pce-mkcd failed (exit code: 3221225781)".
+          const elfSize = fs.existsSync(commandInfo.elfPath) ? fs.statSync(commandInfo.elfPath).size : -1;
+          if (elfSize <= 0) {
+            resolve({ success: false, error: `リンク済み ELF (${path.basename(commandInfo.elfPath)}) が${elfSize < 0 ? '生成されていません' : '空です'}。pce-mkcd を実行できません。`, commandInfo });
+            return;
+          }
+          // Co-locate pce-mkcd.exe's MinGW runtime DLLs before the probe/main run so it
+          // does not crash (0xC0000005) loading an incompatible copy from the ambient
+          // PATH under Electron.
+          if (!ensurePceMkcdRuntimeDlls(commandInfo.mkcdCommand, log)) {
+            resolve({ success: false, error: 'pce-mkcd の MinGW ランタイム DLL を用意できませんでした。', commandInfo });
+            return;
+          }
           finalizePceCdDataPadding(commandInfo, log);
-          const mkcd = spawn(commandInfo.mkcdCommand, commandInfo.mkcdArgs, {
+          const mkcdSpawn = resolveSpawn(commandInfo.mkcdCommand, commandInfo.mkcdArgs);
+          const mkcd = spawn(mkcdSpawn.file, mkcdSpawn.args, {
             cwd: commandInfo.cwd,
             env: commandInfo.env,
             windowsHide: true,
+            shell: mkcdSpawn.shell,
           });
           mkcd.stdout.on('data', (data) => data.toString().split(/\r?\n/).filter(Boolean).forEach((line) => log(line, 'info')));
           mkcd.stderr.on('data', (data) => data.toString().split(/\r?\n/).filter(Boolean).forEach((line) => log(line, 'info')));

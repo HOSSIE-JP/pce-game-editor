@@ -2750,10 +2750,24 @@ function ensureOverlayReservation(projectDir) {
 function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
   if (!clangPath || !elfPath || !fs.existsSync(elfPath)) return null;
   const binDir = path.dirname(clangPath);
-  const ext = /\.(exe|cmd|bat)$/i.exec(path.basename(clangPath));
-  const objcopy = path.join(binDir, 'llvm-objcopy' + (ext ? ext[0] : ''));
+  // The toolchain driver (mos-pce-cd-clang) is a .bat wrapper on Windows, but
+  // llvm-objcopy ships as a native .exe there — NOT a .bat. Deriving objcopy's
+  // extension from the driver yields a nonexistent llvm-objcopy.bat, and Node
+  // additionally throws EINVAL when spawnSync targets a .bat/.cmd without
+  // shell:true. So probe for the real binary (prefer .exe on Windows) instead of
+  // copying the driver's extension, and only fall back to shell execution if all
+  // that exists is a .bat/.cmd wrapper.
+  const objcopyCandidates = process.platform === 'win32'
+    ? ['llvm-objcopy.exe', 'llvm-objcopy.cmd', 'llvm-objcopy.bat', 'llvm-objcopy']
+    : ['llvm-objcopy'];
+  let objcopy = path.join(binDir, objcopyCandidates[0]);
+  for (const name of objcopyCandidates) {
+    const candidate = path.join(binDir, name);
+    if (fs.existsSync(candidate)) { objcopy = candidate; break; }
+  }
+  const useShell = process.platform === 'win32' && /\.(bat|cmd)$/i.test(objcopy);
   const run = (args, label) => {
-    const r = spawnSync(objcopy, args, { encoding: 'utf-8' });
+    const r = spawnSync(objcopy, args, { encoding: 'utf-8', windowsHide: true, shell: useShell });
     if (r.error || r.status !== 0) {
       throw new Error(`overlay ${label} failed: ${r.stderr || r.stdout || r.error || `exit ${r.status}`}`);
     }
@@ -2774,8 +2788,23 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
     fs.writeFileSync(overlayBin, buf);
   }
   // Strip the overlay's relocation table so mkcd does not re-apply overlay-internal
-  // relocations at the out-of-range 0x8000 VMA (the section itself stays).
-  run(['--remove-section', `.rela${VN_OVERLAY_SECTION}`, elfPath], 'objcopy strip rela');
+  // relocations at the out-of-range 0x8000 VMA (the section itself stays). Write the
+  // stripped result to a temp file and atomically rename it over main.elf rather than
+  // letting llvm-objcopy rewrite the ELF in place: on Windows an in-place rewrite can
+  // race with antivirus/file-indexing scanning the freshly written executable and
+  // leave a transient ZERO-LENGTH main.elf. pce-mkcd mmaps the ELF without checking
+  // the result and SEGFAULTS (exit 0xC0000005 / 3221225781) on an empty input, which
+  // surfaced as "pce-mkcd failed (exit code: 3221225781)" with the probe also failing.
+  // Verifying the temp is non-empty before the rename guarantees mkcd never observes a
+  // half-written ELF. (macOS never hit this because there is no such scanner race.)
+  const strippedElf = `${elfPath}.stripped`;
+  run(['--remove-section', `.rela${VN_OVERLAY_SECTION}`, elfPath, strippedElf], 'objcopy strip rela');
+  const strippedSize = fs.existsSync(strippedElf) ? fs.statSync(strippedElf).size : 0;
+  if (strippedSize === 0) {
+    try { if (fs.existsSync(strippedElf)) fs.unlinkSync(strippedElf); } catch (_) {}
+    throw new Error(`overlay strip produced an empty ELF (${path.basename(strippedElf)}) — aborting before pce-mkcd to avoid a crash on an unreadable ELF`);
+  }
+  fs.renameSync(strippedElf, elfPath);
   logger?.info?.(`PCE VN overlay blob: ${realSize} bytes (reserved ${VN_OVERLAY_RESERVED_BYTES}) を main.elf から ${VN_OVERLAY_DATA_FILE} に抽出 (.rela${VN_OVERLAY_SECTION} 除去)`);
   return { realSize, byteSize: VN_OVERLAY_RESERVED_BYTES };
 }
