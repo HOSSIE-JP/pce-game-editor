@@ -54,7 +54,10 @@ const DEFAULT_SPRITE_OPTIONS = Object.freeze({
   kind: 'sprite',
   compression: PCE_VISUAL_COMPRESSION_AUTO,
   paletteBank: 0,
-  tileBase: 880,
+  // Sprite pattern base (in 32-word units). 704 -> VRAM word 22528, which sits
+  // above the VN message/font tiles and below the SATB at 0x7f00; this is the
+  // shared region the VN runtime swaps character sprites through.
+  tileBase: 704,
   mapBase: 0,
   x: 144,
   y: 104,
@@ -156,7 +159,19 @@ function normalizeAssetSource(source = '') {
   return cleaned;
 }
 
+// Parse the sprite editor's per-frame time matrix string ("[[8,8,8][4,4,4]]")
+// into rows of integers. Lets projects saved before per-animation frameDelays
+// existed still pick up their per-frame times on rebuild (one row per animation).
+function parseSpriteTimeMatrixRows(value) {
+  if (typeof value !== 'string') return [];
+  return Array.from(value.matchAll(/\[([^[\]]*)\]/g)).map((match) => match[1]
+    .split(',')
+    .map((cell) => parseInt(cell, 10))
+    .map((num) => (Number.isFinite(num) ? num : 0)));
+}
+
 function normalizeSpriteAnimations(options = {}, asset = {}) {
+  const spriteTimeRows = parseSpriteTimeMatrixRows(options.spriteEditor?.time);
   const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
   const cellWidth = clampPositiveInt(options.cellWidth ?? generated.cellWidth, 16, 32, DEFAULT_SPRITE_OPTIONS.cellWidth);
   const cellHeight = clampPositiveInt(options.cellHeight ?? generated.cellHeight, 16, 64, DEFAULT_SPRITE_OPTIONS.cellHeight);
@@ -184,14 +199,25 @@ function normalizeSpriteAnimations(options = {}, asset = {}) {
     const maxFrames = Math.max(1, Math.floor((totalCells - firstCell + frameCells - 1) / frameCells));
     const frameCount = clampPositiveInt(raw.frameCount, 1, 64, Math.min(1, maxFrames));
     const frameStrideCells = clampPositiveInt(raw.frameStrideCells, 1, totalCells, frameCells);
+    const resolvedFrameCount = Math.min(frameCount, Math.max(1, Math.floor((totalCells - firstCell + frameStrideCells - 1) / frameStrideCells)));
+    const frameDelay = clampInt(raw.frameDelay, 1, 60, DEFAULT_SPRITE_ANIMATION.frameDelay);
+    // Preserve the per-frame display times so each frame keeps its own duration
+    // through normalization. Prefer explicit per-animation frameDelays; otherwise
+    // migrate from the sprite editor's per-row time matrix. Missing/invalid
+    // entries fall back to frameDelay.
+    const rawFrameDelays = Array.isArray(raw.frameDelays) && raw.frameDelays.length
+      ? raw.frameDelays
+      : (spriteTimeRows[index] || []);
+    const frameDelays = Array.from({ length: resolvedFrameCount }, (_, frameIndex) => clampInt(rawFrameDelays[frameIndex], 1, 60, frameDelay));
     return {
       id: sanitizeAssetId(raw.id, index === 0 ? 'default' : `anim_${index + 1}`).slice(0, 32),
       name: String(raw.name || raw.id || (index === 0 ? 'Default' : `Animation ${index + 1}`)).trim().slice(0, 48),
       frameWidth: frameCellsX * cellWidth,
       frameHeight: frameCellsY * cellHeight,
       firstCell,
-      frameCount: Math.min(frameCount, Math.max(1, Math.floor((totalCells - firstCell + frameStrideCells - 1) / frameStrideCells))),
-      frameDelay: clampInt(raw.frameDelay, 1, 60, DEFAULT_SPRITE_ANIMATION.frameDelay),
+      frameCount: resolvedFrameCount,
+      frameDelay,
+      frameDelays,
       frameStrideCells,
       loop: raw.loop !== false,
     };
@@ -313,6 +339,7 @@ function normalizeGeneratedData(data = {}) {
         paletteFile: normalizeAssetSource(data.generated.paletteFile || ''),
         tilesFile: normalizeAssetSource(data.generated.tilesFile || ''),
         tilesCompressedFile: normalizeAssetSource(data.generated.tilesCompressedFile || ''),
+        cellMapFile: normalizeAssetSource(data.generated.cellMapFile || ''),
         mapFile: normalizeAssetSource(data.generated.mapFile || ''),
         mapVramFile: normalizeAssetSource(data.generated.mapVramFile || ''),
         mapVramCompressedFile: normalizeAssetSource(data.generated.mapVramCompressedFile || ''),
@@ -682,6 +709,7 @@ function buildInternalPceConversionPlan(projectDir, asset) {
   const paletteFile = relativeGeneratedPath(normalized.id, 'palette.bin');
   const tilesFile = relativeGeneratedPath(normalized.id, kind === 'sprite' ? 'patterns.bin' : 'tiles.bin');
   const tilesCompressedFile = relativeGeneratedPath(normalized.id, kind === 'sprite' ? 'patterns.rle' : 'tiles.rle');
+  const cellMapFile = kind === 'sprite' ? relativeGeneratedPath(normalized.id, 'cellmap.bin') : '';
   const mapFile = kind === 'sprite' ? '' : relativeGeneratedPath(normalized.id, 'map.bin');
   const mapVramFile = kind === 'sprite' ? '' : relativeGeneratedPath(normalized.id, 'map_vram.bin');
   const mapVramCompressedFile = kind === 'sprite' ? '' : relativeGeneratedPath(normalized.id, 'map_vram.rle');
@@ -689,6 +717,7 @@ function buildInternalPceConversionPlan(projectDir, asset) {
   const paletteAbs = path.join(projectDir, paletteFile);
   const tilesAbs = path.join(projectDir, tilesFile);
   const tilesCompressedAbs = path.join(projectDir, tilesCompressedFile);
+  const cellMapAbs = cellMapFile ? path.join(projectDir, cellMapFile) : '';
   const mapAbs = mapFile ? path.join(projectDir, mapFile) : '';
   const mapVramAbs = mapVramFile ? path.join(projectDir, mapVramFile) : '';
   const mapVramCompressedAbs = mapVramCompressedFile ? path.join(projectDir, mapVramCompressedFile) : '';
@@ -697,8 +726,8 @@ function buildInternalPceConversionPlan(projectDir, asset) {
     command: PCE_INTERNAL_IMAGE_CONVERTER,
     args: [],
     cwd: projectDir,
-    files: { paletteFile, tilesFile, tilesCompressedFile, mapFile, mapVramFile, mapVramCompressedFile, previewFile },
-    absFiles: { paletteAbs, tilesAbs, tilesCompressedAbs, mapAbs, mapVramAbs, mapVramCompressedAbs, previewAbs: path.join(projectDir, previewFile) },
+    files: { paletteFile, tilesFile, tilesCompressedFile, cellMapFile, mapFile, mapVramFile, mapVramCompressedFile, previewFile },
+    absFiles: { paletteAbs, tilesAbs, tilesCompressedAbs, cellMapAbs, mapAbs, mapVramAbs, mapVramCompressedAbs, previewAbs: path.join(projectDir, previewFile) },
     generatedDir,
   };
 }
@@ -1084,15 +1113,35 @@ function encodePceBackground(indexed, asset) {
   };
 }
 
+// Encode a sprite sheet into 16x16 patterns, deduplicating identical cells so
+// that the VRAM upload only carries the unique 128-byte patterns. `cellMap`
+// keeps the sheet's positional cell order (row-major, length =
+// cols*rows) and maps each source cell to its unique VRAM slot, so the runtime
+// can still address animation frames by their grid position. Most VN character
+// sheets share many cells across frames, so this shrinks the VRAM footprint
+// dramatically (and is what keeps large sheets inside the VN VRAM budget).
 function encodePceSprites(indexed) {
   if (indexed.width % 16 || indexed.height % 16) throw new Error('Sprite sheet size must be aligned to 16px patterns');
-  const patterns = [];
+  const unique = [];
+  const lookup = new Map();
+  const cellMap = [];
   for (let y = 0; y < indexed.height; y += 16) {
     for (let x = 0; x < indexed.width; x += 16) {
-      patterns.push(encodePceSpritePattern(indexed.indices, indexed.width, x, y));
+      const pattern = encodePceSpritePattern(indexed.indices, indexed.width, x, y);
+      const key = pattern.toString('latin1');
+      let slot = lookup.get(key);
+      if (slot === undefined) {
+        slot = unique.length;
+        lookup.set(key, slot);
+        unique.push(pattern);
+      }
+      cellMap.push(slot);
     }
   }
-  return Buffer.concat(patterns);
+  if (unique.length > 256) {
+    throw new Error(`Sprite sheet has ${unique.length} unique 16x16 cells; the VN runtime cell map supports at most 256. Reduce the sheet or split it.`);
+  }
+  return { patterns: Buffer.concat(unique), cellMap: Buffer.from(cellMap) };
 }
 
 function encodePceRleBuffer(input) {
@@ -1186,9 +1235,10 @@ function runInternalPceImageConversion(plan, sourceAbs, asset, options = {}) {
     writeVisualCompressionSidecar(encoded.tiles, plan.absFiles.tilesCompressedAbs, imageOptions.compression);
     writeVisualCompressionSidecar(encoded.vramMap, plan.absFiles.mapVramCompressedAbs, imageOptions.compression);
   } else {
-    const patterns = encodePceSprites(indexed);
+    const { patterns, cellMap } = encodePceSprites(indexed);
     fs.writeFileSync(plan.absFiles.tilesAbs, patterns);
     writeVisualCompressionSidecar(patterns, plan.absFiles.tilesCompressedAbs, imageOptions.compression);
+    if (plan.absFiles.cellMapAbs) fs.writeFileSync(plan.absFiles.cellMapAbs, cellMap);
   }
   return {
     ok: true,
@@ -1334,9 +1384,19 @@ function spriteGeneratedAssetNeedsRefresh(projectDir, asset) {
   const patterns = readGeneratedBuffer(projectDir, generated.tilesFile);
   const widthPatterns = Math.max(1, Math.ceil((options.width || options.cellWidth || 16) / 16));
   const heightPatterns = Math.max(1, Math.ceil((options.height || options.cellHeight || 16) / 16));
-  const expectedPatternBytes = widthPatterns * heightPatterns * 128;
+  const expectedCells = widthPatterns * heightPatterns;
   if (!patterns.length) return true;
-  if (expectedPatternBytes && patterns.length !== expectedPatternBytes) return true;
+  // Patterns are deduplicated, so the file size depends on the unique cell count
+  // rather than the full grid. Validate via the cell map instead: it must exist
+  // (older pre-dedup assets lack it and must regenerate) and cover every grid
+  // cell, and each entry must point at a real unique pattern.
+  if (patterns.length % 128 !== 0) return true;
+  const uniqueCells = patterns.length / 128;
+  const cellMap = readGeneratedBuffer(projectDir, generated.cellMapFile);
+  if (!generated.cellMapFile || cellMap.length !== expectedCells) return true;
+  for (let i = 0; i < cellMap.length; i += 1) {
+    if (cellMap[i] >= uniqueCells) return true;
+  }
   if (generatedCompressionNeedsRefresh(projectDir, asset, ['tiles'])) return true;
   return false;
 }
@@ -1920,6 +1980,7 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
     const ident = toCIdentifier(`pce_editor_${type}_${asset.id}`);
     const generated = asset.data.generated || {};
     const palette = readGeneratedBuffer(projectDir, generated.paletteFile);
+    const cellMap = isSprite ? readGeneratedBuffer(projectDir, generated.cellMapFile) : Buffer.alloc(0);
     const tilesPayload = useCdFiles
       ? generatedCdPayload(projectDir, generated, 'tiles')
       : { buffer: readGeneratedBuffer(projectDir, generated.tilesFile), relativePath: generated.tilesFile, uncompressedSize: 0, byteSize: 0, compression: PCE_VISUAL_COMPRESSION_NONE };
@@ -1948,8 +2009,11 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
               compression: mapPayload.compression,
             })
           : emitDataRef(`${ident}_map`, map, bankAllocator, { allowBanking: generationOptions.allowBanking }));
+    const cellMapName = `${ident}_cellmap`;
+    const cellMapLines = isSprite ? bufferToCArray(cellMapName, cellMap) : [];
     arrayLines.push(...paletteRef.lines);
     arrayLines.push(...tilesRef.lines);
+    if (isSprite) arrayLines.push(...cellMapLines);
     if (!isSprite) arrayLines.push(...mapRef.lines);
     if (arrayLines[arrayLines.length - 1] !== '') arrayLines.push('');
     const options = normalizeImageOptions(asset);
@@ -1958,9 +2022,17 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
       const cellHeight = numeric(options.cellHeight, 16, 64, 16);
       const cellColumns = Math.max(1, Math.ceil(numeric(options.width, 0, 1024, cellWidth) / cellWidth));
       const cellRows = Math.max(1, Math.ceil(numeric(options.height, 0, 1024, cellHeight) / cellHeight));
-      const patternBase = numeric(options.tileBase, 0, 2047, 384);
+      const patternBase = numeric(options.tileBase, 0, 2047, 704);
       const paletteBank = numeric(options.paletteBank, 0, 15, 0);
-      metaLines.push(`  { ${dataRefLiteral(paletteRef)}, ${dataRefLiteral(tilesRef)}, ${cellWidth}u, ${cellHeight}u, ${cellColumns}u, ${cellRows}u, ${patternBase}u, ${paletteBank}u, ${numeric(options.x, 0, 255, 144)}u, ${numeric(options.y, 0, 255, 104)}u }${index + 1 < converted.length ? ',' : ''}`);
+      // Hard error (not just a warning) when the deduplicated sprite patterns
+      // still overrun the SATB VRAM area: shipping this silently corrupts the
+      // sprite attribute table and the VN message/glyph VRAM below it.
+      const patternWords = Math.ceil(tiles.length / 2);
+      if (patternWords && (patternBase * 32) + patternWords > PCE_SATB_VRAM_WORD) {
+        throw new Error(`Sprite "${asset.id}" patterns (${patternWords} words from VRAM word ${patternBase * 32}) overrun the SATB at 0x${PCE_SATB_VRAM_WORD.toString(16)}. Lower the sprite tileBase or reduce the sheet (unique cells: ${Math.floor(tiles.length / 128)}).`);
+      }
+      const cellMapPointer = (isSprite && cellMap.length) ? cellMapName : '(const unsigned char *)0';
+      metaLines.push(`  { ${dataRefLiteral(paletteRef)}, ${dataRefLiteral(tilesRef)}, ${cellWidth}u, ${cellHeight}u, ${cellColumns}u, ${cellRows}u, ${patternBase}u, ${paletteBank}u, ${numeric(options.x, 0, 255, 144)}u, ${numeric(options.y, 0, 255, 104)}u, ${cellMapPointer} }${index + 1 < converted.length ? ',' : ''}`);
       drawMetaLines.push(`  { ${cellWidth}u, ${cellHeight}u, ${cellColumns}u, ${cellRows}u, ${patternBase}u, ${paletteBank}u }${index + 1 < converted.length ? ',' : ''}`);
     } else {
       const widthTiles = Math.max(1, Math.ceil(numeric(options.width, 0, 1024, 0) / 8));
@@ -2415,6 +2487,7 @@ function generateAssetSources(projectDir, options = {}) {
     '  unsigned char palette_bank;',
     '  unsigned char x;',
     '  unsigned char y;',
+    '  const unsigned char *cell_map;',
     '} pce_editor_sprite_asset_t;',
     '',
     'typedef struct {',

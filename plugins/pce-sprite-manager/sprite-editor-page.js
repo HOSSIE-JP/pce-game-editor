@@ -23,7 +23,7 @@ import {
 } from './sprite-editor-utils.mjs';
 
 const IMAGE_EXTS = ['.png', '.bmp', '.webp'];
-const DEFAULT_TILE_BASE = 384;
+const DEFAULT_TILE_BASE = 704;
 const DEFAULT_WIDTH = 64;
 const DEFAULT_HEIGHT = 128;
 const STORAGE_KEY = 'pce.spriteEditor.layout.v1';

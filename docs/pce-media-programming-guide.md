@@ -205,6 +205,8 @@ const cdda = await window.electronAPI.importAssetAudio({
 
 スプライトは PCE sprite pattern と sprite palette に変換されます。表示は VN scene の `sprite` command で行います。
 
+> **重複セルの圧縮 (cell dedup)**: 変換時に sheet の 16×16 cell を 128 byte 単位で比較し、ユニークな cell だけを `patterns.bin` へ出力します。positional cell → ユニーク slot の対応表を `cellmap.bin`(1 byte/cell) として生成し、`pce_editor_sprite_asset_t.cell_map` に resident 配列として埋め込みます。runtime の `show_character_sprite_frame()` がこの map 経由で frame の cell を VRAM slot へ解決するため、目パチ・口パクなど frame 間で共通する cell が 1 枚に畳まれ、多 frame の大きな sheet も VN の VRAM 予算に収まります。`tileCount` / `vramBytes` は dedupe 後のユニーク cell 数です。ユニーク cell が 256 を超える sheet は build error。
+
 ```jsonc
 {
   "id": "akari_sprite",
@@ -213,7 +215,7 @@ const cdda = await window.electronAPI.importAssetAudio({
   "options": {
     "kind": "sprite",
     "paletteBank": 1,
-    "tileBase": 880,
+    "tileBase": 704,
     "x": 128,
     "y": 24,
     "width": 64,
@@ -242,7 +244,7 @@ const cdda = await window.electronAPI.importAssetAudio({
 | option | 範囲/既定 | 説明 |
 |---|---:|---|
 | `paletteBank` | `0..15` | sprite palette bank。runtime は sprite palette 領域 `256 + paletteBank * 16` へ転送 |
-| `tileBase` | `0..2047`, 既定 `880` | C 生成後は `pattern_base`。sprite pattern の基準 index |
+| `tileBase` | `0..2047`, 既定 `704` | C 生成後は `pattern_base`(32-word 単位)。既定 `704` = VRAM word 22528 で、message/font tile より後ろ・SATB(`0x7f00`) より前の sprite 共有領域。dedupe 後の `tileBase*32 + patterns.bin/2` が `0x7f00` を超えると build error |
 | `x`, `y` | `0..255` | 既定表示位置。scene command の `x`, `y` が実表示に使われる |
 | `width`, `height` | `0..1024` | sheet 全体サイズ |
 | `cellWidth`, `cellHeight` | `16x16`, `16x32`, `16x64`, `32x16`, `32x32`, `32x64` | PCE sprite cell size |
@@ -256,7 +258,8 @@ const cdda = await window.electronAPI.importAssetAudio({
 | `frameWidth`, `frameHeight` | 1 frame の表示サイズ。cell size の倍数へ正規化 |
 | `firstCell` | sheet 左上から数えた開始 cell index |
 | `frameCount` | frame 数。最大 64 |
-| `frameDelay` | 何 frame ごとに次 animation frame へ進めるか |
+| `frameDelay` | 全 frame 共通の既定表示フレーム数 |
+| `frameDelays` | 各 frame の表示フレーム数（長さ `frameCount`）。runtime は `frame_delays[frame]` で frame ごとに送る。空/未指定セルは `frameDelay` にフォールバック。スプライトエディタの time フィールド（`spriteEditor.time` 行列、1 行 = 1 animation）から保存・移行 |
 | `frameStrideCells` | 次 frame まで何 cell 進むか |
 | `loop` | 最終 frame 後に先頭へ戻すか |
 

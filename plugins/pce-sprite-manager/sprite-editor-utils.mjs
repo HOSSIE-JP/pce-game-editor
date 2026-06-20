@@ -276,6 +276,13 @@ export function buildAnimationsFromEditorState({
     if (frameCount <= 0) continue;
     const rowTimes = (matrix[row] || []).slice(0, frameCount);
     const frameDelay = clampInt(firstUsableTime(rowTimes, defaults[row] || '4'), 1, 60, 4);
+    // Per-frame display times: one entry per frame, falling back to the row's
+    // representative delay when a cell is empty/zero. This is what lets each
+    // frame run for its own duration instead of a single uniform delay.
+    const frameDelays = Array.from({ length: frameCount }, (_, frameIndex) => {
+      const value = clampInt(rowTimes[frameIndex], 1, 60, 0);
+      return value > 0 ? value : frameDelay;
+    });
     const firstCell = row * frameHeightCells * sheetCellColumns;
     if (firstCell >= metrics.totalCells) continue;
     animations.push({
@@ -286,6 +293,7 @@ export function buildAnimationsFromEditorState({
       firstCell,
       frameCount,
       frameDelay,
+      frameDelays,
       frameStrideCells: frameWidthCells,
       loop: true,
     });
@@ -298,6 +306,7 @@ export function buildAnimationsFromEditorState({
     firstCell: 0,
     frameCount: 1,
     frameDelay: 4,
+    frameDelays: [4],
     frameStrideCells: frameWidthCells,
     loop: true,
   }];

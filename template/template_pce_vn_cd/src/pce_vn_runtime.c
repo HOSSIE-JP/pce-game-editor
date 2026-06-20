@@ -82,13 +82,15 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 /* One dedicated, always-zero tile for the BG/UI blank fill (the old blank tile
    aliased the font base, which is now dynamic strip data). */
 #define PCE_VN_BLANK_TILE (PCE_VN_FONT_TILE_BASE + VN_MSG_TILE_COUNT)
-/* 12x12 glyph masks live in VRAM (12 words/glyph) right after the blank tile; the
-   compositor reads each glyph's mask back with pce_vdc_copy_from_vram. RAM banks
-   cannot hold a resident mask table: bank128 is full, MPR5 corrupts the System
-   Card BIOS, and a table in bank132 grows the loaded image and breaks the CD data
-   sector layout. */
+/* 12x12 glyph masks live in VRAM (12 words/glyph) right after the blank tile.
+   CD builds preload the active message's masks into a bounded RAM cache before
+   starting ADPCM, so voiced typewriter frames do not pay a VRAM read per glyph.
+   A full resident mask table still does not fit: bank128 is full, MPR5 corrupts
+   the System Card BIOS, and a table in bank132 grows the loaded image and breaks
+   the CD data sector layout. */
 #define PCE_VN_FONT_MASK_VRAM_WORD (((uint16_t)PCE_VN_BLANK_TILE + 1u) * 16u)
 #define VN_GLYPH_MASK_WORDS 12u
+#define VN_MESSAGE_GLYPH_CACHE_COUNT 68u
 #define VN_UI_PALETTE 15u
 #define VN_UI_BLANK_TILE PCE_VN_BLANK_TILE
 #define VN_CD_SECTOR_BYTES 2048u
@@ -106,6 +108,13 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_COMMAND_STEP_GUARD 1024u
 #define VN_ADPCM_FRAME_RATE 60ul
 #define VN_ADPCM_END_PAD_FRAMES 2ul
+#define VN_SPRITE_REFRESH_NONE 0u
+#define VN_SPRITE_REFRESH_PATTERNS 1u
+#define VN_SPRITE_REFRESH_FULL 2u
+#define REQUEST_SPRITE_REFRESH_FULL() (pending_sprite_refresh = VN_SPRITE_REFRESH_FULL)
+#define REQUEST_SPRITE_REFRESH_PATTERNS() do { \
+    if (pending_sprite_refresh != VN_SPRITE_REFRESH_FULL) pending_sprite_refresh = VN_SPRITE_REFRESH_PATTERNS; \
+} while (0)
 #define VN_SCENE_PACK_MAGIC_P 0x50u
 #define VN_SCENE_PACK_MAGIC_V 0x56u
 #define VN_SCENE_PACK_MAGIC_N 0x4eu
@@ -157,7 +166,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 
 static uint8_t current_scene = 0;
 static uint8_t current_command = 0;
-static uint8_t pending_sprite_refresh = 0;
+static uint8_t pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
 static uint8_t pending_display_enable = 0;
 static uint8_t pending_scene_sprite_clear = 0;
 static signed int current_bg_index;
@@ -188,6 +197,7 @@ static uint8_t message_complete = 0;
 static uint8_t message_auto_wait = 0;
 /* Effective per-character reveal frames for the active message (after ADPCM sync). */
 static uint8_t message_text_speed = 0;
+static pce_vn_message_t active_message_state __attribute__((section(".bss")));
 static uint16_t ui_text_color;
 static uint8_t current_scene_full_screen_bg = 0;
 /* Input-check command state (single watcher). */
@@ -222,6 +232,9 @@ typedef struct
 static vn_sprite_slot_t sprite_slots_storage[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 #define sprite_slots sprite_slots_storage
 static pce_editor_sprite_draw_meta_t sprite_draw_meta;
+static uint8_t sprite_satb_slot_start[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint8_t sprite_satb_slot_count[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint8_t sprite_satb_layout_valid = 0;
 
 /* spritetext overlay slots: short strings drawn with hardware sprites on top of
    the BG/UI (e.g. a blinking "PRESS RUN BUTTON"). They share the 64-entry SATB
@@ -246,9 +259,9 @@ static vn_spritetext_slot_t spritetext_slots[VN_SPRITETEXT_SLOT_COUNT] __attribu
 static vdc_sprite_t sprite_shadow[64];
 #endif
 #if defined(__PCE_CD__)
-/* Moved out of the scarce console_ram work RAM into the now-mostly-empty VN data
-   bank (MPR6). Only the CD->VRAM transfer helpers touch it, and they map MPR6 to
-   bank132 (map_vn_data) before the pce_cdb_cd_read / vram copy loop. */
+/* Moved out of the scarce console_ram work RAM into the VN data bank (MPR6).
+   CD->VRAM transfer helpers and the active message glyph cache map MPR6 to
+   bank132 (map_vn_data) before reading or writing these buffers. */
 static uint8_t cd_transfer_scratch[VN_CD_SECTOR_BYTES] __attribute__((section(".ram_bank132")));
 static uint8_t vn_active_scene_pack_data[PCE_VN_SCENE_PACK_CACHE_BYTES];
 static uint8_t cdda_active = 0;
@@ -354,7 +367,7 @@ static void init_runtime_state(void)
     uint8_t i;
     current_scene = 0u;
     current_command = 0u;
-    pending_sprite_refresh = 0u;
+    pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
     pending_display_enable = 0u;
     pending_scene_sprite_clear = 0u;
     current_bg_index = -1;
@@ -416,6 +429,12 @@ static void init_runtime_state(void)
     async_input_mask = 0u;
     async_input_target = PCE_VN_NO_COMMAND;
     current_scene_full_screen_bg = 0u;
+    sprite_satb_layout_valid = 0u;
+    for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
+    {
+        sprite_satb_slot_start[i] = 0u;
+        sprite_satb_slot_count[i] = 0u;
+    }
     map_vn_data();
     for (i = 0u; i < pce_vn_variable_count && i < PCE_VN_VARIABLE_STORAGE_COUNT; i++)
     {
@@ -434,13 +453,24 @@ static void init_runtime_state(void)
 static void delay_frame(void)
 {
 #if defined(__PCE_CD__)
-    volatile uint16_t guard;
     pce_ram_bank130_map();
     service_adpcm_playback();
-    for (guard = 0u; guard < 65535u; guard++)
-    {
-        if (*IO_VDC_STATUS & VDC_FLAG_VBLANK) break;
-    }
+    __asm__ volatile(
+        "ldy #$20\n"
+        "vn_wait_vblank_outer%=:\n"
+        "ldx #$ff\n"
+        "vn_wait_vblank_inner%=:\n"
+        "lda $0000\n"
+        "and #$20\n"
+        "bne vn_wait_vblank_done%=\n"
+        "dex\n"
+        "bne vn_wait_vblank_inner%=\n"
+        "dey\n"
+        "bne vn_wait_vblank_outer%=\n"
+        "vn_wait_vblank_done%=:\n"
+        :
+        :
+        : "a", "x", "y", "memory");
     service_cdda_playback();
 #else
     volatile uint16_t delay;
@@ -514,7 +544,7 @@ static void set_screen_offset(signed char x, signed char y)
     screen_shake_x = x;
     screen_shake_y = y;
     apply_screen_offset();
-    pending_sprite_refresh = 1u;
+    REQUEST_SPRITE_REFRESH_FULL();
 }
 
 static void VN_BANKED_CODE restore_video_after_cdb_call(uint8_t restore_display)
@@ -1713,6 +1743,12 @@ static uint16_t composer_prev_mask[VN_GLYPH_MASK_WORDS] __attribute__((section("
 static uint8_t composer_prev_col __attribute__((section(".bss")));   /* column of the previous visible glyph */
 static uint8_t composer_prev_valid __attribute__((section(".bss"))); /* 1 if composer_prev_mask holds a left neighbor */
 static uint8_t composer_row __attribute__((section(".bss")));        /* text row the previous glyph belongs to */
+#if defined(__PCE_CD__)
+static uint16_t message_glyph_cache_ids[VN_MESSAGE_GLYPH_CACHE_COUNT] __attribute__((section(".bss")));
+static uint16_t message_glyph_cache_masks[VN_MESSAGE_GLYPH_CACHE_COUNT][VN_GLYPH_MASK_WORDS] __attribute__((section(".ram_bank132")));
+static uint8_t message_glyph_cache_count __attribute__((section(".bss")));
+static uint8_t message_glyph_cache_valid __attribute__((section(".bss")));
+#endif
 
 /* Build a PCE 4bpp 8x8 tile (16 words) from an 8-scanline 1bpp mask. A lit pixel
    is color index 15 (all four bitplanes set), so every plane byte equals the row
@@ -1735,26 +1771,30 @@ static void VN_BANKED_CODE2 encode_msg_tile(const uint8_t *mask8, uint8_t *out32
 static void VN_BANKED_CODE2 add_glyph_tile(const uint16_t *gmask, uint16_t gpx0,
     uint8_t tile_x0, uint8_t sub, uint8_t *mask8)
 {
+    const uint16_t gpx1 = (uint16_t)(gpx0 + VN_GLYPH_W);
+    const uint16_t tile_x1 = (uint16_t)(tile_x0 + 8u);
+    uint8_t px_start = 0u;
+    uint8_t px_end = 8u;
     uint8_t sy;
+    if (gpx1 <= tile_x0 || gpx0 >= tile_x1) return;
+    if (gpx0 > tile_x0) px_start = (uint8_t)(gpx0 - tile_x0);
+    if (gpx1 < tile_x1) px_end = (uint8_t)(gpx1 - tile_x0);
     for (sy = 0u; sy < 8u; sy++)
     {
         const uint8_t band_y = (uint8_t)((sub * 8u) + sy);
         uint8_t gy;
         uint16_t mrow;
-        uint8_t gx;
+        uint8_t px;
         if (band_y < VN_GLYPH_Y_OFFSET) continue;
         gy = (uint8_t)(band_y - VN_GLYPH_Y_OFFSET);
         if (gy >= VN_GLYPH_H) continue;
         mrow = gmask[gy];
-        for (gx = 0u; gx < VN_GLYPH_W; gx++)
+        for (px = px_start; px < px_end; px++)
         {
+            const uint8_t gx = (uint8_t)(((uint16_t)tile_x0 + px) - gpx0);
             if (mrow & (uint16_t)(0x8000u >> gx))
             {
-                const uint16_t xg = gpx0 + gx;
-                if (xg >= tile_x0 && xg < (uint16_t)(tile_x0 + 8u))
-                {
-                    mask8[sy] |= (uint8_t)(0x80u >> (uint8_t)(xg - tile_x0));
-                }
+                mask8[sy] |= (uint8_t)(0x80u >> px);
             }
         }
     }
@@ -1822,12 +1862,69 @@ static uint16_t VN_BANKED_CODE2 vn_glyph_stride(const uint8_t *glyphs, uint16_t 
     return (glyphs[pos] == PCE_VN_GLYPH_ESCAPE) ? 3u : 1u;
 }
 
+#if defined(__PCE_CD__)
+static uint8_t VN_BANKED_CODE message_glyph_cache_find(uint16_t glyph)
+{
+    uint8_t i;
+    if (!message_glyph_cache_valid) return VN_MESSAGE_GLYPH_CACHE_COUNT;
+    for (i = 0u; i < message_glyph_cache_count; i++)
+    {
+        if (message_glyph_cache_ids[i] == glyph) return i;
+    }
+    return VN_MESSAGE_GLYPH_CACHE_COUNT;
+}
+
+static const uint16_t *VN_BANKED_CODE2 cached_message_glyph_mask(uint16_t glyph)
+{
+    const uint8_t index = message_glyph_cache_find(glyph);
+    if (index >= VN_MESSAGE_GLYPH_CACHE_COUNT) return (const uint16_t *)0;
+    map_vn_data();
+    return message_glyph_cache_masks[index];
+}
+
+static void VN_RESIDENT_CODE preload_message_glyph_masks(const pce_vn_message_t *message)
+{
+    uint16_t pos = 0u;
+    uint8_t i;
+    message_glyph_cache_count = 0u;
+    message_glyph_cache_valid = 1u;
+    if (!message || !message->glyphs) return;
+    map_vn_data();
+    for (i = 0u; i < message->glyph_count; i++)
+    {
+        const uint16_t glyph = vn_glyph_decode(message->glyphs, pos);
+        pos = (uint16_t)(pos + vn_glyph_stride(message->glyphs, pos));
+        if (glyph == PCE_VN_GLYPH_END) break;
+        if (glyph == PCE_VN_GLYPH_NEWLINE || glyph == 0u) continue;
+        if (message_glyph_cache_find(glyph) < VN_MESSAGE_GLYPH_CACHE_COUNT) continue;
+        if (message_glyph_cache_count >= VN_MESSAGE_GLYPH_CACHE_COUNT) continue;
+        message_glyph_cache_ids[message_glyph_cache_count] = glyph;
+        pce_vdc_copy_from_vram(message_glyph_cache_masks[message_glyph_cache_count],
+            (uint16_t)(PCE_VN_FONT_MASK_VRAM_WORD + ((uint16_t)glyph * VN_GLYPH_MASK_WORDS)),
+            (uint16_t)(VN_GLYPH_MASK_WORDS * 2u));
+        message_glyph_cache_count++;
+    }
+}
+#else
+static const uint16_t *VN_BANKED_CODE2 cached_message_glyph_mask(uint16_t glyph)
+{
+    (void)glyph;
+    return (const uint16_t *)0;
+}
+
+static void VN_BANKED_CODE2 preload_message_glyph_masks(const pce_vn_message_t *message)
+{
+    (void)message;
+}
+#endif
+
 static void VN_BANKED_CODE2 draw_message_glyph_at(uint16_t glyph, uint8_t col, uint8_t row)
 {
     const uint16_t px0 = (uint16_t)col * VN_GLYPH_W;
     const uint8_t tc0 = (uint8_t)(px0 >> 3);
     const uint8_t tc1 = (uint8_t)((px0 + VN_GLYPH_W - 1u) >> 3);
     const uint16_t prev_px0 = (uint16_t)composer_prev_col * VN_GLYPH_W;
+    const uint16_t *gmask;
     uint8_t use_prev;
     uint8_t tc;
     uint8_t k;
@@ -1838,9 +1935,14 @@ static void VN_BANKED_CODE2 draw_message_glyph_at(uint16_t glyph, uint8_t col, u
     }
     if (row != composer_row) composer_prev_valid = 0u; /* new row: no left neighbor */
     use_prev = composer_prev_valid;
-    pce_vdc_copy_from_vram(msg_gmask,
-        (uint16_t)(PCE_VN_FONT_MASK_VRAM_WORD + ((uint16_t)glyph * VN_GLYPH_MASK_WORDS)),
-        (uint16_t)(VN_GLYPH_MASK_WORDS * 2u));
+    gmask = cached_message_glyph_mask(glyph);
+    if (!gmask)
+    {
+        pce_vdc_copy_from_vram(msg_gmask,
+            (uint16_t)(PCE_VN_FONT_MASK_VRAM_WORD + ((uint16_t)glyph * VN_GLYPH_MASK_WORDS)),
+            (uint16_t)(VN_GLYPH_MASK_WORDS * 2u));
+        gmask = msg_gmask;
+    }
     for (tc = tc0; tc <= tc1 && tc < VN_MSG_TILE_COLS; tc++)
     {
         const uint8_t tile_x0 = (uint8_t)(tc * 8u);
@@ -1850,13 +1952,13 @@ static void VN_BANKED_CODE2 draw_message_glyph_at(uint16_t glyph, uint8_t col, u
             const uint16_t tile = (uint16_t)(VN_MSG_STRIP_TILE_BASE
                 + ((uint16_t)((row * 2u) + sub) * VN_MSG_TILE_COLS) + tc);
             for (k = 0u; k < 8u; k++) msg_mask8[k] = 0u;
-            add_glyph_tile(msg_gmask, px0, tile_x0, sub, msg_mask8);
+            add_glyph_tile(gmask, px0, tile_x0, sub, msg_mask8);
             if (use_prev) add_glyph_tile(composer_prev_mask, prev_px0, tile_x0, sub, msg_mask8);
             encode_msg_tile(msg_mask8, msg_enc);
             pce_editor_vram_copy((uint16_t)(tile * 16u), msg_enc, 32u);
         }
     }
-    for (k = 0u; k < VN_GLYPH_MASK_WORDS; k++) composer_prev_mask[k] = msg_gmask[k];
+    for (k = 0u; k < VN_GLYPH_MASK_WORDS; k++) composer_prev_mask[k] = gmask[k];
     composer_prev_col = col;
     composer_prev_valid = 1u;
     composer_row = row;
@@ -1865,27 +1967,35 @@ static void VN_BANKED_CODE2 draw_message_glyph_at(uint16_t glyph, uint8_t col, u
 static uint8_t VN_BANKED_CODE2 draw_message_next_glyph(const pce_vn_message_t *message)
 {
     uint16_t glyph;
-    if (!message || !message->glyphs || message_glyph_pos >= message->glyph_count) return 1u;
-    glyph = vn_glyph_decode(message->glyphs, message_glyph_byte);
-    message_glyph_byte = (uint16_t)(message_glyph_byte + vn_glyph_stride(message->glyphs, message_glyph_byte));
-    message_glyph_pos++;
-    if (glyph == PCE_VN_GLYPH_END) return 1u;
-    if (glyph == PCE_VN_GLYPH_NEWLINE)
+    if (!message || !message->glyphs) return 1u;
+    /* Reveal exactly one drawable glyph per call. Newlines are not spoken, so they
+       are processed inline (advance the row) WITHOUT consuming a typewriter tick;
+       otherwise every line break would push the remaining text one reveal-interval
+       behind the ADPCM voice and the drift would accumulate down the message. */
+    for (;;)
     {
-        message_col = 0u;
-        message_row++;
-        if (message_row >= VN_TEXT_ROWS) return 1u;
+        if (message_glyph_pos >= message->glyph_count) return 1u;
+        glyph = vn_glyph_decode(message->glyphs, message_glyph_byte);
+        message_glyph_byte = (uint16_t)(message_glyph_byte + vn_glyph_stride(message->glyphs, message_glyph_byte));
+        message_glyph_pos++;
+        if (glyph == PCE_VN_GLYPH_END) return 1u;
+        if (glyph == PCE_VN_GLYPH_NEWLINE)
+        {
+            message_col = 0u;
+            message_row++;
+            if (message_row >= VN_TEXT_ROWS) return 1u;
+            continue;
+        }
+        draw_message_glyph_at(glyph, message_col, message_row);
+        message_col++;
+        if (message_col >= VN_TEXT_COLS)
+        {
+            message_col = 0u;
+            message_row++;
+            if (message_row >= VN_TEXT_ROWS) return 1u;
+        }
         return message_glyph_pos >= message->glyph_count ? 1u : 0u;
     }
-    draw_message_glyph_at(glyph, message_col, message_row);
-    message_col++;
-    if (message_col >= VN_TEXT_COLS)
-    {
-        message_col = 0u;
-        message_row++;
-        if (message_row >= VN_TEXT_ROWS) return 1u;
-    }
-    return message_glyph_pos >= message->glyph_count ? 1u : 0u;
 }
 
 static void VN_BANKED_CODE2 draw_message_text(const pce_vn_message_t *message)
@@ -1997,6 +2107,24 @@ static void upload_sprite_table(void)
 #endif
 }
 
+static void VN_RESIDENT_CODE upload_sprite_pattern_words(uint8_t satb_index, uint8_t count)
+{
+#if defined(__PCE__)
+    uint8_t i;
+    for (i = 0u; i < count; i++)
+    {
+        const uint8_t entry_index = (uint8_t)(satb_index + i);
+        pce_vdc_poke(VDC_REG_VRAM_WRITE_ADDR, (uint16_t)(VN_SATB_ADDR + ((uint16_t)entry_index * 4u) + 2u));
+        pce_vdc_poke(VDC_REG_VRAM_DATA, sprite_shadow[entry_index].pattern);
+    }
+    pce_vdc_poke(VDC_REG_DMA_CONTROL, VDC_DMA_SRC_INC);
+    pce_vdc_poke(VDC_REG_SATB_START, VN_SATB_ADDR);
+#else
+    (void)satb_index;
+    (void)count;
+#endif
+}
+
 static uint8_t sprite_patterns_per_cell(void)
 {
     uint8_t pattern_cols = (uint8_t)((sprite_draw_meta.cell_width + 15u) / 16u);
@@ -2016,7 +2144,7 @@ static uint8_t ensure_sprite_patterns_loaded(uint8_t sprite_index, const pce_edi
     return 1u;
 }
 
-static uint8_t show_character_sprite_frame(uint8_t satb_index, uint8_t sprite_index, const pce_editor_sprite_asset_t *sprite, const pce_vn_sprite_anim_t *animation, uint8_t frame, int16_t x, int16_t y, uint8_t flags)
+static uint8_t VN_BANKED_CODE show_character_sprite_frame(uint8_t satb_index, uint8_t sprite_index, const pce_editor_sprite_asset_t *sprite, const pce_vn_sprite_anim_t *animation, uint8_t frame, int16_t x, int16_t y, uint8_t flags)
 {
     uint8_t row;
     uint8_t col;
@@ -2056,15 +2184,20 @@ static uint8_t show_character_sprite_frame(uint8_t satb_index, uint8_t sprite_in
         for (col = 0u; col < frame_columns; col++)
         {
             vdc_sprite_t *entry;
+            uint16_t mapped_cell;
             const uint8_t source_row = (flags & PCE_VN_SPRITE_FLIP_Y) ? (uint8_t)(frame_rows - 1u - row) : row;
             const uint8_t source_col = (flags & PCE_VN_SPRITE_FLIP_X) ? (uint8_t)(frame_columns - 1u - col) : col;
             uint16_t source_cell = (uint16_t)(first_cell + ((uint16_t)source_row * cell_columns) + source_col);
             if (source_cell >= total_cells) continue;
             if ((uint8_t)(satb_index + written) >= 64u) return written;
+            /* Sprite sheets are deduplicated at build time: cell_map translates a
+               positional sheet cell to its unique VRAM pattern slot. Sheets built
+               before dedup (cell_map == NULL) keep the 1:1 positional layout. */
+            mapped_cell = sprite->cell_map ? sprite->cell_map[source_cell] : source_cell;
             entry = &sprite_shadow[(uint8_t)(satb_index + written)];
             entry->y = (uint16_t)(y + ((uint16_t)row * sprite_draw_meta.cell_height) + 64u);
             entry->x = (uint16_t)(x + ((uint16_t)col * sprite_draw_meta.cell_width) + 32u);
-            entry->pattern = (uint16_t)(sprite_draw_meta.pattern_base + (source_cell * pattern_step));
+            entry->pattern = (uint16_t)(sprite_draw_meta.pattern_base + (mapped_cell * pattern_step));
             entry->attr = sprite_attr_for_size(flags);
             written++;
         }
@@ -2758,7 +2891,7 @@ static void show_scene(uint8_t scene_index)
     clear_spritetext_slots();
     pending_scene_sprite_clear = keep_display_for_transition ? 1u : 0u;
     VN_MAP_BANK130_FOR_CODE();
-    pending_sprite_refresh = 1u;
+    REQUEST_SPRITE_REFRESH_FULL();
     preload_scene_assets((signed int)scene_index, 1u, 1u);
     preloaded_scene_visual_valid = 0u;
     end_cdda_deferred_resume();
@@ -2814,12 +2947,91 @@ static uint8_t VN_BANKED_CODE2 draw_spritetext_slots(uint8_t satb_index)
     return written;
 }
 
+static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns(void)
+{
+#if defined(__PCE__)
+    uint8_t i;
+    if (!sprite_satb_layout_valid) return 0u;
+    for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
+    {
+        vn_sprite_slot_t *slot = &sprite_slots[i];
+        pce_vn_sprite_anim_t animation_value;
+        const pce_vn_sprite_anim_t *animation = 0;
+        const pce_editor_sprite_asset_t *sprite;
+        const pce_editor_sprite_draw_meta_t *draw_meta;
+        uint8_t sprite_index;
+        uint8_t satb_index;
+        uint8_t expected_count;
+        uint8_t written;
+        expected_count = sprite_satb_slot_count[i];
+        if (!expected_count) continue;
+        if (!slot->visible || slot->sprite_index < 0) return 0u;
+        if (slot->animation_index < 0) continue;
+        map_resident_data();
+        if ((uint8_t)slot->sprite_index >= pce_editor_sprite_asset_count) return 0u;
+        sprite_index = (uint8_t)slot->sprite_index;
+        sprite = &pce_editor_sprite_assets[sprite_index];
+        draw_meta = &pce_editor_sprite_draw_meta[sprite_index];
+        sprite_draw_meta.cell_width = draw_meta->cell_width;
+        sprite_draw_meta.cell_height = draw_meta->cell_height;
+        sprite_draw_meta.cell_columns = draw_meta->cell_columns;
+        sprite_draw_meta.cell_rows = draw_meta->cell_rows;
+        sprite_draw_meta.pattern_base = draw_meta->pattern_base;
+        sprite_draw_meta.palette_bank = draw_meta->palette_bank;
+        map_vn_data();
+        if ((uint8_t)slot->animation_index >= pce_vn_sprite_animation_count) continue;
+        {
+            const pce_vn_sprite_anim_t *source_animation = &pce_vn_sprite_animations[(uint8_t)slot->animation_index];
+            animation_value.sprite_index = source_animation->sprite_index;
+            animation_value.first_cell = source_animation->first_cell;
+            animation_value.frame_count = source_animation->frame_count;
+            animation_value.frame_delay = source_animation->frame_delay;
+            animation_value.frame_width_cells = source_animation->frame_width_cells;
+            animation_value.frame_height_cells = source_animation->frame_height_cells;
+            animation_value.frame_stride_cells = source_animation->frame_stride_cells;
+            animation_value.loop = source_animation->loop;
+            if (animation_value.sprite_index != sprite_index) continue;
+            animation = &animation_value;
+        }
+        __asm__ volatile("" ::: "memory");
+        if (!animation || animation->frame_count <= 1u) continue;
+        satb_index = sprite_satb_slot_start[i];
+        written = show_character_sprite_frame(
+            satb_index,
+            sprite_index,
+            sprite,
+            animation,
+            slot->frame,
+            (int16_t)((int16_t)slot->x + screen_shake_x),
+            (int16_t)((int16_t)slot->y + screen_shake_y),
+            slot->flags
+        );
+        if (written != expected_count) return 0u;
+        upload_sprite_pattern_words(satb_index, expected_count);
+    }
+    return 1u;
+#else
+    return 1u;
+#endif
+}
+
 static void VN_BANKED_CODE refresh_scene_sprites(void)
 {
     uint8_t i;
     uint8_t satb_index = 0u;
     const uint8_t display_active = (uint8_t)!pending_display_enable;
     uint8_t requires_pattern_upload = 0u;
+    if (pending_sprite_refresh == VN_SPRITE_REFRESH_PATTERNS && refresh_scene_sprite_patterns())
+    {
+        pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
+        return;
+    }
+    sprite_satb_layout_valid = 0u;
+    for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
+    {
+        sprite_satb_slot_start[i] = 0u;
+        sprite_satb_slot_count[i] = 0u;
+    }
     map_vn_data();
     map_resident_data();
     for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
@@ -2888,26 +3100,33 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
         __asm__ volatile("" ::: "memory");
         upload_palette(&sprite->palette, (uint16_t)(256u + (sprite_draw_meta.palette_bank * 16u)), 1);
         (void)ensure_sprite_patterns_loaded(sprite_index, sprite);
-        satb_index = (uint8_t)(satb_index + show_character_sprite_frame(
-            satb_index,
-            sprite_index,
-            sprite,
-            animation,
-            slot->frame,
-            (int16_t)((int16_t)slot->x + screen_shake_x),
-            (int16_t)((int16_t)slot->y + screen_shake_y),
-            slot->flags
-        ));
+        {
+            uint8_t written;
+            sprite_satb_slot_start[i] = satb_index;
+            written = show_character_sprite_frame(
+                satb_index,
+                sprite_index,
+                sprite,
+                animation,
+                slot->frame,
+                (int16_t)((int16_t)slot->x + screen_shake_x),
+                (int16_t)((int16_t)slot->y + screen_shake_y),
+                slot->flags
+            );
+            sprite_satb_slot_count[i] = written;
+            satb_index = (uint8_t)(satb_index + written);
+        }
     }
     VN_MAP_BANK130_FOR_CODE();
     satb_index = (uint8_t)(satb_index + draw_spritetext_slots(satb_index));
+    sprite_satb_layout_valid = 1u;
     upload_sprite_table();
     if (display_active)
     {
         sprite_layer_enable();
         if (requires_pattern_upload) delay_frame();
     }
-    pending_sprite_refresh = 0;
+    pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
 }
 
 static void tick_sprite_animations(void)
@@ -2919,12 +3138,20 @@ static void tick_sprite_animations(void)
     {
         vn_sprite_slot_t *slot = &sprite_slots[i];
         pce_vn_sprite_anim_t animation;
+        uint8_t frame_delay;
         if (!slot->visible || slot->animation_index < 0) continue;
         if ((uint8_t)slot->animation_index >= pce_vn_sprite_animation_count) continue;
         animation = pce_vn_sprite_animations[(uint8_t)slot->animation_index];
         if (animation.frame_count <= 1u) continue;
+        /* Per-frame display time: each frame holds for its own delay (frame_delays
+           lives in resident rodata, so it stays readable after the bank132 copy).
+           Fall back to the uniform frame_delay for legacy data with no table. */
+        frame_delay = (animation.frame_delays && slot->frame < animation.frame_count)
+            ? animation.frame_delays[slot->frame]
+            : animation.frame_delay;
+        if (!frame_delay) frame_delay = animation.frame_delay;
         slot->timer++;
-        if (slot->timer < animation.frame_delay) continue;
+        if (slot->timer < frame_delay) continue;
         slot->timer = 0u;
         if (slot->frame + 1u < animation.frame_count)
         {
@@ -2936,7 +3163,7 @@ static void tick_sprite_animations(void)
         }
         changed = 1u;
     }
-    if (changed) pending_sprite_refresh = 1u;
+    if (changed) REQUEST_SPRITE_REFRESH_PATTERNS();
 }
 
 /* Advance blink timers for spritetext overlays and request a sprite refresh on
@@ -2955,7 +3182,7 @@ static void tick_spritetext(void)
         slot->blink_on = (uint8_t)(slot->blink_on ? 0u : 1u);
         changed = 1u;
     }
-    if (changed) pending_sprite_refresh = 1u;
+    if (changed) REQUEST_SPRITE_REFRESH_FULL();
 }
 
 static void clear_spritetext_slots(void)
@@ -2994,7 +3221,7 @@ static void animate_sprite_slot(uint8_t slot, uint16_t target_x, uint16_t target
     }
     sprite_slots[slot].x = target_x;
     sprite_slots[slot].y = target_y;
-    pending_sprite_refresh = 1u;
+    REQUEST_SPRITE_REFRESH_FULL();
 }
 
 static signed char shake_offset_for_frame(uint8_t frame, uint8_t intensity)
@@ -3031,6 +3258,8 @@ static void start_message(uint8_t message_index)
     clear_window_cells();
     if (scene_pack_read_message(&active_scene_pack, message_index, message))
     {
+        active_message_state = *message;
+        message = &active_message_state;
         active_message_index = message_index;
         active_choice_index = -1;
         wait_frames_remaining = 0u;
@@ -3047,9 +3276,10 @@ static void start_message(uint8_t message_index)
             sprite_slots[message->mouth_slot].animation_index = message->mouth_animation_index;
             sprite_slots[message->mouth_slot].frame = 0u;
             sprite_slots[message->mouth_slot].timer = 0u;
-            pending_sprite_refresh = 1u;
+            REQUEST_SPRITE_REFRESH_FULL();
         }
         message_text_speed = message->text_speed_frames;
+        preload_message_glyph_masks(message);
         play_adpcm_voice(message->voice_index);
         VN_MAP_BANK130_FOR_CODE();
         if (!message_text_speed)
@@ -3069,21 +3299,15 @@ static void start_message(uint8_t message_index)
 
 static void finish_active_message(void)
 {
-    pce_vn_message_t *message = VN_MESSAGE_SCRATCH;
     if (active_message_index < 0) return;
     VN_MAP_BANK130_FOR_CODE();
-    if (!scene_pack_read_message(&active_scene_pack, (uint8_t)active_message_index, message)) return;
-    VN_MAP_BANK130_FOR_CODE();
-    draw_message_text(message);
+    draw_message_text(&active_message_state);
     message_complete = 1u;
 }
 
 static void tick_active_message(void)
 {
-    pce_vn_message_t *message = VN_MESSAGE_SCRATCH;
     if (active_message_index < 0 || message_complete) return;
-    VN_MAP_BANK130_FOR_CODE();
-    if (!scene_pack_read_message(&active_scene_pack, (uint8_t)active_message_index, message)) return;
     if (!message_text_speed)
     {
         finish_active_message();
@@ -3093,7 +3317,7 @@ static void tick_active_message(void)
     if (message_frame_timer < message_text_speed) return;
     message_frame_timer = 0u;
     VN_MAP_BANK130_FOR_CODE();
-    message_complete = draw_message_next_glyph(message);
+    message_complete = draw_message_next_glyph(&active_message_state);
 }
 
 static void hide_sprites_for_asset_load(void)
@@ -3497,7 +3721,7 @@ static uint8_t execute_command(const pce_vn_command_t *command)
         {
             sprite_slots[slot].x = command->x;
             sprite_slots[slot].y = command->y;
-            pending_sprite_refresh = 1u;
+            REQUEST_SPRITE_REFRESH_FULL();
         }
     }
     else if (command->type == PCE_VN_COMMAND_AUDIO)
@@ -3635,7 +3859,7 @@ static uint8_t execute_command(const pce_vn_command_t *command)
             spritetext_slots[slot].visible = 0u;
             spritetext_slots[slot].glyph_count = 0u;
         }
-        pending_sprite_refresh = 1u;
+        REQUEST_SPRITE_REFRESH_FULL();
     }
     return VN_EXEC_CONTINUE;
 }
@@ -3864,10 +4088,7 @@ int main(void)
         tick_active_message();
         if (active_message_index >= 0 && message_complete)
         {
-            pce_vn_message_t *message = VN_MESSAGE_SCRATCH;
-            VN_MAP_BANK130_FOR_CODE();
-            if (scene_pack_read_message(&active_scene_pack, (uint8_t)active_message_index, message)
-                && message->advance_mode == PCE_VN_ADVANCE_AUTO)
+            if (active_message_state.advance_mode == PCE_VN_ADVANCE_AUTO)
             {
                 if (message_auto_wait) message_auto_wait--;
                 else advance_story();
@@ -3875,9 +4096,12 @@ int main(void)
         }
         VN_MAP_BANK130_FOR_CODE();
         tick_psg();
-        tick_sprite_animations();
-        tick_spritetext();
-        if (pending_sprite_refresh) refresh_scene_sprites();
+        if (!adpcm_playback_active())
+        {
+            tick_sprite_animations();
+            tick_spritetext();
+            if (pending_sprite_refresh) refresh_scene_sprites();
+        }
         last_pad = pad;
         delay_frame();
     }

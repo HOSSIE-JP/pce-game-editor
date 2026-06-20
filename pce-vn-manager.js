@@ -193,6 +193,34 @@ const VN_SCENE_PACK_MAGIC = Buffer.from('PVNS');
 const VN_CD_SECTOR_BYTES = 2048;
 const VN_ADPCM_FRAME_RATE = 60;
 const VN_ADPCM_END_PAD_FRAMES = 2;
+// Mirror the runtime ADPCM rate quantization (pce_vn_runtime.c adpcm_code_sample_rate /
+// adpcm_rate_code): the PCE ADPCM hardware can only play at 32000/(16-code) Hz for a
+// 4-bit rate code 0..15, so the nominal asset sample rate is snapped to the nearest
+// representable rate. The typewriter must be timed against the rate the runtime
+// ACTUALLY plays, not the nominal rate, or voice and text drift apart.
+const VN_ADPCM_BASE_SAMPLE_RATE = 32000;
+const VN_ADPCM_MAX_RATE_CODE = 15;
+function adpcmRepresentableSampleRate(code) {
+  const c = Math.max(0, Math.min(VN_ADPCM_MAX_RATE_CODE, code));
+  return Math.floor(VN_ADPCM_BASE_SAMPLE_RATE / (16 - c));
+}
+function adpcmRateCodeForSampleRate(sampleRate) {
+  const rate = sampleRate > 0 ? sampleRate : 16000;
+  let best = 0;
+  let bestDiff = Infinity;
+  for (let code = 0; code <= VN_ADPCM_MAX_RATE_CODE; code += 1) {
+    const diff = Math.abs(adpcmRepresentableSampleRate(code) - rate);
+    if (diff < bestDiff) {
+      best = code;
+      bestDiff = diff;
+      if (diff === 0) break;
+    }
+  }
+  return best;
+}
+function adpcmActualSampleRate(sampleRate) {
+  return adpcmRepresentableSampleRate(adpcmRateCodeForSampleRate(sampleRate));
+}
 const DEFAULT_FONT_CONFIG = {
   version: 1,
   fontPath: '',
@@ -318,20 +346,26 @@ function generatedFileByteLength(projectDir = '', relativePath = '') {
   }
 }
 
+// Frames of actual ADPCM voice playback, computed against the rate the runtime
+// really plays (representable rate, not the nominal asset rate). This is the
+// audible voice length used to pace the typewriter, so it deliberately excludes
+// the runtime's small end-of-playback silence pad (VN_ADPCM_END_PAD_FRAMES),
+// which is only there to avoid clipping the tail and should not slow the text.
 function adpcmVoiceFrameCount(asset = {}, projectDir = '') {
   if (!asset || asset.type !== 'adpcm' || asset.options?.loop) return 0;
   const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
   const byteLength = (Number(generated.byteLength) || 0) || generatedFileByteLength(projectDir, generated.outputFile);
-  const sampleRate = Number(asset.options?.sampleRate || generated.sampleRate) || 16000;
+  const nominalRate = Number(asset.options?.sampleRate || generated.sampleRate) || 16000;
+  const rate = adpcmActualSampleRate(nominalRate);
   let frames = 0;
-  if (byteLength > 0 && sampleRate > 0) {
-    frames = Math.ceil((byteLength * 2 * VN_ADPCM_FRAME_RATE) / sampleRate);
+  if (byteLength > 0 && rate > 0) {
+    frames = Math.round((byteLength * 2 * VN_ADPCM_FRAME_RATE) / rate);
   } else {
     const durationSeconds = Number(generated.durationSeconds) || 0;
-    if (durationSeconds > 0) frames = Math.ceil(durationSeconds * VN_ADPCM_FRAME_RATE);
+    if (durationSeconds > 0) frames = Math.round(durationSeconds * VN_ADPCM_FRAME_RATE);
   }
   if (!frames) return 0;
-  return Math.min(65535, frames + VN_ADPCM_END_PAD_FRAMES);
+  return Math.min(65535, frames);
 }
 
 function voiceSyncedTextSpeedFrames(command = {}, glyphCount = 0, assetDoc = { assets: [] }, projectDir = '') {
@@ -339,7 +373,10 @@ function voiceSyncedTextSpeedFrames(command = {}, glyphCount = 0, assetDoc = { a
   if (!command.voiceAssetId || !glyphCount) return fallback;
   const frames = adpcmVoiceFrameCount(findAsset(assetDoc, command.voiceAssetId), projectDir);
   if (!frames) return fallback;
-  return clampInt(Math.ceil(frames / glyphCount), 1, 255, 1);
+  // Round (not ceil) so the typewriter total lands as close as possible to the
+  // voice length instead of systematically overshooting by up to one frame per
+  // glyph (which is what made long voiced lines finish well after the audio).
+  return clampInt(Math.round(frames / glyphCount), 1, 255, 1);
 }
 
 function assetPixelSize(asset = {}) {
@@ -1412,11 +1449,19 @@ function buildSpriteAnimationIndex(assetDoc = { assets: [] }, spriteIndex = new 
         const animIndex = meta.length;
         index.set(`${asset.id}:${animId}`, animIndex);
         if (animId === 'default' && !index.has(`${asset.id}:`)) index.set(`${asset.id}:`, animIndex);
+        const frameCount = clampInt(animation.frameCount, 1, 64, 1);
+        const frameDelay = clampInt(animation.frameDelay, 1, 60, 8);
+        // Per-frame delay table (length frameCount); cells fall back to frameDelay.
+        // The runtime advances each frame after its own delay instead of one
+        // uniform frame_delay for the whole animation.
+        const rawFrameDelays = Array.isArray(animation.frameDelays) ? animation.frameDelays : [];
+        const frameDelays = Array.from({ length: frameCount }, (_, frameIndex) => clampInt(rawFrameDelays[frameIndex], 1, 60, frameDelay));
         meta.push({
           spriteIndex: spriteIndex.get(asset.id),
           firstCell: clampInt(animation.firstCell, 0, 255, 0),
-          frameCount: clampInt(animation.frameCount, 1, 64, 1),
-          frameDelay: clampInt(animation.frameDelay, 1, 60, 8),
+          frameCount,
+          frameDelay,
+          frameDelays,
           frameWidthCells: clampInt(frameWidthCells, 1, 16, 1),
           frameHeightCells: clampInt(frameHeightCells, 1, 16, 1),
           frameStrideCells: clampPositiveInt(animation.frameStrideCells, 1, 255, frameWidthCells * frameHeightCells),
@@ -1860,6 +1905,10 @@ function generateVnSources(projectDir, options = {}) {
         }
         const bytes = [];
         let entryCount = 0;
+        // Drawable glyphs only (newlines excluded): the voice speaks characters,
+        // not line breaks, and the runtime reveals newlines instantly without
+        // spending a typewriter tick, so the ADPCM sync divides by this count.
+        let drawableCount = 0;
         for (const glyph of messageDisplayText(command)) {
           if (glyph === '\r') continue;
           if (glyph === '\n') {
@@ -1869,6 +1918,7 @@ function generateVnSources(projectDir, options = {}) {
           }
           pushGlyphIndexEntry(bytes, glyphIndex.get(glyph) ?? 0);
           entryCount += 1;
+          drawableCount += 1;
         }
         // glyph_count is the number of entries (glyphs + newlines), excluding the
         // terminator. It is stored as a u8, so cap at 255 entries.
@@ -1889,7 +1939,7 @@ function generateVnSources(projectDir, options = {}) {
           glyphs: Buffer.from(bytes),
           glyphCount: entryCount,
           voiceIndex,
-          textSpeedFrames: voiceSyncedTextSpeedFrames(command, entryCount, assetDoc, projectDir),
+          textSpeedFrames: voiceSyncedTextSpeedFrames(command, drawableCount, assetDoc, projectDir),
           advanceMode: command.advanceMode === 'auto' ? VN_ADVANCE_AUTO : VN_ADVANCE_BUTTON,
           autoWaitFrames: command.autoWaitFrames,
           mouthAnimationIndex,
@@ -2227,8 +2277,14 @@ function generateVnSources(projectDir, options = {}) {
     sceneBuilds.push(sceneBuild);
   });
 
+  // Per-frame delay tables live in resident rodata (no PCE_VN_DATA_SECTION); the
+  // animation records in bank132 reference them by pointer, so the runtime can
+  // read each frame's delay regardless of which RAM bank is currently mapped.
+  const animationDelayTables = spriteAnimations.meta.map((animation, index) => (
+    `static const unsigned char pce_vn_sprite_anim_delays_${index}[] = { ${(animation.frameDelays && animation.frameDelays.length ? animation.frameDelays : [animation.frameDelay]).map((delay) => `${clampInt(delay, 1, 60, animation.frameDelay)}u`).join(', ')} };`
+  ));
   const animationMeta = spriteAnimations.meta.map((animation, index) => (
-    `  { ${animation.spriteIndex}u, ${animation.firstCell}u, ${animation.frameCount}u, ${animation.frameDelay}u, ${animation.frameWidthCells}u, ${animation.frameHeightCells}u, ${animation.frameStrideCells}u, ${animation.loop ? '1u' : '0u'} }${index + 1 < spriteAnimations.meta.length ? ',' : ''}`
+    `  { ${animation.spriteIndex}u, ${animation.firstCell}u, ${animation.frameCount}u, ${animation.frameDelay}u, ${animation.frameWidthCells}u, ${animation.frameHeightCells}u, ${animation.frameStrideCells}u, ${animation.loop ? '1u' : '0u'}, pce_vn_sprite_anim_delays_${index} }${index + 1 < spriteAnimations.meta.length ? ',' : ''}`
   ));
   const cdDataFiles = Array.isArray(options.cdDataFiles)
     ? options.cdDataFiles.map((entry) => normalizeRelativePath(entry || '')).filter(Boolean)
@@ -2339,6 +2395,7 @@ function generateVnSources(projectDir, options = {}) {
     '  unsigned char frame_height_cells;',
     '  unsigned char frame_stride_cells;',
     '  unsigned char loop;',
+    '  const unsigned char *frame_delays;',
     '} pce_vn_sprite_anim_t;',
     '',
     'typedef struct {',
@@ -2484,8 +2541,9 @@ function generateVnSources(projectDir, options = {}) {
     '#endif',
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_font_sprite_glyph_count = ${fontSpriteBudget.glyphCount}u;`,
     '',
+    ...animationDelayTables,
     'const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations[] = {',
-    ...(animationMeta.length ? animationMeta : ['  { 0u, 0u, 1u, 8u, 1u, 1u, 1u, 1u }']),
+    ...(animationMeta.length ? animationMeta : ['  { 0u, 0u, 1u, 8u, 1u, 1u, 1u, 1u, (const unsigned char *)0 }']),
     '};',
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_sprite_animation_count = ${spriteAnimations.meta.length};`,
     '',

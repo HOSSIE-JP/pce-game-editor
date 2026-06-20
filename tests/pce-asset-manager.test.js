@@ -499,7 +499,7 @@ test('PCE image import generates BG and sprite assets with the internal converte
     id: 'talking_hero',
     cellWidth: 16,
     cellHeight: 16,
-    tileBase: 768,
+    tileBase: 2040,
   });
   const webp = assetManager.importImage(projectDir, {
     sourceFileName: 'cover.webp',
@@ -532,13 +532,36 @@ test('PCE image import generates BG and sprite assets with the internal converte
   assert.equal(sprite.commandInfo.outputKind, 'sprite');
   assert.equal(fs.existsSync(path.join(projectDir, sprite.asset.data.generated.paletteFile)), true);
   assert.equal(fs.existsSync(path.join(projectDir, sprite.asset.data.generated.tilesFile)), true);
-  assert.equal(fs.readFileSync(path.join(projectDir, sprite.asset.data.generated.tilesFile)).length, 512);
-  assert.equal(sprite.asset.data.generated.tileCount, 4);
+  // The 32x32 checkerboard sprite has 4 cells but only 2 are unique, so the
+  // deduplicated pattern buffer is 2 * 128 = 256 bytes.
+  assert.equal(fs.readFileSync(path.join(projectDir, sprite.asset.data.generated.tilesFile)).length, 256);
+  assert.equal(sprite.asset.data.generated.tileCount, 2);
+  // The cell map keeps one entry per positional sheet cell (4) pointing into the
+  // 2 unique patterns.
+  assert.equal(fs.existsSync(path.join(projectDir, sprite.asset.data.generated.cellMapFile)), true);
+  const heroCellMap = fs.readFileSync(path.join(projectDir, sprite.asset.data.generated.cellMapFile));
+  assert.equal(heroCellMap.length, 4);
+  assert.ok(Array.from(heroCellMap).every((slot) => slot < 2));
   assert.match(sprite.asset.source, /^assets\/sprites\/hero\.png$/);
   assert.match(overlapSprite.asset.data.generated.warnings.join('\n'), /Sprite patterns overlap the SATB VRAM area/);
   assert.equal(webp.asset.type, 'image');
   assert.equal(webp.asset.source, 'assets/images/cover_webp.png');
   assert.equal(fs.existsSync(path.join(projectDir, webp.asset.source)), true);
+});
+
+test('PCE source generation hard-errors when sprite patterns overrun the SATB', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-satb-');
+  assetManager.importImage(projectDir, {
+    sourceFileName: 'huge.png',
+    convertedDataUrl: makePngDataUrl(256, 128),
+    kind: 'sprite',
+    id: 'huge',
+    cellWidth: 16,
+    cellHeight: 16,
+    tileBase: 2040,
+  });
+  assert.throws(() => assetManager.generateAssetSources(projectDir), /overrun the SATB/);
 });
 
 test('PCE background generation refreshes stale map tile references before source output', () => {

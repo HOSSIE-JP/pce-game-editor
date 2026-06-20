@@ -246,7 +246,9 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.equal(commandRecord(pack, 4).type, vnManager.VN_COMMAND_MESSAGE);
   const message = messageRecord(pack, 0);
   assert.equal(message.voiceIndex, 0);
-  assert.equal(message.textSpeedFrames, 1);
+  // The 3-byte placeholder voice is sub-frame, so the synced duration rounds to
+  // zero frames and the author's textSpeedFrames (3) is kept as the fallback.
+  assert.equal(message.textSpeedFrames, 3);
   assert.equal(message.mouthAnimationIndex, 1);
   // ASCII glyphs are written as single bytes; the stream terminates with 0xff.
   assert.equal(pack[message.glyphOffset + message.glyphCount], 0xff);
@@ -282,7 +284,85 @@ test('PCE VN manager bakes ADPCM message duration into text speed', () => {
 
   assert.equal(message.glyphCount, 4);
   assert.equal(message.voiceIndex, 0);
-  assert.equal(message.textSpeedFrames, 31);
+  // 16000 bytes @ 16000 Hz = 32000 samples = 120 frames of voice; spread over 4
+  // glyphs that is round(120 / 4) = 30 frames/glyph, so the typewriter total
+  // (120 frames) matches the voice length instead of overshooting it.
+  assert.equal(message.textSpeedFrames, 30);
+});
+
+test('PCE VN manager excludes newlines from the ADPCM-synced text speed', () => {
+  const projectDir = makeTempDir('pce-vn-voice-newline-');
+  const vnManager = loadVnManager();
+  fs.mkdirSync(path.join(projectDir, 'assets', 'generated', 'voice'), { recursive: true });
+  fs.writeFileSync(path.join(projectDir, 'assets', 'generated', 'voice', 'adpcm.bin'), Buffer.alloc(16000, 0x22));
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [{
+      id: 'voice',
+      type: 'adpcm',
+      source: 'assets/adpcm/voice.wav',
+      options: { sampleRate: 16000, loop: false },
+      data: { generated: { outputFile: 'assets/generated/voice/adpcm.bin', sampleRate: 16000 } },
+    }],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [{ type: 'message', text: 'AB\nCD', voiceAssetId: 'voice', textSpeedFrames: 0 }],
+    }],
+  });
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const message = messageRecord(readPack(projectDir, generated.scenePackPaths[0]), 0);
+  // 5 entries are stored (AB + newline + CD) but the newline is not spoken, so the
+  // 120-frame voice is divided by the 4 drawable glyphs: round(120 / 4) = 30.
+  // Counting the newline would wrongly give round(120 / 5) = 24.
+  assert.equal(message.glyphCount, 5);
+  assert.equal(message.textSpeedFrames, 30);
+
+  // The runtime must reveal newlines without consuming a typewriter tick.
+  const runtime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
+    'utf-8',
+  );
+  assert.match(runtime, /newline costs no typewriter tick|costs no typewriter tick|not spoken[\s\S]*?continue;/);
+});
+
+test('PCE VN manager paces text against the ADPCM rate the hardware actually plays', () => {
+  const projectDir = makeTempDir('pce-vn-voice-rate-');
+  const vnManager = loadVnManager();
+  fs.mkdirSync(path.join(projectDir, 'assets', 'generated', 'voice'), { recursive: true });
+  fs.writeFileSync(path.join(projectDir, 'assets', 'generated', 'voice', 'adpcm.bin'), Buffer.alloc(21000, 0x22));
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [{
+      id: 'voice',
+      type: 'adpcm',
+      source: 'assets/adpcm/voice.wav',
+      // 21000 Hz is not representable; the PCE ADPCM clock snaps it to 16000 Hz,
+      // so the voice plays slower than nominal and the text must follow the real
+      // (slower) rate, not 21000.
+      options: { sampleRate: 21000, loop: false },
+      data: { generated: { outputFile: 'assets/generated/voice/adpcm.bin', sampleRate: 21000 } },
+    }],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [{ type: 'message', text: 'AB', voiceAssetId: 'voice', textSpeedFrames: 0 }],
+    }],
+  });
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const message = messageRecord(readPack(projectDir, generated.scenePackPaths[0]), 0);
+  // 21000 bytes -> 42000 samples; at the real 16000 Hz that is round(42000*60/16000)
+  // = 158 frames, over 2 glyphs -> round(158 / 2) = 79. Using the nominal 21000 Hz
+  // would wrongly give round(120 / 2) = 60.
+  assert.equal(message.textSpeedFrames, 79);
 });
 
 test('PCE VN manager encodes message newlines as line-break glyphs', () => {
@@ -1079,7 +1159,60 @@ test('PCE VN manager expands default sprite animation to the whole sprite sheet'
 
   const generated = vnManager.generateVnSources(projectDir);
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
-  assert.match(source, /\{ 0u, 0u, 1u, 8u, 4u, 8u, 32u, 1u \}/);
+  assert.match(source, /\{ 0u, 0u, 1u, 8u, 4u, 8u, 32u, 1u, pce_vn_sprite_anim_delays_0 \}/);
+});
+
+test('PCE VN manager emits per-frame sprite delays and the runtime honors them', () => {
+  const projectDir = makeTempDir('pce-vn-sprite-perframe-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [
+      {
+        id: 'hero',
+        type: 'sprite',
+        source: 'assets/sprites/hero.png',
+        options: {
+          width: 64,
+          height: 32,
+          cellWidth: 16,
+          cellHeight: 16,
+          // Per-row time matrix saved by the sprite editor: row 0 has distinct
+          // per-frame times, row 1 is uniform.
+          spriteEditor: { time: '[[10,20,30,40][6,6,6,6]]' },
+          animations: [
+            { id: 'default', frameWidth: 64, frameHeight: 16, firstCell: 0, frameCount: 4, frameDelay: 8, frameStrideCells: 1 },
+            { id: 'row_1', frameWidth: 64, frameHeight: 16, firstCell: 4, frameCount: 4, frameDelay: 6, frameStrideCells: 1 },
+          ],
+        },
+      },
+    ],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'sprite', assetId: 'hero', x: 16, y: 24, animationId: 'default', visible: true },
+        { type: 'message', text: 'A', textSpeedFrames: 0 },
+      ],
+    }],
+  });
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  // Per-frame times are migrated from spriteEditor.time into a resident table the
+  // animation record points at.
+  assert.match(source, /pce_vn_sprite_anim_delays_0\[\] = \{ 10u, 20u, 30u, 40u \}/);
+  assert.match(source, /pce_vn_sprite_anim_delays_1\[\] = \{ 6u, 6u, 6u, 6u \}/);
+
+  const runtime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
+    'utf-8',
+  );
+  // The animation tick must index the per-frame table by the current frame.
+  assert.match(runtime, /animation\.frame_delays\[slot->frame\]/);
 });
 
 test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layers', () => {
@@ -1112,16 +1245,23 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /vce_write_color\(\(uint16_t\)\(base \+ 1u\), 0x0000u\);/);
   assert.match(source, /for \(i = 1u; i < 16u; i\+\+\)/);
   assert.doesNotMatch(source, /static void upload_ui_tiles\(void\)/);
-  // The 12px compositor keeps no resident pixel buffer (RAM banks cannot hold one);
-  // glyph masks live in VRAM and it read-modify-writes the strip tiles in VRAM.
+  // The 12px compositor keeps no full resident font table (RAM banks cannot hold
+  // one); CD builds cache only the active message masks before ADPCM starts.
   assert.doesNotMatch(source, /PCE_RAM_BANK_AT\(131,/);
   assert.doesNotMatch(source, /static uint8_t msg_row_mask/);
   assert.match(source, /#define PCE_VN_FONT_MASK_VRAM_WORD/);
   // Shared strip tiles are rebuilt from the previous + current glyph (no VRAM
-  // read-back to accumulate); only the current glyph's mask is read from VRAM.
+  // read-back to accumulate); active-message masks are served from RAM.
   assert.doesNotMatch(source, /read_msg_tile_mask/);
   assert.match(source, /static void VN_BANKED_CODE2 add_glyph_tile\(/);
+  assert.match(source, /if \(gpx1 <= tile_x0 \|\| gpx0 >= tile_x1\) return;/);
+  assert.doesNotMatch(source, /for \(gx = 0u; gx < VN_GLYPH_W; gx\+\+\)/);
   assert.match(source, /static uint16_t composer_prev_mask\[VN_GLYPH_MASK_WORDS\]/);
+  assert.match(source, /#define VN_MESSAGE_GLYPH_CACHE_COUNT 68u/);
+  assert.match(source, /static uint16_t message_glyph_cache_masks\[VN_MESSAGE_GLYPH_CACHE_COUNT\]\[VN_GLYPH_MASK_WORDS\] __attribute__\(\(section\("\.ram_bank132"\)\)\);/);
+  assert.match(source, /static pce_vn_message_t active_message_state __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(source, /__asm__ volatile\([\s\S]*lda \$0000\\n"[\s\S]*and #\$20\\n"[\s\S]*bne vn_wait_vblank_done%=/);
+  assert.doesNotMatch(source, /volatile uint16_t guard;/);
   // Compositor scratch must be static (section .bss), not stack arrays: large stack
   // arrays in banked code were read back as zero, corrupting the BAT/strip writes.
   assert.match(source, /static uint16_t msg_bat_row\[VN_MSG_TILE_COLS\] __attribute__\(\(section\("\.bss"\)\)\);/);
@@ -1137,8 +1277,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /vce_write_color\(0u, 0x0000u\);/);
   assert.match(source, /static void VN_BANKED_CODE2 encode_msg_tile\(const uint8_t \*mask8, uint8_t \*out32\)/);
   assert.match(source, /static void VN_BANKED_CODE2 clear_window_cells\(void\)/);
-  // The 12x12 compositor reads each glyph mask back from VRAM and blits it at a
-  // 12px pitch instead of placing tile-aligned pre-baked glyphs.
+  // The 12x12 compositor preloads message masks before voice playback and falls
+  // back to VRAM reads only for uncached glyphs.
+  assert.match(source, /preload_message_glyph_masks\(message\);\n        play_adpcm_voice\(message->voice_index\);/);
+  assert.match(source, /gmask = cached_message_glyph_mask\(glyph\);\n    if \(!gmask\)/);
   assert.match(source, /pce_vdc_copy_from_vram\(msg_gmask,/);
   assert.match(source, /const uint16_t px0 = \(uint16_t\)col \* VN_GLYPH_W;/);
   assert.match(source, /clear_window_cells\(\);/);
@@ -1146,7 +1288,13 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   // draw_message_next_glyph / draw_message_text live in bank130 (VN_BANKED_CODE2)
   // to keep the resident bank128 and the bank129 interpreter within budget.
   assert.match(source, /static uint8_t VN_BANKED_CODE2 draw_message_next_glyph/);
-  assert.match(source, /message_text_speed = message->text_speed_frames;\n        play_adpcm_voice\(message->voice_index\);/);
+  // The runtime applies the editor-baked text_speed; it does not recompute the
+  // ADPCM-synced speed at runtime.
+  assert.match(source, /message_text_speed = message->text_speed_frames;\n        preload_message_glyph_masks\(message\);\n        play_adpcm_voice\(message->voice_index\);/);
+  assert.match(source, /active_message_state = \*message;\n        message = &active_message_state;/);
+  const tickActiveMessageMatch = source.match(/static void tick_active_message\(void\)[\s\S]*?\n\}/);
+  assert.ok(tickActiveMessageMatch);
+  assert.doesNotMatch(tickActiveMessageMatch[0], /scene_pack_read_message/);
   assert.doesNotMatch(source, /message_voice_text_speed/);
   assert.doesNotMatch(source, /adpcm_play_frames_remaining \/ message->glyph_count/);
   assert.match(source, /draw_message_text\(message\);/);
@@ -1215,6 +1363,16 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /if \(pending_scene_sprite_clear\)\n    \{\n        clear_sprites\(\);\n        upload_sprite_table\(\);/);
   assert.match(source, /bg_ready = \(uint8_t\)\(preloaded_bg_valid\n        && preloaded_bg_index == \(uint8_t\)bg_index\n        && preloaded_bg_x == next_x\n        && preloaded_bg_y == next_y\);/);
   assert.match(source, /static void VN_BANKED_CODE refresh_scene_sprites\(void\)/);
+  assert.match(source, /#define VN_SPRITE_REFRESH_PATTERNS 1u/);
+  assert.match(source, /if \(changed\) REQUEST_SPRITE_REFRESH_PATTERNS\(\);/);
+  assert.match(source, /if \(!adpcm_playback_active\(\)\)\n        \{\n            tick_sprite_animations\(\);/);
+  assert.match(source, /pending_sprite_refresh == VN_SPRITE_REFRESH_PATTERNS && refresh_scene_sprite_patterns\(\)/);
+  {
+    const fastRefreshMatch = source.match(/static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns[\s\S]*?static void VN_BANKED_CODE refresh_scene_sprites/);
+    assert.ok(fastRefreshMatch);
+    assert.match(fastRefreshMatch[0], /upload_sprite_pattern_words\(satb_index, expected_count\)/);
+    assert.doesNotMatch(fastRefreshMatch[0], /upload_palette|ensure_sprite_patterns_loaded|clear_sprites\(\)|upload_sprite_table\(\)/);
+  }
   assert.match(source, /const uint8_t display_active = \(uint8_t\)!pending_display_enable;/);
   assert.match(source, /uint8_t requires_pattern_upload = 0u;/);
   assert.match(source, /map_vn_data\(\);\n    map_resident_data\(\);/);
@@ -1508,8 +1666,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /const uint8_t mode = PCE_CDB_CDDA_PLAY_REPEAT;/);
   assert.match(source, /const uint8_t restore_display_after_cdda = \(uint8_t\)!pending_display_enable;/);
   assert.match(source, /static void service_cdda_playback\(void\);/);
-  assert.match(source, /volatile uint16_t guard;/);
-  assert.match(source, /service_adpcm_playback\(\);\n    for \(guard = 0u; guard < 65535u; guard\+\+\)\n    \{\n        if \(\*IO_VDC_STATUS & VDC_FLAG_VBLANK\) break;\n    \}\n    service_cdda_playback\(\);/);
+  assert.match(source, /service_adpcm_playback\(\);[\s\S]*__asm__ volatile\([\s\S]*lda \$0000\\n"[\s\S]*and #\$20\\n"[\s\S]*service_cdda_playback\(\);/);
   assert.doesNotMatch(source, /pce_cdb_wait_vblank\(\);/);
   assert.match(source, /uint8_t end_type = PCE_CDB_LOCATION_TYPE_UNTIL_END;/);
   assert.match(source, /static uint8_t cdda_has_frame_limit = 0;/);
@@ -1542,7 +1699,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /pce_ram_bank129_map\(\);\n    pce_ram_bank130_map\(\);\n    pce_vdc_set_resolution\(256, 224, VCE_COLORBURST_ON\);/);
   assert.match(source, /set_vdc_control\(VN_VDC_BLANK_CONTROL\);\n    pce_vdc_sprite_set_table_start\(VN_SATB_ADDR\);\n    pce_cdb_irq_enable\(\(uint8_t\)\(PCE_CDB_MASK_IRQ_EXTERNAL \| PCE_CDB_MASK_VBLANK_NO_BIOS\)\);/);
   assert.match(source, /begin_cdda_deferred_resume\(\);[\s\S]*if \(!load_scene_pack_into_cache\(scene_index, &active_scene_pack\)\)[\s\S]*end_cdda_deferred_resume\(\);[\s\S]*return;/);
-  assert.match(source, /pending_sprite_refresh = 1u;\n    preload_scene_assets\(\(signed int\)scene_index, 1u, 1u\);/);
+  assert.match(source, /REQUEST_SPRITE_REFRESH_FULL\(\);\n    preload_scene_assets\(\(signed int\)scene_index, 1u, 1u\);/);
   assert.match(source, /init_runtime_state\(\);\n    init_video\(\);\n    map_vn_data\(\);\n    start_scene = pce_vn_start_scene;\n    show_scene\(start_scene\);\n    advance_story\(\);/);
   assert.doesNotMatch(source, /show_scene\(start_scene\);\n    preload_scene_assets\(\(signed int\)start_scene\);/);
   assert.doesNotMatch(source, /preload_scene_assets\(\(signed int\)current_scene/);
