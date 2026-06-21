@@ -31,11 +31,35 @@ test('PCE sprite editor maps animation rows to PCE sprite cell metadata', async 
     firstCell: animation.firstCell,
     frameCount: animation.frameCount,
     frameDelay: animation.frameDelay,
+    frameDelays: animation.frameDelays,
     frameStrideCells: animation.frameStrideCells,
   })), [
-    { id: 'default', firstCell: 0, frameCount: 3, frameDelay: 4, frameStrideCells: 1 },
-    { id: 'row_1', firstCell: 3, frameCount: 2, frameDelay: 6, frameStrideCells: 1 },
+    { id: 'default', firstCell: 0, frameCount: 3, frameDelay: 4, frameDelays: [4, 4, 4], frameStrideCells: 1 },
+    { id: 'row_1', firstCell: 3, frameCount: 2, frameDelay: 6, frameDelays: [6, 6], frameStrideCells: 1 },
   ]);
+});
+
+test('PCE sprite editor restores per-frame animation delays from assets', async () => {
+  const utils = await import('../plugins/pce-sprite-manager/sprite-editor-utils.mjs');
+  const state = utils.editorStateFromAsset({
+    id: 'hero',
+    type: 'sprite',
+    options: {
+      kind: 'sprite',
+      width: 80,
+      height: 32,
+      cellWidth: 16,
+      cellHeight: 16,
+      animations: [
+        { id: 'default', frameWidth: 16, frameHeight: 16, firstCell: 0, frameCount: 3, frameDelay: 8, frameDelays: [8, 3, 2], frameStrideCells: 1 },
+        { id: 'row_1', frameWidth: 16, frameHeight: 16, firstCell: 5, frameCount: 5, frameDelay: 40, frameDelays: [40, 40, 40, 1, 1], frameStrideCells: 1 },
+      ],
+    },
+  });
+
+  assert.equal(state.time, '[[8,3,2][40,40,40,1,1]]');
+  assert.deepEqual(state.rowFrameCounts, [3, 5]);
+  assert.deepEqual(state.rowDefaultTimes, ['8', '40']);
 });
 
 test('PCE sprite editor preserves editor metadata shape from assets', async () => {

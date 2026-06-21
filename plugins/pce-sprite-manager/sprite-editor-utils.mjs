@@ -202,8 +202,11 @@ export function timeMatrixFromAnimations(asset = {}, grid = null, frameWidth = 1
     if (row < 0 || row >= resolvedGrid.rows) return;
     const frameCount = clampInt(raw.frameCount, 1, resolvedGrid.columns, 1);
     const delay = String(clampInt(raw.frameDelay, 1, 60, 8));
+    const frameDelays = Array.isArray(raw.frameDelays) ? raw.frameDelays : [];
     counts[row] = Math.max(counts[row] || 0, frameCount);
-    for (let frame = 0; frame < frameCount; frame += 1) matrix[row][frame] = delay;
+    for (let frame = 0; frame < frameCount; frame += 1) {
+      matrix[row][frame] = String(clampInt(frameDelays[frame], 1, 60, Number(delay) || 8));
+    }
   });
   return {
     time: serializeSpriteTime(matrix.map((row, rowIndex) => row.slice(0, Math.max(1, counts[rowIndex] || 1)))),

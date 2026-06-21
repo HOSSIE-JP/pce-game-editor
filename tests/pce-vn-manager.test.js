@@ -1454,7 +1454,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /if \(cdda_resume_defer_depth\) return;/);
   assert.match(source, /static void VN_BANKED_CODE cdda_sector_from_remaining\(const pce_editor_cdda_asset_t \*cdda\)/);
   assert.match(source, /cdda_resume_start\.lo = \(uint8_t\)\(value & 0xfful\);/);
-  assert.match(source, /cdda_sector_from_remaining\(cdda_current\);[\s\S]*pce_cdb_cdda_play\(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, cdda_resume_end, PCE_CDB_CDDA_PLAY_REPEAT\);[\s\S]*cdda_active = 1u;/);
+  assert.match(source, /cdda_sector_from_remaining\(cdda_current\);[\s\S]*pce_cdb_cdda_play\(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, cdda_resume_end, cdda_current->loop \? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT\);[\s\S]*cdda_active = 1u;/);
   assert.doesNotMatch(source, /cdda_sector_from_remaining\(&start/);
   assert.match(source, /static void VN_BANKED_CODE cancel_cdda_after_cd_data_conflict\(void\)/);
   assert.doesNotMatch(source, /PCE_CDB_VRAM_BYTES/);
@@ -1535,8 +1535,9 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice\(signed int voice_index, uint8_t restore_display\)/);
   assert.match(source, /if \(!adpcm_voice_fits_buffer\(\)\) return 0u;/);
   assert.match(source, /adpcm_stream_active = 0u;\n    adpcm_stream_looping = 0u;\n    if \(!load_adpcm_voice\(voice_index, 1u, 1u\)\)/);
-  assert.match(source, /if \(adpcm_voice_fits_buffer\(\)\)\n        \{\n            \(void\)play_adpcm_buffered_voice\(voice_index, restore_display\);\n            restore_display_after_adpcm\(restore_display\);\n            return;\n        \}/);
-  assert.match(source, /\(void\)stream_adpcm_voice\(voice_index\);\n        restore_display_after_adpcm\(restore_display\);\n        return;/);
+  assert.match(source, /if \(adpcm_voice_snapshot\.stream\)\n    \{\n        if \(adpcm_voice_snapshot\.has_cd && adpcm_voice_snapshot\.cd_sector_count\)\n        \{\n            \(void\)stream_adpcm_voice\(voice_index\);\n            return;\n        \}/);
+  assert.match(source, /if \(!adpcm_voice_fits_buffer\(\)\) return;\n        \(void\)play_adpcm_buffered_voice\(voice_index, restore_display\);\n        return;\n    \}/);
+  assert.doesNotMatch(source, /if \(adpcm_voice_fits_buffer\(\)\)\n        \{\n            \(void\)play_adpcm_buffered_voice\(voice_index, restore_display\);\n            return;\n        \}\n        \(void\)stream_adpcm_voice\(voice_index\);/);
   assert.match(source, /divider = adpcm_play_divider\(adpcm_voice_snapshot\.sample_rate, adpcm_voice_snapshot\.divider\);/);
   assert.match(source, /if \(pce_cdb_adpcm_play\(adpcm_voice_snapshot\.adpcm_address, \(uint16_t\)adpcm_voice_snapshot\.data_size, divider,/);
   assert.match(source, /loaded_adpcm_valid = 0u;\n        map_resident_data\(\);\n        restore_display_after_adpcm\(restore_display\);\n        return 0u;/);
@@ -1660,6 +1661,9 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /sprite_shadow\[i\]\.y = VN_SPRITE_HIDDEN_Y;/);
   assert.match(source, /pce_vdc_sprite_set_table_start\(VN_SATB_ADDR\);/);
   assert.match(source, /pce_editor_vram_copy\(VN_SATB_ADDR, \(const uint8_t \*\)sprite_shadow, \(uint16_t\)\(64u \* sizeof\(vdc_sprite_t\)\)\);/);
+  assert.match(source, /static void VN_RESIDENT_CODE upload_sprite_pattern_words[\s\S]*pce_vdc_set_copy_word\(\);[\s\S]*\*IO_VDC_DATA = sprite_shadow\[entry_index\]\.pattern;/);
+  assert.match(source, /\*IO_VDC_DATA = sprite_shadow\[entry_index\]\.pattern;\n        \*IO_VDC_DATA = sprite_shadow\[entry_index\]\.attr;/);
+  assert.match(source, /\*IO_VDC_DATA = \(uint16_t\)\(VN_SATB_ADDR \+ \(63u \* 4u\) \+ 3u\);/);
   assert.match(source, /pce_vdc_poke\(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL\);/);
   assert.match(source, /pce_vdc_poke\(VDC_REG_DMA_CONTROL, VDC_DMA_SRC_INC\);/);
   assert.match(source, /pce_vdc_poke\(VDC_REG_SATB_START, VN_SATB_ADDR\);/);
@@ -1667,7 +1671,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /pce_sector_t start = \{0\};/);
   assert.match(source, /pce_sector_t end = \{0\};/);
   assert.match(source, /static void play_cdda_track\(const pce_editor_cdda_asset_t \*cdda\)/);
-  assert.match(source, /const uint8_t mode = PCE_CDB_CDDA_PLAY_REPEAT;/);
+  assert.match(source, /const uint8_t mode = loop \? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT;/);
   assert.match(source, /const uint8_t restore_display_after_cdda = \(uint8_t\)!pending_display_enable;/);
   assert.match(source, /static void service_cdda_playback\(void\);/);
   assert.match(source, /service_adpcm_playback\(\);[\s\S]*__asm__ volatile\([\s\S]*lda \$0000\\n"[\s\S]*and #\$20\\n"[\s\S]*service_cdda_playback\(\);/);
@@ -1693,7 +1697,8 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /if \(!cdda_active \|\| !cdda_has_frame_limit \|\| !cdda_current\) return;/);
   assert.match(source, /if \(cdda_frames_remaining\) cdda_frames_remaining--;/);
   assert.match(source, /if \(cdda_frames_remaining\) return;/);
-  assert.match(source, /if \(cdda_looping\)\n        \{\n            cdda_active = 0u;\n            play_cdda_track\(cdda_current\);/);
+  assert.match(source, /if \(cdda_looping\)\n        \{\n            cdda_frames_remaining = cdda_current->play_frames;/);
+  assert.doesNotMatch(source, /play_cdda_track\(cdda_current\);/);
   assert.match(source, /restore_video_after_cdb_call\(restore_display_after_cdda\);/);
   assert.match(source, /prepare_cd_data_access\(\);[\s\S]*pce_cdb_adpcm_stream\(sector, length, divider\)[\s\S]*cancel_cdda_after_cd_data_conflict\(\);/);
   assert.doesNotMatch(source, /pce_cdb_cdda_read_subcode_q/);

@@ -295,6 +295,7 @@ function spriteFrameGeometry(source, animationId) {
   const stride = Math.max(1, Number(anim.frameStrideCells) || 1);
   const firstCell = Math.max(0, Number(anim.firstCell) || 0);
   const frameDelay = Math.max(1, Math.min(60, Number(anim.frameDelay) || 8));
+  const rawFrameDelays = Array.isArray(anim.frameDelays) ? anim.frameDelays : [];
   const loop = anim.loop !== false;
   const frames = [];
   for (let f = 0; f < frameCount; f += 1) {
@@ -305,7 +306,11 @@ function spriteFrameGeometry(source, animationId) {
     frames.push({ x: cx, y: cy });
   }
   if (!frames.length) frames.push({ x: 0, y: 0 });
-  return { sheetW, sheetH, frameW, frameH, frames, frameDelay, loop };
+  const frameDelays = frames.map((_, frameIndex) => {
+    const value = Number(rawFrameDelays[frameIndex]);
+    return Math.max(1, Math.min(60, Number.isFinite(value) && value > 0 ? value : frameDelay));
+  });
+  return { sheetW, sheetH, frameW, frameH, frames, frameDelay, frameDelays, loop };
 }
 
 // 切り出し矩形を背景画像として div に適用し、複数フレームなら requestAnimationFrame で
@@ -328,7 +333,11 @@ function applySpriteFrame(node, url, geo, flipX, flipY) {
   };
   setFrame(0);
   if (geo.frames.length <= 1) return;
-  const frameMs = geo.frameDelay * (1000 / 60);
+  const frameDelayAt = (i) => {
+    const value = Array.isArray(geo.frameDelays) ? Number(geo.frameDelays[i]) : 0;
+    return Math.max(1, Math.min(60, Number.isFinite(value) && value > 0 ? value : geo.frameDelay || 8));
+  };
+  const frameMsAt = (i) => frameDelayAt(i) * (1000 / 60);
   const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
   let idx = 0;
   let prev = now();
@@ -338,8 +347,8 @@ function applySpriteFrame(node, url, geo, flipX, flipY) {
     const t = now();
     acc += t - prev;
     prev = t;
-    while (acc >= frameMs) {
-      acc -= frameMs;
+    while (acc >= frameMsAt(idx)) {
+      acc -= frameMsAt(idx);
       idx += 1;
       if (idx >= geo.frames.length) idx = geo.loop ? 0 : geo.frames.length - 1;
     }

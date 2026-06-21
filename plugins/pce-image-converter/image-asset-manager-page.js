@@ -198,14 +198,18 @@ function normalizeAnimationForPreview(animation = {}, asset = {}, index = 0) {
   const frameStrideCells = clampInt(raw.frameStrideCells, 1, metrics.totalCells, fallback.frameStrideCells || frameCells);
   const maxFrames = Math.max(1, Math.floor((metrics.totalCells - firstCell - frameCells) / frameStrideCells) + 1);
   const id = safeId(raw.id, index === 0 ? 'default' : `anim_${index + 1}`).slice(0, 32);
+  const frameCount = Math.min(clampInt(raw.frameCount, 1, 64, fallback.frameCount), maxFrames);
+  const frameDelay = clampInt(raw.frameDelay, 1, 60, fallback.frameDelay);
+  const rawFrameDelays = Array.isArray(raw.frameDelays) ? raw.frameDelays : [];
   return {
     id,
     name: String(raw.name || id || fallback.name).trim().slice(0, 48),
     frameWidth,
     frameHeight,
     firstCell,
-    frameCount: Math.min(clampInt(raw.frameCount, 1, 64, fallback.frameCount), maxFrames),
-    frameDelay: clampInt(raw.frameDelay, 1, 60, fallback.frameDelay),
+    frameCount,
+    frameDelay,
+    frameDelays: Array.from({ length: frameCount }, (_, frameIndex) => clampInt(rawFrameDelays[frameIndex], 1, 60, frameDelay)),
     frameStrideCells,
     loop: raw.loop !== false,
   };
@@ -803,7 +807,10 @@ export function createImageAssetManagerPlugin(config = {}) {
     function scheduleSpritePlayback() {
       if (!spritePreviewState.playing) return;
       const animation = selectedPreviewAnimation();
-      const delayMs = Math.max(1, animation.frameDelay) * (1000 / 60);
+      const frameDelay = Array.isArray(animation.frameDelays)
+        ? animation.frameDelays[clampInt(spritePreviewState.frameIndex, 0, Math.max(0, animation.frameCount - 1), 0)]
+        : animation.frameDelay;
+      const delayMs = Math.max(1, frameDelay || animation.frameDelay) * (1000 / 60);
       spritePreviewState.timer = window.setTimeout(() => {
         const lastFrame = Math.max(0, animation.frameCount - 1);
         if (spritePreviewState.frameIndex >= lastFrame) {

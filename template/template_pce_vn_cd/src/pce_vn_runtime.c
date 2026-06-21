@@ -1065,7 +1065,7 @@ static void VN_BANKED_CODE resume_cdda_after_cd_data_access(void)
     cdda_resume_end.hi = 0u;
     cdda_sector_from_remaining(cdda_current);
     pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
-    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, cdda_resume_end, PCE_CDB_CDDA_PLAY_REPEAT);
+    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, cdda_resume_end, cdda_current->loop ? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT);
     cdda_active = 1u;
     cdda_resume_pending = 0u;
     restore_video_after_cdb_call(restore_display_after_cdda);
@@ -2302,6 +2302,7 @@ static void VN_RESIDENT_CODE upload_sprite_pattern_words(uint8_t satb_index, uin
 {
 #if defined(__PCE__)
     uint8_t i;
+    pce_vdc_set_copy_word();
     for (i = 0u; i < count; i++)
     {
         const uint8_t entry_index = (uint8_t)(satb_index + i);
@@ -2309,7 +2310,10 @@ static void VN_RESIDENT_CODE upload_sprite_pattern_words(uint8_t satb_index, uin
         *IO_VDC_DATA = (uint16_t)(VN_SATB_ADDR + ((uint16_t)entry_index * 4u) + 2u);
         *IO_VDC_INDEX = VDC_REG_VRAM_DATA;
         *IO_VDC_DATA = sprite_shadow[entry_index].pattern;
+        *IO_VDC_DATA = sprite_shadow[entry_index].attr;
     }
+    *IO_VDC_INDEX = VDC_REG_VRAM_WRITE_ADDR;
+    *IO_VDC_DATA = (uint16_t)(VN_SATB_ADDR + (63u * 4u) + 3u);
     *IO_VDC_INDEX = VDC_REG_DMA_CONTROL;
     *IO_VDC_DATA = VDC_DMA_SRC_INC;
     *IO_VDC_INDEX = VDC_REG_SATB_START;
@@ -2431,7 +2435,7 @@ static void play_cdda_track(const pce_editor_cdda_asset_t *cdda)
     pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
     track = cdda->track;
     loop = cdda->loop;
-    const uint8_t mode = PCE_CDB_CDDA_PLAY_REPEAT;
+    const uint8_t mode = loop ? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT;
     if (track < 2u) return;
     if (cdda_active)
     {
@@ -2464,8 +2468,7 @@ static void service_cdda_playback(void)
     {
         if (cdda_looping)
         {
-            cdda_active = 0u;
-            play_cdda_track(cdda_current);
+            cdda_frames_remaining = cdda_current->play_frames;
         }
         else
         {
@@ -2870,14 +2873,13 @@ static void VN_BANKED_CODE play_adpcm_voice(signed int voice_index)
     if (!copy_adpcm_voice(voice_index)) return;
     if (adpcm_voice_snapshot.stream)
     {
-        if (adpcm_voice_fits_buffer())
+        if (adpcm_voice_snapshot.has_cd && adpcm_voice_snapshot.cd_sector_count)
         {
-            (void)play_adpcm_buffered_voice(voice_index, restore_display);
-            restore_display_after_adpcm(restore_display);
+            (void)stream_adpcm_voice(voice_index);
             return;
         }
-        (void)stream_adpcm_voice(voice_index);
-        restore_display_after_adpcm(restore_display);
+        if (!adpcm_voice_fits_buffer()) return;
+        (void)play_adpcm_buffered_voice(voice_index, restore_display);
         return;
     }
     (void)play_adpcm_buffered_voice(voice_index, restore_display);

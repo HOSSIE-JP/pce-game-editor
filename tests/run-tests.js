@@ -18,6 +18,7 @@ loadAppConfig(require('../app.config'));
   'pce-ipl-extractor.test.js',
   'pce-setup-manager.test.js',
   'pce-standard-emulator.test.js',
+  'pce-preview-animation.test.js',
   'pce-sprite-editor-utils.test.js',
   'pce-testplay-server.test.js',
   'pce-vn-manager.test.js',
