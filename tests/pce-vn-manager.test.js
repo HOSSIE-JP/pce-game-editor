@@ -1227,7 +1227,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   const source = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'), 'utf-8').replace(/\r\n/g, '\n');
   const showSceneMatch = source.match(/static void show_scene[\s\S]*?\}\s*\/\* Append the visible spritetext overlays/);
   const setBackgroundMatch = source.match(/static void set_background[\s\S]*?\}\s*static uint8_t VN_BANKED_CODE2 execute_control_command/);
-  const executeCommandMatch = source.match(/static uint8_t execute_command[\s\S]*?\}\s*static uint8_t VN_BANKED_CODE run_commands_until_wait/);
+  const executeCommandMatch = source.match(/static uint8_t VN_BANKED_CODE execute_command[\s\S]*?\}\s*static uint8_t VN_BANKED_CODE run_commands_until_wait/);
   assert.ok(showSceneMatch);
   assert.ok(setBackgroundMatch);
   assert.ok(executeCommandMatch);
@@ -1370,7 +1370,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /if \(!adpcm_playback_active\(\)\)\n        \{\n            tick_sprite_animations\(\);/);
   assert.match(source, /pending_sprite_refresh == VN_SPRITE_REFRESH_PATTERNS && refresh_scene_sprite_patterns\(\)/);
   {
-    const fastRefreshMatch = source.match(/static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns[\s\S]*?static void VN_BANKED_CODE refresh_scene_sprites/);
+    const fastRefreshMatch = source.match(/static uint8_t VN_OVERLAY_CODE refresh_scene_sprite_patterns_impl[\s\S]*?static uint8_t VN_RESIDENT_CODE refresh_scene_sprite_patterns/);
     assert.ok(fastRefreshMatch);
     assert.match(fastRefreshMatch[0], /upload_sprite_pattern_words\(satb_index, expected_count\)/);
     assert.doesNotMatch(fastRefreshMatch[0], /upload_palette|ensure_sprite_patterns_loaded|clear_sprites\(\)|upload_sprite_table\(\)/);
@@ -1491,14 +1491,15 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static uint8_t VN_BANKED_CODE adpcm_play_divider\(unsigned int sample_rate, uint8_t divider\)/);
   assert.doesNotMatch(source, /static uint8_t VN_BANKED_CODE adpcm_rate_divider/);
   assert.match(source, /static vn_adpcm_voice_t adpcm_voice_snapshot;/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer\(void\)/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 adpcm_voice_fits_buffer\(void\)/);
   assert.match(source, /if \(adpcm_voice_snapshot\.data_size > 65535ul\) return 0u;/);
   assert.match(source, /limit = 65536ul - \(unsigned long\)adpcm_voice_snapshot\.adpcm_address;/);
   assert.match(source, /static uint16_t VN_BANKED_CODE adpcm_voice_frame_count\(void\)/);
   assert.match(source, /frames = \(\(adpcm_voice_snapshot\.data_size \* 2ul \* VN_ADPCM_FRAME_RATE\) \+ rate - 1ul\) \/ rate;/);
   assert.match(source, /static uint8_t VN_BANKED_CODE copy_adpcm_voice\(signed int voice_index\)/);
   assert.match(source, /map_resident_data\(\);\n    if \(\(uint8_t\)voice_index >= pce_editor_adpcm_asset_count\) return 0u;/);
-  assert.match(source, /adpcm_voice_snapshot\.data_size = voice->data_size;/);
+  assert.match(source, /voice_data_size = voice->data_size;/);
+  assert.match(source, /adpcm_voice_snapshot\.data_size = voice_data_size;/);
   assert.match(source, /adpcm_voice_snapshot\.cd_sector\.lo = voice->cd->sector\.lo;/);
   assert.match(source, /static uint8_t VN_BANKED_CODE adpcm_playback_active\(void\)/);
   assert.match(source, /return adpcm_play_active;/);
@@ -1556,9 +1557,31 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   // preload_adpcm_voice removed; the message/audio handlers load the voice on demand.
   assert.doesNotMatch(source, /divider = adpcm_play_divider\(voice\);/);
   assert.match(source, /return \(uint8_t\)\(pattern_cols \* pattern_rows \* 2u\);/);
-  assert.match(source, /static uint8_t ensure_sprite_patterns_loaded\(uint8_t sprite_index, const pce_editor_sprite_asset_t \*sprite\)/);
+  assert.match(source, /static uint8_t ensure_sprite_patterns_loaded\(uint8_t sprite_index, const pce_editor_data_ref_t \*patterns, uint16_t pattern_base\)/);
   assert.match(source, /if \(loaded_sprite_pattern_valid && loaded_sprite_pattern_index == sprite_index\) return 0u;/);
-  assert.match(source, /copy_data_ref_to_vram\(\(uint16_t\)\(sprite->pattern_base \* 32u\), &sprite->patterns, 16u\);/);
+  assert.match(source, /copy_data_ref_to_vram\(\(uint16_t\)\(pattern_base \* 32u\), patterns, 16u\);/);
+  assert.match(source, /static uint8_t g_bg_cache_key\[2\];/);
+  assert.match(source, /static uint8_t g_spr_cache_key\[VN_SPRITE_SLOT_COUNT\];/);
+  assert.match(source, /static uint8_t g_adpcm_cache_key;/);
+  assert.match(source, /key = \(uint8_t\)\(idx \+ 1u\);/);
+  assert.match(source, /const uint8_t key = \(uint8_t\)\(idx \+ 1u\);/);
+  assert.match(source, /g_adpcm_cache\.data_size = \(unsigned long\)p\[PCE_EDITOR_META_ADPCM_DATA_SIZE\]/);
+  assert.match(source, /g_adpcm_cache\.sample_rate = \(unsigned int\)p\[PCE_EDITOR_META_ADPCM_SAMPLE_RATE\]/);
+  assert.match(source, /g_adpcm_cache\.adpcm_address = \(unsigned int\)p\[PCE_EDITOR_META_ADPCM_ADDRESS\]/);
+  assert.match(source, /g_adpcm_cache\.divider = p\[PCE_EDITOR_META_ADPCM_DIVIDER\];/);
+  assert.match(source, /g_adpcm_cache\.stream = p\[PCE_EDITOR_META_ADPCM_STREAM\];/);
+  assert.match(source, /g_adpcm_cd\.sector\.lo = p\[PCE_EDITOR_META_ADPCM_CD\];/);
+  assert.match(source, /g_adpcm_cd\.sector_count = \(unsigned int\)p\[PCE_EDITOR_META_ADPCM_CD \+ 3u\]/);
+  assert.match(source, /g_adpcm_cd\.byte_size = \(unsigned int\)p\[PCE_EDITOR_META_ADPCM_CD \+ 5u\]/);
+  assert.match(source, /g_adpcm_cd\.compression = p\[PCE_EDITOR_META_ADPCM_CD \+ 7u\];/);
+  assert.doesNotMatch(source, /__builtin_memcpy\(&g_adpcm_cache, p, sizeof\(g_adpcm_cache\)\)/);
+  assert.doesNotMatch(source, /__builtin_memcpy\(&g_adpcm_cd, p \+ PCE_EDITOR_META_ADPCM_CD/);
+  assert.match(source, /unsigned long voice_data_size;/);
+  assert.match(source, /voice_data_size = voice->data_size;/);
+  assert.match(source, /voice_sample_rate = voice->sample_rate;/);
+  assert.match(source, /adpcm_voice_snapshot\.data_size = voice_data_size;/);
+  assert.match(source, /adpcm_voice_snapshot\.sample_rate = voice_sample_rate;/);
+  assert.doesNotMatch(source, /g_(?:bg|spr|adpcm)_cache_idx[\s\S]*?-1/);
   // preload_scan_boundary / preload_scene_assets were removed (on-demand loading).
   assert.match(source, /static uint8_t vn_variable_lo\[PCE_VN_VARIABLE_STORAGE_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(source, /static uint8_t vn_variable_hi\[PCE_VN_VARIABLE_STORAGE_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);

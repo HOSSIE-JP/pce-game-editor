@@ -1448,8 +1448,10 @@ static void copy_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *re
 _Static_assert(sizeof(pce_editor_bg_asset_t) <= PCE_EDITOR_META_BG_PALETTE, "bg struct image overlaps palette appendix");
 _Static_assert(sizeof(pce_editor_sprite_asset_t) <= PCE_EDITOR_META_SPR_PALETTE, "sprite struct image overlaps palette appendix");
 _Static_assert(sizeof(pce_editor_cd_data_ref_t) == 8, "cd ref must be 8 bytes");
+_Static_assert(PCE_EDITOR_META_ADPCM_DATA_SIZE == 2, "adpcm data_size offset must follow data pointer");
 _Static_assert(PCE_EDITOR_META_BG_SLOT >= PCE_EDITOR_META_BG_MAP_CD + 8, "bg record overruns its slot");
 _Static_assert(PCE_EDITOR_META_SPRITE_SLOT >= PCE_EDITOR_META_SPR_CELL_MAP + VN_META_CELL_MAP_MAX, "sprite record (incl inline cell_map) overruns its slot");
+_Static_assert(PCE_EDITOR_META_ADPCM_SLOT >= PCE_EDITOR_META_ADPCM_CD + 8, "adpcm record overruns its slot");
 
 /* Read the meta sector holding record (region base + sector_off) into
    cd_transfer_scratch (bank132); leaves MPR6=bank132 so callers decode directly. */
@@ -1478,7 +1480,7 @@ static pce_editor_bg_asset_t g_bg_cache[2];
 static uint8_t g_bg_palette[2][32];
 static pce_editor_cd_data_ref_t g_bg_tiles_cd[2];
 static pce_editor_cd_data_ref_t g_bg_map_cd[2];
-static int16_t g_bg_cache_idx[2] = { -1, -1 };
+static uint8_t g_bg_cache_key[2];
 static uint8_t g_bg_cache_lru = 0u;
 
 /* 2-slot cache: set_background needs current+next BG live at once during a
@@ -1486,10 +1488,12 @@ static uint8_t g_bg_cache_lru = 0u;
 static const pce_editor_bg_asset_t *VN_RESIDENT_CODE vn_get_bg_asset(uint8_t idx)
 {
     uint8_t slot;
+    uint8_t key;
     const uint8_t *p;
     pce_editor_bg_asset_t *rec;
-    if (g_bg_cache_idx[0] == (int16_t)idx) { g_bg_cache_lru = 0u; return &g_bg_cache[0]; }
-    if (g_bg_cache_idx[1] == (int16_t)idx) { g_bg_cache_lru = 1u; return &g_bg_cache[1]; }
+    key = (uint8_t)(idx + 1u);
+    if (g_bg_cache_key[0] == key) { g_bg_cache_lru = 0u; return &g_bg_cache[0]; }
+    if (g_bg_cache_key[1] == key) { g_bg_cache_lru = 1u; return &g_bg_cache[1]; }
     slot = (uint8_t)(g_bg_cache_lru ^ 1u);
     rec = &g_bg_cache[slot];
     vn_read_meta_sector(&pce_editor_bg_meta.sector, (uint8_t)(idx / VN_META_BG_PER_SECTOR));
@@ -1501,7 +1505,7 @@ static const pce_editor_bg_asset_t *VN_RESIDENT_CODE vn_get_bg_asset(uint8_t idx
     rec->palette.data = g_bg_palette[slot];
     rec->tiles.cd = &g_bg_tiles_cd[slot];
     rec->map.cd = &g_bg_map_cd[slot];
-    g_bg_cache_idx[slot] = (int16_t)idx;
+    g_bg_cache_key[slot] = key;
     g_bg_cache_lru = slot;
     return rec;
 }
@@ -1512,18 +1516,20 @@ static pce_editor_cd_data_ref_t g_spr_patterns_cd[VN_SPRITE_SLOT_COUNT];
 /* cell_map caches live in console_ram (always mapped); show_character_sprite_frame
    reads them without any MPR juggling. */
 static uint8_t g_spr_cell_map[VN_SPRITE_SLOT_COUNT][VN_META_CELL_MAP_MAX];
-static int16_t g_spr_cache_idx[VN_SPRITE_SLOT_COUNT] = { -1, -1, -1, -1 };
+static uint8_t g_spr_cache_key[VN_SPRITE_SLOT_COUNT];
 static uint8_t g_spr_cache_next = 0u;
 
 static const pce_editor_sprite_asset_t *VN_RESIDENT_CODE vn_get_sprite_asset(uint8_t idx)
 {
     uint8_t slot;
+    uint8_t key;
     const uint8_t *p;
     pce_editor_sprite_asset_t *rec;
     uint16_t cell_map_len;
+    key = (uint8_t)(idx + 1u);
     for (slot = 0u; slot < VN_SPRITE_SLOT_COUNT; slot++)
     {
-        if (g_spr_cache_idx[slot] == (int16_t)idx) return &g_spr_cache[slot];
+        if (g_spr_cache_key[slot] == key) return &g_spr_cache[slot];
     }
     slot = g_spr_cache_next;
     g_spr_cache_next = (uint8_t)((g_spr_cache_next + 1u) % VN_SPRITE_SLOT_COUNT);
@@ -1548,25 +1554,43 @@ static const pce_editor_sprite_asset_t *VN_RESIDENT_CODE vn_get_sprite_asset(uin
     {
         rec->cell_map = 0;
     }
-    g_spr_cache_idx[slot] = (int16_t)idx;
+    g_spr_cache_key[slot] = key;
     return rec;
 }
 
 static pce_editor_adpcm_asset_t g_adpcm_cache;
 static pce_editor_cd_data_ref_t g_adpcm_cd;
-static int16_t g_adpcm_cache_idx = -1;
+static uint8_t g_adpcm_cache_key;
 
 static const pce_editor_adpcm_asset_t *VN_RESIDENT_CODE vn_get_adpcm_asset(uint8_t idx)
 {
     const uint8_t *p;
-    if (g_adpcm_cache_idx == (int16_t)idx) return &g_adpcm_cache;
+    const uint8_t key = (uint8_t)(idx + 1u);
+    if (g_adpcm_cache_key == key) return &g_adpcm_cache;
     vn_read_meta_sector(&pce_editor_adpcm_meta.sector, (uint8_t)(idx / VN_META_ADPCM_PER_SECTOR));
     p = &cd_transfer_scratch[(uint16_t)((uint16_t)(idx % VN_META_ADPCM_PER_SECTOR) * PCE_EDITOR_META_ADPCM_SLOT)];
-    __builtin_memcpy(&g_adpcm_cache, p, sizeof(g_adpcm_cache));
-    __builtin_memcpy(&g_adpcm_cd, p + PCE_EDITOR_META_ADPCM_CD, sizeof(pce_editor_cd_data_ref_t));
     g_adpcm_cache.data = 0;
+    g_adpcm_cache.data_size = (unsigned long)p[PCE_EDITOR_META_ADPCM_DATA_SIZE]
+        | ((unsigned long)p[PCE_EDITOR_META_ADPCM_DATA_SIZE + 1u] << 8)
+        | ((unsigned long)p[PCE_EDITOR_META_ADPCM_DATA_SIZE + 2u] << 16)
+        | ((unsigned long)p[PCE_EDITOR_META_ADPCM_DATA_SIZE + 3u] << 24);
+    g_adpcm_cache.sample_rate = (unsigned int)p[PCE_EDITOR_META_ADPCM_SAMPLE_RATE]
+        | ((unsigned int)p[PCE_EDITOR_META_ADPCM_SAMPLE_RATE + 1u] << 8);
+    g_adpcm_cache.adpcm_address = (unsigned int)p[PCE_EDITOR_META_ADPCM_ADDRESS]
+        | ((unsigned int)p[PCE_EDITOR_META_ADPCM_ADDRESS + 1u] << 8);
+    g_adpcm_cache.divider = p[PCE_EDITOR_META_ADPCM_DIVIDER];
+    g_adpcm_cache.loop = p[PCE_EDITOR_META_ADPCM_LOOP];
+    g_adpcm_cache.stream = p[PCE_EDITOR_META_ADPCM_STREAM];
+    g_adpcm_cd.sector.lo = p[PCE_EDITOR_META_ADPCM_CD];
+    g_adpcm_cd.sector.md = p[PCE_EDITOR_META_ADPCM_CD + 1u];
+    g_adpcm_cd.sector.hi = p[PCE_EDITOR_META_ADPCM_CD + 2u];
+    g_adpcm_cd.sector_count = (unsigned int)p[PCE_EDITOR_META_ADPCM_CD + 3u]
+        | ((unsigned int)p[PCE_EDITOR_META_ADPCM_CD + 4u] << 8);
+    g_adpcm_cd.byte_size = (unsigned int)p[PCE_EDITOR_META_ADPCM_CD + 5u]
+        | ((unsigned int)p[PCE_EDITOR_META_ADPCM_CD + 6u] << 8);
+    g_adpcm_cd.compression = p[PCE_EDITOR_META_ADPCM_CD + 7u];
     g_adpcm_cache.cd = &g_adpcm_cd;
-    g_adpcm_cache_idx = (int16_t)idx;
+    g_adpcm_cache_key = key;
     return &g_adpcm_cache;
 }
 #else
@@ -2305,17 +2329,17 @@ static uint8_t sprite_patterns_per_cell(void)
     return (uint8_t)(pattern_cols * pattern_rows * 2u);
 }
 
-static uint8_t ensure_sprite_patterns_loaded(uint8_t sprite_index, const pce_editor_sprite_asset_t *sprite)
+static uint8_t ensure_sprite_patterns_loaded(uint8_t sprite_index, const pce_editor_data_ref_t *patterns, uint16_t pattern_base)
 {
-    if (!sprite || !sprite->patterns.size) return 0u;
+    if (!patterns || !patterns->size) return 0u;
     if (loaded_sprite_pattern_valid && loaded_sprite_pattern_index == sprite_index) return 0u;
-    copy_data_ref_to_vram((uint16_t)(sprite->pattern_base * 32u), &sprite->patterns, 16u);
+    copy_data_ref_to_vram((uint16_t)(pattern_base * 32u), patterns, 16u);
     loaded_sprite_pattern_valid = 1u;
     loaded_sprite_pattern_index = sprite_index;
     return 1u;
 }
 
-static uint8_t VN_BANKED_CODE show_character_sprite_frame(uint8_t satb_index, uint8_t sprite_index, const pce_editor_sprite_asset_t *sprite, const pce_vn_sprite_anim_t *animation, uint8_t frame, int16_t x, int16_t y, uint8_t flags)
+static uint8_t VN_BANKED_CODE show_character_sprite_frame(uint8_t satb_index, const uint8_t *cell_map, const pce_vn_sprite_anim_t *animation, uint8_t frame, int16_t x, int16_t y, uint8_t flags)
 {
     uint8_t row;
     uint8_t col;
@@ -2325,13 +2349,21 @@ static uint8_t VN_BANKED_CODE show_character_sprite_frame(uint8_t satb_index, ui
     uint8_t frame_rows;
     uint8_t written = 0u;
     uint8_t pattern_step;
+    uint8_t pattern_cols;
+    uint8_t pattern_rows;
+    uint8_t cell_width;
+    uint8_t cell_height;
     uint8_t use_animation_frame;
     uint16_t first_cell;
+    uint16_t pattern_base;
     uint16_t total_cells;
-    (void)sprite_index;
-    if (!sprite || !sprite->patterns.size) return 0u;
+    uint16_t attr;
+    cell_width = sprite_draw_meta.cell_width;
+    cell_height = sprite_draw_meta.cell_height;
     cell_columns = sprite_draw_meta.cell_columns ? sprite_draw_meta.cell_columns : 1u;
     cell_rows = sprite_draw_meta.cell_rows ? sprite_draw_meta.cell_rows : 1u;
+    pattern_base = sprite_draw_meta.pattern_base;
+    attr = sprite_attr_for_size(flags);
     total_cells = (uint16_t)(cell_columns * cell_rows);
     use_animation_frame = (uint8_t)(
         animation &&
@@ -2348,7 +2380,11 @@ static uint8_t VN_BANKED_CODE show_character_sprite_frame(uint8_t satb_index, ui
     first_cell = use_animation_frame
         ? (uint16_t)(animation->first_cell + ((uint16_t)frame * animation->frame_stride_cells))
         : 0u;
-    pattern_step = sprite_patterns_per_cell();
+    pattern_cols = (uint8_t)((cell_width + 15u) / 16u);
+    pattern_rows = (uint8_t)((cell_height + 15u) / 16u);
+    if (!pattern_cols) pattern_cols = 1u;
+    if (!pattern_rows) pattern_rows = 1u;
+    pattern_step = (uint8_t)(pattern_cols * pattern_rows * 2u);
 #if defined(__PCE__)
     for (row = 0u; row < frame_rows; row++)
     {
@@ -2364,12 +2400,12 @@ static uint8_t VN_BANKED_CODE show_character_sprite_frame(uint8_t satb_index, ui
             /* Sprite sheets are deduplicated at build time: cell_map translates a
                positional sheet cell to its unique VRAM pattern slot. Sheets built
                before dedup (cell_map == NULL) keep the 1:1 positional layout. */
-            mapped_cell = sprite->cell_map ? sprite->cell_map[source_cell] : source_cell;
+            mapped_cell = cell_map ? cell_map[source_cell] : source_cell;
             entry = &sprite_shadow[(uint8_t)(satb_index + written)];
-            entry->y = (uint16_t)(y + ((uint16_t)row * sprite_draw_meta.cell_height) + 64u);
-            entry->x = (uint16_t)(x + ((uint16_t)col * sprite_draw_meta.cell_width) + 32u);
-            entry->pattern = (uint16_t)(sprite_draw_meta.pattern_base + (mapped_cell * pattern_step));
-            entry->attr = sprite_attr_for_size(flags);
+            entry->y = (uint16_t)(y + ((uint16_t)row * cell_height) + 64u);
+            entry->x = (uint16_t)(x + ((uint16_t)col * cell_width) + 32u);
+            entry->pattern = (uint16_t)(pattern_base + (mapped_cell * pattern_step));
+            entry->attr = attr;
             written++;
         }
     }
@@ -2523,7 +2559,7 @@ static uint8_t VN_BANKED_CODE adpcm_play_divider(unsigned int sample_rate, uint8
     return divider;
 }
 
-static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer(void)
+static uint8_t VN_BANKED_CODE2 adpcm_voice_fits_buffer(void)
 {
 #if defined(__PCE_CD__)
     unsigned long limit;
@@ -2563,17 +2599,31 @@ static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
 {
 #if defined(__PCE_CD__)
     const pce_editor_adpcm_asset_t *voice;
+    const unsigned char *voice_data;
+    unsigned long voice_data_size;
+    unsigned int voice_sample_rate;
+    unsigned int voice_adpcm_address;
+    unsigned char voice_divider;
+    unsigned char voice_loop;
+    unsigned char voice_stream;
     if (voice_index < 0) return 0u;
     map_resident_data();
     if ((uint8_t)voice_index >= pce_editor_adpcm_asset_count) return 0u;
     voice = vn_get_adpcm_asset((uint8_t)voice_index);
-    adpcm_voice_snapshot.data = voice->data;
-    adpcm_voice_snapshot.data_size = voice->data_size;
-    adpcm_voice_snapshot.sample_rate = voice->sample_rate;
-    adpcm_voice_snapshot.adpcm_address = voice->adpcm_address;
-    adpcm_voice_snapshot.divider = voice->divider;
-    adpcm_voice_snapshot.loop = voice->loop;
-    adpcm_voice_snapshot.stream = voice->stream;
+    voice_data = voice->data;
+    voice_data_size = voice->data_size;
+    voice_sample_rate = voice->sample_rate;
+    voice_adpcm_address = voice->adpcm_address;
+    voice_divider = voice->divider;
+    voice_loop = voice->loop;
+    voice_stream = voice->stream;
+    adpcm_voice_snapshot.data = voice_data;
+    adpcm_voice_snapshot.data_size = voice_data_size;
+    adpcm_voice_snapshot.sample_rate = voice_sample_rate;
+    adpcm_voice_snapshot.adpcm_address = voice_adpcm_address;
+    adpcm_voice_snapshot.divider = voice_divider;
+    adpcm_voice_snapshot.loop = voice_loop;
+    adpcm_voice_snapshot.stream = voice_stream;
     map_vn_data();
     adpcm_voice_snapshot.has_cd = (uint8_t)(voice->cd && voice->cd->sector_count);
     if (adpcm_voice_snapshot.has_cd)
@@ -3125,7 +3175,7 @@ static uint8_t VN_BANKED_CODE2 draw_spritetext_slots(uint8_t satb_index)
     return written;
 }
 
-static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns(void)
+static uint8_t VN_OVERLAY_CODE refresh_scene_sprite_patterns_impl(void)
 {
 #if defined(__PCE__)
     uint8_t i;
@@ -3136,6 +3186,7 @@ static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns(void)
         pce_vn_sprite_anim_t animation_value;
         const pce_vn_sprite_anim_t *animation = 0;
         const pce_editor_sprite_asset_t *sprite;
+        const uint8_t *sprite_cell_map;
         uint8_t sprite_index;
         uint8_t satb_index;
         uint8_t expected_count;
@@ -3148,6 +3199,7 @@ static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns(void)
         if ((uint8_t)slot->sprite_index >= pce_editor_sprite_asset_count) return 0u;
         sprite_index = (uint8_t)slot->sprite_index;
         sprite = vn_get_sprite_asset(sprite_index);
+        sprite_cell_map = sprite->cell_map;
         sprite_draw_meta.cell_width = sprite->cell_width;
         sprite_draw_meta.cell_height = sprite->cell_height;
         sprite_draw_meta.cell_columns = sprite->cell_columns;
@@ -3174,8 +3226,7 @@ static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns(void)
         satb_index = sprite_satb_slot_start[i];
         written = show_character_sprite_frame(
             satb_index,
-            sprite_index,
-            sprite,
+            sprite_cell_map,
             animation,
             slot->frame,
             (int16_t)((int16_t)slot->x + screen_shake_x),
@@ -3188,6 +3239,19 @@ static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns(void)
     return 1u;
 #else
     return 1u;
+#endif
+}
+
+static uint8_t VN_RESIDENT_CODE refresh_scene_sprite_patterns(void)
+{
+#if defined(__PCE_CD__)
+    uint8_t result;
+    pce_ram_bank133_map();
+    result = refresh_scene_sprite_patterns_impl();
+    pce_ram_bank130_map();
+    return result;
+#else
+    return refresh_scene_sprite_patterns_impl();
 #endif
 }
 
@@ -3234,12 +3298,14 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
         pce_vn_sprite_anim_t animation_value;
         const pce_vn_sprite_anim_t *animation = 0;
         const pce_editor_sprite_asset_t *sprite;
+        const uint8_t *sprite_cell_map;
         uint8_t sprite_index;
         if (!slot->visible || slot->sprite_index < 0) continue;
         map_resident_data();
         if ((uint8_t)slot->sprite_index >= pce_editor_sprite_asset_count) continue;
         sprite_index = (uint8_t)slot->sprite_index;
         sprite = vn_get_sprite_asset(sprite_index);
+        sprite_cell_map = sprite->cell_map;
         sprite_draw_meta.cell_width = sprite->cell_width;
         sprite_draw_meta.cell_height = sprite->cell_height;
         sprite_draw_meta.cell_columns = sprite->cell_columns;
@@ -3263,24 +3329,23 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
                 animation = &animation_value;
             }
         }
-        /* pce_vn_sprite_animations and pce_editor_sprite_draw_meta live in banked
+        /* pce_vn_sprite_animations and sprite asset metadata live in banked
            CD RAM (bank132 / resident). The copies above must complete while those
            banks are still mapped: upload_palette / ensure_sprite_patterns_loaded
            remap MPR slots, and at -Oz the compiler would otherwise sink these
            const-data loads past those calls and read them from the wrong bank.
            That made the sprite draw as the whole sheet (use_animation_frame read
-           garbage) with a mis-addressed pattern base. This barrier pins the reads
-           before the remaps. */
+           garbage) with a mis-addressed pattern base. This barrier pins the
+           snapshot before the remaps. */
         __asm__ volatile("" ::: "memory");
         upload_palette(&sprite->palette, (uint16_t)(256u + (sprite_draw_meta.palette_bank * 16u)), 1);
-        (void)ensure_sprite_patterns_loaded(sprite_index, sprite);
+        (void)ensure_sprite_patterns_loaded(sprite_index, &sprite->patterns, sprite_draw_meta.pattern_base);
         {
             uint8_t written;
             sprite_satb_slot_start[i] = satb_index;
             written = show_character_sprite_frame(
                 satb_index,
-                sprite_index,
-                sprite,
+                sprite_cell_map,
                 animation,
                 slot->frame,
                 (int16_t)((int16_t)slot->x + screen_shake_x),
@@ -3303,7 +3368,7 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
     pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
 }
 
-static void VN_BANKED_CODE cache_sprite_animation(uint8_t slot_index)
+static void VN_BANKED_CODE2 cache_sprite_animation(uint8_t slot_index)
 {
     vn_sprite_slot_t *slot;
     pce_vn_sprite_anim_t animation;
@@ -3792,7 +3857,7 @@ static uint8_t VN_BANKED_CODE2 execute_control_command(const pce_vn_command_t *c
     return VN_EXEC_CONTINUE;
 }
 
-static uint8_t execute_command(const pce_vn_command_t *command)
+static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
 {
     uint8_t slot;
     if (!command) return VN_EXEC_CONTINUE;

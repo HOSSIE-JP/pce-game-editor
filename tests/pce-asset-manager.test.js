@@ -917,6 +917,13 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.match(header, /extern const pce_editor_meta_region_t pce_editor_bg_meta;/);
   assert.match(header, /extern const pce_editor_meta_region_t pce_editor_sprite_meta;/);
   assert.match(header, /extern const pce_editor_meta_region_t pce_editor_adpcm_meta;/);
+  assert.match(header, /#define PCE_EDITOR_META_ADPCM_DATA_SIZE 2u/);
+  assert.match(header, /#define PCE_EDITOR_META_ADPCM_SAMPLE_RATE 6u/);
+  assert.match(header, /#define PCE_EDITOR_META_ADPCM_ADDRESS 8u/);
+  assert.match(header, /#define PCE_EDITOR_META_ADPCM_DIVIDER 10u/);
+  assert.match(header, /#define PCE_EDITOR_META_ADPCM_LOOP 11u/);
+  assert.match(header, /#define PCE_EDITOR_META_ADPCM_STREAM 12u/);
+  assert.match(header, /#define PCE_EDITOR_META_ADPCM_CD 15u/);
   // Resident directory: payloads occupy sectors 64..69, so the meta file lands at
   // sector 70; its regions are bg@70, sprite@71, adpcm@72.
   assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta = \{ \{ 70u, 0u, 0u \}, 1u \};/);
