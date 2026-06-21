@@ -444,7 +444,10 @@ test('PCE ADPCM import auto-splits assets that exceed runtime-safe size', () => 
   assert.deepEqual(assetManager.collectCdDataFiles(projectDir), parts.map((part) => part.data.generated.outputFile));
 });
 
-test('PCE ADPCM streaming import keeps long samples as one CD data file', () => {
+test('PCE ADPCM streaming import keeps long samples as one CD data file', (t) => {
+  // Force CD on-demand metadata so this exercises the meta directory path.
+  process.env.PCE_ASSET_META_BUDGET = '0';
+  t.after(() => { delete process.env.PCE_ASSET_META_BUDGET; });
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-audio-stream-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
@@ -471,7 +474,17 @@ test('PCE ADPCM streaming import keeps long samples as one CD data file', () => 
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
   assert.match(header, /unsigned long data_size;/);
-  assert.match(source, /\{ \(const unsigned char \*\)0, \d+ul, 8000u, 65530u, 12u, 0u, 1u, &pce_editor_adpcm_long_stream_data_cd \}/);
+  // ADPCM descriptors are CD on-demand now: a constant region directory + the
+  // record bytes in ASSET_META_FILE (adpcm.bin@64, meta@65 -> adpcm region@65).
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta = \{ \{ 65u, 0u, 0u \}, 1u \};/);
+  assert.match(source, /const unsigned char pce_editor_adpcm_asset_count = 1;/);
+  assert.doesNotMatch(source, /pce_editor_adpcm_long_stream_data_cd PCE_EDITOR_CD_REF_SECTION/);
+  const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
+  assert.equal(meta.readUInt16LE(6), 8000); // sample_rate
+  assert.equal(meta.readUInt16LE(8), 65530); // adpcm_address
+  assert.equal(meta[10], 12); // divider (8000Hz quantized code)
+  assert.equal(meta[12], 1); // stream
+  assert.equal(meta[15], 64); // adpcm cd sector lo
 });
 
 test('PCE image import generates BG and sprite assets with the internal converter', () => {
@@ -818,7 +831,10 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.match(source, /pce_editor_image_rows/);
 });
 
-test('PCE CD asset source generation streams large payloads through cd.dataFiles', () => {
+test('PCE CD asset source generation streams large payloads through cd.dataFiles', (t) => {
+  // Force CD on-demand metadata so this exercises the meta directory path.
+  process.env.PCE_ASSET_META_BUDGET = '0';
+  t.after(() => { delete process.env.PCE_ASSET_META_BUDGET; });
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-cd-assets-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
@@ -886,46 +902,69 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
 
   assert.equal(result.imageRows, 0);
   assert.equal(result.bankedChunkCount, 0);
+  // CD builds consolidate per-asset metadata into ASSET_META_FILE (on-demand) and
+  // keep only a constant resident directory; the big resident arrays and per-asset
+  // cd refs are gone. See docs/pce-asset-meta-cd-ondemand.md.
   assert.deepEqual(assetManager.collectCdDataFiles(projectDir), [
     'assets/generated/bg/tiles.bin',
     'assets/generated/bg/map_vram.bin',
     'assets/generated/hero/patterns.bin',
     'assets/generated/voice/adpcm.bin',
+    'assets/generated/meta/asset_meta.bin',
   ]);
   assert.match(header, /pce_editor_cd_data_ref_t/);
-  assert.match(header, /pce_editor_sprite_draw_meta_t/);
-  assert.match(header, /extern const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\];/);
-  assert.doesNotMatch(source, /PCE_RAM_BANK_AT\(129, 3\);/);
-  assert.doesNotMatch(source, /pce_editor_image_bg_map_bank129/);
-  assert.match(source, /pce_editor_image_bg_tiles_cd PCE_EDITOR_CD_REF_SECTION = \{ \{ 64u, 0u, 0u \}, 1u, 2048u, 0u \};/);
-  assert.match(source, /pce_editor_image_bg_map_cd PCE_EDITOR_CD_REF_SECTION = \{ \{ 65u, 0u, 0u \}, 1u, 2048u, 0u \};/);
-  assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_tiles_cd \}, \{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_map_cd \}, 36u, 16u, 64u, 0u, 0u \}/);
-  assert.match(source, /pce_editor_sprite_hero_patterns_cd PCE_EDITOR_CD_REF_SECTION = \{ \{ 66u, 0u, 0u \}, 2u, 4096u, 0u \};/);
-  assert.match(source, /pce_editor_adpcm_voice_data_cd PCE_EDITOR_CD_REF_SECTION = \{ \{ 68u, 0u, 0u \}, 2u, 4096u, 0u \};/);
-  assert.match(source, /\{ \(const unsigned char \*\)0, 4096ul, 16000u, 0u, 14u, 0u, 1u, &pce_editor_adpcm_voice_data_cd \}/);
+  assert.match(header, /pce_editor_meta_region_t/);
+  assert.match(header, /extern const pce_editor_meta_region_t pce_editor_bg_meta;/);
+  assert.match(header, /extern const pce_editor_meta_region_t pce_editor_sprite_meta;/);
+  assert.match(header, /extern const pce_editor_meta_region_t pce_editor_adpcm_meta;/);
+  // Resident directory: payloads occupy sectors 64..69, so the meta file lands at
+  // sector 70; its regions are bg@70, sprite@71, adpcm@72.
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta = \{ \{ 70u, 0u, 0u \}, 1u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_sprite_meta = \{ \{ 71u, 0u, 0u \}, 1u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta = \{ \{ 72u, 0u, 0u \}, 1u \};/);
+  assert.match(source, /const unsigned char pce_editor_bg_asset_count = 1;/);
+  assert.match(source, /const unsigned char pce_editor_sprite_asset_count = 1;/);
+  assert.match(source, /const unsigned char pce_editor_adpcm_asset_count = 1;/);
+  // The resident arrays and per-asset cd refs are no longer emitted on CD.
+  assert.doesNotMatch(source, /pce_editor_bg_assets\[\] = \{/);
+  assert.doesNotMatch(source, /pce_editor_sprite_draw_meta\[\] = \{/);
+  assert.doesNotMatch(source, /pce_editor_image_bg_tiles_cd PCE_EDITOR_CD_REF_SECTION/);
+  assert.doesNotMatch(source, /pce_editor_adpcm_voice_data_cd PCE_EDITOR_CD_REF_SECTION/);
+  // CDDA stays resident (does not scale with images); its table is unchanged.
   assert.match(header, /pce_editor_cd_sector_t start_sector;/);
-  assert.match(header, /pce_editor_cd_sector_t end_sector;/);
-  assert.match(header, /pce_editor_cd_time_t end_time;/);
-  assert.match(header, /unsigned int play_frames;/);
   assert.match(source, /\{ 3u, 0u, \{ 13u, 2u, 0u \}, \{ 162u, 2u, 0u \}, \{ 74u, 10u, 0u \}, 118u \}/);
   assert.match(source, /\{ 2u, 1u, \{ 194u, 1u, 0u \}, \{ 12u, 2u, 0u \}, \{ 74u, 8u, 0u \}, 58u \}/);
-  assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] = \{\n  \{ 16u, 16u, 4u, 8u, 880u, 1u \}\n\};/);
-  assert.doesNotMatch(source, /extern const unsigned char __cd_assets_generated_bg_tiles_bin/);
-  assert.doesNotMatch(source, /__cd_assets_generated_bg_tiles_bin_sector/);
-  assert.doesNotMatch(source, /pce_editor_cd_sector_t __cd_assets_generated_bg_tiles_bin =/);
-  assert.doesNotMatch(source, /_sector = \{ 0u, 0u, 0u \};/);
-  assert.doesNotMatch(source, /_sector_count = 0u;/);
-  assert.match(source, /&pce_editor_image_bg_tiles_cd/);
-  assert.match(source, /&pce_editor_image_bg_map_cd/);
-  assert.match(source, /&pce_editor_sprite_hero_patterns_cd/);
-  assert.match(source, /&pce_editor_adpcm_voice_data_cd/);
-  assert.doesNotMatch(source, /static const unsigned char pce_editor_image_bg_tiles\[\]/);
-  assert.doesNotMatch(source, /static const unsigned char pce_editor_image_bg_map\[\]/);
-  assert.doesNotMatch(source, /pce_editor_sprite_hero_patterns_bank129/);
-  assert.doesNotMatch(source, /static const unsigned char pce_editor_adpcm_voice_data\[\]/);
+
+  // Lock the on-CD record format: decode the bg record (slot 0) and verify a few
+  // fields and the embedded cd refs (tiles@64, map@65).
+  // Records are packed struct images + appendix (see docs/pce-asset-meta-cd-ondemand.md).
+  const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
+  assert.equal(meta.length, 3 * 2048);
+  assert.equal(meta[27], 36); // bg width_tiles = ceil(288/8)
+  assert.equal(meta[28], 16); // bg height_tiles = ceil(128/8)
+  assert.equal(meta.readUInt16LE(29), 64); // tile_base (BG auto-forced)
+  assert.equal(meta.readUInt16LE(31), 0); // map_base (BG auto-forced)
+  assert.equal(meta.readUInt16LE(11), 2048); // tiles.size (uncompressed)
+  assert.equal(meta[66], 64); // tiles cd sector lo
+  assert.equal(meta.readUInt16LE(69), 1); // tiles cd sector_count
+  assert.equal(meta.readUInt16LE(71), 2048); // tiles cd byte_size
+  assert.equal(meta[74], 65); // map cd sector lo
+  // Sprite record (region at sector 71 -> byte offset 1*2048).
+  const sprBase = 1 * 2048;
+  assert.equal(meta.readUInt16LE(sprBase + 22), 880); // pattern_base
+  assert.equal(meta[sprBase + 24], 1); // palette_bank
+  assert.equal(meta[sprBase + 61], 66); // patterns cd sector lo
+  // ADPCM record (region at sector 72 -> byte offset 2*2048).
+  const adBase = 2 * 2048;
+  assert.equal(meta.readUInt32LE(adBase + 2), 4096); // data_size
+  assert.equal(meta[adBase + 12], 1); // stream flag
+  assert.equal(meta[adBase + 15], 68); // adpcm cd sector lo
 });
 
-test('PCE CD asset source generation uses compressed BG and sprite sidecars when available', () => {
+test('PCE CD asset source generation uses compressed BG and sprite sidecars when available', (t) => {
+  // Force CD on-demand metadata so this exercises the meta directory path.
+  process.env.PCE_ASSET_META_BUDGET = '0';
+  t.after(() => { delete process.env.PCE_ASSET_META_BUDGET; });
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-cd-assets-compressed-');
   const bgTilesRle = makeRleRun(2048, 0x22);
@@ -986,12 +1025,31 @@ test('PCE CD asset source generation uses compressed BG and sprite sidecars when
     'assets/generated/bg/tiles.rle',
     'assets/generated/bg/map_vram.rle',
     'assets/generated/hero/patterns.rle',
+    'assets/generated/meta/asset_meta.bin',
   ]);
-  assert.match(source, new RegExp(`pce_editor_image_bg_tiles_cd PCE_EDITOR_CD_REF_SECTION = \\{ \\{ 64u, 0u, 0u \\}, 1u, ${bgTilesRle.length}u, 1u \\};`));
-  assert.match(source, new RegExp(`pce_editor_image_bg_map_cd PCE_EDITOR_CD_REF_SECTION = \\{ \\{ 65u, 0u, 0u \\}, 1u, ${bgMapRle.length}u, 1u \\};`));
-  assert.match(source, new RegExp(`pce_editor_sprite_hero_patterns_cd PCE_EDITOR_CD_REF_SECTION = \\{ \\{ 66u, 0u, 0u \\}, 1u, ${spritePatternsRle.length}u, 1u \\};`));
-  assert.match(source, /\{ \(const unsigned char \*\)0, 2048u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_image_bg_tiles_cd \}/);
-  assert.match(source, /\{ \(const unsigned char \*\)0, 4096u, \(const pce_editor_data_chunk_t \*\)0, 0u, &pce_editor_sprite_hero_patterns_cd \}/);
+  // RLE sidecars sit at sectors 64..66, so the meta file lands at sector 67
+  // (regions bg@67, sprite@68). The compressed byte_size / compression flag live
+  // in the on-CD records now, not in resident cd refs.
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta = \{ \{ 67u, 0u, 0u \}, 1u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_sprite_meta = \{ \{ 68u, 0u, 0u \}, 1u \};/);
+  assert.doesNotMatch(source, /pce_editor_image_bg_tiles_cd PCE_EDITOR_CD_REF_SECTION/);
+
+  const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
+  assert.equal(meta.length, 2 * 2048);
+  // BG tiles: uncompressed size 2048, cd ref sector 64, compressed byte_size, RLE flag.
+  assert.equal(meta.readUInt16LE(11), 2048); // tiles.size (uncompressed)
+  assert.equal(meta[66], 64); // tiles cd sector lo
+  assert.equal(meta.readUInt16LE(71), bgTilesRle.length); // tiles cd byte_size
+  assert.equal(meta[73], 1); // tiles compression = RLE
+  assert.equal(meta[74], 65); // map cd sector lo
+  assert.equal(meta.readUInt16LE(79), bgMapRle.length); // map cd byte_size
+  assert.equal(meta[81], 1); // map compression = RLE
+  // Sprite patterns (record at sector 68 -> byte 2048).
+  const sprBase = 2048;
+  assert.equal(meta.readUInt16LE(sprBase + 11), 4096); // patterns uncompressed size
+  assert.equal(meta[sprBase + 61], 66); // patterns cd sector lo
+  assert.equal(meta.readUInt16LE(sprBase + 66), spritePatternsRle.length); // patterns cd byte_size
+  assert.equal(meta[sprBase + 68], 1); // patterns compression = RLE
 });
 
 test('PCE sample template registers slideshow images and PSG BGM assets', () => {

@@ -172,6 +172,11 @@ static uint8_t pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
 static uint8_t pending_display_enable = 0;
 static uint8_t pending_scene_sprite_clear = 0;
 static signed int current_bg_index;
+/* Resident snapshot of the current BG palette so the palette-fade helpers don't
+   re-fetch the CD-streamed descriptor. set_background refreshes it on each BG. */
+static uint8_t current_bg_palette[32];
+static uint8_t current_bg_palette_size;
+static uint8_t current_bg_palette_base;
 static uint8_t current_bg_x;
 static uint8_t current_bg_y;
 static uint8_t preloaded_bg_valid = 0;
@@ -1409,6 +1414,167 @@ static void copy_data_ref_to_vram(uint16_t dest, const pce_editor_data_ref_t *re
     }
 }
 
+/* === CD on-demand asset metadata ==========================================
+   On CD builds the per-asset BG/sprite/ADPCM descriptors are NOT resident: the
+   generator serializes them into a CD data file (asset_meta.bin) as fixed-size,
+   sector-aligned record slots and keeps only a constant directory resident
+   (pce_editor_*_meta). Each record is a packed image of the descriptor struct
+   (pointer fields zeroed) plus an appendix (palette + cd refs), so decoding is a
+   memcpy of the struct image plus a few appendix copies and pointer fix-ups — tiny
+   code. The accessors stream a record's sector into cd_transfer_scratch, decode it
+   into a small console_ram cache (cell_map goes to bank132) and return a pointer
+   with the same struct shape the rest of the runtime already expects. Cache hits
+   avoid re-reading the CD, so per-frame sprite refresh never touches the drive once
+   warm. These accessors are plain resident code (the freed per-asset rodata makes
+   room) — no overlay. See docs/pce-asset-meta-cd-ondemand.md.
+
+   Gated on PCE_EDITOR_ASSET_META_ON_CD: the generator only sets it for projects
+   whose resident descriptors would exceed the RAM budget. Small projects keep the
+   resident arrays and the #else macros below resolve to a direct array index, so
+   these accessor functions are never referenced and DCE drops them entirely. */
+#if defined(__PCE_CD__) && PCE_EDITOR_ASSET_META_ON_CD
+#define VN_META_BG_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_BG_SLOT)
+#define VN_META_SPRITE_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_SPRITE_SLOT)
+#define VN_META_ADPCM_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_ADPCM_SLOT)
+/* Max positional cells per sprite sheet whose cell_map we cache (1 byte/cell).
+   The per-slot buffers live in console_ram (bank132's tail is taken by the overlay
+   LMA, so they cannot go there). Keep this in sync with the generator's cap
+   (pce-asset-manager.js); VN_SPRITE_SLOT_COUNT * this many bytes is console_ram. */
+#define VN_META_CELL_MAP_MAX 384u
+
+/* These asserts pin the appendix offsets past the struct image and the cd-ref
+   byte layout, so any descriptor-struct change fails the build instead of
+   silently mis-decoding. */
+_Static_assert(sizeof(pce_editor_bg_asset_t) <= PCE_EDITOR_META_BG_PALETTE, "bg struct image overlaps palette appendix");
+_Static_assert(sizeof(pce_editor_sprite_asset_t) <= PCE_EDITOR_META_SPR_PALETTE, "sprite struct image overlaps palette appendix");
+_Static_assert(sizeof(pce_editor_cd_data_ref_t) == 8, "cd ref must be 8 bytes");
+_Static_assert(PCE_EDITOR_META_BG_SLOT >= PCE_EDITOR_META_BG_MAP_CD + 8, "bg record overruns its slot");
+_Static_assert(PCE_EDITOR_META_SPRITE_SLOT >= PCE_EDITOR_META_SPR_CELL_MAP + VN_META_CELL_MAP_MAX, "sprite record (incl inline cell_map) overruns its slot");
+
+/* Read the meta sector holding record (region base + sector_off) into
+   cd_transfer_scratch (bank132); leaves MPR6=bank132 so callers decode directly. */
+/* Untagged → bank128, alongside the freed asset rodata and the CD helpers it
+   inlines (map_vn_data/prepare_cd_data_access/cd_sector_*). Tagging it into a
+   banked code bank (129/130) duplicated those inlined helpers there and ballooned
+   the bank; 128/129/130 are co-resident so callers in any of them reach it with a
+   transparent cross-bank call. VN_RESIDENT_CODE keeps it out-of-line in bank128 so
+   the banked (129/130) sprite/adpcm callers don't inline a copy of it and balloon. */
+static void VN_RESIDENT_CODE vn_read_meta_sector(const pce_editor_cd_sector_t *region_sector, uint8_t sector_off)
+{
+    pce_sector_t sector = {0};
+    map_vn_data();
+    prepare_cd_data_access();
+    cd_sector_from_ref(&sector, region_sector);
+    while (sector_off--) cd_sector_advance(&sector);
+    map_vn_data();
+    (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)cd_transfer_scratch, VN_CD_SECTOR_BYTES);
+    cd_transfer_wait();
+    mask_buffered_adpcm_completion_irq();
+    resume_cdda_after_cd_data_access();
+    map_vn_data();
+}
+
+static pce_editor_bg_asset_t g_bg_cache[2];
+static uint8_t g_bg_palette[2][32];
+static pce_editor_cd_data_ref_t g_bg_tiles_cd[2];
+static pce_editor_cd_data_ref_t g_bg_map_cd[2];
+static int16_t g_bg_cache_idx[2] = { -1, -1 };
+static uint8_t g_bg_cache_lru = 0u;
+
+/* 2-slot cache: set_background needs current+next BG live at once during a
+   crossfade, so distinct indices must occupy distinct slots. */
+static const pce_editor_bg_asset_t *VN_RESIDENT_CODE vn_get_bg_asset(uint8_t idx)
+{
+    uint8_t slot;
+    const uint8_t *p;
+    pce_editor_bg_asset_t *rec;
+    if (g_bg_cache_idx[0] == (int16_t)idx) { g_bg_cache_lru = 0u; return &g_bg_cache[0]; }
+    if (g_bg_cache_idx[1] == (int16_t)idx) { g_bg_cache_lru = 1u; return &g_bg_cache[1]; }
+    slot = (uint8_t)(g_bg_cache_lru ^ 1u);
+    rec = &g_bg_cache[slot];
+    vn_read_meta_sector(&pce_editor_bg_meta.sector, (uint8_t)(idx / VN_META_BG_PER_SECTOR));
+    p = &cd_transfer_scratch[(uint16_t)((uint16_t)(idx % VN_META_BG_PER_SECTOR) * PCE_EDITOR_META_BG_SLOT)];
+    __builtin_memcpy(rec, p, sizeof(*rec));
+    __builtin_memcpy(g_bg_palette[slot], p + PCE_EDITOR_META_BG_PALETTE, 32);
+    __builtin_memcpy(&g_bg_tiles_cd[slot], p + PCE_EDITOR_META_BG_TILES_CD, sizeof(pce_editor_cd_data_ref_t));
+    __builtin_memcpy(&g_bg_map_cd[slot], p + PCE_EDITOR_META_BG_MAP_CD, sizeof(pce_editor_cd_data_ref_t));
+    rec->palette.data = g_bg_palette[slot];
+    rec->tiles.cd = &g_bg_tiles_cd[slot];
+    rec->map.cd = &g_bg_map_cd[slot];
+    g_bg_cache_idx[slot] = (int16_t)idx;
+    g_bg_cache_lru = slot;
+    return rec;
+}
+
+static pce_editor_sprite_asset_t g_spr_cache[VN_SPRITE_SLOT_COUNT];
+static uint8_t g_spr_palette[VN_SPRITE_SLOT_COUNT][32];
+static pce_editor_cd_data_ref_t g_spr_patterns_cd[VN_SPRITE_SLOT_COUNT];
+/* cell_map caches live in console_ram (always mapped); show_character_sprite_frame
+   reads them without any MPR juggling. */
+static uint8_t g_spr_cell_map[VN_SPRITE_SLOT_COUNT][VN_META_CELL_MAP_MAX];
+static int16_t g_spr_cache_idx[VN_SPRITE_SLOT_COUNT] = { -1, -1, -1, -1 };
+static uint8_t g_spr_cache_next = 0u;
+
+static const pce_editor_sprite_asset_t *VN_RESIDENT_CODE vn_get_sprite_asset(uint8_t idx)
+{
+    uint8_t slot;
+    const uint8_t *p;
+    pce_editor_sprite_asset_t *rec;
+    uint16_t cell_map_len;
+    for (slot = 0u; slot < VN_SPRITE_SLOT_COUNT; slot++)
+    {
+        if (g_spr_cache_idx[slot] == (int16_t)idx) return &g_spr_cache[slot];
+    }
+    slot = g_spr_cache_next;
+    g_spr_cache_next = (uint8_t)((g_spr_cache_next + 1u) % VN_SPRITE_SLOT_COUNT);
+    rec = &g_spr_cache[slot];
+    vn_read_meta_sector(&pce_editor_sprite_meta.sector, (uint8_t)(idx / VN_META_SPRITE_PER_SECTOR));
+    p = &cd_transfer_scratch[(uint16_t)((uint16_t)(idx % VN_META_SPRITE_PER_SECTOR) * PCE_EDITOR_META_SPRITE_SLOT)];
+    __builtin_memcpy(rec, p, sizeof(*rec));
+    __builtin_memcpy(g_spr_palette[slot], p + PCE_EDITOR_META_SPR_PALETTE, 32);
+    __builtin_memcpy(&g_spr_patterns_cd[slot], p + PCE_EDITOR_META_SPR_PATTERNS_CD, sizeof(pce_editor_cd_data_ref_t));
+    __builtin_memcpy(&cell_map_len, p + PCE_EDITOR_META_SPR_CELL_MAP_LEN, 2);
+    rec->palette.data = g_spr_palette[slot];
+    rec->patterns.cd = &g_spr_patterns_cd[slot];
+    /* cell_map is stored INLINE in the record (already in cd_transfer_scratch from
+       the meta-sector read), so just copy it out — no second CD read / no loop. */
+    if (cell_map_len)
+    {
+        if (cell_map_len > VN_META_CELL_MAP_MAX) cell_map_len = VN_META_CELL_MAP_MAX;
+        __builtin_memcpy(g_spr_cell_map[slot], p + PCE_EDITOR_META_SPR_CELL_MAP, cell_map_len);
+        rec->cell_map = g_spr_cell_map[slot];
+    }
+    else
+    {
+        rec->cell_map = 0;
+    }
+    g_spr_cache_idx[slot] = (int16_t)idx;
+    return rec;
+}
+
+static pce_editor_adpcm_asset_t g_adpcm_cache;
+static pce_editor_cd_data_ref_t g_adpcm_cd;
+static int16_t g_adpcm_cache_idx = -1;
+
+static const pce_editor_adpcm_asset_t *VN_RESIDENT_CODE vn_get_adpcm_asset(uint8_t idx)
+{
+    const uint8_t *p;
+    if (g_adpcm_cache_idx == (int16_t)idx) return &g_adpcm_cache;
+    vn_read_meta_sector(&pce_editor_adpcm_meta.sector, (uint8_t)(idx / VN_META_ADPCM_PER_SECTOR));
+    p = &cd_transfer_scratch[(uint16_t)((uint16_t)(idx % VN_META_ADPCM_PER_SECTOR) * PCE_EDITOR_META_ADPCM_SLOT)];
+    __builtin_memcpy(&g_adpcm_cache, p, sizeof(g_adpcm_cache));
+    __builtin_memcpy(&g_adpcm_cd, p + PCE_EDITOR_META_ADPCM_CD, sizeof(pce_editor_cd_data_ref_t));
+    g_adpcm_cache.data = 0;
+    g_adpcm_cache.cd = &g_adpcm_cd;
+    g_adpcm_cache_idx = (int16_t)idx;
+    return &g_adpcm_cache;
+}
+#else
+#define vn_get_bg_asset(idx) (&pce_editor_bg_assets[(idx)])
+#define vn_get_sprite_asset(idx) (&pce_editor_sprite_assets[(idx)])
+#define vn_get_adpcm_asset(idx) (&pce_editor_adpcm_assets[(idx)])
+#endif
+
 static void upload_palette(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t fallback_dark)
 {
     uint16_t i;
@@ -1501,16 +1667,12 @@ static void VN_BANKED_CODE2 fade_current_screen_to_color(uint16_t target, uint8_
     const uint8_t *data = (const uint8_t *)0;
     const uint16_t ui_start = ui_text_color_word(ui_text_color);
     target = (uint16_t)(target & 0x01ffu);
-    if (current_bg_index >= 0)
+    if (current_bg_index >= 0 && current_bg_palette_size)
     {
-        const pce_editor_bg_asset_t *bg = &pce_editor_bg_assets[(uint8_t)current_bg_index];
-        data = data_ref_ptr(&bg->palette);
-        if (data)
-        {
-            color_count = (uint16_t)(bg->palette.size / 2u);
-            if (color_count > 16u) color_count = 16u;
-            bg_base = (uint16_t)(bg->palette_bank * 16u);
-        }
+        data = current_bg_palette;
+        color_count = (uint16_t)(current_bg_palette_size / 2u);
+        if (color_count > 16u) color_count = 16u;
+        bg_base = current_bg_palette_base;
     }
     for (step = 0u; step <= frames; step++)
     {
@@ -1530,10 +1692,10 @@ static void VN_BANKED_CODE2 fade_current_screen_to_color(uint16_t target, uint8_
 
 static void VN_BANKED_CODE2 restore_current_screen_palette(void)
 {
-    if (current_bg_index >= 0)
+    if (current_bg_index >= 0 && current_bg_palette_size)
     {
-        const pce_editor_bg_asset_t *bg = &pce_editor_bg_assets[(uint8_t)current_bg_index];
-        upload_palette(&bg->palette, (uint16_t)(bg->palette_bank * 16u), 0u);
+        const pce_editor_data_ref_t ref = { current_bg_palette, current_bg_palette_size, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 };
+        upload_palette(&ref, current_bg_palette_base, 0u);
     }
     write_ui_text_palette(ui_text_color_word(ui_text_color));
 }
@@ -2404,7 +2566,7 @@ static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
     if (voice_index < 0) return 0u;
     map_resident_data();
     if ((uint8_t)voice_index >= pce_editor_adpcm_asset_count) return 0u;
-    voice = &pce_editor_adpcm_assets[(uint8_t)voice_index];
+    voice = vn_get_adpcm_asset((uint8_t)voice_index);
     adpcm_voice_snapshot.data = voice->data;
     adpcm_voice_snapshot.data_size = voice->data_size;
     adpcm_voice_snapshot.sample_rate = voice->sample_rate;
@@ -2906,9 +3068,9 @@ static void show_scene(uint8_t scene_index)
     VN_MAP_BANK130_FOR_CODE();
     REQUEST_SPRITE_REFRESH_FULL();
     /* Assets load on demand as run_commands_until_wait() processes each command
-       (set_background / sprite show / play_adpcm_voice all stream from CD). The old
-       scene-entry preload pre-scan is gone; set_background still self-caches the
-       current BG to skip re-uploads. */
+       (set_background / sprite show / play_adpcm_voice all stream from CD at the
+       command). The old scene-entry preload pass was a redundant pre-scan and is
+       gone; set_background still self-caches the current BG to skip re-uploads. */
     preloaded_scene_visual_valid = 0u;
     end_cdda_deferred_resume();
 }
@@ -2974,7 +3136,6 @@ static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns(void)
         pce_vn_sprite_anim_t animation_value;
         const pce_vn_sprite_anim_t *animation = 0;
         const pce_editor_sprite_asset_t *sprite;
-        const pce_editor_sprite_draw_meta_t *draw_meta;
         uint8_t sprite_index;
         uint8_t satb_index;
         uint8_t expected_count;
@@ -2986,14 +3147,13 @@ static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns(void)
         map_resident_data();
         if ((uint8_t)slot->sprite_index >= pce_editor_sprite_asset_count) return 0u;
         sprite_index = (uint8_t)slot->sprite_index;
-        sprite = &pce_editor_sprite_assets[sprite_index];
-        draw_meta = &pce_editor_sprite_draw_meta[sprite_index];
-        sprite_draw_meta.cell_width = draw_meta->cell_width;
-        sprite_draw_meta.cell_height = draw_meta->cell_height;
-        sprite_draw_meta.cell_columns = draw_meta->cell_columns;
-        sprite_draw_meta.cell_rows = draw_meta->cell_rows;
-        sprite_draw_meta.pattern_base = draw_meta->pattern_base;
-        sprite_draw_meta.palette_bank = draw_meta->palette_bank;
+        sprite = vn_get_sprite_asset(sprite_index);
+        sprite_draw_meta.cell_width = sprite->cell_width;
+        sprite_draw_meta.cell_height = sprite->cell_height;
+        sprite_draw_meta.cell_columns = sprite->cell_columns;
+        sprite_draw_meta.cell_rows = sprite->cell_rows;
+        sprite_draw_meta.pattern_base = sprite->pattern_base;
+        sprite_draw_meta.palette_bank = sprite->palette_bank;
         map_vn_data();
         if ((uint8_t)slot->animation_index >= pce_vn_sprite_animation_count) continue;
         {
@@ -3074,20 +3234,18 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
         pce_vn_sprite_anim_t animation_value;
         const pce_vn_sprite_anim_t *animation = 0;
         const pce_editor_sprite_asset_t *sprite;
-        const pce_editor_sprite_draw_meta_t *draw_meta;
         uint8_t sprite_index;
         if (!slot->visible || slot->sprite_index < 0) continue;
         map_resident_data();
         if ((uint8_t)slot->sprite_index >= pce_editor_sprite_asset_count) continue;
         sprite_index = (uint8_t)slot->sprite_index;
-        sprite = &pce_editor_sprite_assets[sprite_index];
-        draw_meta = &pce_editor_sprite_draw_meta[sprite_index];
-        sprite_draw_meta.cell_width = draw_meta->cell_width;
-        sprite_draw_meta.cell_height = draw_meta->cell_height;
-        sprite_draw_meta.cell_columns = draw_meta->cell_columns;
-        sprite_draw_meta.cell_rows = draw_meta->cell_rows;
-        sprite_draw_meta.pattern_base = draw_meta->pattern_base;
-        sprite_draw_meta.palette_bank = draw_meta->palette_bank;
+        sprite = vn_get_sprite_asset(sprite_index);
+        sprite_draw_meta.cell_width = sprite->cell_width;
+        sprite_draw_meta.cell_height = sprite->cell_height;
+        sprite_draw_meta.cell_columns = sprite->cell_columns;
+        sprite_draw_meta.cell_rows = sprite->cell_rows;
+        sprite_draw_meta.pattern_base = sprite->pattern_base;
+        sprite_draw_meta.palette_bank = sprite->palette_bank;
         map_vn_data();
         if (slot->animation_index >= 0 && (uint8_t)slot->animation_index < pce_vn_sprite_animation_count)
         {
@@ -3367,7 +3525,7 @@ static void hide_sprites_for_asset_load(void)
 }
 
 /* preload_scene_assets/preload_scan_boundary/preload_adpcm_voice removed: the
-   scene-entry pre-scan duplicated the on-demand loads run_commands_until_wait
+   scene-entry pre-scan duplicated the on-demand loads that run_commands_until_wait
    already performs per command (set_background, ensure_sprite_patterns_loaded,
    play_adpcm_voice). Dropping it reclaims its bank130 footprint. */
 
@@ -3471,10 +3629,12 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
     const uint8_t restore_display_after_bg_load = (uint8_t)!pending_display_enable;
     uint8_t bg_ready;
     if (bg_index < 0 || (uint8_t)bg_index >= pce_editor_bg_asset_count) return;
-    next_bg = &pce_editor_bg_assets[(uint8_t)bg_index];
-    if (bg_fade_out_frames && current_bg_index >= 0 && !pending_display_enable)
+    next_bg = vn_get_bg_asset((uint8_t)bg_index);
+    if (bg_fade_out_frames && current_bg_index >= 0 && !pending_display_enable && current_bg_palette_size)
     {
-        fade_palette(&pce_editor_bg_assets[(uint8_t)current_bg_index].palette, (uint16_t)(pce_editor_bg_assets[(uint8_t)current_bg_index].palette_bank * 16u), bg_fade_out_frames, 0u);
+        /* Fade the OLD bg out using its resident palette snapshot (no descriptor refetch). */
+        const pce_editor_data_ref_t ref = { current_bg_palette, current_bg_palette_size, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 };
+        fade_palette(&ref, current_bg_palette_base, bg_fade_out_frames, 0u);
     }
     if ((fade_transition || implicit_fade) && !pending_display_enable)
     {
@@ -3495,7 +3655,7 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
     {
         if (current_bg_index >= 0 && (bg_index != current_bg_index || bg_position_changed))
         {
-            clear_bg_map_region(&pce_editor_bg_assets[(uint8_t)current_bg_index], current_bg_x, current_bg_y);
+            clear_bg_map_region(vn_get_bg_asset((uint8_t)current_bg_index), current_bg_x, current_bg_y);
         }
         clear_bg_map_region(next_bg, next_x, next_y);
         upload_bg_graphics(next_bg, bg_map_dest_from_tile(next_bg, next_x, next_y));
@@ -3508,6 +3668,13 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
     current_bg_index = bg_index;
     current_bg_x = next_x;
     current_bg_y = next_y;
+    /* Snapshot the new BG palette for the bank130 fade helpers (see decl). */
+    current_bg_palette_size = next_bg->palette.size > 32u ? 32u : (uint8_t)next_bg->palette.size;
+    current_bg_palette_base = (uint8_t)(next_bg->palette_bank * 16u);
+    if (next_bg->palette.data && current_bg_palette_size)
+    {
+        __builtin_memcpy(current_bg_palette, next_bg->palette.data, current_bg_palette_size);
+    }
     if ((fade_transition || implicit_fade) && pending_display_enable)
     {
         display_enable();
@@ -3745,9 +3912,10 @@ static uint8_t execute_command(const pce_vn_command_t *command)
         else if (command->flags == PCE_VN_EFFECT_FADE_IN)
         {
             enable_display_if_pending();
-            if (current_bg_index >= 0)
+            if (current_bg_index >= 0 && current_bg_palette_size)
             {
-                fade_palette(&pce_editor_bg_assets[(uint8_t)current_bg_index].palette, (uint16_t)(pce_editor_bg_assets[(uint8_t)current_bg_index].palette_bank * 16u), command->arg0, 1u);
+                const pce_editor_data_ref_t ref = { current_bg_palette, current_bg_palette_size, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 };
+                fade_palette(&ref, current_bg_palette_base, command->arg0, 1u);
             }
         }
         else if (command->flags == PCE_VN_EFFECT_BLANK)

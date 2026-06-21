@@ -11,6 +11,7 @@
 - **Test Play や実機/エミュレーター表示崩れを調査する前** → [docs/pce-testplay-debugging.md](docs/pce-testplay-debugging.md)
 - **CD-ROM2 / VN runtime のメモリバンク配置を変更する前** → [docs/pce-memory-bank-strategy.md](docs/pce-memory-bank-strategy.md)
 - **VN runtime のコードが 3 常駐バンク(128/129/130)を超える / bank133 コードオーバーレイ(Path B)を追加・拡張する前** → [docs/pce-vn-overlay-pathb.md](docs/pce-vn-overlay-pathb.md)
+- **アセットのメタ情報（パレット/ディスクリプタ/cd_data_ref/cell_map）の常駐量・CD オンデマンド化を変更する前** → [docs/pce-asset-meta-cd-ondemand.md](docs/pce-asset-meta-cd-ondemand.md)
 - **画像 / スプライト / ADPCM / CD-DA の実装** → [docs/pce-media-programming-guide.md](docs/pce-media-programming-guide.md)
 - **AI Control（REST/MCP）API の仕様** → [AI_CONTROL.md](AI_CONTROL.md)
 

@@ -2709,6 +2709,15 @@ function collectCdDataFiles(projectDir) {
   // The sprite-format font is only generated when spritetext is used; include it
   // only when the file actually exists so we never reserve a sector for nothing.
   addExistingCdDataFile(projectDir, files, seen, VN_FONT_SPRITE_DATA_FILE);
+  // Consolidated per-asset metadata (palette/descriptor/cd refs/cell_map). Reserved
+  // at final size up front (ensureAssetMetaReservation) so it sits on a stable
+  // sector ahead of the scene packs / payloads. Only when the project is large
+  // enough to stream metadata on demand — small projects keep resident arrays and
+  // must not waste ISO sectors on (or pick up a stale) asset_meta.bin.
+  if (typeof assetManager.assetMetaShouldUseCd !== 'function'
+    || assetManager.assetMetaShouldUseCd(projectDir, assetDoc)) {
+    addExistingCdDataFile(projectDir, files, seen, assetManager.ASSET_META_FILE);
+  }
   (doc.scenes || []).forEach((scene, sceneIndex) => {
     addCdDataFile(files, seen, scenePackRelativePath(scene, sceneIndex));
     collectSceneCommandAssetIds(scene).forEach((assetId) => {
@@ -2927,6 +2936,10 @@ function mergeCdDataFiles(projectDir, generatedDataFiles = [], configuredDataFil
 function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null) {
   syncVisualNovelRuntime(projectDir);
   ensureSceneFile(projectDir);
+  // Reserve the consolidated asset-metadata file at its final size before the CD
+  // layout is computed so its sector (and every file after it) stays stable, the
+  // same reserve→overwrite contract used for the overlay blob below.
+  assetManager.ensureAssetMetaReservation(projectDir);
   // Reserve the overlay blob's CD footprint and write the linker fragment BEFORE
   // generating sources / computing the CD layout. The actual overlay bytes are
   // extracted from main.elf after the link by finalizeOverlayBlob(); reserving a

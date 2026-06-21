@@ -1235,6 +1235,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   const setBackgroundSource = setBackgroundMatch[0];
   const executeCommandSource = executeCommandMatch[0];
   // The scene-entry preload pass was removed; assets stream on demand per command.
+  // (Function definitions are gone; the removal note in a comment is fine.)
   assert.doesNotMatch(source, /VN_BANKED_CODE2 preload_scene_assets\(|VN_BANKED_CODE2 preload_scan_boundary\(|void preload_adpcm_voice\(/);
   assert.match(source, /#define VN_VDC_CONTROL_BASE \(VDC_CONTROL_IRQ_VBLANK \| VDC_CONTROL_DRAM_REFRESH \| VDC_CONTROL_VRAM_ADD_1\)/);
   assert.match(source, /#define VN_VDC_DISPLAY_CONTROL \(VN_VDC_CONTROL_BASE \| VDC_CONTROL_ENABLE_BG \| VDC_CONTROL_ENABLE_SPRITE\)/);
@@ -1352,9 +1353,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(showSceneSource, /preload_scene_assets/);
   assert.match(source, /static void clear_map_rect_at_dest\(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles\)/);
   assert.match(source, /static void clear_bg_map_region\(const pce_editor_bg_asset_t \*bg, uint16_t tile_x, uint16_t tile_y\)/);
-  assert.match(setBackgroundSource, /fade_palette\(&pce_editor_bg_assets\[\(uint8_t\)current_bg_index\]\.palette[\s\S]*fade_out_frames, 0u\);/);
+  // Step 2: fades read the resident BG palette snapshot, not a (possibly CD-streamed) descriptor.
+  assert.match(setBackgroundSource, /const pce_editor_data_ref_t ref = \{ current_bg_palette, current_bg_palette_size,[\s\S]*fade_palette\(&ref, current_bg_palette_base, bg_fade_out_frames, 0u\);/);
   assert.match(setBackgroundSource, /const uint8_t restore_display_after_bg_load = \(uint8_t\)!pending_display_enable;/);
-  assert.match(setBackgroundSource, /clear_bg_map_region\(&pce_editor_bg_assets\[\(uint8_t\)current_bg_index\], current_bg_x, current_bg_y\);/);
+  assert.match(setBackgroundSource, /clear_bg_map_region\(vn_get_bg_asset\(\(uint8_t\)current_bg_index\), current_bg_x, current_bg_y\);/);
   assert.match(setBackgroundSource, /clear_bg_map_region\(next_bg, next_x, next_y\);/);
   assert.match(setBackgroundSource, /upload_bg_graphics\(next_bg, bg_map_dest_from_tile\(next_bg, next_x, next_y\)\);\n        if \(restore_display_after_bg_load\) display_enable\(\);/);
   assert.match(setBackgroundSource, /else if \(pending_display_enable\)\n    \{\n        display_enable\(\);\n        pending_display_enable = 0u;\n        delay_frame\(\);\n    \}/);
@@ -1378,8 +1380,11 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /map_vn_data\(\);\n    map_resident_data\(\);/);
   assert.match(source, /if \(!loaded_sprite_pattern_valid \|\| loaded_sprite_pattern_index != \(uint8_t\)slot->sprite_index\)\n        \{\n            requires_pattern_upload = 1u;/);
   assert.match(source, /if \(display_active && requires_pattern_upload\)\n    \{\n        sprite_layer_disable\(\);\n        upload_sprite_table\(\);\n        delay_frame\(\);/);
-  assert.match(source, /draw_meta = &pce_editor_sprite_draw_meta\[sprite_index\];/);
-  assert.match(source, /sprite_draw_meta\.cell_width = draw_meta->cell_width;/);
+  // Step 2: sprite draw fields come from the (resident or CD-streamed) asset descriptor
+  // via vn_get_sprite_asset, not the separate pce_editor_sprite_draw_meta table.
+  assert.match(source, /sprite = vn_get_sprite_asset\(sprite_index\);/);
+  assert.match(source, /sprite_draw_meta\.cell_width = sprite->cell_width;/);
+  assert.doesNotMatch(source, /draw_meta = &pce_editor_sprite_draw_meta\[sprite_index\];/);
   assert.match(source, /if \(animation_value\.sprite_index == sprite_index\)\n            \{\n                animation = &animation_value;/);
   assert.match(source, /animation->frame_count >= 1u/);
   assert.match(source, /animation->frame_width_cells <= cell_columns/);
@@ -1548,7 +1553,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(adpcmServiceMatch[0], /pce_cdb_adpcm_reset\(\);/);
   assert.doesNotMatch(adpcmServiceMatch[0], /loaded_adpcm_valid = 0u;/);
   assert.match(adpcmServiceMatch[0], /adpcm_play_active = 0u;/);
-  // preload_adpcm_voice removed; message/audio handlers load the voice on demand.
+  // preload_adpcm_voice removed; the message/audio handlers load the voice on demand.
   assert.doesNotMatch(source, /divider = adpcm_play_divider\(voice\);/);
   assert.match(source, /return \(uint8_t\)\(pattern_cols \* pattern_rows \* 2u\);/);
   assert.match(source, /static uint8_t ensure_sprite_patterns_loaded\(uint8_t sprite_index, const pce_editor_sprite_asset_t \*sprite\)/);

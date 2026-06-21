@@ -2226,6 +2226,255 @@ function generateCddaMetadata(projectDir, assets, generationOptions = {}) {
   return { cddaAssets, metaLines };
 }
 
+// === Asset metadata CD on-demand layout =====================================
+// Per-asset TOC (palette + descriptor struct + cd refs + sprite cell_map) used
+// to scale resident RAM (bank128 .rodata / bank132 cd refs) with asset count and
+// overflow the link. For CD builds we serialize that metadata into a single CD
+// data file (ASSET_META_FILE) with fixed-size, sector-aligned record slots so the
+// runtime can address record N arithmetically and stream it on demand, leaving
+// only a tiny constant directory resident. See docs/pce-asset-meta-cd-ondemand.md.
+const ASSET_META_FILE = path.join('assets', 'generated', 'meta', 'asset_meta.bin');
+// Record slots hold a packed image of the in-memory descriptor struct (so the
+// runtime decodes with a single memcpy) plus an appendix for the palette and CD
+// refs. The offsets below mirror the packed struct layout (1-byte alignment,
+// little-endian) and are locked by _Static_assert in the runtime.
+const META_BG_SLOT = 128;
+const META_SPRITE_SLOT = 512;
+const META_ADPCM_SLOT = 32;
+const META_CELL_MAP_MAX = 384; // inline cell_map cap; must match runtime VN_META_CELL_MAP_MAX
+// Struct-image field offsets (packed pce_editor_*_asset_t).
+const META_BG_TILES_SIZE = 11;   // tiles.size
+const META_BG_MAP_SIZE = 20;     // map.size
+const META_BG_PALETTE_SIZE = 2;  // palette.size
+const META_BG_WIDTH = 27;
+const META_BG_HEIGHT = 28;
+const META_BG_TILE_BASE = 29;
+const META_BG_MAP_BASE = 31;
+const META_BG_PALETTE_BANK = 33;
+const META_BG_PALETTE_APPENDIX = 34;
+const META_BG_TILES_CD = 66;
+const META_BG_MAP_CD = 74;
+const META_SPR_PALETTE_SIZE = 2;
+const META_SPR_PATTERNS_SIZE = 11;
+const META_SPR_CELL_WIDTH = 18;
+const META_SPR_CELL_HEIGHT = 19;
+const META_SPR_CELL_COLUMNS = 20;
+const META_SPR_CELL_ROWS = 21;
+const META_SPR_PATTERN_BASE = 22;
+const META_SPR_PALETTE_BANK = 24;
+const META_SPR_X = 25;
+const META_SPR_Y = 26;
+const META_SPR_PALETTE_APPENDIX = 29;
+const META_SPR_PATTERNS_CD = 61;
+const META_SPR_CELL_MAP_LEN = 69;
+const META_SPR_CELL_MAP = 71; // inline cell_map bytes (was a cd ref to a separate file)
+const META_ADPCM_DATA_SIZE = 2;
+const META_ADPCM_SAMPLE_RATE = 6;
+const META_ADPCM_ADDRESS = 8;
+const META_ADPCM_DIVIDER = 10;
+const META_ADPCM_LOOP = 11;
+const META_ADPCM_STREAM = 12;
+const META_ADPCM_CD = 15;
+
+function metaRegionSectors(count, slot) {
+  if (!count) return 0;
+  const perSector = Math.floor(CD_SECTOR_BYTES / slot);
+  return Math.ceil(count / perSector);
+}
+
+function computeAssetMetaLayout(doc) {
+  const assets = doc.assets || [];
+  const bg = assets.filter((a) => a.type === 'image' && a.data?.generated);
+  const sprite = assets.filter((a) => a.type === 'sprite' && a.data?.generated);
+  const adpcm = assets.filter((a) => a.type === 'adpcm' && a.data?.generated);
+  const bgSectors = metaRegionSectors(bg.length, META_BG_SLOT);
+  const spriteSectors = metaRegionSectors(sprite.length, META_SPRITE_SLOT);
+  const adpcmSectors = metaRegionSectors(adpcm.length, META_ADPCM_SLOT);
+  const bgOffset = 0;
+  const spriteOffset = bgOffset + bgSectors;
+  const adpcmOffset = spriteOffset + spriteSectors;
+  const totalSectors = adpcmOffset + adpcmSectors;
+  return {
+    bg, sprite, adpcm,
+    bgSectors, spriteSectors, adpcmSectors,
+    bgOffset, spriteOffset, adpcmOffset, totalSectors,
+    byteSize: Math.max(0, totalSectors) * CD_SECTOR_BYTES,
+  };
+}
+
+// Moving the per-asset metadata onto CD trades a fixed ~1.4KB of resident accessor
+// code for O(1) resident metadata. That is a NET LOSS for small projects (the freed
+// per-asset rodata is less than the accessor code) and a net win only once the
+// resident metadata is large. So the CD on-demand path engages only when the
+// estimated resident metadata exceeds this budget; below it we keep the proven
+// resident arrays and the accessors get dropped by DCE (zero code cost). Raising
+// this delays the switch (more resident RAM used before offloading); lowering it
+// offloads sooner. Kept just above the accessor footprint so the switch is a win.
+const META_RESIDENT_BUDGET = 1536;
+
+// The budget is tunable via PCE_ASSET_META_BUDGET (bytes): lower it to offload
+// metadata to CD sooner, raise it to keep more resident. Read per-call so callers
+// (and tests) can force either mode deterministically. 0 forces CD on demand for
+// every CD project; a very large value pins everything resident.
+function assetMetaBudget() {
+  const env = Number(process.env.PCE_ASSET_META_BUDGET);
+  return Number.isFinite(env) && env >= 0 ? env : META_RESIDENT_BUDGET;
+}
+
+// Approximate the resident bytes the descriptor arrays would occupy (struct images
+// + palette bytes + sprite cell_map + cd refs). Only the magnitude matters for the
+// switch decision, so the per-asset struct/ref overheads are rough constants.
+function estimateResidentMetaBytes(projectDir, doc) {
+  const layout = computeAssetMetaLayout(doc);
+  let bytes = 0;
+  layout.bg.forEach((asset) => {
+    const palette = readGeneratedBuffer(projectDir, asset.data.generated?.paletteFile);
+    bytes += 40 + Math.min(palette.length, 32) + 16; // struct + palette + 2 cd refs
+  });
+  layout.sprite.forEach((asset) => {
+    const palette = readGeneratedBuffer(projectDir, asset.data.generated?.paletteFile);
+    const cellMap = readGeneratedBuffer(projectDir, asset.data.generated?.cellMapFile);
+    bytes += 28 + 8 + Math.min(palette.length, 32) + cellMap.length + 8; // struct + draw_meta + palette + cell_map + cd ref
+  });
+  bytes += layout.adpcm.length * 28; // struct + cd ref
+  return bytes;
+}
+
+// Decide whether this project's metadata should be streamed from CD on demand.
+// Only CD targets are eligible, and only once the resident footprint crosses the
+// budget. Pure function of the project on disk so the reservation, CD file list,
+// and source emission all reach the same answer.
+function assetMetaShouldUseCd(projectDir, doc) {
+  if (!projectTargetsCd(projectDir)) return false;
+  const document = doc || readAssetDocument(projectDir);
+  return estimateResidentMetaBytes(projectDir, document) > assetMetaBudget();
+}
+
+// Write ASSET_META_FILE at its final (count-derived) size up front, BEFORE any
+// buildCdDataLayout stats it, so its CD sector and every file after it stay
+// stable across the reserve→overwrite flow (same pattern as overlay.bin). Returns
+// the layout so callers can avoid recomputing it.
+function ensureAssetMetaReservation(projectDir, doc) {
+  const document = doc || readAssetDocument(projectDir);
+  const layout = computeAssetMetaLayout(document);
+  const { absPath } = resolveUnderRoot(projectDir, ASSET_META_FILE, 'project');
+  // Resident-mode projects (small enough to keep descriptors in RAM) get no CD
+  // metadata file at all. Remove a stale one left by a previous large-mode build so
+  // it can't be picked up by collectCdDataFiles or waste an ISO sector.
+  if (!assetMetaShouldUseCd(projectDir, document)) {
+    if (fs.existsSync(absPath)) fs.rmSync(absPath);
+    return layout;
+  }
+  const current = fs.existsSync(absPath) ? fs.statSync(absPath).size : -1;
+  if (current !== layout.byteSize) {
+    ensureDirSync(path.dirname(absPath));
+    fs.writeFileSync(absPath, Buffer.alloc(layout.byteSize));
+  }
+  return layout;
+}
+
+function writeMetaCdRef(buf, off, ref) {
+  buf[off] = ref.sector & 0xff;
+  buf[off + 1] = (ref.sector >> 8) & 0xff;
+  buf[off + 2] = (ref.sector >> 16) & 0xff;
+  buf.writeUInt16LE(ref.sectorCount & 0xffff, off + 3);
+  buf.writeUInt16LE(ref.byteSize & 0xffff, off + 5);
+  buf[off + 7] = ref.compression & 0xff;
+}
+
+function metaCdRefForFile(cdLayout, relativePath, byteSize, compression) {
+  const norm = normalizeRelativePath(relativePath || '');
+  const entry = norm ? cdLayout?.get(norm) : null;
+  const sector = entry?.sector || 0;
+  const sectorCount = entry?.sectorCount || Math.max(1, Math.ceil((byteSize || 0) / CD_SECTOR_BYTES));
+  return {
+    sector,
+    sectorCount,
+    byteSize: byteSize || 0,
+    compression: compression === PCE_VISUAL_COMPRESSION_RLE ? PCE_EDITOR_CD_COMPRESSION_RLE : PCE_EDITOR_CD_COMPRESSION_NONE,
+  };
+}
+
+// Serialize the metadata records into the reserved-size buffer. Records use the
+// fixed offsets documented in docs/pce-asset-meta-cd-ondemand.md and mirrored by
+// the runtime decoder (META_* offsets in pce_vn_runtime.c).
+function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout) {
+  const layout = metaLayout || computeAssetMetaLayout(doc);
+  const buf = Buffer.alloc(layout.byteSize);
+  layout.bg.forEach((asset, index) => {
+    const base = (layout.bgOffset * CD_SECTOR_BYTES) + (index * META_BG_SLOT);
+    const generated = asset.data.generated || {};
+    const options = normalizeImageOptions(asset);
+    const palette = readGeneratedBuffer(projectDir, generated.paletteFile);
+    const tilesPayload = generatedCdPayload(projectDir, generated, 'tiles');
+    const hasMap = Boolean(generated.mapVramFile);
+    const mapPayload = hasMap
+      ? generatedCdPayload(projectDir, generated, 'map')
+      : { relativePath: generated.mapFile, uncompressedSize: 0, byteSize: 0, compression: PCE_VISUAL_COMPRESSION_NONE };
+    // Struct image (pointer fields left zero; the runtime fixes them up).
+    buf.writeUInt16LE(Math.min(palette.length, 32) & 0xffff, base + META_BG_PALETTE_SIZE);
+    buf.writeUInt16LE((tilesPayload.uncompressedSize || 0) & 0xffff, base + META_BG_TILES_SIZE);
+    buf.writeUInt16LE((mapPayload.uncompressedSize || 0) & 0xffff, base + META_BG_MAP_SIZE);
+    buf[base + META_BG_WIDTH] = Math.max(1, Math.ceil(numeric(options.width, 0, 1024, 0) / 8)) & 0xff;
+    buf[base + META_BG_HEIGHT] = Math.max(1, Math.ceil(numeric(options.height, 0, 1024, 0) / 8)) & 0xff;
+    buf.writeUInt16LE(numeric(options.tileBase, 0, 2047, 32) & 0xffff, base + META_BG_TILE_BASE);
+    buf.writeUInt16LE(numeric(options.mapBase, 0, 2047, 0) & 0xffff, base + META_BG_MAP_BASE);
+    buf[base + META_BG_PALETTE_BANK] = numeric(options.paletteBank, 0, 15, 0) & 0xff;
+    // Appendix.
+    palette.copy(buf, base + META_BG_PALETTE_APPENDIX, 0, Math.min(palette.length, 32));
+    writeMetaCdRef(buf, base + META_BG_TILES_CD, metaCdRefForFile(cdLayout, tilesPayload.relativePath, tilesPayload.byteSize, tilesPayload.compression));
+    writeMetaCdRef(buf, base + META_BG_MAP_CD, metaCdRefForFile(cdLayout, mapPayload.relativePath, mapPayload.byteSize, mapPayload.compression));
+  });
+  layout.sprite.forEach((asset, index) => {
+    const base = (layout.spriteOffset * CD_SECTOR_BYTES) + (index * META_SPRITE_SLOT);
+    const generated = asset.data.generated || {};
+    const options = normalizeImageOptions(asset);
+    const palette = readGeneratedBuffer(projectDir, generated.paletteFile);
+    const cellMap = readGeneratedBuffer(projectDir, generated.cellMapFile);
+    // The runtime streams cell_map into a fixed per-slot console_ram buffer
+    // (VN_META_CELL_MAP_MAX). A larger positional cell count would truncate and
+    // mis-map sprite cells, so fail the build instead. Keep this in sync with the
+    // runtime's VN_META_CELL_MAP_MAX.
+    if (cellMap.length > 384) {
+      throw new Error(`Sprite "${asset.id}" cell_map has ${cellMap.length} cells (> 384). Reduce the sheet's positional cell count (columns × rows).`);
+    }
+    const patternsPayload = generatedCdPayload(projectDir, generated, 'tiles');
+    const cellWidth = numeric(options.cellWidth, 16, 32, 16);
+    const cellHeight = numeric(options.cellHeight, 16, 64, 16);
+    buf.writeUInt16LE(Math.min(palette.length, 32) & 0xffff, base + META_SPR_PALETTE_SIZE);
+    buf.writeUInt16LE((patternsPayload.uncompressedSize || 0) & 0xffff, base + META_SPR_PATTERNS_SIZE);
+    buf[base + META_SPR_CELL_WIDTH] = cellWidth & 0xff;
+    buf[base + META_SPR_CELL_HEIGHT] = cellHeight & 0xff;
+    buf[base + META_SPR_CELL_COLUMNS] = Math.max(1, Math.ceil(numeric(options.width, 0, 1024, cellWidth) / cellWidth)) & 0xff;
+    buf[base + META_SPR_CELL_ROWS] = Math.max(1, Math.ceil(numeric(options.height, 0, 1024, cellHeight) / cellHeight)) & 0xff;
+    buf.writeUInt16LE(numeric(options.tileBase, 0, 2047, 704) & 0xffff, base + META_SPR_PATTERN_BASE);
+    buf[base + META_SPR_PALETTE_BANK] = numeric(options.paletteBank, 0, 15, 0) & 0xff;
+    buf[base + META_SPR_X] = numeric(options.x, 0, 255, 144) & 0xff;
+    buf[base + META_SPR_Y] = numeric(options.y, 0, 255, 104) & 0xff;
+    // Appendix. cell_map is stored INLINE in the record (not a separate CD file),
+    // so the runtime decodes it from the same meta sector — no extra CD read / no
+    // streaming loop.
+    palette.copy(buf, base + META_SPR_PALETTE_APPENDIX, 0, Math.min(palette.length, 32));
+    writeMetaCdRef(buf, base + META_SPR_PATTERNS_CD, metaCdRefForFile(cdLayout, patternsPayload.relativePath, patternsPayload.byteSize, patternsPayload.compression));
+    buf.writeUInt16LE(Math.min(cellMap.length, META_CELL_MAP_MAX) & 0xffff, base + META_SPR_CELL_MAP_LEN);
+    cellMap.copy(buf, base + META_SPR_CELL_MAP, 0, Math.min(cellMap.length, META_CELL_MAP_MAX));
+  });
+  layout.adpcm.forEach((asset, index) => {
+    const base = (layout.adpcmOffset * CD_SECTOR_BYTES) + (index * META_ADPCM_SLOT);
+    const generated = asset.data.generated || {};
+    const options = normalizeAdpcmOptions(asset);
+    const data = readGeneratedBuffer(projectDir, generated.outputFile);
+    buf.writeUInt32LE(data.length >>> 0, base + META_ADPCM_DATA_SIZE);
+    buf.writeUInt16LE(numeric(options.sampleRate, 0, 65535, 0) & 0xffff, base + META_ADPCM_SAMPLE_RATE);
+    buf.writeUInt16LE(numeric(options.adpcmAddress, 0, 65535, 0) & 0xffff, base + META_ADPCM_ADDRESS);
+    buf[base + META_ADPCM_DIVIDER] = numeric(options.divider, 0, 15, 0) & 0xff;
+    buf[base + META_ADPCM_LOOP] = options.loop ? 1 : 0;
+    buf[base + META_ADPCM_STREAM] = options.stream ? 1 : 0;
+    writeMetaCdRef(buf, base + META_ADPCM_CD, metaCdRefForFile(cdLayout, generated.outputFile, data.length, PCE_VISUAL_COMPRESSION_NONE));
+  });
+  return buf;
+}
+
 function collectCdDataFiles(projectDir) {
   const doc = readAssetDocument(projectDir);
   const files = [];
@@ -2234,10 +2483,15 @@ function collectCdDataFiles(projectDir) {
     if (asset.type === 'image' || asset.type === 'sprite') {
       files.push(generatedCdPayload(projectDir, generated, 'tiles').relativePath || '');
       if (asset.type === 'image') files.push(generatedCdPayload(projectDir, generated, 'map').relativePath || '');
+      // sprite cell_map is stored inline in asset_meta.bin, not as its own CD file.
     } else if (asset.type === 'adpcm') {
       files.push(generated.outputFile || '');
     }
   });
+  // The consolidated metadata file (reserved at final size by
+  // ensureAssetMetaReservation) so it lands on the ISO with a stable sector. Only
+  // emitted once the project is large enough to stream metadata on demand.
+  if (assetMetaShouldUseCd(projectDir, doc)) files.push(ASSET_META_FILE);
   return Array.from(new Set(files
     .map((entry) => normalizeRelativePath(entry || ''))
     .filter(Boolean)
@@ -2406,9 +2660,16 @@ function generateAssetSources(projectDir, options = {}) {
   const doc = readAssetDocument(projectDir);
   ensureVisualGeneratedAssets(projectDir, doc);
   ensureAdpcmGeneratedAssets(projectDir, doc);
+  // Reserve the consolidated metadata file at its final size before any CD layout
+  // is computed, so its sector (and every file after it) stays stable.
+  const metaLayout = ensureAssetMetaReservation(projectDir, doc);
   const image = doc.assets.find((asset) => asset.type === 'image');
   const sound = doc.assets.find((asset) => asset.type === 'psg-sfx' || asset.type === 'psg-song');
   const targetsCd = projectTargetsCd(projectDir);
+  // CD on-demand metadata engages only above the resident budget (see
+  // assetMetaShouldUseCd). Small CD projects keep resident arrays — same proven
+  // path as HuCard — so the accessor code is DCE'd and there is no regression.
+  const assetMetaOnCd = assetMetaShouldUseCd(projectDir, doc);
   const rows = targetsCd ? [] : (image ? generateTextMosaicForImage(projectDir, image).slice(0, 14) : ['NO IMAGE ASSET']);
   const tonePeriod = firstPsgPeriod(sound || {});
   const allowBanking = true;
@@ -2424,6 +2685,25 @@ function generateAssetSources(projectDir, options = {}) {
   const adpcmGenerated = generateAdpcmMetadata(projectDir, doc.assets, { targetsCd, cdLayout });
   const cddaGenerated = generateCddaMetadata(projectDir, doc.assets, { targetsCd, cdLayout });
   const emptyDataRef = '{ (const unsigned char *)0, 0u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }';
+
+  // For CD builds, serialize the per-asset metadata into ASSET_META_FILE (already
+  // reserved at final size) and emit only a constant resident directory. This is
+  // what keeps bank128 .rodata / bank132 cd refs O(1) in asset count.
+  let metaRegionLines = [];
+  if (assetMetaOnCd) {
+    const metaBuffer = buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout);
+    const { absPath: metaAbs } = resolveUnderRoot(projectDir, ASSET_META_FILE, 'project');
+    ensureDirSync(path.dirname(metaAbs));
+    fs.writeFileSync(metaAbs, metaBuffer);
+    const metaEntry = cdLayout.get(normalizeRelativePath(ASSET_META_FILE));
+    const metaSector = metaEntry?.sector || 0;
+    const region = (offsetSectors, count) => `{ ${sectorToCInitializer(metaSector + offsetSectors)}, ${count}u }`;
+    metaRegionLines = [
+      `const pce_editor_meta_region_t pce_editor_bg_meta = ${region(metaLayout.bgOffset, bgGenerated.converted.length)};`,
+      `const pce_editor_meta_region_t pce_editor_sprite_meta = ${region(metaLayout.spriteOffset, spriteGenerated.converted.length)};`,
+      `const pce_editor_meta_region_t pce_editor_adpcm_meta = ${region(metaLayout.adpcmOffset, adpcmGenerated.adpcmAssets.length)};`,
+    ];
+  }
 
   const linesH = [
     '#ifndef PCE_EDITOR_GENERATED_ASSETS_H',
@@ -2535,6 +2815,39 @@ function generateAssetSources(projectDir, options = {}) {
     '  unsigned int play_frames;',
     '} pce_editor_cdda_asset_t;',
     '',
+    '/* CD on-demand metadata directory (see docs/pce-asset-meta-cd-ondemand.md). On',
+    '   CD builds the per-asset BG/sprite/ADPCM descriptors live in a CD data file as',
+    '   fixed-size, sector-aligned record slots; only this constant directory stays',
+    '   resident. Record N is at sector (region.sector + N / records_per_sector) and',
+    '   byte offset (N % records_per_sector) * slot. */',
+    'typedef struct {',
+    '  pce_editor_cd_sector_t sector;',
+    '  unsigned char count;',
+    '} pce_editor_meta_region_t;',
+    '/* Each record is a packed image of the in-memory descriptor struct (pointer',
+    '   fields zeroed) followed by an appendix holding the palette and CD refs. The',
+    '   runtime decodes a record with one memcpy of the struct image plus a few',
+    '   appendix copies and pointer fix-ups, which keeps the accessor code tiny.',
+    '   _Static_assert in the runtime locks this against struct drift. */',
+    '#define PCE_EDITOR_META_BG_SLOT 128u',
+    '#define PCE_EDITOR_META_BG_PALETTE 34u',
+    '#define PCE_EDITOR_META_BG_TILES_CD 66u',
+    '#define PCE_EDITOR_META_BG_MAP_CD 74u',
+    '#define PCE_EDITOR_META_SPRITE_SLOT 512u',
+    '#define PCE_EDITOR_META_SPR_PALETTE 29u',
+    '#define PCE_EDITOR_META_SPR_PATTERNS_CD 61u',
+    '#define PCE_EDITOR_META_SPR_CELL_MAP_LEN 69u',
+    '#define PCE_EDITOR_META_SPR_CELL_MAP 71u',
+    '#define PCE_EDITOR_META_ADPCM_SLOT 32u',
+    '#define PCE_EDITOR_META_ADPCM_CD 15u',
+    '/* 1 = descriptors stream from CD via pce_editor_*_meta (large projects);',
+    '   0 = descriptors resident in pce_editor_*_assets[] (small projects / HuCard).',
+    '   The runtime selects its accessor path on this; the unused path is DCE-dropped. */',
+    `#define PCE_EDITOR_ASSET_META_ON_CD ${assetMetaOnCd ? '1' : '0'}`,
+    'extern const pce_editor_meta_region_t pce_editor_bg_meta;',
+    'extern const pce_editor_meta_region_t pce_editor_sprite_meta;',
+    'extern const pce_editor_meta_region_t pce_editor_adpcm_meta;',
+    '',
     'extern const pce_editor_bg_asset_t pce_editor_bg_assets[];',
     'extern const unsigned char pce_editor_bg_asset_count;',
     'extern const pce_editor_sprite_asset_t pce_editor_sprite_assets[];',
@@ -2588,32 +2901,46 @@ function generateAssetSources(projectDir, options = {}) {
     '',
     '#include "assets.h"',
     '',
-    ...bgGenerated.arrayLines,
-    ...spriteGenerated.arrayLines,
     ...psgGenerated.arrayLines,
-    ...adpcmGenerated.arrayLines,
-    'const pce_editor_bg_asset_t pce_editor_bg_assets[] = {',
-    ...(bgGenerated.metaLines.length ? bgGenerated.metaLines : [`  { ${emptyDataRef}, ${emptyDataRef}, ${emptyDataRef}, 0u, 0u, 0u, 0u, 0u }`]),
-    '};',
-    `const unsigned char pce_editor_bg_asset_count = ${bgGenerated.converted.length};`,
-    '',
-    'const pce_editor_sprite_asset_t pce_editor_sprite_assets[] = {',
-    ...(spriteGenerated.metaLines.length ? spriteGenerated.metaLines : [`  { ${emptyDataRef}, ${emptyDataRef}, 0u, 0u, 0u, 0u, 0u, 0u }`]),
-    '};',
-    'const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[] = {',
-    ...(spriteGenerated.drawMetaLines.length ? spriteGenerated.drawMetaLines : ['  { 16u, 16u, 1u, 1u, 384u, 0u }']),
-    '};',
-    `const unsigned char pce_editor_sprite_asset_count = ${spriteGenerated.converted.length};`,
-    '',
+    // BG/sprite/ADPCM descriptors: resident arrays for HuCard and small CD
+    // projects, CD on-demand directory once large (records live in ASSET_META_FILE;
+    // see metaRegionLines / assetMetaOnCd).
+    ...(assetMetaOnCd ? [] : [
+      ...bgGenerated.arrayLines,
+      ...spriteGenerated.arrayLines,
+      ...adpcmGenerated.arrayLines,
+    ]),
+    ...(assetMetaOnCd ? [
+      ...metaRegionLines,
+      '',
+      `const unsigned char pce_editor_bg_asset_count = ${bgGenerated.converted.length};`,
+      `const unsigned char pce_editor_sprite_asset_count = ${spriteGenerated.converted.length};`,
+      `const unsigned char pce_editor_adpcm_asset_count = ${adpcmGenerated.adpcmAssets.length};`,
+      '',
+    ] : [
+      'const pce_editor_bg_asset_t pce_editor_bg_assets[] = {',
+      ...(bgGenerated.metaLines.length ? bgGenerated.metaLines : [`  { ${emptyDataRef}, ${emptyDataRef}, ${emptyDataRef}, 0u, 0u, 0u, 0u, 0u }`]),
+      '};',
+      `const unsigned char pce_editor_bg_asset_count = ${bgGenerated.converted.length};`,
+      '',
+      'const pce_editor_sprite_asset_t pce_editor_sprite_assets[] = {',
+      ...(spriteGenerated.metaLines.length ? spriteGenerated.metaLines : [`  { ${emptyDataRef}, ${emptyDataRef}, 0u, 0u, 0u, 0u, 0u, 0u }`]),
+      '};',
+      'const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[] = {',
+      ...(spriteGenerated.drawMetaLines.length ? spriteGenerated.drawMetaLines : ['  { 16u, 16u, 1u, 1u, 384u, 0u }']),
+      '};',
+      `const unsigned char pce_editor_sprite_asset_count = ${spriteGenerated.converted.length};`,
+      '',
+      'const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] = {',
+      ...(adpcmGenerated.metaLines.length ? adpcmGenerated.metaLines : ['  { (const unsigned char *)0, 0u, 0u, 0u, 0u, 0u, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
+      '};',
+      `const unsigned char pce_editor_adpcm_asset_count = ${adpcmGenerated.adpcmAssets.length};`,
+      '',
+    ]),
     'const pce_editor_psg_asset_t pce_editor_psg_assets[] = {',
     ...(psgGenerated.metaLines.length ? psgGenerated.metaLines : ['  { 0u, 512u, 150u, 0u, (const pce_editor_psg_step_t *)0, 0u }']),
     '};',
     `const unsigned char pce_editor_psg_asset_count = ${psgGenerated.psgAssets.length};`,
-    '',
-    'const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] = {',
-    ...(adpcmGenerated.metaLines.length ? adpcmGenerated.metaLines : ['  { (const unsigned char *)0, 0u, 0u, 0u, 0u, 0u, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
-    '};',
-    `const unsigned char pce_editor_adpcm_asset_count = ${adpcmGenerated.adpcmAssets.length};`,
     '',
     'const pce_editor_cdda_asset_t pce_editor_cdda_assets[] = {',
     ...(cddaGenerated.metaLines.length ? cddaGenerated.metaLines : ['  { 0u, 0u, { 0u, 0u, 0u }, { 0u, 0u, 0u }, { 0u, 0u, 0u }, 0u }']),
@@ -2675,7 +3002,12 @@ module.exports = {
   SUPPORTED_TYPES,
   buildInternalPceConversionPlan,
   buildCdDataLayout,
+  assetMetaShouldUseCd,
+  buildAssetMetaBuffer,
+  computeAssetMetaLayout,
+  ensureAssetMetaReservation,
   collectCdDataFiles,
+  ASSET_META_FILE,
   defaultAssets,
   deleteAsset,
   decodePngImage,
