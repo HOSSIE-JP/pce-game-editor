@@ -1227,16 +1227,15 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   const source = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'), 'utf-8').replace(/\r\n/g, '\n');
   const showSceneMatch = source.match(/static void show_scene[\s\S]*?\}\s*\/\* Append the visible spritetext overlays/);
   const setBackgroundMatch = source.match(/static void set_background[\s\S]*?\}\s*static uint8_t VN_BANKED_CODE2 execute_control_command/);
-  const preloadSceneMatch = source.match(/static void VN_BANKED_CODE2 preload_scene_assets[\s\S]*?\}\s*static void VN_BANKED_CODE2 draw_choice_options/);
   const executeCommandMatch = source.match(/static uint8_t execute_command[\s\S]*?\}\s*static uint8_t VN_BANKED_CODE run_commands_until_wait/);
   assert.ok(showSceneMatch);
   assert.ok(setBackgroundMatch);
-  assert.ok(preloadSceneMatch);
   assert.ok(executeCommandMatch);
   const showSceneSource = showSceneMatch[0];
   const setBackgroundSource = setBackgroundMatch[0];
-  const preloadSceneSource = preloadSceneMatch[0];
   const executeCommandSource = executeCommandMatch[0];
+  // The scene-entry preload pass was removed; assets stream on demand per command.
+  assert.doesNotMatch(source, /VN_BANKED_CODE2 preload_scene_assets\(|VN_BANKED_CODE2 preload_scan_boundary\(|void preload_adpcm_voice\(/);
   assert.match(source, /#define VN_VDC_CONTROL_BASE \(VDC_CONTROL_IRQ_VBLANK \| VDC_CONTROL_DRAM_REFRESH \| VDC_CONTROL_VRAM_ADD_1\)/);
   assert.match(source, /#define VN_VDC_DISPLAY_CONTROL \(VN_VDC_CONTROL_BASE \| VDC_CONTROL_ENABLE_BG \| VDC_CONTROL_ENABLE_SPRITE\)/);
   assert.match(source, /#define VN_VDC_BLANK_CONTROL VN_VDC_CONTROL_BASE/);
@@ -1310,7 +1309,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static uint8_t current_scene_full_screen_bg = 0;/);
   assert.match(source, /current_scene_full_screen_bg = 0u;/);
   assert.match(source, /#define VN_SCENE_PACK_OFFSET_FLAGS 9u/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE scene_pack_full_screen_bg/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 scene_pack_full_screen_bg/);
   assert.match(showSceneSource, /current_scene_full_screen_bg = scene_pack_full_screen_bg\(&active_scene_pack\);/);
   assert.match(executeCommandSource, /PCE_VN_COMMAND_SPRITE[\s\S]*if \(current_scene_full_screen_bg\) return VN_EXEC_CONTINUE;/);
   assert.match(executeCommandSource, /PCE_VN_COMMAND_MESSAGE[\s\S]*if \(current_scene_full_screen_bg\) return VN_EXEC_CONTINUE;/);
@@ -1349,7 +1348,8 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(showSceneSource, /use_preloaded_scene_visual = \(uint8_t\)\(pending_display_enable[\s\S]*preloaded_scene_visual_valid[\s\S]*preloaded_scene_index == scene_index\);/);
   assert.match(showSceneSource, /begin_cdda_deferred_resume\(\);[\s\S]*if \(!load_scene_pack_into_cache\(scene_index, &active_scene_pack\)\)[\s\S]*end_cdda_deferred_resume\(\);[\s\S]*return;/);
   assert.match(showSceneSource, /if \(!use_preloaded_scene_visual\)[\s\S]*clear_screen_map\(\);[\s\S]*preloaded_bg_valid = 0u;[\s\S]*preloaded_scene_visual_valid = 0u;/);
-  assert.match(showSceneSource, /preload_scene_assets\(\(signed int\)scene_index, 1u, 1u\);[\s\S]*preloaded_scene_visual_valid = 0u;[\s\S]*end_cdda_deferred_resume\(\);/);
+  assert.match(showSceneSource, /REQUEST_SPRITE_REFRESH_FULL\(\);[\s\S]*preloaded_scene_visual_valid = 0u;[\s\S]*end_cdda_deferred_resume\(\);/);
+  assert.doesNotMatch(showSceneSource, /preload_scene_assets/);
   assert.match(source, /static void clear_map_rect_at_dest\(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles\)/);
   assert.match(source, /static void clear_bg_map_region\(const pce_editor_bg_asset_t \*bg, uint16_t tile_x, uint16_t tile_y\)/);
   assert.match(setBackgroundSource, /fade_palette\(&pce_editor_bg_assets\[\(uint8_t\)current_bg_index\]\.palette[\s\S]*fade_out_frames, 0u\);/);
@@ -1404,7 +1404,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /vn_preload_scene_pack_data/);
   assert.doesNotMatch(source, /preload_scene_pack/);
   assert.match(source, /#define VN_SCENE_PACK_MAGIC_P 0x50u/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE load_scene_pack_into_cache\(uint8_t scene_index, vn_scene_pack_cache_t \*cache\)/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache\(uint8_t scene_index, vn_scene_pack_cache_t \*cache\)/);
   assert.match(source, /pce_vn_scene_pack_t pack;/);
   assert.match(source, /pack = pce_vn_scene_packs\[scene_index\];/);
   assert.match(source, /pack\.byte_size > PCE_VN_SCENE_PACK_CACHE_BYTES/);
@@ -1422,7 +1422,6 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static pce_sector_t cdda_resume_start __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(source, /static pce_sector_t cdda_resume_end __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(source, /static uint8_t cdda_resume_defer_depth = 0;/);
-  assert.match(source, /static void VN_BANKED_CODE2 preload_scene_assets\(signed int scene_index, uint8_t allow_visual_upload, uint8_t stop_at_first_wait\);/);
   assert.match(source, /static uint8_t adpcm_play_active = 0;/);
   assert.match(source, /static uint16_t adpcm_play_frames_remaining = 0;/);
   assert.match(source, /static uint8_t adpcm_stream_active = 0;/);
@@ -1549,36 +1548,13 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(adpcmServiceMatch[0], /pce_cdb_adpcm_reset\(\);/);
   assert.doesNotMatch(adpcmServiceMatch[0], /loaded_adpcm_valid = 0u;/);
   assert.match(adpcmServiceMatch[0], /adpcm_play_active = 0u;/);
-  assert.match(source, /static void preload_adpcm_voice\(signed int voice_index\)[\s\S]*\(void\)load_adpcm_voice\(voice_index, 0u, 0u\);/);
+  // preload_adpcm_voice removed; message/audio handlers load the voice on demand.
   assert.doesNotMatch(source, /divider = adpcm_play_divider\(voice\);/);
   assert.match(source, /return \(uint8_t\)\(pattern_cols \* pattern_rows \* 2u\);/);
   assert.match(source, /static uint8_t ensure_sprite_patterns_loaded\(uint8_t sprite_index, const pce_editor_sprite_asset_t \*sprite\)/);
   assert.match(source, /if \(loaded_sprite_pattern_valid && loaded_sprite_pattern_index == sprite_index\) return 0u;/);
   assert.match(source, /copy_data_ref_to_vram\(\(uint16_t\)\(sprite->pattern_base \* 32u\), &sprite->patterns, 16u\);/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE2 preload_scan_boundary\(const pce_vn_command_t \*command\)/);
-  assert.match(source, /if \(command->type == PCE_VN_COMMAND_MESSAGE\) return 1u;/);
-  assert.match(source, /if \(command->type == PCE_VN_COMMAND_CHOICE\) return 1u;/);
-  assert.match(source, /if \(command->type == PCE_VN_COMMAND_WAIT\) return 1u;/);
-  assert.match(source, /if \(command->type == PCE_VN_COMMAND_JUMP\) return 1u;/);
-  assert.match(source, /static void VN_BANKED_CODE2 preload_scene_assets\(signed int scene_index, uint8_t allow_visual_upload, uint8_t stop_at_first_wait\)/);
-  assert.match(preloadSceneSource, /target_scene = \(uint8_t\)scene_index;/);
-  assert.match(preloadSceneSource, /restore_current_scene = \(uint8_t\)\(target_scene != current_scene\);/);
-  assert.match(preloadSceneSource, /begin_cdda_deferred_resume\(\);/);
-  assert.match(preloadSceneSource, /load_scene_pack_into_cache\(target_scene, &active_scene_pack\)/);
-  assert.match(preloadSceneSource, /if \(!load_scene_pack_into_cache\(target_scene, &active_scene_pack\)\)[\s\S]*if \(restore_current_scene\)[\s\S]*load_scene_pack_into_cache\(current_scene, &active_scene_pack\);[\s\S]*end_cdda_deferred_resume\(\);[\s\S]*return;/);
-  assert.match(preloadSceneSource, /if \(allow_visual_upload && pending_display_enable && restore_current_scene\)[\s\S]*clear_screen_map\(\);[\s\S]*preloaded_bg_valid = 0u;[\s\S]*preloaded_scene_visual_valid = 1u;[\s\S]*preloaded_scene_index = target_scene;/);
-  assert.doesNotMatch(preloadSceneSource, /load_scene_pack_into_cache\(\(uint8_t\)scene_index, &preload_scene_pack\)/);
-  assert.doesNotMatch(preloadSceneSource, /if \(\(uint8_t\)scene_index != current_scene\) return;/);
-  assert.match(preloadSceneSource, /command_count = scene_pack_command_count\(&active_scene_pack\);/);
-  assert.match(preloadSceneSource, /pce_vn_command_t \*command = VN_COMMAND_SCRATCH;/);
-  assert.match(preloadSceneSource, /scene_pack_read_command\(&active_scene_pack, i, command\)/);
-  assert.match(preloadSceneSource, /scene_pack_read_message\(&active_scene_pack, \(uint8_t\)command->message_index, message\)/);
-  assert.match(preloadSceneSource, /if \(stop_at_first_wait && preload_scan_boundary\(command\)\) break;/);
-  assert.match(preloadSceneSource, /if \(restore_current_scene\)[\s\S]*load_scene_pack_into_cache\(current_scene, &active_scene_pack\);[\s\S]*end_cdda_deferred_resume\(\);/);
-  assert.match(preloadSceneSource, /if \(!allow_visual_upload \|\| !pending_display_enable\) continue;[\s\S]*PCE_VN_COMMAND_SPRITE[\s\S]*if \(!allow_visual_upload \|\| !pending_display_enable\) continue;/);
-  assert.match(source, /preloaded_bg_x == \(uint8_t\)command->x[\s\S]*preloaded_bg_y == \(uint8_t\)command->y/);
-  assert.match(source, /upload_bg_graphics\([\s\S]*&pce_editor_bg_assets\[\(uint8_t\)command->asset_index\],[\s\S]*bg_map_dest_from_tile\(&pce_editor_bg_assets\[\(uint8_t\)command->asset_index\], command->x, command->y\)/);
-  assert.match(source, /ensure_sprite_patterns_loaded\(\(uint8_t\)command->asset_index, &pce_editor_sprite_assets\[\(uint8_t\)command->asset_index\]\);/);
+  // preload_scan_boundary / preload_scene_assets were removed (on-demand loading).
   assert.match(source, /static uint8_t vn_variable_lo\[PCE_VN_VARIABLE_STORAGE_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(source, /static uint8_t vn_variable_hi\[PCE_VN_VARIABLE_STORAGE_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(source, /const uint16_t value = \(uint16_t\)\(int16_t\)pce_vn_variable_initial_values\[i\];[\s\S]*vn_variable_lo\[i\] = \(uint8_t\)\(value & 0xffu\);[\s\S]*vn_variable_hi\[i\] = \(uint8_t\)\(value >> 8\);/);
@@ -1699,7 +1675,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /pce_ram_bank129_map\(\);\n    pce_ram_bank130_map\(\);\n    pce_vdc_set_resolution\(256, 224, VCE_COLORBURST_ON\);/);
   assert.match(source, /set_vdc_control\(VN_VDC_BLANK_CONTROL\);\n    pce_vdc_sprite_set_table_start\(VN_SATB_ADDR\);\n    pce_cdb_irq_enable\(\(uint8_t\)\(PCE_CDB_MASK_IRQ_EXTERNAL \| PCE_CDB_MASK_VBLANK_NO_BIOS\)\);/);
   assert.match(source, /begin_cdda_deferred_resume\(\);[\s\S]*if \(!load_scene_pack_into_cache\(scene_index, &active_scene_pack\)\)[\s\S]*end_cdda_deferred_resume\(\);[\s\S]*return;/);
-  assert.match(source, /REQUEST_SPRITE_REFRESH_FULL\(\);\n    preload_scene_assets\(\(signed int\)scene_index, 1u, 1u\);/);
+  assert.match(source, /REQUEST_SPRITE_REFRESH_FULL\(\);\n    \/\* Assets load on demand[\s\S]*preloaded_scene_visual_valid = 0u;/);
   assert.match(source, /init_runtime_state\(\);\n    init_video\(\);\n    map_vn_data\(\);\n    start_scene = pce_vn_start_scene;\n    show_scene\(start_scene\);\n    advance_story\(\);/);
   assert.doesNotMatch(source, /show_scene\(start_scene\);\n    preload_scene_assets\(\(signed int\)start_scene\);/);
   assert.doesNotMatch(source, /preload_scene_assets\(\(signed int\)current_scene/);

@@ -345,10 +345,9 @@ static uint8_t vn_switch_case_scratch_storage[sizeof(pce_vn_switch_case_t)] __at
 #define VN_SWITCH_CASE_SCRATCH ((pce_vn_switch_case_t *)(void *)vn_switch_case_scratch_storage)
 static void advance_story(void);
 static void clear_spritetext_slots(void);
-static void VN_BANKED_CODE2 preload_scene_assets(signed int scene_index, uint8_t allow_visual_upload, uint8_t stop_at_first_wait);
 static void VN_BANKED_CODE refresh_scene_sprites(void);
-static uint8_t VN_BANKED_CODE load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache);
-static uint8_t VN_BANKED_CODE scene_pack_command_count(const vn_scene_pack_cache_t *cache);
+static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache);
+static uint8_t VN_BANKED_CODE2 scene_pack_command_count(const vn_scene_pack_cache_t *cache);
 #if defined(__PCE_CD__)
 static void service_cdda_playback(void);
 static void VN_BANKED_CODE2 service_adpcm_playback(void);
@@ -1226,7 +1225,7 @@ static uint8_t scene_pack_is_valid(const vn_scene_pack_cache_t *cache)
     return (uint8_t)(cache->data[VN_SCENE_PACK_OFFSET_VERSION] == PCE_VN_SCENE_PACK_VERSION);
 }
 
-static uint8_t VN_BANKED_CODE load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache)
+static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache)
 {
     if (!cache) return 0u;
     if (cache->valid && cache->scene_index == scene_index) return 1u;
@@ -1269,12 +1268,12 @@ static uint8_t VN_BANKED_CODE load_scene_pack_into_cache(uint8_t scene_index, vn
 #endif
 }
 
-static uint8_t VN_BANKED_CODE scene_pack_command_count(const vn_scene_pack_cache_t *cache)
+static uint8_t VN_BANKED_CODE2 scene_pack_command_count(const vn_scene_pack_cache_t *cache)
 {
     return scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_COMMAND_COUNT);
 }
 
-static uint8_t VN_BANKED_CODE scene_pack_full_screen_bg(const vn_scene_pack_cache_t *cache)
+static uint8_t VN_BANKED_CODE2 scene_pack_full_screen_bg(const vn_scene_pack_cache_t *cache)
 {
     return (uint8_t)(scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_FLAGS) & PCE_VN_SCENE_FLAG_FULL_SCREEN_BG);
 }
@@ -2906,7 +2905,10 @@ static void show_scene(uint8_t scene_index)
     pending_scene_sprite_clear = keep_display_for_transition ? 1u : 0u;
     VN_MAP_BANK130_FOR_CODE();
     REQUEST_SPRITE_REFRESH_FULL();
-    preload_scene_assets((signed int)scene_index, 1u, 1u);
+    /* Assets load on demand as run_commands_until_wait() processes each command
+       (set_background / sprite show / play_adpcm_voice all stream from CD). The old
+       scene-entry preload pre-scan is gone; set_background still self-caches the
+       current BG to skip re-uploads. */
     preloaded_scene_visual_valid = 0u;
     end_cdda_deferred_resume();
 }
@@ -3364,118 +3366,10 @@ static void hide_sprites_for_asset_load(void)
     }
 }
 
-static void preload_adpcm_voice(signed int voice_index)
-{
-#if defined(__PCE_CD__)
-    (void)load_adpcm_voice(voice_index, 0u, 0u);
-#else
-    (void)voice_index;
-#endif
-}
-
-static uint8_t VN_BANKED_CODE2 preload_scan_boundary(const pce_vn_command_t *command)
-{
-    if (!command) return 0u;
-    if (command->type == PCE_VN_COMMAND_MESSAGE) return 1u;
-    if (command->type == PCE_VN_COMMAND_CHOICE) return 1u;
-    if (command->type == PCE_VN_COMMAND_WAIT) return 1u;
-    if (command->type == PCE_VN_COMMAND_JUMP) return 1u;
-    return 0u;
-}
-
-static void VN_BANKED_CODE2 preload_scene_assets(signed int scene_index, uint8_t allow_visual_upload, uint8_t stop_at_first_wait)
-{
-    uint8_t command_count;
-    uint8_t i;
-    uint8_t target_scene;
-    uint8_t restore_current_scene;
-    map_vn_data();
-    if (scene_index < 0 || (uint8_t)scene_index >= pce_vn_scene_count) return;
-    target_scene = (uint8_t)scene_index;
-    restore_current_scene = (uint8_t)(target_scene != current_scene);
-    begin_cdda_deferred_resume();
-    if (!load_scene_pack_into_cache(target_scene, &active_scene_pack))
-    {
-        if (restore_current_scene)
-        {
-            (void)load_scene_pack_into_cache(current_scene, &active_scene_pack);
-        }
-        end_cdda_deferred_resume();
-        return;
-    }
-    if (allow_visual_upload && pending_display_enable && restore_current_scene)
-    {
-        if (!preloaded_scene_visual_valid || preloaded_scene_index != target_scene)
-        {
-            clear_screen_map();
-            preloaded_bg_valid = 0u;
-            preloaded_scene_visual_valid = 1u;
-            preloaded_scene_index = target_scene;
-        }
-    }
-    command_count = scene_pack_command_count(&active_scene_pack);
-    for (i = 0u; i < command_count; i++)
-    {
-        pce_vn_command_t *command = VN_COMMAND_SCRATCH;
-        if (!scene_pack_read_command(&active_scene_pack, i, command)) continue;
-        if (command->type == PCE_VN_COMMAND_BACKGROUND)
-        {
-            if (!allow_visual_upload || !pending_display_enable) continue;
-            if (command->asset_index < 0 || (uint8_t)command->asset_index >= pce_editor_bg_asset_count) continue;
-            if (preloaded_bg_valid
-                && preloaded_bg_index == (uint8_t)command->asset_index
-                && preloaded_bg_x == (uint8_t)command->x
-                && preloaded_bg_y == (uint8_t)command->y) continue;
-            if (pending_scene_sprite_clear) hide_sprites_for_asset_load();
-            clear_bg_map_region(
-                &pce_editor_bg_assets[(uint8_t)command->asset_index],
-                command->x,
-                command->y
-            );
-            upload_bg_graphics(
-                &pce_editor_bg_assets[(uint8_t)command->asset_index],
-                bg_map_dest_from_tile(&pce_editor_bg_assets[(uint8_t)command->asset_index], command->x, command->y)
-            );
-            preloaded_bg_valid = 1u;
-            preloaded_bg_index = (uint8_t)command->asset_index;
-            preloaded_bg_x = (uint8_t)command->x;
-            preloaded_bg_y = (uint8_t)command->y;
-        }
-        else if (command->type == PCE_VN_COMMAND_SPRITE)
-        {
-            if (!allow_visual_upload || !pending_display_enable) continue;
-            if (!(command->flags & PCE_VN_SPRITE_VISIBLE)) continue;
-            if (command->asset_index < 0 || (uint8_t)command->asset_index >= pce_editor_sprite_asset_count) continue;
-            if (loaded_sprite_pattern_valid && loaded_sprite_pattern_index == (uint8_t)command->asset_index) continue;
-            hide_sprites_for_asset_load();
-            (void)ensure_sprite_patterns_loaded((uint8_t)command->asset_index, &pce_editor_sprite_assets[(uint8_t)command->asset_index]);
-        }
-        else if (command->type == PCE_VN_COMMAND_MESSAGE)
-        {
-            if (command->message_index >= 0)
-            {
-                pce_vn_message_t *message = VN_MESSAGE_SCRATCH;
-                if (!scene_pack_read_message(&active_scene_pack, (uint8_t)command->message_index, message)) continue;
-                preload_adpcm_voice(message->voice_index);
-            }
-        }
-        else if (command->type == PCE_VN_COMMAND_AUDIO)
-        {
-            const uint8_t kind = (uint8_t)(command->flags & 0x0fu);
-            const uint8_t action = (uint8_t)(command->flags & 0xf0u);
-            if (kind == PCE_VN_AUDIO_KIND_ADPCM && action == PCE_VN_AUDIO_ACTION_PLAY)
-            {
-                preload_adpcm_voice(command->asset_index);
-            }
-        }
-        if (stop_at_first_wait && preload_scan_boundary(command)) break;
-    }
-    if (restore_current_scene)
-    {
-        (void)load_scene_pack_into_cache(current_scene, &active_scene_pack);
-    }
-    end_cdda_deferred_resume();
-}
+/* preload_scene_assets/preload_scan_boundary/preload_adpcm_voice removed: the
+   scene-entry pre-scan duplicated the on-demand loads run_commands_until_wait
+   already performs per command (set_background, ensure_sprite_patterns_loaded,
+   play_adpcm_voice). Dropping it reclaims its bank130 footprint. */
 
 static void VN_BANKED_CODE2 draw_choice_options(void)
 {
