@@ -1535,9 +1535,15 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice\(signed int voice_index, uint8_t restore_display\)/);
   assert.match(source, /if \(!adpcm_voice_fits_buffer\(\)\) return 0u;/);
   assert.match(source, /adpcm_stream_active = 0u;\n    adpcm_stream_looping = 0u;\n    if \(!load_adpcm_voice\(voice_index, 1u, 1u\)\)/);
-  assert.match(source, /if \(adpcm_voice_snapshot\.stream\)\n    \{\n        if \(adpcm_voice_snapshot\.has_cd && adpcm_voice_snapshot\.cd_sector_count\)\n        \{\n            \(void\)stream_adpcm_voice\(voice_index\);\n            return;\n        \}/);
-  assert.match(source, /if \(!adpcm_voice_fits_buffer\(\)\) return;\n        \(void\)play_adpcm_buffered_voice\(voice_index, restore_display\);\n        return;\n    \}/);
-  assert.doesNotMatch(source, /if \(adpcm_voice_fits_buffer\(\)\)\n        \{\n            \(void\)play_adpcm_buffered_voice\(voice_index, restore_display\);\n            return;\n        \}\n        \(void\)stream_adpcm_voice\(voice_index\);/);
+  // stream:true voices that fit ADPCM RAM use the hardened buffered path; true
+  // pce_cdb_adpcm_stream() is reserved for assets too large to buffer. (Forcing
+  // true streaming for short voices caused mid-playback noise, a different
+  // voice from the next CD sectors, and a CD/CPU hang.)
+  assert.match(source, /if \(adpcm_voice_snapshot\.stream\)\n    \{[\s\S]*?if \(adpcm_voice_fits_buffer\(\)\)\n        \{\n            \(void\)play_adpcm_buffered_voice\(voice_index, restore_display\);\n            return;\n        \}/);
+  assert.match(source, /if \(adpcm_voice_snapshot\.has_cd && adpcm_voice_snapshot\.cd_sector_count\)\n        \{\n            \(void\)stream_adpcm_voice\(voice_index\);\n            return;\n        \}\n        return;\n    \}/);
+  // The buffer-fit check must come BEFORE the streaming branch, so a fitting
+  // stream asset never reaches pce_cdb_adpcm_stream().
+  assert.doesNotMatch(source, /if \(adpcm_voice_snapshot\.stream\)\n    \{\n        if \(adpcm_voice_snapshot\.has_cd && adpcm_voice_snapshot\.cd_sector_count\)\n        \{\n            \(void\)stream_adpcm_voice/);
   assert.match(source, /divider = adpcm_play_divider\(adpcm_voice_snapshot\.sample_rate, adpcm_voice_snapshot\.divider\);/);
   assert.match(source, /if \(pce_cdb_adpcm_play\(adpcm_voice_snapshot\.adpcm_address, \(uint16_t\)adpcm_voice_snapshot\.data_size, divider,/);
   assert.match(source, /loaded_adpcm_valid = 0u;\n        map_resident_data\(\);\n        restore_display_after_adpcm\(restore_display\);\n        return 0u;/);

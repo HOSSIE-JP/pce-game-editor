@@ -73,6 +73,7 @@ npm run mcp     # 起動中エディターの REST bridge につなぐ MCP sidec
 - VN runtime の短い one-shot / buffered 再生では、再生開始後に毎フレーム `pce_cdb_adpcm_status()` で自然終了監視しないでください（標準 WASM core で joypad edge が戻らなくなることがある）。
 - 自然終了後に追加の `pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()` を投げないでください（明示的 AUDIO stop 時のみ stop/reset する）。
 - ADPCM 1 asset の安全上限は `min(65535, 65536 - adpcmAddress)` bytes。再生時間概算 `bytes * 2 / sampleRate` 秒。
+- **`stream: true` でも ADPCM RAM に収まる音声は buffered 経路（`read_from_cd`→`play`）で再生する**（`play_adpcm_voice` が `adpcm_voice_fits_buffer()` を先に判定）。`pce_cdb_adpcm_stream()` の真の CD streaming は RAM 超過 asset 専用。真の streaming は非同期 BIOS external IRQ で CD→ADPCM ring buffer を供給し続ける方式で、VBlank/VDC を自前所有する（`PCE_CDB_MASK_VBLANK_NO_BIOS`）この runtime と衝突し、**再生中のノイズ・隣接セクタを読み込んで「全く別の音声」混入・CD/CPU ハング**を起こす。短尺音声を streaming へ戻さないこと。
 
 ### VN sprite / VDC
 - VN sprite 表示は generated `pce_editor_sprite_draw_meta[]` の compact metadata を使い、単一 frame/default animation は sheet 全体表示として扱います。
@@ -80,6 +81,7 @@ npm run mcp     # 起動中エディターの REST bridge につなぐ MCP sidec
 - **sprite `tileBase`(=`pattern_base`) の既定は 704**（VRAM word 22528 = message/font tile より後ろ・SATB `0x7f00` より前の共有領域）。dedupe 後でも `tileBase*32 + patterns.bin/2` が `0x7f00` を超えると **build error**（旧 warning 止まりを廃止）。**tileBase を 712(`PCE_VN_FONT_TILE_BASE`) 付近に置くと message tile・blank tile・glyph mask・SATB を上書きし、メッセージが化け、font 色変更で余白が緑等に化ける**（dedupe だけでは tileBase が悪いと直らない／tileBase だけでは大 sheet が VRAM を溢れるので両方必要）。
 - **各フレームの表示時間は per-frame**。`pce_vn_sprite_anim_t.frame_delays`(resident rodata table, 長さ `frame_count`) を `tick_sprite_animations()` が `frame_delays[frame]` で参照する。スプライトエディタの time 行列(`spriteEditor.time`=`[[行0][行1]]`, 1行=1animation)→ `options.animations[].frameDelays` → vn.c の `pce_vn_sprite_anim_delays_N[]`。`frameDelays` 無しの旧 asset は正規化時に `spriteEditor.time` から移行、それも無ければ単一 `frame_delay` にフォールバック。**単一 `frame_delay` だけで実装し直さない**こと（per-frame が落ちる）。
 - ADPCM 再生中も sprite/spritetext の tick/refresh を gate で止めないでください。口パク維持のため、frame 変化は slot に cache した animation metadata と既存 SATB layout を使い、pattern word だけを差分更新して fps 低下を抑える。別 asset へ差し替える full refresh では、sprite layer を無効化して未使用 SATB entry を画面外へ退避 → pattern VRAM 転送 → SATB/display enable の順で同期し、VRAM 書き換え中の表示を見せない。
+- **sprite pattern の常駐キャッシュ (`loaded_sprite_pattern_valid`/`loaded_sprite_pattern_index`) は単一グローバル**。これを slot 別 (`[VN_SPRITE_SLOT_COUNT]`) 配列に変えて「複数スプライト同時表示時の毎フレーム再ロード(処理落ち)」を直そうとしたが、**Kitahe を含め全 sprite が既定 `tileBase 704` を共有しており、同一 VRAM 領域で上書きし合って片方が表示されなくなる**回帰を起こすため撤回した。複数スプライト同時表示の処理落ちは runtime のキャッシュ構造ではなく、**重ならない tileBase の割り当て**と**スプライトデータ側の更新頻度削減**で対処する。slot 別キャッシュを再導入するなら、必ず distinct tileBase を前提にし、共有 tileBase で表示が消えないことを Geargrafx で確認すること。
 - VDC memory control は `VN_VDC_MEMORY_CONTROL` を使い、**sprite cycle bit を落とさない**でください。
 
 ### VN message / ADPCM 文字送り

@@ -2873,13 +2873,25 @@ static void VN_BANKED_CODE play_adpcm_voice(signed int voice_index)
     if (!copy_adpcm_voice(voice_index)) return;
     if (adpcm_voice_snapshot.stream)
     {
+        /* A stream:true asset is streamed from CD ONLY when it is too large to fit
+           the ADPCM RAM buffer. True CD streaming (pce_cdb_adpcm_stream / AD_STRM)
+           relies on the asynchronous BIOS external IRQ to keep feeding the ADPCM
+           ring buffer from CD, which conflicts with this runtime owning VBlank/VDC
+           directly (PCE_CDB_MASK_VBLANK_NO_BIOS). The resulting buffer underruns
+           produce noise, the drive reads on into the next asset's sectors (a
+           "different voice" starting mid-playback), and the CD engine eventually
+           hangs. Voices that fit the buffer use the hardened buffered path, which
+           loads once and plays from ADPCM RAM with no ongoing CD IRQ. */
+        if (adpcm_voice_fits_buffer())
+        {
+            (void)play_adpcm_buffered_voice(voice_index, restore_display);
+            return;
+        }
         if (adpcm_voice_snapshot.has_cd && adpcm_voice_snapshot.cd_sector_count)
         {
             (void)stream_adpcm_voice(voice_index);
             return;
         }
-        if (!adpcm_voice_fits_buffer()) return;
-        (void)play_adpcm_buffered_voice(voice_index, restore_display);
         return;
     }
     (void)play_adpcm_buffered_voice(voice_index, restore_display);
