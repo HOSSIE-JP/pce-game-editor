@@ -57,6 +57,21 @@
 
 この scene は手入力に依存しないため、ADPCM BIOS call 直後の joypad edge 問題と、ADPCM 自然終了時の CPU 停止問題を分けやすいです。比較用に `voiceAssetId` だけを外した build も作り、標準 WASM の同じ core で最後の message へ到達するか確認してください。
 
+## 割り込みと VDC レジスタの非再入性（スプライト破壊）
+
+VDC の 2 レジスタ I/F（$0000 = レジスタ選択 latch、$0002 = データ）は**再入不可**です。VRAM/SATB 転送は MAWR（書き込みアドレス）を設定→データ語を連続書き込みする手順で、途中で別経路が VDC を叩くと latch / 書き込みアドレスが壊れ、残りの転送が**別レジスタ・別 VRAM アドレス**へ着弾します。ADPCM/CD 再生中は System Card external IRQ が有効なので、この最中に IRQ が割り込むとスプライト（SATB / pattern）が壊れます。
+
+IRQ アトミック化のヘルパは `vn_vdc_irq_lock()`/`vn_vdc_irq_unlock()`（I フラグを php/plp で退避・SEI して復元。boot 等で IRQ 無効でも誤って有効化しない save/restore）。現在ガード済みの経路:
+- **口パクスプライト**（`upload_sprite_pattern_words()`、毎フレームの SATB 差分書き換え）= 「ADPCM 再生でスプライトが壊れる」。
+- **メッセージグリフ描画**（`draw_message_next_glyph_locked()`/`draw_message_text_locked()`、bank128 常駐ラッパーで `draw_message_glyph_at` の VDC mask 読み+合成タイル書きを丸ごと囲む）= 「メッセージ描画タイミングで UI 外側にノイズ」。
+- **SATB 全アップロード**（`upload_sprite_table()`）= BG/シーン変更後のスプライト再表示。
+
+これらは bank128 常駐（または常駐ラッパー）でガードを 1 か所に持つことで、満杯の bank129/130 へインライン展開させずに収めています。むしろ巨大な compositor 関数（`draw_message_*`）を**呼び出し元4箇所への重複インラインから常駐単一実体へ移す**ことで bank の空きが増えました（実測 bank130 が 99.73%→98.21% に低下）。
+
+- **BG タイル RLE アップロード（`cd_rle_ref_to_vram`, overlay）= MAWR 自己修復で対処済み**。RLE writer は MAWR を **CD 読み込み（refill）を跨いで保持**します。CD 読み込みは `prepare_cd_data_access()` が external IRQ を有効化する＝読み込み中に IRQ が MAWR を壊すと、以降の BG タイルがスプライト/SATB 領域へ流れます（「BG 描画でスプライトが壊れる」「反復で破綻」と整合）。CD 読み込みに IRQ が必要なため全期間マスクは不可。代わりに `vn_cd_byte_stream_t.refilled` フラグで refill を検知し、**refill 後に `vram_byte_writer_resync()` で MAWR を writer の現在ワード位置（`dest + bytes_written/2`、mid-stream の bytes_written は常に偶数なので正確）へ再設定**します（壊れていれば修復、無事なら同値の no-op）。overlay は +230B（4037/4096B、残 59B = **逼迫**。これ以上 overlay を増やす変更は予約 sector 数 `VN_OVERLAY_RESERVED_SECTORS` の見直しが要る）。
+- **未ガードの残り**: (1) BG **マップ** RLE writer（`cd_rle_bg_map_ref_to_vram`）。マップは小さく（~1 sector）行ごとに MAWR を張り直すため mid-row refill の窓がほぼ無く低リスク。(2) **非圧縮 BG の生 CD blit**（`pce_editor_vram_copy()` 直呼び）。`pce_editor_vram_copy()` を直接ガードすると **LTO 二次インラインカスケード**で bank130 が +約700B 溢れる（自体は bank128 単一実体だが、サイズ変化が全体のインライン判断を変える）。非圧縮 BG は RLE より稀なので後回し。どちらも残す場合は Geargrafx で確認しながら対処。
+- ガードは `--print-memory-usage` で bank128/129/130 の % を必ず確認すること。`memory` クロバーは付けない（volatile 同士の順序は保たれ、付けると満杯バンクのアップロードコードを deopt して溢れる）。
+
 ## 見るべき典型ポイント
 
 - 波打ちや画面全体の破綻: VDC control の DRAM refresh が表示切り替え時にも保持されているか。

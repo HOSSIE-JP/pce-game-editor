@@ -1120,6 +1120,87 @@ function computeFontBudget(rawGlyphCount, tileBase) {
   return { usedGlyphCount, rawGlyphCount, droppedGlyphCount, byteSize, sectorCount, tileBase, blankTile, maskBaseWord, maskEndWord, endTile, warnings, errors };
 }
 
+// PCE VRAM is one shared 32768-word space (0x0000..0x7FFF). The BAT, BG tiles, the
+// message font/glyph strip, the spritetext font, sprite patterns, and the SATB are
+// each placed by independent rules, so a large asset in one category can silently
+// overwrite a neighbour's VRAM -- the "layout breaks down" corruption. This is the
+// single authoritative reservation check: it lays every category out as a word range
+// and rejects (build error) any overlap between DIFFERENT categories. Overlap WITHIN
+// a category is fine -- multiple BG images / multiple sprite sheets reuse the same
+// region one at a time (BG is swapped per `background`; sprites share one pattern
+// cache), so each category is reduced to the union extent of its assets.
+const VN_VRAM_TOTAL_WORDS = 0x8000;
+const VN_BAT_VRAM_WORDS = 32 * 32; // 32x32 BAT = 1024 words at map base 0
+const VN_BG_DEFAULT_TILE_BASE = 128; // word units *16 (matches PCE_BG_AUTO_TILE_BASE)
+const VN_SPRITE_DEFAULT_TILE_BASE = 704; // 32-word units (matches sprite asset default)
+
+function computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphCount) {
+  const assets = (assetDoc && Array.isArray(assetDoc.assets)) ? assetDoc.assets : [];
+  const regions = [];
+  const addRegion = (name, startWord, endWord) => {
+    if (endWord > startWord) regions.push({ name, start: startWord, end: endWord });
+  };
+  addRegion('BAT (BGマップ)', 0, VN_BAT_VRAM_WORDS);
+  addRegion('SATB (スプライト属性)', VN_SATB_VRAM_WORD, VN_VRAM_TOTAL_WORDS);
+  // Message: font strip + blank tile + 12-word glyph masks.
+  addRegion('メッセージフォント', fontBudget.tileBase * 16, fontBudget.maskEndWord);
+  if (spriteTextGlyphCount > 0) {
+    addRegion('spritetextフォント', fontSpritePatternBase * 32, (fontSpritePatternBase + (spriteTextGlyphCount * 2)) * 32);
+  }
+  // BG tiles and sprite patterns: union extent of each category's assets.
+  const unionExtent = (type, tileBaseScale, wordsFor, defaultTileBase) => {
+    let start = Infinity;
+    let end = 0;
+    for (const asset of assets) {
+      if (!asset || asset.type !== type) continue;
+      const gen = (asset.data && asset.data.generated) || {};
+      const words = wordsFor(gen);
+      if (!words) continue;
+      const rawBase = Number(asset.options && asset.options.tileBase);
+      const base = (Number.isFinite(rawBase) ? rawBase : defaultTileBase) * tileBaseScale;
+      if (base < start) start = base;
+      if (base + words > end) end = base + words;
+    }
+    return end > start ? { start, end } : null;
+  };
+  const bg = unionExtent('image', 16, (gen) => (Number(gen.tileCount) || 0) * 16, VN_BG_DEFAULT_TILE_BASE);
+  if (bg) addRegion('BGタイル', bg.start, bg.end);
+  const sprite = unionExtent('sprite', 32,
+    (gen) => (Number(gen.tileCount) ? Number(gen.tileCount) * 64 : Math.ceil((Number(gen.vramBytes) || 0) / 2)),
+    VN_SPRITE_DEFAULT_TILE_BASE);
+  if (sprite) addRegion('スプライトpattern', sprite.start, sprite.end);
+  return regions;
+}
+
+// Throw a build error if any two VRAM categories overlap, or any region runs past
+// the end of VRAM. The user-facing message names both regions and the overlap range.
+function validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphCount) {
+  const regions = computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphCount);
+  const errors = [];
+  for (let i = 0; i < regions.length; i++) {
+    for (let j = i + 1; j < regions.length; j++) {
+      const a = regions[i];
+      const b = regions[j];
+      const overlapStart = Math.max(a.start, b.start);
+      const overlapEnd = Math.min(a.end, b.end);
+      if (overlapEnd > overlapStart) {
+        errors.push(`「${a.name}」(VRAM word ${a.start}–${a.end}) と 「${b.name}」(word ${b.start}–${b.end}) が word ${overlapStart}–${overlapEnd} で重複しています。`);
+      }
+    }
+  }
+  for (const r of regions) {
+    if (r.end > VN_VRAM_TOTAL_WORDS) {
+      errors.push(`「${r.name}」が VRAM 末尾 (word ${VN_VRAM_TOTAL_WORDS}) を超えています (word ${r.start}–${r.end})。`);
+    }
+  }
+  if (errors.length) {
+    throw new Error(
+      'VN VRAM 領域の排他予約に失敗しました。BG/スプライト/メッセージのいずれかを縮小するか tileBase を調整してください:\n  '
+      + errors.join('\n  '));
+  }
+  return regions;
+}
+
 function fontCandidates(config = {}) {
   const normalized = normalizeFontConfig(config);
   const candidates = [];
@@ -1803,6 +1884,10 @@ function generateVnSources(projectDir, options = {}) {
     byteSize: fontSpriteTiles.length,
     sectorCount: Math.max(1, Math.ceil(fontSpriteTiles.length / VN_CD_SECTOR_BYTES)),
   };
+
+  // Single authoritative VRAM reservation check: reject any overlap between BG,
+  // message font, spritetext font, sprite patterns, BAT, and SATB (build error).
+  validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphs.length);
 
   const imageIndex = indexAssets(assetDoc.assets || [], 'image');
   const spriteIndex = indexAssets(assetDoc.assets || [], 'sprite');
@@ -3027,6 +3112,8 @@ module.exports = {
   collectGlyphsRaw,
   collectSpriteTextGlyphsRaw,
   computeFontBudget,
+  computeVnVramLayout,
+  validateVnVramLayout,
   defaultSceneDocument,
   encodeGlyphMask12,
   encodeGlyphMaskData,

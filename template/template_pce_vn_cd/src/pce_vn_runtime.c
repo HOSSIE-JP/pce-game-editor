@@ -676,6 +676,46 @@ static uint8_t VN_BANKED_CODE2 jump_to_command(uint16_t command_offset)
     return 1u;
 }
 
+/* The VDC's two-register interface ($0000 register-select latch + $0002 data) is
+   NOT reentrant. A VRAM/SATB transfer first writes the auto-incrementing write
+   address (MAWR) then streams data words; if anything pokes the VDC in the middle of
+   that sequence the latch or the write address is clobbered and the rest of the
+   transfer lands at the wrong VDC register / VRAM address. While ADPCM/CD plays the
+   System Card external IRQ is enabled and can fire mid-transfer, so the per-frame
+   lip-sync SATB rewrite can scribble pattern/attr words into the wrong VDC register
+   and corrupt the sprites ("ADPCM playback breaks sprites"). vn_vdc_irq_lock/unlock
+   bracket such a sequence so it runs with CPU IRQs masked. The I flag is saved and
+   restored (php/plp) rather than an unconditional sei/cli pair, so we never re-enable
+   IRQs in a context that had them disabled (e.g. boot, or a nested guard). The masked
+   window is short (<=64 SATB entries); pending IRQs are latched and fire the instant
+   the flag is restored, so CD/ADPCM servicing is deferred by microseconds, never
+   dropped. NOTE: the BG/font/sprite upload blits (pce_editor_vram_copy and the RLE
+   streaming writers) are the SAME non-reentrant sequence and ideally want the same
+   guard, but they inline into the already-full bank129/bank130 upload code and adding
+   the guard there overflows those banks. Protecting the BG-upload path needs runtime
+   code freed in bank130 first (rebalance VN_BANKED_CODE/VN_BANKED_CODE2), so it is
+   left for a follow-up. */
+#if defined(__PCE__) || defined(__PCE_CD__)
+/* No "memory" clobber: the VDC accesses these guards bracket are all volatile, and a
+   volatile asm is ordered with respect to volatile memory accesses, so sei stays
+   before / cli stays after the transfer without it. A memory clobber would also fence
+   every non-volatile access (harmless to correctness here) and, once inlined into the
+   near-full bank129/bank130 upload code, deoptimises it enough to overflow the bank. */
+static inline uint8_t vn_vdc_irq_lock(void)
+{
+    uint8_t flags;
+    __asm__ volatile("php\n\tpla\n\tsei" : "=a"(flags));
+    return flags;
+}
+static inline void vn_vdc_irq_unlock(uint8_t flags)
+{
+    __asm__ volatile("pha\n\tplp" : : "a"(flags));
+}
+#else
+static inline uint8_t vn_vdc_irq_lock(void) { return 0u; }
+static inline void vn_vdc_irq_unlock(uint8_t flags) { (void)flags; }
+#endif
+
 static void pce_editor_vram_copy(uint16_t dest, const uint8_t *source, uint16_t length)
 {
 #if defined(__PCE_CD__)
@@ -753,6 +793,13 @@ typedef struct
     uint16_t bytes_remaining;
     uint16_t buffered;
     uint16_t cursor;
+    /* Set whenever read() refilled the buffer from CD. The CD read runs with the
+       external IRQ enabled (pce_cdb_cd_read needs it), and an RLE writer holds the VDC
+       write address (MAWR) across that window, so an IRQ landing mid-read can clobber
+       the MAWR and make the rest of the BG decode spray into the sprite/SATB region.
+       The decode loop re-establishes the MAWR after each refill (self-healing) by
+       checking this flag. */
+    uint8_t refilled;
 } vn_cd_byte_stream_t;
 
 typedef struct
@@ -780,6 +827,7 @@ static inline void VN_BANKED_CODE2_INLINE cd_byte_stream_init(vn_cd_byte_stream_
     stream->bytes_remaining = cd->byte_size;
     stream->buffered = 0u;
     stream->cursor = 0u;
+    stream->refilled = 0u;
 }
 
 static inline uint8_t VN_BANKED_CODE2_INLINE cd_byte_stream_read(vn_cd_byte_stream_t *stream, uint8_t *value)
@@ -796,6 +844,7 @@ static inline uint8_t VN_BANKED_CODE2_INLINE cd_byte_stream_read(vn_cd_byte_stre
         stream->bytes_remaining = (uint16_t)(stream->bytes_remaining - chunk);
         stream->buffered = chunk;
         stream->cursor = 0u;
+        stream->refilled = 1u;
     }
     *value = cd_transfer_scratch[stream->cursor++];
     stream->buffered--;
@@ -832,6 +881,17 @@ static inline void VN_BANKED_CODE2_INLINE vram_byte_writer_finish(vn_vram_byte_w
     pce_vdc_poke(VDC_REG_VRAM_DATA, writer->low);
     writer->have_low = 0u;
     writer->bytes_written++;
+}
+
+/* Re-point the VDC write address at the writer's current word. Mid-stream bytes_written
+   is always even (one full word per poke; a pending low byte does not advance it), so
+   dest + bytes_written/2 is the next word to write. Called after a CD refill so an IRQ
+   that clobbered the MAWR during the read cannot misdirect the rest of the BG decode; a
+   no-op write of the same address when the MAWR was intact. */
+static inline void VN_BANKED_CODE2_INLINE vram_byte_writer_resync(uint16_t dest, const vn_vram_byte_writer_t *writer)
+{
+    if (!writer) return;
+    pce_vdc_poke(VDC_REG_VRAM_WRITE_ADDR, (uint16_t)(dest + (writer->bytes_written >> 1)));
 }
 
 static inline void VN_BANKED_CODE2_INLINE bg_map_stream_writer_begin(vn_bg_map_stream_writer_t *writer, uint16_t dest, uint8_t copy_width_tiles, uint8_t copy_height_tiles)
@@ -907,6 +967,7 @@ static uint8_t VN_OVERLAY_CODE cd_rle_ref_to_vram(uint16_t dest, const pce_edito
                 resume_cdda_after_cd_data_access();
                 return 0u;
             }
+            if (stream.refilled) { stream.refilled = 0u; vram_byte_writer_resync(dest, &writer); }
             while (count-- && produced < ref->size)
             {
                 vram_byte_writer_write(&writer, value);
@@ -923,6 +984,7 @@ static uint8_t VN_OVERLAY_CODE cd_rle_ref_to_vram(uint16_t dest, const pce_edito
                     resume_cdda_after_cd_data_access();
                     return 0u;
                 }
+                if (stream.refilled) { stream.refilled = 0u; vram_byte_writer_resync(dest, &writer); }
                 vram_byte_writer_write(&writer, value);
                 produced++;
             }
@@ -2288,13 +2350,18 @@ static void clear_sprites(void)
 #endif
 }
 
-static void upload_sprite_table(void)
+static void VN_RESIDENT_CODE upload_sprite_table(void)
 {
 #if defined(__PCE__)
+    /* Full SATB upload (also runs when sprites are re-shown after a BG change). The
+       set-table / VRAM blit / SATB-DMA pokes are the non-reentrant VDC sequence, so
+       mask IRQs across them. Resident so the guard is not duplicated into callers. */
+    uint8_t irq = vn_vdc_irq_lock();
     pce_vdc_sprite_set_table_start(VN_SATB_ADDR);
     pce_editor_vram_copy(VN_SATB_ADDR, (const uint8_t *)sprite_shadow, (uint16_t)(64u * sizeof(vdc_sprite_t)));
     pce_vdc_poke(VDC_REG_DMA_CONTROL, VDC_DMA_SRC_INC);
     pce_vdc_poke(VDC_REG_SATB_START, VN_SATB_ADDR);
+    vn_vdc_irq_unlock(irq);
 #endif
 }
 
@@ -2302,6 +2369,11 @@ static void VN_RESIDENT_CODE upload_sprite_pattern_words(uint8_t satb_index, uin
 {
 #if defined(__PCE__)
     uint8_t i;
+    /* Runs every frame during ADPCM lip-sync. The IO_VDC_INDEX/IO_VDC_DATA pokes
+       below are the non-reentrant VDC sequence: mask IRQs for the whole rewrite so a
+       CD/ADPCM external IRQ cannot land between the register-select and the data
+       writes and corrupt the SATB. */
+    uint8_t irq = vn_vdc_irq_lock();
     pce_vdc_set_copy_word();
     for (i = 0u; i < count; i++)
     {
@@ -2318,6 +2390,7 @@ static void VN_RESIDENT_CODE upload_sprite_pattern_words(uint8_t satb_index, uin
     *IO_VDC_DATA = VDC_DMA_SRC_INC;
     *IO_VDC_INDEX = VDC_REG_SATB_START;
     *IO_VDC_DATA = VN_SATB_ADDR;
+    vn_vdc_irq_unlock(irq);
 #else
     (void)satb_index;
     (void)count;
@@ -3521,6 +3594,33 @@ static void shake_screen(uint8_t frames, uint8_t intensity)
     refresh_scene_sprites();
 }
 
+/* The glyph compositor (draw_message_glyph_at, bank130) does a VDC mask read plus a
+   composited-tile VDC write per glyph -- the same non-reentrant VDC sequence as the
+   sprite SATB rewrite. It runs while a voiced ADPCM plays (external IRQ enabled), so an
+   IRQ landing mid-write clobbers the MAWR and sprays glyph tile data outside the message
+   window (UI-frame / BG noise at message-draw timing). Mask IRQs around the whole
+   message draw. These wrappers are resident (bank128); the compositor's own banks 129/
+   130 are full, and guarding the shared pce_editor_vram_copy directly perturbs LTO
+   inlining enough to overflow them, so the guard lives here at the bank128 call sites
+   instead. The masked window is one frame's glyph work (typically a single glyph for the
+   typewriter); no CD read happens inside, so deferring CD/ADPCM IRQs by that span is
+   safe. */
+static uint8_t VN_RESIDENT_CODE draw_message_next_glyph_locked(const pce_vn_message_t *message)
+{
+    uint8_t complete;
+    uint8_t irq = vn_vdc_irq_lock();
+    complete = draw_message_next_glyph(message);
+    vn_vdc_irq_unlock(irq);
+    return complete;
+}
+
+static void VN_RESIDENT_CODE draw_message_text_locked(const pce_vn_message_t *message)
+{
+    uint8_t irq = vn_vdc_irq_lock();
+    draw_message_text(message);
+    vn_vdc_irq_unlock(irq);
+}
+
 static void start_message(uint8_t message_index)
 {
     pce_vn_message_t *message = VN_MESSAGE_SCRATCH;
@@ -3556,13 +3656,13 @@ static void start_message(uint8_t message_index)
         if (!message_text_speed)
         {
             VN_MAP_BANK130_FOR_CODE();
-            draw_message_text(message);
+            draw_message_text_locked(message);
             message_complete = 1u;
         }
         else
         {
             VN_MAP_BANK130_FOR_CODE();
-            message_complete = draw_message_next_glyph(message);
+            message_complete = draw_message_next_glyph_locked(message);
         }
         if (!pending_display_enable) delay_frame();
     }
@@ -3572,7 +3672,7 @@ static void finish_active_message(void)
 {
     if (active_message_index < 0) return;
     VN_MAP_BANK130_FOR_CODE();
-    draw_message_text(&active_message_state);
+    draw_message_text_locked(&active_message_state);
     message_complete = 1u;
 }
 
@@ -3588,7 +3688,7 @@ static void tick_active_message(void)
     if (message_frame_timer < message_text_speed) return;
     message_frame_timer = 0u;
     VN_MAP_BANK130_FOR_CODE();
-    message_complete = draw_message_next_glyph(&active_message_state);
+    message_complete = draw_message_next_glyph_locked(&active_message_state);
 }
 
 static void hide_sprites_for_asset_load(void)

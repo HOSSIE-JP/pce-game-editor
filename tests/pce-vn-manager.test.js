@@ -439,6 +439,41 @@ test('PCE VN font budget raises the glyph cap well past the old 254 limit', () =
   assert.ok(overflow.errors.length > 0, 'expected a VRAM-overflow build error');
 });
 
+test('PCE VN VRAM layout reserves BG/message/sprite exclusively and rejects overlap', () => {
+  const vnManager = loadVnManager();
+  const fontBudget = vnManager.computeFontBudget(64, vnManager.DEFAULT_FONT_TILE_BASE);
+  const fontSpritePatternBase = Math.ceil((fontBudget.endTile * 16) / 32);
+  // Clean layout: small BG below the message font, sprite at the default base.
+  const clean = {
+    assets: [
+      { type: 'image', options: { tileBase: 64 }, data: { generated: { tileCount: 300 } } },
+      { type: 'sprite', options: { tileBase: 704 }, data: { generated: { tileCount: 40 } } },
+    ],
+  };
+  assert.doesNotThrow(() => vnManager.validateVnVramLayout(clean, fontBudget, fontSpritePatternBase, 0));
+  // Two BGs and two sprites within their own category share VRAM (one shown at a
+  // time), so same-category overlap must NOT be an error.
+  const sharedCategory = {
+    assets: [
+      { type: 'image', options: { tileBase: 64 }, data: { generated: { tileCount: 300 } } },
+      { type: 'image', options: { tileBase: 64 }, data: { generated: { tileCount: 200 } } },
+      { type: 'sprite', options: { tileBase: 704 }, data: { generated: { tileCount: 40 } } },
+      { type: 'sprite', options: { tileBase: 704 }, data: { generated: { tileCount: 46 } } },
+    ],
+  };
+  assert.doesNotThrow(() => vnManager.validateVnVramLayout(sharedCategory, fontBudget, fontSpritePatternBase, 0));
+  // An oversized BG runs into the message font region -> build error.
+  const bgOverlap = {
+    assets: [{ type: 'image', options: { tileBase: 64 }, data: { generated: { tileCount: 700 } } }],
+  };
+  assert.throws(() => vnManager.validateVnVramLayout(bgOverlap, fontBudget, fontSpritePatternBase, 0), /VRAM/);
+  // A sprite whose patterns run into the SATB -> build error.
+  const spriteOverlap = {
+    assets: [{ type: 'sprite', options: { tileBase: 1010 }, data: { generated: { tileCount: 60 } } }],
+  };
+  assert.throws(() => vnManager.validateVnVramLayout(spriteOverlap, fontBudget, fontSpritePatternBase, 0), /VRAM/);
+});
+
 test('PCE VN manager default scene does not auto-play the first CD-DA asset', () => {
   const vnManager = loadVnManager();
   const doc = vnManager.defaultSceneDocument({
