@@ -2996,6 +2996,12 @@ function collectManagedGeneratedCdDataFiles(projectDir) {
   return managed;
 }
 
+function isLegacyGeneratedVisualRleFile(relativePath) {
+  const normalized = normalizeRelativePath(relativePath || '');
+  return normalized.startsWith('assets/generated/')
+    && /\/(?:patterns|tiles|map_vram)\.rle$/i.test(normalized);
+}
+
 function mergeCdDataFiles(projectDir, generatedDataFiles = [], configuredDataFiles = []) {
   const managed = collectManagedGeneratedCdDataFiles(projectDir);
   const scenePackPrefix = `${normalizeRelativePath(VN_SCENE_PACK_DIR)}/`;
@@ -3004,6 +3010,7 @@ function mergeCdDataFiles(projectDir, generatedDataFiles = [], configuredDataFil
     const normalized = normalizeRelativePath(entry || '');
     if (!normalized || merged.has(normalized)) return;
     if (managed.has(normalized) || normalized.startsWith(scenePackPrefix)) return;
+    if (isLegacyGeneratedVisualRleFile(normalized)) return;
     merged.add(normalized);
   });
   return Array.from(merged);

@@ -110,8 +110,9 @@ PCE_ASSET_META_BUDGET=999999 node /tmp/build-kitahe.js # 成功
 
 - `vn_get_*_asset()` の戻り値は hot path の入口で 1 回だけ取り、sprite draw field / `cell_map` /
   ADPCM field は local または runtime-owned snapshot へ落としてから使う。
-- `refresh_scene_sprite_patterns_impl()` は Path B overlay（bank133）へ退避し、bank129 の
-  増分を抑える。overlay から bank130 関数を呼ばない制約は継続。
+- 当時は `refresh_scene_sprite_patterns_impl()` を Path B overlay（bank133）へ退避し、
+  bank129 の増分を抑えた。後続の VBlank/SATB hardening では、per-frame SATB 差分更新を
+  VBlank へ寄せるため bank130 常駐へ戻している。overlay から bank130 関数を呼ばない制約は継続。
 - meta cache key は `idx + 1` の `uint8_t` sentinel にした。`int16_t = -1` の非ゼロ初期値は
   `.zp.data` / `.data` 初期化に依存し、asset index 0 の false hit を起こし得る。
 - ADPCM meta accessor は struct image / CD ref の `memcpy` を使わず、生成ヘッダの固定 offset から
@@ -142,9 +143,10 @@ Geargrafx 検証メモ:
 
 `template/template_pce_vn_cd/src/pce_vn_runtime.c` 側で、sprite consumer の hot path を
 `vn_get_sprite_asset()` で取得した descriptor から必要 field を snapshot して使う形へ寄せたうえで、
-bank129 を圧迫していた `refresh_scene_sprite_patterns()` を Path B overlay
+bank129 を圧迫していた `refresh_scene_sprite_patterns()` を当時は Path B overlay
 （`refresh_scene_sprite_patterns_impl`, bank133）へ退避し、`cache_sprite_animation()` と
-`adpcm_voice_fits_buffer()` を bank130 へリバランスした。accessor は引き続き
+`adpcm_voice_fits_buffer()` を bank130 へリバランスした。後続の VBlank/SATB hardening では
+`refresh_scene_sprite_patterns_impl()` を bank130 常駐へ戻している。accessor は引き続き
 `VN_RESIDENT_CODE`（bank128, noinline）のまま。
 
 実測:

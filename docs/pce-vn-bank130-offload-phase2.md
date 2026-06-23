@@ -25,25 +25,27 @@
 
 | バンク | 使用 | 備考 |
 |---|---|---|
-| bank128(.text + .rodata, slot2 常駐) | 7832B (95.61%) | resident dispatcher + `vn_glyph_decode`/`vn_glyph_stride` + BAT row guard |
-| bank129(VN_BANKED_CODE, slot3) | 7903B (96.47%) | 変更なし |
-| bank130(VN_BANKED_CODE2, slot4) | 6726B (82.10%) | message compositor 退避で約1.5KB以上確保 |
-| .vn_overlay(VN_OVERLAY_CODE, bank133, slot4 と時分割) | 2785B / 予約4096B | `refresh_scene_sprite_patterns_impl` + message compositor |
+| bank128(.text + .rodata, slot2 常駐) | 8087B (98.72%) | resident dispatcher + `vn_glyph_decode`/`vn_glyph_stride` + BAT row guard + VBlank/VDC hardening |
+| bank129(VN_BANKED_CODE, slot3) | 7963B (97.20%) | `vn_vdc_set_copy_word` / `vn_wait_next_vblank` 等 |
+| bank130(VN_BANKED_CODE2, slot4) | 7545B (92.10%) | message compositor 退避で余力確保。sprite 差分 refresh と message window blanking helper は bank130 常駐 |
+| .vn_overlay(VN_OVERLAY_CODE, bank133, slot4 と時分割) | 2260B / 予約4096B | message compositor |
 
 ## overlay の機構（Path B のおさらい）
 
 - overlay 関数は `VN_OVERLAY_CODE`（`__attribute__((noinline, section(".vn_overlay")))`）。link 後 objcopy で `overlay.bin` に抽出し、起動時に `load_overlay_code()` が bank133 へストリーム。
-- 呼び出しは **resident(bank128) ディスパッチャ**経由。既存の雛形（このパターンを踏襲）:
+- 呼び出しは **resident(bank128) ディスパッチャ**経由。message compositor 用ディスパッチャはこのパターンを踏襲する:
   ```c
-  static uint8_t VN_RESIDENT_CODE refresh_scene_sprite_patterns(void) {
+  static uint8_t VN_RESIDENT_CODE draw_message_next_glyph_locked(const pce_vn_message_t *message) {
   #if defined(__PCE_CD__)
       uint8_t result;
+      uint8_t irq = vn_vdc_irq_lock();
       pce_ram_bank133_map();           // slot4 = bank133 (overlay)。bank130 は不可視に
-      result = refresh_scene_sprite_patterns_impl();  // overlay 関数を呼ぶ
+      result = draw_message_next_glyph(message);  // overlay 関数を呼ぶ
       pce_ram_bank130_map();           // slot4 = bank130 に戻す
+      vn_vdc_irq_unlock(irq);
       return result;
   #else
-      return refresh_scene_sprite_patterns_impl();
+      return draw_message_next_glyph(message);
   #endif
   }
   ```
@@ -73,7 +75,7 @@ bank130 の以下を **overlay へ移す**（行番号は Phase 1 後の `templa
 
 **`vn_glyph_decode`(~1803) / `vn_glyph_stride`(~1814) は overlay でなく `VN_RESIDENT_CODE`(bank128) 化する。** 小さい純粋関数で、overlay コンポジタと bank130 の `draw_choice_options` 双方から呼ばれるため、resident にすれば両方から直接呼べてディスパッチャ不要。
 
-**bank132 の注意**: `message_glyph_cache_masks` は `.ram_bank132`(slot6)（runtime.c 1702）。`cached_message_glyph_mask` / `preload_message_glyph_masks` / `add_glyph_tile`(cache 経由) がこれを触る。**overlay 化したエントリ（`preload_message_glyph_masks` と `draw_message_*`）の先頭で `map_vn_data()` を呼び slot6=bank132 を保証する**こと（既存 `refresh_scene_sprite_patterns_impl` も内部で `map_vn_data()`/`map_resident_data()` を呼んでいる）。他のグローバル（`composer_prev_mask`,`msg_enc`,`msg_mask8`,`message_glyph_cache_ids/count`）は `.bss`（常駐）なので問題なし。
+**bank132 の注意**: `message_glyph_cache_masks` は `.ram_bank132`(slot6)（runtime.c 1702）。`cached_message_glyph_mask` / `preload_message_glyph_masks` / `add_glyph_tile`(cache 経由) がこれを触る。**overlay 化したエントリ（`preload_message_glyph_masks` と `draw_message_*`）の先頭で `map_vn_data()` を呼び slot6=bank132 を保証する**こと。他のグローバル（`composer_prev_mask`,`msg_enc`,`msg_mask8`,`message_glyph_cache_ids/count`）は `.bss`（常駐）なので問題なし。
 
 ## 結合（重要）: `draw_choice_options`
 
@@ -89,9 +91,9 @@ bank130 の以下を **overlay へ移す**（行番号は Phase 1 後の `templa
    - 既存 `draw_message_next_glyph_locked` / `draw_message_text_locked`（IRQ ガード付きラッパー）を **IRQ lock → `pce_ram_bank133_map()` → overlay 関数 → `pce_ram_bank130_map()` → IRQ unlock** の形に変更（現状は `VN_MAP_BANK130_FOR_CODE()` 後に bank130 compositor を直呼び）。
    - `call_overlay_preload_message_glyph_masks`（新規 resident）を追加し、`start_message`(~3354) の `preload_message_glyph_masks(message)` 呼びを置換。
    - `call_overlay_draw_message_glyph_at`（新規 resident）を追加し、`draw_choice_options`(3427,3433) の `draw_message_glyph_at(...)` 呼びを置換。
-4. **ビルド & `-Wl,--print-memory-usage`**: bank130 が ~1500B 減、overlay が ~2000B/4096予約 に増、bank128 が ディスパッチャ + decode/stride で微増、いずれもオーバーフローしないことを確認。`llvm-nm --print-size` で compositor が `.vn_overlay` に居ること、bank130 から消えたことを確認。
+4. **ビルド & `-Wl,--print-memory-usage`**: bank130 が減り、overlay が ~2.2KB/4096予約に増え、bank128 が ディスパッチャ + decode/stride で微増しても、いずれもオーバーフローしないことを確認。`llvm-nm --print-size` で compositor が `.vn_overlay` に居ること、bank130 から消えたことを確認。
 5. **Geargrafx 実機検証**（必須・下記チェックリスト）。
-6. **BG/BAT blit IRQ ガードも実装済み**。`pce_editor_vram_copy` は resident/noinline + IRQ lock になり、message window clear、`write_map_words()` の BAT 行更新、raw BG/map/font/sprite pattern blit が共通 guard を通る（`docs/pce-testplay-debugging.md` の「割り込みと VDC レジスタの非再入性」参照）。
+6. **BG/BAT blit IRQ ガードも実装済み**。`pce_editor_vram_copy` は resident/noinline + IRQ lock になり、message window clear、`write_map_words()` の BAT 行更新、raw BG/map/font/sprite pattern blit が共通 guard を通る。message 開始/全文 reveal は display blank 中に `clear_window_cells()` と glyph 一括描画を済ませる（`docs/pce-testplay-debugging.md` の「割り込みと VDC レジスタの非再入性」参照）。
 
 ## 検証チェックリスト（Geargrafx 実機）
 
@@ -101,6 +103,7 @@ bank130 の以下を **overlay へ移す**（行番号は Phase 1 後の `templa
 - 改行を含むメッセージ、escape 符号化グリフ（index ≥253）の表示。
 - **BG 切替 + ADPCM 反復**でメッセージ/スプライトが壊れない（Phase 1 で RLE-MAWR 脆弱性は解消済み）。
 - `debug_step_frame` は 1:1 を強制し実時間のフレーム落ちを隠す点に注意（CLAUDE.md）。
+- SATB 更新の確認では Geargrafx の `huc6270_reg` R19 write breakpoint を使い、`upload_sprite_pattern_words()` / `upload_sprite_table()` が表示期間 (`VDW`) ではなく VBlank 側で止まることを確認。
 
 ## 罠（過去に踏んだ/踏みやすい）
 
@@ -114,6 +117,6 @@ bank130 の以下を **overlay へ移す**（行番号は Phase 1 後の `templa
 
 - runtime: `template/template_pce_vn_cd/src/pce_vn_runtime.c`
 - overlay 抽出: `pce-vn-manager.js` `finalizeOverlayBlob()`（overlay.bin 抽出 + `.rela.vn_overlay` strip。予約は `VN_OVERLAY_RESERVED_SECTORS`）
-- 既存 overlay 関数/ディスパッチャ: `refresh_scene_sprite_patterns_impl` / `refresh_scene_sprite_patterns`
+- 既存 overlay 関数/ディスパッチャ: `draw_message_next_glyph` / `draw_message_text` / `preload_message_glyph_masks` / `draw_message_glyph_at` と `call_overlay_*`
 - bank マップ helper: `pce_ram_bank133_map()` / `pce_ram_bank130_map()` / `map_vn_data()` / `VN_MAP_BANK130_FOR_CODE()`
 - ビルド: `data/tools/llvm-mos-sdk/llvm-mos/bin/mos-pce-cd-clang.bat -Oz -DPCE_EDITOR_TARGET_CD=1 -Wl,--print-memory-usage -Wl,-T,<proj>/src/generated/overlay_insert.ld -o <proj>/out/X.elf <proj>/src/main.c <proj>/src/generated/assets.c <proj>/src/generated/vn.c`（template を `<proj>/src/pce_vn_runtime.c` へ反映してから）
