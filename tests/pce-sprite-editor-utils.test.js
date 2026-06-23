@@ -93,7 +93,8 @@ test('PCE sprite editor preserves editor metadata shape from assets', async () =
   assert.equal(state.frameHeight, 16);
   assert.deepEqual(state.rowFrameCounts, [2, 1]);
   assert.deepEqual(state.rowDefaultTimes, ['5', '7']);
-  assert.equal(state.compression, 'AUTO');
+  // RLE removed: the sprite editor no longer carries a compression field.
+  assert.equal(state.compression, undefined);
   assert.equal(state.collision, 'BOX');
   assert.equal(state.optType, 'SPRITE');
   assert.equal(state.optLevel, 'MEDIUM');

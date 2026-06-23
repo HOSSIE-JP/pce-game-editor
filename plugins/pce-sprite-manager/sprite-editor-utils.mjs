@@ -245,7 +245,6 @@ export function editorStateFromAsset(asset = {}, image = null) {
     time: animationState.time,
     rowFrameCounts: normalizeRowCounts(animationState.rowFrameCounts, grid.rows, grid.columns),
     rowDefaultTimes: normalizeDefaultTimes(animationState.rowDefaultTimes, grid.rows, '4'),
-    compression: normalizeCompressionOption(metadata.compression || asset.options?.compression, 'AUTO'),
     collision: normalizeOption(metadata.collision, ['NONE', 'CIRCLE', 'BOX'], 'NONE'),
     optType: normalizeOption(metadata.optType, ['BALANCED', 'SPRITE', 'TILE', 'NONE'], 'BALANCED'),
     optLevel: normalizeOption(metadata.optLevel, ['FAST', 'MEDIUM', 'SLOW', 'MAX'], 'FAST'),
@@ -395,9 +394,3 @@ function normalizeOption(value, allowed, fallback) {
   return allowed.includes(text) ? text : fallback;
 }
 
-function normalizeCompressionOption(value, fallback = 'AUTO') {
-  const text = String(value || '').trim().toUpperCase();
-  if (text === 'NONE') return 'NONE';
-  if (['AUTO', 'BEST', 'FAST', 'APLIB', 'LZ4W', 'RLE'].includes(text)) return 'AUTO';
-  return fallback;
-}

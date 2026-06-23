@@ -94,24 +94,6 @@ function generatedInfo(asset = {}) {
   return asset.data?.generated || {};
 }
 
-function normalizeCompression(value) {
-  const raw = String(value ?? '').trim().toLowerCase();
-  return ['none', 'raw', 'off', 'false', '0'].includes(raw) ? 'none' : 'auto';
-}
-
-function compressionLabel(asset = {}) {
-  const generated = generatedInfo(asset);
-  const compression = generated.compression || {};
-  const entry = imageKind(asset) === 'sprite' ? compression.tiles : (compression.tiles?.codec === 'rle' ? compression.tiles : compression.map);
-  const policy = normalizeCompression(asset.options?.compression ?? compression.policy);
-  if (entry?.codec === 'rle') {
-    const raw = Number(entry.rawBytes || 0);
-    const size = Number(entry.byteLength || 0);
-    return raw && size ? `RLE ${Math.round(size / raw * 100)}%` : 'RLE';
-  }
-  return policy === 'none' ? 'None' : 'Auto/raw';
-}
-
 function formatSize(asset = {}) {
   const options = asset.options || {};
   const generated = generatedInfo(asset);
@@ -286,7 +268,6 @@ export function createImageAssetManagerPlugin(config = {}) {
                   <th><button class="pce-image-manager-sort" type="button" data-sort-key="id">ID <span data-sort-indicator></span></button></th>
                   <th><button class="pce-image-manager-sort" type="button" data-sort-key="size">Size <span data-sort-indicator></span></button></th>
                   <th><button class="pce-image-manager-sort" type="button" data-sort-key="tiles">Tiles <span data-sort-indicator></span></button></th>
-                  <th>Compression</th>
                   <th><button class="pce-image-manager-sort" type="button" data-sort-key="source">Source <span data-sort-indicator></span></button></th>
                   <th class="pce-image-manager-row-actions"></th>
                 </tr>
@@ -348,13 +329,6 @@ export function createImageAssetManagerPlugin(config = {}) {
                   <input name="tileBase" type="hidden" value="${PCE_BG_AUTO_TILE_BASE}" />
                   <input name="mapBase" type="hidden" value="${PCE_BG_AUTO_MAP_BASE}" />
               `}
-              <label class="form-group">
-                <span class="form-label">Compression</span>
-                <select class="form-select" name="compression">
-                  <option value="auto">Auto</option>
-                  <option value="none">None</option>
-                </select>
-              </label>
             </div>
             <div class="pce-image-manager-animation-editor" data-role="animation-editor" hidden></div>
             <div class="pce-image-manager-stats" data-role="stats"></div>
@@ -885,7 +859,6 @@ export function createImageAssetManagerPlugin(config = {}) {
         <div><span>${kind === 'sprite' ? 'Pattern' : 'Tile'}</span><strong>${esc(generated.tileCount || 0)}</strong></div>
         <div><span>Palette</span><strong>${esc(generated.paletteCount || 0)}</strong></div>
         <div><span>VRAM bytes</span><strong>${esc(generated.vramBytes || 0)}</strong></div>
-        <div><span>Compression</span><strong>${esc(compressionLabel(asset))}</strong></div>
       `;
       const colors = Array.isArray(generated.paletteColors) ? generated.paletteColors : [];
       paletteEl.innerHTML = colors.length
@@ -1018,7 +991,6 @@ export function createImageAssetManagerPlugin(config = {}) {
         formEl.elements.tileBase.value = PCE_BG_AUTO_TILE_BASE;
         formEl.elements.mapBase.value = PCE_BG_AUTO_MAP_BASE;
       }
-      formEl.elements.compression.value = normalizeCompression(assetOptions.compression);
       renderAnimationEditor(asset);
       renderGenerated(asset);
       if (options.preview !== false) void loadPreview(asset);
@@ -1038,7 +1010,7 @@ export function createImageAssetManagerPlugin(config = {}) {
         rowsEl.innerHTML = '<tr><td colspan="7" class="pce-image-manager-empty">アセットがありません</td></tr>';
         return;
       }
-      rowsEl.innerHTML = renderGroupedRows(list, 7, (asset) => {
+      rowsEl.innerHTML = renderGroupedRows(list, 6, (asset) => {
         const generated = generatedInfo(asset);
         const warnings = [...(generated.warnings || []), asset.pathError].filter(Boolean);
         return `
@@ -1047,7 +1019,6 @@ export function createImageAssetManagerPlugin(config = {}) {
             <td class="pce-image-manager-id-cell"><code>${esc(asset.id)}</code></td>
             <td>${esc(formatSize(asset))}</td>
             <td>${esc(generated.tileCount || 0)}</td>
-            <td>${esc(compressionLabel(asset))}</td>
             <td><code>${esc(asset.source || '')}</code>${warnings.length ? `<div class="asset-warning">${warnings.length}</div>` : ''}</td>
             <td class="pce-image-manager-row-actions">
               <button class="icon-btn-xs" type="button" data-row-delete="${esc(asset.id)}" title="削除" aria-label="削除">✕</button>
@@ -1127,7 +1098,6 @@ export function createImageAssetManagerPlugin(config = {}) {
           mapBase: PCE_BG_AUTO_MAP_BASE,
           x: kind === 'sprite' ? clampInt(formEl.elements.x.value, 0, 255, 144) : 0,
           y: kind === 'sprite' ? clampInt(formEl.elements.y.value, 0, 255, 104) : 0,
-          compression: normalizeCompression(formEl.elements.compression.value),
           cellWidth,
           cellHeight,
           ...(kind === 'sprite' ? { animations: collectAnimationRows() } : {}),
@@ -1300,13 +1270,6 @@ export function createImageAssetManagerPlugin(config = {}) {
                   <span class="form-label">Transparent index</span>
                   <input class="form-input" name="transparentIndex" type="number" min="0" max="15" value="0" />
                 </label>
-                <label class="form-group">
-                  <span class="form-label">Compression</span>
-                  <select class="form-select" name="compression">
-                    <option value="auto" selected>Auto</option>
-                    <option value="none">None</option>
-                  </select>
-                </label>
               </div>
               ${kind === 'sprite' ? `
                 <div class="pce-image-manager-import-animation">
@@ -1392,7 +1355,6 @@ export function createImageAssetManagerPlugin(config = {}) {
             outputWidth,
             outputHeight,
             transparentIndex: clampInt(form.elements.transparentIndex.value, 0, 15, 0),
-            compression: normalizeCompression(form.elements.compression.value),
             animations: kind === 'sprite' ? [{
               id: 'default',
               name: 'Default',
@@ -1457,8 +1419,7 @@ export function createImageAssetManagerPlugin(config = {}) {
           transparentIndex: details.transparentIndex,
           width: finalWidth,
           height: finalHeight,
-          compression: details.compression,
-          options: kind === 'sprite' ? { compression: details.compression, animations: details.animations || [] } : { compression: details.compression },
+          options: kind === 'sprite' ? { animations: details.animations || [] } : {},
         });
         if (!result?.ok) throw new Error(result?.error || '取り込みに失敗しました');
         assets = result.assets || assets;

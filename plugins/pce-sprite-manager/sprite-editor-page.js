@@ -206,10 +206,6 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
             </label>
           </div>
           <label class="form-group">
-            <span class="form-label">compression</span>
-            <select class="form-select" name="compression"><option>AUTO</option><option>NONE</option></select>
-          </label>
-          <label class="form-group">
             <span class="form-label">collision</span>
             <select class="form-select" name="collision"><option>NONE</option><option>CIRCLE</option><option>BOX</option></select>
           </label>
@@ -467,7 +463,6 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     form.elements.tileBase.value = clampInt(options.tileBase, 0, 2047, DEFAULT_TILE_BASE);
     form.elements.x.value = clampInt(options.x, 0, 255, 144);
     form.elements.y.value = clampInt(options.y, 0, 255, 104);
-    form.elements.compression.value = editorState.compression;
     form.elements.collision.value = editorState.collision;
     form.elements.time.value = editorState.time;
     form.elements.optType.value = editorState.optType;
@@ -835,7 +830,6 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
         y: clampInt(els.form.elements.y.value, 0, 255, 104),
         cellWidth,
         cellHeight,
-        compression: els.form.elements.compression.value === 'NONE' ? 'none' : 'auto',
         animations,
         spriteEditor: {
           frameWidth,
@@ -843,7 +837,6 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
           time: serializeSpriteTime(parseSpriteTime(els.form.elements.time.value, grid.rows, grid.columns)),
           rowFrameCounts,
           rowDefaultTimes,
-          compression: els.form.elements.compression.value,
           collision: els.form.elements.collision.value,
           optType: els.form.elements.optType.value,
           optLevel: els.form.elements.optLevel.value,
@@ -1098,7 +1091,6 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
             time: `[[${Array.from({ length: details.frameCount }, () => String(details.frameDelay)).join(',')}]]`,
             rowFrameCounts: [details.frameCount],
             rowDefaultTimes: [String(details.frameDelay)],
-            compression: 'AUTO',
             collision: 'NONE',
             optType: 'BALANCED',
             optLevel: 'FAST',

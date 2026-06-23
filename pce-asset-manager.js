@@ -38,7 +38,6 @@ const PCE_ADPCM_MIN_SAMPLE_RATE = audioConverter.PCE_ADPCM_MIN_SAMPLE_RATE || 40
 const PCE_ADPCM_MAX_SAMPLE_RATE = audioConverter.PCE_ADPCM_MAX_SAMPLE_RATE || 32000;
 const DEFAULT_BG_OPTIONS = Object.freeze({
   kind: 'background',
-  compression: PCE_VISUAL_COMPRESSION_AUTO,
   paletteBank: 0,
   tileBase: PCE_BG_AUTO_TILE_BASE,
   mapBase: PCE_BG_AUTO_MAP_BASE,
@@ -52,7 +51,6 @@ const DEFAULT_BG_OPTIONS = Object.freeze({
 });
 const DEFAULT_SPRITE_OPTIONS = Object.freeze({
   kind: 'sprite',
-  compression: PCE_VISUAL_COMPRESSION_AUTO,
   paletteBank: 0,
   // Sprite pattern base (in 32-word units). 704 -> VRAM word 22528, which sits
   // above the VN message/font tiles and below the SATB at 0x7f00; this is the
@@ -258,10 +256,9 @@ function normalizeImageOptions(asset = {}) {
   const defaults = isSprite ? DEFAULT_SPRITE_OPTIONS : DEFAULT_BG_OPTIONS;
   const options = { ...defaults, ...rawOptions };
   options.kind = isSprite ? 'sprite' : 'background';
-  options.compression = normalizeVisualCompression(
-    rawOptions.compression ?? rawOptions.spriteEditor?.compression,
-    defaults.compression,
-  );
+  // RLE removed: assets are always uncompressed. Drop any legacy compression option
+  // carried in older asset docs so it no longer appears in the normalized schema.
+  delete options.compression;
   options.paletteBank = clampInt(options.paletteBank, 0, 15, defaults.paletteBank);
   options.tileBase = clampInt(options.tileBase, 0, 2047, defaults.tileBase);
   options.mapBase = clampInt(options.mapBase, 0, 2047, defaults.mapBase);
@@ -1188,23 +1185,12 @@ function encodePceRleBuffer(input) {
   return Buffer.from(output);
 }
 
+// RLE visual compression was removed: the CD-ROM2 VN runtime decodes raw tiles/maps/
+// patterns only (the RLE streaming decoder held the VDC write address across CD reads
+// and consumed ~87% of the bank133 overlay). Visual assets always ship uncompressed,
+// so this never emits a sidecar. `policy` is kept for signature compatibility.
 function selectVisualCompression(rawBuffer, policy = PCE_VISUAL_COMPRESSION_AUTO) {
-  const normalizedPolicy = normalizeVisualCompression(policy);
-  if (!Buffer.isBuffer(rawBuffer) || rawBuffer.length === 0 || normalizedPolicy === PCE_VISUAL_COMPRESSION_NONE) {
-    return { codec: PCE_VISUAL_COMPRESSION_NONE, buffer: Buffer.alloc(0), rawBytes: rawBuffer?.length || 0, byteLength: 0, savedBytes: 0 };
-  }
-  const compressed = encodePceRleBuffer(rawBuffer);
-  const shouldUse = normalizedPolicy === PCE_VISUAL_COMPRESSION_RLE || compressed.length < rawBuffer.length;
-  if (!shouldUse) {
-    return { codec: PCE_VISUAL_COMPRESSION_NONE, buffer: Buffer.alloc(0), rawBytes: rawBuffer.length, byteLength: 0, savedBytes: 0 };
-  }
-  return {
-    codec: PCE_VISUAL_COMPRESSION_RLE,
-    buffer: compressed,
-    rawBytes: rawBuffer.length,
-    byteLength: compressed.length,
-    savedBytes: Math.max(0, rawBuffer.length - compressed.length),
-  };
+  return { codec: PCE_VISUAL_COMPRESSION_NONE, buffer: Buffer.alloc(0), rawBytes: (Buffer.isBuffer(rawBuffer) ? rawBuffer.length : 0), byteLength: 0, savedBytes: 0 };
 }
 
 function writeVisualCompressionSidecar(rawBuffer, absPath, policy) {
@@ -1253,29 +1239,11 @@ function uniqueWarnings(warnings = []) {
   return Array.from(new Set(warnings.map((warning) => String(warning || '').trim()).filter(Boolean)));
 }
 
+// RLE removed: visual assets are always uncompressed, so the generated metadata slot
+// is always NONE with no compressed sidecar file.
 function generatedCompressionSlot(policy, rawBuffer, compressedBuffer, compressedFile) {
-  const normalizedPolicy = normalizeVisualCompression(policy);
   const rawBytes = Buffer.isBuffer(rawBuffer) ? rawBuffer.length : 0;
-  const byteLength = Buffer.isBuffer(compressedBuffer) ? compressedBuffer.length : 0;
-  const useCompressed = normalizedPolicy !== PCE_VISUAL_COMPRESSION_NONE
-    && byteLength > 0
-    && (normalizedPolicy === PCE_VISUAL_COMPRESSION_RLE || byteLength < rawBytes);
-  if (!useCompressed) {
-    return {
-      codec: PCE_VISUAL_COMPRESSION_NONE,
-      file: '',
-      rawBytes,
-      byteLength: 0,
-      savedBytes: 0,
-    };
-  }
-  return {
-    codec: PCE_VISUAL_COMPRESSION_RLE,
-    file: compressedFile,
-    rawBytes,
-    byteLength,
-    savedBytes: Math.max(0, rawBytes - byteLength),
-  };
+  return { codec: PCE_VISUAL_COMPRESSION_NONE, file: '', rawBytes, byteLength: 0, savedBytes: 0 };
 }
 
 function createGeneratedMetadata(projectDir, asset, plan, sourceRel, imageSize, extraWarnings = []) {
@@ -1301,7 +1269,7 @@ function createGeneratedMetadata(projectDir, asset, plan, sourceRel, imageSize, 
     warnings: [],
     paletteColors: readPaletteColors(palette),
     compression: {
-      policy: options.compression,
+      policy: PCE_VISUAL_COMPRESSION_NONE,
       tiles: tilesCompression,
       map: mapCompression,
     },
@@ -1330,27 +1298,11 @@ function readFirstTileIndex(buffer) {
 
 function generatedCompressionNeedsRefresh(projectDir, asset, slots = ['tiles']) {
   if (!asset || (asset.type !== 'image' && asset.type !== 'sprite')) return false;
-  const options = normalizeImageOptions(asset);
   const generated = asset.data?.generated || {};
   const compression = normalizeGeneratedCompression(generated.compression);
-  if (compression.policy !== options.compression) return true;
-  return slots.some((slot) => {
-    const entry = compression[slot] || {};
-    const rawFile = slot === 'map' ? generated.mapVramFile : generated.tilesFile;
-    const raw = readGeneratedBuffer(projectDir, rawFile);
-    if (!raw.length) return false;
-    const expected = selectVisualCompression(raw, options.compression);
-    const compressedFile = slot === 'map' ? generated.mapVramCompressedFile : generated.tilesCompressedFile;
-    const normalizedCompressed = normalizeAssetSource(compressedFile || '');
-    if (expected.codec !== PCE_VISUAL_COMPRESSION_RLE) {
-      return entry.codec === PCE_VISUAL_COMPRESSION_RLE;
-    }
-    if (!normalizedCompressed || entry.codec !== PCE_VISUAL_COMPRESSION_RLE) return true;
-    if (normalizeAssetSource(entry.file || '') !== normalizedCompressed) return true;
-    if (entry.rawBytes !== raw.length || entry.byteLength !== expected.buffer.length) return true;
-    const compressed = readGeneratedBuffer(projectDir, normalizedCompressed);
-    return !compressed.length || Buffer.compare(compressed, expected.buffer) !== 0;
-  });
+  // RLE removed: an asset only needs regenerating if it still carries a stale RLE
+  // codec from older generation, so it gets rewritten as raw (uncompressed).
+  return slots.some((slot) => (compression[slot] || {}).codec === PCE_VISUAL_COMPRESSION_RLE);
 }
 
 function backgroundGeneratedAssetNeedsRefresh(projectDir, asset) {
@@ -1931,27 +1883,12 @@ function generatedCompressionEntry(generated = {}, slot = 'tiles') {
   return slot === 'map' ? compression.map : compression.tiles;
 }
 
+// RLE removed: always ship the raw tile/map/pattern buffer on CD. Any stale RLE
+// codec/sidecar left in older generated metadata is ignored, so existing projects
+// build correctly against the raw-only runtime without forcing a regenerate.
 function generatedCdPayload(projectDir, generated = {}, slot = 'tiles') {
   const rawPath = slot === 'map' ? generated.mapVramFile : generated.tilesFile;
-  const compressedPath = slot === 'map' ? generated.mapVramCompressedFile : generated.tilesCompressedFile;
   const raw = readGeneratedBuffer(projectDir, rawPath);
-  const entry = generatedCompressionEntry(generated, slot);
-  if (
-    entry.codec === PCE_VISUAL_COMPRESSION_RLE
-    && compressedPath
-    && entry.file === normalizeAssetSource(compressedPath)
-  ) {
-    const compressed = readGeneratedBuffer(projectDir, compressedPath);
-    if (compressed.length > 0) {
-      return {
-        buffer: compressed,
-        relativePath: compressedPath,
-        uncompressedSize: raw.length || entry.rawBytes || 0,
-        byteSize: compressed.length,
-        compression: PCE_VISUAL_COMPRESSION_RLE,
-      };
-    }
-  }
   return {
     buffer: raw,
     relativePath: rawPath,

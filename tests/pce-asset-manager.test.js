@@ -524,7 +524,8 @@ test('PCE image import generates BG and sprite assets with the internal converte
   assert.equal(bg.asset.type, 'image');
   assert.equal(bg.asset.options.tileBase, 64);
   assert.equal(bg.asset.options.mapBase, 0);
-  assert.equal(bg.asset.options.compression, 'auto');
+  // RLE removed: the compression option no longer exists in the normalized schema.
+  assert.equal(bg.asset.options.compression, undefined);
   assert.equal(bg.commandInfo.mode, 'internal-pce');
   assert.equal(bg.commandInfo.command, 'Internal PCE image converter');
   assert.deepEqual(bg.commandInfo.args, []);
@@ -535,12 +536,12 @@ test('PCE image import generates BG and sprite assets with the internal converte
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.tilesFile)).length, 256);
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.mapFile)).length, 16);
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.mapVramFile)).readUInt16LE(0) & 0x0fff, 64);
-  assert.equal(bg.asset.data.generated.compression.map.codec, 'rle');
-  assert.equal(fs.existsSync(path.join(projectDir, bg.asset.data.generated.mapVramCompressedFile)), true);
-  assert.ok(fs.statSync(path.join(projectDir, bg.asset.data.generated.mapVramCompressedFile)).size < fs.statSync(path.join(projectDir, bg.asset.data.generated.mapVramFile)).size);
+  // RLE removed: visual assets are uncompressed, so no compressed sidecar is emitted.
+  assert.equal(bg.asset.data.generated.compression.map.codec, 'none');
+  assert.equal(bg.asset.data.generated.mapVramCompressedFile, '');
   assert.equal(bg.asset.data.generated.tileCount, 8);
   assert.equal(sprite.asset.type, 'sprite');
-  assert.equal(sprite.asset.options.compression, 'auto');
+  assert.equal(sprite.asset.options.compression, undefined);
   assert.equal(sprite.commandInfo.mode, 'internal-pce');
   assert.equal(sprite.commandInfo.outputKind, 'sprite');
   assert.equal(fs.existsSync(path.join(projectDir, sprite.asset.data.generated.paletteFile)), true);
@@ -604,9 +605,9 @@ test('PCE background generation refreshes stale map tile references before sourc
   assert.equal(typeof saved.assets[0].data.import.regeneratedAt, 'string');
 });
 
-test('PCE visual generation refreshes stale compressed sidecars before source output', () => {
+test('PCE visual generation emits raw tiles with no compressed sidecar (RLE removed)', () => {
   const assetManager = loadAssetManager();
-  const projectDir = makeTempDir('pce-assets-stale-compression-');
+  const projectDir = makeTempDir('pce-assets-no-compression-');
   const imported = assetManager.importImage(projectDir, {
     sourceFileName: 'solid.png',
     convertedDataUrl: makeSolidPngDataUrl(32, 16, [0, 146, 219, 255]),
@@ -614,20 +615,16 @@ test('PCE visual generation refreshes stale compressed sidecars before source ou
     id: 'solid_bg',
   });
   const generated = imported.asset.data.generated;
-  assert.equal(generated.compression.tiles.codec, 'rle');
-  const tilesPath = path.join(projectDir, generated.tilesFile);
-  const compressedPath = path.join(projectDir, generated.tilesCompressedFile);
-  fs.writeFileSync(compressedPath, makeRleRun(fs.readFileSync(tilesPath).length, 0xff));
+  // RLE removed: tiles ship raw; no compressed codec/file is produced.
+  assert.equal(generated.compression.tiles.codec, 'none');
+  assert.equal(generated.tilesCompressedFile, '');
+  assert.equal(fs.existsSync(path.join(projectDir, generated.tilesFile)), true);
 
   assetManager.generateAssetSources(projectDir);
 
-  const raw = fs.readFileSync(tilesPath);
-  const refreshed = fs.readFileSync(compressedPath);
-  assert.notDeepEqual(refreshed, makeRleRun(raw.length, 0xff));
-  assert.deepEqual(decodePceRle(refreshed, raw.length), raw);
   const saved = assetManager.readAssetDocument(projectDir);
-  assert.equal(saved.assets[0].data.generated.compression.tiles.byteLength, refreshed.length);
-  assert.equal(typeof saved.assets[0].data.import.regeneratedAt, 'string');
+  assert.equal(saved.assets[0].data.generated.compression.tiles.codec, 'none');
+  assert.equal(saved.assets[0].data.generated.tilesCompressedFile, '');
 });
 
 test('PCE sprite import writes VCE colors and sprite pattern words in hardware order', () => {
@@ -968,24 +965,18 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.equal(meta[adBase + 15], 68); // adpcm cd sector lo
 });
 
-test('PCE CD asset source generation uses compressed BG and sprite sidecars when available', (t) => {
+test('PCE CD asset source generation ships raw BG and sprite tiles (RLE removed)', (t) => {
   // Force CD on-demand metadata so this exercises the meta directory path.
   process.env.PCE_ASSET_META_BUDGET = '0';
   t.after(() => { delete process.env.PCE_ASSET_META_BUDGET; });
   const assetManager = loadAssetManager();
-  const projectDir = makeTempDir('pce-cd-assets-compressed-');
-  const bgTilesRle = makeRleRun(2048, 0x22);
-  const bgMapRle = makeRleRun(2048, 0x80);
-  const spritePatternsRle = makeRleRun(4096, 0x33);
+  const projectDir = makeTempDir('pce-cd-assets-raw-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
   writeFile(projectDir, 'assets/generated/bg/palette.bin', Buffer.alloc(32, 0x01));
   writeFile(projectDir, 'assets/generated/bg/tiles.bin', Buffer.alloc(2048, 0x22));
-  writeFile(projectDir, 'assets/generated/bg/tiles.rle', bgTilesRle);
   writeFile(projectDir, 'assets/generated/bg/map_vram.bin', Buffer.alloc(2048, 0x80));
-  writeFile(projectDir, 'assets/generated/bg/map_vram.rle', bgMapRle);
   writeFile(projectDir, 'assets/generated/hero/palette.bin', Buffer.alloc(32, 0x02));
   writeFile(projectDir, 'assets/generated/hero/patterns.bin', Buffer.alloc(4096, 0x33));
-  writeFile(projectDir, 'assets/generated/hero/patterns.rle', spritePatternsRle);
   writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
     version: 2,
     assets: [
@@ -993,33 +984,23 @@ test('PCE CD asset source generation uses compressed BG and sprite sidecars when
         id: 'bg',
         type: 'image',
         source: 'assets/images/bg.png',
-        options: { width: 288, height: 128, compression: 'auto' },
+        options: { width: 288, height: 128 },
         data: { generated: {
           paletteFile: 'assets/generated/bg/palette.bin',
           tilesFile: 'assets/generated/bg/tiles.bin',
-          tilesCompressedFile: 'assets/generated/bg/tiles.rle',
           mapVramFile: 'assets/generated/bg/map_vram.bin',
-          mapVramCompressedFile: 'assets/generated/bg/map_vram.rle',
-          compression: {
-            policy: 'auto',
-            tiles: { codec: 'rle', file: 'assets/generated/bg/tiles.rle', rawBytes: 2048, byteLength: bgTilesRle.length },
-            map: { codec: 'rle', file: 'assets/generated/bg/map_vram.rle', rawBytes: 2048, byteLength: bgMapRle.length },
-          },
+          compression: { policy: 'none', tiles: { codec: 'none' }, map: { codec: 'none' } },
         } },
       },
       {
         id: 'hero',
         type: 'sprite',
         source: 'assets/sprites/hero.png',
-        options: { width: 64, height: 128, cellWidth: 16, cellHeight: 16, compression: 'auto' },
+        options: { width: 64, height: 128, cellWidth: 16, cellHeight: 16 },
         data: { generated: {
           paletteFile: 'assets/generated/hero/palette.bin',
           tilesFile: 'assets/generated/hero/patterns.bin',
-          tilesCompressedFile: 'assets/generated/hero/patterns.rle',
-          compression: {
-            policy: 'auto',
-            tiles: { codec: 'rle', file: 'assets/generated/hero/patterns.rle', rawBytes: 4096, byteLength: spritePatternsRle.length },
-          },
+          compression: { policy: 'none', tiles: { codec: 'none' } },
         } },
       },
     ],
@@ -1028,35 +1009,31 @@ test('PCE CD asset source generation uses compressed BG and sprite sidecars when
   const result = assetManager.generateAssetSources(projectDir);
   const source = fs.readFileSync(result.sourcePath, 'utf-8');
 
+  // RLE removed: CD data files are the raw .bin buffers, never .rle sidecars.
   assert.deepEqual(assetManager.collectCdDataFiles(projectDir), [
-    'assets/generated/bg/tiles.rle',
-    'assets/generated/bg/map_vram.rle',
-    'assets/generated/hero/patterns.rle',
+    'assets/generated/bg/tiles.bin',
+    'assets/generated/bg/map_vram.bin',
+    'assets/generated/hero/patterns.bin',
     'assets/generated/meta/asset_meta.bin',
   ]);
-  // RLE sidecars sit at sectors 64..66, so the meta file lands at sector 67
-  // (regions bg@67, sprite@68). The compressed byte_size / compression flag live
-  // in the on-CD records now, not in resident cd refs.
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta = \{ \{ 67u, 0u, 0u \}, 1u \};/);
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_sprite_meta = \{ \{ 68u, 0u, 0u \}, 1u \};/);
-  assert.doesNotMatch(source, /pce_editor_image_bg_tiles_cd PCE_EDITOR_CD_REF_SECTION/);
+  assert.doesNotMatch(source, /\.rle/);
 
   const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
   assert.equal(meta.length, 2 * 2048);
-  // BG tiles: uncompressed size 2048, cd ref sector 64, compressed byte_size, RLE flag.
+  // BG tiles: raw byte_size 2048, compression flag 0 (NONE), cd ref sector 64.
   assert.equal(meta.readUInt16LE(11), 2048); // tiles.size (uncompressed)
   assert.equal(meta[66], 64); // tiles cd sector lo
-  assert.equal(meta.readUInt16LE(71), bgTilesRle.length); // tiles cd byte_size
-  assert.equal(meta[73], 1); // tiles compression = RLE
+  assert.equal(meta.readUInt16LE(71), 2048); // tiles cd byte_size (raw)
+  assert.equal(meta[73], 0); // tiles compression = NONE
   assert.equal(meta[74], 65); // map cd sector lo
-  assert.equal(meta.readUInt16LE(79), bgMapRle.length); // map cd byte_size
-  assert.equal(meta[81], 1); // map compression = RLE
-  // Sprite patterns (record at sector 68 -> byte 2048).
+  assert.equal(meta.readUInt16LE(79), 2048); // map cd byte_size (raw)
+  assert.equal(meta[81], 0); // map compression = NONE
+  // Sprite patterns: raw 4096 bytes = 2 sectors (66..67).
   const sprBase = 2048;
   assert.equal(meta.readUInt16LE(sprBase + 11), 4096); // patterns uncompressed size
   assert.equal(meta[sprBase + 61], 66); // patterns cd sector lo
-  assert.equal(meta.readUInt16LE(sprBase + 66), spritePatternsRle.length); // patterns cd byte_size
-  assert.equal(meta[sprBase + 68], 1); // patterns compression = RLE
+  assert.equal(meta.readUInt16LE(sprBase + 66), 4096); // patterns cd byte_size (raw)
+  assert.equal(meta[sprBase + 68], 0); // patterns compression = NONE
 });
 
 test('PCE sample template registers slideshow images and PSG BGM assets', () => {

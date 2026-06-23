@@ -2737,19 +2737,10 @@ function generatedCompressionEntry(generated = {}, slot = 'tiles') {
 }
 
 function generatedVisualCdDataFile(projectDir, generated = {}, slot = 'tiles') {
-  const rawPath = slot === 'map' ? generated.mapVramFile : generated.tilesFile;
-  const compressedPath = slot === 'map' ? generated.mapVramCompressedFile : generated.tilesCompressedFile;
-  const entry = generatedCompressionEntry(generated, slot);
-  const normalizedCompressed = normalizeRelativePath(compressedPath || '');
-  if (
-    entry.codec === 'rle'
-    && normalizedCompressed
-    && normalizeRelativePath(entry.file || '') === normalizedCompressed
-    && fs.existsSync(path.join(projectDir, normalizedCompressed))
-  ) {
-    return normalizedCompressed;
-  }
-  return rawPath;
+  // RLE removed: always ship the raw .bin buffer on CD. Any stale RLE sidecar left in
+  // older generated metadata is ignored, so existing projects build against the
+  // raw-only runtime without forcing a regenerate.
+  return slot === 'map' ? generated.mapVramFile : generated.tilesFile;
 }
 
 function addAssetCdDataFiles(projectDir, files, seen, asset) {

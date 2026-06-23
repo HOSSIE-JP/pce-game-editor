@@ -219,15 +219,15 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   const overlayFragment = fs.readFileSync(path.join(projectDir, 'src', 'generated', 'overlay_insert.ld'), 'utf-8');
   assert.match(overlayFragment, /\.vn_overlay 0x8000 : AT\(0x184d000\)/);
   assert.match(overlayFragment, /INSERT AFTER \.ram_bank132;/);
-  // The runtime declares bank133, the CD->bank133 loader, the overlay-tagged
-  // cd_rle_* functions (Phase B1), and the resident slot-4 dispatchers.
+  // The runtime declares bank133, the CD->bank133 loader, and overlay-tagged code.
+  // RLE was removed, so the cd_rle_* overlay decoders are gone; the overlay now holds
+  // only the sprite pattern-diff refresh.
   const runtimeSrc = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'), 'utf-8');
   assert.match(runtimeSrc, /PCE_RAM_BANK_AT\(133, 4\);/);
   assert.match(runtimeSrc, /static void load_overlay_code\(void\)/);
   assert.match(runtimeSrc, /#define VN_OVERLAY_CODE __attribute__\(\(noinline, section\(".vn_overlay"\)\)\)/);
-  assert.match(runtimeSrc, /static uint8_t VN_OVERLAY_CODE cd_rle_ref_to_vram\(/);
-  assert.match(runtimeSrc, /static uint8_t VN_OVERLAY_CODE cd_rle_bg_map_ref_to_vram\(/);
-  assert.match(runtimeSrc, /call_overlay_cd_rle_ref_to_vram\(/);
+  assert.doesNotMatch(runtimeSrc, /cd_rle_ref_to_vram/);
+  assert.match(runtimeSrc, /VN_OVERLAY_CODE refresh_scene_sprite_patterns_impl\(/);
   // The standalone Phase B0 overlay TU must no longer be synced into the project.
   assert.equal(fs.existsSync(path.join(projectDir, 'src', 'pce_vn_overlay.c')), false);
   // The embedded byte array only survives in the non-CD (#else) fallback path.
@@ -680,16 +680,18 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   // collectCdDataFiles only lists overlay.bin when it exists on disk; this test
   // exercises the raw layout without a prepareVisualNovelBuild reservation, so the
   // overlay blob is absent here.
+  // RLE removed: CD data files are the raw .bin buffers (the stale RLE metadata in
+  // the asset doc above is ignored by the raw-only build).
   const expectedCdDataFiles = [
     'assets/generated/vn/font.bin',
     'assets/generated/vn/scenes/000_opening.bin',
-    'assets/generated/bg_a/tiles.rle',
-    'assets/generated/bg_a/map_vram.rle',
-    'assets/generated/hero/patterns.rle',
+    'assets/generated/bg_a/tiles.bin',
+    'assets/generated/bg_a/map_vram.bin',
+    'assets/generated/hero/patterns.bin',
     'assets/generated/vn/scenes/001_next.bin',
-    'assets/generated/bg_b/tiles.rle',
-    'assets/generated/bg_b/map_vram.rle',
-    'assets/generated/rival/patterns.rle',
+    'assets/generated/bg_b/tiles.bin',
+    'assets/generated/bg_b/map_vram.bin',
+    'assets/generated/rival/patterns.bin',
     'assets/generated/voice/adpcm.bin',
   ];
   assert.deepEqual(vnManager.collectCdDataFiles(projectDir), expectedCdDataFiles);
@@ -726,10 +728,11 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   assert.match(header, /PCE_VN_EFFECT_FADE_OUT 0u/);
   assert.match(header, /PCE_VN_EFFECT_SHAKE 3u/);
   assert.match(header, /PCE_VN_EFFECT_FLASH 4u/);
-  // Font data holds sector 64; the overlay blob reserves sectors 65-66; scene
-  // packs follow after those and their assets.
+  // Font data holds sector 64; the overlay blob reserves sectors 65-66; scene packs
+  // follow after those and their (now uncompressed) assets. opening@67, then bg_a
+  // tiles (18432B=9 sectors) + map (1) + hero patterns (2) push next@80.
   assert.match(source, /\{ \{ 67u, 0u, 0u \}, 1u, \d+u, -1 \}/);
-  assert.match(source, /\{ \{ 71u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  assert.match(source, /\{ \{ 80u, 0u, 0u \}, 1u, \d+u, -1 \}/);
   assert.equal(openingPack[5], 4);
   assert.equal(openingPack[7], 1);
   assert.deepEqual(commandRecord(openingPack, 0), {
@@ -1496,9 +1499,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);/);
   assert.match(source, /prepare_cd_data_access\(\);[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);[\s\S]*pce_editor_vram_copy\(vram_dest, cd_transfer_scratch, chunk\);[\s\S]*resume_cdda_after_cd_data_access\(\);/);
   assert.match(source, /!ref->cd->sector_count \|\| !ref->size/);
-  assert.match(source, /static uint8_t VN_OVERLAY_CODE cd_rle_ref_to_vram\(uint16_t dest, const pce_editor_data_ref_t \*ref\)/);
-  assert.match(source, /stream->bytes_remaining = cd->byte_size;/);
-  assert.match(source, /if \(ref->cd->compression == PCE_EDITOR_CD_COMPRESSION_RLE\) return call_overlay_cd_rle_ref_to_vram\(dest, ref\);/);
+  // RLE removed: no cd_rle decoder, no overlay dispatch, no compression branch.
+  assert.doesNotMatch(source, /cd_rle_ref_to_vram/);
+  assert.doesNotMatch(source, /call_overlay_cd_rle/);
+  assert.doesNotMatch(source, /PCE_EDITOR_CD_COMPRESSION_RLE\) return/);
   assert.match(source, /cd_transfer_wait\(\);/);
   assert.match(source, /cd_sector_advance\(&sector\);\n    \}\n    mask_buffered_adpcm_completion_irq\(\);\n    resume_cdda_after_cd_data_access\(\);\n    return 1u;/);
   assert.doesNotMatch(source, /pce_cdb_cd_busy\(\)/);
@@ -1509,8 +1513,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);/);
   assert.match(source, /prepare_cd_data_access\(\);[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);/);
   assert.match(source, /pce_editor_vram_copy\(\(uint16_t\)\(dest \+ \(\(uint16_t\)row \* VN_MAP_WIDTH\)\), &cd_transfer_scratch\[local_offset\], row_bytes\);/);
-  assert.match(source, /static uint8_t VN_OVERLAY_CODE cd_rle_bg_map_ref_to_vram\(uint16_t dest, const pce_editor_data_ref_t \*ref, uint8_t copy_width_tiles, uint8_t copy_height_tiles\)/);
-  assert.match(source, /if \(ref->cd->compression == PCE_EDITOR_CD_COMPRESSION_RLE\) return call_overlay_cd_rle_bg_map_ref_to_vram\(dest, ref, copy_width_tiles, copy_height_tiles\);/);
+  assert.doesNotMatch(source, /cd_rle_bg_map_ref_to_vram/);
   assert.match(source, /static uint16_t bg_map_dest_from_tile\(const pce_editor_bg_asset_t \*bg, uint16_t tile_x, uint16_t tile_y\)/);
   assert.match(source, /copy_data_ref_to_vram\(\(uint16_t\)\(bg->tile_base \* 16u\), &bg->tiles, 16u\);\n    map_resident_data\(\);/);
   assert.match(source, /if \(bg->map\.cd && bg->map\.size\)\n    \{\n        VN_MAP_BANK130_FOR_CODE\(\);\n        if \(cd_bg_map_ref_to_vram\(map_dest, &bg->map, bg->width_tiles, bg->height_tiles\)\) return;\n    \}/);
