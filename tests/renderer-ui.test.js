@@ -413,6 +413,14 @@ test('PCE visual novel editor does not auto-insert CD-DA playback into new scene
   assert.match(renderer, /return \{ type: 'audio', kind: 'cdda', action: 'play', assetId: first\('cdda-track'\) \};/);
 });
 
+test('PCE visual novel editor keeps scene deletion in the scene list', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+
+  assert.doesNotMatch(renderer, /data-action="delete-scene"/);
+  assert.match(renderer, /data-scene-delete="\$\{esc\(item\.id\)\}"/);
+  assert.match(renderer, /function deleteScene\(sceneId = selectedId\)/);
+});
+
 test('PCE visual novel editor exposes resizable panes, command palette, detail editor, and drag ordering', () => {
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'style.css'), 'utf-8');

@@ -1,12 +1,12 @@
 # Phase 2 引き継ぎ: bank130 → bank133 overlay オフロード（message compositor）
 
-このドキュメントは、VN runtime の **bank130 を空けるために message グリフコンポジタを bank133 overlay へ移す**作業（Phase 2）を別担当（Codex）が引き継ぐための資料です。**未実装**。先に [docs/pce-vn-overlay-pathb.md](pce-vn-overlay-pathb.md)（overlay = Path B の機構）と [CLAUDE.md](../CLAUDE.md) の「メモリバンク / CD-ROM2」「VN sprite / VDC」節を読んでください。
+このドキュメントは、VN runtime の **bank130 を空けるために message グリフコンポジタを bank133 overlay へ移す**作業（Phase 2）の設計・実装記録です。**実装済み**。追加変更の前に [docs/pce-vn-overlay-pathb.md](pce-vn-overlay-pathb.md)（overlay = Path B の機構）と [CLAUDE.md](../CLAUDE.md) の「メモリバンク / CD-ROM2」「VN sprite / VDC」節を読んでください。
 
 ## なぜやるか（背景）
 
 - VN runtime のコードバンク 128/129/130 は恒常的に逼迫（95〜99%）。bank130 が満杯で、ADPCM/BG 中のスプライト破壊を直す **BG blit IRQ ガード**（`pce_editor_vram_copy` を noinline 常駐化してガード）が **LTO インラインカスケードで bank130 を ~700B 溢れさせて入らなかった**。
 - **Phase 1（完了・別ブランチ `refactor/vn-remove-rle` で commit `5e9fb26` 済み）**で RLE 圧縮を撤去し、**bank133 overlay が 4037B → 525B（約 3.5KB 空き）**になった。overlay は bank130 と MPR slot4 を時分割する offload 先なので、ここへ bank130 関数を移せば bank130 を空けられる。
-- 目標: bank130 に **700B 以上**の余力を作り、保留中の BG blit IRQ ガード等を収められるようにする。
+- 目標: bank130 に **700B 以上**の余力を作り、BG blit IRQ ガード等を収められるようにする。
 
 ## Phase 1 後の現状（実測）
 
@@ -18,6 +18,17 @@
 | .vn_overlay(VN_OVERLAY_CODE, bank133, slot4 と時分割) | 525B / 予約4096B | `refresh_scene_sprite_patterns_impl` のみ。**~3.5KB 空き** |
 
 128/129/130 は MPR slot2/3/4 に同時マップ（co-resident）。bank133 は overlay 実行時のみ slot4 に入り、その間 **bank130 は不可視**。
+
+## Phase 2 後の現状（Kitahe build 実測）
+
+`data/tools/llvm-mos-sdk/llvm-mos/bin/mos-pce-cd-clang -Oz -DPCE_EDITOR_TARGET_CD=1 -Wl,--print-memory-usage` で `data/projects/Kitahe` を link した値です。
+
+| バンク | 使用 | 備考 |
+|---|---|---|
+| bank128(.text + .rodata, slot2 常駐) | 7832B (95.61%) | resident dispatcher + `vn_glyph_decode`/`vn_glyph_stride` + BAT row guard |
+| bank129(VN_BANKED_CODE, slot3) | 7903B (96.47%) | 変更なし |
+| bank130(VN_BANKED_CODE2, slot4) | 6726B (82.10%) | message compositor 退避で約1.5KB以上確保 |
+| .vn_overlay(VN_OVERLAY_CODE, bank133, slot4 と時分割) | 2785B / 予約4096B | `refresh_scene_sprite_patterns_impl` + message compositor |
 
 ## overlay の機構（Path B のおさらい）
 
@@ -37,6 +48,7 @@
   }
   ```
 - **呼び出し元が bank130 でも OK**（resident ディスパッチャ経由なら、JSR 中に bank130 コードが unmap されても、戻り時に復帰する）。
+- **VDC を触る overlay dispatcher は IRQ lock を bank133 map の前に取り、bank130 復帰後に unlock する**。`pce_ram_bank133_map()` 後から lock まで、または unlock 後から `pce_ram_bank130_map()` までの隙間に ADPCM/CD external IRQ が入ると、slot4 が bank133 のまま IRQ 側が走ったり、VDC latch/MAWR が壊れて瞬間的な BG/メッセージ破壊になる。
 
 ## overlay 関数の鉄則（守らないと実機クラッシュ）
 
@@ -74,12 +86,12 @@ bank130 の以下を **overlay へ移す**（行番号は Phase 1 後の `templa
 1. **`vn_glyph_decode` / `vn_glyph_stride` を `VN_RESIDENT_CODE` 化。** ビルド通過確認（bank128 が ~数十B 増、129/130 が減るはず）。Geargrafx でメッセージ・選択肢が正常表示を確認。
 2. **compositor 7関数を `VN_OVERLAY_CODE` 化**し、overlay 化したエントリ（少なくとも `preload_message_glyph_masks` と `draw_message_*`）の先頭に `map_vn_data();` を追加（bank132 保証）。この時点では呼び出し元がまだ直呼びなのでビルドは通らない（次で直す）。
 3. **ディスパッチャ整備**（resident bank128）:
-   - 既存 `draw_message_next_glyph_locked` / `draw_message_text_locked`（IRQ ガード付きラッパー）を **`pce_ram_bank133_map()` → IRQ lock → overlay 関数 → IRQ unlock → `pce_ram_bank130_map()`** の形に変更（現状は `VN_MAP_BANK130_FOR_CODE()` 後に bank130 compositor を直呼び）。
+   - 既存 `draw_message_next_glyph_locked` / `draw_message_text_locked`（IRQ ガード付きラッパー）を **IRQ lock → `pce_ram_bank133_map()` → overlay 関数 → `pce_ram_bank130_map()` → IRQ unlock** の形に変更（現状は `VN_MAP_BANK130_FOR_CODE()` 後に bank130 compositor を直呼び）。
    - `call_overlay_preload_message_glyph_masks`（新規 resident）を追加し、`start_message`(~3354) の `preload_message_glyph_masks(message)` 呼びを置換。
    - `call_overlay_draw_message_glyph_at`（新規 resident）を追加し、`draw_choice_options`(3427,3433) の `draw_message_glyph_at(...)` 呼びを置換。
 4. **ビルド & `-Wl,--print-memory-usage`**: bank130 が ~1500B 減、overlay が ~2000B/4096予約 に増、bank128 が ディスパッチャ + decode/stride で微増、いずれもオーバーフローしないことを確認。`llvm-nm --print-size` で compositor が `.vn_overlay` に居ること、bank130 から消えたことを確認。
 5. **Geargrafx 実機検証**（必須・下記チェックリスト）。
-6. 余力確認後、別タスクで **BG blit IRQ ガード**を bank130 に入れる（`pce_editor_vram_copy` を noinline 常駐化 + IRQ lock。`docs/pce-testplay-debugging.md` の「割り込みと VDC レジスタの非再入性」参照）。
+6. **BG/BAT blit IRQ ガードも実装済み**。`pce_editor_vram_copy` は resident/noinline + IRQ lock になり、message window clear、`write_map_words()` の BAT 行更新、raw BG/map/font/sprite pattern blit が共通 guard を通る（`docs/pce-testplay-debugging.md` の「割り込みと VDC レジスタの非再入性」参照）。
 
 ## 検証チェックリスト（Geargrafx 実機）
 
@@ -94,7 +106,7 @@ bank130 の以下を **overlay へ移す**（行番号は Phase 1 後の `templa
 
 - overlay 関数から `delay_frame` を呼ぶ（自滅）。typewriter の frame 待ちは**呼び出し元**（`tick_active_message`/`start_message`、bank128）が持つので compositor は delay_frame を呼ばない設計を維持。
 - bank132 の `message_glyph_cache_masks` を slot6 未マップで読む（化け）。→ overlay エントリで `map_vn_data()`。
-- ディスパッチャで `pce_ram_bank130_map()` の復帰を忘れる / 順序を誤る（以後 bank130 不可視のまま暴走）。
+- ディスパッチャで `pce_ram_bank130_map()` の復帰を忘れる / 順序を誤る（以後 bank130 不可視のまま暴走）。VDC を触る overlay dispatcher は bank133 map 前に IRQ lock し、bank130 復帰後に unlock すること。
 - `-Oz` の LTO が compositor を bank130 呼び出し元へインライン展開してしまう（`VN_OVERLAY_CODE` の noinline で防ぐが、呼び出し元のインライン判断が動いて他バンクが溢れることがある。`--print-memory-usage` で必ず全バンク%確認）。
 - `always_inline` ストリームヘルパの noinline 化は別クラスのバグ（[[vn-glyph-stream-16bit-escape]]）。触らない。
 

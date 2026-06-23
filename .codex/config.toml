@@ -1,3 +1,5 @@
 [mcp_servers.geargrafx]
-command = "/Applications/Geargrafx.app/Contents/MacOS/geargrafx"
-args = ["--mcp-stdio"]
+command = "/Users/hossie/.local/bin/geargrafx-mcp-shim"
+args = []
+startup_timeout_sec = 30
+enabled = true

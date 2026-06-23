@@ -221,13 +221,15 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.match(overlayFragment, /INSERT AFTER \.ram_bank132;/);
   // The runtime declares bank133, the CD->bank133 loader, and overlay-tagged code.
   // RLE was removed, so the cd_rle_* overlay decoders are gone; the overlay now holds
-  // only the sprite pattern-diff refresh.
+  // the sprite pattern-diff refresh and the message glyph compositor.
   const runtimeSrc = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'), 'utf-8');
   assert.match(runtimeSrc, /PCE_RAM_BANK_AT\(133, 4\);/);
   assert.match(runtimeSrc, /static void load_overlay_code\(void\)/);
   assert.match(runtimeSrc, /#define VN_OVERLAY_CODE __attribute__\(\(noinline, section\(".vn_overlay"\)\)\)/);
   assert.doesNotMatch(runtimeSrc, /cd_rle_ref_to_vram/);
   assert.match(runtimeSrc, /VN_OVERLAY_CODE refresh_scene_sprite_patterns_impl\(/);
+  assert.match(runtimeSrc, /VN_OVERLAY_CODE draw_message_glyph_at\(/);
+  assert.match(runtimeSrc, /VN_RESIDENT_CODE call_overlay_draw_message_glyph_at\(/);
   // The standalone Phase B0 overlay TU must no longer be synced into the project.
   assert.equal(fs.existsSync(path.join(projectDir, 'src', 'pce_vn_overlay.c')), false);
   // The embedded byte array only survives in the non-CD (#else) fallback path.
@@ -1291,7 +1293,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   // Shared strip tiles are rebuilt from the previous + current glyph (no VRAM
   // read-back to accumulate); active-message masks are served from RAM.
   assert.doesNotMatch(source, /read_msg_tile_mask/);
-  assert.match(source, /static void VN_BANKED_CODE2 add_glyph_tile\(/);
+  assert.match(source, /static void VN_OVERLAY_CODE add_glyph_tile\(/);
   assert.match(source, /if \(gpx1 <= tile_x0 \|\| gpx0 >= tile_x1\) return;/);
   assert.doesNotMatch(source, /for \(gx = 0u; gx < VN_GLYPH_W; gx\+\+\)/);
   assert.match(source, /static uint16_t composer_prev_mask\[VN_GLYPH_MASK_WORDS\]/);
@@ -1300,6 +1302,12 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static pce_vn_message_t active_message_state __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(source, /__asm__ volatile\([\s\S]*lda \$0000\\n"[\s\S]*and #\$20\\n"[\s\S]*bne vn_wait_vblank_done%=/);
   assert.doesNotMatch(source, /volatile uint16_t guard;/);
+  // All shared VRAM copy paths are resident/noinline and IRQ-guarded; this covers
+  // message window clears and raw BG/map/font/sprite pattern blits, not only glyph draw.
+  assert.match(source, /static void VN_RESIDENT_CODE pce_editor_vram_copy\(uint16_t dest, const uint8_t \*source, uint16_t length\)/);
+  assert.match(source, /static void VN_RESIDENT_CODE pce_editor_vram_copy[\s\S]*uint8_t irq = vn_vdc_irq_lock\(\);[\s\S]*pce_vdc_copy_to_vram\(dest, source, length\);[\s\S]*vn_vdc_irq_unlock\(irq\);/);
+  assert.match(source, /static void write_map_words\(uint16_t map_addr, const uint16_t \*words, uint16_t count\)\n\{\n    pce_editor_vram_copy\(map_addr, \(const uint8_t \*\)words, \(uint16_t\)\(count \* 2u\)\);\n\}/);
+  assert.doesNotMatch(source, /static void write_map_words[\s\S]*pce_vdc_poke\(VDC_REG_VRAM_WRITE_ADDR, map_addr\);[\s\S]*pce_vdc_poke\(VDC_REG_VRAM_DATA, words\[i\]\);/);
   // Compositor scratch must be static (section .bss), not stack arrays: large stack
   // arrays in banked code were read back as zero, corrupting the BAT/strip writes.
   assert.match(source, /static uint16_t msg_bat_row\[VN_MSG_TILE_COLS\] __attribute__\(\(section\("\.bss"\)\)\);/);
@@ -1313,22 +1321,26 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /\(void\)pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);\n        cd_transfer_wait\(\);\n        pce_editor_vram_copy\(vram_dest, cd_transfer_scratch, chunk\);/);
   assert.match(source, /upload_ui_palette\(\);\n    upload_font_tiles\(\);\n    upload_font_sprite_patterns\(\);\n    upload_blank_tile\(\);\n    clear_screen_map\(\);/);
   assert.doesNotMatch(source, /vce_write_color\(0u, 0x0000u\);/);
-  assert.match(source, /static void VN_BANKED_CODE2 encode_msg_tile\(const uint8_t \*mask8, uint8_t \*out32\)/);
+  assert.match(source, /static void VN_OVERLAY_CODE encode_msg_tile\(const uint8_t \*mask8, uint8_t \*out32\)/);
   assert.match(source, /static void VN_BANKED_CODE2 clear_window_cells\(void\)/);
   // The 12x12 compositor preloads message masks before voice playback and falls
   // back to VRAM reads only for uncached glyphs.
-  assert.match(source, /preload_message_glyph_masks\(message\);\n        play_adpcm_voice\(message->voice_index\);/);
+  assert.match(source, /call_overlay_preload_message_glyph_masks\(message\);\n        play_adpcm_voice\(message->voice_index\);/);
   assert.match(source, /gmask = cached_message_glyph_mask\(glyph\);\n    if \(!gmask\)/);
   assert.match(source, /pce_vdc_copy_from_vram\(msg_gmask,/);
   assert.match(source, /const uint16_t px0 = \(uint16_t\)col \* VN_GLYPH_W;/);
   assert.match(source, /clear_window_cells\(\);/);
   assert.doesNotMatch(source, /fill_window_rect/);
-  // draw_message_next_glyph / draw_message_text live in bank130 (VN_BANKED_CODE2)
-  // to keep the resident bank128 and the bank129 interpreter within budget.
-  assert.match(source, /static uint8_t VN_BANKED_CODE2 draw_message_next_glyph/);
+  // draw_message_next_glyph / draw_message_text live in the bank133 overlay; the
+  // resident wrappers mask IRQs across bank133 map, overlay VDC work, and bank130 restore.
+  assert.match(source, /static uint8_t VN_OVERLAY_CODE draw_message_next_glyph/);
+  assert.match(source, /uint8_t irq = vn_vdc_irq_lock\(\);\n    pce_ram_bank133_map\(\);\n    complete = draw_message_next_glyph\(message\);\n    pce_ram_bank130_map\(\);\n    vn_vdc_irq_unlock\(irq\);/);
+  assert.match(source, /uint8_t irq = vn_vdc_irq_lock\(\);\n    pce_ram_bank133_map\(\);\n    draw_message_text\(message\);\n    pce_ram_bank130_map\(\);\n    vn_vdc_irq_unlock\(irq\);/);
+  assert.match(source, /uint8_t irq = vn_vdc_irq_lock\(\);\n    pce_ram_bank133_map\(\);\n    preload_message_glyph_masks\(message\);\n    pce_ram_bank130_map\(\);\n    vn_vdc_irq_unlock\(irq\);/);
+  assert.match(source, /uint8_t irq = vn_vdc_irq_lock\(\);\n    pce_ram_bank133_map\(\);\n    draw_message_glyph_at\(glyph, col, row\);\n    pce_ram_bank130_map\(\);\n    vn_vdc_irq_unlock\(irq\);/);
   // The runtime applies the editor-baked text_speed; it does not recompute the
   // ADPCM-synced speed at runtime.
-  assert.match(source, /message_text_speed = message->text_speed_frames;\n        preload_message_glyph_masks\(message\);\n        play_adpcm_voice\(message->voice_index\);/);
+  assert.match(source, /message_text_speed = message->text_speed_frames;\n        call_overlay_preload_message_glyph_masks\(message\);\n        play_adpcm_voice\(message->voice_index\);/);
   assert.match(source, /active_message_state = \*message;\n        message = &active_message_state;/);
   const tickActiveMessageMatch = source.match(/static void tick_active_message\(void\)[\s\S]*?\n\}/);
   assert.ok(tickActiveMessageMatch);

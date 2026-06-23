@@ -673,7 +673,7 @@ sequenceDiagram
   RT->>VDC: display enable / fade in
 ```
 
-背景は `upload_bg_graphics()` で palette、tiles、map を転送します。BG map は `VN_MAP_WIDTH = 32` の BAT として扱われます。CD-ROM2 target では raw data sector を 1 セクタずつ `cd_transfer_scratch` へ読み込み `pce_editor_vram_copy()` で VRAM へ転送します（visual asset は常に無圧縮。RLE は撤去）。
+背景は `upload_bg_graphics()` で palette、tiles、map を転送します。BG map は `VN_MAP_WIDTH = 32` の BAT として扱われます。CD-ROM2 target では raw data sector を 1 セクタずつ `cd_transfer_scratch` へ読み込み、resident/noinline かつ IRQ guard 付きの `pce_editor_vram_copy()` で VRAM へ転送します。BAT 行更新を行う `write_map_words()` も同じ helper を通ります（visual asset は常に無圧縮。RLE は撤去）。
 
 ### スプライト
 

@@ -11,7 +11,8 @@ CD-ROM2 VN runtime の **コードオーバーレイ機構**（未使用物理 b
 - **Path B = 未使用物理 bank133 にコードを置き、CD からブート時にロードして slot4 を bank130 と時分割する**機構。
   - **Phase B0（完了・コミット ebb9f78）**: bank133 への CD ロード基盤（no-op オーバーレイ）。
   - **Phase B1（完了・当時の実測）**: 実コード（CD RLE 展開 `cd_rle_ref_to_vram` / `cd_rle_bg_map_ref_to_vram`）をオーバーレイへ退避し、**bank130 を 95% → 55%（7782 → 4494 bytes、約3.3KB）緩和**。Geargrafx で BG/sprite/入力の正常動作を実証済み。
-- **重要な認識**: B1 で得た余白は「一度きりの約3.3KB ＋ 再利用可能な退避の仕組み」。常駐コード総枠（3バンク＝約24KB）は増えていない。その後の VN runtime 追加により、meta on-demand 強制の Kitahe では `.text+.rodata`=8093B、bank129=8079B、bank130=8155B、overlay=3775B/4096B まで逼迫している。
+  - **Phase 2（完了）**: RLE 撤去後に空いた overlay へ message グリフコンポジタを退避。Kitahe build 実測で bank130 は 6726B/8192B、`.vn_overlay` は 2785B/4096B。
+- **重要な認識**: B1 で得た余白は「一度きりの約3.3KB ＋ 再利用可能な退避の仕組み」。常駐コード総枠（3バンク＝約24KB）は増えていない。Phase 2 後も overlay は 4KB 予約内だが、追加退避時は `-Wl,--print-memory-usage` と `llvm-size -A` で bank128/129/130/`.vn_overlay` を必ず確認する。
 
 ## 2. アーキテクチャ全体像
 
@@ -34,6 +35,8 @@ CD-ROM2 VN runtime の **コードオーバーレイ機構**（未使用物理 b
    pce_ram_bank130_map()  → MPR4 = bank130 に復帰
 ```
 
+VDC を触る overlay（message compositor など）は、上の bank swap 全体を `vn_vdc_irq_lock()` / `vn_vdc_irq_unlock()` で囲みます。順序は **IRQ lock → `pce_ram_bank133_map()` → overlay 関数 → `pce_ram_bank130_map()` → IRQ unlock** です。bank133 map 後から lock まで、または unlock 後から bank130 復帰までに ADPCM/CD external IRQ が入ると、slot4 が bank133 の状態を IRQ 側へ見せたり、VDC latch/MAWR を壊して数フレームだけ BG/メッセージが崩れることがあります。
+
 ### co-residency（最重要の実行時制約）
 - slot4（CPU 0x8000-0x9fff）は **bank130 と bank133 が時分割**で共有する。オーバーレイ実行中は **bank130 が見えない**。
 - ⇒ **オーバーレイ関数は bank130 の関数を呼べない**。呼んでよいのは slot2(bank128)・slot3(bank129)・`always_inline` ヘルパ・console_ram(zp)・CD BIOS(MPR7) のみ。
@@ -46,8 +49,8 @@ CD-ROM2 VN runtime の **コードオーバーレイ機構**（未使用物理 b
 | オーバーレイ関数の配置タグ `VN_OVERLAY_CODE` | `template/template_pce_vn_cd/src/pce_vn_runtime.c`（マクロ定義部）|
 | bank133 宣言 `PCE_RAM_BANK_AT(133, 4)` | 同上（先頭バンク宣言部）|
 | ブート時ローダ `load_overlay_code()` | 同上（`init_video()` から呼ぶ）|
-| 常駐 dispatcher `call_overlay_cd_rle_ref_to_vram` / `..._bg_map_...` | 同上（`cd_data_ref_to_vram` の直前）|
-| 退避済み関数 `cd_rle_ref_to_vram` / `cd_rle_bg_map_ref_to_vram` / `refresh_scene_sprite_patterns_impl` | 同上（`VN_OVERLAY_CODE` タグ）|
+| 常駐 dispatcher `refresh_scene_sprite_patterns` / `draw_message_next_glyph_locked` / `draw_message_text_locked` / `call_overlay_preload_message_glyph_masks` / `call_overlay_draw_message_glyph_at` | 同上 |
+| 退避済み関数 `refresh_scene_sprite_patterns_impl` / `draw_message_glyph_at` / `draw_message_next_glyph` / `draw_message_text` / `preload_message_glyph_masks` / message compositor helper 群 | 同上（`VN_OVERLAY_CODE` タグ）|
 | オーバーレイ定数（LMA/予約 sector/section 名等） | `pce-vn-manager.js`（`VN_OVERLAY_*`）|
 | 予約・fragment 生成・抽出 | `pce-vn-manager.js`: `ensureOverlayReservation` / `writeOverlayFragment` / `overlayLinkerArgs` / `finalizeOverlayBlob` |
 | link への `-Wl,-T` 注入 | `pce-build-system.js`: `buildCommandForProject`（`vnManager.overlayLinkerArgs(projectDir)`）|
@@ -57,7 +60,7 @@ CD-ROM2 VN runtime の **コードオーバーレイ機構**（未使用物理 b
 
 ### 現在の定数（`pce-vn-manager.js`）
 - `VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000`（実行アドレス＝slot4）
-- `VN_OVERLAY_RESERVED_SECTORS = 2`（= 4096 bytes、CD/bank133 への固定予約。直近 Kitahe meta 強制で 3775 bytes）
+- `VN_OVERLAY_RESERVED_SECTORS = 2`（= 4096 bytes、CD/bank133 への固定予約。Phase 2 後の Kitahe build 実測で 2785 bytes）
 - `VN_OVERLAY_LMA = 0x0184d000`（bank132 末尾 CPU 0xd000、良性 LMA）
 - `VN_OVERLAY_SECTION = '.vn_overlay'`
 
@@ -65,7 +68,7 @@ CD-ROM2 VN runtime の **コードオーバーレイ機構**（未使用物理 b
 
 1. **退避候補を選ぶ**: 呼び出し先が bank130 を含まない自己完結した関数を選ぶ（後述の検証で確認）。RLE 展開のような「CD→VRAM のストリーミング処理」が好適。
 2. **タグを付ける**: `template/template_pce_vn_cd/src/pce_vn_runtime.c` で対象関数を `VN_BANKED_CODE2`（bank130）等から `VN_OVERLAY_CODE` に変更。
-3. **呼び出し元をラップする**: その関数を呼ぶ常駐コード（bank128 の `.text`、untagged）から、`call_overlay_*` ラッパ経由で呼ぶ。ラッパは `pce_ram_bank133_map()` → 関数 → `pce_ram_bank130_map()` の形（`#if defined(__PCE_CD__)` で囲み、非 CD は直接呼び出し）。
+3. **呼び出し元をラップする**: その関数を呼ぶ常駐コード（bank128 の `.text`、untagged）から、`call_overlay_*` ラッパ経由で呼ぶ。ラッパは `pce_ram_bank133_map()` → 関数 → `pce_ram_bank130_map()` の形（`#if defined(__PCE_CD__)` で囲み、非 CD は直接呼び出し）。VDC を触る overlay では、この 3 手を IRQ lock/unlock で外側から囲む。
    - **ラッパは必ず常駐（untagged = bank128）に置く**。bank130 や overlay に置くと swap 中に自分自身が消える。
 4. **ビルド**: `node tools/dev/vn-cli-build.js`
 5. **co-residency 検証（必須）**: ビルド後の elf でオーバーレイの外部呼び出し先を確認する。

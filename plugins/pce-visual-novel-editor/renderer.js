@@ -1317,7 +1317,6 @@ export function activatePlugin({ root, api, registerCapability }) {
               <span>Full BG</span>
             </label>
             <button class="btn-sm" type="button" data-action="preview" title="シーンをプレビュー再生">▶ プレビュー</button>
-            <button class="icon-btn danger" type="button" data-action="delete-scene" title="シーン削除" aria-label="シーン削除">×</button>
             <button class="btn-primary" type="button" data-action="save">保存</button>
           </div>
         </div>
@@ -2826,10 +2825,6 @@ export function activatePlugin({ root, api, registerCapability }) {
     }
     render();
   }
-
-  root.querySelector('[data-action="delete-scene"]').addEventListener('click', () => {
-    deleteScene(selectedId);
-  });
 
   const handleWindowResize = () => fitStageNodes();
   window.addEventListener('resize', handleWindowResize);

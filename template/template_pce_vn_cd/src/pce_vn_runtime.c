@@ -687,14 +687,11 @@ static uint8_t VN_BANKED_CODE2 jump_to_command(uint16_t command_offset)
    bracket such a sequence so it runs with CPU IRQs masked. The I flag is saved and
    restored (php/plp) rather than an unconditional sei/cli pair, so we never re-enable
    IRQs in a context that had them disabled (e.g. boot, or a nested guard). The masked
-   window is short (<=64 SATB entries); pending IRQs are latched and fire the instant
-   the flag is restored, so CD/ADPCM servicing is deferred by microseconds, never
-   dropped. NOTE: the BG/font/sprite upload blits (pce_editor_vram_copy and the RLE
-   streaming writers) are the SAME non-reentrant sequence and ideally want the same
-   guard, but they inline into the already-full bank129/bank130 upload code and adding
-   the guard there overflows those banks. Protecting the BG-upload path needs runtime
-   code freed in bank130 first (rebalance VN_BANKED_CODE/VN_BANKED_CODE2), so it is
-   left for a follow-up. */
+   window is short; pending IRQs are latched and fire the instant the flag is
+   restored, so CD/ADPCM servicing is deferred instead of dropped. pce_editor_vram_copy
+   is also resident/noinline and guarded here because message window clears, raw BG
+   blits, font uploads, and sprite pattern uploads all use the same MAWR + VRAM data
+   sequence. */
 #if defined(__PCE__) || defined(__PCE_CD__)
 /* No "memory" clobber: the VDC accesses these guards bracket are all volatile, and a
    volatile asm is ordered with respect to volatile memory accesses, so sei stays
@@ -716,14 +713,18 @@ static inline uint8_t vn_vdc_irq_lock(void) { return 0u; }
 static inline void vn_vdc_irq_unlock(uint8_t flags) { (void)flags; }
 #endif
 
-static void pce_editor_vram_copy(uint16_t dest, const uint8_t *source, uint16_t length)
+static void VN_RESIDENT_CODE pce_editor_vram_copy(uint16_t dest, const uint8_t *source, uint16_t length)
 {
 #if defined(__PCE_CD__)
+    uint8_t irq = vn_vdc_irq_lock();
     pce_vdc_set_copy_word();
     pce_vdc_copy_to_vram(dest, source, length);
+    vn_vdc_irq_unlock(irq);
 #elif defined(__PCE__)
+    uint8_t irq = vn_vdc_irq_lock();
     pce_vdc_set_copy_word();
     pce_vdc_copy_to_vram(dest, source, length);
+    vn_vdc_irq_unlock(irq);
 #else
     (void)dest;
     (void)source;
@@ -1600,25 +1601,7 @@ static void VN_BANKED_CODE2 upload_font_sprite_patterns(void)
 
 static void write_map_words(uint16_t map_addr, const uint16_t *words, uint16_t count)
 {
-#if defined(__PCE_CD__)
-    uint16_t i;
-    pce_vdc_set_copy_word();
-    pce_vdc_poke(VDC_REG_VRAM_WRITE_ADDR, map_addr);
-    for (i = 0; i < count; i++)
-    {
-        pce_vdc_poke(VDC_REG_VRAM_DATA, words[i]);
-    }
-#elif defined(__PCE__)
-    uint16_t i;
-    pce_vdc_set_copy_word();
-    pce_vdc_poke(VDC_REG_VRAM_WRITE_ADDR, map_addr);
-    for (i = 0; i < count; i++)
-    {
-        pce_vdc_poke(VDC_REG_VRAM_DATA, words[i]);
-    }
-#else
     pce_editor_vram_copy(map_addr, (const uint8_t *)words, (uint16_t)(count * 2u));
-#endif
 }
 
 static uint16_t ui_tile(uint16_t tile)
@@ -1707,7 +1690,7 @@ static uint8_t message_glyph_cache_valid __attribute__((section(".bss")));
 /* Build a PCE 4bpp 8x8 tile (16 words) from an 8-scanline 1bpp mask. A lit pixel
    is color index 15 (all four bitplanes set), so every plane byte equals the row
    mask; bit 0x80 is the leftmost pixel. */
-static void VN_BANKED_CODE2 encode_msg_tile(const uint8_t *mask8, uint8_t *out32)
+static void VN_OVERLAY_CODE encode_msg_tile(const uint8_t *mask8, uint8_t *out32)
 {
     uint8_t sy;
     for (sy = 0u; sy < 8u; sy++)
@@ -1722,7 +1705,7 @@ static void VN_BANKED_CODE2 encode_msg_tile(const uint8_t *mask8, uint8_t *out32
 
 /* OR a 12x12 glyph's pixels for one 8x8 tile (column tile_x0..+7, sub-band 0/1)
    into mask8. gpx0 is the glyph's left pixel; pixels outside the tile are ignored. */
-static void VN_BANKED_CODE2 add_glyph_tile(const uint16_t *gmask, uint16_t gpx0,
+static void VN_OVERLAY_CODE add_glyph_tile(const uint16_t *gmask, uint16_t gpx0,
     uint8_t tile_x0, uint8_t sub, uint8_t *mask8)
 {
     const uint16_t gpx1 = (uint16_t)(gpx0 + VN_GLYPH_W);
@@ -1800,7 +1783,7 @@ static void VN_BANKED_CODE2 clear_window_cells(void)
    sentinels PCE_VN_GLYPH_NEWLINE / _END so that escaped indices (bounded well below
    0xfffe) can never collide with them. Callers advance their own cursor by
    vn_glyph_stride() — kept by-value (no pointer mutation) for the HuC6280 backend. */
-static uint16_t VN_BANKED_CODE2 vn_glyph_decode(const uint8_t *glyphs, uint16_t pos)
+static uint16_t VN_RESIDENT_CODE vn_glyph_decode(const uint8_t *glyphs, uint16_t pos)
 {
     const uint8_t b = glyphs[pos];
     if (b == PCE_VN_GLYPH_ESCAPE)
@@ -1811,7 +1794,7 @@ static uint16_t VN_BANKED_CODE2 vn_glyph_decode(const uint8_t *glyphs, uint16_t 
 }
 
 /* Bytes consumed by the glyph entry at `pos` (3 for an escape entry, else 1). */
-static uint16_t VN_BANKED_CODE2 vn_glyph_stride(const uint8_t *glyphs, uint16_t pos)
+static uint16_t VN_RESIDENT_CODE vn_glyph_stride(const uint8_t *glyphs, uint16_t pos)
 {
     return (glyphs[pos] == PCE_VN_GLYPH_ESCAPE) ? 3u : 1u;
 }
@@ -1828,7 +1811,7 @@ static uint8_t VN_BANKED_CODE message_glyph_cache_find(uint16_t glyph)
     return VN_MESSAGE_GLYPH_CACHE_COUNT;
 }
 
-static const uint16_t *VN_BANKED_CODE2 cached_message_glyph_mask(uint16_t glyph)
+static const uint16_t *VN_OVERLAY_CODE cached_message_glyph_mask(uint16_t glyph)
 {
     const uint8_t index = message_glyph_cache_find(glyph);
     if (index >= VN_MESSAGE_GLYPH_CACHE_COUNT) return (const uint16_t *)0;
@@ -1836,14 +1819,14 @@ static const uint16_t *VN_BANKED_CODE2 cached_message_glyph_mask(uint16_t glyph)
     return message_glyph_cache_masks[index];
 }
 
-static void VN_RESIDENT_CODE preload_message_glyph_masks(const pce_vn_message_t *message)
+static void VN_OVERLAY_CODE preload_message_glyph_masks(const pce_vn_message_t *message)
 {
     uint16_t pos = 0u;
     uint8_t i;
+    map_vn_data();
     message_glyph_cache_count = 0u;
     message_glyph_cache_valid = 1u;
     if (!message || !message->glyphs) return;
-    map_vn_data();
     for (i = 0u; i < message->glyph_count; i++)
     {
         const uint16_t glyph = vn_glyph_decode(message->glyphs, pos);
@@ -1860,19 +1843,19 @@ static void VN_RESIDENT_CODE preload_message_glyph_masks(const pce_vn_message_t 
     }
 }
 #else
-static const uint16_t *VN_BANKED_CODE2 cached_message_glyph_mask(uint16_t glyph)
+static const uint16_t *VN_OVERLAY_CODE cached_message_glyph_mask(uint16_t glyph)
 {
     (void)glyph;
     return (const uint16_t *)0;
 }
 
-static void VN_BANKED_CODE2 preload_message_glyph_masks(const pce_vn_message_t *message)
+static void VN_OVERLAY_CODE preload_message_glyph_masks(const pce_vn_message_t *message)
 {
     (void)message;
 }
 #endif
 
-static void VN_BANKED_CODE2 draw_message_glyph_at(uint16_t glyph, uint8_t col, uint8_t row)
+static void VN_OVERLAY_CODE draw_message_glyph_at(uint16_t glyph, uint8_t col, uint8_t row)
 {
     const uint16_t px0 = (uint16_t)col * VN_GLYPH_W;
     const uint8_t tc0 = (uint8_t)(px0 >> 3);
@@ -1882,6 +1865,7 @@ static void VN_BANKED_CODE2 draw_message_glyph_at(uint16_t glyph, uint8_t col, u
     uint8_t use_prev;
     uint8_t tc;
     uint8_t k;
+    map_vn_data();
     if (glyph == 0u || glyph == PCE_VN_GLYPH_NEWLINE || glyph == PCE_VN_GLYPH_END)
     {
         composer_prev_valid = 0u; /* a blank/newline breaks the shared-tile chain */
@@ -1918,9 +1902,10 @@ static void VN_BANKED_CODE2 draw_message_glyph_at(uint16_t glyph, uint8_t col, u
     composer_row = row;
 }
 
-static uint8_t VN_BANKED_CODE2 draw_message_next_glyph(const pce_vn_message_t *message)
+static uint8_t VN_OVERLAY_CODE draw_message_next_glyph(const pce_vn_message_t *message)
 {
     uint16_t glyph;
+    map_vn_data();
     if (!message || !message->glyphs) return 1u;
     /* Reveal exactly one drawable glyph per call. Newlines are not spoken, so they
        are processed inline (advance the row) WITHOUT consuming a typewriter tick;
@@ -1952,12 +1937,13 @@ static uint8_t VN_BANKED_CODE2 draw_message_next_glyph(const pce_vn_message_t *m
     }
 }
 
-static void VN_BANKED_CODE2 draw_message_text(const pce_vn_message_t *message)
+static void VN_OVERLAY_CODE draw_message_text(const pce_vn_message_t *message)
 {
     uint8_t i;
     uint8_t col = 0;
     uint8_t row = 0;
     uint16_t pos = 0u;
+    map_vn_data();
     if (!message || !message->glyphs) return;
     for (i = 0; i < message->glyph_count; i++)
     {
@@ -3295,31 +3281,70 @@ static void shake_screen(uint8_t frames, uint8_t intensity)
     refresh_scene_sprites();
 }
 
-/* The glyph compositor (draw_message_glyph_at, bank130) does a VDC mask read plus a
-   composited-tile VDC write per glyph -- the same non-reentrant VDC sequence as the
+/* The glyph compositor (draw_message_glyph_at, bank133 overlay) does a VDC mask read
+   plus a composited-tile VDC write per glyph -- the same non-reentrant VDC sequence as the
    sprite SATB rewrite. It runs while a voiced ADPCM plays (external IRQ enabled), so an
    IRQ landing mid-write clobbers the MAWR and sprays glyph tile data outside the message
    window (UI-frame / BG noise at message-draw timing). Mask IRQs around the whole
-   message draw. These wrappers are resident (bank128); the compositor's own banks 129/
-   130 are full, and guarding the shared pce_editor_vram_copy directly perturbs LTO
-   inlining enough to overflow them, so the guard lives here at the bank128 call sites
-   instead. The masked window is one frame's glyph work (typically a single glyph for the
-   typewriter); no CD read happens inside, so deferring CD/ADPCM IRQs by that span is
-   safe. */
+   bank133 swap + message draw + bank130 restore sequence: an IRQ must never observe
+   slot4 while bank133 is mapped. These wrappers are resident (bank128); no CD read
+   happens inside, so deferring CD/ADPCM IRQs by that span is safe. */
 static uint8_t VN_RESIDENT_CODE draw_message_next_glyph_locked(const pce_vn_message_t *message)
 {
     uint8_t complete;
+#if defined(__PCE_CD__)
+    uint8_t irq = vn_vdc_irq_lock();
+    pce_ram_bank133_map();
+    complete = draw_message_next_glyph(message);
+    pce_ram_bank130_map();
+    vn_vdc_irq_unlock(irq);
+#else
     uint8_t irq = vn_vdc_irq_lock();
     complete = draw_message_next_glyph(message);
     vn_vdc_irq_unlock(irq);
+#endif
     return complete;
 }
 
 static void VN_RESIDENT_CODE draw_message_text_locked(const pce_vn_message_t *message)
 {
+#if defined(__PCE_CD__)
+    uint8_t irq = vn_vdc_irq_lock();
+    pce_ram_bank133_map();
+    draw_message_text(message);
+    pce_ram_bank130_map();
+    vn_vdc_irq_unlock(irq);
+#else
     uint8_t irq = vn_vdc_irq_lock();
     draw_message_text(message);
     vn_vdc_irq_unlock(irq);
+#endif
+}
+
+static void VN_RESIDENT_CODE call_overlay_preload_message_glyph_masks(const pce_vn_message_t *message)
+{
+#if defined(__PCE_CD__)
+    uint8_t irq = vn_vdc_irq_lock();
+    pce_ram_bank133_map();
+    preload_message_glyph_masks(message);
+    pce_ram_bank130_map();
+    vn_vdc_irq_unlock(irq);
+#else
+    preload_message_glyph_masks(message);
+#endif
+}
+
+static void VN_RESIDENT_CODE call_overlay_draw_message_glyph_at(uint16_t glyph, uint8_t col, uint8_t row)
+{
+#if defined(__PCE_CD__)
+    uint8_t irq = vn_vdc_irq_lock();
+    pce_ram_bank133_map();
+    draw_message_glyph_at(glyph, col, row);
+    pce_ram_bank130_map();
+    vn_vdc_irq_unlock(irq);
+#else
+    draw_message_glyph_at(glyph, col, row);
+#endif
 }
 
 static void start_message(uint8_t message_index)
@@ -3351,7 +3376,7 @@ static void start_message(uint8_t message_index)
             REQUEST_SPRITE_REFRESH_FULL();
         }
         message_text_speed = message->text_speed_frames;
-        preload_message_glyph_masks(message);
+        call_overlay_preload_message_glyph_masks(message);
         play_adpcm_voice(message->voice_index);
         VN_MAP_BANK130_FOR_CODE();
         if (!message_text_speed)
@@ -3424,13 +3449,13 @@ static void VN_BANKED_CODE2 draw_choice_options(void)
         uint16_t pos = 0u;
         pce_vn_choice_option_t *option = VN_CHOICE_OPTION_SCRATCH;
         if (!scene_pack_read_choice_option(&active_scene_pack, choice, row, option)) continue;
-        draw_message_glyph_at(row == choice_selected_index ? PCE_VN_CHOICE_CURSOR_GLYPH : 0u, 0u, row);
+        call_overlay_draw_message_glyph_at(row == choice_selected_index ? PCE_VN_CHOICE_CURSOR_GLYPH : 0u, 0u, row);
         for (col = 0u; col < option->glyph_count && col + 1u < VN_TEXT_COLS; col++)
         {
             const uint16_t glyph = vn_glyph_decode(option->glyphs, pos);
             pos = (uint16_t)(pos + vn_glyph_stride(option->glyphs, pos));
             if (glyph == PCE_VN_GLYPH_END) break;
-            draw_message_glyph_at(glyph, (uint8_t)(col + 1u), row);
+            call_overlay_draw_message_glyph_at(glyph, (uint8_t)(col + 1u), row);
         }
     }
 }
