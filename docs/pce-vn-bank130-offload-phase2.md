@@ -25,9 +25,9 @@
 
 | バンク | 使用 | 備考 |
 |---|---|---|
-| bank128(.text + .rodata, slot2 常駐) | 8087B (98.72%) | resident dispatcher + `vn_glyph_decode`/`vn_glyph_stride` + BAT row guard + VBlank/VDC hardening |
+| bank128(.text + .rodata, slot2 常駐) | 8110B (99.00%) | resident dispatcher + `vn_glyph_decode`/`vn_glyph_stride` + BAT row guard + VBlank/VDC hardening |
 | bank129(VN_BANKED_CODE, slot3) | 7963B (97.20%) | `vn_vdc_set_copy_word` / `vn_wait_next_vblank` 等 |
-| bank130(VN_BANKED_CODE2, slot4) | 7545B (92.10%) | message compositor 退避で余力確保。sprite 差分 refresh と message window blanking helper は bank130 常駐 |
+| bank130(VN_BANKED_CODE2, slot4) | 7686B (93.82%) | message compositor 退避で余力確保。sprite 差分 refresh と message window BAT remap helper は bank130 常駐 |
 | .vn_overlay(VN_OVERLAY_CODE, bank133, slot4 と時分割) | 2260B / 予約4096B | message compositor |
 
 ## overlay の機構（Path B のおさらい）
@@ -79,7 +79,7 @@ bank130 の以下を **overlay へ移す**（行番号は Phase 1 後の `templa
 
 ## 結合（重要）: `draw_choice_options`
 
-`draw_choice_options`(~3412, `VN_BANKED_CODE2`/bank130) は **`scene_pack_read_choice` / `scene_pack_read_choice_option`（bank130）と `clear_window_cells`（bank130）を呼ぶため overlay へ移せない**。一方で選択肢グリフ描画に `draw_message_glyph_at` / `vn_glyph_decode` / `vn_glyph_stride` を使う（runtime.c 3427/3430/3431/3433）。移行後:
+`draw_choice_options`(~3412, `VN_BANKED_CODE2`/bank130) は **`scene_pack_read_choice` / `scene_pack_read_choice_option`（bank130）と message window の BAT remap / strip tile clear（bank130）を呼ぶため overlay へ移せない**。一方で選択肢グリフ描画に `draw_message_glyph_at` / `vn_glyph_decode` / `vn_glyph_stride` を使う（runtime.c 3427/3430/3431/3433）。移行後:
 - `vn_glyph_decode` / `vn_glyph_stride` は resident 化するので `draw_choice_options` から直接呼べる（変更不要）。
 - `draw_message_glyph_at` は overlay へ移るので、`draw_choice_options` は **`call_overlay_draw_message_glyph_at`（resident ディスパッチャ）経由**で呼ぶ（選択肢は低頻度なので毎グリフ bank133 map/restore のオーバーヘッド許容）。
 
@@ -93,7 +93,7 @@ bank130 の以下を **overlay へ移す**（行番号は Phase 1 後の `templa
    - `call_overlay_draw_message_glyph_at`（新規 resident）を追加し、`draw_choice_options`(3427,3433) の `draw_message_glyph_at(...)` 呼びを置換。
 4. **ビルド & `-Wl,--print-memory-usage`**: bank130 が減り、overlay が ~2.2KB/4096予約に増え、bank128 が ディスパッチャ + decode/stride で微増しても、いずれもオーバーフローしないことを確認。`llvm-nm --print-size` で compositor が `.vn_overlay` に居ること、bank130 から消えたことを確認。
 5. **Geargrafx 実機検証**（必須・下記チェックリスト）。
-6. **BG/BAT blit IRQ ガードも実装済み**。`pce_editor_vram_copy` は resident/noinline + IRQ lock になり、message window clear、`write_map_words()` の BAT 行更新、raw BG/map/font/sprite pattern blit が共通 guard を通る。message 開始/全文 reveal は display blank 中に `clear_window_cells()` と glyph 一括描画を済ませる（`docs/pce-testplay-debugging.md` の「割り込みと VDC レジスタの非再入性」参照）。
+6. **BG/BAT blit IRQ ガードも実装済み**。`pce_editor_vram_copy` は resident/noinline + IRQ lock になり、message window clear、`write_map_words()` の BAT 行更新、raw BG/map/font/sprite pattern blit が共通 guard を通る。message 開始/全文 reveal/choice 再描画は message 窓 BAT だけを `PCE_VN_BLANK_TILE` へ一時退避し、strip tile clear と glyph 一括描画を済ませてから strip BAT へ戻す（R5 の全画面 display blank と `pending_display_enable` は Message 用には使わない）。`docs/pce-testplay-debugging.md` の「割り込みと VDC レジスタの非再入性」参照。
 
 ## 検証チェックリスト（Geargrafx 実機）
 

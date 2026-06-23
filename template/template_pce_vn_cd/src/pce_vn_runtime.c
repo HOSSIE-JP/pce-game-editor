@@ -76,8 +76,9 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_MSG_TILE_ROWS 8u
 #define VN_MSG_TILE_COUNT (VN_MSG_TILE_COLS * VN_MSG_TILE_ROWS)
 /* The 208-tile message strip the compositor owns starts at the (generated)
-   font tile base; the BAT window cells point at these tiles permanently and
-   only the tile pixel data is rewritten while text reveals. */
+   font tile base. The BAT window cells normally point at this strip; during
+   bulk clear/full-reveal updates they temporarily point at the dedicated blank
+   tile so the visible screen is not globally blanked. */
 #define VN_MSG_STRIP_TILE_BASE PCE_VN_FONT_TILE_BASE
 /* One dedicated, always-zero tile for the BG/UI blank fill (the old blank tile
    aliased the font base, which is now dynamic strip data). */
@@ -1809,22 +1810,27 @@ static uint8_t msg_enc[32] __attribute__((section(".bss")));
 static uint8_t msg_mask8[8] __attribute__((section(".bss")));
 static uint16_t msg_gmask[VN_GLYPH_MASK_WORDS] __attribute__((section(".bss")));
 
-static void VN_BANKED_CODE2 clear_window_cells(void)
+static void VN_BANKED_CODE2 map_message_window_cells(uint8_t blank)
 {
     uint8_t tr;
     uint8_t tc;
-    /* Point the 26x8 window BAT cells at the sequential strip tiles (once). */
     for (tr = 0u; tr < VN_MSG_TILE_ROWS; tr++)
     {
+        const uint16_t row_tile = (uint16_t)(VN_MSG_STRIP_TILE_BASE
+            + ((uint16_t)tr * VN_MSG_TILE_COLS));
         for (tc = 0u; tc < VN_MSG_TILE_COLS; tc++)
         {
-            msg_bat_row[tc] = ui_tile((uint16_t)(VN_MSG_STRIP_TILE_BASE
-                + ((uint16_t)tr * VN_MSG_TILE_COLS) + tc));
+            msg_bat_row[tc] = ui_tile(blank ? PCE_VN_BLANK_TILE : (uint16_t)(row_tile + tc));
         }
         write_map_words((uint16_t)(((VN_TEXT_Y + tr) * VN_MAP_WIDTH) + VN_TEXT_X),
             msg_bat_row, VN_MSG_TILE_COLS);
     }
-    /* Blank every strip tile's pixel data. */
+}
+
+static void VN_BANKED_CODE2 clear_window_tile_pixels(void)
+{
+    uint8_t tr;
+    uint8_t tc;
     for (tc = 0u; tc < 32u; tc++) msg_enc[tc] = 0u;
     for (tr = 0u; tr < VN_MSG_TILE_COUNT; tr++)
     {
@@ -3433,10 +3439,17 @@ static void VN_RESIDENT_CODE call_overlay_draw_message_glyph_at(uint16_t glyph, 
 static uint8_t VN_BANKED_CODE2 begin_message_window_vram_update(void)
 {
 #if defined(__PCE_CD__)
-    if (pending_display_enable) return 0u;
-    display_disable();
-    pending_display_enable = 1u;
+    if (pending_display_enable)
+    {
+        map_message_window_cells(0u);
+        return 0u;
+    }
+    vn_wait_next_vblank();
+    map_message_window_cells(1u);
     return 1u;
+#elif defined(__PCE__)
+    map_message_window_cells(0u);
+    return 0u;
 #else
     return 0u;
 #endif
@@ -3444,10 +3457,10 @@ static uint8_t VN_BANKED_CODE2 begin_message_window_vram_update(void)
 
 static void VN_BANKED_CODE2 end_message_window_vram_update(uint8_t restore_display)
 {
-#if defined(__PCE_CD__)
+#if defined(__PCE__) || defined(__PCE_CD__)
     if (!restore_display) return;
-    display_enable();
-    pending_display_enable = 0u;
+    vn_wait_next_vblank();
+    map_message_window_cells(0u);
     delay_frame();
 #else
     (void)restore_display;
@@ -3484,7 +3497,7 @@ static void start_message(uint8_t message_index)
         }
         message_text_speed = message->text_speed_frames;
         restore_window_display = begin_message_window_vram_update();
-        clear_window_cells();
+        clear_window_tile_pixels();
         call_overlay_preload_message_glyph_masks(message);
         play_adpcm_voice(message->voice_index);
         VN_MAP_BANK130_FOR_CODE();
@@ -3550,12 +3563,14 @@ static void hide_sprites_for_asset_load(void)
 static void VN_BANKED_CODE2 draw_choice_options(void)
 {
     uint8_t row;
+    uint8_t restore_window_display;
     vn_choice_ref_t *choice = VN_CHOICE_SCRATCH;
     if (active_choice_index < 0) return;
     if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, choice)) return;
     /* Choices always use the default UI text color, not a prior message's tint. */
     apply_message_text_color(PCE_VN_MESSAGE_COLOR_NONE);
-    clear_window_cells();
+    restore_window_display = begin_message_window_vram_update();
+    clear_window_tile_pixels();
     for (row = 0u; row < choice->option_count && row < VN_TEXT_ROWS; row++)
     {
         uint8_t col;
@@ -3571,6 +3586,8 @@ static void VN_BANKED_CODE2 draw_choice_options(void)
             call_overlay_draw_message_glyph_at(glyph, (uint8_t)(col + 1u), row);
         }
     }
+    end_message_window_vram_update(restore_window_display);
+    if (!restore_window_display && !pending_display_enable) delay_frame();
 }
 
 static void start_choice(uint8_t choice_index)
@@ -3614,11 +3631,15 @@ static uint8_t handle_choice_input(uint8_t pressed)
     if (pressed & (PAD_I | PAD_II | PAD_RUN))
     {
         pce_vn_choice_option_t *option = VN_CHOICE_OPTION_SCRATCH;
+        uint8_t restore_window_display;
         VN_MAP_BANK130_FOR_CODE();
         if (!scene_pack_read_choice_option(&active_scene_pack, choice, choice_selected_index, option)) return 0u;
         active_choice_index = -1;
         VN_MAP_BANK130_FOR_CODE();
-        clear_window_cells();
+        restore_window_display = begin_message_window_vram_update();
+        clear_window_tile_pixels();
+        end_message_window_vram_update(restore_window_display);
+        if (!restore_window_display && !pending_display_enable) delay_frame();
         if (choice->variable_index >= 0)
         {
             set_variable_value(choice->variable_index, option->value);

@@ -11,7 +11,7 @@ CD-ROM2 VN runtime の **コードオーバーレイ機構**（未使用物理 b
 - **Path B = 未使用物理 bank133 にコードを置き、CD からブート時にロードして slot4 を bank130 と時分割する**機構。
   - **Phase B0（完了・コミット ebb9f78）**: bank133 への CD ロード基盤（no-op オーバーレイ）。
   - **Phase B1（完了・当時の実測）**: 実コード（CD RLE 展開 `cd_rle_ref_to_vram` / `cd_rle_bg_map_ref_to_vram`）をオーバーレイへ退避し、**bank130 を 95% → 55%（7782 → 4494 bytes、約3.3KB）緩和**。Geargrafx で BG/sprite/入力の正常動作を実証済み。
-  - **Phase 2（完了）**: RLE 撤去後に空いた overlay へ message グリフコンポジタを退避。VBlank/VDC/SATB/message-window hardening 後の Kitahe build 実測で bank130 は 7545B/8192B、`.vn_overlay` は 2260B/4096B。
+  - **Phase 2（完了）**: RLE 撤去後に空いた overlay へ message グリフコンポジタを退避。VBlank/VDC/SATB/message-window hardening 後の Kitahe build 実測で bank130 は 7686B/8192B、`.vn_overlay` は 2260B/4096B。
 - **重要な認識**: B1 で得た余白は「一度きりの約3.3KB ＋ 再利用可能な退避の仕組み」。常駐コード総枠（3バンク＝約24KB）は増えていない。Phase 2 後も overlay は 4KB 予約内だが、追加退避時は `-Wl,--print-memory-usage` と `llvm-size -A` で bank128/129/130/`.vn_overlay` を必ず確認する。
 
 ## 2. アーキテクチャ全体像

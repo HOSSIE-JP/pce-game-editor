@@ -1327,14 +1327,17 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /upload_ui_palette\(\);\n    upload_font_tiles\(\);\n    upload_font_sprite_patterns\(\);\n    upload_blank_tile\(\);\n    clear_screen_map\(\);/);
   assert.doesNotMatch(source, /vce_write_color\(0u, 0x0000u\);/);
   assert.match(source, /static void VN_OVERLAY_CODE encode_msg_tile\(const uint8_t \*mask8, uint8_t \*out32\)/);
-  assert.match(source, /static void VN_BANKED_CODE2 clear_window_cells\(void\)/);
+  assert.match(source, /static void VN_BANKED_CODE2 map_message_window_cells\(uint8_t blank\)/);
+  assert.match(source, /msg_bat_row\[tc\] = ui_tile\(blank \? PCE_VN_BLANK_TILE : \(uint16_t\)\(row_tile \+ tc\)\);/);
+  assert.match(source, /static void VN_BANKED_CODE2 clear_window_tile_pixels\(void\)/);
+  assert.doesNotMatch(source, /static void VN_BANKED_CODE2 clear_window_cells\(void\)/);
   // The 12x12 compositor preloads message masks before voice playback and falls
   // back to VRAM reads only for uncached glyphs.
-  assert.match(source, /restore_window_display = begin_message_window_vram_update\(\);\n        clear_window_cells\(\);\n        call_overlay_preload_message_glyph_masks\(message\);\n        play_adpcm_voice\(message->voice_index\);/);
+  assert.match(source, /restore_window_display = begin_message_window_vram_update\(\);\n        clear_window_tile_pixels\(\);\n        call_overlay_preload_message_glyph_masks\(message\);\n        play_adpcm_voice\(message->voice_index\);/);
   assert.match(source, /gmask = cached_message_glyph_mask\(glyph\);\n    if \(!gmask\)/);
   assert.match(source, /pce_vdc_copy_from_vram\(msg_gmask,/);
   assert.match(source, /const uint16_t px0 = \(uint16_t\)col \* VN_GLYPH_W;/);
-  assert.match(source, /clear_window_cells\(\);/);
+  assert.match(source, /clear_window_tile_pixels\(\);/);
   assert.doesNotMatch(source, /fill_window_rect/);
   // draw_message_next_glyph / draw_message_text live in the bank133 overlay; the
   // resident wrappers mask IRQs across bank133 map, overlay VDC work, and bank130 restore.
@@ -1345,10 +1348,20 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /uint8_t irq = vn_vdc_irq_lock\(\);\n    pce_ram_bank133_map\(\);\n    draw_message_glyph_at\(glyph, col, row\);\n    pce_ram_bank130_map\(\);\n    vn_vdc_irq_unlock\(irq\);/);
   // The runtime applies the editor-baked text_speed; it does not recompute the
   // ADPCM-synced speed at runtime.
-  assert.match(source, /message_text_speed = message->text_speed_frames;\n        restore_window_display = begin_message_window_vram_update\(\);\n        clear_window_cells\(\);/);
+  assert.match(source, /message_text_speed = message->text_speed_frames;\n        restore_window_display = begin_message_window_vram_update\(\);\n        clear_window_tile_pixels\(\);/);
   assert.match(source, /end_message_window_vram_update\(restore_window_display\);\n        if \(!restore_window_display && !pending_display_enable\) delay_frame\(\);/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE2 begin_message_window_vram_update\(void\)[\s\S]*display_disable\(\);[\s\S]*pending_display_enable = 1u;[\s\S]*return 1u;/);
-  assert.match(source, /static void VN_BANKED_CODE2 end_message_window_vram_update\(uint8_t restore_display\)[\s\S]*display_enable\(\);[\s\S]*pending_display_enable = 0u;[\s\S]*delay_frame\(\);/);
+  const beginMessageWindowStart = source.indexOf('static uint8_t VN_BANKED_CODE2 begin_message_window_vram_update(void)');
+  const endMessageWindowStart = source.indexOf('static void VN_BANKED_CODE2 end_message_window_vram_update(uint8_t restore_display)');
+  const startMessageStart = source.indexOf('static void start_message(uint8_t message_index)');
+  assert.notEqual(beginMessageWindowStart, -1);
+  assert.notEqual(endMessageWindowStart, -1);
+  assert.notEqual(startMessageStart, -1);
+  const beginMessageWindowSource = source.slice(beginMessageWindowStart, endMessageWindowStart);
+  const endMessageWindowSource = source.slice(endMessageWindowStart, startMessageStart);
+  assert.match(beginMessageWindowSource, /map_message_window_cells\(0u\);[\s\S]*vn_wait_next_vblank\(\);[\s\S]*map_message_window_cells\(1u\);[\s\S]*return 1u;/);
+  assert.doesNotMatch(beginMessageWindowSource, /display_disable\(\)|pending_display_enable = 1u;/);
+  assert.match(endMessageWindowSource, /vn_wait_next_vblank\(\);[\s\S]*map_message_window_cells\(0u\);[\s\S]*delay_frame\(\);/);
+  assert.doesNotMatch(endMessageWindowSource, /display_enable\(\)|pending_display_enable = 0u;/);
   assert.match(source, /static void finish_active_message\(void\)[\s\S]*restore_window_display = begin_message_window_vram_update\(\);[\s\S]*draw_message_text_locked\(&active_message_state\);[\s\S]*end_message_window_vram_update\(restore_window_display\);/);
   assert.match(source, /active_message_state = \*message;\n        message = &active_message_state;/);
   const tickActiveMessageMatch = source.match(/static void tick_active_message\(void\)[\s\S]*?\n\}/);
