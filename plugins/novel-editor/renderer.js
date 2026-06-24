@@ -1,8 +1,10 @@
 import { activatePlugin as activateVnEditor } from '../pce-visual-novel-editor/renderer.js';
+import { activatePlugin as activateSystemSettings } from '../pce-vn-system-settings/renderer.js';
 import { activatePlugin as activateFontEditor } from '../pce-font-editor/renderer.js';
 
 const NOVEL_TABS = [
   { id: 'vn', label: 'スクリプト', pluginId: 'novel-editor', activate: activateVnEditor },
+  { id: 'system', label: 'システム設定', pluginId: 'novel-editor', activate: activateSystemSettings },
   { id: 'font', label: 'Font', pluginId: 'novel-editor', activate: activateFontEditor },
 ];
 

@@ -14,6 +14,26 @@ const MIN_CENTER_WIDTH = 340;
 const MIN_RIGHT_WIDTH = 320;
 const MAX_RIGHT_WIDTH = 720;
 const ADPCM_END_PAD_SECONDS = 2 / 60;
+const BG_FADE_SPEEDS = [
+  { value: 10, label: '速度1(速い)：10' },
+  { value: 20, label: '速度2：20' },
+  { value: 30, label: '速度3：30' },
+  { value: 40, label: '速度4：40' },
+  { value: 50, label: '速度5：50' },
+  { value: 60, label: '速度6(遅い)：60' },
+];
+const DEFAULT_BG_FADE_FRAMES = 30;
+const MESSAGE_SPEEDS = [
+  { value: 0, label: '速度1(速い)：0' },
+  { value: 10, label: '速度2：10' },
+  { value: 20, label: '速度3：20' },
+  { value: 30, label: '速度4：30' },
+  { value: 40, label: '速度5：40' },
+  { value: 50, label: '速度6(遅い)：50' },
+];
+const DEFAULT_MESSAGE_SPEED_FRAMES = 10;
+const DEFAULT_MESSAGE_AUTO_WAIT_FRAMES = 60;
+const VN_SYSTEM_SETTINGS_EVENT = 'pce-vn-system-settings:changed';
 
 // 入力チェックコマンドのボタン定義（runtime の PAD_* と同順・OR 条件用）。
 const INPUT_BUTTONS = [
@@ -84,6 +104,57 @@ function asNumber(value, fallback = 0) {
 
 function clamp(value, min, max, fallback = min) {
   return Math.max(min, Math.min(max, asNumber(value, fallback)));
+}
+
+function normalizeBgFadeFrames(value, fallback = DEFAULT_BG_FADE_FRAMES) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = asNumber(value, fallback);
+  let best = BG_FADE_SPEEDS[0].value;
+  let bestDistance = Math.abs(parsed - best);
+  for (const speed of BG_FADE_SPEEDS.slice(1)) {
+    const distance = Math.abs(parsed - speed.value);
+    if (distance < bestDistance) {
+      best = speed.value;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function bgFadeOptions(current) {
+  const selected = normalizeBgFadeFrames(current);
+  return BG_FADE_SPEEDS.map((speed) => (
+    `<option value="${speed.value}" ${speed.value === selected ? 'selected' : ''}>${esc(speed.label)}</option>`
+  )).join('');
+}
+
+function nearestOption(value, options = [], fallback = 0) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = asNumber(value, fallback);
+  if (!options.length) return fallback;
+  let best = options[0];
+  let bestDistance = Math.abs(parsed - best);
+  for (const option of options.slice(1)) {
+    const distance = Math.abs(parsed - option);
+    if (distance < bestDistance) {
+      best = option;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function normalizeMessageSpeedFrames(value, fallback = DEFAULT_MESSAGE_SPEED_FRAMES) {
+  return nearestOption(value, MESSAGE_SPEEDS.map((speed) => speed.value), fallback);
+}
+
+function normalizeSystemSettings(settings = {}) {
+  const raw = settings && typeof settings === 'object' ? settings : {};
+  return {
+    messageSpeedFrames: normalizeMessageSpeedFrames(raw.messageSpeedFrames ?? raw.textSpeedFrames ?? raw.speed),
+    messageAdvanceMode: String(raw.messageAdvanceMode ?? raw.advanceMode ?? raw.advance ?? 'button').trim().toLowerCase() === 'auto' ? 'auto' : 'button',
+    messageAutoWaitFrames: clamp(raw.messageAutoWaitFrames ?? raw.autoWaitFrames ?? raw.autoWait, 0, 255, DEFAULT_MESSAGE_AUTO_WAIT_FRAMES),
+  };
 }
 
 function safeId(value, fallback) {
@@ -421,11 +492,11 @@ function animationOptions(asset, current, label = 'default') {
 function defaultCommand(type, assets = []) {
   const first = (assetType) => assets.find((asset) => asset.type === assetType)?.id || '';
   if (type === 'background') {
-    return { type: 'background', assetId: first('image'), transition: 'fade', fadeOutFrames: 8, fadeInFrames: 16, x: 0, y: 0 };
+    return { type: 'background', assetId: first('image'), transition: 'fade', fadeOutFrames: DEFAULT_BG_FADE_FRAMES, fadeInFrames: DEFAULT_BG_FADE_FRAMES, x: 0, y: 0 };
   }
   if (type === 'sprite') {
     const assetId = first('sprite');
-    return { type: 'sprite', slot: 0, assetId, x: 128, y: DEFAULT_CHARACTER_Y, animationId: 'default', flipX: false, flipY: false, durationFrames: 0, visible: true };
+    return { type: 'sprite', slot: 0, assetId, x: 128, y: DEFAULT_CHARACTER_Y, animationId: 'default', flipX: false, flipY: false, visible: true };
   }
   if (type === 'audio') {
     return { type: 'audio', kind: 'cdda', action: 'play', assetId: first('cdda-track'), channel: 0 };
@@ -472,9 +543,6 @@ function defaultCommand(type, assets = []) {
     text: 'メッセージを入力してください。',
     textColor: '',
     voiceAssetId: first('adpcm'),
-    textSpeedFrames: 2,
-    advanceMode: 'button',
-    autoWaitFrames: 60,
     mouthSlot: 0,
     mouthAnimationId: '',
   };
@@ -483,6 +551,7 @@ function defaultCommand(type, assets = []) {
 function defaultDoc(assets = []) {
   return {
     version: 2,
+    settings: normalizeSystemSettings(),
     startScene: 'opening',
     scenes: [{
       id: 'opening',
@@ -506,9 +575,9 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
     return {
       type: 'background',
       assetId: asset?.type === 'image' ? asset.id : assets.find((entry) => entry.type === 'image')?.id || '',
-      transition: raw.transition === 'fade' ? 'fade' : 'cut',
-      fadeOutFrames: clamp(raw.fadeOutFrames, 0, 60, 0),
-      fadeInFrames: clamp(raw.fadeInFrames, 0, 60, raw.transition === 'fade' ? 16 : 0),
+      transition: 'fade',
+      fadeOutFrames: normalizeBgFadeFrames(raw.fadeOutFrames),
+      fadeInFrames: normalizeBgFadeFrames(raw.fadeInFrames),
       x: clamp(raw.x ?? raw.tileX ?? raw.mapX, 0, 63, 0),
       y: clamp(raw.y ?? raw.tileY ?? raw.mapY, 0, 31, 0),
     };
@@ -525,7 +594,6 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       animationId: String(raw.animationId || 'default').trim().slice(0, 32) || 'default',
       flipX: Boolean(raw.flipX ?? raw.flippedX ?? raw.hflip),
       flipY: Boolean(raw.flipY ?? raw.flippedY ?? raw.vflip),
-      durationFrames: clamp(raw.durationFrames ?? raw.moveFrames ?? raw.frames, 0, 255, 0),
       visible: raw.visible !== false,
     };
   }
@@ -676,9 +744,6 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
     text: messageText,
     textColor: snapHexToPce(raw.textColor),
     voiceAssetId: byId(raw.voiceAssetId)?.type === 'adpcm' ? raw.voiceAssetId : '',
-    textSpeedFrames: clamp(raw.textSpeedFrames ?? raw.speed, 0, 30, 2),
-    advanceMode: raw.advanceMode === 'auto' ? 'auto' : 'button',
-    autoWaitFrames: clamp(raw.autoWaitFrames, 0, 255, 60),
     mouthSlot: clamp(raw.mouthSlot, 0, 3, 0),
     mouthAnimationId: String(raw.mouthAnimationId || '').trim().slice(0, 32),
   };
@@ -722,6 +787,7 @@ function normalizeDoc(doc, assets) {
   const sceneIds = new Set(deduped.map((scene) => scene.id));
   return {
     version: 2,
+    settings: normalizeSystemSettings(doc?.settings || doc?.systemSettings || doc?.system),
     startScene: sceneIds.has(doc?.startScene) ? doc.startScene : deduped[0]?.id || 'opening',
     scenes: deduped.map((scene) => ({
       ...scene,
@@ -774,9 +840,21 @@ function normalizeDoc(doc, assets) {
 // toString() でそのまま埋め込むため、window.__PCE_VN_PREVIEW__ だけを入力にする。
 function previewRuntime() {
   const data = window.__PCE_VN_PREVIEW__ || { doc: { scenes: [] }, urls: {}, meta: {} };
+  const settings = data.doc.settings || {};
+  const messageSpeedFrameOptions = [0, 10, 20, 30, 40, 50];
+  const rawMessageSpeedFrames = Number(settings.messageSpeedFrames);
+  const messageSpeedFrames = Number.isFinite(rawMessageSpeedFrames)
+    ? messageSpeedFrameOptions.reduce((best, option) => (
+      Math.abs(option - rawMessageSpeedFrames) < Math.abs(best - rawMessageSpeedFrames) ? option : best
+    ), 10)
+    : 10;
+  const messageAdvanceMode = settings.messageAdvanceMode === 'auto' ? 'auto' : 'button';
+  const rawMessageAutoWaitFrames = Number(settings.messageAutoWaitFrames);
+  const messageAutoWaitFrames = Number.isFinite(rawMessageAutoWaitFrames) ? Math.max(0, Math.min(255, rawMessageAutoWaitFrames | 0)) : 60;
   const SCREEN_W = (data.screen && data.screen.w) || 256;
   const SCREEN_H = (data.screen && data.screen.h) || 224;
   const MSG = data.message || { x: 24, y: 160, cols: 17, rows: 4, cellW: 12, cellH: 16 };
+  const bgFadeFrameOptions = [10, 20, 30, 40, 50, 60];
   const scenesById = {};
   (data.doc.scenes || []).forEach((s) => { scenesById[s.id] = s; });
 
@@ -784,7 +862,7 @@ function previewRuntime() {
   style.textContent = [
     'html,body{margin:0;height:100%;background:#05070a;color:#e8eef5;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;}',
     '#pv-root{position:fixed;inset:0;display:flex;flex-direction:column;}',
-    '#pv-stage-wrap{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;}',
+    '#pv-stage-wrap{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;position:relative;}',
     '#pv-stage{position:relative;width:' + SCREEN_W + 'px;height:' + SCREEN_H + 'px;background:#000;transform-origin:center center;overflow:hidden;box-shadow:0 0 0 1px #000,0 10px 36px rgba(0,0,0,.6);}',
     '#pv-stage img{position:absolute;image-rendering:pixelated;transform-origin:top left;}',
     '#pv-msg{position:absolute;left:' + MSG.x + 'px;top:' + MSG.y + 'px;width:' + (MSG.cols * MSG.cellW) + 'px;height:' + (MSG.rows * MSG.cellH) + 'px;display:flex;flex-direction:column;}',
@@ -798,6 +876,12 @@ function previewRuntime() {
     '#pv-bar{height:34px;display:flex;align-items:center;gap:12px;padding:0 12px;background:#0b1118;border-top:1px solid #1d2733;font-size:11px;color:#9fb0c0;flex:none;}',
     '#pv-bar button{font:inherit;font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #2a3a4a;background:#13202c;color:#cfe0ee;cursor:pointer;}',
     '#pv-hint{margin-left:auto;color:#6b7a88;}',
+    '#pv-debug{position:absolute;right:12px;top:12px;width:190px;max-height:calc(100% - 24px);overflow:auto;background:rgba(5,10,18,.86);border:1px solid rgba(125,160,205,.35);border-radius:6px;color:#cfe0ee;font-size:11px;line-height:1.35;box-shadow:0 8px 24px rgba(0,0,0,.35);}',
+    '#pv-debug h2{margin:0;padding:7px 9px;border-bottom:1px solid rgba(125,160,205,.22);font-size:11px;color:#f3f8ff;}',
+    '#pv-vars{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:7px 9px;}',
+    '.pv-var-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9fb0c0;}',
+    '.pv-var-value{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#ffffff;text-align:right;}',
+    '.pv-var-empty{grid-column:1 / -1;color:#6b7a88;}',
     '.pv-shake{animation:pv-shake .4s linear;}',
     '@keyframes pv-shake{0%,100%{transform:none}20%{transform:translateX(-5px)}60%{transform:translateX(5px)}80%{transform:translateX(-3px)}}',
   ].join('\n');
@@ -811,7 +895,7 @@ function previewRuntime() {
     + '<div id="pv-msg" class="pv-hidden"></div>'
     + '<div id="pv-choice" class="pv-hidden"></div>'
     + '<div id="pv-effect"></div>'
-    + '</div></div>'
+    + '</div><aside id="pv-debug"><h2>Variables</h2><div id="pv-vars"></div></aside></div>'
     + '<div id="pv-bar"><button id="pv-restart">最初から</button><span id="pv-scene"></span>'
     + '<span id="pv-hint">クリック / Enter で進む ・ Esc で閉じる</span></div>';
   document.body.appendChild(root);
@@ -822,6 +906,7 @@ function previewRuntime() {
   const choiceBox = root.querySelector('#pv-choice');
   const effectLayer = root.querySelector('#pv-effect');
   const sceneLabel = root.querySelector('#pv-scene');
+  const varsBox = root.querySelector('#pv-vars');
 
   function fit() {
     const sc = Math.max(1, Math.min(stageWrap.clientWidth / SCREEN_W, stageWrap.clientHeight / SCREEN_H));
@@ -841,6 +926,26 @@ function previewRuntime() {
   let choiceState = null;
   const audio = { cdda: null, adpcm: null };
   const blockedAudio = { cdda: false, adpcm: false };
+  const variableInitialValues = {};
+  const variableNames = [];
+
+  function rememberVariable(name, initialValue, isDefinition) {
+    const key = String(name || '').trim();
+    if (!key) return;
+    if (!Object.prototype.hasOwnProperty.call(variableInitialValues, key)) {
+      variableNames.push(key);
+      variableInitialValues[key] = 0;
+    }
+    if (isDefinition) variableInitialValues[key] = s16(initialValue);
+  }
+
+  (data.doc.scenes || []).forEach((item) => {
+    (item.commands || []).forEach((command) => {
+      if (command.type === 'variable') rememberVariable(command.variableName, command.value, command.operation === 'define');
+      else if (command.type === 'choice') rememberVariable(command.variableName, 0, false);
+      else if (command.type === 'if' || command.type === 'switch') rememberVariable(command.variableName, 0, false);
+    });
+  });
 
   function s16(value) {
     let v = Number(value) | 0;
@@ -848,6 +953,32 @@ function previewRuntime() {
     return v;
   }
   function getVar(name) { return vars[name] || 0; }
+  function initialVars() {
+    const result = {};
+    variableNames.forEach((name) => { result[name] = s16(variableInitialValues[name]); });
+    return result;
+  }
+  function updateVarDebug() {
+    if (!varsBox) return;
+    if (!variableNames.length) {
+      varsBox.innerHTML = '<span class="pv-var-empty">未定義</span>';
+      return;
+    }
+    varsBox.innerHTML = variableNames.map((name) => (
+      '<span class="pv-var-name" title="' + name.replace(/"/g, '&quot;') + '">' + name + '</span>'
+      + '<span class="pv-var-value">' + String(getVar(name)) + '</span>'
+    )).join('');
+  }
+  function bgFadeFrames(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 30;
+    return bgFadeFrameOptions.reduce((best, option) => (
+      Math.abs(option - parsed) < Math.abs(best - parsed) ? option : best
+    ), 30);
+  }
+  function frameMs(frames) {
+    return Math.max(0, Number(frames) || 0) * 1000 / 60;
+  }
   function clearTimers() {
     if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
     if (waitTimer) { clearTimeout(waitTimer); waitTimer = null; }
@@ -913,7 +1044,7 @@ function previewRuntime() {
       const geo = spriteFrameGeometry(meta, layer.animationId);
       if (geo) {
         const node = document.createElement('div');
-        node.className = 'pv-layer';
+        node.className = 'pv-layer pv-sprite-layer';
         node.style.position = 'absolute';
         node.style.left = (layer.x || 0) + 'px';
         node.style.top = (layer.y || 0) + 'px';
@@ -922,7 +1053,7 @@ function previewRuntime() {
       }
     }
     const img = document.createElement('img');
-    img.className = 'pv-layer';
+    img.className = kind === 'background' ? 'pv-layer pv-bg-layer' : 'pv-layer pv-sprite-layer';
     img.src = data.urls[layer.assetId];
     const x = kind === 'background' ? (layer.x || 0) * 8 : (layer.x || 0);
     const y = kind === 'background' ? (layer.y || 0) * 8 : (layer.y || 0);
@@ -997,6 +1128,7 @@ function previewRuntime() {
       const hi = Math.max(c.min, c.max);
       vars[n] = s16(lo + Math.floor(Math.random() * (hi - lo + 1)));
     }
+    updateVarDebug();
   }
   function compare(a, op, b) {
     a = a | 0; b = b | 0;
@@ -1011,6 +1143,47 @@ function previewRuntime() {
     const kind = c.kind === 'adpcm' ? 'adpcm' : 'cdda';
     if (c.action === 'stop') { stopAudio(kind); return; }
     playAudio(kind, c.assetId, kind === 'cdda');
+  }
+  function scheduleRunAfter(ms) {
+    if (waitTimer) { clearTimeout(waitTimer); waitTimer = null; }
+    waitTimer = setTimeout(() => {
+      waitTimer = null;
+      run();
+    }, Math.max(0, ms));
+  }
+  function applyBackground(c) {
+    const nextBg = { assetId: c.assetId, x: c.x, y: c.y };
+    const fadeOut = bgFadeFrames(c.fadeOutFrames);
+    const fadeIn = bgFadeFrames(c.fadeInFrames);
+    const currentBg = stage.querySelector('.pv-bg-layer');
+    const continueWithNext = () => {
+      state.background = nextBg;
+      renderStage();
+      const nextNode = stage.querySelector('.pv-bg-layer');
+      const fadeInMs = frameMs(fadeIn);
+      if (!nextNode || !fadeInMs) {
+        run();
+        return;
+      }
+      nextNode.style.transition = 'none';
+      nextNode.style.opacity = '0';
+      void nextNode.offsetWidth;
+      nextNode.style.transition = 'opacity ' + fadeInMs + 'ms linear';
+      nextNode.style.opacity = '1';
+      scheduleRunAfter(fadeInMs);
+    };
+    const fadeOutMs = currentBg ? frameMs(fadeOut) : 0;
+    if (!fadeOutMs) {
+      continueWithNext();
+      return;
+    }
+    currentBg.style.transition = 'opacity ' + fadeOutMs + 'ms linear';
+    currentBg.style.opacity = '0';
+    if (waitTimer) { clearTimeout(waitTimer); waitTimer = null; }
+    waitTimer = setTimeout(() => {
+      waitTimer = null;
+      continueWithNext();
+    }, fadeOutMs);
   }
   function applyEffect(c) {
     const frames = Math.max(0, Number(c.frames || 0));
@@ -1119,14 +1292,14 @@ function previewRuntime() {
       done = true;
       paintMsg(full, color);
       if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
-      if (c.advanceMode === 'auto') autoTimer = setTimeout(next, Math.max(0, c.autoWaitFrames || 0) * 1000 / 60);
+      if (messageAdvanceMode === 'auto') autoTimer = setTimeout(next, messageAutoWaitFrames * 1000 / 60);
     }
     pending = function () { if (!done) complete(); else { if (c.voiceAssetId) stopAudio('adpcm'); next(); } };
     const voiceMeta = c.voiceAssetId ? (data.meta[c.voiceAssetId] || {}) : {};
     const voiceSeconds = Number(voiceMeta.durationSeconds) || 0;
     const voiceFrames = voiceSeconds > 0 && !voiceMeta.loop ? Math.max(1, Math.ceil(voiceSeconds * 60)) : 0;
     const voiceSpeed = voiceFrames && full.length ? Math.max(1, Math.ceil(voiceFrames / full.length)) * 1000 / 60 : 0;
-    const speed = voiceSpeed || (Math.max(0, c.textSpeedFrames || 0) * 1000 / 60);
+    const speed = voiceSpeed || (messageSpeedFrames * 1000 / 60);
     if (speed <= 0 || !full) complete();
     else {
       typeTimer = setInterval(() => {
@@ -1162,7 +1335,10 @@ function previewRuntime() {
       choiceState = null;
       hideChoice();
       if (!ch) { pc += 1; run(); return; }
-      if (c.variableName) vars[c.variableName] = s16(ch.value);
+      if (c.variableName) {
+        vars[c.variableName] = s16(ch.value);
+        updateVarDebug();
+      }
       pc += 1;
       if (ch.targetSceneId && scenesById[ch.targetSceneId]) setScene(ch.targetSceneId);
       run();
@@ -1182,7 +1358,7 @@ function previewRuntime() {
       }
       const c = scene.commands[pc];
       const t = c.type;
-      if (t === 'background') { state.background = { assetId: c.assetId, x: c.x, y: c.y }; renderStage(); pc += 1; continue; }
+      if (t === 'background') { pc += 1; applyBackground(c); return; }
       if (t === 'sprite') {
         if (scene.fullScreenBg) { pc += 1; continue; }
         if (c.visible === false) delete state.sprites[c.slot];
@@ -1240,11 +1416,12 @@ function previewRuntime() {
     sceneId = scenesById[data.startScene] ? data.startScene : (data.doc.startScene || (data.doc.scenes[0] && data.doc.scenes[0].id));
     scene = scenesById[sceneId] || null;
     pc = 0;
-    vars = {};
+    vars = initialVars();
     state = { background: null, sprites: {}, spriteTexts: {} };
     pending = null;
     choiceState = null;
     renderStage();
+    updateVarDebug();
     hideMsg();
     hideChoice();
     run();
@@ -1379,6 +1556,50 @@ export function activatePlugin({ root, api, registerCapability }) {
   const byType = (types) => assets.filter((asset) => types.includes(asset.type));
   const scene = () => doc.scenes.find((item) => item.id === selectedId) || doc.scenes[0] || null;
   const assetById = (id) => assets.find((asset) => asset.id === id) || null;
+  const systemSettings = () => normalizeSystemSettings(doc.settings);
+
+  function spriteAssetIdForSlotAt(slot, commandIndex = selectedCommandIndex) {
+    const current = scene();
+    const targetSlot = clamp(slot, 0, 3, 0);
+    let assetId = '';
+    (current?.commands || []).slice(0, Math.max(0, commandIndex)).forEach((command) => {
+      if (command.type !== 'sprite' || clamp(command.slot, 0, 3, 0) !== targetSlot) return;
+      assetId = command.visible === false ? '' : (command.assetId || '');
+    });
+    return assetId;
+  }
+
+  function spriteAnimationRows(asset = {}) {
+    const rows = Array.isArray(asset?.options?.animations) ? asset.options.animations : [];
+    const normalized = rows
+      .map((row, index) => {
+        const id = String(row?.id || row?.name || (index === 0 ? 'default' : `row_${index + 1}`)).trim().slice(0, 32);
+        if (!id) return null;
+        return { id, label: row?.name ? `${row.name} (${id})` : id };
+      })
+      .filter(Boolean);
+    return normalized.length ? normalized : [{ id: 'default', label: 'default' }];
+  }
+
+  function mouthAnimationOptions(command = {}) {
+    const spriteId = spriteAssetIdForSlotAt(command.mouthSlot);
+    const current = String(command.mouthAnimationId || '').trim();
+    const options = [`<option value="">なし</option>`];
+    if (!spriteId) {
+      if (current) {
+        options.push(`<option value="${esc(current)}" selected>${esc(current)}</option>`);
+      }
+      return options.join('');
+    }
+    const rows = spriteAnimationRows(assetById(spriteId));
+    rows.forEach((row) => {
+      options.push(`<option value="${esc(row.id)}" ${row.id === current ? 'selected' : ''}>${esc(row.label)}</option>`);
+    });
+    if (current && !rows.some((row) => row.id === current)) {
+      options.push(`<option value="${esc(current)}" selected>${esc(current)}</option>`);
+    }
+    return options.join('');
+  }
 
   async function resolveAssetDataUrl(asset) {
     const previewPath = previewPathForAsset(asset);
@@ -1488,9 +1709,10 @@ export function activatePlugin({ root, api, registerCapability }) {
     const controls = document.createElement('div');
     controls.className = 'pce-vn-stage-controls';
     const info = document.createElement('span');
+    const settings = systemSettings();
     info.textContent = command.voiceAssetId
       ? `ADPCM同期 ・ ${command.voiceAssetId}`
-      : `speed ${command.textSpeedFrames}f/字`;
+      : `speed ${settings.messageSpeedFrames}f/字`;
     const play = document.createElement('button');
     play.className = 'btn-sm';
     play.type = 'button';
@@ -1549,7 +1771,7 @@ export function activatePlugin({ root, api, registerCapability }) {
         : 0;
       const speed = (adpcmSeconds > 0 && full.length)
         ? Math.max(1, (adpcmSeconds * 1000) / full.length)
-        : Math.max(0, command.textSpeedFrames || 0) * 1000 / 60;
+        : systemSettings().messageSpeedFrames * 1000 / 60;
       if (speed <= 0 || !full) {
         paintMessageOverlay(overlay, full);
       } else {
@@ -1754,7 +1976,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       return normalizeCommand({
         type,
         assetId: detailForm.elements.assetId.value,
-        transition: detailForm.elements.transition.value,
+        transition: 'fade',
         x: detailForm.elements.x.value,
         y: detailForm.elements.y.value,
         fadeOutFrames: detailForm.elements.fadeOutFrames.value,
@@ -1771,7 +1993,6 @@ export function activatePlugin({ root, api, registerCapability }) {
         animationId: detailForm.elements.animationId.value,
         flipX: detailForm.elements.flipX.checked,
         flipY: detailForm.elements.flipY.checked,
-        durationFrames: detailForm.elements.durationFrames.value,
         visible: detailForm.elements.visible.checked,
       }, assets);
     }
@@ -1886,9 +2107,6 @@ export function activatePlugin({ root, api, registerCapability }) {
       text: detailForm.elements.text.value,
       textColor: colorEnabled ? colorHex : '',
       voiceAssetId: detailForm.elements.voiceAssetId.value,
-      textSpeedFrames: detailForm.elements.textSpeedFrames.value,
-      advanceMode: detailForm.elements.advanceMode.value,
-      autoWaitFrames: detailForm.elements.autoWaitFrames.value,
       mouthSlot: detailForm.elements.mouthSlot.value,
       mouthAnimationId: detailForm.elements.mouthAnimationId.value,
     }, assets);
@@ -1991,13 +2209,12 @@ export function activatePlugin({ root, api, registerCapability }) {
       return `
         <div class="pce-vn-grid">
           <label class="form-group"><span class="form-label">背景</span><select class="form-select" name="assetId">${optionsFor(byType(['image']), command.assetId, 'なし')}</select></label>
-          <label class="form-group"><span class="form-label">切替</span><select class="form-select" name="transition"><option value="cut" ${command.transition !== 'fade' ? 'selected' : ''}>cut</option><option value="fade" ${command.transition === 'fade' ? 'selected' : ''}>fade</option></select></label>
         </div>
         <div class="pce-vn-grid tight">
           <label class="form-group"><span class="form-label">X tile</span><input class="form-input" name="x" type="number" min="0" max="63" value="${esc(command.x)}" /></label>
           <label class="form-group"><span class="form-label">Y tile</span><input class="form-input" name="y" type="number" min="0" max="31" value="${esc(command.y)}" /></label>
-          <label class="form-group"><span class="form-label">Fade out</span><input class="form-input" name="fadeOutFrames" type="number" min="0" max="60" value="${esc(command.fadeOutFrames)}" /></label>
-          <label class="form-group"><span class="form-label">Fade in</span><input class="form-input" name="fadeInFrames" type="number" min="0" max="60" value="${esc(command.fadeInFrames)}" /></label>
+          <label class="form-group"><span class="form-label">Fade out</span><select class="form-select" name="fadeOutFrames">${bgFadeOptions(command.fadeOutFrames)}</select></label>
+          <label class="form-group"><span class="form-label">Fade in</span><select class="form-select" name="fadeInFrames">${bgFadeOptions(command.fadeInFrames)}</select></label>
         </div>
       `;
     }
@@ -2012,7 +2229,6 @@ export function activatePlugin({ root, api, registerCapability }) {
           <label class="form-group"><span class="form-label">Slot</span><input class="form-input" name="slot" type="number" min="0" max="3" value="${esc(command.slot)}" /></label>
           <label class="form-group"><span class="form-label">X</span><input class="form-input" name="x" type="number" min="0" max="319" value="${esc(command.x)}" /></label>
           <label class="form-group"><span class="form-label">Y</span><input class="form-input" name="y" type="number" min="0" max="223" value="${esc(command.y)}" /></label>
-          <label class="form-group"><span class="form-label">Move</span><input class="form-input" name="durationFrames" type="number" min="0" max="255" value="${esc(command.durationFrames || 0)}" /></label>
           <label class="pce-vn-check"><input name="flipX" type="checkbox" ${command.flipX ? 'checked' : ''} /><span>flip X</span></label>
           <label class="pce-vn-check"><input name="flipY" type="checkbox" ${command.flipY ? 'checked' : ''} /><span>flip Y</span></label>
           <label class="pce-vn-check"><input name="visible" type="checkbox" ${command.visible !== false ? 'checked' : ''} /><span>visible</span></label>
@@ -2179,9 +2395,6 @@ export function activatePlugin({ root, api, registerCapability }) {
     }
     const hasColor = Boolean(command.textColor);
     const colorValue = command.textColor || '#ffffff';
-    const speedHint = command.voiceAssetId
-      ? '<small class="pce-vn-hint">ADPCM選択時は再生長に同期（Speedは無視）</small>'
-      : '';
     return `
       <div class="pce-vn-grid">
         <label class="form-group"><span class="form-label">話者</span><input class="form-input" name="speaker" value="${esc(command.speaker || '')}" /></label>
@@ -2198,12 +2411,9 @@ export function activatePlugin({ root, api, registerCapability }) {
         </label>
       </div>
       <div class="pce-vn-grid tight">
-        <label class="form-group"><span class="form-label">Speed</span><input class="form-input" name="textSpeedFrames" type="number" min="0" max="30" value="${esc(command.textSpeedFrames)}" ${command.voiceAssetId ? 'disabled' : ''} />${speedHint}</label>
-        <label class="form-group"><span class="form-label">Advance</span><select class="form-select" name="advanceMode"><option value="button" ${command.advanceMode !== 'auto' ? 'selected' : ''}>button</option><option value="auto" ${command.advanceMode === 'auto' ? 'selected' : ''}>auto</option></select></label>
-        <label class="form-group"><span class="form-label">Wait</span><input class="form-input" name="autoWaitFrames" type="number" min="0" max="255" value="${esc(command.autoWaitFrames)}" /></label>
-        <label class="form-group"><span class="form-label">Mouth slot</span><input class="form-input" name="mouthSlot" type="number" min="0" max="3" value="${esc(command.mouthSlot)}" /></label>
+        <label class="form-group"><span class="form-label">Mouth slot</span><select class="form-select" name="mouthSlot">${[0, 1, 2, 3].map((slot) => `<option value="${slot}" ${slot === command.mouthSlot ? 'selected' : ''}>slot ${slot}</option>`).join('')}</select></label>
+        <label class="form-group"><span class="form-label">Mouth animation</span><select class="form-select" name="mouthAnimationId">${mouthAnimationOptions(command)}</select></label>
       </div>
-      <label class="form-group"><span class="form-label">Mouth animation</span><input class="form-input form-input-mono" name="mouthAnimationId" value="${esc(command.mouthAnimationId || '')}" /></label>
     `;
   }
 
@@ -2451,6 +2661,15 @@ export function activatePlugin({ root, api, registerCapability }) {
       offChanged();
       offActivated();
     };
+  }
+
+  function setupSystemSettingsEvents() {
+    const onChanged = (event) => {
+      doc.settings = normalizeSystemSettings(event.detail?.settings);
+      void renderCommandPreview();
+    };
+    window.addEventListener(VN_SYSTEM_SETTINGS_EVENT, onChanged);
+    return () => window.removeEventListener(VN_SYSTEM_SETTINGS_EVENT, onChanged);
   }
 
   async function save() {
@@ -2758,7 +2977,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     syncDetailColorInputs(event.target);
     const isInputToggle = Boolean(event.target?.dataset?.inputButton);
     const rerenderDetail = isInputToggle
-      || ['type', 'kind', 'assetId', 'mode', 'effect', 'voiceAssetId', 'textColorEnabled', 'textColor', 'textColorHex', 'color', 'colorHex'].includes(name);
+      || ['type', 'kind', 'assetId', 'mode', 'effect', 'voiceAssetId', 'mouthSlot', 'textColorEnabled', 'textColor', 'textColorHex', 'color', 'colorHex'].includes(name);
     updateSelectedCommandFromDetail({ rerenderDetail, rerenderCommands: true, updatePreview: true });
   });
 
@@ -2831,10 +3050,12 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   registerCapability('visual-novel-editor', { reload: load, save });
   const teardownAssetRefreshEvents = setupAssetRefreshEvents();
+  const teardownSystemSettingsEvents = setupSystemSettingsEvents();
   void load();
   return {
     deactivate() {
       teardownAssetRefreshEvents();
+      teardownSystemSettingsEvents();
       window.removeEventListener('resize', handleWindowResize);
       stopMessagePreview();
     },

@@ -10,7 +10,7 @@
   "permissions": ["project.read", "project.write", "dialog.openFile", "asset.preview", "main.invokeHook"],
   "mainApi": {
     "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont"],
-    "capabilities": ["novel-editor", "font-editor"]
+    "capabilities": ["novel-editor", "vn-system-settings", "font-editor"]
   },
   "tab": {
     "label": "Novel",
@@ -22,6 +22,6 @@
     "entry": "renderer.js",
     "styles": ["style.css"],
     "page": "novel-editor",
-    "capabilities": ["page", "novel-editor", "visual-novel-editor", "font-editor"]
+    "capabilities": ["page", "novel-editor", "visual-novel-editor", "vn-system-settings", "font-editor"]
   }
 }

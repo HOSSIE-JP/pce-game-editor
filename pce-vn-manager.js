@@ -54,6 +54,11 @@ const VN_COMMAND_INPUTCHECK = 14;
 const VN_COMMAND_SPRITETEXT = 15;
 const VN_BG_TRANSITION_CUT = 0;
 const VN_BG_TRANSITION_FADE = 1;
+const VN_BG_FADE_FRAME_OPTIONS = [10, 20, 30, 40, 50, 60];
+const VN_BG_DEFAULT_FADE_FRAMES = 30;
+const VN_MESSAGE_SPEED_FRAME_OPTIONS = [0, 10, 20, 30, 40, 50];
+const VN_DEFAULT_MESSAGE_SPEED_FRAMES = 10;
+const VN_DEFAULT_MESSAGE_AUTO_WAIT_FRAMES = 60;
 const VN_SPRITE_VISIBLE = 1;
 const VN_SPRITE_FLIP_X = 2;
 const VN_SPRITE_FLIP_Y = 4;
@@ -267,6 +272,54 @@ function clampInt(value, min, max, fallback) {
   return Math.max(min, Math.min(max, parsed));
 }
 
+function normalizeBgFadeFrames(value, fallback = VN_BG_DEFAULT_FADE_FRAMES) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return fallback;
+  let best = VN_BG_FADE_FRAME_OPTIONS[0];
+  let bestDistance = Math.abs(parsed - best);
+  for (const option of VN_BG_FADE_FRAME_OPTIONS.slice(1)) {
+    const distance = Math.abs(parsed - option);
+    if (distance < bestDistance) {
+      best = option;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function nearestOption(value, options = [], fallback = 0) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed) || !options.length) return fallback;
+  let best = options[0];
+  let bestDistance = Math.abs(parsed - best);
+  for (const option of options.slice(1)) {
+    const distance = Math.abs(parsed - option);
+    if (distance < bestDistance) {
+      best = option;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function normalizeMessageSpeedFrames(value, fallback = VN_DEFAULT_MESSAGE_SPEED_FRAMES) {
+  return nearestOption(value, VN_MESSAGE_SPEED_FRAME_OPTIONS, fallback);
+}
+
+function normalizeVnSystemSettings(settings = {}) {
+  const raw = settings && typeof settings === 'object' ? settings : {};
+  const advanceMode = String(raw.messageAdvanceMode ?? raw.advanceMode ?? raw.advance ?? 'button').trim().toLowerCase() === 'auto'
+    ? 'auto'
+    : 'button';
+  return {
+    messageSpeedFrames: normalizeMessageSpeedFrames(raw.messageSpeedFrames ?? raw.textSpeedFrames ?? raw.speed),
+    messageAdvanceMode: advanceMode,
+    messageAutoWaitFrames: clampInt(raw.messageAutoWaitFrames ?? raw.autoWaitFrames ?? raw.autoWait, 0, 255, VN_DEFAULT_MESSAGE_AUTO_WAIT_FRAMES),
+  };
+}
+
 function clampPositiveInt(value, min, max, fallback) {
   const parsed = Math.round(Number(value));
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -368,8 +421,8 @@ function adpcmVoiceFrameCount(asset = {}, projectDir = '') {
   return Math.min(65535, frames);
 }
 
-function voiceSyncedTextSpeedFrames(command = {}, glyphCount = 0, assetDoc = { assets: [] }, projectDir = '') {
-  const fallback = clampInt(command.textSpeedFrames, 0, 255, 2);
+function voiceSyncedTextSpeedFrames(command = {}, glyphCount = 0, assetDoc = { assets: [] }, projectDir = '', fallbackSpeedFrames = VN_DEFAULT_MESSAGE_SPEED_FRAMES) {
+  const fallback = clampInt(fallbackSpeedFrames, 0, 255, VN_DEFAULT_MESSAGE_SPEED_FRAMES);
   if (!command.voiceAssetId || !glyphCount) return fallback;
   const frames = adpcmVoiceFrameCount(findAsset(assetDoc, command.voiceAssetId), projectDir);
   if (!frames) return fallback;
@@ -445,8 +498,8 @@ function defaultSceneDocument(assetDoc = { assets: [] }) {
       type: 'background',
       assetId: backgroundAssetId,
       transition: 'fade',
-      fadeOutFrames: 0,
-      fadeInFrames: 16,
+      fadeOutFrames: VN_BG_DEFAULT_FADE_FRAMES,
+      fadeInFrames: VN_BG_DEFAULT_FADE_FRAMES,
     });
   }
   commands.push({
@@ -454,9 +507,6 @@ function defaultSceneDocument(assetDoc = { assets: [] }) {
     speaker: 'アカリ',
     text: '256がめんです',
     voiceAssetId,
-    textSpeedFrames: 2,
-    advanceMode: 'button',
-    autoWaitFrames: 60,
     mouthSlot: 0,
     mouthAnimationId: '',
   });
@@ -465,14 +515,12 @@ function defaultSceneDocument(assetDoc = { assets: [] }) {
     speaker: 'アカリ',
     text: '17もじx4ぎょう',
     voiceAssetId: '',
-    textSpeedFrames: 2,
-    advanceMode: 'button',
-    autoWaitFrames: 60,
     mouthSlot: 0,
     mouthAnimationId: '',
   });
   return {
     version: VN_VERSION,
+    settings: normalizeVnSystemSettings(),
     startScene: 'opening',
     scenes: [
       {
@@ -584,9 +632,6 @@ function normalizeMessageCommand(message = {}, index = 0, valid = assetIdsByType
     text: resolveMessageText(raw, index),
     textColor: normalizeMessageColor(raw.textColor),
     voiceAssetId: valid.adpcm?.has(voiceAssetId) ? voiceAssetId : '',
-    textSpeedFrames: clampInt(raw.textSpeedFrames ?? raw.speed, 0, 30, 2),
-    advanceMode: String(raw.advanceMode || 'button') === 'auto' ? 'auto' : 'button',
-    autoWaitFrames: clampInt(raw.autoWaitFrames, 0, 255, 60),
     mouthSlot: clampInt(raw.mouthSlot, 0, 3, 0),
     mouthAnimationId: String(raw.mouthAnimationId || '').trim().slice(0, 32),
   };
@@ -605,7 +650,6 @@ function normalizeLegacyCharacterCommand(character = {}, index = 0, valid = asse
     animationId: String(raw.animationId || raw.pose || 'default').trim().slice(0, 32) || 'default',
     flipX: Boolean(raw.flipX ?? raw.flippedX ?? raw.hflip),
     flipY: Boolean(raw.flipY ?? raw.flippedY ?? raw.vflip),
-    durationFrames: clampInt(raw.durationFrames ?? raw.moveFrames ?? raw.frames, 0, 255, 0),
     visible: raw.visible !== false,
   };
 }
@@ -762,9 +806,9 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
     return {
       type: 'background',
       assetId: valid.image?.has(assetId) ? assetId : fallbackAssetId,
-      transition: String(raw.transition || 'cut') === 'fade' ? 'fade' : 'cut',
-      fadeOutFrames: clampInt(raw.fadeOutFrames, 0, 60, 0),
-      fadeInFrames: clampInt(raw.fadeInFrames, 0, 60, String(raw.transition || '') === 'fade' ? 16 : 0),
+      transition: 'fade',
+      fadeOutFrames: normalizeBgFadeFrames(raw.fadeOutFrames),
+      fadeInFrames: normalizeBgFadeFrames(raw.fadeInFrames),
       x: clampInt(raw.x ?? raw.tileX ?? raw.mapX, 0, 63, 0),
       y: clampInt(raw.y ?? raw.tileY ?? raw.mapY, 0, 31, 0),
     };
@@ -782,7 +826,6 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
       animationId: String(raw.animationId || 'default').trim().slice(0, 32) || 'default',
       flipX: Boolean(raw.flipX ?? raw.flippedX ?? raw.hflip),
       flipY: Boolean(raw.flipY ?? raw.flippedY ?? raw.vflip),
-      durationFrames: clampInt(raw.durationFrames ?? raw.moveFrames ?? raw.frames, 0, 255, 0),
       visible,
     };
   }
@@ -894,7 +937,7 @@ function legacyCommandsForScene(raw = {}, valid = assetIdsByType(), assetDoc = {
     commands.push(normalizeCommand({
       type: 'background',
       assetId: backgroundAssetId,
-      transition: raw.backgroundTransition || 'cut',
+      transition: 'fade',
       fadeOutFrames: raw.fadeOutFrames,
       fadeInFrames: raw.fadeInFrames,
     }, commands.length, valid, assetDoc));
@@ -999,6 +1042,7 @@ function normalizeSceneDocument(doc = {}, assetDoc = { assets: [] }) {
   }));
   return {
     version: VN_VERSION,
+    settings: normalizeVnSystemSettings(raw.settings || raw.systemSettings || raw.system),
     startScene,
     scenes: normalizedScenes,
   };
@@ -1811,6 +1855,7 @@ function cdSectorInitializer(layoutEntry = {}) {
 function generateVnSources(projectDir, options = {}) {
   const assetDoc = assetManager.readAssetDocument(projectDir);
   const doc = writeSceneDocument(projectDir, readSceneDocument(projectDir));
+  const systemSettings = normalizeVnSystemSettings(doc.settings);
   if ((doc.scenes || []).length > VN_MAX_U8_COUNT) {
     throw new Error(`PCE VN supports up to ${VN_MAX_U8_COUNT} scenes`);
   }
@@ -1945,7 +1990,7 @@ function generateVnSources(projectDir, options = {}) {
         pushCommand({
           type: VN_COMMAND_BACKGROUND,
           assetIndex: bgIndex,
-          flags: command.transition === 'fade' ? VN_BG_TRANSITION_FADE : VN_BG_TRANSITION_CUT,
+          flags: VN_BG_TRANSITION_FADE,
           arg0: command.fadeOutFrames,
           arg1: command.fadeInFrames,
           x: command.x,
@@ -1973,7 +2018,7 @@ function generateVnSources(projectDir, options = {}) {
           assetIndex: spriteAssetIndex,
           slot,
           flags,
-          arg0: command.durationFrames,
+          arg0: 0,
           arg1: 0,
           x: command.x,
           y: command.y,
@@ -2024,9 +2069,9 @@ function generateVnSources(projectDir, options = {}) {
           glyphs: Buffer.from(bytes),
           glyphCount: entryCount,
           voiceIndex,
-          textSpeedFrames: voiceSyncedTextSpeedFrames(command, drawableCount, assetDoc, projectDir),
-          advanceMode: command.advanceMode === 'auto' ? VN_ADVANCE_AUTO : VN_ADVANCE_BUTTON,
-          autoWaitFrames: command.autoWaitFrames,
+          textSpeedFrames: voiceSyncedTextSpeedFrames(command, drawableCount, assetDoc, projectDir, systemSettings.messageSpeedFrames),
+          advanceMode: systemSettings.messageAdvanceMode === 'auto' ? VN_ADVANCE_AUTO : VN_ADVANCE_BUTTON,
+          autoWaitFrames: systemSettings.messageAutoWaitFrames,
           mouthAnimationIndex,
           mouthSlot,
           textColor: messageColorWord(command.textColor),
@@ -3093,7 +3138,16 @@ module.exports = {
   VN_COMMAND_GOTO,
   VN_COMMAND_INPUTCHECK,
   VN_COMMAND_SPRITETEXT,
+  VN_BG_TRANSITION_CUT,
+  VN_BG_TRANSITION_FADE,
+  VN_BG_FADE_FRAME_OPTIONS,
+  VN_BG_DEFAULT_FADE_FRAMES,
+  VN_MESSAGE_SPEED_FRAME_OPTIONS,
+  VN_DEFAULT_MESSAGE_SPEED_FRAMES,
+  VN_DEFAULT_MESSAGE_AUTO_WAIT_FRAMES,
   VN_SPRITE_VISIBLE,
+  VN_ADVANCE_BUTTON,
+  VN_ADVANCE_AUTO,
   VN_AUDIO_KIND_PSG,
   VN_INPUT_MODE_SYNC,
   VN_INPUT_MODE_ASYNC,
@@ -3105,6 +3159,7 @@ module.exports = {
   effectColorWord,
   messageColorWord,
   normalizeMessageColor,
+  normalizeVnSystemSettings,
   collectCdDataFiles,
   collectGlyphs,
   collectGlyphsRaw,

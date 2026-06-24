@@ -1,4 +1,5 @@
 @import url("../pce-visual-novel-editor/style.css");
+@import url("../pce-vn-system-settings/style.css");
 @import url("../pce-font-editor/style.css");
 
 .novel-editor-shell {

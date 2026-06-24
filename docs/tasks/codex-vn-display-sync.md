@@ -9,7 +9,7 @@
 - 合格: Geargrafx で voiced message 中に口パク（`mouthSlot`/`mouthAnimationId`）が動く。かつ前タスクの成果（voiced 中 ~60fps、音声終了時に文字ほぼ完了、画面乱れ無し）を**維持**。両立できない場合は口パク優先で実装し、残る fps 差を計測して報告。
 
 ## Item 3: BG/スプライト切替時に VRAM 書き換えが画面に見える崩れを消す
-- BG: 切替時、transition 指定が無く（cut）ても **暗黙のパレットフェードで滑らかに**切り替える前提で見直す。VRAM/BAT 転送中の崩れが見えないよう、既定で「(a) 現 BG パレットをフェードアウト（または表示無効化）→ (b) tiles/BAT/パレット転送 → (c) フェードイン」を行う。既存 `fade_palette()`(L1452) / display 制御 / `upload_bg_graphics()`(L2044) を活用。明示的 `fade` transition との二重適用に注意。
+- BG: 切替は Fade 前提で、エディタ/API の `fadeOutFrames` / `fadeInFrames` は `10 / 20 / 30 / 40 / 50 / 60` のプリセットへ正規化する。保存済みの旧 `cut` 指定も読み込み時に Fade へ移行する。VRAM/BAT 転送中の崩れが見えないよう、既定で「(a) 現 BG パレットをフェードアウト（または表示無効化）→ (b) tiles/BAT/パレット転送 → (c) フェードイン」を行う。既存 `fade_palette()`(L1452) / display 制御 / `upload_bg_graphics()`(L2044) を活用。
 - スプライト: **同一スロットに別アセットのパターンをロードする場合**、VRAM 書き換え中を画面に見せないよう **一度 sprite layer を無効化→パターン転送→有効化**する。既存 `sprite_layer_disable()`(L509)/`sprite_layer_enable()`(L518) と `refresh_scene_sprites()` の pattern upload 経路（`VN_SPRITE_REFRESH_FULL` / `requires_pattern_upload`）を、別アセットロード時は必ず disable→upload→enable で囲む。同一アセットの frame 変化（口パク）では無効化しない（Item1 と矛盾させない）。
 - 合格: Geargrafx で BG 切替・スプライト差し替え時に書き換え途中フレームの崩れが見えない。
 

@@ -1,5 +1,10 @@
 {
   "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
   "startScene": "opening",
   "scenes": [
     {
@@ -9,9 +14,9 @@
         {
           "type": "background",
           "assetId": "vn_classroom_bg",
-          "transition": "cut",
-          "fadeOutFrames": 0,
-          "fadeInFrames": 0,
+          "transition": "fade",
+          "fadeOutFrames": 30,
+          "fadeInFrames": 30,
           "x": 2,
           "y": 2
         },
@@ -31,7 +36,6 @@
           "animationId": "default",
           "flipX": false,
           "flipY": false,
-          "durationFrames": 0,
           "visible": true
         },
         {
@@ -40,9 +44,6 @@
           "text": "これはVNコマンドの\nサンプルです。\nBG Sprite Audioを\nじゅんに実行します。",
           "textColor": "#ffdb92",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -62,9 +63,6 @@
           "text": "Messageはせりふ。\nADPCM voiceと\nmouth animationを\nどうじに使えます。",
           "textColor": "#ffffff",
           "voiceAssetId": "akari_voice",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": "mouth"
         },
@@ -77,7 +75,6 @@
           "animationId": "default",
           "flipX": false,
           "flipY": false,
-          "durationFrames": 0,
           "visible": true
         },
         {
@@ -94,9 +91,6 @@
           "text": "Input asyncを開始。\nRUNを押すと\nWaitを飛ばして\nラベルへ進みます。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -137,9 +131,6 @@
           "text": "PSG chimeを\n鳴らしました。\nAudio stopのあと\nJumpで分岐です。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -165,8 +156,8 @@
           "type": "background",
           "assetId": "command_lab_bg",
           "transition": "fade",
-          "fadeOutFrames": 12,
-          "fadeInFrames": 16,
+          "fadeOutFrames": 30,
+          "fadeInFrames": 30,
           "x": 2,
           "y": 2
         },
@@ -179,7 +170,6 @@
           "animationId": "default",
           "flipX": false,
           "flipY": false,
-          "durationFrames": 0,
           "visible": true
         },
         {
@@ -254,9 +244,6 @@
           "text": "Variableはdefine\nset add sub random。\nChoiceの結果も\n変数へ入ります。",
           "textColor": "#dbffdb",
           "voiceAssetId": "mika_voice",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": "mouth"
         },
@@ -269,7 +256,6 @@
           "animationId": "default",
           "flipX": false,
           "flipY": false,
-          "durationFrames": 0,
           "visible": true
         },
         {
@@ -331,9 +317,6 @@
           "text": "IFは変数をくらべ\ntrueならラベルへ。\nfalseはelseへ\n進められます。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -351,9 +334,6 @@
           "text": "Switchは値ごとに\nラベルを選びます。\ndefaultも指定\nできます。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -371,9 +351,6 @@
           "text": "Gotoは同じsceneの\nLabelへ移動します。\n分岐の合流にも\n使えます。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -394,9 +371,6 @@
           "text": "Choice IF Switch\nLabel Gotoを確認。\nつぎはEffectと\nInput syncです。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -422,8 +396,8 @@
           "type": "background",
           "assetId": "rooftop_dusk_bg",
           "transition": "fade",
-          "fadeOutFrames": 16,
-          "fadeInFrames": 16,
+          "fadeOutFrames": 30,
+          "fadeInFrames": 30,
           "x": 2,
           "y": 2
         },
@@ -436,7 +410,6 @@
           "animationId": "blink",
           "flipX": false,
           "flipY": false,
-          "durationFrames": 0,
           "visible": true
         },
         {
@@ -445,9 +418,6 @@
           "text": "Spriteはanimationを\n指定できます。\nここではblinkを\nループ再生中です。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -460,7 +430,6 @@
           "animationId": "default",
           "flipX": false,
           "flipY": false,
-          "durationFrames": 0,
           "visible": true
         },
         {
@@ -483,9 +452,6 @@
           "text": "Effectはflashや\nshakeで画面を\n強調できます。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -499,9 +465,9 @@
         {
           "type": "background",
           "assetId": "command_lab_bg",
-          "transition": "cut",
-          "fadeOutFrames": 0,
-          "fadeInFrames": 0,
+          "transition": "fade",
+          "fadeOutFrames": 30,
+          "fadeInFrames": 30,
           "x": 2,
           "y": 2
         },
@@ -528,9 +494,6 @@
           "text": "SpriteTextは短い\n文字をスプライトで\n上に重ねます。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -558,9 +521,9 @@
         {
           "type": "background",
           "assetId": "command_lab_bg",
-          "transition": "cut",
-          "fadeOutFrames": 0,
-          "fadeInFrames": 0,
+          "transition": "fade",
+          "fadeOutFrames": 30,
+          "fadeInFrames": 30,
           "x": 2,
           "y": 2
         },
@@ -573,7 +536,6 @@
           "animationId": "default",
           "flipX": false,
           "flipY": false,
-          "durationFrames": 0,
           "visible": true
         },
         {
@@ -582,9 +544,6 @@
           "text": "Input syncは\n指定ボタンまで\nその場で待ちます。\nIかRUNを押してね。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -614,9 +573,6 @@
           "text": "sync入力を確認。\n最後のsceneへ\nJumpします。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -642,8 +598,8 @@
           "type": "background",
           "assetId": "command_lab_bg",
           "transition": "fade",
-          "fadeOutFrames": 12,
-          "fadeInFrames": 16,
+          "fadeOutFrames": 30,
+          "fadeInFrames": 30,
           "x": 2,
           "y": 2
         },
@@ -656,7 +612,6 @@
           "animationId": "default",
           "flipX": false,
           "flipY": false,
-          "durationFrames": 0,
           "visible": true
         },
         {
@@ -665,9 +620,6 @@
           "text": "このテンプレートは\n全コマンドを\n実例として\n確認できます。",
           "textColor": "#ffdb92",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "auto",
-          "autoWaitFrames": 120,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -687,7 +639,6 @@
           "animationId": "blink",
           "flipX": false,
           "flipY": false,
-          "durationFrames": 0,
           "visible": true
         },
         {
@@ -696,9 +647,6 @@
           "text": "Messageの後で\nidleへ戻したい時は\nSprite defaultを\n置いてください。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         },
@@ -711,7 +659,6 @@
           "animationId": "default",
           "flipX": false,
           "flipY": false,
-          "durationFrames": 0,
           "visible": true
         },
         {
@@ -720,9 +667,6 @@
           "text": "おつかれさまでした。\nスクリプトを開いて\n各コマンドの設定を\n見てください。",
           "textColor": "",
           "voiceAssetId": "",
-          "textSpeedFrames": 2,
-          "advanceMode": "button",
-          "autoWaitFrames": 60,
           "mouthSlot": 0,
           "mouthAnimationId": ""
         }

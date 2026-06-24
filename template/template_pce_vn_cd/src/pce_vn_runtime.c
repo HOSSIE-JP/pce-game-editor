@@ -3317,32 +3317,6 @@ static void clear_spritetext_slots(void)
     }
 }
 
-static void animate_sprite_slot(uint8_t slot, uint16_t target_x, uint16_t target_y, uint8_t frames)
-{
-    uint8_t step;
-    uint16_t x;
-    uint16_t y;
-    if (slot >= VN_SPRITE_SLOT_COUNT) return;
-    if (!frames) return;
-    x = sprite_slots[slot].x;
-    y = sprite_slots[slot].y;
-    for (step = 0u; step < frames; step++)
-    {
-        if (x < target_x) x++;
-        else if (x > target_x) x--;
-        if (y < target_y) y++;
-        else if (y > target_y) y--;
-        sprite_slots[slot].x = x;
-        sprite_slots[slot].y = y;
-        tick_sprite_animations();
-        refresh_scene_sprites();
-        delay_frame();
-    }
-    sprite_slots[slot].x = target_x;
-    sprite_slots[slot].y = target_y;
-    REQUEST_SPRITE_REFRESH_FULL();
-}
-
 static signed char shake_offset_for_frame(uint8_t frame, uint8_t intensity)
 {
     switch (frame & 3u)
@@ -3841,14 +3815,8 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
     }
     else if (command->type == PCE_VN_COMMAND_SPRITE)
     {
-        uint8_t was_visible;
-        uint16_t start_x;
-        uint16_t start_y;
         if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
         slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
-        was_visible = (uint8_t)(sprite_slots[slot].visible && sprite_slots[slot].sprite_index >= 0);
-        start_x = sprite_slots[slot].x;
-        start_y = sprite_slots[slot].y;
         sprite_slots[slot].sprite_index = command->asset_index;
         sprite_slots[slot].animation_index = command->animation_index;
         sprite_slots[slot].visible = (uint8_t)((command->flags & PCE_VN_SPRITE_VISIBLE) && command->asset_index >= 0);
@@ -3856,18 +3824,9 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
         sprite_slots[slot].frame = 0u;
         sprite_slots[slot].timer = 0u;
         cache_sprite_animation(slot);
-        if (sprite_slots[slot].visible && was_visible && command->arg0)
-        {
-            sprite_slots[slot].x = start_x;
-            sprite_slots[slot].y = start_y;
-            animate_sprite_slot(slot, command->x, command->y, command->arg0);
-        }
-        else
-        {
-            sprite_slots[slot].x = command->x;
-            sprite_slots[slot].y = command->y;
-            REQUEST_SPRITE_REFRESH_FULL();
-        }
+        sprite_slots[slot].x = command->x;
+        sprite_slots[slot].y = command->y;
+        REQUEST_SPRITE_REFRESH_FULL();
         if (pending_sprite_refresh) refresh_scene_sprites();
     }
     else if (command->type == PCE_VN_COMMAND_AUDIO)

@@ -167,14 +167,23 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
 
   const normalized = vnManager.readSceneDocument(projectDir);
   assert.equal(normalized.version, 2);
+  assert.deepEqual(normalized.settings, {
+    messageSpeedFrames: vnManager.VN_DEFAULT_MESSAGE_SPEED_FRAMES,
+    messageAdvanceMode: 'button',
+    messageAutoWaitFrames: vnManager.VN_DEFAULT_MESSAGE_AUTO_WAIT_FRAMES,
+  });
   assert.equal(normalized.scenes[0].commands[0].type, 'background');
+  assert.equal(normalized.scenes[0].commands[0].transition, 'fade');
+  assert.equal(normalized.scenes[0].commands[0].fadeOutFrames, vnManager.VN_BG_DEFAULT_FADE_FRAMES);
+  assert.equal(normalized.scenes[0].commands[0].fadeInFrames, vnManager.VN_BG_DEFAULT_FADE_FRAMES);
   assert.equal(normalized.scenes[0].commands[1].type, 'sprite');
   assert.equal(normalized.scenes[0].commands[1].x, 319);
   assert.equal(normalized.scenes[0].commands[1].y, 0);
   assert.equal(normalized.scenes[0].commands[2].x, 96);
   assert.equal(normalized.scenes[0].commands[2].y, 24);
   assert.equal(normalized.scenes[0].commands[3].type, 'audio');
-  assert.equal(normalized.scenes[0].commands[4].textSpeedFrames, 3);
+  assert.equal(normalized.scenes[0].commands[4].textSpeedFrames, undefined);
+  assert.equal(normalized.scenes[0].commands[4].advanceMode, undefined);
   assert.equal(normalized.scenes[0].nextSceneId, '');
 
   const prepared = vnManager.prepareVisualNovelBuild(projectDir, { cd: { dataFiles: [] } });
@@ -250,8 +259,8 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   const message = messageRecord(pack, 0);
   assert.equal(message.voiceIndex, 0);
   // The 3-byte placeholder voice is sub-frame, so the synced duration rounds to
-  // zero frames and the author's textSpeedFrames (3) is kept as the fallback.
-  assert.equal(message.textSpeedFrames, 3);
+  // zero frames and the global message speed is kept as the fallback.
+  assert.equal(message.textSpeedFrames, vnManager.VN_DEFAULT_MESSAGE_SPEED_FRAMES);
   assert.equal(message.mouthAnimationIndex, 1);
   // ASCII glyphs are written as single bytes; the stream terminates with 0xff.
   assert.equal(pack[message.glyphOffset + message.glyphCount], 0xff);
@@ -291,6 +300,43 @@ test('PCE VN manager bakes ADPCM message duration into text speed', () => {
   // glyphs that is round(120 / 4) = 30 frames/glyph, so the typewriter total
   // (120 frames) matches the voice length instead of overshooting it.
   assert.equal(message.textSpeedFrames, 30);
+});
+
+test('PCE VN manager applies global message settings to message records', () => {
+  const projectDir = makeTempDir('pce-vn-system-settings-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    settings: {
+      messageSpeedFrames: 47,
+      messageAdvanceMode: 'auto',
+      messageAutoWaitFrames: 90,
+    },
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'message', text: 'A', textSpeedFrames: 0, advanceMode: 'button', autoWaitFrames: 1 },
+      ],
+    }],
+  });
+
+  const normalized = vnManager.readSceneDocument(projectDir);
+  assert.deepEqual(normalized.settings, {
+    messageSpeedFrames: 50,
+    messageAdvanceMode: 'auto',
+    messageAutoWaitFrames: 90,
+  });
+  assert.equal(normalized.scenes[0].commands[0].textSpeedFrames, undefined);
+  assert.equal(normalized.scenes[0].commands[0].advanceMode, undefined);
+  assert.equal(normalized.scenes[0].commands[0].autoWaitFrames, undefined);
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const message = messageRecord(readPack(projectDir, generated.scenePackPaths[0]), 0);
+  assert.equal(message.textSpeedFrames, 50);
+  assert.equal(message.advanceMode, vnManager.VN_ADVANCE_AUTO);
+  assert.equal(message.autoWaitFrames, 90);
 });
 
 test('PCE VN manager excludes newlines from the ADPCM-synced text speed', () => {
@@ -487,7 +533,46 @@ test('PCE VN manager default scene does not auto-play the first CD-DA asset', ()
   });
 
   assert.equal(doc.scenes[0].commands[0].type, 'background');
+  assert.equal(doc.scenes[0].commands[0].transition, 'fade');
+  assert.equal(doc.scenes[0].commands[0].fadeOutFrames, vnManager.VN_BG_DEFAULT_FADE_FRAMES);
+  assert.equal(doc.scenes[0].commands[0].fadeInFrames, vnManager.VN_BG_DEFAULT_FADE_FRAMES);
   assert.equal(doc.scenes[0].commands.some((command) => command.type === 'audio'), false);
+});
+
+test('PCE VN manager forces BG commands to Fade speed presets', () => {
+  const projectDir = makeTempDir('pce-vn-bg-fade-presets-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [
+      { id: 'bg_a', type: 'image', source: 'assets/images/bg-a.png' },
+      { id: 'bg_b', type: 'image', source: 'assets/images/bg-b.png' },
+    ],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'background', assetId: 'bg_a', transition: 'cut', fadeOutFrames: 0, fadeInFrames: 47 },
+        { type: 'background', assetId: 'bg_b', transition: 'fade', fadeOutFrames: 16, fadeInFrames: 60 },
+        { type: 'background', assetId: 'bg_a' },
+      ],
+    }],
+  });
+
+  const normalized = vnManager.readSceneDocument(projectDir);
+  assert.deepEqual(vnManager.VN_BG_FADE_FRAME_OPTIONS, [10, 20, 30, 40, 50, 60]);
+  assert.deepEqual(normalized.scenes[0].commands.map((command) => ({
+    transition: command.transition,
+    fadeOutFrames: command.fadeOutFrames,
+    fadeInFrames: command.fadeInFrames,
+  })), [
+    { transition: 'fade', fadeOutFrames: 10, fadeInFrames: 50 },
+    { transition: 'fade', fadeOutFrames: 20, fadeInFrames: 60 },
+    { transition: 'fade', fadeOutFrames: 30, fadeInFrames: 30 },
+  ]);
 });
 
 test('PCE VN manager encodes full-screen BG scene mode and rejects UI commands', () => {
@@ -670,10 +755,13 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   assert.equal(normalized.scenes[0].commands[3].choices[0].targetSceneId, 'next');
   assert.equal(normalized.scenes[0].commands[1].flipX, true);
   assert.equal(normalized.scenes[0].commands[1].flipY, true);
-  assert.equal(normalized.scenes[0].commands[1].durationFrames, 12);
+  assert.equal(normalized.scenes[0].commands[1].durationFrames, undefined);
   assert.equal(normalized.scenes[1].commands[0].type, 'effect');
   assert.equal(normalized.scenes[1].commands[1].x, 2);
   assert.equal(normalized.scenes[1].commands[1].y, 4);
+  assert.equal(normalized.scenes[1].commands[1].transition, 'fade');
+  assert.equal(normalized.scenes[1].commands[1].fadeOutFrames, 10);
+  assert.equal(normalized.scenes[1].commands[1].fadeInFrames, 20);
   assert.equal(normalized.scenes[1].commands[3].effect, 'shake');
   assert.equal(normalized.scenes[1].commands[3].intensity, 6);
   assert.equal(normalized.scenes[1].commands[4].effect, 'flash');
@@ -745,9 +833,9 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
     type: 0,
     assetIndex: 0,
     slot: 0,
-    flags: 0,
-    arg0: 0,
-    arg1: 0,
+    flags: vnManager.VN_BG_TRANSITION_FADE,
+    arg0: vnManager.VN_BG_DEFAULT_FADE_FRAMES,
+    arg1: vnManager.VN_BG_DEFAULT_FADE_FRAMES,
     x: 0,
     y: 0,
     messageIndex: -1,
@@ -756,7 +844,7 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
     choiceIndex: -1,
   });
   assert.equal(commandRecord(openingPack, 1).flags, 7);
-  assert.equal(commandRecord(openingPack, 1).arg0, 12);
+  assert.equal(commandRecord(openingPack, 1).arg0, 0);
   assert.equal(commandRecord(openingPack, 2).sceneIndex, 1);
   assert.equal(commandRecord(openingPack, 3).choiceIndex, 0);
   const choice = choiceRecord(openingPack, 0);
@@ -768,6 +856,9 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   assert.equal(commandRecord(nextPack, 0).type, vnManager.VN_COMMAND_EFFECT);
   assert.equal(commandRecord(nextPack, 0).flags, 0);
   assert.equal(commandRecord(nextPack, 0).x, vnManager.effectColorWord('#0000ff'));
+  assert.equal(commandRecord(nextPack, 1).flags, vnManager.VN_BG_TRANSITION_FADE);
+  assert.equal(commandRecord(nextPack, 1).arg0, 10);
+  assert.equal(commandRecord(nextPack, 1).arg1, 20);
   assert.equal(commandRecord(nextPack, 3).flags, 3);
   assert.equal(commandRecord(nextPack, 3).arg0, 20);
   assert.equal(commandRecord(nextPack, 3).arg1, 6);
@@ -1727,8 +1818,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /wait_frames_remaining = 1u;\n                return 1u;/);
   assert.match(source, /show_character_sprite_frame/);
   assert.match(source, /sprite_slots\[slot\]\.flags = command->flags;/);
-  assert.match(source, /animate_sprite_slot\(slot, command->x, command->y, command->arg0\);/);
-  assert.match(source, /for \(step = 0u; step < frames; step\+\+\)/);
+  assert.match(source, /sprite_slots\[slot\]\.x = command->x;/);
+  assert.match(source, /sprite_slots\[slot\]\.y = command->y;/);
+  assert.doesNotMatch(source, /animate_sprite_slot/);
+  assert.doesNotMatch(source, /for \(step = 0u; step < frames; step\+\+\)/);
   assert.match(source, /PCE_VN_EFFECT_SHAKE/);
   assert.match(source, /shake_screen\(command->arg0, command->arg1\);/);
   assert.match(source, /PCE_VN_EFFECT_FLASH/);

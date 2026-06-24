@@ -49,11 +49,14 @@
 最小再現 scene の形:
 
 ```jsonc
-[
-  { "type": "message", "text": "ADPCMさいせい", "voiceAssetId": "voice_01", "advanceMode": "auto", "autoWaitFrames": 1 },
-  { "type": "wait", "frames": 90 },
-  { "type": "message", "text": "かんりょうごも うごいています", "advanceMode": "auto", "autoWaitFrames": 1 }
-]
+{
+  "settings": { "messageAdvanceMode": "auto", "messageAutoWaitFrames": 1 },
+  "commands": [
+    { "type": "message", "text": "ADPCMさいせい", "voiceAssetId": "voice_01" },
+    { "type": "wait", "frames": 90 },
+    { "type": "message", "text": "かんりょうごも うごいています" }
+  ]
+}
 ```
 
 この scene は手入力に依存しないため、ADPCM BIOS call 直後の joypad edge 問題と、ADPCM 自然終了時の CPU 停止問題を分けやすいです。比較用に `voiceAssetId` だけを外した build も作り、標準 WASM の同じ core で最後の message へ到達するか確認してください。
