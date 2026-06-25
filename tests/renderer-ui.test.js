@@ -452,6 +452,14 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /data-palette-add="\$\{item\.type\}"/);
   assert.match(renderer, /data-role="command-preview"/);
   assert.match(renderer, /data-role="command-detail"/);
+  assert.match(renderer, /data-script-mode="gui"/);
+  assert.match(renderer, /data-script-mode="json"/);
+  assert.match(renderer, /data-role="script-json"/);
+  assert.match(renderer, /function applyScriptJsonToDoc\(options = \{\}\)/);
+  assert.match(renderer, /JSON\.parse\(scriptJsonInput\.value \|\| '\{\}'\)/);
+  assert.match(renderer, /doc = normalizeDoc\(parsed, assets\)/);
+  assert.match(renderer, /function setEditorMode\(mode\)/);
+  assert.match(renderer, /if \(editorMode === 'json'\) \{[\s\S]*applyScriptJsonToDoc\(\{ refreshText: true \}\)/);
   assert.match(renderer, /data-scene-delete="\$\{esc\(item\.id\)\}"/);
   assert.match(renderer, /function deleteScene\(sceneId = selectedId\)/);
   assert.match(renderer, /data-role="scene-name"/);
@@ -527,6 +535,12 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /<label class="form-group"><span class="form-label">Type<\/span><select class="form-select" name="type"/);
   assert.match(css, /grid-template-columns:\s*var\(--pce-vn-left-width\)\s*5px\s*minmax\(340px,\s*1fr\)\s*5px\s*var\(--pce-vn-right-width\)/);
   assert.match(css, /\.pce-vn-column-resizer/);
+  assert.match(css, /\.pce-vn-shell\.is-json-mode/);
+  assert.match(css, /\.pce-vn-shell\.is-json-mode \.pce-vn-list/);
+  assert.match(css, /\.pce-vn-shell\.is-json-mode \[data-column-resizer="left"\]/);
+  assert.match(css, /\.pce-vn-shell\.is-json-mode \.pce-vn-commands/);
+  assert.match(css, /\.pce-vn-view-switch/);
+  assert.match(css, /\.pce-vn-script-json textarea/);
   assert.match(css, /\.pce-vn-scene-row/);
   assert.match(css, /\.pce-vn-scene-group/);
   assert.match(css, /\.pce-vn-scene-row\.is-drop-before::before/);

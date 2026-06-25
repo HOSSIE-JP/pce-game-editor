@@ -1710,6 +1710,10 @@ export function activatePlugin({ root, api, registerCapability }) {
             </label>
           </div>
           <div class="pce-vn-actions">
+            <div class="pce-vn-view-switch" role="group" aria-label="スクリプト編集モード">
+              <button class="btn-sm active" type="button" data-script-mode="gui">GUI</button>
+              <button class="btn-sm" type="button" data-script-mode="json">JSON</button>
+            </div>
             <label class="pce-vn-scene-toggle">
               <input type="checkbox" data-role="scene-fullscreen-bg" />
               <span>Full BG</span>
@@ -1727,6 +1731,14 @@ export function activatePlugin({ root, api, registerCapability }) {
           <div class="pce-vn-scene-budget-note" data-role="scene-budget-note" style="display:none"></div>
         </div>
         <div class="pce-vn-commands" data-role="commands"></div>
+        <div class="pce-vn-script-json" data-role="script-json-pane" hidden>
+          <textarea
+            class="form-input form-input-mono"
+            data-role="script-json"
+            spellcheck="false"
+            aria-label="VN scene JSON"
+          ></textarea>
+        </div>
         <div class="form-error" data-role="error"></div>
       </section>
       <div class="pce-vn-column-resizer" data-column-resizer="right" role="separator" aria-orientation="vertical" aria-label="右列幅"></div>
@@ -1748,10 +1760,13 @@ export function activatePlugin({ root, api, registerCapability }) {
   const sceneBudgetEl = root.querySelector('[data-role="scene-budget"]');
   const sceneFullScreenBgInput = root.querySelector('[data-role="scene-fullscreen-bg"]');
   const sceneNameInput = root.querySelector('[data-role="scene-name"]');
+  const scriptJsonPane = root.querySelector('[data-role="script-json-pane"]');
+  const scriptJsonInput = root.querySelector('[data-role="script-json"]');
   let assets = [];
   let doc = defaultDoc();
   let selectedId = 'opening';
   let selectedCommandIndex = 0;
+  let editorMode = 'gui';
   let commandSearch = '';
   let columnLayout = loadColumnLayout();
   let pointerDrag = null;
@@ -2391,7 +2406,76 @@ export function activatePlugin({ root, api, registerCapability }) {
   }
 
   function commitCurrentUiToDoc() {
+    if (editorMode === 'json') return;
     updateSelectedCommandFromDetail({ rerenderCommands: false, updatePreview: false });
+  }
+
+  function sceneDocumentText(value = doc) {
+    return JSON.stringify(value, null, 2);
+  }
+
+  function jsonParseErrorMessage(error) {
+    const message = String(error?.message || error || 'JSON parse error');
+    const match = message.match(/position\s+(\d+)/i);
+    if (!match || !scriptJsonInput) return message;
+    const position = Number(match[1]);
+    if (!Number.isFinite(position)) return message;
+    const before = scriptJsonInput.value.slice(0, Math.max(0, position));
+    const lines = before.split('\n');
+    return `${message} (line ${lines.length}, column ${lines[lines.length - 1].length + 1})`;
+  }
+
+  function refreshScriptModeControls() {
+    shell.classList.toggle('is-json-mode', editorMode === 'json');
+    root.querySelectorAll('[data-script-mode]').forEach((button) => {
+      const active = button.dataset.scriptMode === editorMode;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    if (scriptJsonPane) scriptJsonPane.hidden = editorMode !== 'json';
+    if (commandsEl) commandsEl.hidden = editorMode === 'json';
+    if (detailForm) detailForm.hidden = editorMode === 'json';
+    if (commandPreviewEl) commandPreviewEl.hidden = editorMode === 'json';
+    if (sceneBudgetEl) sceneBudgetEl.hidden = editorMode === 'json';
+    if (sceneFullScreenBgInput) sceneFullScreenBgInput.disabled = editorMode === 'json';
+    if (sceneNameInput) sceneNameInput.disabled = editorMode === 'json';
+  }
+
+  function updateScriptJsonFromDoc() {
+    if (scriptJsonInput) scriptJsonInput.value = sceneDocumentText(doc);
+  }
+
+  function applyScriptJsonToDoc(options = {}) {
+    if (!scriptJsonInput) return true;
+    try {
+      const parsed = JSON.parse(scriptJsonInput.value || '{}');
+      doc = normalizeDoc(parsed, assets);
+      if (!doc.scenes.some((item) => item.id === selectedId)) {
+        selectedId = doc.startScene || doc.scenes[0]?.id || 'opening';
+        selectedCommandIndex = 0;
+      }
+      if (options.refreshText !== false) updateScriptJsonFromDoc();
+      if (options.message) errorEl.textContent = options.message;
+      return true;
+    } catch (err) {
+      errorEl.textContent = `JSONエラー: ${jsonParseErrorMessage(err)}`;
+      return false;
+    }
+  }
+
+  function setEditorMode(mode) {
+    const nextMode = mode === 'json' ? 'json' : 'gui';
+    if (nextMode === editorMode) return;
+    errorEl.textContent = '';
+    if (editorMode === 'gui') {
+      commitCurrentUiToDoc();
+      doc = normalizeDoc(doc, assets);
+      updateScriptJsonFromDoc();
+    } else if (!applyScriptJsonToDoc({ refreshText: true })) {
+      return;
+    }
+    editorMode = nextMode;
+    render();
   }
 
   function renderSceneList() {
@@ -2435,6 +2519,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     }).join('');
     sceneList.querySelectorAll('[data-scene-id]').forEach((button) => {
       button.addEventListener('click', () => {
+        if (editorMode === 'json' && !applyScriptJsonToDoc({ refreshText: false })) return;
         commitCurrentUiToDoc();
         selectedId = button.dataset.sceneId;
         selectedCommandIndex = 0;
@@ -2879,12 +2964,18 @@ export function activatePlugin({ root, api, registerCapability }) {
     const current = scene();
     if (!current) return;
     ensureSelectedCommand(current);
+    refreshScriptModeControls();
     root.querySelector('[data-role="scene-title"]').textContent = sceneDisplayName(current);
     if (sceneNameInput) {
       sceneNameInput.value = current.name || '';
       sceneNameInput.placeholder = current.id || 'scene';
     }
     if (sceneFullScreenBgInput) sceneFullScreenBgInput.checked = Boolean(current.fullScreenBg);
+    if (editorMode === 'json') {
+      updateScriptJsonFromDoc();
+      stopMessagePreview();
+      return;
+    }
     renderCommands(current);
     renderCommandDetail(current);
     void renderCommandPreview();
@@ -2980,8 +3071,12 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   async function save() {
     try {
-      commitCurrentUiToDoc();
-      doc = normalizeDoc(doc, assets);
+      if (editorMode === 'json') {
+        if (!applyScriptJsonToDoc({ refreshText: true })) return;
+      } else {
+        commitCurrentUiToDoc();
+        doc = normalizeDoc(doc, assets);
+      }
       await api.electronAPI.writeCodeFile({ path: SCENE_FILE, content: JSON.stringify(doc, null, 2), encoding: 'utf8' });
       errorEl.textContent = '保存しました';
       render();
@@ -3028,6 +3123,7 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   async function openScenePreview() {
     try {
+      if (editorMode === 'json' && !applyScriptJsonToDoc({ refreshText: true })) return;
       commitCurrentUiToDoc();
       const snapshot = normalizeDoc(doc, assets);
       const referenced = new Set();
@@ -3109,6 +3205,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   }
 
   function moveScene(sceneId, rawToIndex) {
+    if (editorMode === 'json' && !applyScriptJsonToDoc({ refreshText: false })) return;
     commitCurrentUiToDoc();
     const fromIndex = doc.scenes.findIndex((item) => item.id === sceneId);
     if (fromIndex < 0) return;
@@ -3427,6 +3524,9 @@ export function activatePlugin({ root, api, registerCapability }) {
   root.querySelector('[data-action="reload"]').addEventListener('click', () => { void load({ force: true }); });
   root.querySelector('[data-action="save"]').addEventListener('click', save);
   root.querySelector('[data-action="preview"]').addEventListener('click', () => { void openScenePreview(); });
+  root.querySelectorAll('[data-script-mode]').forEach((button) => {
+    button.addEventListener('click', () => setEditorMode(button.dataset.scriptMode));
+  });
   sceneFullScreenBgInput?.addEventListener('change', () => {
     commitCurrentUiToDoc();
     const current = scene();
@@ -3437,6 +3537,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     void renderCommandPreview();
   });
   root.querySelector('[data-action="add-scene"]').addEventListener('click', () => {
+    if (editorMode === 'json' && !applyScriptJsonToDoc({ refreshText: false })) return;
     commitCurrentUiToDoc();
     const id = safeId(`scene_${doc.scenes.length + 1}`, 'scene');
     doc.scenes.push({ id, fullScreenBg: false, commands: [defaultCommand('message', assets)], nextSceneId: '' });
@@ -3450,6 +3551,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     const targetId = String(sceneId || selectedId);
     const targetIndex = doc.scenes.findIndex((item) => item.id === targetId);
     if (targetIndex < 0) return;
+    if (editorMode === 'json' && !applyScriptJsonToDoc({ refreshText: false })) return;
     commitCurrentUiToDoc();
     const deletingSelected = targetId === selectedId;
     doc.scenes = doc.scenes.filter((item) => item.id !== targetId);
