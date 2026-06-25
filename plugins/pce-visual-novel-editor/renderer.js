@@ -877,11 +877,14 @@ function previewRuntime() {
     '#pv-bar button{font:inherit;font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #2a3a4a;background:#13202c;color:#cfe0ee;cursor:pointer;}',
     '#pv-hint{margin-left:auto;color:#6b7a88;}',
     '#pv-debug{position:absolute;right:12px;top:12px;width:190px;max-height:calc(100% - 24px);overflow:auto;background:rgba(5,10,18,.86);border:1px solid rgba(125,160,205,.35);border-radius:6px;color:#cfe0ee;font-size:11px;line-height:1.35;box-shadow:0 8px 24px rgba(0,0,0,.35);}',
+    '#pv-debug.pv-hidden{display:none;}',
     '#pv-debug h2{margin:0;padding:7px 9px;border-bottom:1px solid rgba(125,160,205,.22);font-size:11px;color:#f3f8ff;}',
     '#pv-vars{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:7px 9px;}',
     '.pv-var-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9fb0c0;}',
     '.pv-var-value{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#ffffff;text-align:right;}',
     '.pv-var-empty{grid-column:1 / -1;color:#6b7a88;}',
+    '#pv-debug-toggle{display:inline-flex;align-items:center;gap:5px;color:#cfe0ee;cursor:pointer;user-select:none;}',
+    '#pv-debug-toggle input{margin:0;}',
     '.pv-shake{animation:pv-shake .4s linear;}',
     '@keyframes pv-shake{0%,100%{transform:none}20%{transform:translateX(-5px)}60%{transform:translateX(5px)}80%{transform:translateX(-3px)}}',
   ].join('\n');
@@ -897,6 +900,7 @@ function previewRuntime() {
     + '<div id="pv-effect"></div>'
     + '</div><aside id="pv-debug"><h2>Variables</h2><div id="pv-vars"></div></aside></div>'
     + '<div id="pv-bar"><button id="pv-restart">最初から</button><span id="pv-scene"></span>'
+    + '<label id="pv-debug-toggle" title="変数デバッグ表示"><input id="pv-debug-vars" type="checkbox" checked /><span>Variables</span></label>'
     + '<span id="pv-hint">クリック / Enter で進む ・ Esc で閉じる</span></div>';
   document.body.appendChild(root);
 
@@ -906,6 +910,8 @@ function previewRuntime() {
   const choiceBox = root.querySelector('#pv-choice');
   const effectLayer = root.querySelector('#pv-effect');
   const sceneLabel = root.querySelector('#pv-scene');
+  const debugBox = root.querySelector('#pv-debug');
+  const debugToggle = root.querySelector('#pv-debug-vars');
   const varsBox = root.querySelector('#pv-vars');
 
   function fit() {
@@ -968,6 +974,9 @@ function previewRuntime() {
       '<span class="pv-var-name" title="' + name.replace(/"/g, '&quot;') + '">' + name + '</span>'
       + '<span class="pv-var-value">' + String(getVar(name)) + '</span>'
     )).join('');
+  }
+  function setVarDebugVisible(visible) {
+    if (debugBox) debugBox.classList.toggle('pv-hidden', !visible);
   }
   function bgFadeFrames(value) {
     const parsed = Number(value);
@@ -1446,6 +1455,8 @@ function previewRuntime() {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (typeof pending === 'function') pending(); }
   });
   root.querySelector('#pv-restart').addEventListener('click', (e) => { e.stopPropagation(); start(); });
+  debugToggle?.addEventListener('change', (e) => { setVarDebugVisible(e.currentTarget.checked); });
+  setVarDebugVisible(!debugToggle || debugToggle.checked);
 
   fit();
   start();

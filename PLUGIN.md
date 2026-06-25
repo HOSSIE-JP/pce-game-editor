@@ -678,20 +678,28 @@ PC Engine core のプロジェクトでは、PCE asset manager 用の安全な p
 
 画像表示、スプライト表示、ADPCM 再生、CD-DA 再生を実装する場合は、より実装寄りの流れを `docs/pce-media-programming-guide.md` にまとめています。ここでは IPC の入口だけを示します。
 renderer plugin から asset を読む・変更する場合は、共有ストアと変更通知を扱う `api.assets.*` を優先してください。`window.electronAPI.*Asset*` は低レベル IPC として残しています。
+Image プラグインの BG 追加 UI では `paletteBank` / `transparentIndex` を表示せず、互換用 metadata として `0` 固定で渡します。Sprites 追加 UI でも `paletteBank` / `tileBase` / `x` / `y` / `transparentIndex` と初期 animation 詳細は通常表示せず、既定値で登録します。変換時だけ有効な `Cell size` は追加 modal の `アドバンス` に隠し、既存 asset では生成済み pattern と metadata がずれないよう通常の Properties からは編集しません。`tileBase` / `x` / `y` は有効な低レベル既定値として Sprites タブの `アドバンス` に隠します。
 
 ```js
 // assets/pce-assets.json を取得
 const assets = await window.electronAPI.listAssets();
 
-// PNG/BMP/WebP を project 配下へコピーし、内蔵 PCE 変換で palette / tile / map / sprite pattern を生成する
-const imported = await window.electronAPI.importAssetImage({
+// PNG/BMP/WebP を project 配下へコピーし、内蔵 PCE 変換で BG tile / map を生成する
+const importedBg = await window.electronAPI.importAssetImage({
   sourcePath: '/absolute/path/source.png', // dialog で選ばれた読み取り元
-  kind: 'background',                      // "background" | "sprite"
+  kind: 'background',
   id: 'title_bg',
-  paletteBank: 0,
+  width: 224,
+  height: 136,
+});
+
+// sprite pattern を生成する。paletteBank / tileBase / x / y / transparentIndex は省略時に既定値が入る
+const importedSprite = await window.electronAPI.importAssetImage({
+  sourcePath: '/absolute/path/hero.png',
+  kind: 'sprite',
+  id: 'hero_sprite',
   cellWidth: 16,
   cellHeight: 16,
-  transparentIndex: 0,
 });
 
 // WAV を ADPCM / CD-DA 用に project 配下へコピー・変換する
@@ -918,7 +926,7 @@ window.electronAPI.onPluginLog((payload) => {
 
 `pce-asset-manager` は `assets/pce-assets.json` v2 を正とする標準アセット管理です。BG image / Sprite sheet / Palette / PSG song/SFX / ADPCM / CD-DA track を扱います。画像の追加は `pce-image-converter` の `image-import-pipeline` を経由し、内蔵 PCE 変換で BG tile / BAT map / sprite pattern 形式の generated asset を作成します。音声の追加は `pce-audio-converter` の共通音声 UI を経由し、project-local WAV を生成してから ADPCM / CD-DA へ登録します。
 
-`image-editor` は BG / Sprites / Palette の画像画面を 1 つの sidebar タブに統合します。画面上部のタブで `BG`、`Sprites`、`Palette` を切り替えます。`pce-background-manager` / `pce-sprite-manager` / `pce-palette-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。BG / sprite の生成物は PCE 変換を使い、Superfamiconv や SGDK ResComp 用の converter には依存しません。画像の `Palette bank`、出力幅/高さ、`Transparent index` は import 時の変換条件として指定し、変換後の Image 詳細フォームでは generated 出力と metadata の不整合を避けるため直接編集しません。BG の一覧と詳細 preview の境界はドラッグで幅調整できます。preview はホイールで拡大縮小し、中央ボタンドラッグで表示位置を動かせます。一覧では固定的で意味が薄い palette 数列を表示せず、palette count / palette file / swatch は詳細側で確認します。BG の一覧は `Name` と `ID` を別列にし、各列ヘッダーで昇順/降順ソートできます。Image 配下の asset 一覧では `Name` に `folder/item` のような `/` 区切りを使うと、エディタ上ではグループ見出しと leaf 名に分けて表示します。Sprites タブは MD Game Editor の Sprite editor と同じ 3 ペイン構成に寄せ、左に sprite asset tree、中央に frame preview / sprite sheet / Animation Rows、右に properties を表示します。PCE では `.res` の `SPRITE` 定義ではなく `assets/pce-assets.json` の sprite asset を正とし、frame size、ROW ごとの有効 frame 数、time、collision などの編集結果は `options.animations` と `options.spriteEditor` metadata へ保存します。
+`image-editor` は BG / Sprites / Palette の画像画面を 1 つの sidebar タブに統合します。画面上部のタブで `BG`、`Sprites`、`Palette` を切り替えます。`pce-background-manager` / `pce-sprite-manager` / `pce-palette-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。BG / sprite の生成物は PCE 変換を使い、Superfamiconv や SGDK ResComp 用の converter には依存しません。BG 追加 UI では出力幅/高さだけを指定し、`paletteBank` / `transparentIndex` は `0` 固定です。Sprites 追加 UI では通常表示を出力幅/高さに絞り、変換時だけ有効な `Cell size` は `アドバンス` に隠します。`paletteBank: 0`、`tileBase: 704`、`x: 144`、`y: 104`、`transparentIndex: 0`、初期 animation `16x16` / `1 frame` / `1 frame delay` で登録します。`tileBase` / `x` / `y` は Properties の `アドバンス` に隠し、旧 ResComp 圧縮由来の `opt_type` / `opt_level` / `opt_duplicate` / `comment` は表示しません。BG の一覧と詳細 preview の境界はドラッグで幅調整できます。preview はホイールで拡大縮小し、中央ボタンドラッグで表示位置を動かせます。一覧では固定的で意味が薄い palette 数列を表示せず、palette count / palette file / swatch は詳細側で確認します。BG の一覧は `Name` と `ID` を別列にし、各列ヘッダーで昇順/降順ソートできます。Image 配下の asset 一覧では `Name` に `folder/item` のような `/` 区切りを使うと、エディタ上ではグループ見出しと leaf 名に分けて表示します。Sprites タブは MD Game Editor の Sprite editor と同じ 3 ペイン構成に寄せ、左に sprite asset tree、中央に frame preview / sprite sheet / Animation Rows、右に properties を表示します。Frame Preview と Sprite Sheet はスクロールでき、倍率は 10-500% の percentage でホイール調整し、中央ボタンドラッグで表示位置を動かせます。Palette タブでは手動 palette の追加、保存、確認付き削除ができます。PCE では `.res` の `SPRITE` 定義ではなく `assets/pce-assets.json` の sprite asset を正とし、frame size、ROW ごとの有効 frame 数、time、collision などの編集結果は `options.animations` と `options.spriteEditor` metadata へ保存します。
 
 ### Sound / Novel 統合 UI
 
@@ -1117,7 +1125,7 @@ SPRITE は単なる画像ファイルではなく、`width` / `height` / `time` 
 
 ROW ごとの有効フレーム数は `time` 行列の各 ROW 長で表現します。scalar time を読み込んだ場合は全 ROW / 全列有効として展開し、UI 編集後は `[[...][...]]` 形式へ serialize します。フレーム time が `0` の場合、SGDK 上ではそのフレーム以降の再生が進まないため、editor preview でも停止として扱います。
 
-Sprite Sheet には 8x8 grid、選択 frame、無効 frame の overlay、各 frame の time 値を重ねて表示します。シートクリックは ROW / frame 選択だけを行い、自動再生は開始しません。collision が `BOX` / `CIRCLE` の場合は、SGDK の collision size が frame の約 75% であることを踏まえて frame preview に overlay を出します。frame size は RESCOMP 制約に合わせ、tile 幅・高さが 32 未満、pixel では最大 248px までに制約してください。
+Sprite Sheet には 8x8 grid、選択 frame、無効 frame の overlay、各 frame の time 値を重ねて表示します。シートクリックは ROW / frame 選択だけを行い、自動再生は開始しません。Frame Preview / Sprite Sheet の canvas は preview 領域内でスクロールでき、中央ボタンドラッグでも scroll 位置を移動できます。倍率入力は 10-500% の percentage として扱い、mouse wheel で滑らかに変化させます。collision が `BOX` / `CIRCLE` の場合は、SGDK の collision size が frame の約 75% であることを踏まえて frame preview に overlay を出します。frame size は RESCOMP 制約に合わせ、tile 幅・高さが 32 未満、pixel では最大 248px までに制約してください。
 
 Asset Manager の右列 preview でも SPRITE はシートそのものではなく、選択 ROW の animation を表示します。再生 / 停止は icon button にし、animation select の表示は `1 (4 frames)` のように簡潔にします。
 

@@ -246,10 +246,6 @@ export function editorStateFromAsset(asset = {}, image = null) {
     rowFrameCounts: normalizeRowCounts(animationState.rowFrameCounts, grid.rows, grid.columns),
     rowDefaultTimes: normalizeDefaultTimes(animationState.rowDefaultTimes, grid.rows, '4'),
     collision: normalizeOption(metadata.collision, ['NONE', 'CIRCLE', 'BOX'], 'NONE'),
-    optType: normalizeOption(metadata.optType, ['BALANCED', 'SPRITE', 'TILE', 'NONE'], 'BALANCED'),
-    optLevel: normalizeOption(metadata.optLevel, ['FAST', 'MEDIUM', 'SLOW', 'MAX'], 'FAST'),
-    optDuplicate: normalizeOption(metadata.optDuplicate, ['FALSE', 'TRUE'], 'FALSE'),
-    comment: String(metadata.comment || ''),
   };
 }
 
@@ -393,4 +389,3 @@ function normalizeOption(value, allowed, fallback) {
   const text = String(value || '').trim().toUpperCase();
   return allowed.includes(text) ? text : fallback;
 }
-

@@ -2,6 +2,15 @@ const IMAGE_EXTS = ['.png', '.bmp', '.webp'];
 const SPRITE_CELL_SIZES = ['16x16', '16x32', '16x64', '32x16', '32x32', '32x64'];
 const PCE_BG_AUTO_TILE_BASE = 128;
 const PCE_BG_AUTO_MAP_BASE = 0;
+const DEFAULT_SPRITE_TILE_BASE = 704;
+const DEFAULT_SPRITE_PALETTE_BANK = 0;
+const DEFAULT_SPRITE_X = 144;
+const DEFAULT_SPRITE_Y = 104;
+const DEFAULT_SPRITE_TRANSPARENT_INDEX = 0;
+const DEFAULT_IMPORT_FRAME_WIDTH = 16;
+const DEFAULT_IMPORT_FRAME_HEIGHT = 16;
+const DEFAULT_IMPORT_FRAME_COUNT = 1;
+const DEFAULT_IMPORT_FRAME_DELAY = 1;
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -241,9 +250,9 @@ export function createImageAssetManagerPlugin(config = {}) {
   const summaryLabel = config.summaryLabel || (kind === 'sprite' ? 'sheets' : 'backgrounds');
   const importTitle = config.importTitle || (kind === 'sprite' ? 'スプライト追加' : '背景追加');
   const capabilityName = config.capabilityName || (kind === 'sprite' ? 'sprite-manager' : 'background-manager');
-  const defaultTileBase = kind === 'sprite' ? 384 : PCE_BG_AUTO_TILE_BASE;
-  const defaultWidth = kind === 'sprite' ? 64 : 288;
-  const defaultHeight = 128;
+  const defaultTileBase = kind === 'sprite' ? DEFAULT_SPRITE_TILE_BASE : PCE_BG_AUTO_TILE_BASE;
+  const defaultWidth = kind === 'sprite' ? 64 : 224;
+  const defaultHeight = kind === 'sprite' ? 128 : 136;
   const fallbackId = kind === 'sprite' ? 'sprite_asset' : 'bg_asset';
 
   return function activatePlugin({ plugin, root, api, logger, registerCapability }) {
@@ -1230,23 +1239,7 @@ export function createImageAssetManagerPlugin(config = {}) {
                   <span class="form-label">Name</span>
                   <input class="form-input" name="name" value="${esc(baseName)}" />
                 </label>
-                <label class="form-group">
-                  <span class="form-label">Palette bank</span>
-                  <input class="form-input" name="paletteBank" type="number" min="0" max="15" value="0" />
-                </label>
                 ${kind === 'sprite' ? `
-                  <label class="form-group">
-                    <span class="form-label">Tile base</span>
-                    <input class="form-input" name="tileBase" type="number" min="0" max="2047" value="${defaultTileBase}" />
-                  </label>
-                  <label class="form-group">
-                    <span class="form-label">X</span>
-                    <input class="form-input" name="x" type="number" min="0" max="255" value="144" />
-                  </label>
-                  <label class="form-group">
-                    <span class="form-label">Y</span>
-                    <input class="form-input" name="y" type="number" min="0" max="255" value="104" />
-                  </label>
                   <label class="form-group">
                     <span class="form-label">Cell size</span>
                     <select class="form-select" name="cellSize">
@@ -1266,40 +1259,7 @@ export function createImageAssetManagerPlugin(config = {}) {
                   <span class="form-label">Output height</span>
                   <input class="form-input" name="outputHeight" type="number" min="8" max="1024" step="8" value="${defaultHeight}" />
                 </label>
-                <label class="form-group">
-                  <span class="form-label">Transparent index</span>
-                  <input class="form-input" name="transparentIndex" type="number" min="0" max="15" value="0" />
-                </label>
               </div>
-              ${kind === 'sprite' ? `
-                <div class="pce-image-manager-import-animation">
-                  <div class="pce-image-manager-animation-title">
-                    <span>Animation pattern</span>
-                  </div>
-                  <div class="pce-image-manager-animation-grid">
-                    <label class="form-group">
-                      <span class="form-label">Frame W</span>
-                      <input class="form-input" name="animFrameWidth" type="number" min="16" max="256" step="16" value="${defaultWidth}" />
-                    </label>
-                    <label class="form-group">
-                      <span class="form-label">Frame H</span>
-                      <input class="form-input" name="animFrameHeight" type="number" min="16" max="256" step="16" value="${defaultHeight}" />
-                    </label>
-                    <label class="form-group">
-                      <span class="form-label">Frames</span>
-                      <input class="form-input" name="animFrameCount" type="number" min="1" max="64" value="1" />
-                    </label>
-                    <label class="form-group">
-                      <span class="form-label">Speed</span>
-                      <input class="form-input" name="animFrameDelay" type="number" min="1" max="60" value="8" />
-                    </label>
-                    <label class="pce-image-manager-check">
-                      <input name="animLoop" type="checkbox" checked />
-                      <span>Loop</span>
-                    </label>
-                  </div>
-                </div>
-              ` : ''}
               <div class="form-error" data-import-error></div>
               <div class="form-actions-inline modal-actions-end">
                 <button class="btn-sm" type="button" data-import-cancel>キャンセル</button>
@@ -1331,12 +1291,8 @@ export function createImageAssetManagerPlugin(config = {}) {
           const [cellWidth, cellHeight] = kind === 'sprite'
             ? String(form.elements.cellSize.value || '16x16').split('x').map((value) => asNumber(value, 16))
             : [8, 8];
-          const animFrameWidth = kind === 'sprite'
-            ? Math.max(cellWidth, Math.ceil(clampInt(form.elements.animFrameWidth?.value, cellWidth, 256, outputWidth) / cellWidth) * cellWidth)
-            : 0;
-          const animFrameHeight = kind === 'sprite'
-            ? Math.max(cellHeight, Math.ceil(clampInt(form.elements.animFrameHeight?.value, cellHeight, 256, outputHeight) / cellHeight) * cellHeight)
-            : 0;
+          const animFrameWidth = kind === 'sprite' ? DEFAULT_IMPORT_FRAME_WIDTH : 0;
+          const animFrameHeight = kind === 'sprite' ? DEFAULT_IMPORT_FRAME_HEIGHT : 0;
           const animFrameCells = kind === 'sprite'
             ? Math.max(1, Math.ceil(animFrameWidth / cellWidth) * Math.ceil(animFrameHeight / cellHeight))
             : 1;
@@ -1345,26 +1301,26 @@ export function createImageAssetManagerPlugin(config = {}) {
           resolve({
             id,
             name: String(form.elements.name.value || id).trim(),
-            paletteBank: clampInt(form.elements.paletteBank.value, 0, 15, 0),
-            tileBase: kind === 'sprite' ? clampInt(form.elements.tileBase.value, 0, 2047, defaultTileBase) : PCE_BG_AUTO_TILE_BASE,
+            paletteBank: kind === 'sprite' ? DEFAULT_SPRITE_PALETTE_BANK : 0,
+            tileBase: kind === 'sprite' ? DEFAULT_SPRITE_TILE_BASE : PCE_BG_AUTO_TILE_BASE,
             mapBase: PCE_BG_AUTO_MAP_BASE,
-            x: kind === 'sprite' ? clampInt(form.elements.x.value, 0, 255, 144) : 0,
-            y: kind === 'sprite' ? clampInt(form.elements.y.value, 0, 255, 104) : 0,
+            x: kind === 'sprite' ? DEFAULT_SPRITE_X : 0,
+            y: kind === 'sprite' ? DEFAULT_SPRITE_Y : 0,
             cellWidth,
             cellHeight,
             outputWidth,
             outputHeight,
-            transparentIndex: clampInt(form.elements.transparentIndex.value, 0, 15, 0),
+            transparentIndex: kind === 'sprite' ? DEFAULT_SPRITE_TRANSPARENT_INDEX : 0,
             animations: kind === 'sprite' ? [{
               id: 'default',
               name: 'Default',
               frameWidth: animFrameWidth,
               frameHeight: animFrameHeight,
               firstCell: 0,
-              frameCount: clampInt(form.elements.animFrameCount?.value, 1, 64, 1),
-              frameDelay: clampInt(form.elements.animFrameDelay?.value, 1, 60, 8),
+              frameCount: DEFAULT_IMPORT_FRAME_COUNT,
+              frameDelay: DEFAULT_IMPORT_FRAME_DELAY,
               frameStrideCells: animFrameCells,
-              loop: Boolean(form.elements.animLoop?.checked),
+              loop: true,
             }] : [],
           });
         });

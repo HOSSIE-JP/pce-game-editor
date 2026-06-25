@@ -121,6 +121,11 @@
   padding: 14px;
 }
 
+.pce-palette-delete-modal p {
+  margin: 0 0 12px;
+  color: var(--text);
+}
+
 .pce-derived-row {
   display: grid;
   gap: 8px;

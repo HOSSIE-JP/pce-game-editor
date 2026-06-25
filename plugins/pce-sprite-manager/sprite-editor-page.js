@@ -26,7 +26,19 @@ const IMAGE_EXTS = ['.png', '.bmp', '.webp'];
 const DEFAULT_TILE_BASE = 704;
 const DEFAULT_WIDTH = 64;
 const DEFAULT_HEIGHT = 128;
+const DEFAULT_SPRITE_PALETTE_BANK = 0;
+const DEFAULT_SPRITE_X = 144;
+const DEFAULT_SPRITE_Y = 104;
+const DEFAULT_SPRITE_TRANSPARENT_INDEX = 0;
+const DEFAULT_IMPORT_FRAME_WIDTH = 16;
+const DEFAULT_IMPORT_FRAME_HEIGHT = 16;
+const DEFAULT_IMPORT_FRAME_COUNT = 1;
+const DEFAULT_IMPORT_FRAME_DELAY = 1;
 const STORAGE_KEY = 'pce.spriteEditor.layout.v1';
+const MIN_ZOOM_PERCENT = 10;
+const MAX_ZOOM_PERCENT = 500;
+const DEFAULT_ZOOM_PERCENT = 400;
+const PREVIEW_CANVAS_PADDING = 12;
 
 function loadImageFromDataUrl(dataUrl) {
   return new Promise((resolve, reject) => {
@@ -63,6 +75,40 @@ function saveLayout(layout) {
   } catch (_err) {
     // localStorage can be disabled in tests or restricted environments.
   }
+}
+
+function clampZoomPercent(value, fallback = DEFAULT_ZOOM_PERCENT) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(MIN_ZOOM_PERCENT, Math.min(MAX_ZOOM_PERCENT, Math.round(parsed)));
+}
+
+function readZoomPercent(input) {
+  return clampZoomPercent(input?.value, DEFAULT_ZOOM_PERCENT);
+}
+
+function readZoomScale(input) {
+  return readZoomPercent(input) / 100;
+}
+
+function normalizeZoomInput(input) {
+  const percent = readZoomPercent(input);
+  if (input) input.value = String(percent);
+  return percent;
+}
+
+function prepareCanvas(canvas, cssWidth, cssHeight) {
+  const dpr = window.devicePixelRatio || 1;
+  const width = Math.max(1, Math.ceil(cssWidth));
+  const height = Math.max(1, Math.ceil(cssHeight));
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  return { ctx, width, height };
 }
 
 export async function activatePlugin({ plugin, root, api, logger, registerCapability }) {
@@ -104,17 +150,9 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
               <h3>Frame Preview</h3>
             </div>
             <label class="pce-sprite-editor-mini-field">
-              <span>倍率</span>
-              <input class="form-input" type="number" min="1" max="16" value="4" data-role="frame-scale" />
+              <span>倍率(%)</span>
+              <input class="form-input" type="number" min="10" max="500" step="1" value="400" data-role="frame-scale" />
             </label>
-            <label class="pce-sprite-editor-grid-toggle" title="8x8 grid">
-              <input type="checkbox" data-role="show-grid" checked />
-              <span>8x8</span>
-            </label>
-            <button class="icon-btn" type="button" data-action="first-frame" title="先頭フレーム" aria-label="先頭フレーム">↤</button>
-            <button class="icon-btn" type="button" data-action="play" title="再生" aria-label="再生">▶</button>
-            <button class="icon-btn" type="button" data-action="last-frame" title="最後のフレーム" aria-label="最後のフレーム">↦</button>
-            <button class="icon-btn active" type="button" data-action="loop" title="ループ" aria-label="ループ">↻</button>
             <label class="pce-sprite-editor-mini-field">
               <span>ROW</span>
               <input class="form-input" type="number" min="0" value="0" data-role="preview-row" />
@@ -127,6 +165,15 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
               <span>Time</span>
               <input class="form-input" type="number" min="0" max="60" value="4" data-role="preview-time" />
             </label>
+            <label class="pce-sprite-editor-check-toggle" title="Grid overlay">
+              <input type="checkbox" data-role="show-grid" checked />
+              <span>Grid</span>
+            </label>
+            <label class="pce-sprite-editor-check-toggle" title="ループ再生">
+              <input type="checkbox" data-role="loop-playback" checked />
+              <span>Loop</span>
+            </label>
+            <button class="icon-btn" type="button" data-action="play" title="再生" aria-label="再生">▶</button>
           </header>
           <div class="pce-sprite-editor-preview-stage" data-role="preview-stage">
             <canvas data-role="preview-canvas"></canvas>
@@ -140,8 +187,8 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
               <span data-role="sheet-info">-</span>
             </div>
             <label class="pce-sprite-editor-mini-field">
-              <span>倍率</span>
-              <input class="form-input" type="number" min="1" max="16" value="4" data-role="sheet-scale" />
+              <span>倍率(%)</span>
+              <input class="form-input" type="number" min="10" max="500" step="1" value="400" data-role="sheet-scale" />
             </label>
             <label class="pce-sprite-editor-mini-field">
               <span>幅(px)</span>
@@ -185,26 +232,23 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
             <span class="form-label">sourcePath</span>
             <input class="form-input" name="sourcePath" />
           </label>
-          <div class="pce-sprite-editor-prop-grid">
-            <label class="form-group">
-              <span class="form-label">cell size</span>
-              <select class="form-select" name="cellSize">
-                ${SPRITE_CELL_SIZES.map((size) => `<option value="${size}">${size}</option>`).join('')}
-              </select>
-            </label>
-            <label class="form-group">
-              <span class="form-label">tileBase</span>
-              <input class="form-input" name="tileBase" type="number" min="0" max="2047" />
-            </label>
-            <label class="form-group">
-              <span class="form-label">x</span>
-              <input class="form-input" name="x" type="number" min="0" max="255" />
-            </label>
-            <label class="form-group">
-              <span class="form-label">y</span>
-              <input class="form-input" name="y" type="number" min="0" max="255" />
-            </label>
-          </div>
+          <details class="pce-sprite-editor-advanced">
+            <summary>アドバンス</summary>
+            <div class="pce-sprite-editor-prop-grid">
+              <label class="form-group">
+                <span class="form-label">tileBase</span>
+                <input class="form-input" name="tileBase" type="number" min="0" max="2047" />
+              </label>
+              <label class="form-group">
+                <span class="form-label">x</span>
+                <input class="form-input" name="x" type="number" min="0" max="255" />
+              </label>
+              <label class="form-group">
+                <span class="form-label">y</span>
+                <input class="form-input" name="y" type="number" min="0" max="255" />
+              </label>
+            </div>
+          </details>
           <label class="form-group">
             <span class="form-label">collision</span>
             <select class="form-select" name="collision"><option>NONE</option><option>CIRCLE</option><option>BOX</option></select>
@@ -213,29 +257,10 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
             <span class="form-label">time</span>
             <input class="form-input form-input-mono" name="time" />
           </label>
-          <div class="pce-sprite-editor-prop-grid">
-            <label class="form-group">
-              <span class="form-label">opt_type</span>
-              <select class="form-select" name="optType"><option>BALANCED</option><option>SPRITE</option><option>TILE</option><option>NONE</option></select>
-            </label>
-            <label class="form-group">
-              <span class="form-label">opt_level</span>
-              <select class="form-select" name="optLevel"><option>FAST</option><option>MEDIUM</option><option>SLOW</option><option>MAX</option></select>
-            </label>
-          </div>
-          <label class="form-group">
-            <span class="form-label">opt_duplicate</span>
-            <select class="form-select" name="optDuplicate"><option>FALSE</option><option>TRUE</option></select>
-          </label>
-          <label class="form-group">
-            <span class="form-label">comment</span>
-            <textarea class="form-input" name="comment" rows="4"></textarea>
-          </label>
           <div class="pce-sprite-editor-stats" data-role="stats"></div>
           <div class="form-error" data-role="form-error"></div>
           <div class="form-actions-inline">
             <button class="btn-primary" type="submit">保存</button>
-            <button class="icon-btn" type="button" data-action="delete-selected" title="削除" aria-label="削除">×</button>
           </div>
         </form>
       </aside>
@@ -276,6 +301,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     frameScale: root.querySelector('[data-role="frame-scale"]'),
     sheetScale: root.querySelector('[data-role="sheet-scale"]'),
     showGrid: root.querySelector('[data-role="show-grid"]'),
+    loopPlayback: root.querySelector('[data-role="loop-playback"]'),
     previewRow: root.querySelector('[data-role="preview-row"]'),
     previewFrame: root.querySelector('[data-role="preview-frame"]'),
     previewTime: root.querySelector('[data-role="preview-time"]'),
@@ -459,16 +485,11 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     form.elements.id.value = asset.id || '';
     form.elements.name.value = asset.name || asset.id || '';
     form.elements.sourcePath.value = asset.source || '';
-    form.elements.cellSize.value = `${metrics.cellWidth}x${metrics.cellHeight}`;
     form.elements.tileBase.value = clampInt(options.tileBase, 0, 2047, DEFAULT_TILE_BASE);
     form.elements.x.value = clampInt(options.x, 0, 255, 144);
     form.elements.y.value = clampInt(options.y, 0, 255, 104);
     form.elements.collision.value = editorState.collision;
     form.elements.time.value = editorState.time;
-    form.elements.optType.value = editorState.optType;
-    form.elements.optLevel.value = editorState.optLevel;
-    form.elements.optDuplicate.value = editorState.optDuplicate;
-    form.elements.comment.value = editorState.comment;
     els.frameWidth.value = editorState.frameWidth;
     els.frameHeight.value = editorState.frameHeight;
     els.sourceLabel.textContent = asset.source || '-';
@@ -580,20 +601,13 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
   function drawFramePreview() {
     const canvas = els.previewCanvas;
     const stage = els.previewStage;
-    const ctx = canvas.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.max(1, stage.clientWidth || 400);
-    const height = Math.max(1, stage.clientHeight || 260);
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = '#090d15';
-    ctx.fillRect(0, 0, width, height);
+    const fallbackWidth = Math.max(1, stage.clientWidth || 400);
+    const fallbackHeight = Math.max(1, stage.clientHeight || 260);
     const asset = selectedAsset();
     if (!asset || !sourceImage) {
+      const { ctx, width, height } = prepareCanvas(canvas, fallbackWidth, fallbackHeight);
+      ctx.fillStyle = '#090d15';
+      ctx.fillRect(0, 0, width, height);
       ctx.fillStyle = '#9aa8bd';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -603,11 +617,16 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     }
     const { row, frame } = syncPreviewControls();
     const rect = frameRect(row, frame);
-    const scale = clampInt(els.frameScale.value, 1, 16, 4);
+    const scale = readZoomScale(els.frameScale);
     const dw = rect.width * scale;
     const dh = rect.height * scale;
-    const dx = Math.floor((width - dw) / 2);
-    const dy = Math.floor((height - dh) / 2);
+    const contentWidth = dw + PREVIEW_CANVAS_PADDING * 2;
+    const contentHeight = dh + PREVIEW_CANVAS_PADDING * 2;
+    const { ctx, width, height } = prepareCanvas(canvas, contentWidth, contentHeight);
+    ctx.fillStyle = '#090d15';
+    ctx.fillRect(0, 0, width, height);
+    const dx = PREVIEW_CANVAS_PADDING;
+    const dy = PREVIEW_CANVAS_PADDING;
     ctx.drawImage(sourceImage, rect.x, rect.y, rect.width, rect.height, dx, dy, dw, dh);
     ctx.strokeStyle = '#3fb7ff';
     ctx.lineWidth = 2;
@@ -618,19 +637,14 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
 
   function drawSheetPreview() {
     const canvas = els.sheetCanvas;
-    const ctx = canvas.getContext('2d');
     const asset = selectedAsset();
     const { grid, metrics } = readFrameConfig();
     const sheetWidth = sourceImage?.naturalWidth || metrics.width;
     const sheetHeight = sourceImage?.naturalHeight || metrics.height;
-    const scale = clampInt(els.sheetScale.value, 1, 16, 4);
-    canvas.width = Math.max(1, sheetWidth * scale);
-    canvas.height = Math.max(1, sheetHeight * scale);
-    canvas.style.width = `${sheetWidth * scale}px`;
-    canvas.style.height = `${sheetHeight * scale}px`;
-    ctx.imageSmoothingEnabled = false;
+    const scale = readZoomScale(els.sheetScale);
+    const { ctx, width, height } = prepareCanvas(canvas, sheetWidth * scale, sheetHeight * scale);
     ctx.fillStyle = '#090d15';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, width, height);
     if (sourceImage) {
       ctx.drawImage(sourceImage, 0, 0, sheetWidth, sheetHeight, 0, 0, sheetWidth * scale, sheetHeight * scale);
     }
@@ -654,7 +668,12 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     );
     ctx.strokeStyle = '#ffd252';
     ctx.lineWidth = 2;
-    ctx.strokeRect(selected.x * scale + 1, selected.y * scale + 1, selected.width * scale - 2, selected.height * scale - 2);
+    ctx.strokeRect(
+      selected.x * scale + 1,
+      selected.y * scale + 1,
+      Math.max(1, selected.width * scale - 2),
+      Math.max(1, selected.height * scale - 2),
+    );
     ctx.restore();
   }
 
@@ -673,6 +692,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
       for (let frame = 0; frame < count; frame += 1) {
         const cell = grid.frames.find((item) => item.row === row && item.frame === frame);
         if (!cell) continue;
+        if (cell.width * scale < 18 || cell.height * scale < 14) continue;
         const label = String(matrix[row]?.[frame] ?? '0');
         const textWidth = Math.ceil(ctx.measureText(label).width);
         const boxWidth = textWidth + padX * 2;
@@ -695,9 +715,9 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     const canvas = els.sheetCanvas;
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
-    const scale = clampInt(els.sheetScale.value, 1, 16, 4);
-    const imgX = (event.clientX - rect.left) * (canvas.width / rect.width) / scale;
-    const imgY = (event.clientY - rect.top) * (canvas.height / rect.height) / scale;
+    const scale = readZoomScale(els.sheetScale);
+    const imgX = (event.clientX - rect.left) / scale;
+    const imgY = (event.clientY - rect.top) / scale;
     const { grid } = readFrameConfig();
     const row = clampInt(Math.floor(imgY / Math.max(1, grid.height)), 0, Math.max(0, grid.rows - 1), 0);
     const counts = readRowFrameCounts(grid);
@@ -711,15 +731,23 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     drawSheetPreview();
   }
 
-  // Steps the integer zoom of the preview/sheet canvases via mouse wheel.
-  function zoomFromWheel(input, event, redraw) {
+  function zoomFromWheel(input, stage, event, redraw) {
     event.preventDefault();
-    const current = clampInt(input.value, 1, 16, 4);
-    const next = clampInt(current + (event.deltaY < 0 ? 1 : -1), 1, 16, current);
+    const current = readZoomPercent(input);
+    const rect = stage.getBoundingClientRect();
+    const localX = event.clientX - rect.left;
+    const localY = event.clientY - rect.top;
+    const contentX = (stage.scrollLeft + localX) / Math.max(0.1, current / 100);
+    const contentY = (stage.scrollTop + localY) / Math.max(0.1, current / 100);
+    let next = clampZoomPercent(current * Math.exp(-event.deltaY * 0.0015), current);
+    if (next === current) next = clampZoomPercent(current + (event.deltaY < 0 ? 1 : -1), current);
     if (next === current) return;
     stopPlayback();
     input.value = String(next);
     redraw();
+    const nextScale = next / 100;
+    stage.scrollLeft = contentX * nextScale - localX;
+    stage.scrollTop = contentY * nextScale - localY;
   }
 
   function advanceFrame() {
@@ -793,7 +821,9 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
   function collectFormAsset() {
     const current = selectedAsset();
     if (!current) return null;
-    const [cellWidth, cellHeight] = parseCellSize(els.form.elements.cellSize.value || '16x16');
+    const metrics = spriteSheetMetrics(current, sourceImage);
+    const cellWidth = metrics.cellWidth;
+    const cellHeight = metrics.cellHeight;
     const draftForMetrics = {
       ...current,
       options: {
@@ -838,10 +868,6 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
           rowFrameCounts,
           rowDefaultTimes,
           collision: els.form.elements.collision.value,
-          optType: els.form.elements.optType.value,
-          optLevel: els.form.elements.optLevel.value,
-          optDuplicate: els.form.elements.optDuplicate.value,
-          comment: els.form.elements.comment.value,
         },
       },
     };
@@ -963,18 +989,12 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
             <div class="pce-sprite-editor-import-grid">
               <label class="form-group"><span class="form-label">ID</span><input class="form-input form-input-mono" name="id" value="${esc(defaultId)}" /></label>
               <label class="form-group"><span class="form-label">Name</span><input class="form-input" name="name" value="${esc(baseName)}" /></label>
-              <label class="form-group"><span class="form-label">Palette bank</span><input class="form-input" name="paletteBank" type="number" min="0" max="15" value="0" /></label>
-              <label class="form-group"><span class="form-label">Tile base</span><input class="form-input" name="tileBase" type="number" min="0" max="2047" value="${DEFAULT_TILE_BASE}" /></label>
-              <label class="form-group"><span class="form-label">X</span><input class="form-input" name="x" type="number" min="0" max="255" value="144" /></label>
-              <label class="form-group"><span class="form-label">Y</span><input class="form-input" name="y" type="number" min="0" max="255" value="104" /></label>
-              <label class="form-group"><span class="form-label">Cell size</span><select class="form-select" name="cellSize">${SPRITE_CELL_SIZES.map((size) => `<option value="${size}">${size}</option>`).join('')}</select></label>
               <label class="form-group"><span class="form-label">Output width</span><input class="form-input" name="outputWidth" type="number" min="16" max="1024" step="16" value="${DEFAULT_WIDTH}" /></label>
               <label class="form-group"><span class="form-label">Output height</span><input class="form-input" name="outputHeight" type="number" min="16" max="1024" step="16" value="${DEFAULT_HEIGHT}" /></label>
-              <label class="form-group"><span class="form-label">Transparent index</span><input class="form-input" name="transparentIndex" type="number" min="0" max="15" value="0" /></label>
-              <label class="form-group"><span class="form-label">Frame W</span><input class="form-input" name="frameWidth" type="number" min="16" max="256" step="16" value="${DEFAULT_WIDTH}" /></label>
-              <label class="form-group"><span class="form-label">Frame H</span><input class="form-input" name="frameHeight" type="number" min="16" max="256" step="16" value="${DEFAULT_HEIGHT}" /></label>
-              <label class="form-group"><span class="form-label">Frames</span><input class="form-input" name="frameCount" type="number" min="1" max="64" value="1" /></label>
-              <label class="form-group"><span class="form-label">Speed</span><input class="form-input" name="frameDelay" type="number" min="1" max="60" value="8" /></label>
+              <details class="pce-sprite-editor-advanced pce-sprite-editor-import-advanced">
+                <summary>アドバンス</summary>
+                <label class="form-group"><span class="form-label">Cell size</span><select class="form-select" name="cellSize">${SPRITE_CELL_SIZES.map((size) => `<option value="${size}">${size}</option>`).join('')}</select></label>
+              </details>
             </div>
             <div class="form-error" data-import-error></div>
             <div class="form-actions-inline modal-actions-end">
@@ -1003,27 +1023,27 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
           return;
         }
         const [cellWidth, cellHeight] = parseCellSize(form.elements.cellSize.value || '16x16');
-        const frameWidth = Math.max(cellWidth, Math.ceil(clampInt(form.elements.frameWidth.value, cellWidth, 256, DEFAULT_WIDTH) / cellWidth) * cellWidth);
-        const frameHeight = Math.max(cellHeight, Math.ceil(clampInt(form.elements.frameHeight.value, cellHeight, 256, DEFAULT_HEIGHT) / cellHeight) * cellHeight);
+        const frameWidth = DEFAULT_IMPORT_FRAME_WIDTH;
+        const frameHeight = DEFAULT_IMPORT_FRAME_HEIGHT;
         const frameWidthCells = Math.max(1, Math.ceil(frameWidth / cellWidth));
         modal.close();
         modal.destroy?.();
         resolve({
           id,
           name: String(form.elements.name.value || id).trim(),
-          paletteBank: clampInt(form.elements.paletteBank.value, 0, 15, 0),
-          tileBase: clampInt(form.elements.tileBase.value, 0, 2047, DEFAULT_TILE_BASE),
-          x: clampInt(form.elements.x.value, 0, 255, 144),
-          y: clampInt(form.elements.y.value, 0, 255, 104),
+          paletteBank: DEFAULT_SPRITE_PALETTE_BANK,
+          tileBase: DEFAULT_TILE_BASE,
+          x: DEFAULT_SPRITE_X,
+          y: DEFAULT_SPRITE_Y,
           cellWidth,
           cellHeight,
           outputWidth: clampInt(form.elements.outputWidth.value, 16, 1024, DEFAULT_WIDTH),
           outputHeight: clampInt(form.elements.outputHeight.value, 16, 1024, DEFAULT_HEIGHT),
-          transparentIndex: clampInt(form.elements.transparentIndex.value, 0, 15, 0),
+          transparentIndex: DEFAULT_SPRITE_TRANSPARENT_INDEX,
           frameWidth,
           frameHeight,
-          frameCount: clampInt(form.elements.frameCount.value, 1, 64, 1),
-          frameDelay: clampInt(form.elements.frameDelay.value, 1, 60, 8),
+          frameCount: DEFAULT_IMPORT_FRAME_COUNT,
+          frameDelay: DEFAULT_IMPORT_FRAME_DELAY,
           frameStrideCells: frameWidthCells,
         });
       });
@@ -1092,10 +1112,6 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
             rowFrameCounts: [details.frameCount],
             rowDefaultTimes: [String(details.frameDelay)],
             collision: 'NONE',
-            optType: 'BALANCED',
-            optLevel: 'FAST',
-            optDuplicate: 'FALSE',
-            comment: '',
           },
         },
       });
@@ -1219,6 +1235,42 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     return () => resizer.removeEventListener('pointerdown', onPointerDown);
   }
 
+  function setupStagePanning(stage) {
+    if (!stage) return () => {};
+    const onPointerDown = (event) => {
+      if (event.button !== 1) return;
+      event.preventDefault();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startLeft = stage.scrollLeft;
+      const startTop = stage.scrollTop;
+      stage.classList.add('is-panning');
+      stage.setPointerCapture?.(event.pointerId);
+      const onMove = (moveEvent) => {
+        stage.scrollLeft = startLeft - (moveEvent.clientX - startX);
+        stage.scrollTop = startTop - (moveEvent.clientY - startY);
+      };
+      const onUp = () => {
+        stage.classList.remove('is-panning');
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp, { once: true });
+      window.addEventListener('pointercancel', onUp, { once: true });
+    };
+    const onAuxClick = (event) => {
+      if (event.button === 1) event.preventDefault();
+    };
+    stage.addEventListener('pointerdown', onPointerDown);
+    stage.addEventListener('auxclick', onAuxClick);
+    return () => {
+      stage.removeEventListener('pointerdown', onPointerDown);
+      stage.removeEventListener('auxclick', onAuxClick);
+    };
+  }
+
   els.list.addEventListener('click', (event) => {
     const del = event.target?.closest?.('[data-delete-asset]');
     if (del) {
@@ -1245,29 +1297,14 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
   els.sourceFilter.addEventListener('change', renderAssetList);
   els.keyword.addEventListener('input', renderAssetList);
   root.querySelector('[data-action="add"]').addEventListener('click', () => { void importSpriteAsset(); });
-  root.querySelector('[data-action="delete-selected"]').addEventListener('click', () => { void deleteAsset(); });
-  root.querySelector('[data-action="first-frame"]').addEventListener('click', () => {
-    els.previewFrame.value = '0';
-    stopPlayback();
-    drawFramePreview();
-    drawSheetPreview();
-  });
-  root.querySelector('[data-action="last-frame"]').addEventListener('click', () => {
-    const { counts } = syncPreviewControls();
-    const row = clampInt(els.previewRow.value, 0, counts.length - 1, 0);
-    els.previewFrame.value = String(Math.max(0, (counts[row] || 1) - 1));
-    stopPlayback();
-    drawFramePreview();
-    drawSheetPreview();
-  });
   root.querySelector('[data-action="play"]').addEventListener('click', togglePlayback);
-  root.querySelector('[data-action="loop"]').addEventListener('click', (event) => {
-    loopPlayback = !loopPlayback;
-    event.currentTarget.classList.toggle('active', loopPlayback);
+  els.loopPlayback.addEventListener('change', () => {
+    loopPlayback = Boolean(els.loopPlayback.checked);
   });
   [els.frameScale, els.sheetScale, els.showGrid, els.previewRow, els.previewFrame, els.frameWidth, els.frameHeight].forEach((control) => {
     control.addEventListener('input', () => {
       stopPlayback();
+      if (control === els.frameScale || control === els.sheetScale) normalizeZoomInput(control);
       if (control === els.frameWidth || control === els.frameHeight) renderAnimationRows();
       drawFramePreview();
       drawSheetPreview();
@@ -1279,10 +1316,10 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
   });
   els.sheetCanvas.addEventListener('click', selectFrameFromSheet);
   els.previewStage.addEventListener('wheel', (event) => {
-    zoomFromWheel(els.frameScale, event, () => drawFramePreview());
+    zoomFromWheel(els.frameScale, els.previewStage, event, () => drawFramePreview());
   }, { passive: false });
   els.sheetStage.addEventListener('wheel', (event) => {
-    zoomFromWheel(els.sheetScale, event, () => {
+    zoomFromWheel(els.sheetScale, els.sheetStage, event, () => {
       drawSheetPreview();
       drawFramePreview();
     });
@@ -1305,10 +1342,10 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     const time = event.target?.closest?.('[data-row-default-time]');
     if (time) applyRowDefaultTime(Number(time.dataset.rowDefaultTime), time.value);
   });
-  ['cellSize', 'collision', 'time'].forEach((name) => {
+  ['collision', 'time'].forEach((name) => {
     els.form.elements[name].addEventListener('input', () => {
       stopPlayback();
-      if (name === 'cellSize' || name === 'time') renderAnimationRows();
+      if (name === 'time') renderAnimationRows();
       drawFramePreview();
       drawSheetPreview();
     });
@@ -1325,6 +1362,8 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
   const teardownAssetRefreshEvents = setupAssetRefreshEvents();
   const teardownColumnResizers = setupColumnResizers();
   const teardownRowResizer = setupRowResizer();
+  const teardownFramePan = setupStagePanning(els.previewStage);
+  const teardownSheetPan = setupStagePanning(els.sheetStage);
   await reload();
   return {
     deactivate() {
@@ -1332,6 +1371,8 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
       teardownAssetRefreshEvents();
       teardownColumnResizers();
       teardownRowResizer();
+      teardownFramePan();
+      teardownSheetPan();
       window.removeEventListener('resize', drawFramePreview);
     },
   };

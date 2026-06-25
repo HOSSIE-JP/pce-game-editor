@@ -52,19 +52,16 @@ const bg = await window.electronAPI.importAssetImage({
   sourcePath: "/absolute/path/title.png",
   kind: "background",
   id: "title_bg",
-  paletteBank: 0,
-  transparentIndex: 0
+  width: 224,
+  height: 136
 });
 
 const sprite = await window.electronAPI.importAssetImage({
   sourcePath: "/absolute/path/akari.png",
   kind: "sprite",
   id: "akari_sprite",
-  paletteBank: 1,
-  tileBase: 880,
   cellWidth: 16,
-  cellHeight: 16,
-  transparentIndex: 0
+  cellHeight: 16
 });
 
 const voice = await window.electronAPI.importAssetAudio({
@@ -153,6 +150,7 @@ const cdda = await window.electronAPI.importAssetAudio({
 ### 背景画像 `image`
 
 背景画像は 8x8 BG tile と BAT map に変換されます。CD-ROM2 target では、`tiles.bin` と `map_vram.bin` が CD data file として扱われます。**visual asset は常に無圧縮（raw）です** — 以前の RLE 圧縮と `options.compression` オプションは撤去しました（RLE デコーダが BG 破壊の原因になり overlay を圧迫したため）。
+Image プラグインの BG 追加 UI では、作者が指定する変換条件は出力幅/高さだけです。既定値は標準 BG サイズの 224x136px で、`paletteBank` と `transparentIndex` は互換用 metadata として `0` を保持します。
 
 ```jsonc
 {
@@ -166,8 +164,8 @@ const cdda = await window.electronAPI.importAssetAudio({
     "mapBase": 0,
     "x": 0,
     "y": 0,
-    "width": 288,
-    "height": 128,
+    "width": 224,
+    "height": 136,
     "cellWidth": 8,
     "cellHeight": 8,
     "transparentIndex": 0
@@ -178,13 +176,13 @@ const cdda = await window.electronAPI.importAssetAudio({
 | option | 範囲/既定 | 説明 |
 |---|---:|---|
 | `kind` | `"background"` | `image` では background 固定 |
-| `paletteBank` | `0..15` | BG palette bank |
+| `paletteBank` | 内部既定 `0` | BG palette bank。互換のため metadata には残るが、Image プラグインの BG 追加 UI では編集しない |
 | `tileBase` | 自動 `128` | BG tile を置く tile index。32x32 BAT の後ろに自動配置され、UI では編集しない |
 | `mapBase` | 自動 `0` | BAT map 転送先 word address。BG は左上から描画するため自動固定され、UI では編集しない |
 | `x`, `y` | `0..255` | asset UI/preview 用の配置情報。VN runtime のBG表示位置は scene の `background` command 側の `x` / `y` で指定する |
-| `width`, `height` | `0..1024` | 画像サイズ。8px 単位推奨 |
+| `width`, `height` | 既定 `224x136` | 画像サイズ。8px 単位推奨 |
 | `cellWidth`, `cellHeight` | `8` | BG は 8x8 tile 固定 |
-| `transparentIndex` | `0..15` | indexed/transparent 変換時の透明 index |
+| `transparentIndex` | 内部既定 `0` | indexed/transparent 変換時の互換用 metadata。BG 表示では透明合成として使わないため UI では編集しない |
 
 | generated field | 説明 |
 |---|---|
@@ -200,6 +198,7 @@ const cdda = await window.electronAPI.importAssetAudio({
 ### スプライト `sprite`
 
 スプライトは PCE sprite pattern と sprite palette に変換されます。表示は VN scene の `sprite` command で行います。
+Image プラグインの Sprites 追加 UI では、低レベルの `paletteBank` / `tileBase` / `x` / `y` / `transparentIndex` と初期 animation 設定は通常表示しません。追加時は `paletteBank: 0`、`tileBase: 704`、`x: 144`、`y: 104`、`transparentIndex: 0`、初期 animation `16x16` / `1 frame` / `1 frame delay` で登録し、frame size や ROW ごとの frame 数/time は Sprites タブのエディタ本体で編集します。変換時だけ有効な `cellWidth` / `cellHeight` は追加 modal の `アドバンス` に隠し、既存 asset では生成済み pattern とずれないよう通常の Properties からは編集しません。`tileBase` / `x` / `y` は有効な低レベル既定値として Properties の `アドバンス` に隠します。
 
 > **重複セルの圧縮 (cell dedup)**: 変換時に sheet の 16×16 cell を 128 byte 単位で比較し、ユニークな cell だけを `patterns.bin` へ出力します。positional cell → ユニーク slot の対応表を `cellmap.bin`(1 byte/cell) として生成し、`pce_editor_sprite_asset_t.cell_map` に resident 配列として埋め込みます。runtime の `show_character_sprite_frame()` がこの map 経由で frame の cell を VRAM slot へ解決するため、目パチ・口パクなど frame 間で共通する cell が 1 枚に畳まれ、多 frame の大きな sheet も VN の VRAM 予算に収まります。`tileCount` / `vramBytes` は dedupe 後のユニーク cell 数です。ユニーク cell が 256 を超える sheet は build error。
 
@@ -210,10 +209,10 @@ const cdda = await window.electronAPI.importAssetAudio({
   "source": "assets/sprites/akari_sprite.png",
   "options": {
     "kind": "sprite",
-    "paletteBank": 1,
+    "paletteBank": 0,
     "tileBase": 704,
-    "x": 128,
-    "y": 24,
+    "x": 144,
+    "y": 104,
     "width": 64,
     "height": 128,
     "cellWidth": 16,
@@ -223,12 +222,12 @@ const cdda = await window.electronAPI.importAssetAudio({
       {
         "id": "default",
         "name": "Default",
-        "frameWidth": 64,
-        "frameHeight": 128,
+        "frameWidth": 16,
+        "frameHeight": 16,
         "firstCell": 0,
         "frameCount": 1,
-        "frameDelay": 8,
-        "frameStrideCells": 32,
+        "frameDelay": 1,
+        "frameStrideCells": 1,
         "loop": true
       }
     ]
@@ -238,12 +237,12 @@ const cdda = await window.electronAPI.importAssetAudio({
 
 | option | 範囲/既定 | 説明 |
 |---|---:|---|
-| `paletteBank` | `0..15` | sprite palette bank。runtime は sprite palette 領域 `256 + paletteBank * 16` へ転送 |
-| `tileBase` | `0..2047`, 既定 `704` | C 生成後は `pattern_base`(32-word 単位)。既定 `704` = VRAM word 22528 で、message/font tile より後ろ・SATB(`0x7f00`) より前の sprite 共有領域。dedupe 後の `tileBase*32 + patterns.bin/2` が `0x7f00` を超えると build error |
-| `x`, `y` | `0..255` | 既定表示位置。scene command の `x`, `y` が実表示に使われる |
+| `paletteBank` | 既定 `0` | sprite palette bank。runtime は sprite palette 領域 `256 + paletteBank * 16` へ転送。Sprites 追加 UI では編集しない |
+| `tileBase` | 既定 `704` | C 生成後は `pattern_base`(32-word 単位)。既定 `704` = VRAM word 22528 で、message/font tile より後ろ・SATB(`0x7f00`) より前の sprite 共有領域。dedupe 後の `tileBase*32 + patterns.bin/2` が `0x7f00` を超えると build error。通常 UI では隠し、Sprites Properties の `アドバンス` でのみ編集する |
+| `x`, `y` | 既定 `144`, `104` | asset metadata 上の既定表示位置。scene command の `x`, `y` が実表示に使われる。通常 UI では隠し、Sprites Properties の `アドバンス` でのみ編集する |
 | `width`, `height` | `0..1024` | sheet 全体サイズ |
-| `cellWidth`, `cellHeight` | `16x16`, `16x32`, `16x64`, `32x16`, `32x32`, `32x64` | PCE sprite cell size |
-| `transparentIndex` | `0..15` | 透明 index |
+| `cellWidth`, `cellHeight` | `16x16`, `16x32`, `16x64`, `32x16`, `32x32`, `32x64` | PCE sprite cell size。変換時の条件なので追加 modal の `アドバンス` だけで指定し、生成後は通常の Properties から編集しない |
+| `transparentIndex` | 既定 `0` | 透明 index。追加 UI では編集しない |
 | `animations` | 最大 16 件 | VN runtime 用 animation 定義 |
 
 | animation field | 説明 |

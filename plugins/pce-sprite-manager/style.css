@@ -688,7 +688,7 @@
 
 .pce-sprite-editor-mini-field,
 .pce-sprite-editor-time-field,
-.pce-sprite-editor-grid-toggle {
+.pce-sprite-editor-check-toggle {
   display: grid;
   gap: 3px;
   color: var(--muted);
@@ -704,10 +704,26 @@
   width: 120px;
 }
 
-.pce-sprite-editor-grid-toggle {
+.pce-sprite-editor-check-toggle {
   grid-auto-flow: column;
   align-items: center;
+  align-self: end;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
   width: auto;
+}
+
+.pce-sprite-editor-check-toggle:has(input:checked) {
+  border-color: var(--accent);
+  background: rgba(55, 145, 255, 0.16);
+  color: var(--text);
 }
 
 .pce-sprite-editor-preview-stage,
@@ -715,22 +731,29 @@
   min-width: 0;
   min-height: 0;
   background: #080c14;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .pce-sprite-editor-preview-stage {
   flex: 1;
-  overflow: hidden;
 }
 
 .pce-sprite-editor-sheet-stage {
   flex: 1;
-  overflow: auto;
+}
+
+.pce-sprite-editor-preview-stage.is-panning,
+.pce-sprite-editor-sheet-stage.is-panning {
+  cursor: grabbing;
 }
 
 .pce-sprite-editor-preview-stage canvas,
 .pce-sprite-editor-sheet-stage canvas {
   display: block;
   image-rendering: pixelated;
+  max-width: none;
 }
 
 .pce-sprite-editor-sheet-stage canvas {
@@ -788,6 +811,10 @@
   padding-bottom: 14px;
 }
 
+.pce-sprite-editor-properties .form-actions-inline {
+  padding: 0 12px;
+}
+
 .pce-sprite-editor-properties .form-group {
   padding: 0 12px;
 }
@@ -801,6 +828,25 @@
 
 .pce-sprite-editor-prop-grid .form-group {
   padding: 0;
+}
+
+.pce-sprite-editor-advanced {
+  margin: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.pce-sprite-editor-advanced summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.pce-sprite-editor-advanced .pce-sprite-editor-prop-grid {
+  padding: 0 10px 10px;
 }
 
 .pce-sprite-editor-stats {
@@ -833,6 +879,15 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.pce-sprite-editor-import-advanced {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.pce-sprite-editor-import-advanced .form-group {
+  padding: 0 10px 10px;
 }
 
 .pce-sprite-editor-import-preview {

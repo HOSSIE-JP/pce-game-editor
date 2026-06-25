@@ -51,7 +51,10 @@ export function activatePlugin({ root, api, registerCapability }) {
             <label class="form-group"><span class="form-label">Bank</span><input class="form-input" name="bank" type="number" min="0" max="15" /></label>
           </div>
           <div class="pce-palette-grid" data-colors></div>
-          <div class="form-actions-inline"><button class="btn-primary" type="submit">保存</button></div>
+          <div class="form-actions-inline">
+            <button class="btn-primary" type="submit">保存</button>
+            <button class="btn-sm" type="button" data-delete>削除</button>
+          </div>
           <div class="form-error" data-error></div>
         </form>
         <section class="pce-palette-derived">
@@ -76,6 +79,10 @@ export function activatePlugin({ root, api, registerCapability }) {
   const upsertPceAsset = (asset) => assetApi.upsertPceAsset
     ? assetApi.upsertPceAsset(asset)
     : api.electronAPI.upsertAsset(asset);
+  const deletePceAsset = (assetId) => assetApi.deletePceAsset
+    ? assetApi.deletePceAsset(assetId)
+    : api.electronAPI.deleteAsset(assetId);
+  const pendingPaletteIds = new Set();
 
   function paletteAssets() {
     return assets
@@ -125,6 +132,7 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   function fill(asset) {
     form.hidden = !asset;
+    error.textContent = '';
     if (!asset) return;
     const options = asset.options || {};
     form.elements.name.value = asset.name || asset.id;
@@ -175,9 +183,64 @@ export function activatePlugin({ root, api, registerCapability }) {
   root.querySelector('[data-new]').addEventListener('click', () => {
     const id = `palette_${Date.now()}`;
     assets.push({ id, type: 'palette', name: 'Palette', source: '', options: { target: 'bg', paletteBank: 0, colors: defaultColors() } });
+    pendingPaletteIds.add(id);
     selectedId = id;
     render();
   });
+
+  function askDelete(assetId) {
+    return new Promise((resolve) => {
+      const modal = api.createModal({
+        id: `pce-palette-delete-${Date.now()}`,
+        panelClassName: 'app-panel app-panel-sm',
+        html: `
+          <div class="page-header modal-header">
+            <h2>パレット削除</h2>
+            <button class="icon-btn" type="button" data-decision="cancel">✕</button>
+          </div>
+          <div class="settings-form compact-form pce-palette-delete-modal">
+            <p><code>${esc(assetId)}</code> を削除します。</p>
+            <div class="form-actions-inline modal-actions-end">
+              <button class="btn-sm" type="button" data-decision="cancel">キャンセル</button>
+              <button class="btn-primary" type="button" data-decision="delete">削除</button>
+            </div>
+          </div>
+        `,
+      });
+      modal.panel.querySelectorAll('[data-decision]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const decision = button.dataset.decision;
+          modal.close();
+          modal.destroy?.();
+          resolve(decision === 'delete');
+        }, { once: true });
+      });
+      modal.open();
+    });
+  }
+
+  async function deleteSelected() {
+    const asset = selected();
+    if (!asset || !(await askDelete(asset.id))) return;
+    const before = paletteAssets();
+    const oldIndex = Math.max(0, before.findIndex((entry) => entry.id === asset.id));
+    try {
+      if (pendingPaletteIds.has(asset.id)) {
+        pendingPaletteIds.delete(asset.id);
+        assets = assets.filter((entry) => entry.id !== asset.id);
+      } else {
+        const result = await deletePceAsset(asset.id);
+        if (!result?.ok) throw new Error(result?.error || '削除できませんでした');
+        assets = result.assets || assets;
+      }
+      const after = paletteAssets();
+      selectedId = after[Math.min(oldIndex, after.length - 1)]?.id || '';
+      render();
+    } catch (err) {
+      error.textContent = err.message || String(err);
+    }
+  }
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const asset = selected();
@@ -197,8 +260,10 @@ export function activatePlugin({ root, api, registerCapability }) {
       error.textContent = result?.error || '保存できませんでした';
       return;
     }
+    pendingPaletteIds.delete(asset.id);
     await reload({ force: true });
   });
+  root.querySelector('[data-delete]').addEventListener('click', () => { void deleteSelected(); });
   registerCapability('palette-editor', { reload });
   const teardownAssetRefreshEvents = setupAssetRefreshEvents();
   void reload();
