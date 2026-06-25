@@ -379,6 +379,16 @@ function safeId(value, fallback) {
   return id || fallback;
 }
 
+function normalizeSceneName(value) {
+  return String(value ?? '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join('/')
+    .slice(0, 96);
+}
+
 function normalizeVariableName(value = '', fallback = 'var_1') {
   return safeId(value, fallback).slice(0, 32);
 }
@@ -975,8 +985,10 @@ function normalizeScene(scene = {}, index = 0, valid = assetIdsByType(), assetDo
   const commands = Array.isArray(raw.commands) && raw.commands.length
     ? raw.commands.map((command, commandIndex) => normalizeCommand(command, commandIndex, valid, assetDoc)).filter(Boolean)
     : legacyCommandsForScene(raw, valid, assetDoc);
+  const name = normalizeSceneName(raw.name ?? raw.title ?? raw.label ?? '');
   return {
     id: safeId(raw.id, index === 0 ? 'opening' : `scene_${index + 1}`),
+    ...(name ? { name } : {}),
     fullScreenBg: normalizeFullScreenBg(raw.fullScreenBg ?? raw.fullscreenBg ?? raw.fullScreenBackground ?? raw.layout ?? raw.displayMode),
     commands,
     nextSceneId: safeId(raw.nextSceneId, ''),

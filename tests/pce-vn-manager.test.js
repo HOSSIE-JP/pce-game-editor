@@ -157,6 +157,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
     startScene: 'opening',
     scenes: [{
       id: 'opening',
+      name: 'Chapter 1 / Opening',
       backgroundAssetId: 'bg',
       characters: [{ assetId: 'hero', x: 500, y: -10 }, { assetId: 'hero' }],
       messages: [{ text: 'こんにちは', voiceAssetId: 'voice', textSpeedFrames: 3, mouthAnimationId: 'mouth' }],
@@ -172,6 +173,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
     messageAdvanceMode: 'button',
     messageAutoWaitFrames: vnManager.VN_DEFAULT_MESSAGE_AUTO_WAIT_FRAMES,
   });
+  assert.equal(normalized.scenes[0].name, 'Chapter 1/Opening');
   assert.equal(normalized.scenes[0].commands[0].type, 'background');
   assert.equal(normalized.scenes[0].commands[0].transition, 'fade');
   assert.equal(normalized.scenes[0].commands[0].fadeOutFrames, vnManager.VN_BG_DEFAULT_FADE_FRAMES);

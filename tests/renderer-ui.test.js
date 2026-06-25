@@ -454,6 +454,12 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /data-role="command-detail"/);
   assert.match(renderer, /data-scene-delete="\$\{esc\(item\.id\)\}"/);
   assert.match(renderer, /function deleteScene\(sceneId = selectedId\)/);
+  assert.match(renderer, /data-role="scene-name"/);
+  assert.match(renderer, /function normalizeSceneName\(value\)/);
+  assert.match(renderer, /function scenePathParts\(item = \{\}\)/);
+  assert.match(renderer, /data-scene-row="\$\{esc\(item\.id\)\}" draggable="true"/);
+  assert.match(renderer, /application\/x-pce-vn-scene-id/);
+  assert.match(renderer, /function moveScene\(sceneId, rawToIndex\)/);
   assert.match(renderer, /function previewPathForAsset\(asset = \{\}\)/);
   assert.match(renderer, /asset\?\.type === 'cdda-track' && generated\.outputFile/);
   assert.match(renderer, /const ADPCM_END_PAD_SECONDS = 2 \/ 60;/);
@@ -522,6 +528,10 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(css, /grid-template-columns:\s*var\(--pce-vn-left-width\)\s*5px\s*minmax\(340px,\s*1fr\)\s*5px\s*var\(--pce-vn-right-width\)/);
   assert.match(css, /\.pce-vn-column-resizer/);
   assert.match(css, /\.pce-vn-scene-row/);
+  assert.match(css, /\.pce-vn-scene-group/);
+  assert.match(css, /\.pce-vn-scene-row\.is-drop-before::before/);
+  assert.match(css, /\.pce-vn-scene-row\.is-drop-after::after/);
+  assert.match(css, /\.pce-vn-scene-name-field/);
   assert.match(css, /\.pce-vn-scene-delete/);
   assert.match(css, /\.pce-vn-command-palette/);
   assert.match(css, /\.pce-vn-command-preview/);

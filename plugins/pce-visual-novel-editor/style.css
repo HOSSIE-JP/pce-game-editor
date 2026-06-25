@@ -45,6 +45,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 12px;
   border-bottom: 1px solid var(--border);
@@ -54,6 +55,27 @@
 .pce-vn-edit-title h2 {
   margin: 0;
   font-size: 15px;
+}
+
+.pce-vn-scene-title-block {
+  display: grid;
+  grid-template-columns: minmax(0, 320px);
+  gap: 6px;
+  min-width: 0;
+}
+
+.pce-vn-scene-name-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pce-vn-scene-name-field input {
+  min-width: 0;
 }
 
 /* 1 シーンあたりの scene pack メモリ使用量インジケータ。 */
@@ -155,11 +177,23 @@
   padding: 8px;
 }
 
+.pce-vn-scene-group {
+  margin: 6px 2px 1px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pce-vn-scene-row {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
   gap: 4px;
+  margin-left: calc(var(--scene-depth, 0) * 12px);
   border: 1px solid transparent;
   border-radius: 7px;
 }
@@ -168,6 +202,29 @@
 .pce-vn-scene-row:hover {
   background: var(--panel-hover);
   border-color: var(--border);
+}
+
+.pce-vn-scene-row.is-dragging {
+  opacity: 0.55;
+}
+
+.pce-vn-scene-row.is-drop-before::before,
+.pce-vn-scene-row.is-drop-after::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.pce-vn-scene-row.is-drop-before::before {
+  top: -3px;
+}
+
+.pce-vn-scene-row.is-drop-after::after {
+  bottom: -3px;
 }
 
 .pce-vn-scene-select {
@@ -179,14 +236,37 @@
   background: transparent;
   color: var(--text);
   text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
   cursor: pointer;
 }
 
 .pce-vn-scene-select:hover {
   color: var(--accent);
+}
+
+.pce-vn-scene-label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pce-vn-scene-label strong,
+.pce-vn-scene-label small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pce-vn-scene-label strong {
+  font-size: 12px;
+}
+
+.pce-vn-scene-label small {
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .pce-vn-scene-delete {

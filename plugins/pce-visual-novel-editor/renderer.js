@@ -167,6 +167,20 @@ function safeId(value, fallback) {
   return id || fallback;
 }
 
+function normalizeSceneName(value) {
+  return String(value ?? '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join('/')
+    .slice(0, 96);
+}
+
+function cleanSceneNameInput(value) {
+  return String(value ?? '').replace(/[\r\n\t]+/g, ' ').slice(0, 96);
+}
+
 function signedValue(value, fallback = 0) {
   return clamp(value, -32768, 32767, fallback);
 }
@@ -772,8 +786,10 @@ function normalizeDoc(doc, assets) {
     const commands = Array.isArray(scene?.commands) && scene.commands.length
       ? scene.commands.map((command, commandIndex) => normalizeCommand(command, assets, commandIndex)).filter(Boolean)
       : legacyCommands(scene, assets);
+    const name = normalizeSceneName(scene?.name ?? scene?.title ?? scene?.label ?? '');
     return {
       id: safeId(scene?.id, index === 0 ? 'opening' : `scene_${index + 1}`),
+      ...(name ? { name } : {}),
       fullScreenBg: scene?.fullScreenBg === true
         || scene?.fullscreenBg === true
         || scene?.fullScreenBackground === true
@@ -1686,7 +1702,13 @@ export function activatePlugin({ root, api, registerCapability }) {
       <div class="pce-vn-column-resizer" data-column-resizer="left" role="separator" aria-orientation="vertical" aria-label="左列幅"></div>
       <section class="pce-vn-edit">
         <div class="pce-vn-edit-title">
-          <h2 data-role="scene-title">Scene</h2>
+          <div class="pce-vn-scene-title-block">
+            <h2 data-role="scene-title">Scene</h2>
+            <label class="pce-vn-scene-name-field">
+              <span>Name</span>
+              <input class="form-input" data-role="scene-name" placeholder="opening" />
+            </label>
+          </div>
           <div class="pce-vn-actions">
             <label class="pce-vn-scene-toggle">
               <input type="checkbox" data-role="scene-fullscreen-bg" />
@@ -1725,6 +1747,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   const errorEl = root.querySelector('[data-role="error"]');
   const sceneBudgetEl = root.querySelector('[data-role="scene-budget"]');
   const sceneFullScreenBgInput = root.querySelector('[data-role="scene-fullscreen-bg"]');
+  const sceneNameInput = root.querySelector('[data-role="scene-name"]');
   let assets = [];
   let doc = defaultDoc();
   let selectedId = 'opening';
@@ -1732,6 +1755,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   let commandSearch = '';
   let columnLayout = loadColumnLayout();
   let pointerDrag = null;
+  let sceneDragId = '';
   let suppressCommandClick = false;
   let previewToken = 0;
   let commandClipboard = null;
@@ -1768,6 +1792,33 @@ export function activatePlugin({ root, api, registerCapability }) {
   const scene = () => doc.scenes.find((item) => item.id === selectedId) || doc.scenes[0] || null;
   const assetById = (id) => assets.find((asset) => asset.id === id) || null;
   const systemSettings = () => normalizeSystemSettings(doc.settings);
+
+  function sceneDisplayName(item = {}) {
+    const name = String(item.name || '').trim();
+    return name || item.id || 'scene';
+  }
+
+  function scenePathParts(item = {}) {
+    const source = String(item.name || '').trim();
+    if (!source) return [String(item.id || 'scene')];
+    const parts = source.split('/').map((part) => part.trim()).filter(Boolean);
+    return parts.length ? parts : [String(item.id || 'scene')];
+  }
+
+  function sceneLeafName(item = {}) {
+    const parts = scenePathParts(item);
+    return parts[parts.length - 1] || sceneDisplayName(item);
+  }
+
+  function sceneGroupName(item = {}) {
+    const parts = scenePathParts(item);
+    return String(item.name || '').trim() && parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+  }
+
+  function sceneOptionLabel(item = {}) {
+    const name = sceneDisplayName(item);
+    return name === item.id ? item.id : `${name} (${item.id})`;
+  }
 
   function spriteAssetIdForSlotAt(slot, commandIndex = selectedCommandIndex) {
     const current = scene();
@@ -2100,7 +2151,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   }
 
   function sceneOptions(current, label = 'なし') {
-    return optionsFor(doc.scenes.map((item) => ({ id: item.id, name: item.id })), current, label);
+    return optionsFor(doc.scenes.map((item) => ({ id: item.id, name: sceneOptionLabel(item) })), current, label);
   }
 
   function labelOptions(current, label = 'なし') {
@@ -2344,19 +2395,32 @@ export function activatePlugin({ root, api, registerCapability }) {
   }
 
   function renderSceneList() {
+    let lastGroup = '';
     sceneList.innerHTML = doc.scenes.map((item) => {
       const firstMessage = item.commands.find((command) => command.type === 'message');
       const canDelete = doc.scenes.length > 1;
       const bytes = estimateScenePackBytes(item);
       const level = bytes > VN_SCENE_PACK_LIMIT ? 'error' : (bytes / VN_SCENE_PACK_LIMIT >= 0.85 ? 'warn' : 'ok');
+      const group = sceneGroupName(item);
+      const groupHeader = group && group !== lastGroup
+        ? `<div class="pce-vn-scene-group" title="${esc(group)}">${esc(group.replace(/\//g, ' / '))}</div>`
+        : '';
+      lastGroup = group;
+      const depth = Math.min(3, Math.max(0, scenePathParts(item).length - 1));
+      const idMeta = String(item.name || '').trim() ? `<small>ID ${esc(item.id)}</small>` : '';
       const badge = level === 'ok'
         ? ''
         : `<span class="pce-vn-scene-budget-badge" data-level="${level}" title="scene pack ${bytes} / ${VN_SCENE_PACK_LIMIT} byte">${level === 'error' ? '⚠ 超過' : `${Math.round((bytes / VN_SCENE_PACK_LIMIT) * 100)}%`}</span>`;
       return `
-        <div class="pce-vn-scene-row ${item.id === selectedId ? 'active' : ''}" data-scene-row="${esc(item.id)}">
+        ${groupHeader}
+        <div class="pce-vn-scene-row ${item.id === selectedId ? 'active' : ''}" data-scene-row="${esc(item.id)}" draggable="true" style="--scene-depth:${depth}">
           <button type="button" data-scene-id="${esc(item.id)}" class="pce-vn-scene-select">
-            <strong>${esc(item.id)}${item.fullScreenBg ? '<span class="pce-vn-mode-badge">Full BG</span>' : ''}${badge}</strong>
-            <span>${esc(firstMessage?.text || `${item.commands.length} commands`)}</span>
+            <span class="pce-vn-drag-handle" aria-hidden="true">::</span>
+            <span class="pce-vn-scene-label">
+              <strong>${esc(sceneLeafName(item))}${item.fullScreenBg ? '<span class="pce-vn-mode-badge">Full BG</span>' : ''}${badge}</strong>
+              ${idMeta}
+              <span>${esc(firstMessage?.text || `${item.commands.length} commands`)}</span>
+            </span>
           </button>
           <button
             class="icon-btn-xs danger pce-vn-scene-delete"
@@ -2815,7 +2879,11 @@ export function activatePlugin({ root, api, registerCapability }) {
     const current = scene();
     if (!current) return;
     ensureSelectedCommand(current);
-    root.querySelector('[data-role="scene-title"]').textContent = current.id;
+    root.querySelector('[data-role="scene-title"]').textContent = sceneDisplayName(current);
+    if (sceneNameInput) {
+      sceneNameInput.value = current.name || '';
+      sceneNameInput.placeholder = current.id || 'scene';
+    }
     if (sceneFullScreenBgInput) sceneFullScreenBgInput.checked = Boolean(current.fullScreenBg);
     renderCommands(current);
     renderCommandDetail(current);
@@ -3040,6 +3108,52 @@ export function activatePlugin({ root, api, registerCapability }) {
     render();
   }
 
+  function moveScene(sceneId, rawToIndex) {
+    commitCurrentUiToDoc();
+    const fromIndex = doc.scenes.findIndex((item) => item.id === sceneId);
+    if (fromIndex < 0) return;
+    let toIndex = clamp(rawToIndex, 0, doc.scenes.length, doc.scenes.length);
+    const [item] = doc.scenes.splice(fromIndex, 1);
+    if (fromIndex < toIndex) toIndex -= 1;
+    doc.scenes.splice(toIndex, 0, item);
+    selectedId = item.id;
+    render();
+  }
+
+  function clearSceneDropState(options = {}) {
+    sceneList.querySelectorAll('.is-drop-before, .is-drop-after').forEach((item) => {
+      item.classList.remove('is-drop-before', 'is-drop-after');
+    });
+    if (options.includeDragging) {
+      sceneList.querySelectorAll('.is-dragging').forEach((item) => item.classList.remove('is-dragging'));
+    }
+  }
+
+  function resolveSceneDropIndexFromElement(element, clientY) {
+    const row = element?.closest?.('[data-scene-row]');
+    if (!row) return null;
+    const rowIndex = doc.scenes.findIndex((item) => item.id === row.dataset.sceneRow);
+    if (rowIndex < 0) return null;
+    const rect = row.getBoundingClientRect();
+    return clientY > rect.top + rect.height / 2 ? rowIndex + 1 : rowIndex;
+  }
+
+  function resolveSceneDropIndex(event) {
+    const directIndex = resolveSceneDropIndexFromElement(event.target, event.clientY);
+    if (directIndex != null) return directIndex;
+    const pointIndex = resolveSceneDropIndexFromElement(document.elementFromPoint(event.clientX, event.clientY), event.clientY);
+    return pointIndex == null ? doc.scenes.length : pointIndex;
+  }
+
+  function showSceneDropTarget(index) {
+    clearSceneDropState();
+    const normalizedIndex = clamp(index, 0, doc.scenes.length, doc.scenes.length);
+    const targetId = doc.scenes[normalizedIndex]?.id || doc.scenes[doc.scenes.length - 1]?.id || '';
+    const target = Array.from(sceneList.querySelectorAll('[data-scene-row]'))
+      .find((row) => row.dataset.sceneRow === targetId);
+    target?.classList.add(normalizedIndex >= doc.scenes.length ? 'is-drop-after' : 'is-drop-before');
+  }
+
   function clearDropState() {
     commandsEl.querySelectorAll('.is-drop-target').forEach((item) => item.classList.remove('is-drop-target'));
   }
@@ -3067,6 +3181,67 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   root.querySelectorAll('[data-column-resizer]').forEach((resizer) => {
     resizer.addEventListener('pointerdown', resizeColumns);
+  });
+
+  sceneList.addEventListener('dragstart', (event) => {
+    const row = event.target?.closest?.('[data-scene-row]');
+    if (!row || event.target?.closest?.('[data-scene-delete]')) return;
+    commitCurrentUiToDoc();
+    sceneDragId = row.dataset.sceneRow || '';
+    if (!sceneDragId) return;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('application/x-pce-vn-scene-id', sceneDragId);
+      event.dataTransfer.setData('text/plain', sceneDragId);
+    }
+    row.classList.add('is-dragging');
+  });
+
+  sceneList.addEventListener('dragend', () => {
+    sceneDragId = '';
+    clearSceneDropState({ includeDragging: true });
+  });
+
+  sceneList.addEventListener('dragover', (event) => {
+    const transferTypes = Array.from(event.dataTransfer?.types || []);
+    if (!sceneDragId && !transferTypes.includes('application/x-pce-vn-scene-id')) return;
+    const index = resolveSceneDropIndex(event);
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    showSceneDropTarget(index);
+  });
+
+  sceneList.addEventListener('dragleave', (event) => {
+    if (!sceneList.contains(event.relatedTarget)) clearSceneDropState();
+  });
+
+  sceneList.addEventListener('drop', (event) => {
+    const sceneId = event.dataTransfer?.getData('application/x-pce-vn-scene-id') || sceneDragId;
+    if (!sceneId) return;
+    const index = resolveSceneDropIndex(event);
+    event.preventDefault();
+    clearSceneDropState({ includeDragging: true });
+    sceneDragId = '';
+    moveScene(sceneId, index);
+  });
+
+  sceneNameInput?.addEventListener('input', () => {
+    const current = scene();
+    if (!current) return;
+    current.name = cleanSceneNameInput(sceneNameInput.value);
+    root.querySelector('[data-role="scene-title"]').textContent = sceneDisplayName(current);
+    renderSceneList();
+  });
+
+  sceneNameInput?.addEventListener('change', () => {
+    const current = scene();
+    if (!current) return;
+    const name = normalizeSceneName(sceneNameInput.value);
+    if (name) current.name = name;
+    else delete current.name;
+    sceneNameInput.value = current.name || '';
+    root.querySelector('[data-role="scene-title"]').textContent = sceneDisplayName(current);
+    renderSceneList();
   });
 
   commandSearchInput.addEventListener('input', () => {
