@@ -1188,12 +1188,64 @@ const VN_BAT_VRAM_WORDS = 32 * 32; // 32x32 BAT = 1024 words at map base 0
 const VN_BG_DEFAULT_TILE_BASE = 128; // word units *16 (matches PCE_BG_AUTO_TILE_BASE)
 const VN_SPRITE_DEFAULT_TILE_BASE = 704; // 32-word units (matches sprite asset default)
 
-function computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphCount) {
+function normalizeAssetId(value) {
+  return String(value || '').trim();
+}
+
+function collectFullScreenBgAssetIds(doc = {}) {
+  const fullScreenBgIds = new Set();
+  const regularBgIds = new Set();
+  (doc.scenes || []).forEach((scene) => {
+    const target = scene?.fullScreenBg ? fullScreenBgIds : regularBgIds;
+    (scene?.commands || []).forEach((command) => {
+      if (command?.type !== 'background') return;
+      const assetId = normalizeAssetId(command.assetId);
+      if (assetId) target.add(assetId);
+    });
+  });
+  regularBgIds.forEach((assetId) => fullScreenBgIds.delete(assetId));
+  return fullScreenBgIds;
+}
+
+function collectSceneVisualAssetUsage(doc = {}) {
+  const imageAssetIds = new Set();
+  const spriteAssetIds = new Set();
+  (doc.scenes || []).forEach((scene) => {
+    (scene?.commands || []).forEach((command) => {
+      if (command?.type === 'background') {
+        const assetId = normalizeAssetId(command.assetId);
+        if (assetId) imageAssetIds.add(assetId);
+      } else if (command?.type === 'sprite' && command.visible !== false) {
+        const assetId = normalizeAssetId(command.assetId);
+        if (assetId) spriteAssetIds.add(assetId);
+      }
+    });
+  });
+  return { imageAssetIds, spriteAssetIds, fullScreenBgAssetIds: collectFullScreenBgAssetIds(doc) };
+}
+
+function computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphCount, options = {}) {
   const assets = (assetDoc && Array.isArray(assetDoc.assets)) ? assetDoc.assets : [];
+  const fullScreenBgAssetIds = options.fullScreenBgAssetIds instanceof Set
+    ? options.fullScreenBgAssetIds
+    : new Set(options.fullScreenBgAssetIds || []);
+  const imageAssetIds = options.imageAssetIds
+    ? (options.imageAssetIds instanceof Set ? options.imageAssetIds : new Set(options.imageAssetIds))
+    : null;
+  const spriteAssetIds = options.spriteAssetIds
+    ? (options.spriteAssetIds instanceof Set ? options.spriteAssetIds : new Set(options.spriteAssetIds))
+    : null;
   const regions = [];
   const addRegion = (name, startWord, endWord) => {
     if (endWord > startWord) regions.push({ name, start: startWord, end: endWord });
   };
+  const isReferencedAsset = (asset, ids) => !ids || (asset?.id && ids.has(String(asset.id)));
+  const isFullScreenOnlyBgAsset = (asset) => (
+    asset?.type === 'image'
+    && asset.id
+    && isReferencedAsset(asset, imageAssetIds)
+    && fullScreenBgAssetIds.has(String(asset.id))
+  );
   addRegion('BAT (BGマップ)', 0, VN_BAT_VRAM_WORDS);
   addRegion('SATB (スプライト属性)', VN_SATB_VRAM_WORD, VN_VRAM_TOTAL_WORDS);
   // Message: font strip + blank tile + 12-word glyph masks.
@@ -1202,11 +1254,12 @@ function computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, sprite
     addRegion('spritetextフォント', fontSpritePatternBase * 32, (fontSpritePatternBase + (spriteTextGlyphCount * 2)) * 32);
   }
   // BG tiles and sprite patterns: union extent of each category's assets.
-  const unionExtent = (type, tileBaseScale, wordsFor, defaultTileBase) => {
+  const unionExtent = (type, tileBaseScale, wordsFor, defaultTileBase, includeAsset = () => true) => {
     let start = Infinity;
     let end = 0;
     for (const asset of assets) {
       if (!asset || asset.type !== type) continue;
+      if (!includeAsset(asset)) continue;
       const gen = (asset.data && asset.data.generated) || {};
       const words = wordsFor(gen);
       if (!words) continue;
@@ -1217,19 +1270,35 @@ function computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, sprite
     }
     return end > start ? { start, end } : null;
   };
-  const bg = unionExtent('image', 16, (gen) => (Number(gen.tileCount) || 0) * 16, VN_BG_DEFAULT_TILE_BASE);
+  const bgWords = (gen) => (Number(gen.tileCount) || 0) * 16;
+  const bg = unionExtent('image', 16, bgWords, VN_BG_DEFAULT_TILE_BASE,
+    (asset) => isReferencedAsset(asset, imageAssetIds) && !isFullScreenOnlyBgAsset(asset));
   if (bg) addRegion('BGタイル', bg.start, bg.end);
+  const fullBg = unionExtent('image', 16, bgWords, VN_BG_DEFAULT_TILE_BASE, isFullScreenOnlyBgAsset);
+  if (fullBg) addRegion('Full BGタイル', fullBg.start, fullBg.end);
   const sprite = unionExtent('sprite', 32,
     (gen) => (Number(gen.tileCount) ? Number(gen.tileCount) * 64 : Math.ceil((Number(gen.vramBytes) || 0) / 2)),
-    VN_SPRITE_DEFAULT_TILE_BASE);
+    VN_SPRITE_DEFAULT_TILE_BASE,
+    (asset) => isReferencedAsset(asset, spriteAssetIds));
   if (sprite) addRegion('スプライトpattern', sprite.start, sprite.end);
   return regions;
 }
 
+function isAllowedVnVramOverlap(a, b) {
+  const names = new Set([a.name, b.name]);
+  if (!names.has('Full BGタイル')) return false;
+  // A Full BG scene is 256x224 background-only: messages, choices, visible
+  // sprites, and spritetext are rejected for that scene. The runtime marks the
+  // text/sprite VRAM dirty while Full BG is active and restores it before normal
+  // scenes need those areas again. BAT and SATB are hardware-owned ranges and
+  // must remain exclusive.
+  return !names.has('BAT (BGマップ)') && !names.has('SATB (スプライト属性)');
+}
+
 // Throw a build error if any two VRAM categories overlap, or any region runs past
 // the end of VRAM. The user-facing message names both regions and the overlap range.
-function validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphCount) {
-  const regions = computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphCount);
+function validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphCount, options = {}) {
+  const regions = computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphCount, options);
   const errors = [];
   for (let i = 0; i < regions.length; i++) {
     for (let j = i + 1; j < regions.length; j++) {
@@ -1238,6 +1307,7 @@ function validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, sprit
       const overlapStart = Math.max(a.start, b.start);
       const overlapEnd = Math.min(a.end, b.end);
       if (overlapEnd > overlapStart) {
+        if (isAllowedVnVramOverlap(a, b)) continue;
         errors.push(`「${a.name}」(VRAM word ${a.start}–${a.end}) と 「${b.name}」(word ${b.start}–${b.end}) が word ${overlapStart}–${overlapEnd} で重複しています。`);
       }
     }
@@ -1865,6 +1935,11 @@ function cdSectorInitializer(layoutEntry = {}) {
 function generateVnSources(projectDir, options = {}) {
   const assetDoc = assetManager.readAssetDocument(projectDir);
   const doc = writeSceneDocument(projectDir, readSceneDocument(projectDir));
+  const runtimeAssetIds = collectSceneRuntimeAssetIds(doc);
+  const runtimeAssetDoc = {
+    ...assetDoc,
+    assets: (assetDoc.assets || []).filter((asset) => asset?.id && runtimeAssetIds.has(String(asset.id))),
+  };
   const systemSettings = normalizeVnSystemSettings(doc.settings);
   if ((doc.scenes || []).length > VN_MAX_U8_COUNT) {
     throw new Error(`PCE VN supports up to ${VN_MAX_U8_COUNT} scenes`);
@@ -1939,17 +2014,19 @@ function generateVnSources(projectDir, options = {}) {
     byteSize: fontSpriteTiles.length,
     sectorCount: Math.max(1, Math.ceil(fontSpriteTiles.length / VN_CD_SECTOR_BYTES)),
   };
+  doc.scenes.forEach((scene) => validateFullScreenBgScene(scene, assetDoc));
+  const visualAssetUsage = collectSceneVisualAssetUsage(doc);
 
   // Single authoritative VRAM reservation check: reject any overlap between BG,
   // message font, spritetext font, sprite patterns, BAT, and SATB (build error).
-  validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphs.length);
+  validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphs.length, visualAssetUsage);
 
-  const imageIndex = indexAssets(assetDoc.assets || [], 'image');
-  const spriteIndex = indexAssets(assetDoc.assets || [], 'sprite');
-  const adpcmIndex = indexAssets(assetDoc.assets || [], 'adpcm');
-  const cddaIndex = indexAssets(assetDoc.assets || [], 'cdda-track');
-  const psgIndex = indexPsgAssets(assetDoc.assets || []);
-  const spriteAnimations = buildSpriteAnimationIndex(assetDoc, spriteIndex);
+  const imageIndex = indexAssets(runtimeAssetDoc.assets || [], 'image');
+  const spriteIndex = indexAssets(runtimeAssetDoc.assets || [], 'sprite');
+  const adpcmIndex = indexAssets(runtimeAssetDoc.assets || [], 'adpcm');
+  const cddaIndex = indexAssets(runtimeAssetDoc.assets || [], 'cdda-track');
+  const psgIndex = indexPsgAssets(runtimeAssetDoc.assets || []);
+  const spriteAnimations = buildSpriteAnimationIndex(runtimeAssetDoc, spriteIndex);
   if (spriteAnimations.meta.length > VN_MAX_U8_COUNT) {
     throw new Error(`PCE VN supports up to ${VN_MAX_U8_COUNT} sprite animations`);
   }
@@ -1968,7 +2045,6 @@ function generateVnSources(projectDir, options = {}) {
   let commandCount = 0;
 
   doc.scenes.forEach((scene, sceneIdx) => {
-    validateFullScreenBgScene(scene, assetDoc);
     const sceneBuild = {
       sceneId: scene.id || `scene_${sceneIdx}`,
       packPath: scenePackRelativePath(scene, sceneIdx),
@@ -2731,6 +2807,7 @@ function generateVnSources(projectDir, options = {}) {
     fontSpritePatternBase,
     fontSpritePaletteBank,
     fontSpriteRenderer,
+    assetIds: Array.from(runtimeAssetIds),
     warnings: [...fontBudget.warnings, ...fontSpriteWarnings],
   };
 }
@@ -2818,9 +2895,20 @@ function collectSceneCommandAssetIds(scene = {}) {
       if (command.assetId) ids.push(command.assetId);
     } else if (command.type === 'message') {
       if (command.voiceAssetId) ids.push(command.voiceAssetId);
-    } else if (command.type === 'audio' && command.kind === 'adpcm' && command.action === 'play') {
+    } else if (command.type === 'audio' && command.action === 'play') {
       if (command.assetId) ids.push(command.assetId);
     }
+  });
+  return ids;
+}
+
+function collectSceneRuntimeAssetIds(doc = {}) {
+  const ids = new Set();
+  (doc.scenes || []).forEach((scene) => {
+    collectSceneCommandAssetIds(scene).forEach((assetId) => {
+      const normalized = normalizeAssetId(assetId);
+      if (normalized) ids.add(normalized);
+    });
   });
   return ids;
 }
@@ -2855,10 +2943,6 @@ function collectCdDataFiles(projectDir) {
       addAssetCdDataFiles(projectDir, files, seen, assets.get(assetId));
     });
   });
-  const fallback = typeof assetManager.collectCdDataFiles === 'function'
-    ? assetManager.collectCdDataFiles(projectDir)
-    : [];
-  fallback.forEach((relativePath) => addExistingCdDataFile(projectDir, files, seen, relativePath));
   return files;
 }
 
@@ -3181,6 +3265,9 @@ module.exports = {
   collectCdDataFiles,
   collectGlyphs,
   collectGlyphsRaw,
+  collectFullScreenBgAssetIds,
+  collectSceneVisualAssetUsage,
+  collectSceneRuntimeAssetIds,
   collectSpriteTextGlyphsRaw,
   computeFontBudget,
   computeVnVramLayout,

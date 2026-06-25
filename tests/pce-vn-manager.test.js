@@ -592,10 +592,22 @@ test('PCE VN manager encodes full-screen BG scene mode and rejects UI commands',
     assets: [{
       id: 'full_bg',
       type: 'image',
-      options: { width: 256, height: 224 },
+      options: { width: 256, height: 224, tileBase: 64 },
       data: { generated: {
         width: 256,
         height: 224,
+        tileCount: 896,
+        tilesFile: 'assets/generated/full_bg/tiles.bin',
+        mapVramFile: 'assets/generated/full_bg/map_vram.bin',
+      } },
+    }, {
+      id: 'unused_full_bg',
+      type: 'image',
+      options: { width: 256, height: 224, tileBase: 64 },
+      data: { generated: {
+        width: 256,
+        height: 224,
+        tileCount: 896,
         tilesFile: 'assets/generated/full_bg/tiles.bin',
         mapVramFile: 'assets/generated/full_bg/map_vram.bin',
       } },
@@ -611,6 +623,11 @@ test('PCE VN manager encodes full-screen BG scene mode and rejects UI commands',
         { type: 'background', assetId: 'full_bg', x: 0, y: 0 },
         { type: 'wait', frames: 60 },
       ],
+    }, {
+      id: 'normal',
+      commands: [
+        { type: 'message', text: 'after full bg' },
+      ],
     }],
   });
 
@@ -625,6 +642,22 @@ test('PCE VN manager encodes full-screen BG scene mode and rejects UI commands',
   assert.equal(pack[9], vnManager.VN_SCENE_FLAG_FULL_SCREEN_BG);
   assert.equal(commandRecord(pack, 0).x, 0);
   assert.equal(commandRecord(pack, 0).y, 0);
+
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'normal',
+    scenes: [{
+      id: 'normal',
+      commands: [
+        { type: 'background', assetId: 'full_bg', x: 0, y: 0 },
+        { type: 'message', text: 'regular use' },
+      ],
+    }],
+  });
+  assert.throws(
+    () => vnManager.generateVnSources(projectDir),
+    /VN VRAM 領域の排他予約/
+  );
 
   writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
     version: 2,
@@ -1000,7 +1033,8 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   // flags = kind(2) | action play(0x10); slot carries the base channel.
   assert.equal(play.flags, vnManager.VN_AUDIO_KIND_PSG | 0x10);
   assert.equal(play.slot, 3);
-  assert.equal(play.assetIndex, 1); // 'theme' is the 2nd PSG asset (song after sfx)
+  assert.deepEqual(generated.assetIds, ['theme']);
+  assert.equal(play.assetIndex, 0); // unused PSG assets are not emitted into VN runtime metadata
   const stop = commandRecord(pack, 1);
   assert.equal(stop.flags, vnManager.VN_AUDIO_KIND_PSG | 0x20);
   assert.equal(stop.assetIndex, -1);
@@ -1018,6 +1052,16 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   assert.match(runtime, /#define VN_PSG_PATTERN_BUFFER_BYTES \(VN_PSG_PATTERN_BANK_BYTES \* 2u\)/);
   assert.match(runtime, /psg_pattern_ram_bank135_reserved\[VN_PSG_PATTERN_BANK_BYTES\][\s\S]*section\("\.ram_bank135"\)/);
   assert.match(runtime, /pce_ram_bank135_map\(\);[\s\S]*\(const pce_editor_psg_step_t \*\)psg_pattern_ram/);
+  assert.match(runtime, /#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 20u/);
+  assert.match(runtime, /#define VN_PSG_VRAM_COPY_COMPENSATION_FRAMES 8u/);
+  assert.match(runtime, /static void VN_RESIDENT_CODE service_psg_during_blocking_work\(void\);/);
+  assert.match(runtime, /static void VN_RESIDENT_CODE service_psg_during_blocking_frames\(uint8_t frames\);/);
+  assert.match(runtime, /cd_transfer_wait\(void\)[\s\S]*service_psg_during_blocking_frames\(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES\);/);
+  assert.match(runtime, /pce_editor_vram_copy\(vram_dest, cd_transfer_scratch, chunk\);\n        service_psg_during_blocking_frames\(VN_PSG_VRAM_COPY_COMPENSATION_FRAMES\);/);
+  assert.match(runtime, /pce_editor_vram_copy\(\(uint16_t\)\(dest \+ \(\(uint16_t\)row \* VN_MAP_WIDTH\)\), &cd_transfer_scratch\[local_offset\], row_bytes\);\n            service_psg_during_blocking_work\(\);/);
+  assert.match(runtime, /fade_palette[\s\S]*delay_frame\(\);\n        service_psg_during_blocking_work\(\);/);
+  assert.match(runtime, /tick_psg\(\);[\s\S]*map_vn_data\(\);[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);/);
+  assert.match(runtime, /while \(frames--\)[\s\S]*service_psg_during_blocking_work\(\);/);
 });
 
 test('PCE VN manager encodes the input check command with button mask and modes', () => {
@@ -1462,7 +1506,13 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(beginMessageWindowSource, /display_disable\(\)|pending_display_enable = 1u;/);
   assert.match(endMessageWindowSource, /vn_wait_next_vblank\(\);[\s\S]*map_message_window_cells\(0u\);[\s\S]*delay_frame\(\);/);
   assert.doesNotMatch(endMessageWindowSource, /display_enable\(\)|pending_display_enable = 0u;/);
-  assert.match(source, /static void finish_active_message\(void\)[\s\S]*restore_window_display = begin_message_window_vram_update\(\);[\s\S]*draw_message_text_locked\(&active_message_state\);[\s\S]*end_message_window_vram_update\(restore_window_display\);/);
+  const finishActiveMessageStart = source.indexOf('static void finish_active_message(void)');
+  const tickActiveMessageStart = source.indexOf('static void tick_active_message(void)');
+  assert.notEqual(finishActiveMessageStart, -1);
+  assert.notEqual(tickActiveMessageStart, -1);
+  const finishActiveMessageSource = source.slice(finishActiveMessageStart, tickActiveMessageStart);
+  assert.match(finishActiveMessageSource, /while \(!message_complete\)[\s\S]*message_complete = draw_message_next_glyph_locked\(&active_message_state\);/);
+  assert.doesNotMatch(finishActiveMessageSource, /begin_message_window_vram_update|end_message_window_vram_update|draw_message_text_locked/);
   assert.match(source, /active_message_state = \*message;\n        message = &active_message_state;/);
   const tickActiveMessageMatch = source.match(/static void tick_active_message\(void\)[\s\S]*?\n\}/);
   assert.ok(tickActiveMessageMatch);
@@ -1480,14 +1530,21 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static void init_runtime_state\(void\)/);
   assert.match(source, /current_bg_index = -1;/);
   assert.match(source, /static uint8_t current_scene_full_screen_bg = 0;/);
+  assert.match(source, /static uint8_t full_screen_bg_text_vram_dirty = 0;/);
   assert.match(source, /current_scene_full_screen_bg = 0u;/);
+  assert.match(source, /full_screen_bg_text_vram_dirty = 0u;/);
   assert.match(source, /#define VN_SCENE_PACK_OFFSET_FLAGS 9u/);
   assert.match(source, /static uint8_t VN_BANKED_CODE2 scene_pack_full_screen_bg/);
+  assert.match(source, /static void VN_BANKED_CODE2 restore_text_vram_after_full_screen_bg\(void\)[\s\S]*upload_font_tiles\(\);[\s\S]*upload_font_sprite_patterns\(\);[\s\S]*upload_blank_tile\(\);[\s\S]*message_glyph_cache_valid = 0u;[\s\S]*full_screen_bg_text_vram_dirty = 0u;/);
   assert.match(showSceneSource, /current_scene_full_screen_bg = scene_pack_full_screen_bg\(&active_scene_pack\);/);
+  assert.match(showSceneSource, /previous_full_screen_bg = current_scene_full_screen_bg;[\s\S]*current_scene_full_screen_bg = scene_pack_full_screen_bg\(&active_scene_pack\);/);
+  assert.match(showSceneSource, /&& !\(previous_full_screen_bg && !current_scene_full_screen_bg\)/);
+  assert.match(showSceneSource, /display_disable\(\);[\s\S]*if \(previous_full_screen_bg && !current_scene_full_screen_bg\)[\s\S]*restore_text_vram_after_full_screen_bg\(\);[\s\S]*clear_screen_map\(\);/);
+  assert.match(setBackgroundSource, /if \(current_scene_full_screen_bg\)[\s\S]*full_screen_bg_text_vram_dirty = 1u;[\s\S]*loaded_sprite_pattern_valid = 0u;/);
   assert.match(executeCommandSource, /PCE_VN_COMMAND_SPRITE[\s\S]*if \(current_scene_full_screen_bg\) return VN_EXEC_CONTINUE;/);
-  assert.match(executeCommandSource, /PCE_VN_COMMAND_MESSAGE[\s\S]*if \(current_scene_full_screen_bg\) return VN_EXEC_CONTINUE;/);
-  assert.match(executeCommandSource, /PCE_VN_COMMAND_CHOICE[\s\S]*if \(current_scene_full_screen_bg\) return VN_EXEC_CONTINUE;/);
-  assert.match(executeCommandSource, /PCE_VN_COMMAND_SPRITETEXT[\s\S]*if \(current_scene_full_screen_bg\) return VN_EXEC_CONTINUE;/);
+  assert.match(executeCommandSource, /PCE_VN_COMMAND_MESSAGE[\s\S]*if \(current_scene_full_screen_bg\) return VN_EXEC_CONTINUE;[\s\S]*restore_text_vram_after_full_screen_bg\(\);/);
+  assert.match(source, /PCE_VN_COMMAND_CHOICE[\s\S]*restore_text_vram_after_full_screen_bg\(\);[\s\S]*start_choice/);
+  assert.match(executeCommandSource, /PCE_VN_COMMAND_SPRITETEXT[\s\S]*if \(current_scene_full_screen_bg\) return VN_EXEC_CONTINUE;[\s\S]*restore_text_vram_after_full_screen_bg\(\);/);
   assert.match(source, /preloaded_bg_valid = 0u;/);
   assert.match(source, /preloaded_scene_visual_valid = 0u;/);
   assert.match(source, /preloaded_scene_index = 0u;/);
@@ -1524,7 +1581,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static void VN_BANKED_CODE2 sprite_layer_enable\(void\)/);
   assert.match(source, /static void VN_BANKED_CODE2 sprite_layer_enable\(void\)[\s\S]*vn_wait_next_vblank\(\);[\s\S]*set_vdc_control\(VN_VDC_DISPLAY_CONTROL\);/);
   assert.doesNotMatch(source, /pce_cdb_vdc_/);
-  assert.match(source, /keep_display_for_transition = \(uint8_t\)\(current_bg_index >= 0 && !pending_display_enable\);/);
+  assert.match(showSceneSource, /keep_display_for_transition = \(uint8_t\)\(current_bg_index >= 0[\s\S]*&& !pending_display_enable[\s\S]*&& !\(previous_full_screen_bg && !current_scene_full_screen_bg\)\);/);
   assert.match(showSceneSource, /use_preloaded_scene_visual = \(uint8_t\)\(pending_display_enable[\s\S]*preloaded_scene_visual_valid[\s\S]*preloaded_scene_index == scene_index\);/);
   assert.match(showSceneSource, /begin_cdda_deferred_resume\(\);[\s\S]*if \(!load_scene_pack_into_cache\(scene_index, &active_scene_pack\)\)[\s\S]*end_cdda_deferred_resume\(\);[\s\S]*return;/);
   assert.match(showSceneSource, /if \(!use_preloaded_scene_visual\)[\s\S]*clear_screen_map\(\);[\s\S]*preloaded_bg_valid = 0u;[\s\S]*preloaded_scene_visual_valid = 0u;/);
@@ -1537,7 +1594,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(setBackgroundSource, /const uint8_t restore_display_after_bg_load = \(uint8_t\)!pending_display_enable;/);
   assert.match(setBackgroundSource, /clear_bg_map_region\(vn_get_bg_asset\(\(uint8_t\)current_bg_index\), current_bg_x, current_bg_y\);/);
   assert.match(setBackgroundSource, /clear_bg_map_region\(next_bg, next_x, next_y\);/);
-  assert.match(setBackgroundSource, /upload_bg_graphics\(next_bg, bg_map_dest_from_tile\(next_bg, next_x, next_y\)\);\n        if \(restore_display_after_bg_load\) display_enable\(\);/);
+  assert.match(setBackgroundSource, /upload_bg_graphics\(next_bg, bg_map_dest_from_tile\(next_bg, next_x, next_y\)\);[\s\S]*if \(current_scene_full_screen_bg\)[\s\S]*if \(restore_display_after_bg_load\) display_enable\(\);/);
   assert.match(setBackgroundSource, /else if \(pending_display_enable\)\n    \{\n        display_enable\(\);\n        pending_display_enable = 0u;\n        delay_frame\(\);\n    \}/);
   assert.doesNotMatch(setBackgroundSource, /display_disable\(\);/);
   assert.doesNotMatch(setBackgroundSource, /preload_scene_assets/);

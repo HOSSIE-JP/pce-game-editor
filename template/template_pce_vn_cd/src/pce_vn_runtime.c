@@ -86,8 +86,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_MSG_TILE_COUNT (VN_MSG_TILE_COLS * VN_MSG_TILE_ROWS)
 /* The 208-tile message strip the compositor owns starts at the (generated)
    font tile base. The BAT window cells normally point at this strip; during
-   bulk clear/full-reveal updates they temporarily point at the dedicated blank
-   tile so the visible screen is not globally blanked. */
+   message-page clear/initial full-page updates they temporarily point at the
+   dedicated blank tile so the visible screen is not globally blanked. */
 #define VN_MSG_STRIP_TILE_BASE PCE_VN_FONT_TILE_BASE
 /* One dedicated, always-zero tile for the BG/UI blank fill (the old blank tile
    aliased the font base, which is now dynamic strip data). */
@@ -122,6 +122,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_ADPCM_FRAME_RATE 60ul
 #define VN_ADPCM_END_PAD_FRAMES 2ul
 #define VN_BG_IMPLICIT_FADE_FRAMES 6u
+#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 20u
+#define VN_PSG_VRAM_COPY_COMPENSATION_FRAMES 8u
 #define VN_BG_UPLOAD_DISPLAY_DISABLE() display_disable()
 #define VN_SPRITE_REFRESH_NONE 0u
 #define VN_SPRITE_REFRESH_PATTERNS 1u
@@ -200,6 +202,7 @@ static uint8_t preloaded_scene_visual_valid = 0;
 static uint8_t preloaded_scene_index = 0;
 static uint8_t loaded_sprite_pattern_valid = 0;
 static uint8_t loaded_sprite_pattern_index = 0;
+static uint8_t full_screen_bg_text_vram_dirty = 0;
 static uint8_t loaded_adpcm_valid = 0;
 static uint8_t loaded_adpcm_index = 0;
 static signed char screen_shake_x = 0;
@@ -385,6 +388,9 @@ static uint8_t VN_BANKED_CODE2 scene_pack_command_count(const vn_scene_pack_cach
 static void service_cdda_playback(void);
 static void VN_BANKED_CODE2 service_adpcm_playback(void);
 #endif
+static void VN_BANKED_CODE2 tick_psg(void);
+static void VN_RESIDENT_CODE service_psg_during_blocking_work(void);
+static void VN_RESIDENT_CODE service_psg_during_blocking_frames(uint8_t frames);
 
 static void map_vn_data(void)
 {
@@ -419,6 +425,7 @@ static void init_runtime_state(void)
     preloaded_scene_index = 0u;
     loaded_sprite_pattern_valid = 0u;
     loaded_sprite_pattern_index = 0u;
+    full_screen_bg_text_vram_dirty = 0u;
     loaded_adpcm_valid = 0u;
     loaded_adpcm_index = 0u;
 #if defined(__PCE_CD__)
@@ -866,6 +873,7 @@ static void cd_transfer_wait(void)
 {
     volatile uint16_t wait;
     for (wait = 0u; wait < 65535u; wait++) {}
+    service_psg_during_blocking_frames(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES);
 }
 
 static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call(void);
@@ -988,6 +996,7 @@ static uint8_t VN_BANKED_CODE cd_data_ref_to_vram(uint16_t dest, const pce_edito
         (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)cd_transfer_scratch, chunk);
         cd_transfer_wait();
         pce_editor_vram_copy(vram_dest, cd_transfer_scratch, chunk);
+        service_psg_during_blocking_frames(VN_PSG_VRAM_COPY_COMPENSATION_FRAMES);
         vram_dest = (uint16_t)(vram_dest + ((chunk + 1u) / 2u));
         remaining = (uint16_t)(remaining - chunk);
         cd_sector_advance(&sector);
@@ -1035,6 +1044,7 @@ static uint8_t VN_BANKED_CODE2 cd_bg_map_ref_to_vram(uint16_t dest, const pce_ed
         while (row < copy_height_tiles && (uint16_t)(local_offset + VN_MAP_ROW_BYTES) <= chunk)
         {
             pce_editor_vram_copy((uint16_t)(dest + ((uint16_t)row * VN_MAP_WIDTH)), &cd_transfer_scratch[local_offset], row_bytes);
+            service_psg_during_blocking_work();
             local_offset = (uint16_t)(local_offset + VN_MAP_ROW_BYTES);
             row++;
         }
@@ -1515,6 +1525,7 @@ static void fade_palette(const pce_editor_data_ref_t *palette, uint16_t base_ind
             vce_write_color((uint16_t)(base_index + i), scale_vce_color(raw, scale, frames));
         }
         delay_frame();
+        service_psg_during_blocking_work();
     }
 }
 
@@ -1773,6 +1784,18 @@ static uint16_t message_glyph_cache_masks[VN_MESSAGE_GLYPH_CACHE_COUNT][VN_GLYPH
 static uint8_t message_glyph_cache_count __attribute__((section(".bss")));
 static uint8_t message_glyph_cache_valid __attribute__((section(".bss")));
 #endif
+
+static void VN_BANKED_CODE2 restore_text_vram_after_full_screen_bg(void)
+{
+    if (!full_screen_bg_text_vram_dirty) return;
+    upload_font_tiles();
+    upload_font_sprite_patterns();
+    upload_blank_tile();
+#if defined(__PCE_CD__)
+    message_glyph_cache_valid = 0u;
+#endif
+    full_screen_bg_text_vram_dirty = 0u;
+}
 
 /* Build a PCE 4bpp 8x8 tile (16 words) from an 8-scanline 1bpp mask. A lit pixel
    is color index 15 (all four bitplanes set), so every plane byte equals the row
@@ -3086,9 +3109,32 @@ static void VN_BANKED_CODE2 tick_psg(void)
     psg_apply_step_row(psg_step);
 }
 
+static void VN_RESIDENT_CODE service_psg_during_blocking_work(void)
+{
+#if defined(__PCE_CD__)
+    if (!psg_active || !psg_current) return;
+    pce_ram_bank130_map();
+    tick_psg();
+    /* Large PSG patterns are read from bank134/135 through MPR6. Most blocking
+       CD/BG loaders resume by reading bank132 scratch or metadata, so leave that
+       slot in the VN data state after the cooperative audio tick. */
+    map_vn_data();
+    VN_MAP_BANK130_FOR_CODE();
+#endif
+}
+
+static void VN_RESIDENT_CODE service_psg_during_blocking_frames(uint8_t frames)
+{
+    while (frames--)
+    {
+        service_psg_during_blocking_work();
+    }
+}
+
 static void show_scene(uint8_t scene_index)
 {
     uint8_t i;
+    uint8_t previous_full_screen_bg;
     uint8_t keep_display_for_transition;
     uint8_t use_preloaded_scene_visual;
     map_vn_data();
@@ -3100,8 +3146,11 @@ static void show_scene(uint8_t scene_index)
         end_cdda_deferred_resume();
         return;
     }
+    previous_full_screen_bg = current_scene_full_screen_bg;
     current_scene_full_screen_bg = scene_pack_full_screen_bg(&active_scene_pack);
-    keep_display_for_transition = (uint8_t)(current_bg_index >= 0 && !pending_display_enable);
+    keep_display_for_transition = (uint8_t)(current_bg_index >= 0
+        && !pending_display_enable
+        && !(previous_full_screen_bg && !current_scene_full_screen_bg));
     use_preloaded_scene_visual = (uint8_t)(pending_display_enable
         && preloaded_scene_visual_valid
         && preloaded_scene_index == scene_index);
@@ -3109,6 +3158,10 @@ static void show_scene(uint8_t scene_index)
     {
         display_disable();
         pending_display_enable = 1u;
+        if (previous_full_screen_bg && !current_scene_full_screen_bg)
+        {
+            restore_text_vram_after_full_screen_bg();
+        }
         if (!use_preloaded_scene_visual)
         {
             clear_screen_map();
@@ -3651,13 +3704,12 @@ static void start_message(uint8_t message_index)
 
 static void finish_active_message(void)
 {
-    uint8_t restore_window_display;
     if (active_message_index < 0) return;
     VN_MAP_BANK130_FOR_CODE();
-    restore_window_display = begin_message_window_vram_update();
-    draw_message_text_locked(&active_message_state);
-    end_message_window_vram_update(restore_window_display);
-    message_complete = 1u;
+    while (!message_complete)
+    {
+        message_complete = draw_message_next_glyph_locked(&active_message_state);
+    }
 }
 
 static void tick_active_message(void)
@@ -3830,6 +3882,11 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
         }
         clear_bg_map_region(next_bg, next_x, next_y);
         upload_bg_graphics(next_bg, bg_map_dest_from_tile(next_bg, next_x, next_y));
+        if (current_scene_full_screen_bg)
+        {
+            full_screen_bg_text_vram_dirty = 1u;
+            loaded_sprite_pattern_valid = 0u;
+        }
         if (restore_display_after_bg_load) display_enable();
         preloaded_bg_valid = 1u;
         preloaded_bg_index = (uint8_t)bg_index;
@@ -3870,6 +3927,7 @@ static uint8_t VN_BANKED_CODE2 execute_control_command(const pce_vn_command_t *c
     if (command->type == PCE_VN_COMMAND_CHOICE)
     {
         if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
+        restore_text_vram_after_full_screen_bg();
         if (command->choice_index >= 0)
         {
             start_choice((uint8_t)command->choice_index);
@@ -4022,6 +4080,7 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
     else if (command->type == PCE_VN_COMMAND_MESSAGE)
     {
         if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
+        restore_text_vram_after_full_screen_bg();
         if (command->message_index >= 0)
         {
             start_message((uint8_t)command->message_index);
@@ -4079,6 +4138,7 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
             display_disable();
             pending_display_enable = 1u;
             hide_sprites_for_asset_load();
+            restore_text_vram_after_full_screen_bg();
             clear_screen_map();
             preloaded_bg_valid = 0u;
             preloaded_scene_visual_valid = 0u;
@@ -4096,6 +4156,7 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
     else if (command->type == PCE_VN_COMMAND_SPRITETEXT)
     {
         if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
+        restore_text_vram_after_full_screen_bg();
         slot = command->slot < VN_SPRITETEXT_SLOT_COUNT ? command->slot : 0u;
         if (command->flags & PCE_VN_SPRITE_VISIBLE)
         {

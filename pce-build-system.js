@@ -780,6 +780,9 @@ function buildProject(onLog, options = {}) {
       const assetSourceOptions = Array.isArray(config.cd?.dataFiles) && config.cd.dataFiles.length
         ? { cdDataFiles: config.cd.dataFiles }
         : {};
+      if (Array.isArray(generated.visualNovel?.assetIds)) {
+        assetSourceOptions.assetIds = generated.visualNovel.assetIds;
+      }
       generated = {
         ...assetManager.generateAssetSources(projectDir, assetSourceOptions),
         ...generated,

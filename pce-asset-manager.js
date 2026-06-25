@@ -2880,16 +2880,22 @@ function generateAssetSources(projectDir, options = {}) {
   ensureVisualGeneratedAssets(projectDir, doc);
   ensureAdpcmGeneratedAssets(projectDir, doc);
   ensurePsgPatternFiles(projectDir, doc);
+  const assetIdFilter = Array.isArray(options.assetIds)
+    ? new Set(options.assetIds.map((id) => String(id || '').trim()).filter(Boolean))
+    : null;
+  const sourceDoc = assetIdFilter
+    ? { ...doc, assets: (doc.assets || []).filter((asset) => asset?.id && assetIdFilter.has(String(asset.id))) }
+    : doc;
   // Reserve the consolidated metadata file at its final size before any CD layout
   // is computed, so its sector (and every file after it) stays stable.
-  const metaLayout = ensureAssetMetaReservation(projectDir, doc);
-  const image = doc.assets.find((asset) => asset.type === 'image');
-  const sound = doc.assets.find((asset) => asset.type === 'psg-sfx' || asset.type === 'psg-song');
+  const metaLayout = ensureAssetMetaReservation(projectDir, sourceDoc);
+  const image = sourceDoc.assets.find((asset) => asset.type === 'image');
+  const sound = sourceDoc.assets.find((asset) => asset.type === 'psg-sfx' || asset.type === 'psg-song');
   const targetsCd = projectTargetsCd(projectDir);
   // CD on-demand metadata engages only above the resident budget (see
   // assetMetaShouldUseCd). Small CD projects keep resident arrays — same proven
   // path as HuCard — so the accessor code is DCE'd and there is no regression.
-  const assetMetaOnCd = assetMetaShouldUseCd(projectDir, doc);
+  const assetMetaOnCd = assetMetaShouldUseCd(projectDir, sourceDoc);
   const rows = targetsCd ? [] : (image ? generateTextMosaicForImage(projectDir, image).slice(0, 14) : ['NO IMAGE ASSET']);
   const tonePeriod = firstPsgPeriod(sound || {});
   const allowBanking = true;
@@ -2899,11 +2905,11 @@ function generateAssetSources(projectDir, options = {}) {
     ? normalizeCdDataFileList(projectDir, requestedCdDataFiles || collectCdDataFiles(projectDir))
     : [];
   const cdLayout = targetsCd ? buildCdDataLayout(projectDir, cdDataFiles) : new Map();
-  const bgGenerated = generateConvertedAssetArrays(projectDir, doc.assets, 'image', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
-  const spriteGenerated = generateConvertedAssetArrays(projectDir, doc.assets, 'sprite', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
-  const psgGenerated = generatePsgMetadata(projectDir, doc.assets, { targetsCd, cdLayout });
-  const adpcmGenerated = generateAdpcmMetadata(projectDir, doc.assets, { targetsCd, cdLayout });
-  const cddaGenerated = generateCddaMetadata(projectDir, doc.assets, { targetsCd, cdLayout });
+  const bgGenerated = generateConvertedAssetArrays(projectDir, sourceDoc.assets, 'image', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
+  const spriteGenerated = generateConvertedAssetArrays(projectDir, sourceDoc.assets, 'sprite', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
+  const psgGenerated = generatePsgMetadata(projectDir, sourceDoc.assets, { targetsCd, cdLayout });
+  const adpcmGenerated = generateAdpcmMetadata(projectDir, sourceDoc.assets, { targetsCd, cdLayout });
+  const cddaGenerated = generateCddaMetadata(projectDir, sourceDoc.assets, { targetsCd, cdLayout });
   const emptyDataRef = '{ (const unsigned char *)0, 0u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }';
 
   // For CD builds, serialize the per-asset metadata into ASSET_META_FILE (already
@@ -2911,7 +2917,7 @@ function generateAssetSources(projectDir, options = {}) {
   // what keeps bank128 .rodata / bank132 cd refs O(1) in asset count.
   let metaRegionLines = [];
   if (assetMetaOnCd) {
-    const metaBuffer = buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout);
+    const metaBuffer = buildAssetMetaBuffer(projectDir, sourceDoc, cdLayout, metaLayout);
     const { absPath: metaAbs } = resolveUnderRoot(projectDir, ASSET_META_FILE, 'project');
     ensureDirSync(path.dirname(metaAbs));
     fs.writeFileSync(metaAbs, metaBuffer);
@@ -3207,7 +3213,7 @@ function generateAssetSources(projectDir, options = {}) {
   return {
     headerPath,
     sourcePath,
-    assetCount: doc.assets.length,
+    assetCount: sourceDoc.assets.length,
     imageRows: rows.length,
     bgCount: bgGenerated.converted.length,
     spriteCount: spriteGenerated.converted.length,

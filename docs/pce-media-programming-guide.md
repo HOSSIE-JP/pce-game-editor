@@ -195,6 +195,10 @@ Image プラグインの BG 追加 UI では、作者が指定する変換条件
 | `vramBytes` | tiles + map の概算 VRAM byte 数 |
 | `warnings` | VRAM overlap やサイズ警告 |
 
+VN scene の `fullScreenBg: true` で使う 256x224 BG asset は、Full BG 専用で参照される場合に限り message/font/spritetext/sprite pattern 用 VRAM との重なりを build error にしません。runtime は Full BG 読み込み後に text/spritetext/blank 用 VRAM と sprite pattern cache を dirty 扱いし、通常 scene へ戻る前または次の `message` / `choice` / `spritetext` 直前に復元します。同じ BG asset を通常 scene の `background` でも参照する場合は、通常 BG と同じ排他予約チェックが適用されます。
+
+CD-ROM2 VN build の runtime asset metadata は scene command から参照された asset だけを `assets.c` へ出します。未使用 asset は Asset 一覧と generated file には残せますが、VRAM 排他予約、scene command index、resident bank128 予算には入りません。追加した素材を runtime で使うには、`background` / `sprite` / `message.voiceAssetId` / `audio` command などから参照してください。
+
 ### スプライト `sprite`
 
 スプライトは PCE sprite pattern と sprite palette に変換されます。表示は VN scene の `sprite` command で行います。
