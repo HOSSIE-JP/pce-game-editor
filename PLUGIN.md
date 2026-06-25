@@ -907,7 +907,7 @@ window.electronAPI.onPluginLog((payload) => {
 | `pce-external-emulator` | 外部エミュレーター | `emulator` | 表示 | Project Settings の起動パスへ生成済み ROM / CUE を渡して Test Play を起動 |
 | `pce-asset-manager` | アセット管理 | `editor`, `asset` | 表示 | `assets/pce-assets.json` の BG / sprite / palette / PSG / ADPCM / CD-DA 管理 |
 | `image-editor` | イメージ | `editor`, `asset` | 表示 | BG / Sprites / Palette を 1 つの Image タブに統合 |
-| `sound-editor` | サウンド | `editor`, `asset` | 表示 | ADPCM / CD-DA / PSM を 1 つの Sound タブに統合 |
+| `sound-editor` | サウンド | `editor`, `asset` | 表示 | ADPCM / CD-DA / PSG を 1 つの Sound タブに統合 |
 | `novel-editor` | ノベル | `editor`, `asset` | 表示 | VN scene 編集と font 生成を 1 つの Novel タブに統合 |
 | `pce-image-converter` | 画像コンバーター | `converter` | 表示 | PNG/BMP/WebP を PCE BG / sprite 用 import pipeline へルーティング |
 | `image-resize-converter` | 画像リサイズコンバーター | `converter` | 表示 | 画像の 8 dot 境界 resize / clipping |
@@ -915,7 +915,7 @@ window.electronAPI.onPluginLog((payload) => {
 | `pce-audio-converter` | 音声コンバーター | `converter` | 表示 | WAV / MP3 の trim / rate / mono / normalize など共通音声 import UI |
 | `pce-adpcm-manager` | ADPCM 管理 | `editor`, `asset` | 内部 | `sound-editor` の ADPCM タブ用モジュール |
 | `pce-cdda-manager` | CD-DA 管理 | `editor`, `asset` | 内部 | `sound-editor` の CD-DA タブ用モジュール |
-| `pce-music-editor` | ミュージックエディター | `editor`, `asset` | 内部 | `sound-editor` の PSM / PSG タブ用モジュール |
+| `pce-music-editor` | ミュージックエディター | `editor`, `asset` | 内部 | `sound-editor` の PSG タブ用モジュール |
 | `pce-background-manager` | 背景管理 | `editor`, `asset` | 内部 | `image-editor` の BG タブ用モジュール |
 | `pce-sprite-manager` | スプライト管理 | `editor`, `asset` | 内部 | `image-editor` の Sprites タブ用モジュール |
 | `pce-palette-editor` | パレットエディター | `editor`, `asset` | 内部 | `image-editor` の Palette タブ用モジュール |
@@ -930,7 +930,7 @@ window.electronAPI.onPluginLog((payload) => {
 
 ### Sound / Novel 統合 UI
 
-`sound-editor` は ADPCM / CD-DA / PSM の音声画面を 1 つの sidebar タブに統合します。`pce-adpcm-manager` / `pce-cdda-manager` / `pce-music-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。ADPCM / CD-DA の一覧と詳細 pane の境界はドラッグで幅調整できます。一覧行右端の preview / delete は横並びの icon button として扱い、狭い列幅でも縦に崩れないようにします。ADPCM / CD-DA の一覧は `Name` と `ID` を別列にし、各列ヘッダーで昇順/降順ソートできます。Sound 配下の asset 一覧でも `Name` の `/` 区切りをグループ表示として扱います。
+`sound-editor` は ADPCM / CD-DA / PSG の音声画面を 1 つの sidebar タブに統合します。`pce-adpcm-manager` / `pce-cdda-manager` / `pce-music-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。ADPCM / CD-DA の一覧と詳細 pane の境界はドラッグで幅調整できます。一覧行右端の preview / delete は横並びの icon button として扱い、狭い列幅でも縦に崩れないようにします。ADPCM / CD-DA の一覧は `Name` と `ID` を別列にし、各列ヘッダーで昇順/降順ソートできます。Sound 配下の asset 一覧でも `Name` の `/` 区切りをグループ表示として扱います。PSG タブでは `新規` で空の PSG asset を作るほか、`VGM取込` で既存の VGM / VGZ ファイルを選び、HuC6280 PSG レジスタ書き込みを step pattern へ量子化して psg-song / psg-sfx asset として登録できます。
 
 `novel-editor` は script scene 編集と font 生成を 1 つの sidebar タブに統合します。画面上部のタブは `スクリプト` / `Font` です。Scenes 一覧では各行右端の削除アイコンから scene を削除できます。`pce-visual-novel-editor` / `pce-font-editor` は内部モジュール (`hidden: true`) として残します。CD-ROM2 / VN runtime の bank 配置を変える作業では、先に `docs/pce-memory-bank-strategy.md` を読んでください。
 

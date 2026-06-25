@@ -21,5 +21,6 @@ loadAppConfig(require('../app.config'));
   'pce-preview-animation.test.js',
   'pce-sprite-editor-utils.test.js',
   'pce-testplay-server.test.js',
+  'pce-vgm-import.test.js',
   'pce-vn-manager.test.js',
 ].forEach((file) => require(path.join(__dirname, file)));

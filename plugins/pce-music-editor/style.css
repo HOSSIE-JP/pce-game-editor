@@ -27,6 +27,25 @@
   font-size: 15px;
 }
 
+.pce-plugin-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pce-music-vgm-file {
+  display: block;
+  word-break: break-all;
+  margin-bottom: 10px;
+  opacity: 0.8;
+}
+
+.pce-music-vgm-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
 .pce-plugin-items {
   overflow: auto;
   padding: 8px;

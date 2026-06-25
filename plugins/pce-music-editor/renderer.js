@@ -15,6 +15,16 @@ function asNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function safeId(value, fallback = 'psg_track') {
+  const id = String(value || '')
+    .trim()
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48);
+  return id || fallback;
+}
+
 function noteToPeriod(note = 'C4') {
   const base = { C: 1024, D: 912, E: 812, F: 768, G: 684, A: 608, B: 542 };
   const name = String(note).slice(0, 1).toUpperCase();
@@ -51,7 +61,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   root.innerHTML = `
     <div class="pce-music-editor-shell">
       <aside class="pce-plugin-list">
-        <div class="pce-plugin-header"><h2>PSM</h2><button class="btn-sm" type="button" data-new>新規</button></div>
+        <div class="pce-plugin-header"><h2>PSG</h2><div class="pce-plugin-header-actions"><button class="btn-sm" type="button" data-import>VGM取込</button><button class="btn-sm" type="button" data-new>新規</button></div></div>
         <div data-list class="pce-plugin-items"></div>
       </aside>
       <main class="pce-plugin-main">
@@ -90,6 +100,10 @@ export function activatePlugin({ root, api, registerCapability }) {
   const upsertPceAsset = (asset) => assetApi.upsertPceAsset
     ? assetApi.upsertPceAsset(asset)
     : api.electronAPI.upsertAsset(asset);
+  const importPceVgm = (payload) => assetApi.importPceVgm
+    ? assetApi.importPceVgm(payload)
+    : api.electronAPI.importAssetVgm(payload);
+  let importBusy = false;
 
   function selected() {
     return assets.find((asset) => asset.id === selectedId) || null;
@@ -123,7 +137,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     const list = psgAssets();
     listEl.innerHTML = list.length
       ? renderGroupedList(list, (asset) => `<button class="${asset.id === selectedId ? 'active' : ''}" type="button" data-id="${esc(asset.id)}"><strong>${esc(assetDisplayName(asset))}</strong><code>${esc(asset.id)}</code><span>${esc(asset.type)}</span></button>`)
-      : '<p class="asset-no-selection-hint">PSM アセットがありません</p>';
+      : '<p class="asset-no-selection-hint">PSG アセットがありません</p>';
     listEl.querySelectorAll('[data-id]').forEach((button) => {
       button.addEventListener('click', () => {
         selectedId = button.dataset.id;
@@ -141,7 +155,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   function renderGrid() {
     const asset = selected();
     if (!asset) {
-      gridEl.innerHTML = '<p class="asset-no-selection-hint">PSM アセットを選択してください</p>';
+      gridEl.innerHTML = '<p class="asset-no-selection-hint">PSG アセットを選択してください</p>';
       form.hidden = true;
       return;
     }
@@ -240,12 +254,107 @@ export function activatePlugin({ root, api, registerCapability }) {
     osc.stop(audioContext.currentTime + 0.18);
   }
 
+  async function pickVgmFile() {
+    const picked = await api.electronAPI.pickFile({
+      properties: ['openFile'],
+      filters: [{ name: 'VGM / VGZ', extensions: ['vgm', 'vgz'] }],
+    });
+    const sourcePath = picked?.sourcePath || picked?.filePath || picked?.filePaths?.[0] || '';
+    if (picked?.canceled || !sourcePath) return null;
+    const fileName = String(sourcePath).split(/[\\/]/).pop() || '';
+    return { sourcePath, fileName };
+  }
+
+  function openVgmImportModal(picked) {
+    return new Promise((resolve) => {
+      const baseName = picked.fileName.replace(/\.[^.]+$/, '');
+      const defaultId = safeId(baseName, 'psg_track');
+      const modal = api.createModal({
+        id: `pce-music-vgm-import-${Date.now()}`,
+        panelClassName: 'app-panel app-panel-sm',
+        html: `
+          <div class="page-header modal-header">
+            <h2>VGM 取込</h2>
+            <button class="icon-btn" type="button" data-cancel>✕</button>
+          </div>
+          <form class="settings-form compact-form pce-music-vgm-form">
+            <code class="pce-music-vgm-file">${esc(picked.sourcePath)}</code>
+            <div class="pce-form-grid">
+              <label class="form-group"><span class="form-label">ID</span><input class="form-input" name="id" value="${esc(defaultId)}" /></label>
+              <label class="form-group"><span class="form-label">Name</span><input class="form-input" name="name" value="${esc(baseName)}" /></label>
+              <label class="form-group"><span class="form-label">BPM</span><input class="form-input" name="bpm" type="number" min="30" max="300" value="150" /></label>
+              <label class="form-group"><span class="form-label">Type</span><select class="form-select" name="type"><option value="auto">自動 (ループで判定)</option><option value="psg-sfx">SFX</option><option value="psg-song">Song</option></select></label>
+            </div>
+            <p class="pce-music-vgm-note">VGM の PSG レジスタ書き込みを 16 分音符グリッド (最大 256 ステップ) へ量子化します。BPM でステップ間隔が決まります。波形 / LFO / ノイズ / DDA は近似されません。</p>
+            <div class="form-error" data-modal-error></div>
+            <div class="form-actions-inline modal-actions-end">
+              <button class="btn-sm" type="button" data-cancel>キャンセル</button>
+              <button class="btn-primary" type="submit">取込</button>
+            </div>
+          </form>
+        `,
+      });
+      const modalForm = modal.panel.querySelector('form');
+      const modalError = modal.panel.querySelector('[data-modal-error]');
+      let busy = false;
+      const close = (value) => {
+        modal.close();
+        modal.destroy?.();
+        resolve(value);
+      };
+      modal.panel.querySelectorAll('[data-cancel]').forEach((button) => {
+        button.addEventListener('click', () => close(null), { once: true });
+      });
+      modalForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (busy) return;
+        busy = true;
+        modalError.textContent = '取込中...';
+        const typeValue = modalForm.elements.type.value;
+        const result = await importPceVgm({
+          sourcePath: picked.sourcePath,
+          id: safeId(modalForm.elements.id.value, defaultId),
+          name: String(modalForm.elements.name.value || defaultId).trim(),
+          bpm: asNumber(modalForm.elements.bpm.value, 150),
+          type: typeValue === 'auto' ? '' : typeValue,
+        });
+        if (!result?.ok) {
+          busy = false;
+          modalError.textContent = result?.error || 'VGM を取り込めませんでした';
+          return;
+        }
+        const warnings = result.conversion?.warnings || [];
+        close({ asset: result.asset, warnings });
+      });
+      modal.open();
+    });
+  }
+
+  async function importVgmAsset() {
+    if (importBusy) return;
+    importBusy = true;
+    try {
+      const picked = await pickVgmFile();
+      if (!picked) return;
+      const outcome = await openVgmImportModal(picked);
+      if (!outcome) return;
+      selectedId = outcome.asset?.id || '';
+      await reload({ force: true });
+      if (outcome.warnings?.length) {
+        error.textContent = outcome.warnings.join(' / ');
+      }
+    } finally {
+      importBusy = false;
+    }
+  }
+
   root.querySelector('[data-new]').addEventListener('click', () => {
     const id = `psg_${Date.now()}`;
-    assets.push({ id, type: 'psg-sfx', name: 'PSM SFX', source: '', options: { bpm: 150, steps: 16, period: 512, pattern: [{ step: 0, note: 'C4', period: 512 }] } });
+    assets.push({ id, type: 'psg-sfx', name: 'PSG SFX', source: '', options: { bpm: 150, steps: 16, period: 512, pattern: [{ step: 0, note: 'C4', period: 512 }] } });
     selectedId = id;
     render();
   });
+  root.querySelector('[data-import]').addEventListener('click', () => { void importVgmAsset(); });
   root.querySelector('[data-save]').addEventListener('click', save);
   root.querySelector('[data-play]').addEventListener('click', play);
   root.querySelector('[data-stop]').addEventListener('click', () => {});

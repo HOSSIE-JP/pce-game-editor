@@ -1,7 +1,7 @@
 {
   "id": "pce-music-editor",
   "name": "ミュージックエディター",
-  "description": "Sound プラグイン内で使う PSM / PSG 編集モジュールです。",
+  "description": "Sound プラグイン内で使う PSG 編集モジュールです。",
   "version": "0.1.0",
   "icon": "music",
   "types": ["editor", "asset"],

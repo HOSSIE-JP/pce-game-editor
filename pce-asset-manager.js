@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const audioConverter = require('./pce-audio-converter');
+const vgmImporter = require('./pce-vgm-import');
 const { normalizeRelativePath, resolveUnderRoot } = require('./pce-file-safety');
 
 const ASSET_FILE = path.join('assets', 'pce-assets.json');
@@ -12,6 +13,7 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 const SUPPORTED_TYPES = new Set(['image', 'sprite', 'psg-sequence', 'psg-song', 'psg-sfx', 'adpcm', 'cdda-track', 'tileset', 'tilemap', 'palette']);
 const IMAGE_EXTENSIONS = new Set(['.png', '.bmp', '.webp']);
 const AUDIO_EXTENSIONS = new Set(['.wav', '.mp3']);
+const VGM_EXTENSIONS = new Set(['.vgm', '.vgz']);
 const SPRITE_CELL_SIZES = new Set(['16x16', '16x32', '16x64', '32x16', '32x32', '32x64']);
 const ROM_BANKED_CHUNK_SIZE = 8192;
 const BANKED_DATA_THRESHOLD = 1024;
@@ -1700,6 +1702,77 @@ function importAudio(projectDir, payload = {}, options = {}) {
   };
 }
 
+function importVgm(projectDir, payload = {}) {
+  const sourceAbs = sourcePathForImport(payload);
+  if (!sourceAbs) throw new Error('VGM ファイルを選択してください');
+  const originalFileName = path.basename(sourceAbs);
+  const sourceExt = path.extname(originalFileName).toLowerCase();
+  if (!VGM_EXTENSIONS.has(sourceExt)) {
+    throw new Error('VGM / VGZ ファイルを選択してください');
+  }
+  const id = sanitizeAssetId(payload.id || originalFileName, 'psg_track');
+  const bpm = clampInt(payload.bpm, 30, 300, DEFAULT_PSG_OPTIONS.bpm);
+
+  const input = fs.readFileSync(sourceAbs);
+  const converted = vgmImporter.convertVgmToPsg(input, { bpm });
+
+  const requestedType = String(payload.type || '').trim().toLowerCase();
+  const type = requestedType === 'psg-song' || requestedType === 'psg-sfx'
+    ? requestedType
+    : (converted.isSong ? 'psg-song' : 'psg-sfx');
+
+  // Keep the original VGM/VGZ next to the project for traceability.
+  const sourceRel = normalizeRelativePath(path.join('assets/psg', `${id}${sourceExt}`));
+  const { absPath: destAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
+  ensureDirSync(path.dirname(destAbs));
+  fs.copyFileSync(sourceAbs, destAbs);
+
+  const asset = normalizeAsset({
+    id,
+    type,
+    name: String(payload.name || originalFileName.replace(/\.[^.]+$/, '') || id).trim(),
+    source: sourceRel,
+    options: {
+      kind: type === 'psg-song' ? 'song' : 'sfx',
+      bpm: converted.bpm,
+      steps: converted.steps,
+      channels: converted.channels,
+      period: converted.period,
+      pattern: converted.pattern,
+    },
+    data: {
+      import: {
+        originalFileName,
+        importedAt: new Date().toISOString(),
+        converter: 'Internal VGM/VGZ -> PSG step importer',
+        vgm: converted.stats,
+        warnings: converted.warnings,
+      },
+    },
+  });
+
+  const doc = readAssetDocument(projectDir);
+  const index = doc.assets.findIndex((entry) => entry.id === asset.id);
+  if (index >= 0) doc.assets[index] = asset;
+  else doc.assets.push(asset);
+  const saved = writeAssetDocument(projectDir, doc);
+
+  return {
+    asset,
+    assets: saved.assets,
+    conversion: {
+      ok: true,
+      kind: type,
+      steps: converted.steps,
+      patternCount: converted.pattern.length,
+      bpm: converted.bpm,
+      isSong: converted.isSong,
+      warnings: converted.warnings,
+      stats: converted.stats,
+    },
+  };
+}
+
 function previewSource(projectDir, relativePath = '') {
   if (!relativePath) throw new Error('asset source is required');
   const { absPath } = resolveUnderRoot(projectDir, relativePath, 'project');
@@ -2960,6 +3033,7 @@ module.exports = {
   getAssetFilePath,
   importAudio,
   importImage,
+  importVgm,
   listAssets,
   normalizeAsset,
   normalizeAssetDocument,

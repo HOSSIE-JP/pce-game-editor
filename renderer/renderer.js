@@ -1049,6 +1049,11 @@ function createPceAssetApi() {
       window.electronAPI.importAssetAudio(payload || {}),
       { assetId: payload?.id || '', kind: payload?.kind || payload?.type || 'adpcm' },
     ),
+    importPceVgm: (payload) => mutatePceAssets(
+      'import-vgm',
+      window.electronAPI.importAssetVgm(payload || {}),
+      { assetId: payload?.id || '', kind: payload?.kind || payload?.type || 'psg' },
+    ),
     reorderPceAssets: (ids) => mutatePceAssets(
       'reorder',
       window.electronAPI.reorderAssets(ids || []),

@@ -559,7 +559,7 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(index, /generateVnSources/);
 });
 
-test('Sound plugin integrates ADPCM, CD-DA, and PSM tools behind one tabbed page', () => {
+test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page', () => {
   const manifest = readPluginManifest('sound-editor');
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'sound-editor', 'renderer.js'), 'utf-8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'sound-editor', 'style.css'), 'utf-8');
@@ -577,10 +577,10 @@ test('Sound plugin integrates ADPCM, CD-DA, and PSM tools behind one tabbed page
   assert.ok(manifest.renderer.capabilities.includes('psg-music-editor'));
   assert.match(renderer, /activateAdpcmManager/);
   assert.match(renderer, /activateCddaManager/);
-  assert.match(renderer, /activatePsmEditor/);
+  assert.match(renderer, /activatePsgEditor/);
   assert.match(renderer, /label:\s*'ADPCM'/);
   assert.match(renderer, /label:\s*'CD-DA'/);
-  assert.match(renderer, /label:\s*'PSM'/);
+  assert.match(renderer, /label:\s*'PSG'/);
   assert.match(renderer, /data-sound-tab/);
   assert.match(renderer, /data-sound-panel/);
   assert.match(css, /pce-adpcm-manager\/style\.css/);
@@ -591,6 +591,10 @@ test('Sound plugin integrates ADPCM, CD-DA, and PSM tools behind one tabbed page
   assert.match(musicRenderer, /assetDisplayName\(asset\)/);
   assert.match(musicRenderer, /<code>\$\{esc\(asset\.id\)\}<\/code>/);
   assert.match(musicCss, /\.pce-music-editor-shell \.pce-plugin-group/);
+  // PSG can register an existing VGM/VGZ file in addition to creating a new asset.
+  assert.match(musicRenderer, /data-import/);
+  assert.match(musicRenderer, /importPceVgm/);
+  assert.match(musicRenderer, /vgm', 'vgz'/);
 });
 
 test('CD-DA manager module exposes track-only import, edit, preview, and reorder UI', () => {

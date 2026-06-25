@@ -1,11 +1,11 @@
 import { activatePlugin as activateAdpcmManager } from '../pce-adpcm-manager/renderer.js';
 import { activatePlugin as activateCddaManager } from '../pce-cdda-manager/renderer.js';
-import { activatePlugin as activatePsmEditor } from '../pce-music-editor/renderer.js';
+import { activatePlugin as activatePsgEditor } from '../pce-music-editor/renderer.js';
 
 const SOUND_TABS = [
   { id: 'adpcm', label: 'ADPCM', pluginId: 'pce-adpcm-manager', activate: activateAdpcmManager },
   { id: 'cdda', label: 'CD-DA', pluginId: 'pce-cdda-manager', activate: activateCddaManager },
-  { id: 'psm', label: 'PSM', pluginId: 'pce-music-editor', activate: activatePsmEditor },
+  { id: 'psg', label: 'PSG', pluginId: 'pce-music-editor', activate: activatePsgEditor },
 ];
 
 function esc(value) {
