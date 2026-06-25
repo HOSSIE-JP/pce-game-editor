@@ -138,12 +138,22 @@ const VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000; // CPU address the overlay is linked a
 // current cd_rle_* overlay (~3.3 KB) with headroom.
 const VN_OVERLAY_RESERVED_SECTORS = 2;
 const VN_OVERLAY_RESERVED_BYTES = VN_OVERLAY_RESERVED_SECTORS * 2048; // 2048 = VN_CD_SECTOR_BYTES (defined below)
-// LMA (physical/load address) for the .vn_overlay section: bank132's unused tail
+// LMA (physical/load address) for the .vn_overlay section: bank132's tail
 // (region 0x0184c000..0x0184dfff, CPU 0xc000..0xdfff in slot 6). The IPL loads
 // these bytes into bank132 RAM we never read (the real copy is CD-loaded into
-// bank133), so the in-image copy is benign. Keep the section <= 4 KB so it stays
-// within the bank132 region.
+// bank133), so the in-image copy is benign.
+//
+// bank132 is a SHARED 8 KB resource: resident data (cd_data_refs, CD transfer
+// scratch, glyph/cell caches) grows up from 0x0184c000, while this overlay LMA
+// copy is parked at the top (0xd000..0xdfff = 4 KB). The overlay is fixed runtime
+// code (~2.3 KB). Large PSG/VGM/MIDI song patterns are NOT kept here — they
+// stream from CD into RAM bank134 only while playing (see psg_pattern_ram /
+// load_psg_pattern_cd in pce_vn_runtime.c) — so the 4 KB resident half is enough.
+// finalizeOverlayBlob asserts the section still fits below VN_BANK132_LMA_END.
 const VN_OVERLAY_LMA = 0x0184d000;
+// End of bank132's LMA region (0x0184c000 + 8 KB). The overlay section must fit
+// in [VN_OVERLAY_LMA, VN_BANK132_LMA_END); resident data must fit below the LMA.
+const VN_BANK132_LMA_END = 0x0184e000;
 // Sprite-format copy of the glyphs used by `spritetext` commands. Only the
 // characters referenced by spritetext are encoded here (BG-format font tiles
 // cannot be reused for hardware sprites), so this stays small even when the BG
@@ -2969,6 +2979,14 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
   }
   if (realSize > VN_OVERLAY_RESERVED_BYTES) {
     throw new Error(`overlay code ${realSize} bytes exceeds reserved ${VN_OVERLAY_RESERVED_BYTES} bytes (${VN_OVERLAY_RESERVED_SECTORS} sectors). Move fewer functions into VN_OVERLAY_CODE or raise VN_OVERLAY_RESERVED_SECTORS (and confirm the bank132-tail LMA still fits).`);
+  }
+  // The overlay LMA copy is parked in bank132's tail; resident bank132 data
+  // (incl. PSG patterns) grows up to VN_OVERLAY_LMA. Ensure the section still
+  // fits below the bank end so it does not collide with resident data or spill
+  // past bank132 — a clearer error than the raw ld.lld overlap message.
+  if (VN_OVERLAY_LMA + realSize > VN_BANK132_LMA_END) {
+    const avail = VN_BANK132_LMA_END - VN_OVERLAY_LMA;
+    throw new Error(`overlay code ${realSize} bytes exceeds the ${avail}-byte bank132 tail at LMA 0x${VN_OVERLAY_LMA.toString(16)}. Move fewer functions into VN_OVERLAY_CODE, or lower VN_OVERLAY_LMA (which reduces the bank132 budget for PSG patterns / cd_refs).`);
   }
   if (realSize < VN_OVERLAY_RESERVED_BYTES) {
     const buf = Buffer.alloc(VN_OVERLAY_RESERVED_BYTES);

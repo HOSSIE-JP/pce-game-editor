@@ -73,19 +73,19 @@ static const pce_editor_cd_data_ref_t pce_editor_sprite_mika_sprite_patterns_cd 
 #endif
 
 static const pce_editor_psg_step_t pce_editor_psg_vn_psg_chime_pattern[] = {
-  { 0u, 0u, 512u, 12u },
-  { 1u, 0u, 406u, 11u },
-  { 2u, 0u, 342u, 10u },
-  { 3u, 0u, 256u, 9u }
+  { 0u, 0u, 512u, 12u, 0u },
+  { 1u, 0u, 406u, 11u, 0u },
+  { 2u, 0u, 342u, 10u, 0u },
+  { 3u, 0u, 256u, 9u, 0u }
 };
 
 static const pce_editor_psg_step_t pce_editor_psg_vn_psg_confirm_pattern[] = {
-  { 0u, 0u, 512u, 13u },
-  { 1u, 0u, 406u, 12u },
-  { 2u, 0u, 342u, 10u },
-  { 3u, 1u, 256u, 8u },
-  { 4u, 0u, 342u, 6u },
-  { 5u, 1u, 512u, 4u }
+  { 0u, 0u, 512u, 13u, 0u },
+  { 1u, 0u, 406u, 12u, 0u },
+  { 2u, 0u, 342u, 10u, 0u },
+  { 3u, 1u, 256u, 8u, 0u },
+  { 4u, 0u, 342u, 6u, 0u },
+  { 5u, 1u, 512u, 4u, 0u }
 };
 
 #if defined(__PCE_CD__)
@@ -118,8 +118,8 @@ const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[] = {
 const unsigned char pce_editor_sprite_asset_count = 2;
 
 const pce_editor_psg_asset_t pce_editor_psg_assets[] = {
-  { 1u, 512u, 132u, 8u, pce_editor_psg_vn_psg_chime_pattern, 4u },
-  { 0u, 512u, 180u, 8u, pce_editor_psg_vn_psg_confirm_pattern, 6u }
+  { 1u, 512u, 132u, 8u, pce_editor_psg_vn_psg_chime_pattern, 4u, (const pce_editor_cd_data_ref_t *)0 },
+  { 0u, 512u, 180u, 8u, pce_editor_psg_vn_psg_confirm_pattern, 6u, (const pce_editor_cd_data_ref_t *)0 }
 };
 const unsigned char pce_editor_psg_asset_count = 2;
 

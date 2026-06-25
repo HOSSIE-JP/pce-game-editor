@@ -1999,6 +1999,18 @@ ipcMain.handle('assets:importVgm', async (_event, payload) => {
   }
 });
 
+ipcMain.handle('assets:importMidi', async (_event, payload) => {
+  try {
+    if (buildSystem.getActiveCoreId() !== 'pc-engine') {
+      return { ok: false, error: 'assets:importMidi is available for PC Engine projects only' };
+    }
+    const result = pceAssetManager.importMidi(buildSystem.getProjectDir(), payload || {});
+    return { ok: true, ...result };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+});
+
 ipcMain.handle('assets:previewSource', async (_event, payload) => {
   try {
     if (buildSystem.getActiveCoreId() !== 'pc-engine') {

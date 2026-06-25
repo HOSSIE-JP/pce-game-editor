@@ -5,6 +5,7 @@ const path = require('path');
 const zlib = require('zlib');
 const audioConverter = require('./pce-audio-converter');
 const vgmImporter = require('./pce-vgm-import');
+const midiImporter = require('./pce-midi-import');
 const { normalizeRelativePath, resolveUnderRoot } = require('./pce-file-safety');
 
 const ASSET_FILE = path.join('assets', 'pce-assets.json');
@@ -14,6 +15,7 @@ const SUPPORTED_TYPES = new Set(['image', 'sprite', 'psg-sequence', 'psg-song', 
 const IMAGE_EXTENSIONS = new Set(['.png', '.bmp', '.webp']);
 const AUDIO_EXTENSIONS = new Set(['.wav', '.mp3']);
 const VGM_EXTENSIONS = new Set(['.vgm', '.vgz']);
+const MIDI_EXTENSIONS = new Set(['.mid', '.midi']);
 const SPRITE_CELL_SIZES = new Set(['16x16', '16x32', '16x64', '32x16', '32x32', '32x64']);
 const ROM_BANKED_CHUNK_SIZE = 8192;
 const BANKED_DATA_THRESHOLD = 1024;
@@ -1773,6 +1775,81 @@ function importVgm(projectDir, payload = {}) {
   };
 }
 
+function importMidi(projectDir, payload = {}) {
+  const sourceAbs = sourcePathForImport(payload);
+  if (!sourceAbs) throw new Error('MIDI ファイルを選択してください');
+  const originalFileName = path.basename(sourceAbs);
+  const sourceExt = path.extname(originalFileName).toLowerCase();
+  if (!MIDI_EXTENSIONS.has(sourceExt)) {
+    throw new Error('MIDI (.mid / .midi) ファイルを選択してください');
+  }
+  const id = sanitizeAssetId(payload.id || originalFileName, 'psg_track');
+  // Blank/omitted bpm lets the MIDI tempo drive the grid (do not force 150).
+  const bpm = payload.bpm != null && payload.bpm !== ''
+    ? clampInt(payload.bpm, 30, 300, DEFAULT_PSG_OPTIONS.bpm)
+    : undefined;
+
+  const input = fs.readFileSync(sourceAbs);
+  const converted = midiImporter.convertMidiToPsg(input, { bpm });
+
+  const requestedType = String(payload.type || '').trim().toLowerCase();
+  // MIDI files are usually tunes, so default the "auto" type to a looping song.
+  const type = requestedType === 'psg-song' || requestedType === 'psg-sfx'
+    ? requestedType
+    : 'psg-song';
+
+  // Keep the original MIDI next to the project for traceability.
+  const sourceRel = normalizeRelativePath(path.join('assets/psg', `${id}${sourceExt}`));
+  const { absPath: destAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
+  ensureDirSync(path.dirname(destAbs));
+  fs.copyFileSync(sourceAbs, destAbs);
+
+  const asset = normalizeAsset({
+    id,
+    type,
+    name: String(payload.name || originalFileName.replace(/\.[^.]+$/, '') || id).trim(),
+    source: sourceRel,
+    options: {
+      kind: type === 'psg-song' ? 'song' : 'sfx',
+      bpm: converted.bpm,
+      steps: converted.steps,
+      channels: converted.channels,
+      period: converted.period,
+      pattern: converted.pattern,
+    },
+    data: {
+      import: {
+        originalFileName,
+        importedAt: new Date().toISOString(),
+        converter: 'Internal MIDI -> PSG step importer',
+        midi: converted.stats,
+        warnings: converted.warnings,
+      },
+    },
+  });
+
+  const doc = readAssetDocument(projectDir);
+  const index = doc.assets.findIndex((entry) => entry.id === asset.id);
+  if (index >= 0) doc.assets[index] = asset;
+  else doc.assets.push(asset);
+  const saved = writeAssetDocument(projectDir, doc);
+
+  return {
+    asset,
+    assets: saved.assets,
+    conversion: {
+      ok: true,
+      kind: type,
+      steps: converted.steps,
+      patternCount: converted.pattern.length,
+      bpm: converted.bpm,
+      isSong: converted.isSong,
+      warnings: converted.warnings,
+      stats: converted.stats,
+    },
+  };
+}
+
 function previewSource(projectDir, relativePath = '') {
   if (!relativePath) throw new Error('asset source is required');
   const { absPath } = resolveUnderRoot(projectDir, relativePath, 'project');
@@ -2074,7 +2151,8 @@ function cdRamBankOffset(bank) {
 function firstPsgPeriod(asset) {
   const pattern = asset?.options?.pattern;
   if (Array.isArray(pattern)) {
-    const note = pattern.find((entry) => entry && Number(entry.period) > 0);
+    // Skip noise entries: their "period" field holds a 5-bit noise frequency.
+    const note = pattern.find((entry) => entry && Number(entry.period) > 0 && !Number(entry.noise));
     if (note) return clampInt(note.period, 1, 4095, 512);
   }
   return clampInt(asset?.options?.period, 1, 4095, 512);
@@ -2089,26 +2167,86 @@ function normalizePsgPatternEntries(asset, options) {
       channel: clampInt(raw.channel, 0, 5, 0),
       period: clampInt(raw.period, 1, 4095, options.period),
       volume: clampInt(raw.volume, 0, 31, 16),
+      noise: clampInt(raw.noise, 0, 1, 0),
     };
   });
 }
 
-function generatePsgMetadata(assets) {
+// PSG step patterns up to this many serialized bytes stay resident (.rodata)
+// for instant SFX playback; larger ones (imported PSG/VGM/MIDI songs) stream
+// from CD into RAM bank134 only while playing, so they never sit in the scarce
+// resident banks. 6 bytes/step matches the pce_editor_psg_step_t memory layout.
+const PSG_PATTERN_CD_THRESHOLD_BYTES = 256;
+
+function serializePsgPattern(pattern) {
+  const buffer = Buffer.alloc(pattern.length * 6);
+  pattern.forEach((step, index) => {
+    const offset = index * 6;
+    buffer[offset] = step.step & 0xff;
+    buffer[offset + 1] = step.channel & 0xff;
+    buffer.writeUInt16LE(step.period & 0xffff, offset + 2);
+    buffer[offset + 4] = step.volume & 0xff;
+    buffer[offset + 5] = step.noise & 0xff;
+  });
+  return buffer;
+}
+
+function psgPatternFile(asset) {
+  return normalizeRelativePath(path.join('assets/generated/psg', `${toCIdentifier(asset.id)}.bin`));
+}
+
+function psgPatternBytes(asset) {
+  const options = normalizePsgOptions(asset);
+  return serializePsgPattern(normalizePsgPatternEntries(asset, options));
+}
+
+// True when this asset's pattern is large enough to stream from CD (CD builds only).
+function psgAssetStreamsFromCd(asset, targetsCd) {
+  if (!targetsCd) return false;
+  return psgPatternBytes(asset).length > PSG_PATTERN_CD_THRESHOLD_BYTES;
+}
+
+// Write the CD data file for every streamed PSG pattern before the CD layout is
+// computed, so each lands on the ISO with a stable sector (mirrors how ADPCM /
+// BG / sprite payloads are written before collectCdDataFiles/buildCdDataLayout).
+function ensurePsgPatternFiles(projectDir, doc) {
+  if (!projectTargetsCd(projectDir)) return;
+  (doc.assets || []).forEach((asset) => {
+    if (asset.type !== 'psg-song' && asset.type !== 'psg-sfx') return;
+    if (!psgAssetStreamsFromCd(asset, true)) return;
+    const { absPath } = resolveUnderRoot(projectDir, psgPatternFile(asset), 'project');
+    ensureDirSync(path.dirname(absPath));
+    fs.writeFileSync(absPath, psgPatternBytes(asset));
+  });
+}
+
+function generatePsgMetadata(projectDir, assets, generationOptions = {}) {
+  const targetsCd = Boolean(generationOptions.targetsCd);
   const psgAssets = assets.filter((asset) => asset.type === 'psg-song' || asset.type === 'psg-sfx');
   const arrayLines = [];
   const metaLines = psgAssets.map((asset, index) => {
     const options = normalizePsgOptions(asset);
     const pattern = normalizePsgPatternEntries(asset, options);
     const ident = toCIdentifier(`pce_editor_psg_${asset.id}`);
-    if (pattern.length) {
+    const last = index + 1 >= psgAssets.length;
+    let patternPtr = '(const pce_editor_psg_step_t *)0';
+    let patternCd = '(const pce_editor_cd_data_ref_t *)0';
+    if (pattern.length && psgAssetStreamsFromCd(asset, targetsCd)) {
+      const ref = emitCdFileRef(`${ident}_pattern`, serializePsgPattern(pattern), psgPatternFile(asset), {
+        cdLayout: generationOptions.cdLayout,
+      });
+      arrayLines.push(...ref.lines);
+      patternCd = ref.cd;
+    } else if (pattern.length) {
       arrayLines.push(`static const pce_editor_psg_step_t ${ident}_pattern[] = {`);
       pattern.forEach((step, stepIndex) => {
-        arrayLines.push(`  { ${step.step}u, ${step.channel}u, ${step.period}u, ${step.volume}u }${stepIndex + 1 < pattern.length ? ',' : ''}`);
+        arrayLines.push(`  { ${step.step}u, ${step.channel}u, ${step.period}u, ${step.volume}u, ${step.noise}u }${stepIndex + 1 < pattern.length ? ',' : ''}`);
       });
       arrayLines.push('};');
       arrayLines.push('');
+      patternPtr = `${ident}_pattern`;
     }
-    return `  { ${asset.type === 'psg-song' ? '1u' : '0u'}, ${firstPsgPeriod(asset)}u, ${options.bpm}u, ${options.steps}u, ${pattern.length ? `${ident}_pattern` : '(const pce_editor_psg_step_t *)0'}, ${pattern.length}u }${index + 1 < psgAssets.length ? ',' : ''}`;
+    return `  { ${asset.type === 'psg-song' ? '1u' : '0u'}, ${firstPsgPeriod(asset)}u, ${options.bpm}u, ${options.steps}u, ${patternPtr}, ${pattern.length}u, ${patternCd} }${last ? '' : ','}`;
   });
   return { psgAssets, arrayLines, metaLines };
 }
@@ -2496,6 +2634,9 @@ function collectCdDataFiles(projectDir) {
       // sprite cell_map is stored inline in asset_meta.bin, not as its own CD file.
     } else if (asset.type === 'adpcm') {
       files.push(generated.outputFile || '');
+    } else if (asset.type === 'psg-song' || asset.type === 'psg-sfx') {
+      // Large PSG patterns stream from CD; small ones stay resident (no file).
+      if (psgAssetStreamsFromCd(asset, true)) files.push(psgPatternFile(asset));
     }
   });
   // The consolidated metadata file (reserved at final size by
@@ -2670,6 +2811,7 @@ function generateAssetSources(projectDir, options = {}) {
   const doc = readAssetDocument(projectDir);
   ensureVisualGeneratedAssets(projectDir, doc);
   ensureAdpcmGeneratedAssets(projectDir, doc);
+  ensurePsgPatternFiles(projectDir, doc);
   // Reserve the consolidated metadata file at its final size before any CD layout
   // is computed, so its sector (and every file after it) stays stable.
   const metaLayout = ensureAssetMetaReservation(projectDir, doc);
@@ -2691,7 +2833,7 @@ function generateAssetSources(projectDir, options = {}) {
   const cdLayout = targetsCd ? buildCdDataLayout(projectDir, cdDataFiles) : new Map();
   const bgGenerated = generateConvertedAssetArrays(projectDir, doc.assets, 'image', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
   const spriteGenerated = generateConvertedAssetArrays(projectDir, doc.assets, 'sprite', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
-  const psgGenerated = generatePsgMetadata(doc.assets);
+  const psgGenerated = generatePsgMetadata(projectDir, doc.assets, { targetsCd, cdLayout });
   const adpcmGenerated = generateAdpcmMetadata(projectDir, doc.assets, { targetsCd, cdLayout });
   const cddaGenerated = generateCddaMetadata(projectDir, doc.assets, { targetsCd, cdLayout });
   const emptyDataRef = '{ (const unsigned char *)0, 0u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }';
@@ -2794,6 +2936,7 @@ function generateAssetSources(projectDir, options = {}) {
     '  unsigned char channel;',
     '  unsigned int period;',
     '  unsigned char volume;',
+    '  unsigned char noise;',
     '} pce_editor_psg_step_t;',
     '',
     'typedef struct {',
@@ -2803,6 +2946,7 @@ function generateAssetSources(projectDir, options = {}) {
     '  unsigned int steps;',
     '  const pce_editor_psg_step_t *pattern;',
     '  unsigned int pattern_count;',
+    '  const pce_editor_cd_data_ref_t *pattern_cd;',
     '} pce_editor_psg_asset_t;',
     '',
     'typedef struct {',
@@ -2955,7 +3099,7 @@ function generateAssetSources(projectDir, options = {}) {
       '',
     ]),
     'const pce_editor_psg_asset_t pce_editor_psg_assets[] = {',
-    ...(psgGenerated.metaLines.length ? psgGenerated.metaLines : ['  { 0u, 512u, 150u, 0u, (const pce_editor_psg_step_t *)0, 0u }']),
+    ...(psgGenerated.metaLines.length ? psgGenerated.metaLines : ['  { 0u, 512u, 150u, 0u, (const pce_editor_psg_step_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
     '};',
     `const unsigned char pce_editor_psg_asset_count = ${psgGenerated.psgAssets.length};`,
     '',
@@ -3034,6 +3178,7 @@ module.exports = {
   importAudio,
   importImage,
   importVgm,
+  importMidi,
   listAssets,
   normalizeAsset,
   normalizeAssetDocument,

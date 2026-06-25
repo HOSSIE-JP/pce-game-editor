@@ -61,7 +61,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   root.innerHTML = `
     <div class="pce-music-editor-shell">
       <aside class="pce-plugin-list">
-        <div class="pce-plugin-header"><h2>PSG</h2><div class="pce-plugin-header-actions"><button class="btn-sm" type="button" data-import>VGM取込</button><button class="btn-sm" type="button" data-new>新規</button></div></div>
+        <div class="pce-plugin-header"><h2>PSG</h2><div class="pce-plugin-header-actions"><button class="btn-sm" type="button" data-import>取込</button><button class="btn-sm" type="button" data-new>新規</button></div></div>
         <div data-list class="pce-plugin-items"></div>
       </aside>
       <main class="pce-plugin-main">
@@ -103,6 +103,9 @@ export function activatePlugin({ root, api, registerCapability }) {
   const importPceVgm = (payload) => assetApi.importPceVgm
     ? assetApi.importPceVgm(payload)
     : api.electronAPI.importAssetVgm(payload);
+  const importPceMidi = (payload) => assetApi.importPceMidi
+    ? assetApi.importPceMidi(payload)
+    : api.electronAPI.importAssetMidi(payload);
   let importBusy = false;
 
   function selected() {
@@ -254,27 +257,38 @@ export function activatePlugin({ root, api, registerCapability }) {
     osc.stop(audioContext.currentTime + 0.18);
   }
 
-  async function pickVgmFile() {
+  async function pickImportFile() {
     const picked = await api.electronAPI.pickFile({
       properties: ['openFile'],
-      filters: [{ name: 'VGM / VGZ', extensions: ['vgm', 'vgz'] }],
+      filters: [{ name: 'PSG ソース (VGM/VGZ/MIDI)', extensions: ['vgm', 'vgz', 'mid', 'midi'] }],
     });
     const sourcePath = picked?.sourcePath || picked?.filePath || picked?.filePaths?.[0] || '';
     if (picked?.canceled || !sourcePath) return null;
     const fileName = String(sourcePath).split(/[\\/]/).pop() || '';
-    return { sourcePath, fileName };
+    const ext = (fileName.split('.').pop() || '').toLowerCase();
+    const format = ext === 'mid' || ext === 'midi' ? 'midi' : 'vgm';
+    return { sourcePath, fileName, ext, format };
   }
 
-  function openVgmImportModal(picked) {
+  function openImportModal(picked) {
+    const isMidi = picked.format === 'midi';
     return new Promise((resolve) => {
       const baseName = picked.fileName.replace(/\.[^.]+$/, '');
       const defaultId = safeId(baseName, 'psg_track');
+      const title = isMidi ? 'MIDI 取込' : 'VGM 取込';
+      const bpmField = isMidi
+        ? '<input class="form-input" name="bpm" type="number" min="30" max="300" placeholder="auto (MIDI tempo)" />'
+        : '<input class="form-input" name="bpm" type="number" min="30" max="300" value="150" />';
+      const note = isMidi
+        ? 'MIDI を 6 ボイスへ削減し、音程→period・ベロシティ→volume に近似します。ドラム(10ch)は PSG ノイズ(ch4/5)で近似、ピッチベンド/CC/プログラムチェンジは再現されません。BPM 空欄で MIDI のテンポを使用します。'
+        : 'VGM の PSG レジスタ書き込みを 16 分音符グリッド (最大 256 ステップ) へ量子化します。BPM でステップ間隔が決まります。波形 / LFO / ノイズ / DDA は近似されません。';
+      const typeAutoLabel = isMidi ? '自動 (曲として登録)' : '自動 (ループで判定)';
       const modal = api.createModal({
-        id: `pce-music-vgm-import-${Date.now()}`,
+        id: `pce-music-import-${Date.now()}`,
         panelClassName: 'app-panel app-panel-sm',
         html: `
           <div class="page-header modal-header">
-            <h2>VGM 取込</h2>
+            <h2>${esc(title)}</h2>
             <button class="icon-btn" type="button" data-cancel>✕</button>
           </div>
           <form class="settings-form compact-form pce-music-vgm-form">
@@ -282,10 +296,10 @@ export function activatePlugin({ root, api, registerCapability }) {
             <div class="pce-form-grid">
               <label class="form-group"><span class="form-label">ID</span><input class="form-input" name="id" value="${esc(defaultId)}" /></label>
               <label class="form-group"><span class="form-label">Name</span><input class="form-input" name="name" value="${esc(baseName)}" /></label>
-              <label class="form-group"><span class="form-label">BPM</span><input class="form-input" name="bpm" type="number" min="30" max="300" value="150" /></label>
-              <label class="form-group"><span class="form-label">Type</span><select class="form-select" name="type"><option value="auto">自動 (ループで判定)</option><option value="psg-sfx">SFX</option><option value="psg-song">Song</option></select></label>
+              <label class="form-group"><span class="form-label">BPM</span>${bpmField}</label>
+              <label class="form-group"><span class="form-label">Type</span><select class="form-select" name="type"><option value="auto">${esc(typeAutoLabel)}</option><option value="psg-sfx">SFX</option><option value="psg-song">Song</option></select></label>
             </div>
-            <p class="pce-music-vgm-note">VGM の PSG レジスタ書き込みを 16 分音符グリッド (最大 256 ステップ) へ量子化します。BPM でステップ間隔が決まります。波形 / LFO / ノイズ / DDA は近似されません。</p>
+            <p class="pce-music-vgm-note">${esc(note)}</p>
             <div class="form-error" data-modal-error></div>
             <div class="form-actions-inline modal-actions-end">
               <button class="btn-sm" type="button" data-cancel>キャンセル</button>
@@ -311,32 +325,34 @@ export function activatePlugin({ root, api, registerCapability }) {
         busy = true;
         modalError.textContent = '取込中...';
         const typeValue = modalForm.elements.type.value;
-        const result = await importPceVgm({
+        const bpmRaw = modalForm.elements.bpm.value;
+        const payload = {
           sourcePath: picked.sourcePath,
           id: safeId(modalForm.elements.id.value, defaultId),
           name: String(modalForm.elements.name.value || defaultId).trim(),
-          bpm: asNumber(modalForm.elements.bpm.value, 150),
+          // MIDI: blank BPM means "use the MIDI tempo"; VGM keeps a default.
+          bpm: bpmRaw === '' ? (isMidi ? '' : 150) : asNumber(bpmRaw, 150),
           type: typeValue === 'auto' ? '' : typeValue,
-        });
+        };
+        const result = isMidi ? await importPceMidi(payload) : await importPceVgm(payload);
         if (!result?.ok) {
           busy = false;
-          modalError.textContent = result?.error || 'VGM を取り込めませんでした';
+          modalError.textContent = result?.error || (isMidi ? 'MIDI を取り込めませんでした' : 'VGM を取り込めませんでした');
           return;
         }
-        const warnings = result.conversion?.warnings || [];
-        close({ asset: result.asset, warnings });
+        close({ asset: result.asset, warnings: result.conversion?.warnings || [] });
       });
       modal.open();
     });
   }
 
-  async function importVgmAsset() {
+  async function runImport() {
     if (importBusy) return;
     importBusy = true;
     try {
-      const picked = await pickVgmFile();
+      const picked = await pickImportFile();
       if (!picked) return;
-      const outcome = await openVgmImportModal(picked);
+      const outcome = await openImportModal(picked);
       if (!outcome) return;
       selectedId = outcome.asset?.id || '';
       await reload({ force: true });
@@ -354,7 +370,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     selectedId = id;
     render();
   });
-  root.querySelector('[data-import]').addEventListener('click', () => { void importVgmAsset(); });
+  root.querySelector('[data-import]').addEventListener('click', () => { void runImport(); });
   root.querySelector('[data-save]').addEventListener('click', save);
   root.querySelector('[data-play]').addEventListener('click', play);
   root.querySelector('[data-stop]').addEventListener('click', () => {});

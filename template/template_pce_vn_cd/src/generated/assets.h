@@ -75,6 +75,7 @@ typedef struct {
   unsigned char channel;
   unsigned int period;
   unsigned char volume;
+  unsigned char noise;
 } pce_editor_psg_step_t;
 
 typedef struct {
@@ -84,6 +85,7 @@ typedef struct {
   unsigned int steps;
   const pce_editor_psg_step_t *pattern;
   unsigned int pattern_count;
+  const pce_editor_cd_data_ref_t *pattern_cd;
 } pce_editor_psg_asset_t;
 
 typedef struct {

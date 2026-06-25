@@ -29,6 +29,7 @@ test('main preload exposes renderer API methods with the expected IPC channels',
   assert.equal(typeof api.importAssetImage, 'function');
   assert.equal(typeof api.importAssetAudio, 'function');
   assert.equal(typeof api.importAssetVgm, 'function');
+  assert.equal(typeof api.importAssetMidi, 'function');
   assert.equal(typeof api.previewAssetSource, 'function');
   assert.equal(typeof api.reorderAssets, 'function');
   assert.equal(typeof api.openLogWindow, 'function');

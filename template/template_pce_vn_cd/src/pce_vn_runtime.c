@@ -16,6 +16,12 @@ PCE_RAM_BANK_AT(130, 4);
    load_overlay_code() streams it from CD into bank133 RAM at boot. bank133 is
    never used by the System Card (unlike bank131/MPR5), so it is safe for code. */
 PCE_RAM_BANK_AT(133, 4);
+/* bank134 = active PSG song pattern buffer, time-shared with bank132 in MPR slot
+   6 (0xc000). Large PSG/VGM/MIDI song patterns do not sit in the resident banks;
+   load_psg_pattern_cd() streams the currently-playing song's pattern from CD into
+   bank134 RAM at play time. Like bank133 it is outside the IPL auto-load range and
+   never used by the System Card, so it is a safe scratch bank. */
+PCE_RAM_BANK_AT(134, 6);
 PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #endif
 
@@ -39,6 +45,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define PCE_PSG_CONTROL (*(volatile uint8_t *)0x0804)
 #define PCE_PSG_BALANCE (*(volatile uint8_t *)0x0805)
 #define PCE_PSG_WAVE (*(volatile uint8_t *)0x0806)
+#define PCE_PSG_NOISE (*(volatile uint8_t *)0x0807)
 
 #define PCE_VCE_ADDR_LO (*(volatile uint8_t *)0x0402)
 #define PCE_VCE_ADDR_HI (*(volatile uint8_t *)0x0403)
@@ -226,6 +233,15 @@ static uint8_t psg_used_mask = 0;
 static uint16_t psg_step = 0;
 static uint8_t psg_frame = 0;
 static const pce_editor_psg_asset_t *psg_current = (const pce_editor_psg_asset_t *)0;
+/* Resolved pattern for the active song: either the resident .rodata array
+   (small patterns) or the bank134 CD-streamed buffer (large patterns). */
+static const pce_editor_psg_step_t *psg_active_pattern = (const pce_editor_psg_step_t *)0;
+static uint8_t psg_pattern_banked = 0; /* 1 when psg_active_pattern lives in bank134 (MPR6). */
+#if defined(__PCE_CD__)
+/* One CD sector holds any pattern (max 256 steps * 6 bytes = 1536 < 2048). */
+#define VN_PSG_PATTERN_BUFFER_BYTES 2048u
+static uint8_t psg_pattern_ram[VN_PSG_PATTERN_BUFFER_BYTES] __attribute__((section(".ram_bank134")));
+#endif
 static uint16_t vn_rng_state = 0xace1u;
 static uint8_t vn_variable_lo[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
 static uint8_t vn_variable_hi[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
@@ -2822,9 +2838,22 @@ static void VN_BANKED_CODE2 psg_load_basic_wave(uint8_t channel)
 static void VN_BANKED_CODE2 psg_set_voice(uint8_t channel, uint16_t period, uint8_t volume)
 {
     PCE_PSG_SELECT = (uint8_t)(channel & 0x07u);
+    /* Channels 4/5 share their control register with noise mode; clear R7 so a
+       tone voice never inherits a previous noise enable. */
+    if (channel >= 4u) PCE_PSG_NOISE = 0u;
     PCE_PSG_FREQ_LO = (uint8_t)(period & 0xffu);
     PCE_PSG_FREQ_HI = (uint8_t)((period >> 8) & 0x0fu);
     PCE_PSG_BALANCE = 0xffu;
+    PCE_PSG_CONTROL = volume ? (uint8_t)(0x80u | (volume & 0x1fu)) : 0u;
+}
+
+/* PC Engine noise generator lives on channels 4/5 only (PSG R7). The step's
+   period field carries the 5-bit noise frequency for noise entries. */
+static void VN_BANKED_CODE2 psg_set_noise(uint8_t channel, uint8_t noise_freq, uint8_t volume)
+{
+    PCE_PSG_SELECT = (uint8_t)(channel & 0x07u);
+    PCE_PSG_BALANCE = 0xffu;
+    PCE_PSG_NOISE = volume ? (uint8_t)(0x80u | (noise_freq & 0x1fu)) : 0u;
     PCE_PSG_CONTROL = volume ? (uint8_t)(0x80u | (volume & 0x1fu)) : 0u;
 }
 
@@ -2847,15 +2876,24 @@ static uint8_t VN_BANKED_CODE2 psg_resolve_channel(uint8_t base, uint8_t step_ch
 static void VN_BANKED_CODE2 psg_apply_step_row(uint16_t step_no)
 {
     uint16_t i;
-    if (!psg_current || !psg_current->pattern) return;
+    const pce_editor_psg_step_t *pattern = psg_active_pattern;
+    if (!psg_current || !pattern) return;
+#if defined(__PCE_CD__)
+    /* A CD-streamed pattern lives in bank134; map MPR6 to it before reading.
+       Small resident patterns are in .rodata and need no mapping. */
+    if (psg_pattern_banked) pce_ram_bank134_map();
+#endif
     for (i = 0u; i < psg_current->pattern_count; i++)
     {
-        const pce_editor_psg_step_t *step = &psg_current->pattern[i];
+        const pce_editor_psg_step_t *step = &pattern[i];
         if (step->step == step_no)
         {
             const uint8_t ch = psg_resolve_channel(psg_base_channel, step->channel);
             psg_used_mask = (uint8_t)(psg_used_mask | (uint8_t)(1u << ch));
-            psg_set_voice(ch, step->period, step->volume);
+            if (step->noise && ch >= 4u)
+                psg_set_noise(ch, (uint8_t)(step->period & 0x1fu), step->volume);
+            else
+                psg_set_voice(ch, step->period, step->volume);
         }
     }
 }
@@ -2876,7 +2914,47 @@ static void VN_BANKED_CODE2 stop_psg(void)
     psg_step = 0u;
     psg_frame = 0u;
     psg_current = (const pce_editor_psg_asset_t *)0;
+    psg_active_pattern = (const pce_editor_psg_step_t *)0;
+    psg_pattern_banked = 0u;
 }
+
+#if defined(__PCE_CD__)
+/* Stream the active song's step pattern from CD into bank134 RAM. bank134 is
+   mapped into slot 6 (0xc000) as the read destination. Mirrors
+   load_scene_pack_into_cache's CD-read loop (CD-DA pause/resume + external IRQ
+   handling via prepare/resume); the pattern's CD ref lives in bank132, so MPR6
+   maps bank132 to read it, then bank134 to receive the bytes. */
+static uint8_t VN_BANKED_CODE load_psg_pattern_cd(const pce_editor_psg_asset_t *asset)
+{
+    pce_editor_cd_data_ref_t ref;
+    pce_sector_t sector = {0};
+    uint16_t remaining;
+    uint16_t offset = 0u;
+    if (!asset->pattern_cd) return 0u;
+    map_vn_data();              /* MPR6 = bank132: read the CD ref descriptor. */
+    ref = *asset->pattern_cd;
+    if (!ref.byte_size || ref.byte_size > VN_PSG_PATTERN_BUFFER_BYTES || !ref.sector_count) return 0u;
+    prepare_cd_data_access();
+    sector.lo = ref.sector.lo;
+    sector.md = ref.sector.md;
+    sector.hi = ref.sector.hi;
+    remaining = ref.byte_size;
+    pce_ram_bank134_map();      /* MPR6 = bank134: CD read destination. */
+    while (remaining)
+    {
+        const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
+        (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)&psg_pattern_ram[offset], chunk);
+        cd_transfer_wait();
+        remaining = (uint16_t)(remaining - chunk);
+        offset = (uint16_t)(offset + chunk);
+        cd_sector_advance(&sector);
+    }
+    sync_cd_external_irq_after_bios_call();
+    resume_cdda_after_cd_data_access();
+    VN_MAP_BANK130_FOR_CODE();
+    return 1u;
+}
+#endif
 
 static void VN_BANKED_CODE2 play_psg_asset(signed int asset_index, uint8_t base_channel)
 {
@@ -2889,16 +2967,40 @@ static void VN_BANKED_CODE2 play_psg_asset(signed int asset_index, uint8_t base_
     psg_step = 0u;
     psg_frame = 0u;
     psg_used_mask = 0u;
+    if (!psg_current->pattern_count)
+    {
+        psg_current = (const pce_editor_psg_asset_t *)0;
+        return;
+    }
+    /* Resolve the pattern source: large songs stream from CD into bank134, small
+       SFX use their resident .rodata array directly. */
+#if defined(__PCE_CD__)
+    if (psg_current->pattern_cd)
+    {
+        if (!load_psg_pattern_cd(psg_current))
+        {
+            psg_current = (const pce_editor_psg_asset_t *)0;
+            return;
+        }
+        psg_active_pattern = (const pce_editor_psg_step_t *)psg_pattern_ram;
+        psg_pattern_banked = 1u;
+    }
+    else
+#endif
+    {
+        if (!psg_current->pattern)
+        {
+            psg_current = (const pce_editor_psg_asset_t *)0;
+            return;
+        }
+        psg_active_pattern = psg_current->pattern;
+        psg_pattern_banked = 0u;
+    }
     PCE_PSG_GLOBAL = 0xffu;
     /* Pre-load a waveform into every channel the pattern may reach. */
     for (ch = psg_base_channel; ch <= 5u; ch++)
     {
         psg_load_basic_wave(ch);
-    }
-    if (!psg_current->pattern || !psg_current->pattern_count)
-    {
-        psg_current = (const pce_editor_psg_asset_t *)0;
-        return;
     }
     psg_active = 1u;
     psg_apply_step_row(0u);

@@ -22,22 +22,16 @@
 
 const zlib = require('zlib');
 
+const quantize = require('./pce-psg-quantize');
+
 const VGM_SAMPLE_RATE = 44100; // VGM wait commands count samples at 44100 Hz.
-const PSG_CHANNEL_COUNT = 6;
-const MAX_STEPS = 256; // matches the asset model's pattern/steps cap.
-const MAX_PATTERN_ENTRIES = 256;
+const { PSG_CHANNEL_COUNT, MAX_STEPS, clampInt } = quantize;
 
 function maybeGunzip(buffer) {
   if (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
     return zlib.gunzipSync(buffer);
   }
   return buffer;
-}
-
-function clampInt(value, min, max, fallback) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(min, Math.min(max, Math.trunc(parsed)));
 }
 
 // Number of operand bytes that follow a VGM command byte, so unknown commands
@@ -178,55 +172,20 @@ function simulatePsg(buffer, header, stepSamples, maxSteps) {
   return { snapshots, huc6280Writes, usedNoise, usedDda, ended };
 }
 
-// Turn per-step channel snapshots into compact pattern entries. A voice is held
-// by the runtime until changed, so we only emit when (period, volume) differs
-// from the previously emitted state for that channel (silence is the baseline).
-function buildPattern(snapshots) {
-  const pattern = [];
-  const last = Array.from({ length: PSG_CHANNEL_COUNT }, () => ({ period: 0, volume: 0 }));
-  let truncated = false;
-  for (let step = 0; step < snapshots.length; step += 1) {
-    for (let ch = 0; ch < PSG_CHANNEL_COUNT; ch += 1) {
-      const cell = snapshots[step][ch];
-      const period = cell.period > 0 ? cell.period : 0;
-      const volume = cell.volume;
-      if (period === last[ch].period && volume === last[ch].volume) continue;
-      last[ch] = { period, volume };
-      if (pattern.length >= MAX_PATTERN_ENTRIES) { truncated = true; continue; }
-      pattern.push({
-        step,
-        channel: ch,
-        period: Math.max(1, Math.min(4095, period)),
-        volume: clampInt(volume, 0, 31, 0),
-      });
-    }
-  }
-  return { pattern, truncated };
-}
-
 // Convert a raw VGM/VGZ buffer into a PSG asset description.
 // options: { bpm }. Returns { isSong, bpm, steps, channels, period, pattern, stats, warnings }.
 function convertVgmToPsg(rawBuffer, options = {}) {
   const buffer = maybeGunzip(Buffer.isBuffer(rawBuffer) ? rawBuffer : Buffer.from(rawBuffer));
   const header = parseVgmHeader(buffer);
-  const bpm = clampInt(options.bpm, 30, 300, 150);
   // Mirror the runtime's frames_per_step so imported timing matches playback.
-  const framesPerStep = Math.max(2, Math.min(24, Math.floor(3600 / (bpm * 4))));
-  const stepSamples = 735 * framesPerStep; // 735 samples == one 60Hz frame.
+  const { bpm, framesPerStep, stepSamples } = quantize.gridForBpm(options.bpm);
 
   const sim = simulatePsg(buffer, header, stepSamples, MAX_STEPS);
   if (!sim.huc6280Writes) {
     throw new Error('VGM に PC Engine (HuC6280) PSG データが見つかりませんでした');
   }
-  const { pattern, truncated } = buildPattern(sim.snapshots);
+
   const steps = Math.max(1, Math.min(MAX_STEPS, sim.snapshots.length));
-
-  let usedChannels = 1;
-  for (const entry of pattern) {
-    if (entry.volume > 0) usedChannels = Math.max(usedChannels, entry.channel + 1);
-  }
-
-  const firstPeriod = pattern.find((entry) => entry.volume > 0 && entry.period > 0);
   const durationSeconds = header.totalSamples > 0
     ? header.totalSamples / VGM_SAMPLE_RATE
     : (steps * stepSamples) / VGM_SAMPLE_RATE;
@@ -234,18 +193,14 @@ function convertVgmToPsg(rawBuffer, options = {}) {
   const warnings = [];
   if (sim.usedNoise) warnings.push('VGM のノイズチャンネルは PSG step では音程として扱われます');
   if (sim.usedDda) warnings.push('VGM の DDA (直接波形) は再現されず音程として近似されます');
-  if (truncated) warnings.push(`pattern が ${MAX_PATTERN_ENTRIES} エントリを超えたため切り詰めました`);
-  if (sim.snapshots.length >= MAX_STEPS) {
-    warnings.push(`曲が長いため先頭 ${MAX_STEPS} ステップ (約 ${((MAX_STEPS * stepSamples) / VGM_SAMPLE_RATE).toFixed(1)} 秒) のみ取り込みました`);
-  }
 
-  return {
-    isSong: header.loopSamples > 0,
+  return quantize.assembleConversion(sim.snapshots, {
     bpm,
-    steps,
-    channels: clampInt(usedChannels, 1, 6, 1),
-    period: firstPeriod ? firstPeriod.period : 512,
-    pattern,
+    framesPerStep,
+    stepSamples,
+    sampleRate: VGM_SAMPLE_RATE,
+    isSong: header.loopSamples > 0,
+    warnings,
     stats: {
       version: header.version,
       totalSamples: header.totalSamples,
@@ -253,12 +208,9 @@ function convertVgmToPsg(rawBuffer, options = {}) {
       huc6280Clock: header.huc6280Clock,
       huc6280Writes: sim.huc6280Writes,
       framesPerStep,
-      stepCount: steps,
-      patternCount: pattern.length,
       looped: header.loopSamples > 0,
     },
-    warnings,
-  };
+  });
 }
 
 module.exports = {

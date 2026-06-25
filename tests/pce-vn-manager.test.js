@@ -226,6 +226,8 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   // linker fragment that places .vn_overlay at 0x8000 was written.
   assert.equal(fs.statSync(path.join(projectDir, 'assets', 'generated', 'vn', 'overlay.bin')).size, 4096);
   const overlayFragment = fs.readFileSync(path.join(projectDir, 'src', 'generated', 'overlay_insert.ld'), 'utf-8');
+  // Overlay LMA parks in bank132's tail (top 4 KB). PSG song patterns stream from
+  // CD into bank134 rather than living in bank132, so the LMA stays at 0x184d000.
   assert.match(overlayFragment, /\.vn_overlay 0x8000 : AT\(0x184d000\)/);
   assert.match(overlayFragment, /INSERT AFTER \.ram_bank132;/);
   // The runtime declares bank133, the CD->bank133 loader, and overlay-tagged code.

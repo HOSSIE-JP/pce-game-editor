@@ -1054,6 +1054,11 @@ function createPceAssetApi() {
       window.electronAPI.importAssetVgm(payload || {}),
       { assetId: payload?.id || '', kind: payload?.kind || payload?.type || 'psg' },
     ),
+    importPceMidi: (payload) => mutatePceAssets(
+      'import-midi',
+      window.electronAPI.importAssetMidi(payload || {}),
+      { assetId: payload?.id || '', kind: payload?.kind || payload?.type || 'psg' },
+    ),
     reorderPceAssets: (ids) => mutatePceAssets(
       'reorder',
       window.electronAPI.reorderAssets(ids || []),

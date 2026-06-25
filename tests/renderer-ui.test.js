@@ -591,10 +591,11 @@ test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page
   assert.match(musicRenderer, /assetDisplayName\(asset\)/);
   assert.match(musicRenderer, /<code>\$\{esc\(asset\.id\)\}<\/code>/);
   assert.match(musicCss, /\.pce-music-editor-shell \.pce-plugin-group/);
-  // PSG can register an existing VGM/VGZ file in addition to creating a new asset.
+  // PSG can register an existing VGM/VGZ/MIDI file in addition to creating a new asset.
   assert.match(musicRenderer, /data-import/);
   assert.match(musicRenderer, /importPceVgm/);
-  assert.match(musicRenderer, /vgm', 'vgz'/);
+  assert.match(musicRenderer, /importPceMidi/);
+  assert.match(musicRenderer, /'vgm', 'vgz', 'mid', 'midi'/);
 });
 
 test('CD-DA manager module exposes track-only import, edit, preview, and reorder UI', () => {

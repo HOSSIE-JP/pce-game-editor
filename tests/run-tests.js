@@ -22,5 +22,6 @@ loadAppConfig(require('../app.config'));
   'pce-sprite-editor-utils.test.js',
   'pce-testplay-server.test.js',
   'pce-vgm-import.test.js',
+  'pce-midi-import.test.js',
   'pce-vn-manager.test.js',
 ].forEach((file) => require(path.join(__dirname, file)));
