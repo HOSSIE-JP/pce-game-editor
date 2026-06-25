@@ -13,8 +13,8 @@
 // 5-bit amplitude (0 = silence / note-off).
 
 const PSG_CHANNEL_COUNT = 6;
-const MAX_STEPS = 256; // matches the asset model's pattern/steps cap.
-const MAX_PATTERN_ENTRIES = 256;
+const MAX_STEPS = 4096;
+const MAX_PATTERN_ENTRIES = 2048;
 const DEFAULT_SAMPLE_RATE = 44100; // VGM/MIDI both quantize on a 44100Hz grid.
 
 function clampInt(value, min, max, fallback) {
@@ -79,7 +79,7 @@ function assembleConversion(snapshots, opts = {}) {
 
   const warnings = Array.isArray(opts.warnings) ? opts.warnings.slice() : [];
   if (truncated) warnings.push(`pattern が ${MAX_PATTERN_ENTRIES} エントリを超えたため切り詰めました`);
-  if (snapshots.length >= MAX_STEPS && stepSamples) {
+  if (snapshots.length > MAX_STEPS && stepSamples) {
     warnings.push(`曲が長いため先頭 ${MAX_STEPS} ステップ (約 ${((MAX_STEPS * stepSamples) / sampleRate).toFixed(1)} 秒) のみ取り込みました`);
   }
 

@@ -95,6 +95,9 @@ const DEFAULT_PSG_OPTIONS = Object.freeze({
   steps: 32,
   pattern: [],
 });
+const PCE_PSG_MAX_STEPS = 4096;
+const PCE_PSG_MAX_PATTERN_ENTRIES = 2048;
+const PCE_PSG_SERIALIZED_STEP_BYTES = 8;
 const DEFAULT_ADPCM_OPTIONS = Object.freeze({
   sampleRate: 16000,
   loop: false,
@@ -393,8 +396,8 @@ function normalizePsgOptions(asset = {}) {
     speed: clampInt(rawOptions.speed, 1, 16, DEFAULT_PSG_OPTIONS.speed),
     period: clampInt(rawOptions.period, 1, 4095, DEFAULT_PSG_OPTIONS.period),
     channels: clampInt(rawOptions.channels, 1, 6, DEFAULT_PSG_OPTIONS.channels),
-    steps: clampInt(rawOptions.steps, 1, 256, DEFAULT_PSG_OPTIONS.steps),
-    pattern: Array.isArray(rawOptions.pattern) ? rawOptions.pattern.slice(0, 256) : [],
+    steps: clampInt(rawOptions.steps, 1, PCE_PSG_MAX_STEPS, DEFAULT_PSG_OPTIONS.steps),
+    pattern: Array.isArray(rawOptions.pattern) ? rawOptions.pattern.slice(0, PCE_PSG_MAX_PATTERN_ENTRIES) : [],
   };
 }
 
@@ -1775,6 +1778,27 @@ function importVgm(projectDir, payload = {}) {
   };
 }
 
+function midiImportOptionsFromPayload(payload = {}) {
+  const nested = payload.midiOptions && typeof payload.midiOptions === 'object'
+    ? payload.midiOptions
+    : {};
+  const raw = { ...nested };
+  [
+    'maxToneVoices',
+    'drumMode',
+    'drumVolumeScale',
+    'toneVolumeScale',
+    'minVelocity',
+    'voicePriority',
+    'patternDetail',
+  ].forEach((key) => {
+    if (payload[key] != null && payload[key] !== '') raw[key] = payload[key];
+  });
+  return typeof midiImporter.normalizeMidiPsgOptions === 'function'
+    ? midiImporter.normalizeMidiPsgOptions(raw)
+    : raw;
+}
+
 function importMidi(projectDir, payload = {}) {
   const sourceAbs = sourcePathForImport(payload);
   if (!sourceAbs) throw new Error('MIDI ファイルを選択してください');
@@ -1788,9 +1812,10 @@ function importMidi(projectDir, payload = {}) {
   const bpm = payload.bpm != null && payload.bpm !== ''
     ? clampInt(payload.bpm, 30, 300, DEFAULT_PSG_OPTIONS.bpm)
     : undefined;
+  const midiOptions = midiImportOptionsFromPayload(payload);
 
   const input = fs.readFileSync(sourceAbs);
-  const converted = midiImporter.convertMidiToPsg(input, { bpm });
+  const converted = midiImporter.convertMidiToPsg(input, { bpm, ...midiOptions });
 
   const requestedType = String(payload.type || '').trim().toLowerCase();
   // MIDI files are usually tunes, so default the "auto" type to a looping song.
@@ -1823,6 +1848,7 @@ function importMidi(projectDir, payload = {}) {
         importedAt: new Date().toISOString(),
         converter: 'Internal MIDI -> PSG step importer',
         midi: converted.stats,
+        midiOptions: converted.stats?.midiOptions || midiOptions,
         warnings: converted.warnings,
       },
     },
@@ -1837,6 +1863,46 @@ function importMidi(projectDir, payload = {}) {
   return {
     asset,
     assets: saved.assets,
+    conversion: {
+      ok: true,
+      kind: type,
+      steps: converted.steps,
+      patternCount: converted.pattern.length,
+      bpm: converted.bpm,
+      isSong: converted.isSong,
+      warnings: converted.warnings,
+      stats: converted.stats,
+    },
+  };
+}
+
+function previewMidi(projectDir, payload = {}) {
+  const sourceAbs = sourcePathForImport(payload);
+  if (!sourceAbs) throw new Error('MIDI ファイルを選択してください');
+  const originalFileName = path.basename(sourceAbs);
+  const sourceExt = path.extname(originalFileName).toLowerCase();
+  if (!MIDI_EXTENSIONS.has(sourceExt)) {
+    throw new Error('MIDI (.mid / .midi) ファイルを選択してください');
+  }
+  const bpm = payload.bpm != null && payload.bpm !== ''
+    ? clampInt(payload.bpm, 30, 300, DEFAULT_PSG_OPTIONS.bpm)
+    : undefined;
+  const requestedType = payload.type || payload.assetType || '';
+  const type = requestedType === 'psg-sfx' ? 'psg-sfx' : 'psg-song';
+  const midiOptions = midiImportOptionsFromPayload(payload);
+  const converted = midiImporter.convertMidiToPsg(fs.readFileSync(sourceAbs), { bpm, ...midiOptions });
+  return {
+    preview: {
+      type,
+      options: {
+        kind: type === 'psg-song' ? 'song' : 'sfx',
+        bpm: converted.bpm,
+        steps: converted.steps,
+        channels: converted.channels,
+        period: converted.period,
+        pattern: converted.pattern,
+      },
+    },
     conversion: {
       ok: true,
       kind: type,
@@ -2160,10 +2226,10 @@ function firstPsgPeriod(asset) {
 
 function normalizePsgPatternEntries(asset, options) {
   const pattern = Array.isArray(options.pattern) ? options.pattern : [];
-  return pattern.slice(0, 256).map((entry, index) => {
+  return pattern.slice(0, PCE_PSG_MAX_PATTERN_ENTRIES).map((entry, index) => {
     const raw = entry && typeof entry === 'object' ? entry : {};
     return {
-      step: clampInt(raw.step ?? index, 0, 255, index),
+      step: clampInt(raw.step ?? index, 0, PCE_PSG_MAX_STEPS - 1, index),
       channel: clampInt(raw.channel, 0, 5, 0),
       period: clampInt(raw.period, 1, 4095, options.period),
       volume: clampInt(raw.volume, 0, 31, 16),
@@ -2175,18 +2241,20 @@ function normalizePsgPatternEntries(asset, options) {
 // PSG step patterns up to this many serialized bytes stay resident (.rodata)
 // for instant SFX playback; larger ones (imported PSG/VGM/MIDI songs) stream
 // from CD into RAM bank134 only while playing, so they never sit in the scarce
-// resident banks. 6 bytes/step matches the pce_editor_psg_step_t memory layout.
+// resident banks. 8 bytes/step keeps CD-streamed records aligned to the 8KB
+// bank134/bank135 split used by the VN runtime.
 const PSG_PATTERN_CD_THRESHOLD_BYTES = 256;
 
 function serializePsgPattern(pattern) {
-  const buffer = Buffer.alloc(pattern.length * 6);
+  const buffer = Buffer.alloc(pattern.length * PCE_PSG_SERIALIZED_STEP_BYTES);
   pattern.forEach((step, index) => {
-    const offset = index * 6;
-    buffer[offset] = step.step & 0xff;
-    buffer[offset + 1] = step.channel & 0xff;
-    buffer.writeUInt16LE(step.period & 0xffff, offset + 2);
-    buffer[offset + 4] = step.volume & 0xff;
-    buffer[offset + 5] = step.noise & 0xff;
+    const offset = index * PCE_PSG_SERIALIZED_STEP_BYTES;
+    buffer.writeUInt16LE(step.step & 0xffff, offset);
+    buffer[offset + 2] = step.channel & 0xff;
+    buffer.writeUInt16LE(step.period & 0xffff, offset + 3);
+    buffer[offset + 5] = step.volume & 0xff;
+    buffer[offset + 6] = step.noise & 0xff;
+    buffer[offset + 7] = 0;
   });
   return buffer;
 }
@@ -2240,7 +2308,7 @@ function generatePsgMetadata(projectDir, assets, generationOptions = {}) {
     } else if (pattern.length) {
       arrayLines.push(`static const pce_editor_psg_step_t ${ident}_pattern[] = {`);
       pattern.forEach((step, stepIndex) => {
-        arrayLines.push(`  { ${step.step}u, ${step.channel}u, ${step.period}u, ${step.volume}u, ${step.noise}u }${stepIndex + 1 < pattern.length ? ',' : ''}`);
+        arrayLines.push(`  { ${step.step}u, ${step.channel}u, ${step.period}u, ${step.volume}u, ${step.noise}u, 0u }${stepIndex + 1 < pattern.length ? ',' : ''}`);
       });
       arrayLines.push('};');
       arrayLines.push('');
@@ -2931,12 +2999,13 @@ function generateAssetSources(projectDir, options = {}) {
     '  unsigned char palette_bank;',
     '} pce_editor_sprite_draw_meta_t;',
     '',
-    'typedef struct {',
-    '  unsigned char step;',
+    'typedef struct __attribute__((packed)) {',
+    '  unsigned int step;',
     '  unsigned char channel;',
     '  unsigned int period;',
     '  unsigned char volume;',
     '  unsigned char noise;',
+    '  unsigned char reserved;',
     '} pce_editor_psg_step_t;',
     '',
     'typedef struct {',
@@ -3179,6 +3248,7 @@ module.exports = {
   importImage,
   importVgm,
   importMidi,
+  previewMidi,
   listAssets,
   normalizeAsset,
   normalizeAssetDocument,

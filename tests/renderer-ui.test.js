@@ -182,7 +182,8 @@ test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', 
   assert.match(renderer, /image-preview-frame/);
   assert.match(renderer, /pce-assets-sound-preview/);
   assert.match(renderer, /playPsgPreview/);
-  assert.match(renderer, /data-action="preview-play"/);
+  assert.match(renderer, /data-action="preview-toggle"/);
+  assert.match(renderer, /createPsgPreviewController/);
   assert.match(renderer, /isPsgAsset\(asset\)[\s\S]*Sound[\s\S]*Period \/ Hz[\s\S]*Steps/);
   assert.match(renderer, /palette-swatch/);
   assert.match(renderer, /id="pceAssetEditorPanel"/);
@@ -215,9 +216,8 @@ test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', 
   assert.match(renderer, /mapBase:\s*PCE_BG_AUTO_MAP_BASE/);
   assert.match(renderer, /sourceExt === '\.webp'/);
   assert.match(renderer, /dataUrlToPng\(workingDataUrl\)/);
-  assert.match(renderer, /setupReloadOnVisible/);
-  assert.match(renderer, /new MutationObserver/);
-  assert.match(renderer, /nav-btn\[data-page\]/);
+  assert.match(renderer, /assets:pce:changed/);
+  assert.match(renderer, /page:activated/);
   assert.match(renderer, /async function pickAudioInputFile\(\)/);
   assert.match(renderer, /const initialFile = importFile\?\.sourcePath[\s\S]*await pickAudioInputFile\(\)/);
   assert.match(renderer, /audio-convert-ui/);
@@ -428,7 +428,7 @@ test('PCE visual novel editor does not auto-insert CD-DA playback into new scene
 
   assert.match(renderer, /function defaultDoc\(assets = \[\]\)/);
   assert.doesNotMatch(renderer, /\{\s*\.\.\.defaultCommand\('audio', assets\)/);
-  assert.match(renderer, /return \{ type: 'audio', kind: 'cdda', action: 'play', assetId: first\('cdda-track'\) \};/);
+  assert.match(renderer, /return \{ type: 'audio', kind: 'cdda', action: 'play', assetId: first\('cdda-track'\), channel: 0 \};/);
 });
 
 test('PCE visual novel editor keeps scene deletion in the scene list', () => {
@@ -481,6 +481,11 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /async function renderCommandPreview\(\)/);
   assert.match(renderer, /document\.createElement\('audio'\)/);
   assert.match(renderer, /const previewPath = previewPathForAsset\(asset\);[\s\S]*previewPceAssetSource\(previewPath\)/);
+  assert.match(renderer, /createPsgPreviewController/);
+  assert.match(renderer, /meta\[id\]\.psgOptions = asset\.options \|\| \{\}/);
+  assert.match(renderer, /command\.kind === 'psg'[\s\S]*data-psg-command-preview/);
+  assert.match(renderer, /function playPsgPreview\(assetId, loop\)/);
+  assert.match(renderer, /const kind = c\.kind === 'adpcm' \? 'adpcm' : \(c\.kind === 'psg' \? 'psg' : 'cdda'\)/);
   assert.match(renderer, /document\.createElement\('img'\)/);
   assert.match(renderer, /draggable="true"[\s\S]*data-command-index/);
   assert.match(renderer, /application\/x-pce-vn-command-index/);
@@ -511,7 +516,7 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /data-choice-field="value"/);
   assert.match(renderer, /function labelOptions\(current, label = 'なし'\)/);
   assert.doesNotMatch(renderer, /data-add-command/);
-  assert.doesNotMatch(renderer, /data-role="scene-form"|data-role="meta"|pce-vn-stage|pce-vn-meta/);
+  assert.doesNotMatch(renderer, /data-role="scene-form"|data-role="meta"|class="pce-vn-stage"|pce-vn-meta/);
   assert.doesNotMatch(renderer, /data-command-up|data-command-down|pce-vn-command-head/);
   assert.match(renderer, /<label class="form-group"><span class="form-label">Type<\/span><select class="form-select" name="type"/);
   assert.match(css, /grid-template-columns:\s*var\(--pce-vn-left-width\)\s*5px\s*minmax\(340px,\s*1fr\)\s*5px\s*var\(--pce-vn-right-width\)/);
@@ -564,6 +569,7 @@ test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'sound-editor', 'renderer.js'), 'utf-8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'sound-editor', 'style.css'), 'utf-8');
   const musicRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-music-editor', 'renderer.js'), 'utf-8');
+  const psgPreview = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-music-editor', 'psg-preview.js'), 'utf-8');
   const musicCss = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-music-editor', 'style.css'), 'utf-8');
 
   assert.equal(manifest.name, 'サウンド');
@@ -595,7 +601,24 @@ test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page
   assert.match(musicRenderer, /data-import/);
   assert.match(musicRenderer, /importPceVgm/);
   assert.match(musicRenderer, /importPceMidi/);
+  assert.match(musicRenderer, /previewPceMidi/);
   assert.match(musicRenderer, /'vgm', 'vgz', 'mid', 'midi'/);
+  assert.match(musicRenderer, /maxToneVoices/);
+  assert.match(musicRenderer, /drumMode/);
+  assert.match(musicRenderer, /toneVolumeScale/);
+  assert.match(musicRenderer, /drumVolumeScale/);
+  assert.match(musicRenderer, /minVelocity/);
+  assert.match(musicRenderer, /voicePriority/);
+  assert.match(musicRenderer, /patternDetail/);
+  assert.match(musicRenderer, /data-preview-toggle/);
+  assert.match(musicRenderer, /data-delete-id/);
+  assert.match(musicRenderer, /data-preview-midi/);
+  assert.match(musicRenderer, /createPsgPreviewController/);
+  assert.match(psgPreview, /export function expandPsgPreviewStates/);
+  assert.match(psgPreview, /function scheduleStep\(\)/);
+  assert.match(musicCss, /\.pce-music-midi-controls/);
+  assert.match(musicCss, /\.pce-music-list-delete/);
+  assert.match(musicCss, /\.pce-tracker-summary/);
 });
 
 test('CD-DA manager module exposes track-only import, edit, preview, and reorder UI', () => {

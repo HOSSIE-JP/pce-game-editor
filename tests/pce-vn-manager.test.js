@@ -1011,6 +1011,13 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   );
   assert.match(runtime, /kind == PCE_VN_AUDIO_KIND_PSG/);
   assert.match(runtime, /play_psg_asset\(command->asset_index, command->slot\)/);
+  assert.match(runtime, /psg_load_basic_wave\(ch\)/);
+  assert.match(runtime, /PCE_PSG_CONTROL = 0u;[\s\S]*PCE_PSG_WAVE =/);
+  assert.doesNotMatch(runtime, /PCE_PSG_CONTROL = 0x40u; \/\* enable write to the waveform buffer \*\//);
+  assert.match(runtime, /PCE_RAM_BANK_AT\(135, 6\);/);
+  assert.match(runtime, /#define VN_PSG_PATTERN_BUFFER_BYTES \(VN_PSG_PATTERN_BANK_BYTES \* 2u\)/);
+  assert.match(runtime, /psg_pattern_ram_bank135_reserved\[VN_PSG_PATTERN_BANK_BYTES\][\s\S]*section\("\.ram_bank135"\)/);
+  assert.match(runtime, /pce_ram_bank135_map\(\);[\s\S]*\(const pce_editor_psg_step_t \*\)psg_pattern_ram/);
 });
 
 test('PCE VN manager encodes the input check command with button mask and modes', () => {
@@ -1615,8 +1622,8 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /for \(wait = 0u; wait < 65535u; wait\+\+\) \{\}/);
   assert.match(source, /static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call\(void\)/);
   assert.match(source, /if \(!adpcm_stream_active\)[\s\S]*pce_cdb_irq_disable\(PCE_CDB_MASK_IRQ_EXTERNAL\);/);
-  assert.match(source, /static void VN_BANKED_CODE begin_cdda_deferred_resume\(void\)/);
-  assert.match(source, /static void VN_BANKED_CODE end_cdda_deferred_resume\(void\)/);
+  assert.match(source, /static void VN_BANKED_CODE2 begin_cdda_deferred_resume\(void\)/);
+  assert.match(source, /static void VN_BANKED_CODE2 end_cdda_deferred_resume\(void\)/);
   assert.match(source, /static void VN_BANKED_CODE prepare_cd_data_access\(void\)/);
   assert.match(source, /pce_cdb_irq_enable\(PCE_CDB_MASK_IRQ_EXTERNAL\);\n#endif\n    if \(!cdda_active\) return;/);
   assert.match(source, /if \(!cdda_active\) return;/);
@@ -1673,12 +1680,12 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /voice_data_size = voice->data_size;/);
   assert.match(source, /adpcm_voice_snapshot\.data_size = voice_data_size;/);
   assert.match(source, /adpcm_voice_snapshot\.cd_sector\.lo = voice->cd->sector\.lo;/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE adpcm_playback_active\(void\)/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 adpcm_playback_active\(void\)/);
   assert.match(source, /return adpcm_play_active;/);
   assert.match(source, /static uint8_t VN_BANKED_CODE wait_adpcm_transfer_ready\(void\)/);
   assert.match(source, /while \(guard && \(pce_cdb_adpcm_status\(\) & ADPCM_BUSY\)\)/);
   assert.match(source, /return guard \? 1u : 0u;/);
-  assert.match(source, /static void VN_BANKED_CODE restore_display_after_adpcm\(uint8_t restore_display\)/);
+  assert.match(source, /static void VN_BANKED_CODE2 restore_display_after_adpcm\(uint8_t restore_display\)/);
   assert.match(source, /restore_video_after_cdb_call\(restore_display\);/);
   assert.match(source, /static uint8_t VN_BANKED_CODE load_adpcm_voice\(signed int voice_index, uint8_t allow_stop_playback, uint8_t allow_stream_asset\)/);
   assert.match(source, /const uint8_t restore_display = \(uint8_t\)!pending_display_enable;/);
@@ -1766,8 +1773,8 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static uint8_t vn_variable_lo\[PCE_VN_VARIABLE_STORAGE_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(source, /static uint8_t vn_variable_hi\[PCE_VN_VARIABLE_STORAGE_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(source, /const uint16_t value = \(uint16_t\)\(int16_t\)pce_vn_variable_initial_values\[i\];[\s\S]*vn_variable_lo\[i\] = \(uint8_t\)\(value & 0xffu\);[\s\S]*vn_variable_hi\[i\] = \(uint8_t\)\(value >> 8\);/);
-  assert.match(source, /static signed int VN_BANKED_CODE variable_value\(signed int variable_index\)[\s\S]*value = \(uint16_t\)vn_variable_lo\[index\] \| \(\(uint16_t\)vn_variable_hi\[index\] << 8\);/);
-  assert.match(source, /static void VN_BANKED_CODE set_variable_value\(signed int variable_index, signed int value\)[\s\S]*vn_variable_lo\[index\] = \(uint8_t\)\(raw & 0xffu\);[\s\S]*vn_variable_hi\[index\] = \(uint8_t\)\(raw >> 8\);/);
+  assert.match(source, /static signed int VN_BANKED_CODE2 variable_value\(signed int variable_index\)[\s\S]*value = \(uint16_t\)vn_variable_lo\[index\] \| \(\(uint16_t\)vn_variable_hi\[index\] << 8\);/);
+  assert.match(source, /static void VN_BANKED_CODE2 set_variable_value\(signed int variable_index, signed int value\)[\s\S]*vn_variable_lo\[index\] = \(uint8_t\)\(raw & 0xffu\);[\s\S]*vn_variable_hi\[index\] = \(uint8_t\)\(raw >> 8\);/);
   assert.doesNotMatch(source, /static signed int vn_variables\[PCE_VN_VARIABLE_STORAGE_COUNT\];/);
   assert.match(source, /static signed int command_value_arg\(const pce_vn_command_t \*command\)/);
   assert.match(source, /static uint16_t ui_text_color;\n/);

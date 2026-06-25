@@ -818,8 +818,8 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.match(source, /static const unsigned char pce_editor_sprite_spr_patterns\[\]/);
   assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_beep_pattern\[\]/);
   // PSG step carries a noise flag so MIDI drums can map to PSG noise (ch4/5).
-  assert.match(header, /unsigned char noise;\n\} pce_editor_psg_step_t;/);
-  assert.match(source, /\{ 3u, 4u, 5u, 16u, 1u \}/);
+  assert.match(header, /typedef struct __attribute__\(\(packed\)\) \{[\s\S]*unsigned int step;[\s\S]*unsigned char noise;[\s\S]*unsigned char reserved;\n\} pce_editor_psg_step_t;/);
+  assert.match(source, /\{ 3u, 4u, 5u, 16u, 1u, 0u \}/);
   // PSG asset carries a CD-ref pointer; small patterns stay resident (cd = null),
   // while large imported songs stream from CD (see the streaming test below).
   assert.match(header, /const pce_editor_cd_data_ref_t \*pattern_cd;\n\} pce_editor_psg_asset_t;/);
@@ -1140,7 +1140,19 @@ test('PCE importMidi converts a MIDI file into a PSG song asset with noise drums
   const source = path.join(makeTempDir('pce-assets-midi-source-'), 'tune.mid');
   fs.writeFileSync(source, midi);
 
-  const result = assetManager.importMidi(projectDir, { sourcePath: source, id: 'tune', name: 'Tune' });
+  const result = assetManager.importMidi(projectDir, {
+    sourcePath: source,
+    id: 'tune',
+    name: 'Tune',
+    midiOptions: {
+      drumMode: 'full',
+      maxToneVoices: 4,
+      toneVolumeScale: 100,
+      drumVolumeScale: 100,
+      minVelocity: 0,
+      voicePriority: 'high',
+    },
+  });
   assert.equal(result.asset.type, 'psg-song'); // MIDI "auto" defaults to song.
   assert.equal(result.asset.options.bpm, 120); // derived from the MIDI tempo.
   assert.ok(result.asset.options.pattern.some((e) => e.noise === 1)); // drum -> noise.
@@ -1149,18 +1161,33 @@ test('PCE importMidi converts a MIDI file into a PSG song asset with noise drums
   assert.equal(result.asset.source, 'assets/psg/tune.mid');
   assert.ok(fs.existsSync(path.join(projectDir, 'assets/psg/tune.mid')));
   assert.ok(result.conversion.warnings.some((w) => w.includes('ドラム')));
+  assert.equal(result.asset.data.import.midiOptions.drumMode, 'full');
+  assert.equal(result.asset.data.import.midiOptions.voicePriority, 'high');
+  assert.equal(result.asset.data.import.midiOptions.toneVolumeScale, 100);
+  assert.equal(result.conversion.stats.midiOptions.maxToneVoices, 4);
+
+  const preview = assetManager.previewMidi(projectDir, {
+    sourcePath: source,
+    type: 'psg-sfx',
+    midiOptions: { drumMode: 'off', maxToneVoices: 2 },
+  });
+  assert.equal(preview.preview.type, 'psg-sfx');
+  assert.equal(preview.preview.options.kind, 'sfx');
+  assert.ok(preview.preview.options.pattern.some((e) => e.period === 254));
+  assert.ok(!preview.preview.options.pattern.some((e) => e.noise === 1));
+  assert.equal(preview.conversion.stats.midiOptions.drumMode, 'off');
 });
 
 test('PCE CD build streams large PSG patterns from CD and keeps small ones resident', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-psg-stream-');
   writeFile(projectDir, 'project.json', Buffer.from(JSON.stringify({ targetMedia: 'cd' })));
-  // 60 steps * 6 bytes = 360 bytes > 256 threshold -> streamed; 4 steps -> resident.
-  const bigPattern = Array.from({ length: 60 }, (_unused, i) => ({ step: i, channel: 0, period: 256 + i, volume: 16 }));
+  // 1300 steps * 8 bytes = 10400 bytes > 256 threshold and spans bank134+135.
+  const bigPattern = Array.from({ length: 1300 }, (_unused, i) => ({ step: i * 2, channel: 0, period: 256 + i, volume: 16 }));
   assetManager.writeAssetDocument(projectDir, {
     version: 1,
     assets: [
-      { id: 'song', type: 'psg-song', source: '', options: { bpm: 120, steps: 60, period: 256, pattern: bigPattern } },
+      { id: 'song', type: 'psg-song', source: '', options: { bpm: 120, steps: 360, period: 256, pattern: bigPattern } },
       { id: 'blip', type: 'psg-sfx', source: '', options: { bpm: 150, steps: 4, period: 512, pattern: [{ step: 0, channel: 0, period: 512, volume: 20 }] } },
     ],
   });
@@ -1168,9 +1195,12 @@ test('PCE CD build streams large PSG patterns from CD and keeps small ones resid
   const source = fs.readFileSync(out.sourcePath, 'utf-8');
   // Large song streams: CD ref emitted, no resident array, pattern pointer null.
   assert.ok(fs.existsSync(path.join(projectDir, 'assets/generated/psg/song.bin')));
-  assert.equal(fs.statSync(path.join(projectDir, 'assets/generated/psg/song.bin')).size, 360);
+  const streamedPattern = fs.readFileSync(path.join(projectDir, 'assets/generated/psg/song.bin'));
+  assert.equal(streamedPattern.length, 10400);
+  assert.equal(streamedPattern.readUInt16LE(22 * 8), 44);
+  assert.equal(streamedPattern.readUInt16LE(1024 * 8), 2048);
   assert.match(source, /static const pce_editor_cd_data_ref_t pce_editor_psg_song_pattern_cd/);
-  assert.match(source, /\(const pce_editor_psg_step_t \*\)0, 60u, &pce_editor_psg_song_pattern_cd \}/);
+  assert.match(source, /\(const pce_editor_psg_step_t \*\)0, 1300u, &pce_editor_psg_song_pattern_cd \}/);
   assert.doesNotMatch(source, /pce_editor_psg_song_pattern\[\] =/);
   // Small blip stays resident: array emitted, cd pointer null.
   assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_blip_pattern\[\] = \{/);

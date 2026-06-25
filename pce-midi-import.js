@@ -15,13 +15,32 @@
 
 const quantize = require('./pce-psg-quantize');
 
-const { clampInt, MAX_STEPS, gridForBpm, assembleConversion } = quantize;
+const { clampInt, MAX_STEPS, MAX_PATTERN_ENTRIES, gridForBpm, buildPattern, assembleConversion } = quantize;
 
 const PSG_CLOCK = 3579545; // HuC6280 PSG clock; freq = clock / (32 * period).
 const VOICE_COUNT = 6;
 const DRUM_CHANNEL = 9; // MIDI channel 10 (0-indexed 9) is percussion.
 const DEFAULT_TEMPO_MICROS = 500000; // 120 BPM.
 const SAMPLE_RATE = 44100;
+const MIDI_PSG_DRUM_MODES = new Set(['off', 'soft', 'full']);
+const MIDI_PSG_VOICE_PRIORITIES = new Set(['melodyBass', 'high', 'low', 'loud']);
+const MIDI_PSG_PATTERN_DETAILS = new Set(['auto', 'full', 'half', 'quarter', 'eighth']);
+const MIDI_PSG_PATTERN_DETAIL_STRIDES = Object.freeze({
+  auto: 1,
+  full: 1,
+  half: 2,
+  quarter: 4,
+  eighth: 8,
+});
+const DEFAULT_MIDI_PSG_OPTIONS = Object.freeze({
+  maxToneVoices: 4,
+  drumMode: 'soft',
+  drumVolumeScale: 35,
+  toneVolumeScale: 100,
+  minVelocity: 8,
+  voicePriority: 'melodyBass',
+  patternDetail: 'auto',
+});
 
 function midiNoteToFreq(note) {
   return 440 * Math.pow(2, (note - 69) / 12);
@@ -36,6 +55,27 @@ function midiNoteToPeriod(note) {
 
 function velToVolume(vel) {
   return clampInt(Math.round((vel / 127) * 31), 0, 31, 0);
+}
+
+function scaledVelocityToVolume(vel, scale) {
+  const base = velToVolume(vel);
+  if (!base) return 0;
+  return clampInt(Math.round((base * scale) / 100), 0, 31, 0);
+}
+
+function normalizeMidiPsgOptions(options = {}) {
+  const rawDrumMode = String(options.drumMode || DEFAULT_MIDI_PSG_OPTIONS.drumMode);
+  const rawVoicePriority = String(options.voicePriority || DEFAULT_MIDI_PSG_OPTIONS.voicePriority);
+  const rawPatternDetail = String(options.patternDetail || DEFAULT_MIDI_PSG_OPTIONS.patternDetail);
+  return {
+    maxToneVoices: clampInt(options.maxToneVoices, 1, 6, DEFAULT_MIDI_PSG_OPTIONS.maxToneVoices),
+    drumMode: MIDI_PSG_DRUM_MODES.has(rawDrumMode) ? rawDrumMode : DEFAULT_MIDI_PSG_OPTIONS.drumMode,
+    drumVolumeScale: clampInt(options.drumVolumeScale, 0, 100, DEFAULT_MIDI_PSG_OPTIONS.drumVolumeScale),
+    toneVolumeScale: clampInt(options.toneVolumeScale, 0, 100, DEFAULT_MIDI_PSG_OPTIONS.toneVolumeScale),
+    minVelocity: clampInt(options.minVelocity, 0, 127, DEFAULT_MIDI_PSG_OPTIONS.minVelocity),
+    voicePriority: MIDI_PSG_VOICE_PRIORITIES.has(rawVoicePriority) ? rawVoicePriority : DEFAULT_MIDI_PSG_OPTIONS.voicePriority,
+    patternDetail: MIDI_PSG_PATTERN_DETAILS.has(rawPatternDetail) ? rawPatternDetail : DEFAULT_MIDI_PSG_OPTIONS.patternDetail,
+  };
 }
 
 // General-MIDI drum notes ~35..81; map linearly to the 5-bit noise frequency.
@@ -186,10 +226,60 @@ function firstTempoMicros(parsed) {
   return sorted.length ? sorted[0].micros : DEFAULT_TEMPO_MICROS;
 }
 
+function choosePreferredVoiceKeys(candidates, limit, priority) {
+  if (limit <= 0) return new Set();
+  if (candidates.length <= limit) return new Set(candidates.map((candidate) => candidate.key));
+  const byHigh = (a, b) => b.note - a.note || b.vel - a.vel || a.slot - b.slot || a.key - b.key;
+  const byLow = (a, b) => a.note - b.note || b.vel - a.vel || a.slot - b.slot || a.key - b.key;
+  const byLoud = (a, b) => b.vel - a.vel || b.note - a.note || a.slot - b.slot || a.key - b.key;
+  if (priority === 'low') return new Set(candidates.slice().sort(byLow).slice(0, limit).map((candidate) => candidate.key));
+  if (priority === 'loud') return new Set(candidates.slice().sort(byLoud).slice(0, limit).map((candidate) => candidate.key));
+  if (priority === 'melodyBass') {
+    if (limit === 1) return new Set([candidates.slice().sort(byHigh)[0].key]);
+    const low = candidates.slice().sort(byLow)[0];
+    const selected = [low];
+    const selectedKeys = new Set([low.key]);
+    for (const candidate of candidates.slice().sort(byHigh)) {
+      if (selectedKeys.has(candidate.key)) continue;
+      selected.push(candidate);
+      selectedKeys.add(candidate.key);
+      if (selected.length >= limit) break;
+    }
+    return selectedKeys;
+  }
+  return new Set(candidates.slice().sort(byHigh).slice(0, limit).map((candidate) => candidate.key));
+}
+
+function reduceSnapshotsByStride(snapshots, stride) {
+  if (!Array.isArray(snapshots) || stride <= 1) return snapshots;
+  const reduced = [];
+  let held = snapshots[0] || [];
+  for (let step = 0; step < snapshots.length; step += 1) {
+    if (step % stride === 0) held = snapshots[step];
+    reduced.push(held);
+  }
+  return reduced;
+}
+
+function choosePatternReduction(snapshots, detail) {
+  if (detail === 'auto') {
+    for (const stride of [1, 2, 4, 8]) {
+      const candidate = reduceSnapshotsByStride(snapshots, stride);
+      if (!buildPattern(candidate).truncated) return { snapshots: candidate, stride };
+    }
+    return { snapshots: reduceSnapshotsByStride(snapshots, 8), stride: 8 };
+  }
+  const stride = MIDI_PSG_PATTERN_DETAIL_STRIDES[detail] || 1;
+  return { snapshots: reduceSnapshotsByStride(snapshots, stride), stride };
+}
+
 // Convert a raw MIDI buffer into a PSG asset description (same shape as
-// convertVgmToPsg). options: { bpm } — omit/blank to use the MIDI tempo.
+// convertVgmToPsg). options: { bpm, maxToneVoices, drumMode,
+// drumVolumeScale, toneVolumeScale, minVelocity, voicePriority, patternDetail }
+// — omit/blank bpm to use the MIDI tempo.
 function convertMidiToPsg(rawBuffer, options = {}) {
   const parsed = parseSmf(rawBuffer);
+  const midiOptions = normalizeMidiPsgOptions(options);
 
   // Merge all tracks into one absolute-tick event stream.
   const events = [];
@@ -215,14 +305,29 @@ function convertMidiToPsg(rawBuffer, options = {}) {
   const stepSeconds = stepSamples / SAMPLE_RATE;
 
   const hasDrums = events.some((ev) => ev.ch === DRUM_CHANNEL && ev.type === 'on');
-  // PSG noise only exists on channels 4/5, so reserve them for drums when present.
-  const melodicChannels = hasDrums ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5];
-  const drumChannels = hasDrums ? [4, 5] : [];
+  const renderDrums = hasDrums && midiOptions.drumMode !== 'off' && midiOptions.drumVolumeScale > 0;
+  // PSG noise only exists on channels 4/5. "soft" keeps one quiet rhythm lane
+  // on ch5; "full" keeps the historical ch4/ch5 noise mapping.
+  const drumChannels = renderDrums
+    ? (midiOptions.drumMode === 'full' ? [4, 5] : [5])
+    : [];
+  const toneCapacity = renderDrums
+    ? Math.min(midiOptions.maxToneVoices, midiOptions.drumMode === 'full' ? 4 : 5)
+    : midiOptions.maxToneVoices;
+  const melodicChannels = Array.from({ length: toneCapacity }, (_unused, index) => index);
 
   const voices = Array.from({ length: VOICE_COUNT }, () => ({
-    active: false, note: 0, period: 0, volume: 0, noise: 0, key: -1,
+    active: false, note: 0, period: 0, volume: 0, noise: 0, key: -1, vel: 0,
   }));
-  const stats = { noteCount: 0, drumNotes: 0, stolenVoices: 0, droppedNotes: 0, clampedNotes: 0 };
+  const stats = {
+    noteCount: 0,
+    drumNotes: 0,
+    stolenVoices: 0,
+    droppedNotes: 0,
+    clampedNotes: 0,
+    filteredVelocity: 0,
+    ignoredDrums: 0,
+  };
 
   const keyOf = (ev) => ev.ch * 128 + ev.note;
 
@@ -230,28 +335,31 @@ function convertMidiToPsg(rawBuffer, options = {}) {
     stats.noteCount += 1;
     const { period, clamped } = midiNoteToPeriod(ev.note);
     if (clamped) stats.clampedNotes += 1;
-    const volume = velToVolume(ev.vel);
+    const volume = scaledVelocityToVolume(ev.vel, midiOptions.toneVolumeScale);
     if (!volume) return;
     const key = keyOf(ev);
     for (const sl of melodicChannels) {
       if (voices[sl].active && voices[sl].key === key) {
-        voices[sl].period = period; voices[sl].volume = volume; voices[sl].note = ev.note;
+        voices[sl].period = period; voices[sl].volume = volume; voices[sl].note = ev.note; voices[sl].vel = ev.vel;
         return;
       }
     }
     let target = -1;
     for (const sl of melodicChannels) { if (!voices[sl].active) { target = sl; break; } }
     if (target === -1) {
-      // Voice steal: evict the lowest-pitched active voice (keep the melody on
-      // top); tie-break to the higher slot index for determinism.
-      let victim = -1;
-      let victimNote = Infinity;
+      const candidates = melodicChannels
+        .filter((sl) => voices[sl].active)
+        .map((sl) => ({ key: voices[sl].key, note: voices[sl].note, vel: voices[sl].vel, slot: sl }));
+      candidates.push({ key, note: ev.note, vel: ev.vel, slot: VOICE_COUNT });
+      const kept = choosePreferredVoiceKeys(candidates, melodicChannels.length, midiOptions.voicePriority);
+      if (!kept.has(key)) { stats.droppedNotes += 1; return; }
       for (const sl of melodicChannels) {
-        if (voices[sl].active && voices[sl].note <= victimNote) { victimNote = voices[sl].note; victim = sl; }
+        if (voices[sl].active && !kept.has(voices[sl].key)) { target = sl; break; }
       }
-      if (ev.note > victimNote) { stats.stolenVoices += 1; target = victim; } else { stats.droppedNotes += 1; return; }
+      if (target === -1) { stats.droppedNotes += 1; return; }
+      stats.stolenVoices += 1;
     }
-    voices[target] = { active: true, note: ev.note, period, volume, noise: 0, key };
+    voices[target] = { active: true, note: ev.note, period, volume, noise: 0, key, vel: ev.vel };
   };
 
   const freeMelodic = (ev) => {
@@ -267,17 +375,19 @@ function convertMidiToPsg(rawBuffer, options = {}) {
   const allocDrum = (ev) => {
     stats.noteCount += 1;
     stats.drumNotes += 1;
-    const volume = velToVolume(ev.vel);
+    if (!drumChannels.length) { stats.ignoredDrums += 1; return; }
+    const volume = scaledVelocityToVolume(ev.vel, midiOptions.drumVolumeScale);
     if (!volume) return;
     let target = -1;
     for (const sl of drumChannels) { if (!voices[sl].active) { target = sl; break; } }
     if (target === -1) target = drumChannels[drumChannels.length - 1];
-    voices[target] = { active: true, note: ev.note, period: drumNoteToNoiseFreq(ev.note), volume, noise: 1, key: -1 };
+    voices[target] = { active: true, note: ev.note, period: drumNoteToNoiseFreq(ev.note), volume, noise: 1, key: -1, vel: ev.vel };
   };
 
   const applyEvent = (ev) => {
     if (ev.type === 'on') {
-      if (ev.ch === DRUM_CHANNEL) { if (drumChannels.length) allocDrum(ev); }
+      if (ev.vel < midiOptions.minVelocity) { stats.filteredVelocity += 1; return; }
+      if (ev.ch === DRUM_CHANNEL) allocDrum(ev);
       else allocMelodic(ev);
     } else if (ev.ch !== DRUM_CHANNEL) {
       freeMelodic(ev); // drums are one-shot, their note-offs are ignored.
@@ -285,7 +395,8 @@ function convertMidiToPsg(rawBuffer, options = {}) {
   };
 
   const lastSeconds = events.length ? events[events.length - 1].seconds : 0;
-  const steps = Math.max(1, Math.min(MAX_STEPS, Math.ceil(lastSeconds / stepSeconds) + 1));
+  const requiredSteps = Math.max(1, Math.ceil(lastSeconds / stepSeconds) + 1);
+  const steps = Math.min(MAX_STEPS, requiredSteps);
 
   const snapshots = [];
   let cursor = 0;
@@ -305,15 +416,27 @@ function convertMidiToPsg(rawBuffer, options = {}) {
   }
 
   const warnings = [];
-  if (hasDrums) warnings.push('MIDI のドラム (10ch) は PSG ノイズ (ch4/5) で近似しました');
-  if (stats.stolenVoices > 0 || stats.droppedNotes > 0) warnings.push('同時発音数が 6 を超えたため一部の音を間引きました');
+  if (hasDrums && !renderDrums) warnings.push('MIDI のドラム (10ch) は取り込み設定により無視しました');
+  else if (hasDrums && midiOptions.drumMode === 'soft') warnings.push('MIDI のドラム (10ch) は PSG ノイズ (ch5) で控えめに近似しました');
+  else if (hasDrums) warnings.push('MIDI のドラム (10ch) は PSG ノイズ (ch4/5) で近似しました');
+  if (stats.stolenVoices > 0 || stats.droppedNotes > 0) warnings.push(`同時発音数が ${melodicChannels.length} tone voice を超えたため一部の音を間引きました`);
   if (stats.clampedNotes > 0) warnings.push('音域外の音は period 範囲 (1..4095) にクランプされました');
+  if (stats.filteredVelocity > 0) warnings.push(`velocity ${midiOptions.minVelocity} 未満の小さい音を無視しました`);
+  if (requiredSteps > MAX_STEPS) {
+    warnings.push(`曲が長いため先頭 ${MAX_STEPS} ステップ (約 ${(MAX_STEPS * stepSeconds).toFixed(1)} 秒) のみ取り込みました`);
+  }
   warnings.push('ピッチベンド / コントロールチェンジ / プログラムチェンジは再現されません');
   if (parsed.smpteDivision) warnings.push('SMPTE 分解能のため tempo を無視して実時間で量子化しました');
   if (parsed.format === 2) warnings.push('format 2 の独立トラックは連結して近似しました');
   if (parsed.tempoMap.length > 1) warnings.push(`テンポ変化が複数あるため最初のテンポ (${midiBpm} BPM) でグリッドを固定しました`);
 
-  return assembleConversion(snapshots, {
+  const reduction = choosePatternReduction(snapshots, midiOptions.patternDetail);
+  if (reduction.stride > 1) {
+    const label = reduction.stride === 2 ? '1/2' : reduction.stride === 4 ? '1/4' : '1/8';
+    warnings.push(`pattern event 数を抑えるため、MIDI 変換の更新密度を ${label} に落としました`);
+  }
+
+  return assembleConversion(reduction.snapshots, {
     bpm,
     framesPerStep,
     stepSamples,
@@ -333,6 +456,10 @@ function convertMidiToPsg(rawBuffer, options = {}) {
       stolenVoices: stats.stolenVoices,
       droppedNotes: stats.droppedNotes,
       clampedNotes: stats.clampedNotes,
+      filteredVelocity: stats.filteredVelocity,
+      ignoredDrums: stats.ignoredDrums,
+      midiOptions,
+      patternReductionStride: reduction.stride,
       framesPerStep,
       durationSeconds: lastSeconds,
     },
@@ -340,9 +467,11 @@ function convertMidiToPsg(rawBuffer, options = {}) {
 }
 
 module.exports = {
+  DEFAULT_MIDI_PSG_OPTIONS,
   PSG_CLOCK,
   midiNoteToPeriod,
   drumNoteToNoiseFreq,
+  normalizeMidiPsgOptions,
   parseSmf,
   convertMidiToPsg,
 };

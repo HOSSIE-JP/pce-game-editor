@@ -546,6 +546,8 @@ export function activatePlugin({ plugin, hostRoot, api, registerCapability }) {
 | `api.assets.deletePceAsset(id)` | PCE asset を削除し、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
 | `api.assets.importPceImage(payload)` | 画像 asset を取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
 | `api.assets.importPceAudio(payload)` | 音声 asset を取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
+| `api.assets.importPceVgm(payload)` | VGM / VGZ を PSG asset として取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
+| `api.assets.importPceMidi(payload)` | MIDI を PSG asset として取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
 | `api.assets.reorderPceAssets(ids)` | PCE asset の順序を保存し、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
 | `api.assets.previewPceAssetSource(relativePath)` | project root 内の PCE asset source を Data URL として取得する |
 | `api.events.emit(name, detail)` | renderer plugin 間の軽量イベントを発行する |
@@ -732,6 +734,31 @@ const importedVoice = await window.electronAPI.importAssetAudio({
   sampleRate: processedVoice.processing.sampleRate,
 });
 
+// MIDI を PSG pattern へ近似変換して登録する。midiOptions は省略可能。
+const importedPsg = await window.electronAPI.importAssetMidi({
+  sourcePath: '/absolute/path/song.mid',
+  id: 'song_psg',
+  name: 'song/psg',
+  bpm: '', // 空欄なら MIDI の先頭 tempo を使う
+  type: 'psg-song',
+  midiOptions: {
+    maxToneVoices: 4,
+    drumMode: 'soft', // "off" | "soft" | "full"
+    toneVolumeScale: 100,
+    drumVolumeScale: 35,
+    minVelocity: 8,
+    voicePriority: 'melodyBass', // "melodyBass" | "high" | "low" | "loud"
+    patternDetail: 'auto', // "auto" | "full" | "half" | "quarter" | "eighth"
+  },
+});
+
+// 同じ MIDI 変換設定で保存前の PSG preview data だけを作る。
+const midiPreview = await window.electronAPI.previewAssetMidi({
+  sourcePath: '/absolute/path/song.mid',
+  type: 'psg-song',
+  midiOptions: { maxToneVoices: 4, drumMode: 'soft' },
+});
+
 // project root 内の asset source だけを Data URL 化する
 const preview = await window.electronAPI.previewAssetSource('assets/images/title_bg.png');
 
@@ -747,6 +774,8 @@ ADPCM の `divider` は再生速度の rate code です。取り込み時は `32
 `options.stream: true` の ADPCM import では ADPCM RAM の 16-bit size/address 制約で分割せず、1つの CD data file として保持します。
 
 `assets/pce-assets.json` の v2 画像/音声タイプは `image` (BG), `sprite`, `palette`, `psg-song`, `psg-sfx`, `adpcm`, `cdda-track` です。旧 `psg-sequence` は読み込み時に `psg-sfx` として正規化されます。PCE/CD-ROM2 は `llvm-mos-sdk` 固定で扱い、IPL / System Card は Setup でユーザー所有ファイルを指定します。
+
+MIDI から PSG へ取り込む場合、`midiOptions` で変換の強さを調整できます。既定は聞き取り優先で、tone は最大 4 voice、drum は ch5 の控えめな PSG noise、tone 音量 100%、drum 音量 35%、`velocity < 8` を無視、過密時は bass と高音 melody を残す `melodyBass`、`patternDetail: "auto"` です。`drumMode: "off"` は drum を捨て、`"full"` は ch4/ch5 の noise を使います。`patternDetail` は `"full"` で全更新、`"half"` / `"quarter"` / `"eighth"` で更新密度を落とします。`"auto"` は 2048 pattern event を超える場合だけ 1/2→1/4→1/8 の順に更新密度を落として、曲の末尾まで残すことを優先します。`previewAssetMidi` / `assets:previewMidi` は同じ options で保存せずに pattern を返し、取込ダイアログの試聴に使います。MIDI の pitch bend / CC / program change は PSG pattern へは反映されません。PSG は最大 4096 step / 2048 pattern event で、CD-ROM2 VN build では大きい pattern を bank134+bank135 の 16KB buffer へストリームします。Sound > PSG / Asset manager / VN Audio command の preview は WebAudio による square/noise の疑似再生で、実機の波形・ミキサー特性を完全再現するものではありません。
 
 BG の `tileBase` / `mapBase` は PCE asset manager 側で自動管理されます。CD-ROM2 VN runtime の 32x32 BAT を `mapBase: 0` に置き、BG tile は BAT の後ろ (`tileBase: 128`) に配置するため、UI ではこれらをユーザー選択させません。古い asset に値が残っていても読み込み・生成時に BG は自動値へ正規化されます。
 
@@ -930,7 +959,7 @@ window.electronAPI.onPluginLog((payload) => {
 
 ### Sound / Novel 統合 UI
 
-`sound-editor` は ADPCM / CD-DA / PSG の音声画面を 1 つの sidebar タブに統合します。`pce-adpcm-manager` / `pce-cdda-manager` / `pce-music-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。ADPCM / CD-DA の一覧と詳細 pane の境界はドラッグで幅調整できます。一覧行右端の preview / delete は横並びの icon button として扱い、狭い列幅でも縦に崩れないようにします。ADPCM / CD-DA の一覧は `Name` と `ID` を別列にし、各列ヘッダーで昇順/降順ソートできます。Sound 配下の asset 一覧でも `Name` の `/` 区切りをグループ表示として扱います。PSG タブでは `新規` で空の PSG asset を作るほか、`取込` ボタンで既存の VGM / VGZ / MIDI ファイルを選び、step pattern へ量子化して psg-song / psg-sfx asset として登録できます（拡張子で VGM/MIDI を自動判別）。VGM は HuC6280 PSG レジスタ書き込みを、MIDI は `pce-midi-import.js` がノートを 6 ボイスへ削減し音程→period・ベロシティ→volume・ドラム(10ch)→PSG ノイズ(ch4/5) に近似して変換します。step pattern と生成 C struct (`pce_editor_psg_step_t`) には noise フラグを持たせ、runtime (`psg_set_noise`) が PSG R7 でノイズを鳴らします。共通の量子化ロジックは `pce-psg-quantize.js`、IPC は `assets:importVgm` / `assets:importMidi` です。**大きい曲パターン (>256byte) は CD data file (`assets/generated/psg/<id>.bin`) としてストリームし、再生時に `load_psg_pattern_cd()` が RAM bank134 へ読み込みます**（常駐バンクを消費しない・曲数無制限）。小さい SFX は `.rodata` 常駐のまま即時再生します。
+`sound-editor` は ADPCM / CD-DA / PSG の音声画面を 1 つの sidebar タブに統合します。`pce-adpcm-manager` / `pce-cdda-manager` / `pce-music-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。ADPCM / CD-DA の一覧と詳細 pane の境界はドラッグで幅調整できます。一覧行右端の preview / delete は横並びの icon button として扱い、狭い列幅でも縦に崩れないようにします。ADPCM / CD-DA の一覧は `Name` と `ID` を別列にし、各列ヘッダーで昇順/降順ソートできます。Sound 配下の asset 一覧でも `Name` の `/` 区切りをグループ表示として扱います。PSG タブでは `新規` で空の PSG asset を作るほか、`取込` ボタンで既存の VGM / VGZ / MIDI ファイルを選び、step pattern へ量子化して psg-song / psg-sfx asset として登録できます（拡張子で VGM/MIDI を自動判別）。PSG 一覧には選択 asset を削除する `×` button があり、プレビューは再生/停止のトグル icon button です。MIDI 取込では設定中の `midiOptions` で `assets:previewMidi` を実行し、保存前に変換結果を WebAudio で試聴できます。VGM は HuC6280 PSG レジスタ書き込みを、MIDI は `pce-midi-import.js` がノートを 6 ボイスへ削減し音程→period・ベロシティ→volume・ドラム(10ch)→PSG ノイズ(ch4/5) に近似して変換します。step pattern と生成 C struct (`pce_editor_psg_step_t`) には 16bit step と noise フラグを持たせ、runtime (`psg_set_noise`) が PSG R7 でノイズを鳴らします。共通の量子化ロジックは `pce-psg-quantize.js`、IPC は `assets:importVgm` / `assets:importMidi` / `assets:previewMidi` です。**大きい曲パターン (>256byte) は CD data file (`assets/generated/psg/<id>.bin`) としてストリームし、再生時に `load_psg_pattern_cd()` が RAM bank134+bank135 の 16KB buffer へ読み込みます**（常駐バンクを消費しない・曲数無制限、最大 4096 step / 2048 pattern event、8byte/entry）。小さい SFX は `.rodata` 常駐のまま即時再生します。Asset manager と VN script の Audio command preview も同じ WebAudio PSG 疑似再生を使います。
 
 `novel-editor` は script scene 編集と font 生成を 1 つの sidebar タブに統合します。画面上部のタブは `スクリプト` / `Font` です。Scenes 一覧では各行右端の削除アイコンから scene を削除できます。`pce-visual-novel-editor` / `pce-font-editor` は内部モジュール (`hidden: true`) として残します。CD-ROM2 / VN runtime の bank 配置を変える作業では、先に `docs/pce-memory-bank-strategy.md` を読んでください。
 

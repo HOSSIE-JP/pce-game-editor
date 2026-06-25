@@ -70,12 +70,13 @@ typedef struct {
   unsigned char palette_bank;
 } pce_editor_sprite_draw_meta_t;
 
-typedef struct {
-  unsigned char step;
+typedef struct __attribute__((packed)) {
+  unsigned int step;
   unsigned char channel;
   unsigned int period;
   unsigned char volume;
   unsigned char noise;
+  unsigned char reserved;
 } pce_editor_psg_step_t;
 
 typedef struct {

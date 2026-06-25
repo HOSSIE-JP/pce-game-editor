@@ -56,7 +56,7 @@ test('convertMidiToPsg maps a single note to period and a note-off to silence', 
   const first = result.pattern.find((e) => e.volume > 0);
   assert.equal(first.channel, 0);
   assert.equal(first.period, 254);
-  assert.equal(first.volume, 24); // round(100/127*31)
+  assert.equal(first.volume, 24); // default toneVolumeScale preserves MIDI note velocity.
   assert.ok(!first.noise);
   assert.ok(result.pattern.some((e) => e.channel === 0 && e.volume === 0)); // note-off
 });
@@ -74,16 +74,36 @@ test('convertMidiToPsg allocates simultaneous notes to the lowest free voices', 
   assert.deepEqual(step0.map((e) => e.period), [60, 64, 67].map(expectedPeriod));
 });
 
-test('convertMidiToPsg reduces >6 simultaneous notes and keeps the highest pitches', () => {
+test('convertMidiToPsg default import reduces dense chords to melody plus bass', () => {
   const notes = [60, 62, 64, 65, 67, 69, 71]; // 7 notes -> 6 voices
   const on = [];
   notes.forEach((n) => on.push(0x00, 0x90, n, 100));
   const track = [...on, ...vlq(240), ...END];
   const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), { bpm: 150 });
   const step0 = result.pattern.filter((e) => e.step === 0);
+  assert.equal(step0.length, 4);
+  assert.equal(result.stats.midiOptions.maxToneVoices, 4);
+  assert.ok(result.stats.stolenVoices > 0);
+  // The conservative default keeps the bass note plus the top melody tones.
+  const periods = step0.map((e) => e.period).sort((a, b) => a - b);
+  assert.deepEqual(periods, [60, 67, 69, 71].map(expectedPeriod).sort((a, b) => a - b));
+});
+
+test('convertMidiToPsg can keep the historical high-note six voice mapping', () => {
+  const notes = [60, 62, 64, 65, 67, 69, 71];
+  const on = [];
+  notes.forEach((n) => on.push(0x00, 0x90, n, 100));
+  const track = [...on, ...vlq(240), ...END];
+  const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), {
+    bpm: 150,
+    maxToneVoices: 6,
+    voicePriority: 'high',
+    toneVolumeScale: 100,
+    minVelocity: 0,
+  });
+  const step0 = result.pattern.filter((e) => e.step === 0);
   assert.equal(step0.length, 6);
   assert.equal(result.stats.stolenVoices, 1);
-  // The lowest note (60) is dropped; the top six (62..71) survive.
   const periods = step0.map((e) => e.period).sort((a, b) => a - b);
   assert.deepEqual(periods, [62, 64, 65, 67, 69, 71].map(expectedPeriod).sort((a, b) => a - b));
 });
@@ -97,7 +117,7 @@ test('convertMidiToPsg derives BPM from the MIDI tempo when not overridden', () 
 
 test('convertMidiToPsg renders the drum channel as PSG noise on channels 4/5', () => {
   const track = [0x00, 0x99, 38, 100, ...vlq(240), 0x89, 38, 0, ...END]; // ch10 snare
-  const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), { bpm: 150 });
+  const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), { bpm: 150, drumMode: 'full' });
   const hit = result.pattern.find((e) => e.noise);
   assert.ok(hit, 'expected a noise entry');
   assert.equal(hit.noise, 1);
@@ -106,12 +126,97 @@ test('convertMidiToPsg renders the drum channel as PSG noise on channels 4/5', (
   assert.ok(result.warnings.some((w) => w.includes('ドラム')));
 });
 
-test('convertMidiToPsg caps long songs at 256 steps with a warning', () => {
-  // One long note forces far more than 256 steps; expect truncation to the cap.
+test('convertMidiToPsg can disable drums or render them as soft ch5 noise', () => {
+  const track = [0x00, 0x99, 38, 100, ...vlq(240), 0x89, 38, 0, ...END];
+  const off = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), { bpm: 150, drumMode: 'off' });
+  assert.ok(!off.pattern.some((e) => e.noise));
+  assert.equal(off.stats.ignoredDrums, 1);
+
+  const soft = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), { bpm: 150 });
+  const hit = soft.pattern.find((e) => e.noise);
+  assert.ok(hit, 'expected a soft noise entry');
+  assert.equal(hit.channel, 5);
+  assert.equal(hit.volume, 8); // velocity 100 scaled by the default 35%.
+  assert.equal(soft.stats.midiOptions.drumMode, 'soft');
+});
+
+test('convertMidiToPsg applies volume scale, min velocity, and voice priority options', () => {
+  const track = [
+    0x00, 0x90, 60, 4, // filtered by minVelocity
+    0x00, 0x90, 64, 100,
+    0x00, 0x90, 67, 80,
+    ...vlq(240), ...END,
+  ];
+  const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), {
+    bpm: 150,
+    maxToneVoices: 1,
+    voicePriority: 'loud',
+    toneVolumeScale: 50,
+    minVelocity: 8,
+  });
+  const sounding = result.pattern.filter((e) => e.step === 0 && e.volume > 0);
+  assert.equal(sounding.length, 1);
+  assert.equal(sounding[0].period, expectedPeriod(64));
+  assert.equal(sounding[0].volume, 12); // round(round(100/127*31) * 0.5)
+  assert.equal(result.stats.filteredVelocity, 1);
+  assert.equal(result.stats.midiOptions.voicePriority, 'loud');
+});
+
+test('convertMidiToPsg imports notes beyond the former 256 step limit', () => {
   const track = [0x00, 0x90, 60, 100, ...vlq(20000), 0x80, 60, 0, ...END];
   const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), { bpm: 300 });
-  assert.equal(result.steps, 256);
-  assert.ok(result.warnings.some((w) => w.includes('256')));
+  assert.ok(result.steps > 256);
+  assert.ok(result.pattern.some((e) => e.channel === 0 && e.volume === 0 && e.step > 256));
+  assert.ok(!result.warnings.some((w) => w.includes('4096')));
+});
+
+test('convertMidiToPsg keeps dense patterns beyond the former 1024 entry limit', () => {
+  const track = [];
+  for (let i = 0; i < 600; i += 1) {
+    const note = i % 2 ? 64 : 60;
+    track.push(...(i === 0 ? [0x00] : vlq(48)), 0x90, note, 100);
+    track.push(...vlq(48), 0x80, note, 0);
+  }
+  track.push(...END);
+  const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), { bpm: 300 });
+  assert.ok(result.pattern.length > 1024);
+  assert.ok(!result.warnings.some((w) => w.includes('2048')));
+});
+
+test('convertMidiToPsg auto-reduces extremely dense patterns to stay under the event cap', () => {
+  const track = [];
+  for (let i = 0; i < 1100; i += 1) {
+    const note = i % 2 ? 64 : 60;
+    track.push(...(i === 0 ? [0x00] : vlq(48)), 0x90, note, 100);
+    track.push(...vlq(48), 0x80, note, 0);
+  }
+  track.push(...END);
+  const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), { bpm: 300 });
+  assert.ok(result.pattern.length < 2048);
+  assert.equal(result.stats.patternReductionStride, 2);
+  assert.ok(result.warnings.some((w) => w.includes('更新密度を 1/2')));
+  assert.ok(!result.warnings.some((w) => w.includes('2048')));
+});
+
+test('convertMidiToPsg full pattern detail still caps extremely dense patterns at 2048 entries', () => {
+  const track = [];
+  for (let i = 0; i < 1100; i += 1) {
+    const note = i % 2 ? 64 : 60;
+    track.push(...(i === 0 ? [0x00] : vlq(48)), 0x90, note, 100);
+    track.push(...vlq(48), 0x80, note, 0);
+  }
+  track.push(...END);
+  const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), { bpm: 300, patternDetail: 'full' });
+  assert.equal(result.pattern.length, 2048);
+  assert.equal(result.stats.patternReductionStride, 1);
+  assert.ok(result.warnings.some((w) => w.includes('2048')));
+});
+
+test('convertMidiToPsg caps extremely long songs at 4096 steps with a warning', () => {
+  const track = [0x00, 0x90, 60, 100, ...vlq(250000), 0x80, 60, 0, ...END];
+  const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), { bpm: 300 });
+  assert.equal(result.steps, 4096);
+  assert.ok(result.warnings.some((w) => w.includes('4096')));
 });
 
 test('parseSmf handles running status and format-1 multi-track merge', () => {

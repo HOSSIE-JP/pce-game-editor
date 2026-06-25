@@ -1,4 +1,18 @@
+import {
+  createPsgPreviewController,
+  psgPreviewStats,
+} from './psg-preview.js';
+
 const NOTES = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+const MIDI_IMPORT_DEFAULTS = Object.freeze({
+  maxToneVoices: 4,
+  drumMode: 'soft',
+  toneVolumeScale: 100,
+  drumVolumeScale: 35,
+  minVelocity: 8,
+  voicePriority: 'melodyBass',
+  patternDetail: 'auto',
+});
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -67,8 +81,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       <main class="pce-plugin-main">
         <section class="pce-tracker-panel">
           <div class="pce-tracker-toolbar">
-            <button class="btn-sm" type="button" data-play>再生</button>
-            <button class="btn-sm" type="button" data-stop>停止</button>
+            <button class="icon-btn" type="button" data-preview-toggle title="PSG プレビュー再生" aria-label="PSG プレビュー再生">▶</button>
             <button class="btn-primary" type="button" data-save>保存</button>
           </div>
           <div class="pce-tracker-grid" data-grid></div>
@@ -78,7 +91,7 @@ export function activatePlugin({ root, api, registerCapability }) {
           <label class="form-group"><span class="form-label">Type</span><select class="form-select" name="type"><option value="psg-sfx">SFX</option><option value="psg-song">Song</option></select></label>
           <div class="pce-form-grid">
             <label class="form-group"><span class="form-label">BPM</span><input class="form-input" name="bpm" type="number" min="30" max="300" /></label>
-            <label class="form-group"><span class="form-label">Steps</span><input class="form-input" name="steps" type="number" min="1" max="64" /></label>
+            <label class="form-group"><span class="form-label">Steps</span><input class="form-input" name="steps" type="number" min="1" max="4096" /></label>
           </div>
           <div class="form-error" data-error></div>
         </form>
@@ -89,9 +102,9 @@ export function activatePlugin({ root, api, registerCapability }) {
   const gridEl = root.querySelector('[data-grid]');
   const form = root.querySelector('[data-form]');
   const error = root.querySelector('[data-error]');
+  const previewToggleButton = root.querySelector('[data-preview-toggle]');
   let assets = [];
   let selectedId = '';
-  let audioContext = null;
   const assetApi = api.assets || {};
 
   const listPceAssets = (options = {}) => assetApi.listPceAssets
@@ -100,13 +113,28 @@ export function activatePlugin({ root, api, registerCapability }) {
   const upsertPceAsset = (asset) => assetApi.upsertPceAsset
     ? assetApi.upsertPceAsset(asset)
     : api.electronAPI.upsertAsset(asset);
+  const deletePceAsset = (id) => assetApi.deletePceAsset
+    ? assetApi.deletePceAsset(id)
+    : api.electronAPI.deleteAsset(id);
   const importPceVgm = (payload) => assetApi.importPceVgm
     ? assetApi.importPceVgm(payload)
     : api.electronAPI.importAssetVgm(payload);
   const importPceMidi = (payload) => assetApi.importPceMidi
     ? assetApi.importPceMidi(payload)
     : api.electronAPI.importAssetMidi(payload);
+  const previewPceMidi = (payload) => assetApi.previewPceMidi
+    ? assetApi.previewPceMidi(payload)
+    : api.electronAPI.previewAssetMidi(payload);
   let importBusy = false;
+  const previewController = createPsgPreviewController({
+    onStateChange: (playing) => {
+      previewToggleButton.textContent = playing ? '■' : '▶';
+      previewToggleButton.title = playing ? 'PSG プレビュー停止' : 'PSG プレビュー再生';
+      previewToggleButton.setAttribute('aria-label', previewToggleButton.title);
+      previewToggleButton.classList.toggle('is-active', playing);
+    },
+    onError: (message) => { error.textContent = message; },
+  });
 
   function selected() {
     return assets.find((asset) => asset.id === selectedId) || null;
@@ -139,17 +167,42 @@ export function activatePlugin({ root, api, registerCapability }) {
   function renderList() {
     const list = psgAssets();
     listEl.innerHTML = list.length
-      ? renderGroupedList(list, (asset) => `<button class="${asset.id === selectedId ? 'active' : ''}" type="button" data-id="${esc(asset.id)}"><strong>${esc(assetDisplayName(asset))}</strong><code>${esc(asset.id)}</code><span>${esc(asset.type)}</span></button>`)
+        ? renderGroupedList(list, (asset) => `
+          <div class="pce-music-list-row${asset.id === selectedId ? ' active' : ''}" data-row-id="${esc(asset.id)}">
+            <button class="pce-music-list-select" type="button" data-id="${esc(asset.id)}"><strong>${esc(assetDisplayName(asset))}</strong><code>${esc(asset.id)}</code><span>${esc(asset.type)}</span></button>
+            <button class="icon-btn-xs pce-music-list-delete" type="button" data-delete-id="${esc(asset.id)}" title="削除" aria-label="削除">×</button>
+          </div>
+        `)
       : '<p class="asset-no-selection-hint">PSG アセットがありません</p>';
     listEl.querySelectorAll('[data-id]').forEach((button) => {
       button.addEventListener('click', () => {
+        previewController.stop();
         selectedId = button.dataset.id;
         render();
       });
     });
+    listEl.querySelectorAll('[data-delete-id]').forEach((button) => {
+      button.addEventListener('click', () => { void deleteSelectedAsset(button.dataset.deleteId); });
+    });
   }
 
-  function pattern(asset) {
+  function isTrackerEditable(asset) {
+    const rawPattern = asset?.options?.pattern;
+    if (!Array.isArray(rawPattern) || !rawPattern.length) return true;
+    return rawPattern.every((entry, index) => {
+      const raw = entry && typeof entry === 'object' ? entry : {};
+      const step = raw.step == null ? index : asNumber(raw.step, index);
+      const channel = raw.channel == null ? 0 : asNumber(raw.channel, 0);
+      const noise = raw.noise == null ? 0 : asNumber(raw.noise, 0);
+      return step === index
+        && channel === 0
+        && !noise
+        && raw.volume == null
+        && Object.prototype.hasOwnProperty.call(raw, 'note');
+    });
+  }
+
+  function trackerPattern(asset) {
     const options = asset?.options || {};
     const steps = Math.max(1, Math.min(64, asNumber(options.steps, 16)));
     return Array.from({ length: steps }, (_unused, index) => options.pattern?.[index] || { note: index === 0 ? 'C4' : '', period: index === 0 ? 512 : 0 });
@@ -167,7 +220,18 @@ export function activatePlugin({ root, api, registerCapability }) {
     form.elements.type.value = asset.type === 'psg-song' ? 'psg-song' : 'psg-sfx';
     form.elements.bpm.value = asset.options?.bpm || 150;
     form.elements.steps.value = asset.options?.steps || 16;
-    gridEl.innerHTML = pattern(asset).map((entry, index) => `
+    if (!isTrackerEditable(asset)) {
+      const stats = psgPreviewStats(asset);
+      gridEl.innerHTML = `
+        <div class="pce-tracker-summary" data-psg-pattern-summary>
+          <strong>Pattern events</strong>
+          <span>${esc(stats.entries)} events / ${esc(asset.options?.steps || 16)} steps / ${esc(stats.channels)} channels${stats.noiseCount ? ` / ${esc(stats.noiseCount)} noise` : ''}</span>
+          <code>${esc((asset.options?.pattern || []).slice(0, 18).map((entry) => `s${entry.step ?? 0}:ch${entry.channel ?? 0}:p${entry.period ?? 0}:v${entry.volume ?? 0}${entry.noise ? ':n' : ''}`).join('  '))}</code>
+        </div>
+      `;
+      return;
+    }
+    gridEl.innerHTML = trackerPattern(asset).map((entry, index) => `
       <label>
         <span>${String(index + 1).padStart(2, '0')}</span>
         <select data-step="${index}">
@@ -218,11 +282,14 @@ export function activatePlugin({ root, api, registerCapability }) {
   async function save() {
     const asset = selected();
     if (!asset) return;
-    const nextPattern = Array.from(gridEl.querySelectorAll('[data-step]')).map((select, index) => ({
-      step: index,
-      note: select.value,
-      period: select.value ? noteToPeriod(select.value) : 0,
-    }));
+    const canEditPattern = isTrackerEditable(asset);
+    const nextPattern = canEditPattern
+      ? Array.from(gridEl.querySelectorAll('[data-step]')).map((select, index) => ({
+        step: index,
+        note: select.value,
+        period: select.value ? noteToPeriod(select.value) : 0,
+      }))
+      : (Array.isArray(asset.options?.pattern) ? asset.options.pattern.slice() : []);
     const result = await upsertPceAsset({
       ...asset,
       type: form.elements.type.value,
@@ -232,7 +299,9 @@ export function activatePlugin({ root, api, registerCapability }) {
         kind: form.elements.type.value === 'psg-song' ? 'song' : 'sfx',
         bpm: asNumber(form.elements.bpm.value, 150),
         steps: asNumber(form.elements.steps.value, 16),
-        period: nextPattern.find((entry) => entry.period)?.period || 512,
+        period: canEditPattern
+          ? (nextPattern.find((entry) => entry.period)?.period || 512)
+          : (asset.options?.period || nextPattern.find((entry) => entry.period && !entry.noise)?.period || 512),
         pattern: nextPattern,
       },
     });
@@ -243,18 +312,26 @@ export function activatePlugin({ root, api, registerCapability }) {
     await reload({ force: true });
   }
 
-  function play() {
+  async function deleteSelectedAsset(assetId = selectedId) {
+    const asset = assets.find((entry) => entry.id === assetId);
+    if (!asset) return;
+    const ok = window.confirm ? window.confirm(`PSG アセット「${asset.name || asset.id}」を削除します。`) : true;
+    if (!ok) return;
+    previewController.stop();
+    const result = await deletePceAsset(asset.id);
+    if (!result?.ok) {
+      error.textContent = result?.error || '削除できませんでした';
+      return;
+    }
+    if (selectedId === asset.id) selectedId = '';
+    await reload({ force: true });
+  }
+
+  async function toggleSelectedPreview() {
     const asset = selected();
-    const first = pattern(asset).find((entry) => entry.period);
-    if (!first) return;
-    audioContext = audioContext || new AudioContext();
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    osc.frequency.value = Math.max(80, Math.min(2000, 3579545 / (32 * first.period)));
-    gain.gain.value = 0.08;
-    osc.connect(gain).connect(audioContext.destination);
-    osc.start();
-    osc.stop(audioContext.currentTime + 0.18);
+    if (!asset) return;
+    error.textContent = '';
+    await previewController.toggle(asset);
   }
 
   async function pickImportFile() {
@@ -279,10 +356,29 @@ export function activatePlugin({ root, api, registerCapability }) {
       const bpmField = isMidi
         ? '<input class="form-input" name="bpm" type="number" min="30" max="300" placeholder="auto (MIDI tempo)" />'
         : '<input class="form-input" name="bpm" type="number" min="30" max="300" value="150" />';
+      const midiControls = isMidi ? `
+            <div class="pce-music-midi-controls" data-midi-controls>
+              <div class="pce-form-grid">
+                <label class="form-group"><span class="form-label">Tone voices</span><input class="form-input" name="maxToneVoices" type="number" min="1" max="6" value="${MIDI_IMPORT_DEFAULTS.maxToneVoices}" /></label>
+                <label class="form-group"><span class="form-label">Drum/noise</span><select class="form-select" name="drumMode"><option value="soft" selected>Soft ch5</option><option value="off">Off</option><option value="full">Full ch4/5</option></select></label>
+                <label class="form-group"><span class="form-label">Tone volume %</span><input class="form-input" name="toneVolumeScale" type="number" min="0" max="100" value="${MIDI_IMPORT_DEFAULTS.toneVolumeScale}" /></label>
+              </div>
+              <details class="pce-music-midi-details">
+                <summary>詳細</summary>
+                <div class="pce-form-grid">
+                  <label class="form-group"><span class="form-label">Drum volume %</span><input class="form-input" name="drumVolumeScale" type="number" min="0" max="100" value="${MIDI_IMPORT_DEFAULTS.drumVolumeScale}" /></label>
+                  <label class="form-group"><span class="form-label">Min velocity</span><input class="form-input" name="minVelocity" type="number" min="0" max="127" value="${MIDI_IMPORT_DEFAULTS.minVelocity}" /></label>
+                  <label class="form-group"><span class="form-label">Voice priority</span><select class="form-select" name="voicePriority"><option value="melodyBass" selected>Melody + bass</option><option value="high">High notes</option><option value="low">Low notes</option><option value="loud">Loud notes</option></select></label>
+                  <label class="form-group"><span class="form-label">Pattern detail</span><select class="form-select" name="patternDetail"><option value="auto" selected>Auto reduce</option><option value="full">Full</option><option value="half">1/2 updates</option><option value="quarter">1/4 updates</option><option value="eighth">1/8 updates</option></select></label>
+                </div>
+              </details>
+            </div>
+      ` : '';
       const note = isMidi
-        ? 'MIDI を 6 ボイスへ削減し、音程→period・ベロシティ→volume に近似します。ドラム(10ch)は PSG ノイズ(ch4/5)で近似、ピッチベンド/CC/プログラムチェンジは再現されません。BPM 空欄で MIDI のテンポを使用します。'
-        : 'VGM の PSG レジスタ書き込みを 16 分音符グリッド (最大 256 ステップ) へ量子化します。BPM でステップ間隔が決まります。波形 / LFO / ノイズ / DDA は近似されません。';
+        ? 'MIDI を PSG pattern へ近似します。既定では tone 4 voice、drum は控えめな ch5 noise、音量 100% で取り込みます。BPM 空欄で MIDI のテンポを使用します。'
+        : 'VGM の PSG レジスタ書き込みを 16 分音符グリッド (最大 4096 ステップ) へ量子化します。BPM でステップ間隔が決まります。波形 / LFO / ノイズ / DDA は近似されません。';
       const typeAutoLabel = isMidi ? '自動 (曲として登録)' : '自動 (ループで判定)';
+      const previewButton = isMidi ? '<button class="btn-sm" type="button" data-preview-midi>▶ 試聴</button>' : '';
       const modal = api.createModal({
         id: `pce-music-import-${Date.now()}`,
         panelClassName: 'app-panel app-panel-sm',
@@ -299,9 +395,11 @@ export function activatePlugin({ root, api, registerCapability }) {
               <label class="form-group"><span class="form-label">BPM</span>${bpmField}</label>
               <label class="form-group"><span class="form-label">Type</span><select class="form-select" name="type"><option value="auto">${esc(typeAutoLabel)}</option><option value="psg-sfx">SFX</option><option value="psg-song">Song</option></select></label>
             </div>
+            ${midiControls}
             <p class="pce-music-vgm-note">${esc(note)}</p>
             <div class="form-error" data-modal-error></div>
             <div class="form-actions-inline modal-actions-end">
+              ${previewButton}
               <button class="btn-sm" type="button" data-cancel>キャンセル</button>
               <button class="btn-primary" type="submit">取込</button>
             </div>
@@ -310,20 +408,17 @@ export function activatePlugin({ root, api, registerCapability }) {
       });
       const modalForm = modal.panel.querySelector('form');
       const modalError = modal.panel.querySelector('[data-modal-error]');
-      let busy = false;
-      const close = (value) => {
-        modal.close();
-        modal.destroy?.();
-        resolve(value);
-      };
-      modal.panel.querySelectorAll('[data-cancel]').forEach((button) => {
-        button.addEventListener('click', () => close(null), { once: true });
+      const modalPreviewButton = modal.panel.querySelector('[data-preview-midi]');
+      const modalPreviewController = createPsgPreviewController({
+        onStateChange: (playing) => {
+          if (!modalPreviewButton) return;
+          modalPreviewButton.textContent = playing ? '■ 停止' : '▶ 試聴';
+          modalPreviewButton.classList.toggle('is-active', playing);
+        },
+        onError: (message) => { modalError.textContent = message; },
       });
-      modalForm.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        if (busy) return;
-        busy = true;
-        modalError.textContent = '取込中...';
+      let busy = false;
+      const payloadFromForm = () => {
         const typeValue = modalForm.elements.type.value;
         const bpmRaw = modalForm.elements.bpm.value;
         const payload = {
@@ -334,6 +429,54 @@ export function activatePlugin({ root, api, registerCapability }) {
           bpm: bpmRaw === '' ? (isMidi ? '' : 150) : asNumber(bpmRaw, 150),
           type: typeValue === 'auto' ? '' : typeValue,
         };
+        if (isMidi) {
+          payload.midiOptions = {
+            maxToneVoices: asNumber(modalForm.elements.maxToneVoices.value, MIDI_IMPORT_DEFAULTS.maxToneVoices),
+            drumMode: modalForm.elements.drumMode.value,
+            toneVolumeScale: asNumber(modalForm.elements.toneVolumeScale.value, MIDI_IMPORT_DEFAULTS.toneVolumeScale),
+            drumVolumeScale: asNumber(modalForm.elements.drumVolumeScale.value, MIDI_IMPORT_DEFAULTS.drumVolumeScale),
+            minVelocity: asNumber(modalForm.elements.minVelocity.value, MIDI_IMPORT_DEFAULTS.minVelocity),
+            voicePriority: modalForm.elements.voicePriority.value,
+            patternDetail: modalForm.elements.patternDetail.value,
+          };
+        }
+        return payload;
+      };
+      const close = (value) => {
+        modalPreviewController.close();
+        modal.close();
+        modal.destroy?.();
+        resolve(value);
+      };
+      modal.panel.querySelectorAll('[data-cancel]').forEach((button) => {
+        button.addEventListener('click', () => close(null), { once: true });
+      });
+      modalPreviewButton?.addEventListener('click', async () => {
+        if (modalPreviewController.isPlaying) {
+          modalPreviewController.stop();
+          return;
+        }
+        modalError.textContent = '試聴用に変換中...';
+        const result = await previewPceMidi(payloadFromForm());
+        if (!result?.ok) {
+          modalError.textContent = result?.error || 'MIDI preview を作成できませんでした';
+          return;
+        }
+        const previewType = modalForm.elements.type.value === 'psg-sfx' ? 'psg-sfx' : 'psg-song';
+        modalError.textContent = (result.conversion?.warnings || []).join(' / ');
+        await modalPreviewController.play({
+          id: 'midi_preview',
+          type: previewType,
+          options: result.preview?.options || {},
+        }, { loop: previewType === 'psg-song' });
+      });
+      modalForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (busy) return;
+        busy = true;
+        modalPreviewController.stop();
+        modalError.textContent = '取込中...';
+        const payload = payloadFromForm();
         const result = isMidi ? await importPceMidi(payload) : await importPceVgm(payload);
         if (!result?.ok) {
           busy = false;
@@ -372,14 +515,14 @@ export function activatePlugin({ root, api, registerCapability }) {
   });
   root.querySelector('[data-import]').addEventListener('click', () => { void runImport(); });
   root.querySelector('[data-save]').addEventListener('click', save);
-  root.querySelector('[data-play]').addEventListener('click', play);
-  root.querySelector('[data-stop]').addEventListener('click', () => {});
+  previewToggleButton.addEventListener('click', () => { void toggleSelectedPreview(); });
   registerCapability('psg-music-editor', { reload });
   const teardownAssetRefreshEvents = setupAssetRefreshEvents();
   void reload();
   return {
     deactivate() {
       teardownAssetRefreshEvents();
+      previewController.close();
     },
   };
 }

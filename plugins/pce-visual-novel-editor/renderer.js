@@ -1,3 +1,8 @@
+import {
+  createPsgPreviewController,
+  psgPreviewStats,
+} from '../pce-music-editor/psg-preview.js';
+
 const SCENE_FILE = 'assets/pce-vn-scenes.json';
 const PCE_SCREEN_WIDTH = 256;
 const PCE_SCREEN_HEIGHT = 224;
@@ -932,8 +937,174 @@ function previewRuntime() {
   let choiceState = null;
   const audio = { cdda: null, adpcm: null };
   const blockedAudio = { cdda: false, adpcm: false };
+  const PSG_CLOCK = 3579545;
+  const PSG_CHANNEL_COUNT = 6;
+  let psgAudioContext = null;
+  let psgState = null;
   const variableInitialValues = {};
   const variableNames = [];
+
+  function psgClampInt(value, min, max, fallback) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(min, Math.min(max, Math.trunc(parsed)));
+  }
+  function psgFramesPerStep(bpm) {
+    const value = psgClampInt(bpm, 30, 300, 150);
+    return Math.max(2, Math.min(24, Math.floor(3600 / (value * 4))));
+  }
+  function psgFrequencyFromPeriod(period) {
+    const raw = Number(period);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return Math.max(40, Math.min(8000, PSG_CLOCK / (32 * raw)));
+  }
+  function psgNoteToPeriod(note) {
+    const base = { C: 1024, D: 912, E: 812, F: 768, G: 684, A: 608, B: 542 };
+    const name = String(note || 'C4').slice(0, 1).toUpperCase();
+    const octave = Number(String(note || 'C4').slice(1)) || 4;
+    const shift = Math.max(-2, Math.min(3, 4 - octave));
+    return Math.max(32, Math.min(4095, Math.round((base[name] || 1024) * (2 ** shift))));
+  }
+  function normalizePsgPattern(assetId) {
+    const meta = data.meta[assetId] || {};
+    const options = meta.psgOptions || {};
+    const rawPattern = Array.isArray(options.pattern) ? options.pattern : [];
+    if (!rawPattern.length) {
+      const period = psgClampInt(options.period, 1, 4095, 512);
+      return period ? [{ step: 0, channel: 0, period, volume: 16, noise: 0 }] : [];
+    }
+    return rawPattern.map((entry, index) => {
+      const raw = entry && typeof entry === 'object' ? entry : {};
+      const hasNote = typeof raw.note === 'string' && raw.note.trim();
+      const fallbackPeriod = hasNote ? psgNoteToPeriod(raw.note) : 0;
+      const period = raw.period == null ? fallbackPeriod : psgClampInt(raw.period, 0, 4095, fallbackPeriod);
+      const volumeFallback = period > 0 ? 16 : 0;
+      return {
+        step: psgClampInt(raw.step == null ? index : raw.step, 0, 4095, index),
+        channel: psgClampInt(raw.channel, 0, PSG_CHANNEL_COUNT - 1, 0),
+        period,
+        volume: psgClampInt(raw.volume, 0, 31, volumeFallback),
+        noise: psgClampInt(raw.noise, 0, 1, 0),
+      };
+    });
+  }
+  function expandPsgRows(assetId) {
+    const meta = data.meta[assetId] || {};
+    const options = meta.psgOptions || {};
+    const steps = psgClampInt(options.steps, 1, 4096, 16);
+    const byStep = Array.from({ length: steps }, () => []);
+    normalizePsgPattern(assetId).forEach((entry) => {
+      if (entry.step >= 0 && entry.step < steps) byStep[entry.step].push(entry);
+    });
+    const state = Array.from({ length: PSG_CHANNEL_COUNT }, () => ({ period: 0, volume: 0, noise: 0 }));
+    return byStep.map((entries) => {
+      entries.forEach((entry) => {
+        state[entry.channel] = { period: entry.period, volume: entry.volume, noise: entry.noise };
+      });
+      return state.map((cell) => ({ ...cell }));
+    });
+  }
+  function rememberPsgNode(node) {
+    if (!psgState || !node) return;
+    psgState.nodes.push(node);
+    node.onended = () => {
+      if (!psgState) return;
+      psgState.nodes = psgState.nodes.filter((entry) => entry !== node);
+    };
+  }
+  function schedulePsgEnvelope(gain, start, duration, level) {
+    const end = start + Math.max(0.02, duration);
+    gain.gain.cancelScheduledValues(start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.linearRampToValueAtTime(level, start + 0.006);
+    gain.gain.setValueAtTime(level, Math.max(start + 0.008, end - 0.018));
+    gain.gain.exponentialRampToValueAtTime(0.0001, end);
+  }
+  function schedulePsgTone(cell, start, duration) {
+    const frequency = psgFrequencyFromPeriod(cell.period);
+    if (!frequency || !psgAudioContext) return;
+    const osc = psgAudioContext.createOscillator();
+    const gain = psgAudioContext.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(frequency, start);
+    schedulePsgEnvelope(gain, start, duration, Math.min(0.12, (cell.volume / 31) * 0.1));
+    osc.connect(gain).connect(psgAudioContext.destination);
+    osc.start(start);
+    osc.stop(start + duration);
+    rememberPsgNode(osc);
+  }
+  function schedulePsgNoise(cell, start, duration) {
+    if (!psgAudioContext) return;
+    const playDuration = Math.min(duration, 0.12);
+    const length = Math.max(1, Math.floor(psgAudioContext.sampleRate * playDuration));
+    const buffer = psgAudioContext.createBuffer(1, length, psgAudioContext.sampleRate);
+    const samples = buffer.getChannelData(0);
+    for (let i = 0; i < samples.length; i += 1) samples[i] = (Math.random() * 2) - 1;
+    const source = psgAudioContext.createBufferSource();
+    const filter = psgAudioContext.createBiquadFilter();
+    const gain = psgAudioContext.createGain();
+    source.buffer = buffer;
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(500 + ((31 - (cell.period & 31)) * 90), start);
+    filter.Q.setValueAtTime(0.75, start);
+    schedulePsgEnvelope(gain, start, playDuration, Math.min(0.08, (cell.volume / 31) * 0.07));
+    source.connect(filter).connect(gain).connect(psgAudioContext.destination);
+    source.start(start);
+    source.stop(start + playDuration);
+    rememberPsgNode(source);
+  }
+  function schedulePsgStep() {
+    const stateRef = psgState;
+    if (!stateRef || !psgAudioContext) return;
+    if (stateRef.step >= stateRef.rows.length) {
+      if (!stateRef.loop) { stopPsgPreview(); return; }
+      stateRef.step = 0;
+    }
+    const row = stateRef.rows[stateRef.step] || [];
+    const start = psgAudioContext.currentTime + 0.012;
+    row.forEach((cell, channel) => {
+      if (!cell || cell.volume <= 0 || cell.period <= 0) return;
+      if (cell.noise && channel >= 4) schedulePsgNoise(cell, start, stateRef.stepSeconds);
+      else schedulePsgTone(cell, start, stateRef.stepSeconds * 0.96);
+    });
+    stateRef.step += 1;
+    const timer = setTimeout(() => {
+      if (psgState) psgState.timers = psgState.timers.filter((entry) => entry !== timer);
+      schedulePsgStep();
+    }, Math.max(20, stateRef.stepSeconds * 1000));
+    stateRef.timers.push(timer);
+  }
+  function stopPsgPreview() {
+    const stateRef = psgState;
+    psgState = null;
+    if (!stateRef) return;
+    stateRef.timers.forEach((timer) => clearTimeout(timer));
+    stateRef.nodes.forEach((node) => {
+      try { node.stop?.(); } catch (_) {}
+      try { node.disconnect?.(); } catch (_) {}
+    });
+  }
+  async function playPsgPreview(assetId, loop) {
+    if (!assetId || !data.meta[assetId]) return;
+    stopPsgPreview();
+    const rows = expandPsgRows(assetId);
+    if (!rows.some((row) => row.some((cell) => cell.volume > 0 && cell.period > 0))) return;
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) return;
+    psgAudioContext = psgAudioContext || new AudioCtor();
+    if (psgAudioContext.state === 'suspended') await psgAudioContext.resume();
+    const meta = data.meta[assetId] || {};
+    const options = meta.psgOptions || {};
+    psgState = {
+      rows,
+      step: 0,
+      loop: loop != null ? Boolean(loop) : meta.type === 'psg-song',
+      stepSeconds: psgFramesPerStep(options.bpm || 150) / 60,
+      timers: [],
+      nodes: [],
+    };
+    schedulePsgStep();
+  }
 
   function rememberVariable(name, initialValue, isDefinition) {
     const key = String(name || '').trim();
@@ -1023,6 +1194,11 @@ function previewRuntime() {
     tryPlayAudio('adpcm');
   }
   function stopAudio(kind) {
+    if (kind === 'psg') {
+      stopPsgPreview();
+      updateAudioHint();
+      return;
+    }
     const a = audio[kind];
     if (a) a.pause();
     audio[kind] = null;
@@ -1149,8 +1325,13 @@ function previewRuntime() {
     return a === b;
   }
   function handleAudio(c) {
-    const kind = c.kind === 'adpcm' ? 'adpcm' : 'cdda';
+    const kind = c.kind === 'adpcm' ? 'adpcm' : (c.kind === 'psg' ? 'psg' : 'cdda');
     if (c.action === 'stop') { stopAudio(kind); return; }
+    if (kind === 'psg') {
+      const meta = data.meta[c.assetId] || {};
+      void playPsgPreview(c.assetId, meta.type === 'psg-song' || meta.psgOptions?.loop === true).catch(() => {});
+      return;
+    }
     playAudio(kind, c.assetId, kind === 'cdda');
   }
   function scheduleRunAfter(ms) {
@@ -1420,6 +1601,7 @@ function previewRuntime() {
     clearTimers();
     stopAudio('cdda');
     stopAudio('adpcm');
+    stopAudio('psg');
     stage.style.opacity = '1';
     effectLayer.style.opacity = '0';
     sceneId = scenesById[data.startScene] ? data.startScene : (data.doc.startScene || (data.doc.scenes[0] && data.doc.scenes[0].id));
@@ -1456,6 +1638,12 @@ function previewRuntime() {
   });
   root.querySelector('#pv-restart').addEventListener('click', (e) => { e.stopPropagation(); start(); });
   debugToggle?.addEventListener('change', (e) => { setVarDebugVisible(e.currentTarget.checked); });
+  window.addEventListener('beforeunload', () => {
+    stopAudio('cdda');
+    stopAudio('adpcm');
+    stopAudio('psg');
+    if (psgAudioContext && typeof psgAudioContext.close === 'function') void psgAudioContext.close().catch(() => {});
+  });
   setVarDebugVisible(!debugToggle || debugToggle.checked);
 
   fit();
@@ -1551,10 +1739,22 @@ export function activatePlugin({ root, api, registerCapability }) {
   let previewAudioEl = null;
   const assetDataUrlCache = new Map();
   const assetApi = api.assets || {};
+  const commandPsgPreviewController = createPsgPreviewController({
+    onStateChange: (playing) => {
+      const button = commandPreviewEl?.querySelector?.('[data-psg-command-preview]');
+      if (!button) return;
+      button.textContent = playing ? '■' : '▶';
+      button.title = playing ? 'PSG preview 停止' : 'PSG preview 再生';
+      button.setAttribute('aria-label', button.title);
+      button.classList.toggle('is-active', playing);
+    },
+    onError: (message) => { errorEl.textContent = message; },
+  });
 
   function stopMessagePreview() {
     if (messagePreviewTimer) { clearInterval(messagePreviewTimer); messagePreviewTimer = null; }
     if (previewAudioEl) { try { previewAudioEl.pause(); } catch (_) {} previewAudioEl = null; }
+    commandPsgPreviewController.stop();
   }
 
   const listPceAssets = (options = {}) => assetApi.listPceAssets
@@ -2558,6 +2758,33 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (command.type === 'audio') {
       const asset = command.action === 'play' ? assetById(command.assetId) : null;
       renderCommandPreviewLoading(command, asset, '音声');
+      if (command.kind === 'psg') {
+        if (!asset || command.action !== 'play') {
+          renderCommandPreviewText(command);
+          return;
+        }
+        const stats = psgPreviewStats(asset);
+        const frame = document.createElement('div');
+        frame.className = 'pce-vn-audio-preview';
+        const label = document.createElement('strong');
+        label.textContent = asset.name || asset.id;
+        const info = document.createElement('span');
+        info.textContent = `${asset.type === 'psg-song' ? 'PSG SONG' : 'PSG SFX'} / ${stats.entries} events / ch${command.channel || 0}`;
+        const button = document.createElement('button');
+        button.className = 'icon-btn';
+        button.type = 'button';
+        button.setAttribute('data-psg-command-preview', '1');
+        button.title = 'PSG preview 再生';
+        button.setAttribute('aria-label', button.title);
+        button.textContent = '▶';
+        button.addEventListener('click', () => {
+          errorEl.textContent = '';
+          void commandPsgPreviewController.toggle(asset, { loop: asset.type === 'psg-song' });
+        });
+        frame.append(label, info, button);
+        commandPreviewEl.replaceChildren(frame);
+        return;
+      }
       const previewPath = previewPathForAsset(asset);
       if (!previewPath) return;
       const result = await previewPceAssetSource(previewPath);
@@ -2746,9 +2973,12 @@ export function activatePlugin({ root, api, registerCapability }) {
       await Promise.all([...referenced].map(async (id) => {
         const asset = assetById(id);
         if (!asset) return;
-        const url = await resolveAssetDataUrl(asset);
-        if (!url) return;
-        urls[id] = url;
+        const isPsg = asset.type === 'psg-song' || asset.type === 'psg-sfx';
+        if (!isPsg) {
+          const url = await resolveAssetDataUrl(asset);
+          if (!url) return;
+          urls[id] = url;
+        }
         const size = assetPixelSize(asset);
         meta[id] = {
           type: asset.type,
@@ -2763,6 +2993,8 @@ export function activatePlugin({ root, api, registerCapability }) {
           meta[id].cellWidth = anim.cellWidth;
           meta[id].cellHeight = anim.cellHeight;
           meta[id].animations = anim.animations;
+        } else if (isPsg) {
+          meta[id].psgOptions = asset.options || {};
         }
       }));
       const payload = {
@@ -3069,6 +3301,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       teardownSystemSettingsEvents();
       window.removeEventListener('resize', handleWindowResize);
       stopMessagePreview();
+      commandPsgPreviewController.close();
     },
   };
 }

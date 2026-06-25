@@ -73,19 +73,19 @@ static const pce_editor_cd_data_ref_t pce_editor_sprite_mika_sprite_patterns_cd 
 #endif
 
 static const pce_editor_psg_step_t pce_editor_psg_vn_psg_chime_pattern[] = {
-  { 0u, 0u, 512u, 12u, 0u },
-  { 1u, 0u, 406u, 11u, 0u },
-  { 2u, 0u, 342u, 10u, 0u },
-  { 3u, 0u, 256u, 9u, 0u }
+  { 0u, 0u, 512u, 12u, 0u, 0u },
+  { 1u, 0u, 406u, 11u, 0u, 0u },
+  { 2u, 0u, 342u, 10u, 0u, 0u },
+  { 3u, 0u, 256u, 9u, 0u, 0u }
 };
 
 static const pce_editor_psg_step_t pce_editor_psg_vn_psg_confirm_pattern[] = {
-  { 0u, 0u, 512u, 13u, 0u },
-  { 1u, 0u, 406u, 12u, 0u },
-  { 2u, 0u, 342u, 10u, 0u },
-  { 3u, 1u, 256u, 8u, 0u },
-  { 4u, 0u, 342u, 6u, 0u },
-  { 5u, 1u, 512u, 4u, 0u }
+  { 0u, 0u, 512u, 13u, 0u, 0u },
+  { 1u, 0u, 406u, 12u, 0u, 0u },
+  { 2u, 0u, 342u, 10u, 0u, 0u },
+  { 3u, 1u, 256u, 8u, 0u, 0u },
+  { 4u, 0u, 342u, 6u, 0u, 0u },
+  { 5u, 1u, 512u, 4u, 0u, 0u }
 };
 
 #if defined(__PCE_CD__)

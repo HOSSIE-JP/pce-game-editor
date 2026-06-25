@@ -16,12 +16,14 @@ PCE_RAM_BANK_AT(130, 4);
    load_overlay_code() streams it from CD into bank133 RAM at boot. bank133 is
    never used by the System Card (unlike bank131/MPR5), so it is safe for code. */
 PCE_RAM_BANK_AT(133, 4);
-/* bank134 = active PSG song pattern buffer, time-shared with bank132 in MPR slot
-   6 (0xc000). Large PSG/VGM/MIDI song patterns do not sit in the resident banks;
-   load_psg_pattern_cd() streams the currently-playing song's pattern from CD into
-   bank134 RAM at play time. Like bank133 it is outside the IPL auto-load range and
-   never used by the System Card, so it is a safe scratch bank. */
+/* bank134/135 = active PSG song pattern buffer, time-shared with bank132 in MPR
+   slot 6 (0xc000). Large PSG/VGM/MIDI song patterns do not sit in the resident
+   banks; load_psg_pattern_cd() streams the currently-playing song's pattern from
+   CD into these RAM banks at play time. Like bank133 they are outside the IPL
+   auto-load range and never used by the System Card, so they are safe scratch
+   banks. */
 PCE_RAM_BANK_AT(134, 6);
+PCE_RAM_BANK_AT(135, 6);
 PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #endif
 
@@ -238,9 +240,15 @@ static const pce_editor_psg_asset_t *psg_current = (const pce_editor_psg_asset_t
 static const pce_editor_psg_step_t *psg_active_pattern = (const pce_editor_psg_step_t *)0;
 static uint8_t psg_pattern_banked = 0; /* 1 when psg_active_pattern lives in bank134 (MPR6). */
 #if defined(__PCE_CD__)
-/* One CD sector holds any pattern (max 256 steps * 6 bytes = 1536 < 2048). */
-#define VN_PSG_PATTERN_BUFFER_BYTES 2048u
-static uint8_t psg_pattern_ram[VN_PSG_PATTERN_BUFFER_BYTES] __attribute__((section(".ram_bank134")));
+/* Runtime buffer for streamed PSG patterns. Each generated record is 8 bytes,
+   so 1024 records fit exactly in one 8KB RAM bank and 2048 records fit across
+   bank134+bank135 without crossing a bank boundary. */
+#define VN_PSG_PATTERN_BANK_BYTES 8192u
+#define VN_PSG_PATTERN_ENTRY_BYTES 8u
+#define VN_PSG_PATTERN_BANK_ENTRIES (VN_PSG_PATTERN_BANK_BYTES / VN_PSG_PATTERN_ENTRY_BYTES)
+#define VN_PSG_PATTERN_BUFFER_BYTES (VN_PSG_PATTERN_BANK_BYTES * 2u)
+static uint8_t psg_pattern_ram[VN_PSG_PATTERN_BANK_BYTES] __attribute__((section(".ram_bank134")));
+static uint8_t psg_pattern_ram_bank135_reserved[VN_PSG_PATTERN_BANK_BYTES] __attribute__((used, retain, section(".ram_bank135")));
 #endif
 static uint16_t vn_rng_state = 0xace1u;
 static uint8_t vn_variable_lo[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
@@ -677,7 +685,7 @@ static signed int clamp_variable_value(int32_t value)
     return (signed int)value;
 }
 
-static signed int VN_BANKED_CODE variable_value(signed int variable_index)
+static signed int VN_BANKED_CODE2 variable_value(signed int variable_index)
 {
     uint8_t index;
     uint16_t value;
@@ -688,7 +696,7 @@ static signed int VN_BANKED_CODE variable_value(signed int variable_index)
     return (signed int)(int16_t)value;
 }
 
-static void VN_BANKED_CODE set_variable_value(signed int variable_index, signed int value)
+static void VN_BANKED_CODE2 set_variable_value(signed int variable_index, signed int value)
 {
     uint8_t index;
     uint16_t raw;
@@ -861,8 +869,8 @@ static void cd_transfer_wait(void)
 }
 
 static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call(void);
-static void VN_BANKED_CODE begin_cdda_deferred_resume(void);
-static void VN_BANKED_CODE end_cdda_deferred_resume(void);
+static void VN_BANKED_CODE2 begin_cdda_deferred_resume(void);
+static void VN_BANKED_CODE2 end_cdda_deferred_resume(void);
 static void VN_BANKED_CODE prepare_cd_data_access(void);
 static void VN_BANKED_CODE resume_cdda_after_cd_data_access(void);
 static void VN_BANKED_CODE cancel_cdda_after_cd_data_conflict(void);
@@ -901,12 +909,12 @@ static void VN_BANKED_CODE cdda_sector_from_remaining(const pce_editor_cdda_asse
     cdda_resume_start.hi = (uint8_t)((value >> 16) & 0xfful);
 }
 
-static void VN_BANKED_CODE begin_cdda_deferred_resume(void)
+static void VN_BANKED_CODE2 begin_cdda_deferred_resume(void)
 {
     if (cdda_resume_defer_depth != 255u) cdda_resume_defer_depth++;
 }
 
-static void VN_BANKED_CODE end_cdda_deferred_resume(void)
+static void VN_BANKED_CODE2 end_cdda_deferred_resume(void)
 {
     if (cdda_resume_defer_depth) cdda_resume_defer_depth--;
     if (!cdda_resume_defer_depth) resume_cdda_after_cd_data_access();
@@ -1052,13 +1060,13 @@ static uint8_t scene_pack_u8(const vn_scene_pack_cache_t *cache, uint16_t offset
     return cache->data[offset];
 }
 
-static uint16_t VN_BANKED_CODE scene_pack_u16(const vn_scene_pack_cache_t *cache, uint16_t offset)
+static uint16_t VN_BANKED_CODE2 scene_pack_u16(const vn_scene_pack_cache_t *cache, uint16_t offset)
 {
     if (!scene_pack_has_range(cache, offset, 2u)) return 0u;
     return (uint16_t)((uint16_t)cache->data[offset] | ((uint16_t)cache->data[(uint16_t)(offset + 1u)] << 8));
 }
 
-static signed int VN_BANKED_CODE scene_pack_s16(const vn_scene_pack_cache_t *cache, uint16_t offset)
+static signed int VN_BANKED_CODE2 scene_pack_s16(const vn_scene_pack_cache_t *cache, uint16_t offset)
 {
     return (signed int)(int16_t)scene_pack_u16(cache, offset);
 }
@@ -2506,7 +2514,7 @@ static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
 #endif
 }
 
-static uint8_t VN_BANKED_CODE adpcm_playback_active(void)
+static uint8_t VN_BANKED_CODE2 adpcm_playback_active(void)
 {
 #if defined(__PCE_CD__)
     return adpcm_play_active;
@@ -2529,7 +2537,7 @@ static uint8_t VN_BANKED_CODE wait_adpcm_transfer_ready(void)
 #endif
 }
 
-static void VN_BANKED_CODE restore_display_after_adpcm(uint8_t restore_display)
+static void VN_BANKED_CODE2 restore_display_after_adpcm(uint8_t restore_display)
 {
 #if defined(__PCE_CD__)
     restore_video_after_cdb_call(restore_display);
@@ -2827,7 +2835,11 @@ static void VN_BANKED_CODE2 psg_load_basic_wave(uint8_t channel)
 {
     uint8_t i;
     PCE_PSG_SELECT = (uint8_t)(channel & 0x07u);
-    PCE_PSG_CONTROL = 0x40u; /* enable write to the waveform buffer */
+    /* Wave RAM is writable while the channel is stopped. 0x40 is DDA/direct
+       mode on the HuC6280, so using it here leaves the tone waveform
+       uninitialized and makes imported PSG sound like noise. */
+    PCE_PSG_CONTROL = 0u;
+    if (channel >= 4u) PCE_PSG_NOISE = 0u;
     for (i = 0u; i < 32u; i++)
     {
         /* Simple square-ish timbre; the editor only stores tone/volume per step. */
@@ -2873,28 +2885,55 @@ static uint8_t VN_BANKED_CODE2 psg_resolve_channel(uint8_t base, uint8_t step_ch
     return (uint8_t)ch;
 }
 
+static void VN_BANKED_CODE2 psg_apply_step_entry(const pce_editor_psg_step_t *step, uint16_t step_no)
+{
+    if (step->step == step_no)
+    {
+        const uint8_t ch = psg_resolve_channel(psg_base_channel, step->channel);
+        psg_used_mask = (uint8_t)(psg_used_mask | (uint8_t)(1u << ch));
+        if (step->noise && ch >= 4u)
+            psg_set_noise(ch, (uint8_t)(step->period & 0x1fu), step->volume);
+        else
+            psg_set_voice(ch, step->period, step->volume);
+    }
+}
+
 static void VN_BANKED_CODE2 psg_apply_step_row(uint16_t step_no)
 {
     uint16_t i;
     const pce_editor_psg_step_t *pattern = psg_active_pattern;
     if (!psg_current || !pattern) return;
 #if defined(__PCE_CD__)
-    /* A CD-streamed pattern lives in bank134; map MPR6 to it before reading.
-       Small resident patterns are in .rodata and need no mapping. */
-    if (psg_pattern_banked) pce_ram_bank134_map();
+    /* CD-streamed patterns live in bank134/bank135; map MPR6 to the bank that
+       owns the current half before reading. Small resident patterns are in
+       .rodata and need no mapping. */
+    if (psg_pattern_banked)
+    {
+        uint16_t first_count = psg_current->pattern_count;
+        if (first_count > VN_PSG_PATTERN_BANK_ENTRIES) first_count = VN_PSG_PATTERN_BANK_ENTRIES;
+        pce_ram_bank134_map();
+        pattern = (const pce_editor_psg_step_t *)psg_pattern_ram;
+        for (i = 0u; i < first_count; i++)
+        {
+            psg_apply_step_entry(&pattern[i], step_no);
+        }
+        if (psg_current->pattern_count > VN_PSG_PATTERN_BANK_ENTRIES)
+        {
+            const uint16_t second_count = (uint16_t)(psg_current->pattern_count - VN_PSG_PATTERN_BANK_ENTRIES);
+            pce_ram_bank135_map();
+            pattern = (const pce_editor_psg_step_t *)psg_pattern_ram;
+            for (i = 0u; i < second_count; i++)
+            {
+                psg_apply_step_entry(&pattern[i], step_no);
+            }
+        }
+        return;
+    }
 #endif
     for (i = 0u; i < psg_current->pattern_count; i++)
     {
         const pce_editor_psg_step_t *step = &pattern[i];
-        if (step->step == step_no)
-        {
-            const uint8_t ch = psg_resolve_channel(psg_base_channel, step->channel);
-            psg_used_mask = (uint8_t)(psg_used_mask | (uint8_t)(1u << ch));
-            if (step->noise && ch >= 4u)
-                psg_set_noise(ch, (uint8_t)(step->period & 0x1fu), step->volume);
-            else
-                psg_set_voice(ch, step->period, step->volume);
-        }
+        psg_apply_step_entry(step, step_no);
     }
 }
 
@@ -2919,8 +2958,8 @@ static void VN_BANKED_CODE2 stop_psg(void)
 }
 
 #if defined(__PCE_CD__)
-/* Stream the active song's step pattern from CD into bank134 RAM. bank134 is
-   mapped into slot 6 (0xc000) as the read destination. Mirrors
+/* Stream the active song's step pattern from CD into bank134/bank135 RAM. Each
+   bank is mapped into slot 6 (0xc000) as the read destination. Mirrors
    load_scene_pack_into_cache's CD-read loop (CD-DA pause/resume + external IRQ
    handling via prepare/resume); the pattern's CD ref lives in bank132, so MPR6
    maps bank132 to read it, then bank134 to receive the bytes. */
@@ -2930,6 +2969,7 @@ static uint8_t VN_BANKED_CODE load_psg_pattern_cd(const pce_editor_psg_asset_t *
     pce_sector_t sector = {0};
     uint16_t remaining;
     uint16_t offset = 0u;
+    uint16_t bank_remaining;
     if (!asset->pattern_cd) return 0u;
     map_vn_data();              /* MPR6 = bank132: read the CD ref descriptor. */
     ref = *asset->pattern_cd;
@@ -2939,15 +2979,31 @@ static uint8_t VN_BANKED_CODE load_psg_pattern_cd(const pce_editor_psg_asset_t *
     sector.md = ref.sector.md;
     sector.hi = ref.sector.hi;
     remaining = ref.byte_size;
-    pce_ram_bank134_map();      /* MPR6 = bank134: CD read destination. */
-    while (remaining)
+    pce_ram_bank134_map();      /* MPR6 = bank134: first CD read destination. */
+    bank_remaining = remaining > VN_PSG_PATTERN_BANK_BYTES ? VN_PSG_PATTERN_BANK_BYTES : remaining;
+    while (bank_remaining)
     {
-        const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
+        const uint16_t chunk = bank_remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : bank_remaining;
         (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)&psg_pattern_ram[offset], chunk);
         cd_transfer_wait();
         remaining = (uint16_t)(remaining - chunk);
+        bank_remaining = (uint16_t)(bank_remaining - chunk);
         offset = (uint16_t)(offset + chunk);
         cd_sector_advance(&sector);
+    }
+    if (remaining)
+    {
+        offset = 0u;
+        pce_ram_bank135_map();  /* MPR6 = bank135: overflow pattern entries. */
+        while (remaining)
+        {
+            const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
+            (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)&psg_pattern_ram[offset], chunk);
+            cd_transfer_wait();
+            remaining = (uint16_t)(remaining - chunk);
+            offset = (uint16_t)(offset + chunk);
+            cd_sector_advance(&sector);
+        }
     }
     sync_cd_external_irq_after_bios_call();
     resume_cdda_after_cd_data_access();

@@ -1059,6 +1059,7 @@ function createPceAssetApi() {
       window.electronAPI.importAssetMidi(payload || {}),
       { assetId: payload?.id || '', kind: payload?.kind || payload?.type || 'psg' },
     ),
+    previewPceMidi: (payload) => window.electronAPI.previewAssetMidi(payload || {}),
     reorderPceAssets: (ids) => mutatePceAssets(
       'reorder',
       window.electronAPI.reorderAssets(ids || []),

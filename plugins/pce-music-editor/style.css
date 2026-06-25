@@ -46,12 +46,39 @@
   opacity: 0.75;
 }
 
+.pce-music-midi-controls {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.pce-music-midi-details {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px 10px;
+}
+
+.pce-music-midi-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .pce-plugin-items {
   overflow: auto;
   padding: 8px;
 }
 
-.pce-plugin-items button {
+.pce-music-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 6px;
+  align-items: stretch;
+  margin-bottom: 6px;
+}
+
+.pce-music-list-select {
   width: 100%;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -59,12 +86,21 @@
   color: var(--text);
   text-align: left;
   padding: 10px;
+  min-width: 0;
 }
 
-.pce-plugin-items button.active,
-.pce-plugin-items button:hover {
+.pce-music-list-row.active .pce-music-list-select,
+.pce-music-list-select:hover {
   border-color: var(--border);
   background: var(--surface-hover);
+}
+
+.pce-music-list-delete {
+  align-self: start;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
 }
 
 .pce-music-editor-shell .pce-plugin-items strong,
@@ -134,6 +170,36 @@
 
 .pce-tracker-grid select {
   min-width: 0;
+}
+
+.pce-tracker-summary {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.pce-tracker-summary strong,
+.pce-tracker-summary span,
+.pce-tracker-summary code {
+  min-width: 0;
+}
+
+.pce-tracker-summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pce-tracker-summary code {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pce-form-grid {

@@ -109,6 +109,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   importAssetAudio: (payload) => ipcRenderer.invoke('assets:importAudio', payload || {}),
   importAssetVgm: (payload) => ipcRenderer.invoke('assets:importVgm', payload || {}),
   importAssetMidi: (payload) => ipcRenderer.invoke('assets:importMidi', payload || {}),
+  previewAssetMidi: (payload) => ipcRenderer.invoke('assets:previewMidi', payload || {}),
   previewAssetSource: (relativePath) => ipcRenderer.invoke('assets:previewSource', { relativePath }),
   reorderAssets: (ids) => ipcRenderer.invoke('assets:reorder', { ids }),
   // --- エクスポート ---

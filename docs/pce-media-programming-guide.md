@@ -478,7 +478,7 @@ CD-ROM2 VN runtime の `background` command は同期 command です。BG 切替
 | `assetId` | `psg-song` / `psg-sfx` asset ID | `play` のとき参照 |
 | `channel` | `0..5`, 既定 `0` | 基準 PSG チャンネル |
 
-VN runtime は PSG asset の step パターンをフレーム駆動シーケンサ (`tick_psg()`) で 1 step ずつ再生します。`psg-song` はパターン末尾で先頭へループ、`psg-sfx` はパターン終了で停止するワンショットです。指定した `channel` を基準チャンネルとし、各 step の channel をそこからのオフセットとして加算、0..5 にクランプして発音します（同じ SFX を別チャンネルへ振り分けられます）。1 step のフレーム数は asset の `bpm` から算出します（`3600 / (bpm * 4)`、2..24 frame にクランプ）。`action: "stop"` は再生中に使用したチャンネルだけを停止します。CD-DA や ADPCM とは独立して鳴らせます。
+VN runtime は PSG asset の step パターンをフレーム駆動シーケンサ (`tick_psg()`) で 1 step ずつ再生します。`psg-song` はパターン末尾で先頭へループ、`psg-sfx` はパターン終了で停止するワンショットです。指定した `channel` を基準チャンネルとし、各 step の channel をそこからのオフセットとして加算、0..5 にクランプして発音します（同じ SFX を別チャンネルへ振り分けられます）。1 step のフレーム数は asset の `bpm` から算出します（`3600 / (bpm * 4)`、2..24 frame にクランプ）。大きい PSG pattern は CD data file から bank134+bank135 の 16KB 再生バッファへ読み込み、最大 2048 pattern event（8byte/entry）まで扱います。`action: "stop"` は再生中に使用したチャンネルだけを停止します。CD-DA や ADPCM とは独立して鳴らせます。
 
 ### CD-DA 再生 command
 

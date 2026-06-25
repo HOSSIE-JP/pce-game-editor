@@ -1,7 +1,13 @@
+import {
+  createPsgPreviewController,
+  psgPreviewStats,
+  psgFrequencyFromPeriod,
+  normalizePsgPreviewPattern,
+} from '../pce-music-editor/psg-preview.js';
+
 const IMAGE_EXTS = ['.png', '.bmp', '.webp'];
 const AUDIO_EXTS = ['.wav', '.mp3'];
 const SPRITE_CELL_SIZES = ['16x16', '16x32', '16x64', '32x16', '32x32', '32x64'];
-const PCE_PSG_CLOCK = 3579545;
 const PCE_BG_AUTO_TILE_BASE = 128;
 const PCE_BG_AUTO_MAP_BASE = 0;
 
@@ -104,14 +110,8 @@ function psgPeriod(asset = {}) {
   return Math.max(1, asNumber(firstPeriod ?? asset.options?.period, 512));
 }
 
-function psgFrequency(period) {
-  return Math.max(40, Math.min(5000, PCE_PSG_CLOCK / (32 * Math.max(1, asNumber(period, 512)))));
-}
-
 function psgPattern(asset = {}) {
-  const pattern = Array.isArray(asset.options?.pattern)
-    ? asset.options.pattern
-    : Array.isArray(asset.data?.pattern) ? asset.data.pattern : [];
+  const pattern = normalizePsgPreviewPattern(asset);
   if (pattern.length) return pattern;
   return [{ period: psgPeriod(asset), volume: asset.options?.volume ?? 12, length: 1 }];
 }
@@ -291,7 +291,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
                   <label class="form-label">BPM / Steps</label>
                   <div class="pce-assets-inline-fields">
                     <input class="form-input" data-field="bpm" type="number" min="30" max="300" />
-                    <input class="form-input" data-field="steps" type="number" min="1" max="256" />
+                    <input class="form-input" data-field="steps" type="number" min="1" max="4096" />
                   </div>
                   <label class="form-label">Sample rate</label>
                   <input class="form-input" data-field="sampleRate" type="number" min="4000" max="44100" />
@@ -329,8 +329,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
                 <div class="pce-assets-sound-preview" data-role="sound-preview" hidden>
                   <div class="pce-assets-sound-meter" aria-hidden="true"><span data-role="sound-meter-bar"></span></div>
                   <div class="pce-assets-preview-actions">
-                    <button class="icon-btn" data-action="preview-play" type="button" title="再生" aria-label="再生">▶</button>
-                    <button class="icon-btn" data-action="preview-stop" type="button" title="停止" aria-label="停止">■</button>
+                    <button class="icon-btn" data-action="preview-toggle" type="button" title="再生" aria-label="再生">▶</button>
                   </div>
                   <div class="pce-assets-preview-caption" data-role="sound-caption"></div>
                 </div>
@@ -376,6 +375,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   const soundPreviewEl = root.querySelector('[data-role="sound-preview"]');
   const soundMeterBarEl = root.querySelector('[data-role="sound-meter-bar"]');
   const soundCaptionEl = root.querySelector('[data-role="sound-caption"]');
+  const soundPreviewToggleEl = root.querySelector('[data-action="preview-toggle"]');
   const noPreviewEl = root.querySelector('[data-role="no-preview"]');
   const previewInfoEl = root.querySelector('[data-role="preview-info"]');
   const generatedStatsEl = root.querySelector('[data-role="generated-stats"]');
@@ -411,14 +411,23 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   let assets = [];
   let selectedId = '';
   let draggedId = '';
-  let psgAudioContext = null;
   // Folder paths (from "/"-separated asset names) the user has collapsed.
   const collapsedGroups = new Set();
   // Sort by Type or Name; 'manual' keeps the drag-and-drop order.
   let sortState = { key: 'manual', direction: 'asc' };
-  let psgPreviewNodes = [];
-  let psgPreviewToken = 0;
   const assetApi = api.assets || {};
+  const psgPreviewController = createPsgPreviewController({
+    onStateChange: (playing) => {
+      if (soundMeterBarEl) soundMeterBarEl.style.width = playing ? '100%' : '0%';
+      if (soundPreviewToggleEl) {
+        soundPreviewToggleEl.textContent = playing ? '■' : '▶';
+        soundPreviewToggleEl.title = playing ? '停止' : '再生';
+        soundPreviewToggleEl.setAttribute('aria-label', soundPreviewToggleEl.title);
+        soundPreviewToggleEl.classList.toggle('is-active', playing);
+      }
+    },
+    onError: (message) => { previewInfoEl.textContent = message; },
+  });
 
   const listPceAssets = (options = {}) => assetApi.listPceAssets
     ? assetApi.listPceAssets(options)
@@ -447,62 +456,17 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   }
 
   function stopPsgPreview() {
-    psgPreviewToken += 1;
-    psgPreviewNodes.forEach((node) => {
-      try {
-        if (typeof node.stop === 'function') node.stop(0);
-      } catch (_err) {
-        // Oscillator may already have completed its scheduled one-shot.
-      }
-      try {
-        node.disconnect?.();
-      } catch (_err) {
-        // Best-effort cleanup only.
-      }
-    });
-    psgPreviewNodes = [];
-    if (soundMeterBarEl) soundMeterBarEl.style.width = '0%';
+    psgPreviewController.stop();
   }
 
-  function playPsgPreview(asset = selectedAsset()) {
+  async function playPsgPreview(asset = selectedAsset()) {
     if (!isPsgAsset(asset)) return;
-    stopPsgPreview();
-    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextCtor) {
-      previewInfoEl.textContent = 'この環境では PSG プレビューを再生できません';
+    if (psgPreviewController.isPlaying) {
+      psgPreviewController.stop();
       return;
     }
-    psgAudioContext ||= new AudioContextCtor();
-    void psgAudioContext.resume?.();
-    const gain = psgAudioContext.createGain();
-    gain.gain.setValueAtTime(0.0001, psgAudioContext.currentTime);
-    gain.connect(psgAudioContext.destination);
-    psgPreviewNodes.push(gain);
-
-    const bpm = Math.max(30, asNumber(asset.options?.bpm, 150));
-    const baseStepSeconds = Math.max(0.04, Math.min(0.32, 60 / bpm / 2));
-    const steps = psgPattern(asset).slice(0, asset.type === 'psg-song' ? 32 : 8);
-    const previewToken = psgPreviewToken;
-    let time = psgAudioContext.currentTime + 0.03;
-    steps.forEach((step) => {
-      const osc = psgAudioContext.createOscillator();
-      const period = Math.max(1, asNumber(step.period, psgPeriod(asset)));
-      const volume = Math.max(0.02, Math.min(0.18, asNumber(step.volume, 12) / 15 * 0.18));
-      const duration = baseStepSeconds * Math.max(1, asNumber(step.length, 1));
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(psgFrequency(period), time);
-      gain.gain.setValueAtTime(volume, time);
-      gain.gain.setValueAtTime(0.0001, time + Math.max(0.02, duration - 0.01));
-      osc.connect(gain);
-      osc.start(time);
-      osc.stop(time + duration);
-      psgPreviewNodes.push(osc);
-      time += duration;
-    });
-    if (soundMeterBarEl) soundMeterBarEl.style.width = '100%';
-    window.setTimeout(() => {
-      if (previewToken === psgPreviewToken) stopPsgPreview();
-    }, Math.max(120, (time - psgAudioContext.currentTime) * 1000 + 80));
+    previewInfoEl.textContent = '';
+    await psgPreviewController.play(asset);
   }
 
   function typeLabel(asset = {}) {
@@ -914,7 +878,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     }
     if (isPsgAsset(asset)) {
       const period = psgPeriod(asset);
-      const frequency = psgFrequency(period);
+      const frequency = psgFrequencyFromPeriod(period);
       soundPreviewEl.hidden = false;
       noPreviewEl.hidden = true;
       soundCaptionEl.textContent = `${typeLabel(asset)} / period ${period} / ${Math.round(frequency)} Hz`;
@@ -985,15 +949,17 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     } else if (isPsgAsset(asset)) {
       const period = psgPeriod(asset);
       const pattern = psgPattern(asset);
+      const stats = psgPreviewStats(asset);
       generatedStatsEl.innerHTML = `
         <div class="pce-assets-stat"><span>Sound</span><strong>${esc(typeLabel(asset))}</strong></div>
-        <div class="pce-assets-stat"><span>Period / Hz</span><strong>${esc(`${period} / ${Math.round(psgFrequency(period))}`)}</strong></div>
+        <div class="pce-assets-stat"><span>Period / Hz</span><strong>${esc(`${period} / ${Math.round(psgFrequencyFromPeriod(period))}`)}</strong></div>
         <div class="pce-assets-stat"><span>Steps</span><strong>${esc(asset.options?.steps || pattern.length || 0)}</strong></div>
+        <div class="pce-assets-stat"><span>Events / ch</span><strong>${esc(`${stats.entries} / ${stats.channels}`)}</strong></div>
       `;
       files = asset.source ? [['source', asset.source]] : [];
       const rows = pattern.slice(0, 16).map((step, index) => {
         const stepPeriod = Math.max(1, asNumber(step.period, period));
-        return `<div><span>${index + 1}</span><code>period ${esc(stepPeriod)}</code><strong>${esc(Math.round(psgFrequency(stepPeriod)))} Hz</strong></div>`;
+        return `<div><span>${index + 1}</span><code>period ${esc(stepPeriod)}</code><strong>${esc(Math.round(psgFrequencyFromPeriod(stepPeriod)))} Hz</strong></div>`;
       }).join('');
       diagnosticsEl.innerHTML = `
         <div class="pce-assets-sequence">${rows}</div>
@@ -1635,8 +1601,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   });
   formEl.addEventListener('submit', saveSelected);
   deleteButton.addEventListener('click', () => deleteAsset());
-  root.querySelector('[data-action="preview-play"]').addEventListener('click', () => playPsgPreview());
-  root.querySelector('[data-action="preview-stop"]').addEventListener('click', stopPsgPreview);
+  root.querySelector('[data-action="preview-toggle"]').addEventListener('click', () => { void playPsgPreview(); });
   animationEditorEl?.addEventListener('click', (event) => {
     const add = event.target?.closest?.('[data-animation-add]');
     if (add) {
@@ -1778,7 +1743,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   return {
     deactivate() {
       teardownAssetRefreshEvents();
-      stopPsgPreview();
+      psgPreviewController.close();
     },
   };
 }

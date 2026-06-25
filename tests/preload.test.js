@@ -30,6 +30,7 @@ test('main preload exposes renderer API methods with the expected IPC channels',
   assert.equal(typeof api.importAssetAudio, 'function');
   assert.equal(typeof api.importAssetVgm, 'function');
   assert.equal(typeof api.importAssetMidi, 'function');
+  assert.equal(typeof api.previewAssetMidi, 'function');
   assert.equal(typeof api.previewAssetSource, 'function');
   assert.equal(typeof api.reorderAssets, 'function');
   assert.equal(typeof api.openLogWindow, 'function');
@@ -60,6 +61,9 @@ test('main preload exposes renderer API methods with the expected IPC channels',
   await api.deleteAsset('img');
   await api.importAssetImage({ id: 'img', sourcePath: '/tmp/img.png' });
   await api.importAssetAudio({ id: 'voice', sourcePath: '/tmp/voice.wav' });
+  await api.importAssetVgm({ id: 'song', sourcePath: '/tmp/song.vgm' });
+  await api.importAssetMidi({ id: 'song', sourcePath: '/tmp/song.mid' });
+  await api.previewAssetMidi({ id: 'song', sourcePath: '/tmp/song.mid' });
   await api.previewAssetSource('assets/images/img.png');
   await api.reorderAssets(['img']);
   await api.invokePluginHook('audio-converter', 'convertAudio', { sourcePath: 'in.wav' });
@@ -112,6 +116,18 @@ test('main preload exposes renderer API methods with the expected IPC channels',
   assert.deepEqual(invocations.find((entry) => entry.channel === 'assets:importAudio'), {
     channel: 'assets:importAudio',
     args: [{ id: 'voice', sourcePath: '/tmp/voice.wav' }],
+  });
+  assert.deepEqual(invocations.find((entry) => entry.channel === 'assets:importVgm'), {
+    channel: 'assets:importVgm',
+    args: [{ id: 'song', sourcePath: '/tmp/song.vgm' }],
+  });
+  assert.deepEqual(invocations.find((entry) => entry.channel === 'assets:importMidi'), {
+    channel: 'assets:importMidi',
+    args: [{ id: 'song', sourcePath: '/tmp/song.mid' }],
+  });
+  assert.deepEqual(invocations.find((entry) => entry.channel === 'assets:previewMidi'), {
+    channel: 'assets:previewMidi',
+    args: [{ id: 'song', sourcePath: '/tmp/song.mid' }],
   });
   assert.deepEqual(invocations.find((entry) => entry.channel === 'assets:previewSource'), {
     channel: 'assets:previewSource',

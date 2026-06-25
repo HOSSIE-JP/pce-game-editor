@@ -130,8 +130,8 @@ message typewriter / skip / choice glyph が正常描画されれば、オーバ
   2. `.vn_overlay` を PT_LOAD から完全に外す（PHDRS 制御 or 別 elf へ分離）。外せれば LMA 制約が消え bank133 フル(8KB)まで使える。`--set-section-flags` での alloc 落としは PT_LOAD を消せなかった（§5）ので、PHDRS を持つ別フラグメント or link 後の segment 編集が要る。
   3. 予約サイズ `VN_OVERLAY_RESERVED_SECTORS` は CD/bank133 側の footprint。bank133 は 8KB あるので予約は最大 4 sector まで上げられる（上限を上げても LMA 制約が先に効く点に注意）。
 
-### (B) 複数オーバーレイ（bank134/135）
-- bank134/135 も未使用＆CD ロード可能。同じ機構で 2 枚目以降を追加できる。
+### (B) 複数オーバーレイ（追加バンク）
+- bank134/135 は PSG pattern の CD ストリーム再生バッファとして使用中です。追加 overlay を作る場合は、PSG バッファと同じ物理 bank を共有しない未使用 bank を選んでください。
 - **制約**: slot4 を時分割する以上、**同時に map できるオーバーレイは 1 枚**。別オーバーレイ間の直接相互呼び出しは不可（co-residency）。常駐 dispatcher 経由でのみ切替える。あるいは別 slot（ただし空き slot は実質ない）。
 - 実装は load_overlay_code / dispatcher / 予約・抽出を bank ごとに複製する形になる。
 
