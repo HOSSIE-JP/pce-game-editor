@@ -300,7 +300,7 @@ const unsigned char PCE_VN_FONT_SECTION pce_vn_font_tiles[] = {
   0xe0, 0x7f, 0xe0, 0x7f, 0x00, 0x1b, 0x10, 0x1b, 0x10, 0x33, 0xf0, 0xe3
 };
 #endif
-const unsigned char PCE_VN_DATA_SECTION pce_vn_font_glyph_count = 165;
+const unsigned int PCE_VN_DATA_SECTION pce_vn_font_glyph_count = 165u;
 
 void pce_vn_font_tiles_map(void)
 {

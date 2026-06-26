@@ -1117,35 +1117,51 @@ function encodePceBackground(indexed, asset) {
   };
 }
 
-// Encode a sprite sheet into 16x16 patterns, deduplicating identical cells so
-// that the VRAM upload only carries the unique 128-byte patterns. `cellMap`
-// keeps the sheet's positional cell order (row-major, length =
-// cols*rows) and maps each source cell to its unique VRAM slot, so the runtime
-// can still address animation frames by their grid position. Most VN character
-// sheets share many cells across frames, so this shrinks the VRAM footprint
-// dramatically (and is what keeps large sheets inside the VN VRAM budget).
-function encodePceSprites(indexed) {
+// Encode a sprite sheet into display-cell blocks, deduplicating identical
+// blocks so the VRAM upload carries only the unique cells used by SATB entries.
+// A 16x16 cell is one 128-byte pattern, while a 32x64 cell is eight consecutive
+// 16x16 patterns. The runtime indexes this map by display cell, so larger PCE
+// sprite sizes must stay contiguous in patterns.bin.
+function encodePceSprites(indexed, options = DEFAULT_SPRITE_OPTIONS) {
   if (indexed.width % 16 || indexed.height % 16) throw new Error('Sprite sheet size must be aligned to 16px patterns');
-  const unique = [];
+  const cellWidth = clampPositiveInt(options.cellWidth, 16, 32, DEFAULT_SPRITE_OPTIONS.cellWidth);
+  const cellHeight = clampPositiveInt(options.cellHeight, 16, 64, DEFAULT_SPRITE_OPTIONS.cellHeight);
+  if (indexed.width % cellWidth || indexed.height % cellHeight) {
+    throw new Error(`Sprite sheet size must be aligned to ${cellWidth}x${cellHeight} sprite cells`);
+  }
+  const patternCols = Math.max(1, Math.ceil(cellWidth / 16));
+  const patternRows = Math.max(1, Math.ceil(cellHeight / 16));
+  const uniqueBlocks = [];
   const lookup = new Map();
   const cellMap = [];
-  for (let y = 0; y < indexed.height; y += 16) {
-    for (let x = 0; x < indexed.width; x += 16) {
-      const pattern = encodePceSpritePattern(indexed.indices, indexed.width, x, y);
-      const key = pattern.toString('latin1');
+  for (let y = 0; y < indexed.height; y += cellHeight) {
+    for (let x = 0; x < indexed.width; x += cellWidth) {
+      const blockPatterns = [];
+      for (let patternY = 0; patternY < patternRows; patternY += 1) {
+        for (let patternX = 0; patternX < patternCols; patternX += 1) {
+          blockPatterns.push(encodePceSpritePattern(
+            indexed.indices,
+            indexed.width,
+            x + patternX * 16,
+            y + patternY * 16,
+          ));
+        }
+      }
+      const block = Buffer.concat(blockPatterns);
+      const key = block.toString('latin1');
       let slot = lookup.get(key);
       if (slot === undefined) {
-        slot = unique.length;
+        slot = uniqueBlocks.length;
         lookup.set(key, slot);
-        unique.push(pattern);
+        uniqueBlocks.push(block);
       }
       cellMap.push(slot);
     }
   }
-  if (unique.length > 256) {
-    throw new Error(`Sprite sheet has ${unique.length} unique 16x16 cells; the VN runtime cell map supports at most 256. Reduce the sheet or split it.`);
+  if (uniqueBlocks.length > 256) {
+    throw new Error(`Sprite sheet has ${uniqueBlocks.length} unique ${cellWidth}x${cellHeight} cells; the VN runtime cell map supports at most 256. Reduce the sheet or split it.`);
   }
-  return { patterns: Buffer.concat(unique), cellMap: Buffer.from(cellMap) };
+  return { patterns: Buffer.concat(uniqueBlocks), cellMap: Buffer.from(cellMap) };
 }
 
 function encodePceRleBuffer(input) {
@@ -1228,7 +1244,7 @@ function runInternalPceImageConversion(plan, sourceAbs, asset, options = {}) {
     writeVisualCompressionSidecar(encoded.tiles, plan.absFiles.tilesCompressedAbs, imageOptions.compression);
     writeVisualCompressionSidecar(encoded.vramMap, plan.absFiles.mapVramCompressedAbs, imageOptions.compression);
   } else {
-    const { patterns, cellMap } = encodePceSprites(indexed);
+    const { patterns, cellMap } = encodePceSprites(indexed, imageOptions);
     fs.writeFileSync(plan.absFiles.tilesAbs, patterns);
     writeVisualCompressionSidecar(patterns, plan.absFiles.tilesCompressedAbs, imageOptions.compression);
     if (plan.absFiles.cellMapAbs) fs.writeFileSync(plan.absFiles.cellMapAbs, cellMap);
@@ -1341,16 +1357,18 @@ function spriteGeneratedAssetNeedsRefresh(projectDir, asset) {
   const options = normalizeImageOptions(asset);
   const generated = asset.data?.generated || {};
   const patterns = readGeneratedBuffer(projectDir, generated.tilesFile);
-  const widthPatterns = Math.max(1, Math.ceil((options.width || options.cellWidth || 16) / 16));
-  const heightPatterns = Math.max(1, Math.ceil((options.height || options.cellHeight || 16) / 16));
-  const expectedCells = widthPatterns * heightPatterns;
+  const cellWidth = clampPositiveInt(options.cellWidth, 16, 32, DEFAULT_SPRITE_OPTIONS.cellWidth);
+  const cellHeight = clampPositiveInt(options.cellHeight, 16, 64, DEFAULT_SPRITE_OPTIONS.cellHeight);
+  const cellColumns = Math.max(1, Math.ceil((options.width || cellWidth) / cellWidth));
+  const cellRows = Math.max(1, Math.ceil((options.height || cellHeight) / cellHeight));
+  const expectedCells = cellColumns * cellRows;
+  const patternsPerCell = Math.max(1, Math.ceil(cellWidth / 16) * Math.ceil(cellHeight / 16));
+  const bytesPerCellBlock = patternsPerCell * 128;
   if (!patterns.length) return true;
-  // Patterns are deduplicated, so the file size depends on the unique cell count
-  // rather than the full grid. Validate via the cell map instead: it must exist
-  // (older pre-dedup assets lack it and must regenerate) and cover every grid
-  // cell, and each entry must point at a real unique pattern.
-  if (patterns.length % 128 !== 0) return true;
-  const uniqueCells = patterns.length / 128;
+  // Patterns are deduplicated by display-cell block. Validate via the cell map:
+  // it must cover every display cell, and each entry must point at a real block.
+  if (patterns.length % bytesPerCellBlock !== 0) return true;
+  const uniqueCells = patterns.length / bytesPerCellBlock;
   const cellMap = readGeneratedBuffer(projectDir, generated.cellMapFile);
   if (!generated.cellMapFile || cellMap.length !== expectedCells) return true;
   for (let i = 0; i < cellMap.length; i += 1) {
@@ -1948,7 +1966,7 @@ function toCIdentifier(value) {
 
 function bufferToCArray(name, buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) return [];
-  const lines = [`static const unsigned char ${name}[] = {`];
+  const lines = [`static const unsigned char ${name}[] PCE_EDITOR_RODATA_SECTION = {`];
   for (let i = 0; i < buffer.length; i += 12) {
     const chunk = Array.from(buffer.subarray(i, i + 12)).map((value) => `0x${value.toString(16).padStart(2, '0')}`);
     lines.push(`  ${chunk.join(', ')}${i + 12 < buffer.length ? ',' : ''}`);
@@ -2306,7 +2324,7 @@ function generatePsgMetadata(projectDir, assets, generationOptions = {}) {
       arrayLines.push(...ref.lines);
       patternCd = ref.cd;
     } else if (pattern.length) {
-      arrayLines.push(`static const pce_editor_psg_step_t ${ident}_pattern[] = {`);
+      arrayLines.push(`static const pce_editor_psg_step_t ${ident}_pattern[] PCE_EDITOR_RODATA_SECTION = {`);
       pattern.forEach((step, stepIndex) => {
         arrayLines.push(`  { ${step.step}u, ${step.channel}u, ${step.period}u, ${step.volume}u, ${step.noise}u, 0u }${stepIndex + 1 < pattern.length ? ',' : ''}`);
       });
@@ -2925,9 +2943,9 @@ function generateAssetSources(projectDir, options = {}) {
     const metaSector = metaEntry?.sector || 0;
     const region = (offsetSectors, count) => `{ ${sectorToCInitializer(metaSector + offsetSectors)}, ${count}u }`;
     metaRegionLines = [
-      `const pce_editor_meta_region_t pce_editor_bg_meta = ${region(metaLayout.bgOffset, bgGenerated.converted.length)};`,
-      `const pce_editor_meta_region_t pce_editor_sprite_meta = ${region(metaLayout.spriteOffset, spriteGenerated.converted.length)};`,
-      `const pce_editor_meta_region_t pce_editor_adpcm_meta = ${region(metaLayout.adpcmOffset, adpcmGenerated.adpcmAssets.length)};`,
+      `const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = ${region(metaLayout.bgOffset, bgGenerated.converted.length)};`,
+      `const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = ${region(metaLayout.spriteOffset, spriteGenerated.converted.length)};`,
+      `const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = ${region(metaLayout.adpcmOffset, adpcmGenerated.adpcmAssets.length)};`,
     ];
   }
 
@@ -3149,45 +3167,45 @@ function generateAssetSources(projectDir, options = {}) {
     ...(assetMetaOnCd ? [
       ...metaRegionLines,
       '',
-      `const unsigned char pce_editor_bg_asset_count = ${bgGenerated.converted.length};`,
-      `const unsigned char pce_editor_sprite_asset_count = ${spriteGenerated.converted.length};`,
-      `const unsigned char pce_editor_adpcm_asset_count = ${adpcmGenerated.adpcmAssets.length};`,
+      `const unsigned char pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = ${bgGenerated.converted.length};`,
+      `const unsigned char pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = ${spriteGenerated.converted.length};`,
+      `const unsigned char pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = ${adpcmGenerated.adpcmAssets.length};`,
       '',
     ] : [
-      'const pce_editor_bg_asset_t pce_editor_bg_assets[] = {',
+      'const pce_editor_bg_asset_t pce_editor_bg_assets[] PCE_EDITOR_RODATA_SECTION = {',
       ...(bgGenerated.metaLines.length ? bgGenerated.metaLines : [`  { ${emptyDataRef}, ${emptyDataRef}, ${emptyDataRef}, 0u, 0u, 0u, 0u, 0u }`]),
       '};',
-      `const unsigned char pce_editor_bg_asset_count = ${bgGenerated.converted.length};`,
+      `const unsigned char pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = ${bgGenerated.converted.length};`,
       '',
-      'const pce_editor_sprite_asset_t pce_editor_sprite_assets[] = {',
+      'const pce_editor_sprite_asset_t pce_editor_sprite_assets[] PCE_EDITOR_RODATA_SECTION = {',
       ...(spriteGenerated.metaLines.length ? spriteGenerated.metaLines : [`  { ${emptyDataRef}, ${emptyDataRef}, 0u, 0u, 0u, 0u, 0u, 0u }`]),
       '};',
-      'const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[] = {',
+      'const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[] PCE_EDITOR_RODATA_SECTION = {',
       ...(spriteGenerated.drawMetaLines.length ? spriteGenerated.drawMetaLines : ['  { 16u, 16u, 1u, 1u, 384u, 0u }']),
       '};',
-      `const unsigned char pce_editor_sprite_asset_count = ${spriteGenerated.converted.length};`,
+      `const unsigned char pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = ${spriteGenerated.converted.length};`,
       '',
-      'const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] = {',
+      'const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] PCE_EDITOR_RODATA_SECTION = {',
       ...(adpcmGenerated.metaLines.length ? adpcmGenerated.metaLines : ['  { (const unsigned char *)0, 0u, 0u, 0u, 0u, 0u, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
       '};',
-      `const unsigned char pce_editor_adpcm_asset_count = ${adpcmGenerated.adpcmAssets.length};`,
+      `const unsigned char pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = ${adpcmGenerated.adpcmAssets.length};`,
       '',
     ]),
-    'const pce_editor_psg_asset_t pce_editor_psg_assets[] = {',
+    'const pce_editor_psg_asset_t pce_editor_psg_assets[] PCE_EDITOR_RODATA_SECTION = {',
     ...(psgGenerated.metaLines.length ? psgGenerated.metaLines : ['  { 0u, 512u, 150u, 0u, (const pce_editor_psg_step_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
     '};',
-    `const unsigned char pce_editor_psg_asset_count = ${psgGenerated.psgAssets.length};`,
+    `const unsigned char pce_editor_psg_asset_count PCE_EDITOR_RODATA_SECTION = ${psgGenerated.psgAssets.length};`,
     '',
-    'const pce_editor_cdda_asset_t pce_editor_cdda_assets[] = {',
+    'const pce_editor_cdda_asset_t pce_editor_cdda_assets[] PCE_EDITOR_RODATA_SECTION = {',
     ...(cddaGenerated.metaLines.length ? cddaGenerated.metaLines : ['  { 0u, 0u, { 0u, 0u, 0u }, { 0u, 0u, 0u }, { 0u, 0u, 0u }, 0u }']),
     '};',
-    `const unsigned char pce_editor_cdda_asset_count = ${cddaGenerated.cddaAssets.length};`,
+    `const unsigned char pce_editor_cdda_asset_count PCE_EDITOR_RODATA_SECTION = ${cddaGenerated.cddaAssets.length};`,
     '',
-    'const char * const pce_editor_image_rows[] = {',
+    'const char * const pce_editor_image_rows[] PCE_EDITOR_RODATA_SECTION = {',
     `${quotedRows.join(',\n')}`,
     '};',
-    `const unsigned char pce_editor_image_row_count = ${rows.length};`,
-    `const unsigned int pce_editor_tone_period = ${Math.max(1, Math.min(4095, tonePeriod))};`,
+    `const unsigned char pce_editor_image_row_count PCE_EDITOR_RODATA_SECTION = ${rows.length};`,
+    `const unsigned int pce_editor_tone_period PCE_EDITOR_RODATA_SECTION = ${Math.max(1, Math.min(4095, tonePeriod))};`,
     '',
     'void pce_editor_map_asset_bank(unsigned char bank)',
     '{',

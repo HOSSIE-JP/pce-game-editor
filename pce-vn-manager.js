@@ -134,8 +134,9 @@ const VN_OVERLAY_SECTION = '.vn_overlay';
 const VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000; // CPU address the overlay is linked at / loaded to
 // Reserved on-CD/bank133 size for the overlay blob, in whole CD sectors. The
 // extracted .vn_overlay must fit this; it is also bounded by VN_OVERLAY_LMA's
-// headroom inside bank132 (0xd000..0xdfff = 4 KB). Two sectors (4 KB) covers the
-// current cd_rle_* overlay (~3.3 KB) with headroom.
+// headroom inside bank132 (currently 0xd200..0xdfff = 3.5 KB). Two sectors
+// (4 KB) keep the CD footprint stable while the LMA window is sized by the real
+// overlay bytes after link.
 const VN_OVERLAY_RESERVED_SECTORS = 2;
 const VN_OVERLAY_RESERVED_BYTES = VN_OVERLAY_RESERVED_SECTORS * 2048; // 2048 = VN_CD_SECTOR_BYTES (defined below)
 // LMA (physical/load address) for the .vn_overlay section: bank132's tail
@@ -145,12 +146,14 @@ const VN_OVERLAY_RESERVED_BYTES = VN_OVERLAY_RESERVED_SECTORS * 2048; // 2048 = 
 //
 // bank132 is a SHARED 8 KB resource: resident data (cd_data_refs, CD transfer
 // scratch, glyph/cell caches) grows up from 0x0184c000, while this overlay LMA
-// copy is parked at the top (0xd000..0xdfff = 4 KB). The overlay is fixed runtime
+// copy is parked near the top (0xd200..0xdfff = 3.5 KB). The first 512 bytes of
+// the old tail window are returned to resident data so larger sprite/scene
+// metadata does not collide with the overlay LMA. The overlay is fixed runtime
 // code (~2.3 KB). Large PSG/VGM/MIDI song patterns are NOT kept here — they
 // stream from CD into RAM bank134 only while playing (see psg_pattern_ram /
-// load_psg_pattern_cd in pce_vn_runtime.c) — so the 4 KB resident half is enough.
+// load_psg_pattern_cd in pce_vn_runtime.c) — so the resident budget stays small.
 // finalizeOverlayBlob asserts the section still fits below VN_BANK132_LMA_END.
-const VN_OVERLAY_LMA = 0x0184d000;
+const VN_OVERLAY_LMA = 0x0184d200;
 // End of bank132's LMA region (0x0184c000 + 8 KB). The overlay section must fit
 // in [VN_OVERLAY_LMA, VN_BANK132_LMA_END); resident data must fit below the LMA.
 const VN_BANK132_LMA_END = 0x0184e000;
@@ -1191,10 +1194,11 @@ function computeFontBudget(rawGlyphCount, tileBase) {
 // each placed by independent rules, so a large asset in one category can silently
 // overwrite a neighbour's VRAM -- the "layout breaks down" corruption. This is the
 // single authoritative reservation check: it lays every category out as a word range
-// and rejects (build error) any overlap between DIFFERENT categories. Overlap WITHIN
-// a category is fine -- multiple BG images / multiple sprite sheets reuse the same
-// region one at a time (BG is swapped per `background`; sprites share one pattern
-// cache), so each category is reduced to the union extent of its assets.
+// and rejects (build error) any overlap between DIFFERENT categories. BG images are
+// reduced to their category union because only one BG is active at a time. Sprite
+// patterns are laid out from SLOT0 upward at runtime, so scene slot layouts reserve
+// the maximum simultaneous packed range instead of letting assets overwrite each
+// other at the same tileBase.
 const VN_VRAM_TOTAL_WORDS = 0x8000;
 const VN_BAT_VRAM_WORDS = 32 * 32; // 32x32 BAT = 1024 words at map base 0
 const VN_BG_DEFAULT_TILE_BASE = 128; // word units *16 (matches PCE_BG_AUTO_TILE_BASE)
@@ -1222,18 +1226,33 @@ function collectFullScreenBgAssetIds(doc = {}) {
 function collectSceneVisualAssetUsage(doc = {}) {
   const imageAssetIds = new Set();
   const spriteAssetIds = new Set();
+  const spriteSlotLayouts = [];
   (doc.scenes || []).forEach((scene) => {
+    const spriteSlots = ['', '', '', ''];
     (scene?.commands || []).forEach((command) => {
       if (command?.type === 'background') {
         const assetId = normalizeAssetId(command.assetId);
         if (assetId) imageAssetIds.add(assetId);
       } else if (command?.type === 'sprite' && command.visible !== false) {
         const assetId = normalizeAssetId(command.assetId);
-        if (assetId) spriteAssetIds.add(assetId);
+        const slot = clampInt(command.slot, 0, 3, 0);
+        if (assetId) {
+          spriteAssetIds.add(assetId);
+          spriteSlots[slot] = assetId;
+        } else {
+          spriteSlots[slot] = '';
+        }
+        const visibleLayout = spriteSlots.filter(Boolean);
+        if (visibleLayout.length) spriteSlotLayouts.push(visibleLayout);
+      } else if (command?.type === 'sprite') {
+        const slot = clampInt(command.slot, 0, 3, 0);
+        spriteSlots[slot] = '';
+        const visibleLayout = spriteSlots.filter(Boolean);
+        if (visibleLayout.length) spriteSlotLayouts.push(visibleLayout);
       }
     });
   });
-  return { imageAssetIds, spriteAssetIds, fullScreenBgAssetIds: collectFullScreenBgAssetIds(doc) };
+  return { imageAssetIds, spriteAssetIds, spriteSlotLayouts, fullScreenBgAssetIds: collectFullScreenBgAssetIds(doc) };
 }
 
 function computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphCount, options = {}) {
@@ -1258,6 +1277,10 @@ function computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, sprite
     && isReferencedAsset(asset, imageAssetIds)
     && fullScreenBgAssetIds.has(String(asset.id))
   );
+  const assetById = new Map();
+  for (const asset of assets) {
+    if (asset?.id) assetById.set(String(asset.id), asset);
+  }
   addRegion('BAT (BGマップ)', 0, VN_BAT_VRAM_WORDS);
   addRegion('SATB (スプライト属性)', VN_SATB_VRAM_WORD, VN_VRAM_TOTAL_WORDS);
   // Message: font strip + blank tile + 12-word glyph masks.
@@ -1265,7 +1288,7 @@ function computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, sprite
   if (spriteTextGlyphCount > 0) {
     addRegion('spritetextフォント', fontSpritePatternBase * 32, (fontSpritePatternBase + (spriteTextGlyphCount * 2)) * 32);
   }
-  // BG tiles and sprite patterns: union extent of each category's assets.
+  // BG tiles: union extent of all referenced assets.
   const unionExtent = (type, tileBaseScale, wordsFor, defaultTileBase, includeAsset = () => true) => {
     let start = Infinity;
     let end = 0;
@@ -1288,10 +1311,40 @@ function computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, sprite
   if (bg) addRegion('BGタイル', bg.start, bg.end);
   const fullBg = unionExtent('image', 16, bgWords, VN_BG_DEFAULT_TILE_BASE, isFullScreenOnlyBgAsset);
   if (fullBg) addRegion('Full BGタイル', fullBg.start, fullBg.end);
-  const sprite = unionExtent('sprite', 32,
-    (gen) => (Number(gen.tileCount) ? Number(gen.tileCount) * 64 : Math.ceil((Number(gen.vramBytes) || 0) / 2)),
-    VN_SPRITE_DEFAULT_TILE_BASE,
-    (asset) => isReferencedAsset(asset, spriteAssetIds));
+  const spriteWords = (gen) => (Number(gen.tileCount) ? Number(gen.tileCount) * 64 : Math.ceil((Number(gen.vramBytes) || 0) / 2));
+  const spriteBaseWord = (asset) => {
+    const rawBase = Number(asset.options && asset.options.tileBase);
+    return (Number.isFinite(rawBase) ? rawBase : VN_SPRITE_DEFAULT_TILE_BASE) * 32;
+  };
+  const spriteSlotLayouts = Array.isArray(options.spriteSlotLayouts) ? options.spriteSlotLayouts : [];
+  let sprite = null;
+  if (spriteSlotLayouts.length) {
+    let start = Infinity;
+    let end = 0;
+    for (const layout of spriteSlotLayouts) {
+      if (!Array.isArray(layout)) continue;
+      let nextWord = 0;
+      let started = false;
+      for (const assetId of layout) {
+        const asset = assetById.get(String(assetId));
+        if (!asset || asset.type !== 'sprite' || !isReferencedAsset(asset, spriteAssetIds)) continue;
+        const gen = (asset.data && asset.data.generated) || {};
+        const words = spriteWords(gen);
+        if (!words) continue;
+        if (!started) {
+          nextWord = spriteBaseWord(asset);
+          if (nextWord < start) start = nextWord;
+          started = true;
+        }
+        nextWord += Math.ceil(words / 32) * 32;
+      }
+      if (started && nextWord > end) end = nextWord;
+    }
+    if (end > start) sprite = { start, end };
+  } else {
+    sprite = unionExtent('sprite', 32, spriteWords, VN_SPRITE_DEFAULT_TILE_BASE,
+      (asset) => isReferencedAsset(asset, spriteAssetIds));
+  }
   if (sprite) addRegion('スプライトpattern', sprite.start, sprite.end);
   return regions;
 }
@@ -1335,6 +1388,45 @@ function validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, sprit
       + errors.join('\n  '));
   }
   return regions;
+}
+
+function validateVnSpritePaletteLayout(assetDoc, fontSpritePaletteBank = DEFAULT_FONT_SPRITE_PALETTE_BANK, options = {}) {
+  const assets = (assetDoc && Array.isArray(assetDoc.assets)) ? assetDoc.assets : [];
+  const spriteAssetIds = options.spriteAssetIds
+    ? (options.spriteAssetIds instanceof Set ? options.spriteAssetIds : new Set(options.spriteAssetIds))
+    : null;
+  const spriteSlotLayouts = Array.isArray(options.spriteSlotLayouts) ? options.spriteSlotLayouts : [];
+  if (!spriteSlotLayouts.length) return;
+  const assetById = new Map();
+  for (const asset of assets) {
+    if (asset?.id) assetById.set(String(asset.id), asset);
+  }
+  const isReferencedAsset = (asset, ids) => !ids || (asset?.id && ids.has(String(asset.id)));
+  const errors = [];
+  for (const layout of spriteSlotLayouts) {
+    if (!Array.isArray(layout)) continue;
+    let nextBank = 0;
+    let started = false;
+    const used = [];
+    for (const assetId of layout) {
+      const asset = assetById.get(String(assetId));
+      if (!asset || asset.type !== 'sprite' || !isReferencedAsset(asset, spriteAssetIds)) continue;
+      if (!started) {
+        const rawBank = Number(asset.options && asset.options.paletteBank);
+        nextBank = Number.isFinite(rawBank) ? rawBank : 0;
+        started = true;
+      }
+      if (nextBank >= fontSpritePaletteBank) {
+        errors.push(`sprite palette bank ${nextBank} is reserved/out of range for visible slots [${used.concat(String(assetId)).join(', ')}]. Lower sprite paletteBank or reduce simultaneous sprite slots.`);
+        break;
+      }
+      used.push(String(assetId));
+      nextBank += 1;
+    }
+  }
+  if (errors.length) {
+    throw new Error(`VN sprite palette bank allocation failed:\n  ${errors.join('\n  ')}`);
+  }
 }
 
 function fontCandidates(config = {}) {
@@ -2032,6 +2124,7 @@ function generateVnSources(projectDir, options = {}) {
   // Single authoritative VRAM reservation check: reject any overlap between BG,
   // message font, spritetext font, sprite patterns, BAT, and SATB (build error).
   validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphs.length, visualAssetUsage);
+  validateVnSpritePaletteLayout(assetDoc, fontSpritePaletteBank, visualAssetUsage);
 
   const imageIndex = indexAssets(runtimeAssetDoc.assets || [], 'image');
   const spriteIndex = indexAssets(runtimeAssetDoc.assets || [], 'sprite');
@@ -2712,7 +2805,7 @@ function generateVnSources(projectDir, options = {}) {
     '#else',
     'extern const unsigned char pce_vn_font_tiles[];',
     '#endif',
-    'extern const unsigned char pce_vn_font_glyph_count;',
+    'extern const unsigned int pce_vn_font_glyph_count;',
     'void pce_vn_font_tiles_map(void);',
     '#if defined(__PCE_CD__)',
     'extern const pce_vn_cd_data_ref_t pce_vn_font_sprite_data;',
@@ -2751,7 +2844,7 @@ function generateVnSources(projectDir, options = {}) {
     '#else',
     ...bytesToCArray('PCE_VN_FONT_SECTION pce_vn_font_tiles', fontTiles, 'const unsigned char'),
     '#endif',
-    `const unsigned char PCE_VN_DATA_SECTION pce_vn_font_glyph_count = ${glyphs.length};`,
+    `const unsigned int PCE_VN_DATA_SECTION pce_vn_font_glyph_count = ${glyphs.length}u;`,
     '',
     'void pce_vn_font_tiles_map(void)',
     '{',
@@ -3284,6 +3377,7 @@ module.exports = {
   computeFontBudget,
   computeVnVramLayout,
   validateVnVramLayout,
+  validateVnSpritePaletteLayout,
   defaultSceneDocument,
   encodeGlyphMask12,
   encodeGlyphMaskData,

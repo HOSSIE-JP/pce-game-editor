@@ -64,6 +64,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE 16000u
 #define VN_ADPCM_MAX_RATE_CODE 15u
 #define VN_SATB_ADDR 0x7f00u
+#define VN_SPRITE_PATTERN_END_BASE (VN_SATB_ADDR / 32u)
 #define VN_SPRITE_HIDDEN_Y 0x00f0u
 /* 256x224 layout: BG 224x136 (top, centered), message window 208x64 (bottom,
    centered). Window = 26x8 tiles at BAT (3,20). Glyphs are 12x12 composited at
@@ -200,8 +201,11 @@ static uint8_t preloaded_bg_x = 0;
 static uint8_t preloaded_bg_y = 0;
 static uint8_t preloaded_scene_visual_valid = 0;
 static uint8_t preloaded_scene_index = 0;
-static uint8_t loaded_sprite_pattern_valid = 0;
-static uint8_t loaded_sprite_pattern_index = 0;
+static uint8_t loaded_sprite_pattern_valid[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint8_t loaded_sprite_pattern_index[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint16_t loaded_sprite_pattern_base[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint16_t loaded_sprite_pattern_units[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint8_t loaded_sprite_palette_bank[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint8_t full_screen_bg_text_vram_dirty = 0;
 static uint8_t loaded_adpcm_valid = 0;
 static uint8_t loaded_adpcm_index = 0;
@@ -276,6 +280,9 @@ static vn_sprite_slot_t sprite_slots_storage[VN_SPRITE_SLOT_COUNT] __attribute__
 static pce_editor_sprite_draw_meta_t sprite_draw_meta;
 static uint8_t sprite_satb_slot_start[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint8_t sprite_satb_slot_count[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint8_t sprite_slot_pattern_valid[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint16_t sprite_slot_pattern_base[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint8_t sprite_slot_palette_bank[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint8_t sprite_satb_layout_valid = 0;
 
 /* spritetext overlay slots: short strings drawn with hardware sprites on top of
@@ -423,8 +430,6 @@ static void init_runtime_state(void)
     preloaded_bg_y = 0u;
     preloaded_scene_visual_valid = 0u;
     preloaded_scene_index = 0u;
-    loaded_sprite_pattern_valid = 0u;
-    loaded_sprite_pattern_index = 0u;
     full_screen_bg_text_vram_dirty = 0u;
     loaded_adpcm_valid = 0u;
     loaded_adpcm_index = 0u;
@@ -477,8 +482,16 @@ static void init_runtime_state(void)
     sprite_satb_layout_valid = 0u;
     for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
     {
+        loaded_sprite_pattern_valid[i] = 0u;
+        loaded_sprite_pattern_index[i] = 0u;
+        loaded_sprite_pattern_base[i] = 0u;
+        loaded_sprite_pattern_units[i] = 0u;
+        loaded_sprite_palette_bank[i] = 0u;
         sprite_satb_slot_start[i] = 0u;
         sprite_satb_slot_count[i] = 0u;
+        sprite_slot_pattern_valid[i] = 0u;
+        sprite_slot_pattern_base[i] = 0u;
+        sprite_slot_palette_bank[i] = 0u;
     }
     map_vn_data();
     for (i = 0u; i < pce_vn_variable_count && i < PCE_VN_VARIABLE_STORAGE_COUNT; i++)
@@ -2096,6 +2109,32 @@ static void clear_bg_map_region(const pce_editor_bg_asset_t *bg, uint16_t tile_x
     clear_map_rect_at_dest(bg_map_dest_from_tile(bg, tile_x, tile_y), bg->width_tiles, bg->height_tiles);
 }
 
+static void clear_bg_map_side_margins(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles)
+{
+    uint8_t x;
+    uint8_t y;
+    uint8_t visible_width;
+    uint8_t visible_height;
+    if (!width_tiles || !height_tiles) return;
+    x = (uint8_t)(map_dest % VN_MAP_WIDTH);
+    y = (uint8_t)(map_dest / VN_MAP_WIDTH);
+    if (y >= VN_MAP_HEIGHT) return;
+    visible_width = width_tiles;
+    visible_height = height_tiles;
+    if ((uint16_t)x + visible_width > VN_MAP_WIDTH) visible_width = (uint8_t)(VN_MAP_WIDTH - x);
+    if ((uint16_t)y + visible_height > VN_MAP_HEIGHT) visible_height = (uint8_t)(VN_MAP_HEIGHT - y);
+    if (!visible_height) return;
+    if (x)
+    {
+        clear_map_rect_at_dest((uint16_t)(map_dest - x), x, visible_height);
+    }
+    if ((uint16_t)x + visible_width < VN_MAP_WIDTH)
+    {
+        clear_map_rect_at_dest((uint16_t)(map_dest + visible_width),
+            (uint8_t)(VN_MAP_WIDTH - (x + visible_width)), visible_height);
+    }
+}
+
 static void upload_bg_graphics(const pce_editor_bg_asset_t *bg, uint16_t map_dest)
 {
     uint8_t row;
@@ -2109,7 +2148,11 @@ static void upload_bg_graphics(const pce_editor_bg_asset_t *bg, uint16_t map_des
     if (bg->map.cd && bg->map.size)
     {
         VN_MAP_BANK130_FOR_CODE();
-        if (cd_bg_map_ref_to_vram(map_dest, &bg->map, bg->width_tiles, bg->height_tiles)) return;
+        if (cd_bg_map_ref_to_vram(map_dest, &bg->map, bg->width_tiles, bg->height_tiles))
+        {
+            clear_bg_map_side_margins(map_dest, bg->width_tiles, bg->height_tiles);
+            return;
+        }
     }
 #endif
     map = data_ref_ptr(&bg->map);
@@ -2123,6 +2166,7 @@ static void upload_bg_graphics(const pce_editor_bg_asset_t *bg, uint16_t map_des
             row_bytes
         );
     }
+    clear_bg_map_side_margins(map_dest, bg->width_tiles, bg->height_tiles);
 }
 
 static uint16_t sprite_attr_for_size(uint8_t flags)
@@ -2212,13 +2256,35 @@ static uint8_t sprite_patterns_per_cell(void)
     return (uint8_t)(pattern_cols * pattern_rows * 2u);
 }
 
-static uint8_t ensure_sprite_patterns_loaded(uint8_t sprite_index, const pce_editor_data_ref_t *patterns, uint16_t pattern_base)
+static uint16_t sprite_pattern_units_for_ref(const pce_editor_data_ref_t *patterns)
 {
     if (!patterns || !patterns->size) return 0u;
-    if (loaded_sprite_pattern_valid && loaded_sprite_pattern_index == sprite_index) return 0u;
+    return (uint16_t)((patterns->size + 63u) / 64u);
+}
+
+static uint8_t sprite_pattern_ranges_overlap(uint16_t left_base, uint16_t left_units, uint16_t right_base, uint16_t right_units)
+{
+    const uint16_t left_end = (uint16_t)(left_base + left_units);
+    const uint16_t right_end = (uint16_t)(right_base + right_units);
+    return (uint8_t)(left_base < right_end && right_base < left_end);
+}
+
+static uint8_t ensure_sprite_patterns_loaded(uint8_t slot_index, uint8_t sprite_index, const pce_editor_data_ref_t *patterns, uint16_t pattern_base, uint16_t pattern_units)
+{
+    if (slot_index >= VN_SPRITE_SLOT_COUNT) return 0u;
+    if (!patterns || !patterns->size) return 0u;
+    if (loaded_sprite_pattern_valid[slot_index]
+        && loaded_sprite_pattern_index[slot_index] == sprite_index
+        && loaded_sprite_pattern_base[slot_index] == pattern_base
+        && loaded_sprite_pattern_units[slot_index] == pattern_units)
+    {
+        return 0u;
+    }
     copy_data_ref_to_vram((uint16_t)(pattern_base * 32u), patterns, 16u);
-    loaded_sprite_pattern_valid = 1u;
-    loaded_sprite_pattern_index = sprite_index;
+    loaded_sprite_pattern_valid[slot_index] = 1u;
+    loaded_sprite_pattern_index[slot_index] = sprite_index;
+    loaded_sprite_pattern_base[slot_index] = pattern_base;
+    loaded_sprite_pattern_units[slot_index] = pattern_units;
     return 1u;
 }
 
@@ -3275,6 +3341,7 @@ static uint8_t VN_BANKED_CODE2 refresh_scene_sprite_patterns_impl(void)
         uint8_t written;
         expected_count = sprite_satb_slot_count[i];
         if (!expected_count) continue;
+        if (!sprite_slot_pattern_valid[i]) return 0u;
         if (!slot->visible || slot->sprite_index < 0) return 0u;
         if (slot->animation_index < 0) continue;
         map_resident_data();
@@ -3286,8 +3353,8 @@ static uint8_t VN_BANKED_CODE2 refresh_scene_sprite_patterns_impl(void)
         sprite_draw_meta.cell_height = sprite->cell_height;
         sprite_draw_meta.cell_columns = sprite->cell_columns;
         sprite_draw_meta.cell_rows = sprite->cell_rows;
-        sprite_draw_meta.pattern_base = sprite->pattern_base;
-        sprite_draw_meta.palette_bank = sprite->palette_bank;
+        sprite_draw_meta.pattern_base = sprite_slot_pattern_base[i];
+        sprite_draw_meta.palette_bank = sprite_slot_palette_bank[i];
         map_vn_data();
         if ((uint8_t)slot->animation_index >= pce_vn_sprite_animation_count) continue;
         {
@@ -3334,7 +3401,13 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
     uint8_t i;
     uint8_t satb_index = 0u;
     const uint8_t display_active = (uint8_t)!pending_display_enable;
-    uint8_t requires_pattern_upload = 0u;
+    uint8_t requires_safe_hide = 0u;
+    uint16_t next_pattern_base = 0u;
+    uint8_t next_pattern_base_valid = 0u;
+    uint8_t next_palette_bank = 0u;
+    uint8_t next_palette_bank_valid = 0u;
+    uint8_t sprite_pattern_capacity_exhausted = 0u;
+    uint8_t sprite_palette_capacity_exhausted = 0u;
     if (pending_sprite_refresh == VN_SPRITE_REFRESH_PATTERNS && refresh_scene_sprite_patterns())
     {
         pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
@@ -3345,22 +3418,96 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
     {
         sprite_satb_slot_start[i] = 0u;
         sprite_satb_slot_count[i] = 0u;
+        sprite_slot_pattern_valid[i] = 0u;
+        sprite_slot_pattern_base[i] = 0u;
+        sprite_slot_palette_bank[i] = 0u;
     }
     map_vn_data();
     map_resident_data();
     for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
     {
         const vn_sprite_slot_t *slot = &sprite_slots[i];
-        if (!slot->visible || slot->sprite_index < 0) continue;
-        if ((uint8_t)slot->sprite_index >= pce_editor_sprite_asset_count) continue;
-        if (!loaded_sprite_pattern_valid || loaded_sprite_pattern_index != (uint8_t)slot->sprite_index)
+        const pce_editor_sprite_asset_t *sprite;
+        uint16_t pattern_units;
+        uint8_t j;
+        uint8_t palette_bank;
+        if (sprite_pattern_capacity_exhausted || sprite_palette_capacity_exhausted)
         {
-            requires_pattern_upload = 1u;
+            continue;
+        }
+        if (!slot->visible || slot->sprite_index < 0)
+        {
+            continue;
+        }
+        if ((uint8_t)slot->sprite_index >= pce_editor_sprite_asset_count)
+        {
+            continue;
+        }
+        sprite = vn_get_sprite_asset((uint8_t)slot->sprite_index);
+        pattern_units = sprite_pattern_units_for_ref(&sprite->patterns);
+        if (!pattern_units)
+        {
+            continue;
+        }
+        if (!next_pattern_base_valid)
+        {
+            next_pattern_base = (uint16_t)sprite->pattern_base;
+            next_pattern_base_valid = 1u;
+        }
+        if (!next_palette_bank_valid)
+        {
+            next_palette_bank = sprite->palette_bank;
+            next_palette_bank_valid = 1u;
+        }
+        if (((unsigned int)next_pattern_base + (unsigned int)pattern_units) > (unsigned int)VN_SPRITE_PATTERN_END_BASE)
+        {
+            sprite_pattern_capacity_exhausted = 1u;
+            continue;
+        }
+        if (next_palette_bank >= PCE_VN_FONT_SPRITE_PALETTE_BANK)
+        {
+            sprite_palette_capacity_exhausted = 1u;
+            continue;
+        }
+        palette_bank = next_palette_bank;
+        sprite_slot_pattern_base[i] = next_pattern_base;
+        sprite_slot_palette_bank[i] = palette_bank;
+        sprite_slot_pattern_valid[i] = 1u;
+        if (!loaded_sprite_pattern_valid[i]
+            || loaded_sprite_pattern_index[i] != (uint8_t)slot->sprite_index
+            || loaded_sprite_pattern_base[i] != next_pattern_base
+            || loaded_sprite_pattern_units[i] != pattern_units)
+        {
+            for (j = 0u; j < VN_SPRITE_SLOT_COUNT; j++)
+            {
+                if (!loaded_sprite_pattern_valid[j]) continue;
+                if (i == j
+                    && loaded_sprite_pattern_index[j] == (uint8_t)slot->sprite_index
+                    && loaded_sprite_pattern_base[j] == next_pattern_base
+                    && loaded_sprite_pattern_units[j] == pattern_units)
+                {
+                    continue;
+                }
+                if (sprite_pattern_ranges_overlap(next_pattern_base, pattern_units, loaded_sprite_pattern_base[j], loaded_sprite_pattern_units[j]))
+                {
+                    requires_safe_hide = 1u;
+                    break;
+                }
+            }
+        }
+        for (j = 0u; j < VN_SPRITE_SLOT_COUNT; j++)
+        {
+            if (!loaded_sprite_pattern_valid[j]) continue;
+            if (loaded_sprite_palette_bank[j] != palette_bank) continue;
+            if (i == j && loaded_sprite_pattern_index[j] == (uint8_t)slot->sprite_index) continue;
+            requires_safe_hide = 1u;
             break;
         }
+        next_pattern_base = (uint16_t)(next_pattern_base + pattern_units);
+        next_palette_bank = (uint8_t)(next_palette_bank + 1u);
     }
     clear_sprites();
-    if (display_active && requires_pattern_upload)
+    if (display_active && requires_safe_hide)
     {
         sprite_layer_disable();
         upload_sprite_table();
@@ -3374,6 +3521,7 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
         const pce_editor_sprite_asset_t *sprite;
         const uint8_t *sprite_cell_map;
         uint8_t sprite_index;
+        if (!sprite_slot_pattern_valid[i]) continue;
         if (!slot->visible || slot->sprite_index < 0) continue;
         map_resident_data();
         if ((uint8_t)slot->sprite_index >= pce_editor_sprite_asset_count) continue;
@@ -3384,8 +3532,8 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
         sprite_draw_meta.cell_height = sprite->cell_height;
         sprite_draw_meta.cell_columns = sprite->cell_columns;
         sprite_draw_meta.cell_rows = sprite->cell_rows;
-        sprite_draw_meta.pattern_base = sprite->pattern_base;
-        sprite_draw_meta.palette_bank = sprite->palette_bank;
+        sprite_draw_meta.pattern_base = sprite_slot_pattern_base[i];
+        sprite_draw_meta.palette_bank = sprite_slot_palette_bank[i];
         map_vn_data();
         if (slot->animation_index >= 0 && (uint8_t)slot->animation_index < pce_vn_sprite_animation_count)
         {
@@ -3413,7 +3561,8 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
            snapshot before the remaps. */
         __asm__ volatile("" ::: "memory");
         upload_palette(&sprite->palette, (uint16_t)(256u + (sprite_draw_meta.palette_bank * 16u)), 1);
-        (void)ensure_sprite_patterns_loaded(sprite_index, &sprite->patterns, sprite_draw_meta.pattern_base);
+        loaded_sprite_palette_bank[i] = sprite_draw_meta.palette_bank;
+        (void)ensure_sprite_patterns_loaded(i, sprite_index, &sprite->patterns, sprite_draw_meta.pattern_base, sprite_pattern_units_for_ref(&sprite->patterns));
         {
             uint8_t written;
             sprite_satb_slot_start[i] = satb_index;
@@ -3434,10 +3583,14 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
     satb_index = (uint8_t)(satb_index + draw_spritetext_slots(satb_index));
     sprite_satb_layout_valid = 1u;
     upload_sprite_table();
-    if (display_active)
+    for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
+    {
+        if (!sprite_slot_pattern_valid[i]) loaded_sprite_pattern_valid[i] = 0u;
+    }
+    if (display_active && requires_safe_hide)
     {
         sprite_layer_enable();
-        if (requires_pattern_upload) delay_frame();
+        delay_frame();
     }
     pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
 }
@@ -3851,6 +4004,7 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
     const uint8_t bg_position_changed = (uint8_t)(current_bg_x != next_x || current_bg_y != next_y);
     const uint8_t restore_display_after_bg_load = (uint8_t)!pending_display_enable;
     uint8_t bg_ready;
+    uint8_t i;
     if (bg_index < 0 || (uint8_t)bg_index >= pce_editor_bg_asset_count) return;
     next_bg = vn_get_bg_asset((uint8_t)bg_index);
     if (bg_fade_out_frames && current_bg_index >= 0 && !pending_display_enable && current_bg_palette_size)
@@ -3885,7 +4039,10 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
         if (current_scene_full_screen_bg)
         {
             full_screen_bg_text_vram_dirty = 1u;
-            loaded_sprite_pattern_valid = 0u;
+            for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
+            {
+                loaded_sprite_pattern_valid[i] = 0u;
+            }
         }
         if (restore_display_after_bg_load) display_enable();
         preloaded_bg_valid = 1u;

@@ -476,8 +476,8 @@ test('PCE ADPCM streaming import keeps long samples as one CD data file', (t) =>
   assert.match(header, /unsigned long data_size;/);
   // ADPCM descriptors are CD on-demand now: a constant region directory + the
   // record bytes in ASSET_META_FILE (adpcm.bin@64, meta@65 -> adpcm region@65).
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta = \{ \{ 65u, 0u, 0u \}, 1u \};/);
-  assert.match(source, /const unsigned char pce_editor_adpcm_asset_count = 1;/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 65u, 0u, 0u \}, 1u \};/);
+  assert.match(source, /const unsigned char pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
   assert.doesNotMatch(source, /pce_editor_adpcm_long_stream_data_cd PCE_EDITOR_CD_REF_SECTION/);
   const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
   assert.equal(meta.readUInt16LE(6), 8000); // sample_rate
@@ -504,6 +504,14 @@ test('PCE image import generates BG and sprite assets with the internal converte
     id: 'hero',
     cellWidth: 32,
     cellHeight: 32,
+  });
+  const tallSprite = assetManager.importImage(projectDir, {
+    sourceFileName: 'tall-hero.png',
+    convertedDataUrl: makePngDataUrl(64, 64),
+    kind: 'sprite',
+    id: 'tall_hero',
+    cellWidth: 32,
+    cellHeight: 64,
   });
   const overlapSprite = assetManager.importImage(projectDir, {
     sourceFileName: 'talking-hero.png',
@@ -546,16 +554,19 @@ test('PCE image import generates BG and sprite assets with the internal converte
   assert.equal(sprite.commandInfo.outputKind, 'sprite');
   assert.equal(fs.existsSync(path.join(projectDir, sprite.asset.data.generated.paletteFile)), true);
   assert.equal(fs.existsSync(path.join(projectDir, sprite.asset.data.generated.tilesFile)), true);
-  // The 32x32 checkerboard sprite has 4 cells but only 2 are unique, so the
-  // deduplicated pattern buffer is 2 * 128 = 256 bytes.
-  assert.equal(fs.readFileSync(path.join(projectDir, sprite.asset.data.generated.tilesFile)).length, 256);
-  assert.equal(sprite.asset.data.generated.tileCount, 2);
-  // The cell map keeps one entry per positional sheet cell (4) pointing into the
-  // 2 unique patterns.
+  // A 32x32 display cell is stored as one contiguous block of four 16x16 PCE
+  // sprite patterns, so SATB can reference the cell by its block base.
+  assert.equal(fs.readFileSync(path.join(projectDir, sprite.asset.data.generated.tilesFile)).length, 512);
+  assert.equal(sprite.asset.data.generated.tileCount, 4);
+  // The cell map keeps one entry per positional display cell, not per 16x16
+  // subpattern.
   assert.equal(fs.existsSync(path.join(projectDir, sprite.asset.data.generated.cellMapFile)), true);
   const heroCellMap = fs.readFileSync(path.join(projectDir, sprite.asset.data.generated.cellMapFile));
-  assert.equal(heroCellMap.length, 4);
-  assert.ok(Array.from(heroCellMap).every((slot) => slot < 2));
+  assert.deepEqual(Array.from(heroCellMap), [0]);
+  assert.equal(fs.readFileSync(path.join(projectDir, tallSprite.asset.data.generated.tilesFile)).length, 1024);
+  assert.equal(tallSprite.asset.data.generated.tileCount, 8);
+  const tallHeroCellMap = fs.readFileSync(path.join(projectDir, tallSprite.asset.data.generated.cellMapFile));
+  assert.deepEqual(Array.from(tallHeroCellMap), [0, 0]);
   assert.match(sprite.asset.source, /^assets\/sprites\/hero\.png$/);
   assert.match(overlapSprite.asset.data.generated.warnings.join('\n'), /Sprite patterns overlap the SATB VRAM area/);
   assert.equal(webp.asset.type, 'image');
@@ -814,9 +825,9 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.match(header, /unsigned char stream;/);
   assert.match(header, /pce_editor_cdda_asset_t/);
   assert.doesNotMatch(header, /const char \*id;/);
-  assert.match(source, /static const unsigned char pce_editor_image_bg_palette\[\]/);
-  assert.match(source, /static const unsigned char pce_editor_sprite_spr_patterns\[\]/);
-  assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_beep_pattern\[\]/);
+  assert.match(source, /static const unsigned char pce_editor_image_bg_palette\[\] PCE_EDITOR_RODATA_SECTION/);
+  assert.match(source, /static const unsigned char pce_editor_sprite_spr_patterns\[\] PCE_EDITOR_RODATA_SECTION/);
+  assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_beep_pattern\[\] PCE_EDITOR_RODATA_SECTION/);
   // PSG step carries a noise flag so MIDI drums can map to PSG noise (ch4/5).
   assert.match(header, /typedef struct __attribute__\(\(packed\)\) \{[\s\S]*unsigned int step;[\s\S]*unsigned char noise;[\s\S]*unsigned char reserved;\n\} pce_editor_psg_step_t;/);
   assert.match(source, /\{ 3u, 4u, 5u, 16u, 1u, 0u \}/);
@@ -824,15 +835,15 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   // while large imported songs stream from CD (see the streaming test below).
   assert.match(header, /const pce_editor_cd_data_ref_t \*pattern_cd;\n\} pce_editor_psg_asset_t;/);
   assert.match(source, /pce_editor_psg_beep_pattern, 3u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
-  assert.match(source, /static const unsigned char pce_editor_adpcm_voice_data\[\]/);
+  assert.match(source, /static const unsigned char pce_editor_adpcm_voice_data\[\] PCE_EDITOR_RODATA_SECTION/);
   assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_tiles, 64u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_map, 8u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, 2u, 2u, 64u, 0u, 0u \}/);
   assert.match(source, /\{ pce_editor_adpcm_voice_data, 4ul, 16000u, 0u, 14u, 0u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
-  assert.match(source, /const unsigned char pce_editor_bg_asset_count = 1/);
-  assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] = \{\n  \{ 16u, 16u, 1u, 1u, 384u, 0u \}\n\};/);
-  assert.match(source, /const unsigned char pce_editor_sprite_asset_count = 1/);
-  assert.match(source, /const unsigned char pce_editor_psg_asset_count = 1/);
-  assert.match(source, /const unsigned char pce_editor_adpcm_asset_count = 1/);
-  assert.match(source, /const unsigned char pce_editor_cdda_asset_count = 1/);
+  assert.match(source, /const unsigned char pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
+  assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] PCE_EDITOR_RODATA_SECTION = \{\n  \{ 16u, 16u, 1u, 1u, 384u, 0u \}\n\};/);
+  assert.match(source, /const unsigned char pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
+  assert.match(source, /const unsigned char pce_editor_psg_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
+  assert.match(source, /const unsigned char pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
+  assert.match(source, /const unsigned char pce_editor_cdda_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
   assert.match(source, /pce_editor_image_rows/);
 });
 
@@ -931,12 +942,12 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_CD 15u/);
   // Resident directory: payloads occupy sectors 64..69, so the meta file lands at
   // sector 70; its regions are bg@70, sprite@71, adpcm@72.
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta = \{ \{ 70u, 0u, 0u \}, 1u \};/);
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_sprite_meta = \{ \{ 71u, 0u, 0u \}, 1u \};/);
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta = \{ \{ 72u, 0u, 0u \}, 1u \};/);
-  assert.match(source, /const unsigned char pce_editor_bg_asset_count = 1;/);
-  assert.match(source, /const unsigned char pce_editor_sprite_asset_count = 1;/);
-  assert.match(source, /const unsigned char pce_editor_adpcm_asset_count = 1;/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 70u, 0u, 0u \}, 1u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 71u, 0u, 0u \}, 1u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 72u, 0u, 0u \}, 1u \};/);
+  assert.match(source, /const unsigned char pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
+  assert.match(source, /const unsigned char pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
+  assert.match(source, /const unsigned char pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
   // The resident arrays and per-asset cd refs are no longer emitted on CD.
   assert.doesNotMatch(source, /pce_editor_bg_assets\[\] = \{/);
   assert.doesNotMatch(source, /pce_editor_sprite_draw_meta\[\] = \{/);
@@ -1203,7 +1214,7 @@ test('PCE CD build streams large PSG patterns from CD and keeps small ones resid
   assert.match(source, /\(const pce_editor_psg_step_t \*\)0, 1300u, &pce_editor_psg_song_pattern_cd \}/);
   assert.doesNotMatch(source, /pce_editor_psg_song_pattern\[\] =/);
   // Small blip stays resident: array emitted, cd pointer null.
-  assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_blip_pattern\[\] = \{/);
+  assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_blip_pattern\[\] PCE_EDITOR_RODATA_SECTION = \{/);
   assert.match(source, /pce_editor_psg_blip_pattern, 1u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
   assert.ok(!fs.existsSync(path.join(projectDir, 'assets/generated/psg/blip.bin')));
 });

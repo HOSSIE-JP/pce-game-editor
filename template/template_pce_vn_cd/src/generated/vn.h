@@ -159,7 +159,7 @@ extern const pce_vn_cd_data_ref_t pce_vn_overlay_data;
 #else
 extern const unsigned char pce_vn_font_tiles[];
 #endif
-extern const unsigned char pce_vn_font_glyph_count;
+extern const unsigned int pce_vn_font_glyph_count;
 void pce_vn_font_tiles_map(void);
 #if defined(__PCE_CD__)
 extern const pce_vn_cd_data_ref_t pce_vn_font_sprite_data;

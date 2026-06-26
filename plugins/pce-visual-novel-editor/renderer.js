@@ -12,6 +12,8 @@ const PCE_SCREEN_HEIGHT = 224;
 const MESSAGE_AREA = { x: 24, y: 160, cols: 17, rows: 4, cellW: 12, cellH: 16 };
 const DEFAULT_CHARACTER_Y = 24;
 const COLUMN_LAYOUT_KEY = 'pce-vn-editor.columnLayout.v1';
+const SCENE_GROUP_COLLAPSE_KEY = 'pce-vn-editor.sceneGroupCollapse.v1';
+const COMMAND_LIBRARY_COLLAPSED_KEY = 'pce-vn-editor.commandLibraryCollapsed.v1';
 const DEFAULT_COLUMN_LAYOUT = { left: 320, right: 440 };
 const MIN_LEFT_WIDTH = 240;
 const MAX_LEFT_WIDTH = 520;
@@ -179,6 +181,63 @@ function normalizeSceneName(value) {
 
 function cleanSceneNameInput(value) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').slice(0, 96);
+}
+
+function sceneDisplayName(item = {}) {
+  const name = String(item.name || '').trim();
+  return name || item.id || 'scene';
+}
+
+function scenePathParts(item = {}) {
+  const source = String(item.name || '').trim();
+  if (!source) return [String(item.id || 'scene')];
+  const parts = source.split('/').map((part) => part.trim()).filter(Boolean);
+  return parts.length ? parts : [String(item.id || 'scene')];
+}
+
+function sceneDirectoryParts(item = {}) {
+  const parts = scenePathParts(item);
+  return String(item.name || '').trim() && parts.length > 1 ? parts.slice(0, -1) : [];
+}
+
+function sceneLeafName(item = {}) {
+  const parts = scenePathParts(item);
+  return parts[parts.length - 1] || sceneDisplayName(item);
+}
+
+function sceneOptionLabel(item = {}) {
+  const name = sceneDisplayName(item);
+  return name === item.id ? item.id : `${name} (${item.id})`;
+}
+
+function sceneGroupPath(dirs = [], index = 0) {
+  return dirs.slice(0, index + 1).join('/');
+}
+
+function sceneHasCollapsedAncestor(dirs = [], collapsedDirs = new Set(), maxDepth = dirs.length) {
+  const limit = Math.min(maxDepth, dirs.length);
+  for (let index = 0; index < limit; index += 1) {
+    if (collapsedDirs.has(sceneGroupPath(dirs, index))) return true;
+  }
+  return false;
+}
+
+function buildSceneListRows(scenes = [], collapsedDirs = new Set()) {
+  const rows = [];
+  let activeDirs = [];
+  scenes.forEach((item) => {
+    const dirs = sceneDirectoryParts(item);
+    let common = 0;
+    while (common < dirs.length && dirs[common] === activeDirs[common]) common += 1;
+    for (let index = common; index < dirs.length; index += 1) {
+      if (sceneHasCollapsedAncestor(dirs, collapsedDirs, index)) continue;
+      const path = sceneGroupPath(dirs, index);
+      rows.push({ type: 'group', name: dirs[index], path, depth: index, collapsed: collapsedDirs.has(path) });
+    }
+    if (!sceneHasCollapsedAncestor(dirs, collapsedDirs)) rows.push({ type: 'scene', item, depth: dirs.length });
+    activeDirs = dirs;
+  });
+  return rows;
 }
 
 function signedValue(value, fallback = 0) {
@@ -1679,7 +1738,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   root.innerHTML = `
     <div class="pce-vn-shell">
       <aside class="pce-vn-list">
-        <section class="pce-vn-sidebar-section">
+        <section class="pce-vn-sidebar-section pce-vn-scene-library" data-role="scene-library">
           <div class="pce-vn-header">
             <h2>Scenes</h2>
             <div class="pce-vn-actions">
@@ -1689,14 +1748,19 @@ export function activatePlugin({ root, api, registerCapability }) {
           </div>
           <div class="pce-vn-items" data-role="scene-list"></div>
         </section>
-        <section class="pce-vn-sidebar-section pce-vn-command-library">
-          <div class="pce-vn-header">
+        <section class="pce-vn-sidebar-section pce-vn-command-library" data-role="command-library">
+          <div class="pce-vn-header pce-vn-command-toggle-region" data-role="command-library-toggle" title="Toggle Commands">
             <h2>Commands</h2>
+            <button class="icon-btn pce-vn-section-toggle" type="button" data-action="toggle-commands" title="Toggle Commands" aria-label="Toggle Commands" aria-expanded="true">
+              <span data-role="command-library-chevron" aria-hidden="true">▾</span>
+            </button>
           </div>
-          <div class="pce-vn-command-search">
-            <input class="form-input" data-role="command-search" placeholder="コマンド検索" aria-label="コマンド検索" />
+          <div class="pce-vn-command-body" data-role="command-library-body">
+            <div class="pce-vn-command-search">
+              <input class="form-input" data-role="command-search" placeholder="コマンド検索" aria-label="コマンド検索" />
+            </div>
+            <div class="pce-vn-command-palette" data-role="command-palette"></div>
           </div>
-          <div class="pce-vn-command-palette" data-role="command-palette"></div>
         </section>
       </aside>
       <div class="pce-vn-column-resizer" data-column-resizer="left" role="separator" aria-orientation="vertical" aria-label="左列幅"></div>
@@ -1750,12 +1814,17 @@ export function activatePlugin({ root, api, registerCapability }) {
   `;
 
   const shell = root.querySelector('.pce-vn-shell');
+  const listEl = root.querySelector('.pce-vn-list');
   const sceneList = root.querySelector('[data-role="scene-list"]');
   const commandsEl = root.querySelector('[data-role="commands"]');
   const detailForm = root.querySelector('[data-role="command-detail"]');
   const commandPreviewEl = root.querySelector('[data-role="command-preview"]');
   const commandSearchInput = root.querySelector('[data-role="command-search"]');
   const commandPaletteEl = root.querySelector('[data-role="command-palette"]');
+  const commandLibrarySection = root.querySelector('[data-role="command-library"]');
+  const commandLibraryHeader = root.querySelector('[data-role="command-library-toggle"]');
+  const commandLibraryToggle = root.querySelector('[data-action="toggle-commands"]');
+  const commandLibraryChevron = root.querySelector('[data-role="command-library-chevron"]');
   const errorEl = root.querySelector('[data-role="error"]');
   const sceneBudgetEl = root.querySelector('[data-role="scene-budget"]');
   const sceneFullScreenBgInput = root.querySelector('[data-role="scene-fullscreen-bg"]');
@@ -1769,6 +1838,8 @@ export function activatePlugin({ root, api, registerCapability }) {
   let editorMode = 'gui';
   let commandSearch = '';
   let columnLayout = loadColumnLayout();
+  let collapsedSceneGroups = loadCollapsedSceneGroups();
+  let commandLibraryCollapsed = loadCommandLibraryCollapsed();
   let pointerDrag = null;
   let sceneDragId = '';
   let suppressCommandClick = false;
@@ -1807,33 +1878,6 @@ export function activatePlugin({ root, api, registerCapability }) {
   const scene = () => doc.scenes.find((item) => item.id === selectedId) || doc.scenes[0] || null;
   const assetById = (id) => assets.find((asset) => asset.id === id) || null;
   const systemSettings = () => normalizeSystemSettings(doc.settings);
-
-  function sceneDisplayName(item = {}) {
-    const name = String(item.name || '').trim();
-    return name || item.id || 'scene';
-  }
-
-  function scenePathParts(item = {}) {
-    const source = String(item.name || '').trim();
-    if (!source) return [String(item.id || 'scene')];
-    const parts = source.split('/').map((part) => part.trim()).filter(Boolean);
-    return parts.length ? parts : [String(item.id || 'scene')];
-  }
-
-  function sceneLeafName(item = {}) {
-    const parts = scenePathParts(item);
-    return parts[parts.length - 1] || sceneDisplayName(item);
-  }
-
-  function sceneGroupName(item = {}) {
-    const parts = scenePathParts(item);
-    return String(item.name || '').trim() && parts.length > 1 ? parts.slice(0, -1).join('/') : '';
-  }
-
-  function sceneOptionLabel(item = {}) {
-    const name = sceneDisplayName(item);
-    return name === item.id ? item.id : `${name} (${item.id})`;
-  }
 
   function spriteAssetIdForSlotAt(slot, commandIndex = selectedCommandIndex) {
     const current = scene();
@@ -2114,10 +2158,47 @@ export function activatePlugin({ root, api, registerCapability }) {
     } catch (_) {}
   }
 
+  function loadCollapsedSceneGroups() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(SCENE_GROUP_COLLAPSE_KEY) || '[]');
+      if (Array.isArray(parsed)) return new Set(parsed.filter(Boolean).map((item) => String(item)));
+    } catch (_) {}
+    return new Set();
+  }
+
+  function saveCollapsedSceneGroups(collapsedGroups = collapsedSceneGroups) {
+    try {
+      localStorage.setItem(SCENE_GROUP_COLLAPSE_KEY, JSON.stringify([...collapsedGroups].sort()));
+    } catch (_) {}
+  }
+
+  function loadCommandLibraryCollapsed() {
+    try {
+      return localStorage.getItem(COMMAND_LIBRARY_COLLAPSED_KEY) === '1';
+    } catch (_) {}
+    return false;
+  }
+
+  function saveCommandLibraryCollapsed() {
+    try {
+      localStorage.setItem(COMMAND_LIBRARY_COLLAPSED_KEY, commandLibraryCollapsed ? '1' : '0');
+    } catch (_) {}
+  }
+
   function applyColumnLayout() {
     shell.style.setProperty('--pce-vn-left-width', `${columnLayout.left}px`);
     shell.style.setProperty('--pce-vn-right-width', `${columnLayout.right}px`);
   }
+
+  function applyCommandLibraryState({ persist = false } = {}) {
+    listEl?.classList.toggle('is-command-library-collapsed', commandLibraryCollapsed);
+    commandLibrarySection?.classList.toggle('is-collapsed', commandLibraryCollapsed);
+    commandLibraryToggle?.setAttribute('aria-expanded', String(!commandLibraryCollapsed));
+    if (commandLibraryChevron) commandLibraryChevron.textContent = commandLibraryCollapsed ? '▸' : '▾';
+    if (persist) saveCommandLibraryCollapsed();
+  }
+
+  applyCommandLibraryState();
 
   function resizeColumns(event) {
     const side = event.currentTarget?.dataset?.columnResizer;
@@ -2479,24 +2560,29 @@ export function activatePlugin({ root, api, registerCapability }) {
   }
 
   function renderSceneList() {
-    let lastGroup = '';
-    sceneList.innerHTML = doc.scenes.map((item) => {
+    sceneList.innerHTML = buildSceneListRows(doc.scenes, collapsedSceneGroups).map((row) => {
+      if (row.type === 'group') {
+        const depth = Math.min(4, Math.max(0, row.depth || 0));
+        const expanded = !row.collapsed;
+        return `
+          <button class="pce-vn-scene-group ${expanded ? '' : 'is-collapsed'}" type="button" data-scene-group="${esc(row.path)}" data-scene-group-toggle="${esc(row.path)}" data-depth="${depth}" style="--scene-depth:${depth}" title="${esc(row.path)}" aria-expanded="${expanded}">
+            <span class="pce-vn-scene-group-chevron" aria-hidden="true">${expanded ? '▾' : '▸'}</span>
+            <span class="pce-vn-scene-group-mark" aria-hidden="true"></span>
+            <span>${esc(row.name)}</span>
+          </button>
+        `;
+      }
+      const item = row.item;
       const firstMessage = item.commands.find((command) => command.type === 'message');
       const canDelete = doc.scenes.length > 1;
       const bytes = estimateScenePackBytes(item);
       const level = bytes > VN_SCENE_PACK_LIMIT ? 'error' : (bytes / VN_SCENE_PACK_LIMIT >= 0.85 ? 'warn' : 'ok');
-      const group = sceneGroupName(item);
-      const groupHeader = group && group !== lastGroup
-        ? `<div class="pce-vn-scene-group" title="${esc(group)}">${esc(group.replace(/\//g, ' / '))}</div>`
-        : '';
-      lastGroup = group;
-      const depth = Math.min(3, Math.max(0, scenePathParts(item).length - 1));
+      const depth = Math.min(4, Math.max(0, row.depth || 0));
       const idMeta = String(item.name || '').trim() ? `<small>ID ${esc(item.id)}</small>` : '';
       const badge = level === 'ok'
         ? ''
         : `<span class="pce-vn-scene-budget-badge" data-level="${level}" title="scene pack ${bytes} / ${VN_SCENE_PACK_LIMIT} byte">${level === 'error' ? '⚠ 超過' : `${Math.round((bytes / VN_SCENE_PACK_LIMIT) * 100)}%`}</span>`;
       return `
-        ${groupHeader}
         <div class="pce-vn-scene-row ${item.id === selectedId ? 'active' : ''}" data-scene-row="${esc(item.id)}" draggable="true" style="--scene-depth:${depth}">
           <button type="button" data-scene-id="${esc(item.id)}" class="pce-vn-scene-select">
             <span class="pce-vn-drag-handle" aria-hidden="true">::</span>
@@ -2530,6 +2616,16 @@ export function activatePlugin({ root, api, registerCapability }) {
       button.addEventListener('click', (event) => {
         event.stopPropagation();
         deleteScene(button.dataset.sceneDelete || selectedId);
+      });
+    });
+    sceneList.querySelectorAll('[data-scene-group-toggle]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const path = button.dataset.sceneGroupToggle || '';
+        if (!path) return;
+        if (collapsedSceneGroups.has(path)) collapsedSceneGroups.delete(path);
+        else collapsedSceneGroups.add(path);
+        saveCollapsedSceneGroups(collapsedSceneGroups);
+        renderSceneList();
       });
     });
   }
@@ -3339,6 +3435,11 @@ export function activatePlugin({ root, api, registerCapability }) {
     sceneNameInput.value = current.name || '';
     root.querySelector('[data-role="scene-title"]').textContent = sceneDisplayName(current);
     renderSceneList();
+  });
+
+  commandLibraryHeader?.addEventListener('click', () => {
+    commandLibraryCollapsed = !commandLibraryCollapsed;
+    applyCommandLibraryState({ persist: true });
   });
 
   commandSearchInput.addEventListener('input', () => {
