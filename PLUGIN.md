@@ -809,7 +809,7 @@ Sprite asset は `options.animations` で VN runtime 向けの差分アニメー
 
 **各フレームの表示時間（per-frame display time）**: `frameDelay` は全フレーム共通の既定値、`frameDelays`（長さ `frameCount` の配列）は **1 フレームごとの表示フレーム数**です。スプライトエディタの time フィールド（`spriteEditor.time` = `[[行0…][行1…]]` 行列、1 行 = 1 animation）から保存され、build 時に各 animation の per-frame テーブルとして `vn.c` に出力されます（`pce_vn_sprite_anim_delays_N[]`、resident rodata）。`pce_vn_sprite_anim_t.frame_delays` がこのテーブルを指し、runtime の `tick_sprite_animations()` は **現在フレームの `frame_delays[frame]`** で各フレームを送ります（空セルや legacy data で `frame_delays` が無い場合は `frame_delay` にフォールバック）。`frameDelays` を持たない旧 asset でも、`spriteEditor.time` 行列があれば正規化時に per-frame 値へ移行します。time フィールドは右ペインから直接編集でき、上部の Time フィールド（ROW/Frame 選択）でセル単位の編集も可能です。
 
-VN runtime は `template/template_pce_vn_cd/src/pce_vn_runtime.c` を共通実体とし、各 project の `src/main.c` は `#include "pce_vn_runtime.c"` の薄い wrapper です。`pce-vn-manager.prepareVisualNovelBuild()` と `plugins/pce-sample-builder` は build 前に `main.c` と `pce_vn_runtime.c` を project `src/` へ同期します。runtime の変更はこの共通 source を更新してください。
+VN runtime は `template/template_pce_vn_cd/src/pce_vn_runtime.c` を共通実体とし、各 project の `src/main.c` は `#include "pce_vn_runtime.c"` の薄い wrapper です。build 本体の `pce-vn-manager.prepareVisualNovelBuild()` が build 前に `main.c` と `pce_vn_runtime.c` を project `src/` へ同期します。Test Play など `skipClean` 付きの build では、`assets/generated/vn/build-stamp.json` の署名が一致し、必要な generated output が残っている場合に VN スクリプト生成をスキップします。`plugins/pce-sample-builder` の `onBuildStart` は重い VN 生成を先に実行せず、開始ログだけを出します。runtime の変更はこの共通 source を更新してください。
 
 ### PCE VN scene schema
 

@@ -2,11 +2,14 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const assetManager = require('./pce-asset-manager');
 
 const VN_SCENE_FILE = path.join('assets', 'pce-vn-scenes.json');
 const VN_FONT_FILE = path.join('assets', 'pce-font.json');
+const VN_BUILD_STAMP_FILE = path.join('assets', 'generated', 'vn', 'build-stamp.json');
+const VN_BUILD_STAMP_VERSION = 1;
 // BG message / choice glyph streams stay byte-oriented so the common case costs
 // one byte per glyph, but a 0xfd escape prefix lets the project-wide font exceed
 // the old 254-glyph cap: glyph indices 0..252 are written as a single byte, while
@@ -255,6 +258,121 @@ const DEFAULT_FONT_CONFIG = {
 
 function ensureDirSync(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function formatBuildDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '0 ms';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 10000) return `${(ms / 1000).toFixed(2)} s`;
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+function logBuildTiming(logger, label, startedAt, detail = '') {
+  if (!logger || typeof logger.info !== 'function') return;
+  const suffix = detail ? ` (${detail})` : '';
+  logger.info(`VN timing: ${label} done in ${formatBuildDuration(Date.now() - startedAt)}${suffix}`);
+}
+
+function sha1Text(text) {
+  return crypto.createHash('sha1').update(String(text || '')).digest('hex');
+}
+
+function readTextHash(absPath) {
+  try {
+    return fs.existsSync(absPath) ? sha1Text(fs.readFileSync(absPath, 'utf-8')) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function readProjectTextHash(projectDir, relativePath) {
+  return readTextHash(path.join(projectDir, normalizeRelativePath(relativePath)));
+}
+
+function fileSizeSignature(projectDir, relativePath) {
+  const normalized = normalizeRelativePath(relativePath || '');
+  if (!normalized) return { path: '', exists: false, size: 0 };
+  const absPath = path.isAbsolute(normalized) ? normalized : path.join(projectDir, normalized);
+  try {
+    const stat = fs.statSync(absPath);
+    return { path: normalized, exists: stat.isFile(), size: stat.isFile() ? stat.size : 0 };
+  } catch (_) {
+    return { path: normalized, exists: false, size: 0 };
+  }
+}
+
+function vnBuildStampPath(projectDir) {
+  return path.join(projectDir, VN_BUILD_STAMP_FILE);
+}
+
+function readVnBuildStamp(projectDir) {
+  try {
+    const stamp = JSON.parse(fs.readFileSync(vnBuildStampPath(projectDir), 'utf-8'));
+    return stamp && stamp.version === VN_BUILD_STAMP_VERSION ? stamp : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeVnBuildStamp(projectDir, stamp) {
+  const stampPath = vnBuildStampPath(projectDir);
+  ensureDirSync(path.dirname(stampPath));
+  fs.writeFileSync(stampPath, JSON.stringify(stamp, null, 2), 'utf-8');
+}
+
+function updateVisualNovelBuildStamp(projectDir, config = {}, generated = {}, mergedDataFiles = [], mergedCddaTracks = []) {
+  if (!generated || typeof generated !== 'object') return null;
+  const stampGenerated = { ...generated };
+  delete stampGenerated.incrementalSkipped;
+  const signature = vnBuildSignature(projectDir, config, mergedDataFiles, mergedCddaTracks);
+  const stamp = {
+    version: VN_BUILD_STAMP_VERSION,
+    signature,
+    generated: stampGenerated,
+    mergedDataFiles: (Array.isArray(mergedDataFiles) ? mergedDataFiles : []).map((entry) => normalizeRelativePath(entry || '')).filter(Boolean),
+    mergedCddaTracks: (Array.isArray(mergedCddaTracks) ? mergedCddaTracks : []).map((entry) => normalizeRelativePath(entry || '')).filter(Boolean),
+    updatedAt: new Date().toISOString(),
+  };
+  writeVnBuildStamp(projectDir, stamp);
+  return stamp;
+}
+
+function vnBuildSignature(projectDir, _config = {}, mergedDataFiles = [], mergedCddaTracks = []) {
+  const templateDir = templateRuntimeDir();
+  const signature = {
+    version: VN_BUILD_STAMP_VERSION,
+    generator: {
+      manager: readTextHash(__filename),
+      runtime: readTextHash(path.join(templateDir, 'pce_vn_runtime.c')),
+      main: readTextHash(path.join(templateDir, 'main.c')),
+    },
+    inputs: {
+      scenes: readProjectTextHash(projectDir, VN_SCENE_FILE),
+      assets: readProjectTextHash(projectDir, assetManager.ASSET_FILE || path.join('assets', 'pce-assets.json')),
+      font: readProjectTextHash(projectDir, VN_FONT_FILE),
+    },
+    outputSizes: (Array.isArray(mergedDataFiles) ? mergedDataFiles : [])
+      .map((entry) => normalizeRelativePath(entry || ''))
+      .filter(Boolean)
+      .sort()
+      .map((entry) => fileSizeSignature(projectDir, entry)),
+    mergedDataFiles: (Array.isArray(mergedDataFiles) ? mergedDataFiles : []).map((entry) => normalizeRelativePath(entry || '')).filter(Boolean),
+    mergedCddaTracks: (Array.isArray(mergedCddaTracks) ? mergedCddaTracks : []).map((entry) => normalizeRelativePath(entry || '')).filter(Boolean),
+  };
+  return sha1Text(JSON.stringify(signature));
+}
+
+function vnGeneratedOutputsReady(projectDir, generated = {}) {
+  const required = [
+    path.join('src', 'generated', 'vn.h'),
+    path.join('src', 'generated', 'vn.c'),
+    VN_FONT_DATA_FILE,
+    ...((generated.scenePackPaths || []).map((entry) => normalizeRelativePath(entry || '')).filter(Boolean)),
+  ];
+  if ((generated.fontSpriteBudget || {}).byteSize > 0) {
+    required.push(VN_FONT_SPRITE_DATA_FILE);
+  }
+  return required.every((relativePath) => fs.existsSync(path.join(projectDir, relativePath)));
 }
 
 function templateRuntimeDir() {
@@ -3300,8 +3418,11 @@ function mergeCdDataFiles(projectDir, generatedDataFiles = [], configuredDataFil
   return Array.from(merged);
 }
 
-function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null) {
+function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logger = null, options = {}) {
+  let stage = Date.now();
   syncVisualNovelRuntime(projectDir);
+  logBuildTiming(logger, 'runtime sync', stage);
+  stage = Date.now();
   ensureSceneFile(projectDir);
   // Reserve the consolidated asset-metadata file at its final size before the CD
   // layout is computed so its sector (and every file after it) stays stable, the
@@ -3315,16 +3436,68 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null) {
   // in the build system post-link.)
   ensureOverlayReservation(projectDir);
   writeOverlayFragment(projectDir);
+  logBuildTiming(logger, 'reserve CD layout placeholders', stage);
+  if (options.incremental) {
+    stage = Date.now();
+    const cached = readVnBuildStamp(projectDir);
+    if (cached?.generated && Array.isArray(cached.mergedDataFiles) && vnGeneratedOutputsReady(projectDir, cached.generated)) {
+      const signature = vnBuildSignature(projectDir, config, cached.mergedDataFiles, cached.mergedCddaTracks || []);
+      if (signature === cached.signature) {
+        logBuildTiming(logger, 'incremental cache check', stage, 'up-to-date');
+        logger?.info?.(`VN generation skipped: inputs unchanged (${cached.generated.sceneCount || 0} scene(s), ${cached.generated.messageCount || 0} message(s), ${cached.generated.glyphCount || 0} glyph(s))`);
+        const cd = config.cd && typeof config.cd === 'object' ? config.cd : {};
+        return {
+          ok: true,
+          generated: {
+            ...cached.generated,
+            incrementalSkipped: true,
+          },
+          stampInfo: {
+            dataFiles: cached.mergedDataFiles,
+            cddaTracks: cached.mergedCddaTracks || [],
+          },
+          configPatch: {
+            toolchain: 'llvm-mos',
+            targetMedia: 'cd',
+            cd: {
+              ...cd,
+              dataFiles: cached.mergedDataFiles,
+              cddaTracks: cached.mergedCddaTracks || [],
+            },
+            pluginSettings: {
+              ...(config.pluginSettings || {}),
+              'pce-sample-builder': {
+                ...(config.pluginSettings?.['pce-sample-builder'] || {}),
+                sample: 'visual-novel-cd',
+              },
+            },
+          },
+        };
+      }
+    }
+    logBuildTiming(logger, 'incremental cache check', stage, 'changed');
+  }
+  stage = Date.now();
   generateVnSources(projectDir);
+  logBuildTiming(logger, 'generate pass 1', stage);
+  stage = Date.now();
   const dataFiles = collectCdDataFiles(projectDir);
   const cddaTracks = collectCddaTracks(projectDir);
   const cd = config.cd && typeof config.cd === 'object' ? config.cd : {};
   const mergedDataFiles = mergeCdDataFiles(projectDir, dataFiles, cd.dataFiles);
   const mergedCddaTracks = Array.from(new Set([...(Array.isArray(cd.cddaTracks) ? cd.cddaTracks : []), ...cddaTracks]));
+  logBuildTiming(logger, 'merge CD data files', stage, `${mergedDataFiles.length} data file(s), ${mergedCddaTracks.length} configured CD-DA track(s)`);
+  stage = Date.now();
   const generated = generateVnSources(projectDir, { cdDataFiles: mergedDataFiles });
+  logBuildTiming(logger, 'generate pass 2', stage);
+  updateVisualNovelBuildStamp(projectDir, config, generated, mergedDataFiles, mergedCddaTracks);
   return {
     ok: true,
     generated,
+    stampInfo: {
+      dataFiles: mergedDataFiles,
+      cddaTracks: mergedCddaTracks,
+    },
     configPatch: {
       toolchain: 'llvm-mos',
       targetMedia: 'cd',
@@ -3430,6 +3603,7 @@ module.exports = {
   overlayLinkerArgs,
   overlayFragmentPath,
   syncVisualNovelRuntime,
+  updateVisualNovelBuildStamp,
   writeFontConfig,
   writeSceneDocument,
 };

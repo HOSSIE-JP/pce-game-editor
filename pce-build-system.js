@@ -18,6 +18,13 @@ const PCE_CD_SECTOR_BYTES = 2048;
 const PCE_CD_IPL_PROGRAM_SECTORS = 20;
 const PCE_CD_DATA_BASE_SECTOR = 64;
 
+function formatBuildDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '0 ms';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 10000) return `${(ms / 1000).toFixed(2)} s`;
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
 // Windows cannot spawn .bat/.cmd directly — shell: true is required.
 function needsShell(command) {
   return process.platform === 'win32' && /\.(bat|cmd)$/i.test(command);
@@ -44,6 +51,23 @@ function resolveSpawn(command, args) {
     return { file: [command, ...args].map(quoteForCmd).join(' '), args: [], shell: true };
   }
   return { file: command, args, shell: false };
+}
+
+function attachProcessLineLogger(stream, level, log) {
+  let pending = '';
+  const flush = () => {
+    const line = pending.trimEnd();
+    pending = '';
+    if (line) log(line, level);
+  };
+  stream.on('data', (data) => {
+    pending += data.toString();
+    const parts = pending.split(/\r?\n/);
+    pending = parts.pop() || '';
+    parts.filter(Boolean).forEach((line) => log(line, level));
+  });
+  stream.on('end', flush);
+  return flush;
 }
 
 // pce-mkcd.exe is the one Windows tool in llvm-mos-sdk built with MinGW-GCC (the LLVM
@@ -753,19 +777,42 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
 
 function buildProject(onLog, options = {}) {
   return new Promise((resolve) => {
+    const buildStartedAt = Date.now();
     const projectDir = getProjectDir();
     ensureProjectStructure(projectDir, loadProjectConfigFromDir(projectDir));
     let config = normalizeProjectConfig({ ...loadProjectConfigFromDir(projectDir), ...options.config });
     const log = (message, level = 'info') => onLog?.(String(message), level);
+    const stageStart = (label) => {
+      const startedAt = Date.now();
+      log(`Build timing: ${label} start`);
+      return startedAt;
+    };
+    const stageDone = (label, startedAt, detail = '') => {
+      const suffix = detail ? ` (${detail})` : '';
+      log(`Build timing: ${label} done in ${formatBuildDuration(Date.now() - startedAt)}${suffix}`);
+    };
+    const totalDone = () => log(`Build timing: total ${formatBuildDuration(Date.now() - buildStartedAt)}`);
     let generated = {};
+    let visualNovelStampInfo = null;
 
     if (isVisualNovelProject(projectDir, config)) {
+      const stage = stageStart('VN generation');
       try {
         // VN projects are always CD; the overlay blob is built with the CD clang.
-        const prepared = vnManager.prepareVisualNovelBuild(projectDir, config, setupManager.getLlvmMosPceCdPath());
+        const prepared = vnManager.prepareVisualNovelBuild(projectDir, config, setupManager.getLlvmMosPceCdPath(), { info: (m) => log(m, 'info') }, {
+          incremental: Boolean(options.skipClean),
+        });
+        visualNovelStampInfo = prepared?.stampInfo || null;
         if (prepared?.generated) {
           generated.visualNovel = prepared.generated;
           (prepared.generated.warnings || []).forEach((warning) => log(warning, 'warn'));
+          stageDone(
+            'VN generation',
+            stage,
+            `${prepared.generated.incrementalSkipped ? 'up-to-date, ' : ''}${prepared.generated.sceneCount} scene(s), ${prepared.generated.messageCount} message(s), ${prepared.generated.glyphCount} glyph(s)`,
+          );
+        } else {
+          stageDone('VN generation', stage);
         }
         if (prepared?.configPatch) {
           config = mergeVisualNovelConfig(config, prepared.configPatch);
@@ -776,6 +823,7 @@ function buildProject(onLog, options = {}) {
       }
     }
 
+    const assetStage = stageStart('asset source generation');
     try {
       const assetSourceOptions = Array.isArray(config.cd?.dataFiles) && config.cd.dataFiles.length
         ? { cdDataFiles: config.cd.dataFiles }
@@ -787,6 +835,16 @@ function buildProject(onLog, options = {}) {
         ...assetManager.generateAssetSources(projectDir, assetSourceOptions),
         ...generated,
       };
+      if (visualNovelStampInfo && generated.visualNovel) {
+        vnManager.updateVisualNovelBuildStamp(
+          projectDir,
+          config,
+          generated.visualNovel,
+          visualNovelStampInfo.dataFiles,
+          visualNovelStampInfo.cddaTracks,
+        );
+      }
+      stageDone('asset source generation', assetStage, `${generated.assetCount || 0} asset(s)`);
     } catch (err) {
       resolve({ success: false, error: `asset generation failed: ${err.message || err}` });
       return;
@@ -817,6 +875,9 @@ function buildProject(onLog, options = {}) {
       return;
     }
     log(`Generated assets: ${generated.assetCount} assets`);
+    if (commandInfo.targetMedia === 'cd') {
+      log(`PCE-CD data files: ${(config.cd?.dataFiles || []).length} file(s), CD-DA tracks: ${(commandInfo.cddaTracks || []).length}`);
+    }
     log(`Build command: ${commandInfo.command} ${commandInfo.args.join(' ')}`);
     if (commandInfo.targetMedia === 'cd') {
       log(`PCE-CD image command: ${commandInfo.mkcdCommand} ${commandInfo.mkcdArgs.join(' ')}`);
@@ -827,6 +888,7 @@ function buildProject(onLog, options = {}) {
       return;
     }
 
+    const compileStage = stageStart(commandInfo.targetMedia === 'cd' ? 'compile/link ELF' : 'compile ROM');
     const buildSpawn = resolveSpawn(commandInfo.command, commandInfo.args);
     const proc = spawn(buildSpawn.file, buildSpawn.args, {
       cwd: commandInfo.cwd,
@@ -835,10 +897,13 @@ function buildProject(onLog, options = {}) {
       shell: buildSpawn.shell,
     });
 
-    proc.stdout.on('data', (data) => data.toString().split(/\r?\n/).filter(Boolean).forEach((line) => log(line, 'info')));
-    proc.stderr.on('data', (data) => data.toString().split(/\r?\n/).filter(Boolean).forEach((line) => log(line, 'error')));
+    const flushBuildStdout = attachProcessLineLogger(proc.stdout, 'info', log);
+    const flushBuildStderr = attachProcessLineLogger(proc.stderr, 'error', log);
     proc.on('error', (err) => resolve({ success: false, error: err.message || String(err), commandInfo }));
     proc.on('exit', (code) => {
+      flushBuildStdout();
+      flushBuildStderr();
+      stageDone(commandInfo.targetMedia === 'cd' ? 'compile/link ELF' : 'compile ROM', compileStage, `exit ${code}`);
       if (code !== 0) {
         resolve({ success: false, error: `build failed (exit code: ${code})`, commandInfo });
         return;
@@ -854,7 +919,9 @@ function buildProject(onLog, options = {}) {
             // into overlay.bin (padded to the reserved size) before the CD image
             // is assembled. Must run before finalizePceCdDataPadding/mkcd so the
             // overlay sits on its reserved CD sector with the real bytes.
+            const overlayStage = stageStart('VN overlay extraction');
             vnManager.finalizeOverlayBlob(projectDir, commandInfo.elfPath, toolPath, { info: (m) => log(m, 'info') });
+            stageDone('VN overlay extraction', overlayStage);
           }
           // pce-mkcd mmaps the ELF and crashes (SIGSEGV / 0xC0000005) on a missing or
           // zero-length input instead of reporting a clean error. Guard here so a
@@ -872,7 +939,10 @@ function buildProject(onLog, options = {}) {
             resolve({ success: false, error: 'pce-mkcd の MinGW ランタイム DLL を用意できませんでした。', commandInfo });
             return;
           }
+          const paddingStage = stageStart('PCE-CD padding update');
           finalizePceCdDataPadding(commandInfo, log);
+          stageDone('PCE-CD padding update', paddingStage);
+          const isoStage = stageStart('PCE-CD ISO assembly');
           const mkcdSpawn = resolveSpawn(commandInfo.mkcdCommand, commandInfo.mkcdArgs);
           const mkcd = spawn(mkcdSpawn.file, mkcdSpawn.args, {
             cwd: commandInfo.cwd,
@@ -880,10 +950,13 @@ function buildProject(onLog, options = {}) {
             windowsHide: true,
             shell: mkcdSpawn.shell,
           });
-          mkcd.stdout.on('data', (data) => data.toString().split(/\r?\n/).filter(Boolean).forEach((line) => log(line, 'info')));
-          mkcd.stderr.on('data', (data) => data.toString().split(/\r?\n/).filter(Boolean).forEach((line) => log(line, 'info')));
+          const flushMkcdStdout = attachProcessLineLogger(mkcd.stdout, 'info', log);
+          const flushMkcdStderr = attachProcessLineLogger(mkcd.stderr, 'info', log);
           mkcd.on('error', (err) => resolve({ success: false, error: err.message || String(err), commandInfo }));
           mkcd.on('exit', (mkcdCode) => {
+            flushMkcdStdout();
+            flushMkcdStderr();
+            stageDone('PCE-CD ISO assembly', isoStage, `exit ${mkcdCode}`);
             if (mkcdCode !== 0) {
               resolve({ success: false, error: `pce-mkcd failed (exit code: ${mkcdCode})`, commandInfo });
               return;
@@ -891,6 +964,7 @@ function buildProject(onLog, options = {}) {
             try {
               writeCueFile(commandInfo);
               const romSize = fs.existsSync(commandInfo.isoPath) ? fs.statSync(commandInfo.isoPath).size : 0;
+              totalDone();
               resolve({ success: true, romPath: commandInfo.romPath, isoPath: commandInfo.isoPath, cuePath: commandInfo.cuePath, romSize, commandInfo, romInfo });
             } catch (err) {
               resolve({ success: false, error: err.message || String(err), commandInfo });
@@ -899,6 +973,7 @@ function buildProject(onLog, options = {}) {
           return;
         }
         const romSize = fs.existsSync(commandInfo.romPath) ? fs.statSync(commandInfo.romPath).size : 0;
+        totalDone();
         resolve({ success: true, romPath: commandInfo.romPath, romSize, commandInfo, romInfo });
       } catch (err) {
         resolve({ success: false, error: err.message || String(err), commandInfo });

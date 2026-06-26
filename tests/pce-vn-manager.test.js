@@ -2086,7 +2086,8 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
 
   const buildSystem = loadPceBuildSystem();
   buildSystem.openProject(projectDir);
-  const result = await buildSystem.buildProject(() => {}, {
+  const logs = [];
+  const result = await buildSystem.buildProject((line) => logs.push(line), {
     dryRun: true,
     allowMissingToolchain: true,
   });
@@ -2106,6 +2107,67 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'scenes', '000_opening.bin')));
   const syncedRuntime = fs.readFileSync(runtimePath, 'utf-8');
   assert.match(syncedRuntime, /adpcm_stream_active = 1u;/);
+  assert.ok(logs.some((line) => /VN timing: generate pass 1 done in /.test(line)));
+  assert.ok(logs.some((line) => /VN timing: merge CD data files done in .*\(\d+ data file\(s\), \d+ configured CD-DA track\(s\)\)/.test(line)));
+  assert.ok(logs.some((line) => /VN timing: generate pass 2 done in /.test(line)));
+  assert.ok(logs.some((line) => /Build timing: VN generation done in .*\(1 scene\(s\), 1 message\(s\),/.test(line)));
+  assert.ok(logs.some((line) => /Build timing: asset source generation done in .*\(\d+ asset\(s\)\)/.test(line)));
+  assert.ok(logs.some((line) => /PCE-CD data files: \d+ file\(s\), CD-DA tracks: \d+/.test(line)));
+
+  const incrementalLogs = [];
+  const incremental = await buildSystem.buildProject((line) => incrementalLogs.push(line), {
+    dryRun: true,
+    allowMissingToolchain: true,
+    skipClean: true,
+  });
+
+  assert.equal(incremental.success, true);
+  assert.equal(incremental.generated.visualNovel.incrementalSkipped, true);
+  assert.ok(incrementalLogs.some((line) => /VN generation skipped: inputs unchanged/.test(line)));
+  assert.ok(incrementalLogs.some((line) => /Build timing: VN generation done in .*up-to-date, 1 scene\(s\), 1 message\(s\),/.test(line)));
+  assert.equal(incrementalLogs.some((line) => /VN timing: generate pass 1 done in /.test(line)), false);
+
+  sceneDoc.scenes[0].commands.push({ type: 'message', text: 'B' });
+  writeJson(scenePath, sceneDoc);
+  const changedLogs = [];
+  const changed = await buildSystem.buildProject((line) => changedLogs.push(line), {
+    dryRun: true,
+    allowMissingToolchain: true,
+    skipClean: true,
+  });
+
+  assert.equal(changed.success, true);
+  assert.equal(changed.generated.visualNovel.incrementalSkipped, undefined);
+  assert.equal(changed.generated.visualNovel.messageCount, 2);
+  assert.ok(changedLogs.some((line) => /VN timing: incremental cache check done in .*\(changed\)/.test(line)));
+  assert.ok(changedLogs.some((line) => /VN timing: generate pass 1 done in /.test(line)));
+});
+
+test('PCE sample builder start hook leaves VN generation to the build system', () => {
+  const projectDir = makeTempDir('pce-sample-builder-hook-');
+  writeJson(path.join(projectDir, 'project.json'), {
+    targetMedia: 'cd',
+    toolchain: 'llvm-mos',
+    pluginSettings: { 'pce-sample-builder': { sample: 'visual-novel-cd' } },
+  });
+  writeJson(path.join(projectDir, 'assets', 'pce-vn-scenes.json'), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{ id: 'opening', commands: [{ type: 'message', text: 'A' }] }],
+  });
+  delete require.cache[require.resolve('../plugins/pce-sample-builder')];
+  const builder = require('../plugins/pce-sample-builder');
+  const logs = [];
+
+  const result = builder.onBuildStart({ projectDir }, {
+    projectDir,
+    logger: { info: (line) => logs.push(line) },
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(logs, [`PCE build start: ${projectDir}`]);
+  assert.equal(fs.existsSync(path.join(projectDir, 'src', 'pce_vn_runtime.c')), false);
+  assert.equal(fs.existsSync(path.join(projectDir, 'src', 'generated', 'vn.c')), false);
 });
 
 test('PCE build system derives CD data padding from the measured program size', () => {
