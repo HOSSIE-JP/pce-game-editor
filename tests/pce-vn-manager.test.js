@@ -66,6 +66,7 @@ function commandRecord(buffer, index) {
 function messageRecord(buffer, index) {
   const table = u16(buffer, 12);
   const offset = table + (index * 13);
+  const mouthSlotInfo = buffer[offset + 10];
   return {
     glyphOffset: u16(buffer, offset),
     glyphCount: buffer[offset + 2],
@@ -74,7 +75,8 @@ function messageRecord(buffer, index) {
     advanceMode: buffer[offset + 6],
     autoWaitFrames: buffer[offset + 7],
     mouthAnimationIndex: s16(buffer, offset + 8),
-    mouthSlot: buffer[offset + 10],
+    mouthSlot: mouthSlotInfo & 0x03,
+    instantGlyphCount: mouthSlotInfo >> 2,
     textColor: u16(buffer, offset + 11),
   };
 }
@@ -307,6 +309,43 @@ test('PCE VN manager bakes ADPCM message duration into text speed', () => {
   // glyphs that is round(120 / 4) = 30 frames/glyph, so the typewriter total
   // (120 frames) matches the voice length instead of overshooting it.
   assert.equal(message.textSpeedFrames, 30);
+});
+
+test('PCE VN manager renders speaker as an instant header and syncs ADPCM to body text', () => {
+  const projectDir = makeTempDir('pce-vn-speaker-header-');
+  const vnManager = loadVnManager();
+  fs.mkdirSync(path.join(projectDir, 'assets', 'generated', 'voice'), { recursive: true });
+  fs.writeFileSync(path.join(projectDir, 'assets', 'generated', 'voice', 'adpcm.bin'), Buffer.alloc(16000, 0x22));
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [{
+      id: 'voice',
+      type: 'adpcm',
+      source: 'assets/adpcm/voice.wav',
+      options: { sampleRate: 16000, loop: false },
+      data: { generated: { outputFile: 'assets/generated/voice/adpcm.bin', sampleRate: 16000 } },
+    }],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [{ type: 'message', speaker: 'Akari', text: 'ABCD', voiceAssetId: 'voice' }],
+    }],
+  });
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+  const message = messageRecord(pack, 0);
+
+  // Stored stream is "Akari：\nABCD": 7 instant header entries + 4 body glyphs.
+  // ADPCM speed ignores the speaker header and divides the 120-frame voice by
+  // the 4 body glyphs.
+  assert.equal(message.glyphCount, 11);
+  assert.equal(message.instantGlyphCount, 7);
+  assert.equal(message.textSpeedFrames, 30);
+  assert.equal(pack[message.glyphOffset + 6], 0xfe);
 });
 
 test('PCE VN manager applies global message settings to message records', () => {
@@ -1271,6 +1310,7 @@ test('PCE VN manager normalizes message text color and clears empty bodies', () 
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const pack = readPack(projectDir, generated.scenePackPaths[0]);
   assert.match(header, /PCE_VN_SCENE_PACK_MESSAGE_SIZE 13u/);
+  assert.doesNotMatch(header, /instant_glyph_count/);
   assert.match(header, /unsigned int text_color;/);
   assert.equal(messageRecord(pack, 0).textColor, 0x38);
   assert.equal(messageRecord(pack, 1).textColor, vnManager.VN_MESSAGE_COLOR_NONE);
@@ -1280,6 +1320,8 @@ test('PCE VN manager normalizes message text color and clears empty bodies', () 
     'utf-8',
   );
   assert.match(runtime, /apply_message_text_color\(message->text_color\)/);
+  assert.match(runtime, /#define VN_MESSAGE_INSTANT_GLYPH_COUNT\(info\) \(\(uint8_t\)\(\(info\) >> 2u\)\)/);
+  assert.match(runtime, /message->mouth_slot = scene_pack_u8\(cache, \(uint16_t\)\(offset \+ 10u\)\)/);
   assert.match(runtime, /message->text_color = scene_pack_u16/);
 });
 
@@ -1520,7 +1562,9 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /static void VN_BANKED_CODE2 clear_window_cells\(void\)/);
   // The 12x12 compositor preloads message masks before voice playback and falls
   // back to VRAM reads only for uncached glyphs.
-  assert.match(source, /restore_window_display = begin_message_window_vram_update\(\);\n        clear_window_tile_pixels\(\);\n        call_overlay_preload_message_glyph_masks\(message\);\n        play_adpcm_voice\(message->voice_index\);/);
+  assert.match(source, /instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT\(message->mouth_slot\);/);
+  assert.match(source, /if \(instant_glyph_count\)/);
+  assert.match(source, /message_complete = draw_message_prefix_glyphs_locked\(message\);[\s\S]*?play_adpcm_voice\(message->voice_index\);/);
   assert.match(source, /gmask = cached_message_glyph_mask\(glyph\);\n    if \(!gmask\)/);
   assert.match(source, /pce_vdc_copy_from_vram\(msg_gmask,/);
   assert.match(source, /const uint16_t px0 = \(uint16_t\)col \* VN_GLYPH_W;/);
@@ -1529,13 +1573,16 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   // draw_message_next_glyph / draw_message_text live in the bank133 overlay; the
   // resident wrappers mask IRQs across bank133 map, overlay VDC work, and bank130 restore.
   assert.match(source, /static uint8_t VN_OVERLAY_CODE draw_message_next_glyph/);
+  assert.match(source, /static uint8_t VN_OVERLAY_CODE draw_message_prefix_glyphs/);
   assert.match(source, /uint8_t irq = vn_vdc_irq_lock\(\);\n    pce_ram_bank133_map\(\);\n    complete = draw_message_next_glyph\(message\);\n    pce_ram_bank130_map\(\);\n    vn_vdc_irq_unlock\(irq\);/);
+  assert.match(source, /uint8_t irq = vn_vdc_irq_lock\(\);\n    pce_ram_bank133_map\(\);\n    complete = draw_message_prefix_glyphs\(message\);\n    pce_ram_bank130_map\(\);\n    vn_vdc_irq_unlock\(irq\);/);
   assert.match(source, /uint8_t irq = vn_vdc_irq_lock\(\);\n    pce_ram_bank133_map\(\);\n    draw_message_text\(message\);\n    pce_ram_bank130_map\(\);\n    vn_vdc_irq_unlock\(irq\);/);
   assert.match(source, /uint8_t irq = vn_vdc_irq_lock\(\);\n    pce_ram_bank133_map\(\);\n    preload_message_glyph_masks\(message\);\n    pce_ram_bank130_map\(\);\n    vn_vdc_irq_unlock\(irq\);/);
   assert.match(source, /uint8_t irq = vn_vdc_irq_lock\(\);\n    pce_ram_bank133_map\(\);\n    draw_message_glyph_at\(glyph, col, row\);\n    pce_ram_bank130_map\(\);\n    vn_vdc_irq_unlock\(irq\);/);
   // The runtime applies the editor-baked text_speed; it does not recompute the
   // ADPCM-synced speed at runtime.
   assert.match(source, /message_text_speed = message->text_speed_frames;\n        restore_window_display = begin_message_window_vram_update\(\);\n        clear_window_tile_pixels\(\);/);
+  assert.match(source, /if \(!message_complete && !message_text_speed\)/);
   assert.match(source, /end_message_window_vram_update\(restore_window_display\);\n        if \(!restore_window_display && !pending_display_enable\) delay_frame\(\);/);
   const beginMessageWindowStart = source.indexOf('static uint8_t VN_BANKED_CODE2 begin_message_window_vram_update(void)');
   const endMessageWindowStart = source.indexOf('static void VN_BANKED_CODE2 end_message_window_vram_update(uint8_t restore_display)');

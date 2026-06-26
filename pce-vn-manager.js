@@ -203,6 +203,9 @@ const VN_SCENE_PACK_VERSION = 1;
 const VN_SCENE_PACK_HEADER_SIZE = 20;
 const VN_SCENE_PACK_COMMAND_SIZE = 19;
 const VN_SCENE_PACK_MESSAGE_SIZE = 13;
+const VN_MESSAGE_MOUTH_SLOT_BITS = 2;
+const VN_MESSAGE_MOUTH_SLOT_MASK = (1 << VN_MESSAGE_MOUTH_SLOT_BITS) - 1;
+const VN_MESSAGE_INSTANT_GLYPH_MAX = 0xff >> VN_MESSAGE_MOUTH_SLOT_BITS;
 const VN_SCENE_PACK_CHOICE_SIZE = 6;
 const VN_SCENE_PACK_OPTION_SIZE = 7;
 const VN_SCENE_PACK_SWITCH_SIZE = 5;
@@ -1099,10 +1102,39 @@ function ensureSceneFile(projectDir) {
   return writeSceneDocument(projectDir, defaultSceneDocument(assetManager.readAssetDocument(projectDir)));
 }
 
-function messageDisplayText(message) {
+function countGlyphStreamEntries(text = '') {
+  let count = 0;
+  for (const glyph of String(text || '')) {
+    if (glyph === '\r') continue;
+    count += 1;
+  }
+  return count;
+}
+
+function countDrawableGlyphs(text = '') {
+  let count = 0;
+  for (const glyph of String(text || '')) {
+    if (glyph === '\r' || glyph === '\n') continue;
+    count += 1;
+  }
+  return count;
+}
+
+function messageDisplayParts(message) {
   const speaker = String(message.speaker || '').trim();
   const text = String(message.text || '').trim();
-  return speaker ? `${speaker}「${text}」` : text;
+  const prefix = speaker ? `${speaker}：\n` : '';
+  return {
+    prefix,
+    body: text,
+    full: `${prefix}${text}`,
+    instantGlyphCount: countGlyphStreamEntries(prefix),
+    bodyDrawableCount: countDrawableGlyphs(text),
+  };
+}
+
+function messageDisplayText(message) {
+  return messageDisplayParts(message).full;
 }
 
 // Every distinct character that appears in messages/choices, untruncated.
@@ -1903,6 +1935,9 @@ function encodeCommandRecord(command = {}) {
 
 function encodeMessageRecord(message = {}) {
   const bytes = [];
+  const instantGlyphCount = clampInt(message.instantGlyphCount, 0, VN_MESSAGE_INSTANT_GLYPH_MAX, 0);
+  const packedMouthSlot = (clampInt(message.mouthSlot, 0, VN_MESSAGE_MOUTH_SLOT_MASK, 0) & VN_MESSAGE_MOUTH_SLOT_MASK)
+    | (instantGlyphCount << VN_MESSAGE_MOUTH_SLOT_BITS);
   pushU16(bytes, message.glyphOffset);
   pushU8(bytes, message.glyphCount);
   pushS16(bytes, message.voiceIndex);
@@ -1910,7 +1945,7 @@ function encodeMessageRecord(message = {}) {
   pushU8(bytes, message.advanceMode);
   pushU8(bytes, message.autoWaitFrames);
   pushS16(bytes, message.mouthAnimationIndex);
-  pushU8(bytes, message.mouthSlot);
+  pushU8(bytes, packedMouthSlot);
   pushU16(bytes, message.textColor);
   return Buffer.from(bytes);
 }
@@ -2224,13 +2259,10 @@ function generateVnSources(projectDir, options = {}) {
         if (sceneBuild.messages.length >= VN_MAX_U8_COUNT) {
           throw new Error('PCE VN supports up to 255 messages per scene');
         }
+        const display = messageDisplayParts(command);
         const bytes = [];
         let entryCount = 0;
-        // Drawable glyphs only (newlines excluded): the voice speaks characters,
-        // not line breaks, and the runtime reveals newlines instantly without
-        // spending a typewriter tick, so the ADPCM sync divides by this count.
-        let drawableCount = 0;
-        for (const glyph of messageDisplayText(command)) {
+        for (const glyph of display.full) {
           if (glyph === '\r') continue;
           if (glyph === '\n') {
             bytes.push(GLYPH_NEWLINE_BYTE);
@@ -2239,7 +2271,6 @@ function generateVnSources(projectDir, options = {}) {
           }
           pushGlyphIndexEntry(bytes, glyphIndex.get(glyph) ?? 0);
           entryCount += 1;
-          drawableCount += 1;
         }
         // glyph_count is the number of entries (glyphs + newlines), excluding the
         // terminator. It is stored as a u8, so cap at 255 entries.
@@ -2260,11 +2291,12 @@ function generateVnSources(projectDir, options = {}) {
           glyphs: Buffer.from(bytes),
           glyphCount: entryCount,
           voiceIndex,
-          textSpeedFrames: voiceSyncedTextSpeedFrames(command, drawableCount, assetDoc, projectDir, systemSettings.messageSpeedFrames),
+          textSpeedFrames: voiceSyncedTextSpeedFrames(command, display.bodyDrawableCount, assetDoc, projectDir, systemSettings.messageSpeedFrames),
           advanceMode: systemSettings.messageAdvanceMode === 'auto' ? VN_ADVANCE_AUTO : VN_ADVANCE_BUTTON,
           autoWaitFrames: systemSettings.messageAutoWaitFrames,
           mouthAnimationIndex,
           mouthSlot,
+          instantGlyphCount: display.instantGlyphCount,
           textColor: messageColorWord(command.textColor),
         });
         pushCommand({

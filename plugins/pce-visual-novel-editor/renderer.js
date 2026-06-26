@@ -294,10 +294,23 @@ function spritePixelWidth(asset = {}) {
 }
 
 // ゲーム runtime の messageDisplayText と同じ表示文字列を作る。
-function messageFullText(command = {}) {
+function messageParts(command = {}) {
   const speaker = String(command.speaker || '').trim();
   const text = String(command.text || '').trim();
-  return speaker ? `${speaker}「${text}」` : text;
+  const prefix = speaker ? `${speaker}：\n` : '';
+  return {
+    prefix,
+    body: text,
+    full: `${prefix}${text}`,
+  };
+}
+
+function messageFullText(command = {}) {
+  return messageParts(command).full;
+}
+
+function messageDrawableLength(text = '') {
+  return [...String(text || '')].filter((ch) => ch !== '\r' && ch !== '\n').length;
 }
 
 // グリフフォントは 16bit エスケープ符号化で 254 種を大きく超えられ（実用上限は
@@ -312,7 +325,7 @@ const VN_SCENE_PACK_LIMIT = 4096;
 const VN_PACK_HEADER_SIZE = 20;
 const VN_PACK_COMMAND_SIZE = 19;
 // 13 bytes: glyphOffset(2)+glyphCount(1)+voice(2)+speed(1)+advance(1)+autoWait(1)
-//           +mouthAnim(2)+mouthSlot(1)+textColor(2). pce-vn-manager.js と一致させる。
+//           +mouthAnim(2)+mouthSlot/instantPrefix(1)+textColor(2). pce-vn-manager.js と一致させる。
 const VN_PACK_MESSAGE_SIZE = 13;
 const VN_PACK_CHOICE_SIZE = 6;
 const VN_PACK_OPTION_SIZE = 7;
@@ -1530,10 +1543,15 @@ function previewRuntime() {
     }
   }
 
-  function messageText(c) {
+  function messageParts(c) {
     const speaker = String(c.speaker || '').trim();
     const text = String(c.text || '').trim();
-    return speaker ? speaker + '「' + text + '」' : text;
+    const prefix = speaker ? speaker + '：\n' : '';
+    return { prefix, body: text, full: prefix + text };
+  }
+
+  function messageDrawableLength(text) {
+    return Array.from(String(text || '')).filter((ch) => ch !== '\r' && ch !== '\n').length;
   }
 
   function showEnd() {
@@ -1546,11 +1564,12 @@ function previewRuntime() {
   function showMessage(c) {
     hideChoice();
     msgBox.classList.remove('pv-hidden');
-    const full = messageText(c);
+    const parts = messageParts(c);
+    const full = parts.full;
     const color = messageColor(c);
-    let shown = 0;
+    let shownBody = 0;
     let done = false;
-    paintMsg('', color);
+    paintMsg(parts.prefix, color);
     if (c.voiceAssetId) playAudio('adpcm', c.voiceAssetId, false);
     function next() { clearTimers(); pending = null; run(); }
     function complete() {
@@ -1563,15 +1582,22 @@ function previewRuntime() {
     const voiceMeta = c.voiceAssetId ? (data.meta[c.voiceAssetId] || {}) : {};
     const voiceSeconds = Number(voiceMeta.durationSeconds) || 0;
     const voiceFrames = voiceSeconds > 0 && !voiceMeta.loop ? Math.max(1, Math.ceil(voiceSeconds * 60)) : 0;
-    const voiceSpeed = voiceFrames && full.length ? Math.max(1, Math.ceil(voiceFrames / full.length)) * 1000 / 60 : 0;
+    const bodyDrawable = messageDrawableLength(parts.body);
+    const voiceSpeed = voiceFrames && bodyDrawable ? Math.max(1, Math.ceil(voiceFrames / bodyDrawable)) * 1000 / 60 : 0;
     const speed = voiceSpeed || (messageSpeedFrames * 1000 / 60);
-    if (speed <= 0 || !full) complete();
+    function revealNextBodyGlyph() {
+      while (shownBody < parts.body.length) {
+        const ch = parts.body[shownBody];
+        shownBody += 1;
+        if (ch !== '\r' && ch !== '\n') break;
+      }
+      paintMsg(parts.prefix + parts.body.slice(0, shownBody), color);
+      if (shownBody >= parts.body.length) complete();
+    }
+    if (speed <= 0 || !parts.body) complete();
     else {
-      typeTimer = setInterval(() => {
-        shown += 1;
-        paintMsg(full.slice(0, shown), color);
-        if (shown >= full.length) complete();
-      }, speed);
+      revealNextBodyGlyph();
+      if (!done) typeTimer = setInterval(revealNextBodyGlyph, speed);
     }
   }
 
@@ -2081,7 +2107,8 @@ export function activatePlugin({ root, api, registerCapability }) {
     const overlay = node.querySelector('[data-role="message-overlay"]');
     const playBtn = node.querySelector('[data-role="message-play"]');
     if (!overlay) return;
-    const full = messageFullText(command);
+    const parts = messageParts(command);
+    const full = parts.full;
     paintMessageOverlay(overlay, full);
     const play = () => {
       if (token !== previewToken) return;
@@ -2090,20 +2117,30 @@ export function activatePlugin({ root, api, registerCapability }) {
       const adpcmSeconds = command.voiceAssetId
         ? audioDurationSeconds(assetById(command.voiceAssetId))
         : 0;
-      const speed = (adpcmSeconds > 0 && full.length)
-        ? Math.max(1, (adpcmSeconds * 1000) / full.length)
+      const bodyDrawable = messageDrawableLength(parts.body);
+      const speed = (adpcmSeconds > 0 && bodyDrawable)
+        ? Math.max(1, (adpcmSeconds * 1000) / bodyDrawable)
         : systemSettings().messageSpeedFrames * 1000 / 60;
-      if (speed <= 0 || !full) {
+      if (speed <= 0 || !parts.body) {
         paintMessageOverlay(overlay, full);
       } else {
-        let shown = 0;
-        paintMessageOverlay(overlay, '');
-        messagePreviewTimer = setInterval(() => {
+        let shownBody = 0;
+        const revealNextBodyGlyph = () => {
           if (token !== previewToken) { stopMessagePreview(); return; }
-          shown += 1;
-          paintMessageOverlay(overlay, full.slice(0, shown));
-          if (shown >= full.length) { clearInterval(messagePreviewTimer); messagePreviewTimer = null; }
-        }, speed);
+          while (shownBody < parts.body.length) {
+            const ch = parts.body[shownBody];
+            shownBody += 1;
+            if (ch !== '\r' && ch !== '\n') break;
+          }
+          paintMessageOverlay(overlay, parts.prefix + parts.body.slice(0, shownBody));
+          if (shownBody >= parts.body.length && messagePreviewTimer) {
+            clearInterval(messagePreviewTimer);
+            messagePreviewTimer = null;
+          }
+        };
+        paintMessageOverlay(overlay, parts.prefix);
+        revealNextBodyGlyph();
+        if (shownBody < parts.body.length) messagePreviewTimer = setInterval(revealNextBodyGlyph, speed);
       }
       const voice = command.voiceAssetId ? assetById(command.voiceAssetId) : null;
       if (voice?.source) {

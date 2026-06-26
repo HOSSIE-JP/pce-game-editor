@@ -158,10 +158,11 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 }
 ```
 
-- `speaker`: 話者名。空文字可。
-- `text`: 本文。`\n` で強制改行。
+- `speaker`: 話者名。空文字可。指定するとゲーム内では `話者：` が即時表示され、次行から本文が表示されます。
+- `text`: 本文。`\n` で強制改行。話者名や括弧は本文に含めません。
 - `textColor`: 空文字なら既定色。
 - `voiceAssetId`: ADPCM voice asset ID。空文字可。
+- ADPCM voice の文字送り同期は本文の文字数だけを使い、話者行は同期対象に含めません。
 - `mouthSlot` / `mouthAnimationId`: 口パク用。使わない場合は `0` / `""`。
 
 ### audio

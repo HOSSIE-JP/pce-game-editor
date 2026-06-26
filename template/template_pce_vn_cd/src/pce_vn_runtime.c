@@ -133,6 +133,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define REQUEST_SPRITE_REFRESH_PATTERNS() do { \
     if (pending_sprite_refresh != VN_SPRITE_REFRESH_FULL) pending_sprite_refresh = VN_SPRITE_REFRESH_PATTERNS; \
 } while (0)
+#define VN_MESSAGE_MOUTH_SLOT(info) ((uint8_t)((info) & 0x03u))
+#define VN_MESSAGE_INSTANT_GLYPH_COUNT(info) ((uint8_t)((info) >> 2u))
 #define VN_SCENE_PACK_MAGIC_P 0x50u
 #define VN_SCENE_PACK_MAGIC_V 0x56u
 #define VN_SCENE_PACK_MAGIC_N 0x4eu
@@ -2030,38 +2032,63 @@ static void VN_OVERLAY_CODE draw_message_glyph_at(uint16_t glyph, uint8_t col, u
     composer_row = row;
 }
 
-static uint8_t VN_OVERLAY_CODE draw_message_next_glyph(const pce_vn_message_t *message)
+#define VN_MESSAGE_ENTRY_COMPLETE 0u
+#define VN_MESSAGE_ENTRY_NEWLINE 1u
+#define VN_MESSAGE_ENTRY_DRAWABLE 2u
+
+static uint8_t VN_OVERLAY_CODE draw_message_next_entry(const pce_vn_message_t *message)
 {
     uint16_t glyph;
     map_vn_data();
+    if (!message || !message->glyphs) return VN_MESSAGE_ENTRY_COMPLETE;
+    if (message_glyph_pos >= message->glyph_count) return VN_MESSAGE_ENTRY_COMPLETE;
+    glyph = vn_glyph_decode(message->glyphs, message_glyph_byte);
+    message_glyph_byte = (uint16_t)(message_glyph_byte + vn_glyph_stride(message->glyphs, message_glyph_byte));
+    message_glyph_pos++;
+    if (glyph == PCE_VN_GLYPH_END) return VN_MESSAGE_ENTRY_COMPLETE;
+    if (glyph == PCE_VN_GLYPH_NEWLINE)
+    {
+        message_col = 0u;
+        message_row++;
+        if (message_row >= VN_TEXT_ROWS) return VN_MESSAGE_ENTRY_COMPLETE;
+        return VN_MESSAGE_ENTRY_NEWLINE;
+    }
+    draw_message_glyph_at(glyph, message_col, message_row);
+    message_col++;
+    if (message_col >= VN_TEXT_COLS)
+    {
+        message_col = 0u;
+        message_row++;
+        if (message_row >= VN_TEXT_ROWS) return VN_MESSAGE_ENTRY_COMPLETE;
+    }
+    return VN_MESSAGE_ENTRY_DRAWABLE;
+}
+
+static uint8_t VN_OVERLAY_CODE draw_message_prefix_glyphs(const pce_vn_message_t *message)
+{
+    uint8_t instant_glyph_count;
+    uint8_t i;
     if (!message || !message->glyphs) return 1u;
+    instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT(message->mouth_slot);
+    for (i = 0u; i < instant_glyph_count; i++)
+    {
+        if (draw_message_next_entry(message) == VN_MESSAGE_ENTRY_COMPLETE) return 1u;
+    }
+    return message_glyph_pos >= message->glyph_count ? 1u : 0u;
+}
+
+static uint8_t VN_OVERLAY_CODE draw_message_next_glyph(const pce_vn_message_t *message)
+{
+    uint8_t status;
     /* Reveal exactly one drawable glyph per call. Newlines are not spoken, so they
        are processed inline (advance the row) WITHOUT consuming a typewriter tick;
        otherwise every line break would push the remaining text one reveal-interval
        behind the ADPCM voice and the drift would accumulate down the message. */
     for (;;)
     {
-        if (message_glyph_pos >= message->glyph_count) return 1u;
-        glyph = vn_glyph_decode(message->glyphs, message_glyph_byte);
-        message_glyph_byte = (uint16_t)(message_glyph_byte + vn_glyph_stride(message->glyphs, message_glyph_byte));
-        message_glyph_pos++;
-        if (glyph == PCE_VN_GLYPH_END) return 1u;
-        if (glyph == PCE_VN_GLYPH_NEWLINE)
-        {
-            message_col = 0u;
-            message_row++;
-            if (message_row >= VN_TEXT_ROWS) return 1u;
-            continue;
-        }
-        draw_message_glyph_at(glyph, message_col, message_row);
-        message_col++;
-        if (message_col >= VN_TEXT_COLS)
-        {
-            message_col = 0u;
-            message_row++;
-            if (message_row >= VN_TEXT_ROWS) return 1u;
-        }
-        return message_glyph_pos >= message->glyph_count ? 1u : 0u;
+        status = draw_message_next_entry(message);
+        if (status == VN_MESSAGE_ENTRY_COMPLETE) return 1u;
+        if (status == VN_MESSAGE_ENTRY_DRAWABLE) return message_glyph_pos >= message->glyph_count ? 1u : 0u;
     }
 }
 
@@ -3733,6 +3760,23 @@ static uint8_t VN_RESIDENT_CODE draw_message_next_glyph_locked(const pce_vn_mess
     return complete;
 }
 
+static uint8_t VN_RESIDENT_CODE draw_message_prefix_glyphs_locked(const pce_vn_message_t *message)
+{
+    uint8_t complete;
+#if defined(__PCE_CD__)
+    uint8_t irq = vn_vdc_irq_lock();
+    pce_ram_bank133_map();
+    complete = draw_message_prefix_glyphs(message);
+    pce_ram_bank130_map();
+    vn_vdc_irq_unlock(irq);
+#else
+    uint8_t irq = vn_vdc_irq_lock();
+    complete = draw_message_prefix_glyphs(message);
+    vn_vdc_irq_unlock(irq);
+#endif
+    return complete;
+}
+
 static void VN_RESIDENT_CODE draw_message_text_locked(const pce_vn_message_t *message)
 {
 #if defined(__PCE_CD__)
@@ -3809,11 +3853,15 @@ static void start_message(uint8_t message_index)
 {
     pce_vn_message_t *message = VN_MESSAGE_SCRATCH;
     uint8_t restore_window_display = 0u;
+    uint8_t mouth_slot = 0u;
+    uint8_t instant_glyph_count = 0u;
     VN_MAP_BANK130_FOR_CODE();
     if (scene_pack_read_message(&active_scene_pack, message_index, message))
     {
         active_message_state = *message;
         message = &active_message_state;
+        mouth_slot = VN_MESSAGE_MOUTH_SLOT(message->mouth_slot);
+        instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT(message->mouth_slot);
         active_message_index = message_index;
         active_choice_index = -1;
         wait_frames_remaining = 0u;
@@ -3825,27 +3873,42 @@ static void start_message(uint8_t message_index)
         message_complete = 0u;
         message_auto_wait = message->auto_wait_frames;
         apply_message_text_color(message->text_color);
-        if (message->mouth_animation_index >= 0 && message->mouth_slot < VN_SPRITE_SLOT_COUNT)
+        if (message->mouth_animation_index >= 0 && mouth_slot < VN_SPRITE_SLOT_COUNT)
         {
-            sprite_slots[message->mouth_slot].animation_index = message->mouth_animation_index;
-            sprite_slots[message->mouth_slot].frame = 0u;
-            sprite_slots[message->mouth_slot].timer = 0u;
-            cache_sprite_animation(message->mouth_slot);
+            sprite_slots[mouth_slot].animation_index = message->mouth_animation_index;
+            sprite_slots[mouth_slot].frame = 0u;
+            sprite_slots[mouth_slot].timer = 0u;
+            cache_sprite_animation(mouth_slot);
             REQUEST_SPRITE_REFRESH_FULL();
         }
         message_text_speed = message->text_speed_frames;
         restore_window_display = begin_message_window_vram_update();
         clear_window_tile_pixels();
         call_overlay_preload_message_glyph_masks(message);
-        play_adpcm_voice(message->voice_index);
-        VN_MAP_BANK130_FOR_CODE();
-        if (!message_text_speed)
+        if (instant_glyph_count)
         {
             VN_MAP_BANK130_FOR_CODE();
-            draw_message_text_locked(message);
-            message_complete = 1u;
+            message_complete = draw_message_prefix_glyphs_locked(message);
         }
-        else
+        play_adpcm_voice(message->voice_index);
+        VN_MAP_BANK130_FOR_CODE();
+        if (!message_complete && !message_text_speed)
+        {
+            VN_MAP_BANK130_FOR_CODE();
+            if (instant_glyph_count)
+            {
+                while (!message_complete)
+                {
+                    message_complete = draw_message_next_glyph_locked(message);
+                }
+            }
+            else
+            {
+                draw_message_text_locked(message);
+                message_complete = 1u;
+            }
+        }
+        else if (!message_complete)
         {
             VN_MAP_BANK130_FOR_CODE();
             message_complete = draw_message_next_glyph_locked(message);
