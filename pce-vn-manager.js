@@ -118,6 +118,7 @@ const VN_COMPARE_GT = 4;
 const VN_COMPARE_GTE = 5;
 const VN_NO_COMMAND = 0xffff;
 const VN_MAX_U8_COUNT = 255;
+const VN_MAX_SPRITE_ANIMATION_COUNT = 512;
 const VN_SCENE_FLAG_FULL_SCREEN_BG = 1;
 const VN_SCENE_PACK_DIR = path.join('assets', 'generated', 'vn', 'scenes');
 // Font tiles are streamed from this CD data file into VRAM at boot (no longer
@@ -156,7 +157,7 @@ const VN_OVERLAY_RESERVED_BYTES = VN_OVERLAY_RESERVED_SECTORS * 2048; // 2048 = 
 // metadata does not collide with the overlay LMA. The overlay is fixed runtime
 // code (~2.3 KB). Large PSG/VGM/MIDI song patterns are NOT kept here — they
 // stream from CD into RAM bank134 only while playing (see psg_pattern_ram /
-// load_psg_pattern_cd in pce_vn_runtime.c) — so the resident budget stays small.
+// load_psg_pattern_cd in pce_vn_runtime.c) - so the resident budget stays small.
 // finalizeOverlayBlob asserts the section still fits below VN_BANK132_LMA_END.
 // bank132 (8 KB, MPR slot 6) is shared between GROWING resident metadata
 // (cd_data_refs, sprite cell_maps, the scene-pack directory) growing up from
@@ -2128,6 +2129,13 @@ function buildSpriteAnimationIndex(assetDoc = { assets: [] }, spriteIndex = new 
           }];
         }
       }
+      if (animations.length === 1) {
+        const only = animations[0] && typeof animations[0] === 'object' ? animations[0] : {};
+        const onlyId = String(only.id || 'default').trim() || 'default';
+        if (onlyId === 'default' && clampInt(only.frameCount, 1, 64, 1) <= 1) {
+          return;
+        }
+      }
       animations.forEach((animation) => {
         const animId = String(animation.id || 'default').trim() || 'default';
         const frameWidth = clampPositiveInt(animation.frameWidth, cellWidth, 256, width);
@@ -2507,8 +2515,8 @@ function generateVnSources(projectDir, options = {}) {
   const cddaIndex = indexAssets(runtimeAssetDoc.assets || [], 'cdda-track');
   const psgIndex = indexPsgAssets(runtimeAssetDoc.assets || []);
   const spriteAnimations = buildSpriteAnimationIndex(runtimeAssetDoc, spriteIndex);
-  if (spriteAnimations.meta.length > VN_MAX_U8_COUNT) {
-    throw new Error(`PCE VN supports up to ${VN_MAX_U8_COUNT} sprite animations`);
+  if (spriteAnimations.meta.length > VN_MAX_SPRITE_ANIMATION_COUNT) {
+    throw new Error(`PCE VN supports up to ${VN_MAX_SPRITE_ANIMATION_COUNT} sprite animations`);
   }
   const sceneIndex = new Map(doc.scenes.map((scene, index) => [scene.id, index]));
   const variables = collectVariableDefinitions(doc);
@@ -2991,6 +2999,7 @@ function generateVnSources(projectDir, options = {}) {
     ? (fontSpriteLayout.sectorCount || fontSpriteBudget.sectorCount)
     : 0;
   const fontSpriteDataInitializer = `{ ${cdSectorInitializer(fontSpriteLayout)}, ${fontSpriteSectorCount}u, ${fontSpriteBudget.byteSize}u }`;
+  const hasFullScreenBg = doc.scenes.some((scene) => !!scene.fullScreenBg);
   // Overlay code blob CD ref. The blob is extracted from main.elf AFTER this link
   // (finalizeOverlayBlob), but its on-CD footprint is reserved up front at a fixed
   // size so the CD sector assigned here matches what mkcd writes. ensureOverlayBin
@@ -3068,6 +3077,9 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_COMPARE_GTE ${VN_COMPARE_GTE}u`,
     `#define PCE_VN_NO_COMMAND ${VN_NO_COMMAND}u`,
     `#define PCE_VN_SCENE_FLAG_FULL_SCREEN_BG ${VN_SCENE_FLAG_FULL_SCREEN_BG}u`,
+    `#define PCE_VN_HAS_FULL_SCREEN_BG ${hasFullScreenBg ? 1 : 0}u`,
+    `#define PCE_VN_HAS_SPRITE_ANIMATIONS ${spriteAnimations.meta.length ? 1 : 0}u`,
+    `#define PCE_VN_HAS_SPRITETEXT ${spriteTextGlyphs.length ? 1 : 0}u`,
     `#define PCE_VN_VARIABLE_STORAGE_COUNT ${Math.max(1, variables.initialValues.length)}u`,
     `#define PCE_VN_SCENE_PACK_CACHE_BYTES ${VN_SCENE_PACK_CACHE_BYTES}u`,
     `#define PCE_VN_SCENE_PACK_VERSION ${VN_SCENE_PACK_VERSION}u`,
@@ -3080,7 +3092,7 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_SCENE_PACK_SWITCH_CASE_SIZE ${VN_SCENE_PACK_SWITCH_CASE_SIZE}u`,
     '',
     'typedef struct {',
-    '  unsigned char sprite_index;',
+    '  unsigned int sprite_index;',
     '  unsigned char first_cell;',
     '  unsigned char frame_count;',
     '  unsigned char frame_delay;',
@@ -3188,7 +3200,7 @@ function generateVnSources(projectDir, options = {}) {
     '#endif',
     'extern const unsigned char pce_vn_font_sprite_glyph_count;',
     'extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];',
-    'extern const unsigned char pce_vn_sprite_animation_count;',
+    'extern const unsigned int pce_vn_sprite_animation_count;',
     'extern const signed int pce_vn_variable_initial_values[];',
     'extern const unsigned char pce_vn_variable_count;',
     'extern const pce_vn_scene_pack_t pce_vn_scene_packs[];',
@@ -3240,7 +3252,7 @@ function generateVnSources(projectDir, options = {}) {
     'const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations[] = {',
     ...(animationMeta.length ? animationMeta : ['  { 0u, 0u, 1u, 8u, 1u, 1u, 1u, 1u, (const unsigned char *)0 }']),
     '};',
-    `const unsigned char PCE_VN_DATA_SECTION pce_vn_sprite_animation_count = ${spriteAnimations.meta.length};`,
+    `const unsigned int PCE_VN_DATA_SECTION pce_vn_sprite_animation_count = ${spriteAnimations.meta.length};`,
     '',
     'const signed int PCE_VN_DATA_SECTION pce_vn_variable_initial_values[] = {',
     ...(variables.initialValues.length
@@ -3354,7 +3366,7 @@ function generatedVisualCdDataFile(projectDir, generated = {}, slot = 'tiles') {
   return slot === 'map' ? generated.mapVramFile : generated.tilesFile;
 }
 
-function addAssetCdDataFiles(projectDir, files, seen, asset) {
+function addAssetCdDataFiles(projectDir, files, seen, asset, options = {}) {
   if (!asset) return;
   const generated = asset.data?.generated || {};
   if (asset.type === 'image') {
@@ -3364,6 +3376,8 @@ function addAssetCdDataFiles(projectDir, files, seen, asset) {
     addExistingCdDataFile(projectDir, files, seen, generatedVisualCdDataFile(projectDir, generated, 'tiles'));
   } else if (asset.type === 'adpcm') {
     addExistingCdDataFile(projectDir, files, seen, generated.outputFile);
+  } else if ((asset.type === 'psg-song' || asset.type === 'psg-sfx') && options.catalogMode && typeof assetManager.psgPatternFile === 'function') {
+    addExistingCdDataFile(projectDir, files, seen, assetManager.psgPatternFile(asset));
   }
 }
 
@@ -3396,6 +3410,13 @@ function collectCdDataFiles(projectDir) {
   const assetDoc = assetManager.readAssetDocument(projectDir);
   const doc = readSceneDocument(projectDir);
   const assets = assetById(assetDoc);
+  const runtimeAssetIds = collectSceneRuntimeAssetIds(doc);
+  const runtimeAssetDoc = {
+    ...assetDoc,
+    assets: (assetDoc.assets || []).filter((asset) => asset?.id && runtimeAssetIds.has(String(asset.id))),
+  };
+  const catalogMode = typeof assetManager.assetMetaShouldUseCd === 'function'
+    && assetManager.assetMetaShouldUseCd(projectDir, runtimeAssetDoc);
   const files = [];
   const seen = new Set();
   // Shared glyph font is streamed into VRAM at boot; place it first so its
@@ -3412,14 +3433,13 @@ function collectCdDataFiles(projectDir) {
   // sector ahead of the scene packs / payloads. Only when the project is large
   // enough to stream metadata on demand — small projects keep resident arrays and
   // must not waste ISO sectors on (or pick up a stale) asset_meta.bin.
-  if (typeof assetManager.assetMetaShouldUseCd !== 'function'
-    || assetManager.assetMetaShouldUseCd(projectDir, assetDoc)) {
+  if (catalogMode) {
     addExistingCdDataFile(projectDir, files, seen, assetManager.ASSET_META_FILE);
   }
   (doc.scenes || []).forEach((scene, sceneIndex) => {
     addCdDataFile(files, seen, scenePackRelativePath(scene, sceneIndex));
     collectSceneCommandAssetIds(scene).forEach((assetId) => {
-      addAssetCdDataFiles(projectDir, files, seen, assets.get(assetId));
+      addAssetCdDataFiles(projectDir, files, seen, assets.get(assetId), { catalogMode });
     });
   });
   return files;
@@ -3660,7 +3680,19 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
   // Reserve the consolidated asset-metadata file at its final size before the CD
   // layout is computed so its sector (and every file after it) stays stable, the
   // same reserve→overwrite contract used for the overlay blob below.
-  assetManager.ensureAssetMetaReservation(projectDir);
+  {
+    const assetDoc = assetManager.readAssetDocument(projectDir);
+    const sceneDoc = readSceneDocument(projectDir);
+    const runtimeAssetIds = collectSceneRuntimeAssetIds(sceneDoc);
+    const runtimeAssetDoc = {
+      ...assetDoc,
+      assets: (assetDoc.assets || []).filter((asset) => asset?.id && runtimeAssetIds.has(String(asset.id))),
+    };
+    if (typeof assetManager.ensurePsgPatternFiles === 'function') {
+      assetManager.ensurePsgPatternFiles(projectDir, runtimeAssetDoc);
+    }
+    assetManager.ensureAssetMetaReservation(projectDir, runtimeAssetDoc);
+  }
   // Reserve the overlay blob's CD footprint and write the linker fragment BEFORE
   // generating sources / computing the CD layout. The actual overlay bytes are
   // extracted from main.elf after the link by finalizeOverlayBlob(); reserving a

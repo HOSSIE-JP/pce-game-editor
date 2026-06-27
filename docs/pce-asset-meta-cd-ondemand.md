@@ -1,99 +1,94 @@
-# PCE-CD アセットメタ情報の CD オンデマンド化
+# PCE-CD Asset Catalog v2
 
-VN プロジェクトで画像 / スプライト / ADPCM のアセット登録数を増やすと、各アセットの
-**メタ情報**（パレット・ディスクリプタ構造体・`cd_data_ref`・スプライトの `cell_map`）が
-常駐 RAM に積み上がり、`ld.lld` がバンク領域を溢れさせる。本ドキュメントはそのメタ情報を
-CD データファイルへ逃がし、必要時にだけストリームする仕組みと、**いつ切り替えるか**の判断
-ルールを説明する。
+VN プロジェクトで BG / Sprite / ADPCM / PSG / CD-DA の登録数が増えると、従来の常駐
+metadata は bank128 `.rodata` と bank132 VN data を圧迫します。Catalog v2 は、VN で実際に
+参照される asset の metadata を CD data file `assets/generated/meta/asset_meta.bin` へ移し、
+RAM 常駐量を asset 数に比例させないための形式です。
 
-> 変更前に [pce-memory-bank-strategy.md](pce-memory-bank-strategy.md) と
-> [PLUGIN.md](../PLUGIN.md) も参照すること。**未解決課題（meta モードの bank129 肥大）と
-> 対応案は [pce-asset-meta-cd-ondemand-codex-handoff.md](pce-asset-meta-cd-ondemand-codex-handoff.md)。**
+CD-ROM2 VN では、BG / Sprite / ADPCM / PSG は各 512 件までを標準保証ラインにします。
+CD-DA は CD 規格の物理 track 制約があるため、track 2..99 の最大 98 本までです。数百件の
+音声用途には ADPCM または PSG を使ってください。
 
-## バンク配置の前提（なぜメタ情報が溢れるのか）
+## 対象
 
-pce-cd リンカスクリプト（`cd-ram-banked-sections.ld` / `cd-sections.ld`）では:
+Catalog v2 は CD-ROM2 VN build 用です。HuCard や小規模 CD project の resident mode は互換
+目的で残します。
 
-- 既定の `.text` / `.rodata` → **bank128**（`c_readonly = c_writeable = ram_bank128`）。
-- `.bss` → **console_ram**。
-- `.ram_bank129` / `.ram_bank130` → **明示的に `VN_BANKED_CODE` / `VN_BANKED_CODE2` を
-  付けたコードだけ**。アセットを増やしても 129/130 は増えない（コード＝機能で増える）。
-- `.ram_bank132` → `cd_data_ref`（`PCE_EDITOR_CD_REF_SECTION`）と VN 生成データ。
+生成時は `assetIds` で絞った「VN から実際に参照される asset」だけを catalog と `cd.dataFiles`
+へ含めます。Asset 一覧に未使用素材が残っていても、runtime metadata、VRAM 予約、ISO data file
+は膨らませません。
 
-したがって**生成アセットのディスクリプタ配列 / パレット / `cell_map` は bank128 の `.rodata`**
-に乗り、`cd_data_ref` は bank132 に乗る。アセットを増やすと **bank128 と bank132 が先に**
-膨らむ。コード用 3 バンク（128/129/130, 約24KB）は co-resident で透過呼び出しできる
-（[pce-memory-bank-strategy.md](pce-memory-bank-strategy.md) 参照）。
+## レコード配置
 
-## レコード形式（asset_meta.bin）
+`asset_meta.bin` は種別ごとに sector 整列された固定長 record を持ちます。常駐側には
+`pce_editor_meta_region_t { sector, count, slot }` だけを置きます。`count` と各
+`pce_editor_*_asset_count` は 512 件を扱えるよう `unsigned int` です。
 
-CD ビルドでメタを CD に逃がす場合、ジェネレータは全アセットのメタを 1 ファイル
-`assets/generated/meta/asset_meta.bin` に**固定長・セクタ整列のレコードスロット**として
-直列化し、常駐側には**定数のディレクトリ（`pce_editor_*_meta`）だけ**を残す。
+| 種別 | record size | 内容 |
+|---|---:|---|
+| BG | 128B | descriptor、palette 32B、tile/map CD ref |
+| Sprite | 512B | descriptor、palette 32B、pattern CD ref、`cell_map` 最大 384 cell |
+| ADPCM | 32B | size/rate/address/divider/loop/stream、ADPCM CD ref |
+| PSG | 32B | song/SFX flag、period/BPM、step count、pattern count、PSG pattern CD ref |
+| CD-DA | 32B | track、loop、start/end sector、end time、play frames |
 
-- BG / sprite レコード = **メモリ上ディスクリプタ構造体のパック画像**（ポインタ欄は 0）＋付録
-  （パレット 32B、`cd_data_ref` 8B/件、スプライトは `cell_map` をインライン格納）。
-- ADPCM レコードは同じ固定 offset だが、runtime は `data_size` / `sample_rate` / `adpcm_address` /
-  `divider` / `loop` / `stream` / `cd_data_ref` を field-by-field に scalar decode する。llvm-mos が
-  multi-byte struct copy を `tii $00xx,$00yy` に畳み、WRAM `$20xx` の高位アドレスを落とすことが
-  あるため、ADPCM の struct image / CD ref は `memcpy` に戻さない。
-- オフセットは生成ヘッダの `PCE_EDITOR_META_*` 定数と、ランタイム側 `_Static_assert` で固定
-  （構造体ドリフト時はビルドエラー）。
-- スロット長: BG=128B / Sprite=512B（`cell_map` インライン込み, 最大 384 cell）/ ADPCM=32B。
-- レコード N の位置 = セクタ `region.sector + N / (2048/slot)`、オフセット
-  `(N % (2048/slot)) * slot`。`asset_meta.bin` は `ensureAssetMetaReservation()` で**最終
-  サイズを先に確保**してから CD レイアウトに渡す（`overlay.bin` と同じ「予約→上書き」）。
+レコード N の位置は `region.sector + N / (2048 / slot)`、sector 内 offset は
+`(N % (2048 / slot)) * slot` です。生成ヘッダの `PCE_EDITOR_META_*` offset と runtime の
+`_Static_assert` で record layout の drift を検出します。
 
-ランタイムの accessor `vn_get_bg_asset` / `vn_get_sprite_asset` / `vn_get_adpcm_asset` は
-レコードセクタを `cd_transfer_scratch`（bank132）へ読み、小さな cache（BG 2 スロット /
-Sprite 4 スロット、`cell_map` は console_ram）にデコードして、ランタイムが既に期待する
-構造体ポインタを返す。cache ヒット時は CD を触らない（毎フレームのスプライト refresh が
-ドライブを叩かない）。
+PSG は Catalog mode では短い SFX も含めて pattern を `assets/generated/psg/<id>.bin` に出し、
+`pce_editor_psg_*_pattern[]` を常駐生成しません。CD-DA も `pce_editor_cdda_assets[]` を出さず、
+catalog record から decode します。
 
-### accessor は必ず bank128（VN_RESIDENT_CODE）に置く
+## Runtime
 
-accessor を `VN_BANKED_CODE`（129）等に付けると、CD ヘルパ（`map_vn_data` /
-`prepare_cd_data_access` / `cd_sector_*`）のインラインコピーがそのバンクへ複製され、
-**バンクが膨張**する。accessor は `VN_RESIDENT_CODE`（`noinline` + `.text` = bank128）で
-**out-of-line・bank128 常駐**にすること。128/129/130 は co-resident なので、129/130 の
-consumer（`refresh_scene_sprites` / `copy_adpcm_voice` 等）からの呼び出しは透過。
+runtime は `vn_get_bg_asset()` / `vn_get_sprite_asset()` / `vn_get_adpcm_asset()` /
+`vn_get_psg_asset()` / `vn_get_cdda_asset()` で catalog record を読みます。Record 内に
+pointer は保存せず、palette、CD ref、`cell_map`、PSG pattern ref は runtime cache へ decode
+してから既存構造体の形で返します。
 
-## いつ CD オンデマンドに切り替えるか（閾値）
+Cache は現在、BG 2 枠、Sprite 4 枠、ADPCM 1 枠、PSG 1 枠、CD-DA 1 枠です。Cache key と
+preload / loaded index は 16bit asset index として扱い、scene command の signed index は
+`0..count-1` を検証してから使います。`(uint8_t)asset_index` で比較しないでください。
 
-メタを CD に逃がすのは、**固定の accessor コスト（accessor コード ~1KB が bank128、加えて
-consumer 側のインライン定数畳み込みが効かなくなる分が banked code バンクへ ~1KB）**を、
-**解放される常駐メタ rodata が上回るときだけ**。小規模プロジェクトでは逆に純損になる。
+Accessor は CD BIOS helper、MPR 復帰、`cd_transfer_scratch` を触るため、consumer では
+関数入口で 1 回呼び、必要 field を local snapshot へ落としてから hot path で使います。
+特に ADPCM の multi-byte field は `memcpy` や構造体同士の連続 copy に戻さず、offset から
+scalar decode してください。llvm-mos が `tii` へ畳むと WRAM 高位アドレスを落とすことがあります。
 
-そこでジェネレータ `assetMetaShouldUseCd()` は:
+## 自動切替
 
-```
-CD ターゲット かつ estimateResidentMetaBytes(project) > 予算
-```
+`assetMetaDecision()` は次の条件で Catalog mode へ切り替えます。
 
-のときだけ CD オンデマンドモードにし、生成ヘッダへ `#define PCE_EDITOR_ASSET_META_ON_CD 1`
-を出す。それ未満は**従来どおり常駐配列**（`pce_editor_bg_assets[]` 等）を出し、ランタイムの
-accessor は `#else` のマクロ（直接添字）に解決されて **DCE で丸ごと落ちる（コスト 0）**。
-これにより:
+- CD target である。
+- 参照 asset 数が増え、resident metadata の bank128 見積もりが budget を超える。
+- bank132 init data 見積もりが budget を超える。
+- BG / Sprite / ADPCM / PSG のいずれかが 32 件を超える。
+- PSG resident pattern 見積もりが 512B を超える。
 
-- 小規模 / コードバンクが逼迫したプロジェクト（例: Kitahe）は**常駐のまま＝実証済み挙動・
-  回帰なし**。
-- アセット過多で bank128 rodata が溢れるプロジェクトだけ自動で O(1) 化。
+`PCE_ASSET_META_BUDGET` で budget を上書きできます。`0` は catalog 強制に使えます。巨大値を
+指定しても、32 件超の scale 判定は残ります。大量 asset build を resident mode に戻すと
+bank overflow を再発させやすいためです。
 
-予算の既定は `META_RESIDENT_BUDGET = 1536` バイト。環境変数 **`PCE_ASSET_META_BUDGET`**
-（バイト）で上書き可能（0 = 常に CD オンデマンド、巨大値 = 常に常駐）。テストは
-この変数で両モードを決定的に切り替える。
+Build log には catalog mode、切替理由、種別ごとの件数、catalog size、resident 削減見積もりを
+出します。調査時は scene pack / font / overlay の制約と catalog metadata 制約を混同しないで
+ください。
 
-### 既知の制約
+## Hard Error
 
-- CD オンデマンドモードでは、consumer 側の配列添字参照が accessor 戻りポインタ経由になり、
-  そのままだと bank129 の code size が増えやすい。runtime では `vn_get_*_asset()` を hot path
-  の入口で 1 回だけ呼び、必要 field（sprite draw meta / `cell_map` など）をローカルまたは
-  runtime-owned snapshot に落としてから使う。Kitahe の meta 強制ビルドでは、過去に
-  `refresh_scene_sprite_patterns_impl()` を Path B overlay（bank133）へ逃がしていたが、
-  VBlank/SATB hardening 後は per-frame SATB 差分更新を VBlank へ寄せるため bank130 常駐に戻している。
-  閾値を超えたのに 129/130 が溢れる場合は、まずこの consumer snapshot と bank129/130/133 の配置を確認する。
-- ADPCM の runtime snapshot へ multi-byte field を移す時も、構造体同士の連続 field copy に
-  見える書き方は避ける。`copy_adpcm_voice()` は local scalar へ受けてから snapshot へ書くことで、
-  `tii` の高位アドレス落ちを避けている。
-- スプライトの位置セル数（columns×rows）が **384 を超える**と `cell_map` インラインに
-  収まらずビルドエラー。シートのセル数を減らすこと。
+- BG / Sprite / ADPCM / PSG の VN 参照数が各 512 件を超える。
+- CD-DA が 98 本を超える。
+- CD-DA track が 2..99 の範囲外。
+- CD-DA track が重複する。
+- Sprite `cell_map` が 384 cell を超える。
+- PSG pattern が 2048 event を超える。
+- ADPCM 1 asset が `min(65535, 65536 - adpcmAddress)` bytes を超える。
+
+## 変更時の確認
+
+- `pce_editor_*_asset_count` と `pce_editor_meta_region_t.count` は `unsigned int` のままにする。
+- Runtime で asset index を `uint8_t` へ cast して比較しない。
+- `cd.dataFiles` の安定順は、font/scene pack など VN data、asset payload、PSG pattern、
+  `asset_meta.bin` の予約順を崩さない。
+- Catalog record を増やす場合は、generator offset、generated header、runtime decode、
+  `_Static_assert`、unit test を同時に更新する。

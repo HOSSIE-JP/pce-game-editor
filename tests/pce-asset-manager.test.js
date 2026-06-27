@@ -477,7 +477,7 @@ test('PCE ADPCM streaming import keeps long samples as one CD data file', (t) =>
   // ADPCM descriptors are CD on-demand now: a constant region directory + the
   // record bytes in ASSET_META_FILE (adpcm.bin@64, meta@65 -> adpcm region@65).
   assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 65u, 0u, 0u \}, 1u \};/);
-  assert.match(source, /const unsigned char pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
+  assert.match(source, /const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
   assert.doesNotMatch(source, /pce_editor_adpcm_long_stream_data_cd PCE_EDITOR_CD_REF_SECTION/);
   const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
   assert.equal(meta.readUInt16LE(6), 8000); // sample_rate
@@ -859,12 +859,12 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.match(source, /static const unsigned char pce_editor_adpcm_voice_data\[\] PCE_EDITOR_RODATA_SECTION/);
   assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_tiles, 64u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_map, 8u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, 2u, 2u, 64u, 0u, 0u \}/);
   assert.match(source, /\{ pce_editor_adpcm_voice_data, 4ul, 16000u, 0u, 14u, 0u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
-  assert.match(source, /const unsigned char pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
+  assert.match(source, /const unsigned int pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
   assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] PCE_EDITOR_RODATA_SECTION = \{\n  \{ 16u, 16u, 1u, 1u, 384u, 0u \}\n\};/);
-  assert.match(source, /const unsigned char pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
-  assert.match(source, /const unsigned char pce_editor_psg_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
-  assert.match(source, /const unsigned char pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
-  assert.match(source, /const unsigned char pce_editor_cdda_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
+  assert.match(source, /const unsigned int pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
+  assert.match(source, /const unsigned int pce_editor_psg_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
+  assert.match(source, /const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
+  assert.match(source, /const unsigned int pce_editor_cdda_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
   assert.match(source, /pce_editor_image_rows/);
 });
 
@@ -954,6 +954,8 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.match(header, /extern const pce_editor_meta_region_t pce_editor_bg_meta;/);
   assert.match(header, /extern const pce_editor_meta_region_t pce_editor_sprite_meta;/);
   assert.match(header, /extern const pce_editor_meta_region_t pce_editor_adpcm_meta;/);
+  assert.match(header, /extern const pce_editor_meta_region_t pce_editor_psg_meta;/);
+  assert.match(header, /extern const pce_editor_meta_region_t pce_editor_cdda_meta;/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_DATA_SIZE 2u/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_SAMPLE_RATE 6u/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_ADDRESS 8u/);
@@ -961,29 +963,31 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_LOOP 11u/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_STREAM 12u/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_CD 15u/);
+  assert.match(header, /#define PCE_EDITOR_META_PSG_SLOT 32u/);
+  assert.match(header, /#define PCE_EDITOR_META_CDDA_SLOT 32u/);
   // Resident directory: payloads occupy sectors 64..69, so the meta file lands at
-  // sector 70; its regions are bg@70, sprite@71, adpcm@72.
+  // sector 70; its regions are bg@70, sprite@71, adpcm@72, cdda@73.
   assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 70u, 0u, 0u \}, 1u \};/);
   assert.match(source, /const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 71u, 0u, 0u \}, 1u \};/);
   assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 72u, 0u, 0u \}, 1u \};/);
-  assert.match(source, /const unsigned char pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
-  assert.match(source, /const unsigned char pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
-  assert.match(source, /const unsigned char pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_cdda_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 73u, 0u, 0u \}, 2u \};/);
+  assert.match(source, /const unsigned int pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
+  assert.match(source, /const unsigned int pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
+  assert.match(source, /const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
   // The resident arrays and per-asset cd refs are no longer emitted on CD.
   assert.doesNotMatch(source, /pce_editor_bg_assets\[\] = \{/);
   assert.doesNotMatch(source, /pce_editor_sprite_draw_meta\[\] = \{/);
   assert.doesNotMatch(source, /pce_editor_image_bg_tiles_cd PCE_EDITOR_CD_REF_SECTION/);
   assert.doesNotMatch(source, /pce_editor_adpcm_voice_data_cd PCE_EDITOR_CD_REF_SECTION/);
-  // CDDA stays resident (does not scale with images); its table is unchanged.
+  // CDDA metadata is also catalogued; no resident track table is emitted.
   assert.match(header, /pce_editor_cd_sector_t start_sector;/);
-  assert.match(source, /\{ 3u, 0u, \{ 13u, 2u, 0u \}, \{ 162u, 2u, 0u \}, \{ 74u, 10u, 0u \}, 118u \}/);
-  assert.match(source, /\{ 2u, 1u, \{ 194u, 1u, 0u \}, \{ 12u, 2u, 0u \}, \{ 74u, 8u, 0u \}, 58u \}/);
+  assert.doesNotMatch(source, /pce_editor_cdda_assets\[\] = \{/);
 
   // Lock the on-CD record format: decode the bg record (slot 0) and verify a few
   // fields and the embedded cd refs (tiles@64, map@65).
   // Records are packed struct images + appendix (see docs/pce-asset-meta-cd-ondemand.md).
   const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
-  assert.equal(meta.length, 3 * 2048);
+  assert.equal(meta.length, 4 * 2048);
   assert.equal(meta[27], 36); // bg width_tiles = ceil(288/8)
   assert.equal(meta[28], 16); // bg height_tiles = ceil(128/8)
   assert.equal(meta.readUInt16LE(29), 64); // tile_base (BG auto-forced)
@@ -1003,6 +1007,17 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.equal(meta.readUInt32LE(adBase + 2), 4096); // data_size
   assert.equal(meta[adBase + 12], 1); // stream flag
   assert.equal(meta[adBase + 15], 68); // adpcm cd sector lo
+  // CDDA records (region at sector 73 -> byte offset 3*2048).
+  const cddaBase = 3 * 2048;
+  assert.equal(meta[cddaBase + 0], 3); // ending track
+  assert.equal(meta[cddaBase + 2], 13); // ending start sector lo (525)
+  assert.equal(meta[cddaBase + 5], 162); // ending end sector lo (674)
+  assert.equal(meta[cddaBase + 8], 74); // ending end frame
+  assert.equal(meta.readUInt16LE(cddaBase + 11), 118); // ending play_frames
+  assert.equal(meta[cddaBase + 32], 2); // opening track
+  assert.equal(meta[cddaBase + 33], 1); // opening loop
+  assert.equal(meta[cddaBase + 34], 194); // opening start sector lo (450)
+  assert.equal(meta.readUInt16LE(cddaBase + 43), 58); // opening play_frames
 });
 
 test('PCE CD asset source generation ships raw BG and sprite tiles (RLE removed)', (t) => {
@@ -1277,4 +1292,218 @@ test('PCE PSG master volume scales generated step amplitudes', () => {
   // 50% master volume: 20 -> 10, 30 -> 15.
   assert.match(source, /\{ 0u, 0u, 512u, 10u, 0u, 0u \}/);
   assert.match(source, /\{ 1u, 0u, 256u, 15u, 0u, 0u \}/);
+});
+
+test('PCE asset-meta CD on-demand decision keys off bank132 budget incl. VN scene-pack directory', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-bank132-budget-');
+  writeFile(projectDir, 'project.json', Buffer.from(JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' })));
+  assetManager.writeAssetDocument(projectDir, { version: 1, assets: [] });
+  // 200 scenes contribute ~200*9 + 160 = ~1960 B of resident bank132 (scene-pack
+  // directory), which the bank132-budget decision must now account for even with
+  // zero registered assets — the previous asset-meta-only heuristic ignored it.
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', Buffer.from(JSON.stringify({
+    scenes: Array.from({ length: 200 }, (_unused, i) => ({ id: `s${i}` })),
+  })));
+  // Default budget (~3704 B) keeps it resident; the scene-pack pressure alone is
+  // under budget after the bank132-tail reclaim freed room.
+  assert.equal(assetManager.assetMetaShouldUseCd(projectDir), false);
+  // A budget below the scene-pack estimate offloads — proving the directory size
+  // (not just asset metadata) drives the decision.
+  process.env.PCE_ASSET_META_BUDGET = '1000';
+  try {
+    assert.equal(assetManager.assetMetaShouldUseCd(projectDir), true);
+  } finally {
+    delete process.env.PCE_ASSET_META_BUDGET;
+  }
+  // Non-CD targets never offload.
+  writeFile(projectDir, 'project.json', Buffer.from(JSON.stringify({ targetMedia: 'rom' })));
+  assert.equal(assetManager.assetMetaShouldUseCd(projectDir), false);
+});
+
+test('PCE asset catalog v2 streams PSG and CD-DA metadata from CD', (t) => {
+  process.env.PCE_ASSET_META_BUDGET = '0';
+  t.after(() => { delete process.env.PCE_ASSET_META_BUDGET; });
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-catalog-v2-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/generated/opening/cdda.wav', makeWavBuffer(44100, 44100));
+  assetManager.writeAssetDocument(projectDir, {
+    version: 2,
+    assets: [
+      {
+        id: 'beep',
+        type: 'psg-sfx',
+        options: {
+          pattern: [
+            { step: 0, channel: 0, period: 512, volume: 20 },
+            { step: 1, channel: 0, period: 768, volume: 0 },
+          ],
+        },
+      },
+      {
+        id: 'opening',
+        type: 'cdda-track',
+        source: 'assets/cdda/opening.wav',
+        options: { track: 2, loop: true },
+        data: { generated: { outputFile: 'assets/generated/opening/cdda.wav' } },
+      },
+    ],
+  });
+
+  const generated = assetManager.generateAssetSources(projectDir);
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
+
+  assert.equal(generated.assetCatalogMode, 'cd');
+  assert.deepEqual(assetManager.collectCdDataFiles(projectDir), [
+    'assets/generated/psg/beep.bin',
+    'assets/generated/meta/asset_meta.bin',
+  ]);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_psg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 65u, 0u, 0u \}, 1u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_cdda_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 66u, 0u, 0u \}, 1u \};/);
+  assert.doesNotMatch(source, /pce_editor_psg_beep_pattern/);
+  assert.doesNotMatch(source, /pce_editor_psg_assets\[\] = \{/);
+  assert.doesNotMatch(source, /pce_editor_cdda_assets\[\] = \{/);
+  assert.equal(meta.length, 2 * 2048);
+  assert.equal(meta[0], 0); // PSG is_song
+  assert.equal(meta.readUInt16LE(1), 512);
+  assert.equal(meta.readUInt16LE(7), 2); // pattern_count
+  assert.equal(meta[9], 64); // PSG pattern CD sector
+  const cddaBase = 2048;
+  assert.equal(meta[cddaBase + 0], 2);
+  assert.equal(meta[cddaBase + 1], 1);
+  assert.equal(meta[cddaBase + 2], 194); // CD-DA audio starts at sector 450.
+});
+
+test('PCE asset catalog accepts 512 BG/sprite/ADPCM/PSG assets and rejects 513', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-catalog-512-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/generated/bg/palette.bin', Buffer.alloc(32, 0x01));
+  writeFile(projectDir, 'assets/generated/bg/tiles.bin', Buffer.alloc(128, 0x22));
+  writeFile(projectDir, 'assets/generated/bg/map_vram.bin', Buffer.alloc(64, 0x80));
+  writeFile(projectDir, 'assets/generated/spr/palette.bin', Buffer.alloc(32, 0x02));
+  writeFile(projectDir, 'assets/generated/spr/patterns.bin', Buffer.alloc(128, 0x33));
+  writeFile(projectDir, 'assets/generated/voice/adpcm.bin', Buffer.alloc(32, 0x44));
+
+  const makeBgAsset = (index) => ({
+    id: `bg_${index}`,
+    type: 'image',
+    options: { width: 16, height: 16, tileBase: 32, mapBase: 0 },
+    data: {
+      generated: {
+        paletteFile: 'assets/generated/bg/palette.bin',
+        tilesFile: 'assets/generated/bg/tiles.bin',
+        mapVramFile: 'assets/generated/bg/map_vram.bin',
+      },
+    },
+  });
+  const makeSpriteAsset = (index) => ({
+    id: `spr_${index}`,
+    type: 'sprite',
+    options: { width: 16, height: 16, cellWidth: 16, cellHeight: 16, tileBase: 384 },
+    data: {
+      generated: {
+        paletteFile: 'assets/generated/spr/palette.bin',
+        tilesFile: 'assets/generated/spr/patterns.bin',
+      },
+    },
+  });
+  const makeAdpcmAsset = (index) => ({
+    id: `voice_${index}`,
+    type: 'adpcm',
+    options: { sampleRate: 8000 },
+    data: { generated: { outputFile: 'assets/generated/voice/adpcm.bin' } },
+  });
+  const makePsgAsset = (index) => ({
+    id: `psg_${index}`,
+    type: 'psg-sfx',
+    options: { pattern: [] },
+  });
+  const assets512 = [
+    ...Array.from({ length: 512 }, (_unused, index) => makeBgAsset(index)),
+    ...Array.from({ length: 512 }, (_unused, index) => makeSpriteAsset(index)),
+    ...Array.from({ length: 512 }, (_unused, index) => makeAdpcmAsset(index)),
+    ...Array.from({ length: 512 }, (_unused, index) => makePsgAsset(index)),
+  ];
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: assets512 });
+  const generated = assetManager.generateAssetSources(projectDir);
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
+  assert.equal(generated.bgCount, 512);
+  assert.equal(generated.spriteCount, 512);
+  assert.equal(generated.adpcmCount, 512);
+  assert.equal(generated.psgCount, 512);
+  assert.equal(generated.assetCatalogMode, 'cd');
+  assert.deepEqual(generated.assetCatalogCounts, { bg: 512, sprite: 512, adpcm: 512, psg: 512, cdda: 0 });
+  assert.equal(meta.length, (32 + 128 + 8 + 8) * 2048);
+  assert.deepEqual(assetManager.collectCdDataFiles(projectDir), [
+    'assets/generated/bg/tiles.bin',
+    'assets/generated/bg/map_vram.bin',
+    'assets/generated/spr/patterns.bin',
+    'assets/generated/voice/adpcm.bin',
+    'assets/generated/meta/asset_meta.bin',
+  ]);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 68u, 0u, 0u \}, 512u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 100u, 0u, 0u \}, 512u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 228u, 0u, 0u \}, 512u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_psg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 236u, 0u, 0u \}, 512u \};/);
+  assert.doesNotMatch(source, /const pce_editor_bg_asset_t pce_editor_bg_assets\[\]/);
+  assert.doesNotMatch(source, /const pce_editor_sprite_asset_t pce_editor_sprite_assets\[\]/);
+  assert.doesNotMatch(source, /const pce_editor_adpcm_asset_t pce_editor_adpcm_assets\[\]/);
+  assert.doesNotMatch(source, /const pce_editor_psg_asset_t pce_editor_psg_assets\[\]/);
+
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 513 }, (_unused, index) => makeBgAsset(index)) });
+  assert.throws(
+    () => assetManager.generateAssetSources(projectDir),
+    /supports up to 512 referenced BG assets/,
+  );
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 513 }, (_unused, index) => makeSpriteAsset(index)) });
+  assert.throws(
+    () => assetManager.generateAssetSources(projectDir),
+    /supports up to 512 referenced sprite assets/,
+  );
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 513 }, (_unused, index) => makeAdpcmAsset(index)) });
+  assert.throws(
+    () => assetManager.generateAssetSources(projectDir),
+    /supports up to 512 referenced ADPCM assets/,
+  );
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 513 }, (_unused, index) => makePsgAsset(index)) });
+  assert.throws(
+    () => assetManager.generateAssetSources(projectDir),
+    /supports up to 512 referenced PSG assets/,
+  );
+});
+
+test('PCE CD-DA validates track range, uniqueness, and physical track count', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-cdda-validation-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
+    version: 2,
+    assets: [
+      { id: 'bad', type: 'cdda-track', options: { track: 100 } },
+    ],
+  }, null, 2));
+  assert.throws(() => assetManager.generateAssetSources(projectDir), /invalid track 100/);
+
+  writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
+    version: 2,
+    assets: [
+      { id: 'a', type: 'cdda-track', options: { track: 2 } },
+      { id: 'b', type: 'cdda-track', options: { track: 2 } },
+    ],
+  }, null, 2));
+  assert.throws(() => assetManager.generateAssetSources(projectDir), /track 2 is used by both "a" and "b"/);
+
+  writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
+    version: 2,
+    assets: Array.from({ length: 99 }, (_unused, index) => ({
+      id: `track_${index}`,
+      type: 'cdda-track',
+      options: { track: 2 + (index % 98) },
+    })),
+  }, null, 2));
+  assert.throws(() => assetManager.generateAssetSources(projectDir), /CD-DA supports up to 98 audio tracks/);
 });

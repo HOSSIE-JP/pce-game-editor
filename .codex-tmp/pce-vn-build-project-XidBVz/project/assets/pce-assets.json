@@ -1,0 +1,1157 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "vn_classroom_bg",
+      "type": "image",
+      "name": "224x136 駅ホーム背景",
+      "source": "assets/images/vn_classroom_bg.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 16,
+        "y": 16,
+        "width": 224,
+        "height": 136,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/vn_classroom_bg/palette.bin",
+          "tilesFile": "assets/generated/vn_classroom_bg/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/vn_classroom_bg/map.bin",
+          "mapVramFile": "assets/generated/vn_classroom_bg/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/vn_classroom_bg/preview.json",
+          "tileCount": 476,
+          "paletteCount": 1,
+          "vramBytes": 16320,
+          "warnings": [
+            "Image uses 59 PCE colors; remapped to 15 opaque color slots"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#0092db",
+            "#24b6db",
+            "#242424",
+            "#24496d",
+            "#494949",
+            "#002424",
+            "#244949",
+            "#92b6b6",
+            "#000000",
+            "#dbb692",
+            "#2492b6",
+            "#ffdb92",
+            "#000024",
+            "#496d6d",
+            "#6d6d6d"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 15232,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1088,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "vn_classroom_bg.png",
+          "importedAt": "2026-06-07T16:19:21.370Z",
+          "converter": "Internal PCE image converter",
+          "regeneratedAt": "2026-06-27T14:22:17.775Z"
+        }
+      }
+    },
+    {
+      "id": "opening_cdda",
+      "type": "cdda-track",
+      "name": "オープニングBGM",
+      "source": "assets/cdda/opening_cdda.wav",
+      "options": {
+        "track": 2,
+        "loop": true
+      },
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/opening_cdda/cdda.wav",
+          "previewFile": "assets/generated/opening_cdda/preview.json",
+          "byteLength": 564524,
+          "sampleRate": 44100,
+          "channels": 2,
+          "durationSeconds": 3.2,
+          "waveform": [
+            0.203,
+            0.218,
+            0.215,
+            0.181,
+            0.125,
+            0.105,
+            0.102,
+            0.097,
+            0.125,
+            0.168,
+            0.133,
+            0.11,
+            0.179,
+            0.205,
+            0.204,
+            0.158,
+            0.097,
+            0.089,
+            0.113,
+            0.173,
+            0.175,
+            0.229,
+            0.24,
+            0.235,
+            0.198,
+            0.15,
+            0.123,
+            0.099,
+            0.12,
+            0.134,
+            0.221,
+            0.241,
+            0.237,
+            0.203,
+            0.146,
+            0.17,
+            0.125,
+            0.099,
+            0.117,
+            0.139,
+            0.202,
+            0.231,
+            0.232,
+            0.209,
+            0.155,
+            0.172,
+            0.124,
+            0.096,
+            0.097,
+            0.097,
+            0.148,
+            0.222,
+            0.248,
+            0.251,
+            0.217,
+            0.164,
+            0.118,
+            0.087,
+            0.104,
+            0.151,
+            0.205,
+            0.232,
+            0.232,
+            0.199
+          ],
+          "warnings": [],
+          "paletteFile": "",
+          "tilesFile": "",
+          "mapFile": "",
+          "tileCount": 0,
+          "paletteCount": 0,
+          "vramBytes": 0,
+          "paletteColors": [],
+          "mapVramFile": "",
+          "tilesCompressedFile": "",
+          "mapVramCompressedFile": "",
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "cellMapFile": ""
+        },
+        "import": {
+          "originalFileName": "opening_theme.wav",
+          "importedAt": "2026-05-31T10:04:55.343Z",
+          "converter": "Internal WAV/CD-DA normalizer"
+        }
+      }
+    },
+    {
+      "id": "vn_psg_chime",
+      "type": "psg-song",
+      "name": "PSG チャイム",
+      "source": "",
+      "options": {
+        "kind": "song",
+        "bpm": 132,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 8,
+        "volume": 100,
+        "pattern": [
+          {
+            "step": 0,
+            "note": "C4",
+            "period": 512,
+            "volume": 12
+          },
+          {
+            "step": 1,
+            "note": "E4",
+            "period": 406,
+            "volume": 11
+          },
+          {
+            "step": 2,
+            "note": "G4",
+            "period": 342,
+            "volume": 10
+          },
+          {
+            "step": 3,
+            "note": "C5",
+            "period": 256,
+            "volume": 9
+          }
+        ]
+      }
+    },
+    {
+      "id": "akari_sprite",
+      "type": "sprite",
+      "name": "Akari / 目パチ・口パク シート",
+      "source": "assets/sprites/akari_sprite.png",
+      "options": {
+        "kind": "sprite",
+        "paletteBank": 1,
+        "tileBase": 704,
+        "mapBase": 0,
+        "x": 128,
+        "y": 24,
+        "width": 256,
+        "height": 128,
+        "cellWidth": 16,
+        "cellHeight": 16,
+        "transparentIndex": 0,
+        "animations": [
+          {
+            "id": "default",
+            "name": "Default",
+            "frameWidth": 64,
+            "frameHeight": 128,
+            "firstCell": 0,
+            "frameCount": 1,
+            "frameDelay": 8,
+            "frameDelays": [
+              8
+            ],
+            "frameStrideCells": 4,
+            "loop": true
+          },
+          {
+            "id": "blink",
+            "name": "Blink",
+            "frameWidth": 64,
+            "frameHeight": 128,
+            "firstCell": 0,
+            "frameCount": 2,
+            "frameDelay": 14,
+            "frameDelays": [
+              14,
+              14
+            ],
+            "frameStrideCells": 4,
+            "loop": true
+          },
+          {
+            "id": "mouth",
+            "name": "Mouth",
+            "frameWidth": 64,
+            "frameHeight": 128,
+            "firstCell": 8,
+            "frameCount": 2,
+            "frameDelay": 4,
+            "frameDelays": [
+              4,
+              4
+            ],
+            "frameStrideCells": 4,
+            "loop": true
+          }
+        ],
+        "spriteEditor": {
+          "frameWidth": 64,
+          "frameHeight": 128,
+          "time": "8,14,4,4",
+          "rowFrameCounts": [
+            4
+          ],
+          "rowDefaultTimes": [
+            "8"
+          ],
+          "compression": "AUTO",
+          "collision": "NONE",
+          "optType": "NONE",
+          "optLevel": "FAST",
+          "optDuplicate": "KEEP"
+        }
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/akari_sprite/palette.bin",
+          "tilesFile": "assets/generated/akari_sprite/patterns.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "assets/generated/akari_sprite/cellmap.bin",
+          "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/akari_sprite/preview.json",
+          "tileCount": 43,
+          "paletteCount": 1,
+          "vramBytes": 5504,
+          "warnings": [
+            "Sprite sheet contains more than 64 cells; PCE SATB displays up to 64 sprites"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#244949",
+            "#002424",
+            "#ffffdb",
+            "#000000",
+            "#ffb692",
+            "#b6b6db",
+            "#6d6d92",
+            "#db496d",
+            "#49496d",
+            "#924949",
+            "#b6b6b6",
+            "#ffdbb6",
+            "#db926d",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 5504,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "akari_sprite.png",
+          "importedAt": "2026-06-18T16:13:38.669Z",
+          "converter": "Internal PCE image converter",
+          "regeneratedAt": "2026-06-27T14:22:17.796Z"
+        }
+      }
+    },
+    {
+      "id": "akari_voice",
+      "type": "adpcm",
+      "name": "ADPCM voice sample",
+      "source": "assets/adpcm/akari_voice.wav",
+      "options": {
+        "sampleRate": 16000,
+        "loop": false,
+        "stream": false,
+        "adpcmAddress": 0,
+        "divider": 14
+      },
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/akari_voice/adpcm.bin",
+          "previewFile": "assets/generated/akari_voice/preview.json",
+          "byteLength": 2400,
+          "sampleRate": 16000,
+          "channels": 1,
+          "durationSeconds": 0.3,
+          "waveform": [
+            0.044,
+            0.113,
+            0.162,
+            0.241,
+            0.278,
+            0.356,
+            0.399,
+            0.478,
+            0.547,
+            0.593,
+            0.65,
+            0.65,
+            0.65,
+            0.651,
+            0.651,
+            0.648,
+            0.651,
+            0.651,
+            0.651,
+            0.651,
+            0.651,
+            0.651,
+            0.651,
+            0.651,
+            0.647,
+            0.651,
+            0.651,
+            0.651,
+            0.649,
+            0.651,
+            0.65,
+            0.65,
+            0.65,
+            0.65,
+            0.651,
+            0.649,
+            0.651,
+            0.651,
+            0.651,
+            0.647,
+            0.651,
+            0.651,
+            0.651,
+            0.628,
+            0.61,
+            0.574,
+            0.534,
+            0.512,
+            0.474,
+            0.455,
+            0.415,
+            0.396,
+            0.357,
+            0.333,
+            0.297,
+            0.274,
+            0.239,
+            0.199,
+            0.178,
+            0.139,
+            0.12,
+            0.081,
+            0.06,
+            0.022
+          ],
+          "warnings": [],
+          "paletteFile": "",
+          "tilesFile": "",
+          "mapFile": "",
+          "tileCount": 0,
+          "paletteCount": 0,
+          "vramBytes": 0,
+          "paletteColors": [],
+          "mapVramFile": "",
+          "codec": "oki-msm5205",
+          "encoderVersion": 2,
+          "nibbleOrder": "msn-first",
+          "tilesCompressedFile": "",
+          "mapVramCompressedFile": "",
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "cellMapFile": ""
+        },
+        "import": {
+          "originalFileName": "akari_voice.wav",
+          "importedAt": "2026-06-07T02:48:20.298Z",
+          "converter": "Internal WAV/ADPCM encoder",
+          "codec": "oki-msm5205",
+          "encoderVersion": 2,
+          "nibbleOrder": "msn-first"
+        }
+      }
+    },
+    {
+      "id": "rooftop_dusk_bg",
+      "type": "image",
+      "name": "224x136 夕暮れ屋上背景",
+      "source": "assets/images/rooftop_dusk_bg.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 16,
+        "y": 16,
+        "width": 224,
+        "height": 136,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/rooftop_dusk_bg/palette.bin",
+          "tilesFile": "assets/generated/rooftop_dusk_bg/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/rooftop_dusk_bg/map.bin",
+          "mapVramFile": "assets/generated/rooftop_dusk_bg/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/rooftop_dusk_bg/preview.json",
+          "tileCount": 476,
+          "paletteCount": 1,
+          "vramBytes": 16320,
+          "warnings": [
+            "Image uses 19 PCE colors; remapped to 15 opaque color slots"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#492449",
+            "#242449",
+            "#6d496d",
+            "#b6496d",
+            "#ff9249",
+            "#49496d",
+            "#92496d",
+            "#db6d49",
+            "#db496d",
+            "#ff6d49",
+            "#49246d",
+            "#b66d49",
+            "#494949",
+            "#6d2449",
+            "#b64949"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 15232,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1088,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "rooftop_dusk_bg.png",
+          "importedAt": "2026-06-08T01:12:50.736Z",
+          "converter": "Internal PCE image converter",
+          "regeneratedAt": "2026-06-27T14:22:17.817Z"
+        }
+      }
+    },
+    {
+      "id": "mika_sprite",
+      "type": "sprite",
+      "name": "Mika / 目パチ・口パク シート",
+      "source": "assets/sprites/mika_sprite.png",
+      "options": {
+        "kind": "sprite",
+        "paletteBank": 1,
+        "tileBase": 704,
+        "mapBase": 0,
+        "x": 128,
+        "y": 24,
+        "width": 256,
+        "height": 128,
+        "cellWidth": 16,
+        "cellHeight": 16,
+        "transparentIndex": 0,
+        "animations": [
+          {
+            "id": "default",
+            "name": "Default",
+            "frameWidth": 64,
+            "frameHeight": 128,
+            "firstCell": 0,
+            "frameCount": 1,
+            "frameDelay": 8,
+            "frameDelays": [
+              8
+            ],
+            "frameStrideCells": 4,
+            "loop": true
+          },
+          {
+            "id": "blink",
+            "name": "Blink",
+            "frameWidth": 64,
+            "frameHeight": 128,
+            "firstCell": 0,
+            "frameCount": 2,
+            "frameDelay": 14,
+            "frameDelays": [
+              14,
+              14
+            ],
+            "frameStrideCells": 4,
+            "loop": true
+          },
+          {
+            "id": "mouth",
+            "name": "Mouth",
+            "frameWidth": 64,
+            "frameHeight": 128,
+            "firstCell": 8,
+            "frameCount": 2,
+            "frameDelay": 4,
+            "frameDelays": [
+              4,
+              4
+            ],
+            "frameStrideCells": 4,
+            "loop": true
+          }
+        ],
+        "spriteEditor": {
+          "frameWidth": 64,
+          "frameHeight": 128,
+          "time": "8,14,4,4",
+          "rowFrameCounts": [
+            4
+          ],
+          "rowDefaultTimes": [
+            "8"
+          ],
+          "compression": "AUTO",
+          "collision": "NONE",
+          "optType": "NONE",
+          "optLevel": "FAST",
+          "optDuplicate": "KEEP"
+        }
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/mika_sprite/palette.bin",
+          "tilesFile": "assets/generated/mika_sprite/patterns.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "assets/generated/mika_sprite/cellmap.bin",
+          "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/mika_sprite/preview.json",
+          "tileCount": 36,
+          "paletteCount": 1,
+          "vramBytes": 4608,
+          "warnings": [
+            "Image uses 85 PCE colors; remapped to 15 opaque color slots",
+            "Sprite sheet contains more than 64 cells; PCE SATB displays up to 64 sprites"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#249292",
+            "#b64924",
+            "#004949",
+            "#24926d",
+            "#246d6d",
+            "#ffb692",
+            "#006d6d",
+            "#6d2424",
+            "#db926d",
+            "#492424",
+            "#922424",
+            "#924924",
+            "#006d49",
+            "#ffffdb",
+            "#b64949"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 4608,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "mika_sprite.png",
+          "importedAt": "2026-06-18T16:13:38.682Z",
+          "converter": "Internal PCE image converter",
+          "regeneratedAt": "2026-06-27T14:22:17.848Z"
+        }
+      }
+    },
+    {
+      "id": "command_lab_bg",
+      "type": "image",
+      "name": "背景/コマンド仕様ラボ",
+      "source": "assets/images/command_lab_bg.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 224,
+        "height": 136,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/command_lab_bg/palette.bin",
+          "tilesFile": "assets/generated/command_lab_bg/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/command_lab_bg/map.bin",
+          "mapVramFile": "assets/generated/command_lab_bg/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/command_lab_bg/preview.json",
+          "tileCount": 476,
+          "paletteCount": 1,
+          "vramBytes": 16320,
+          "warnings": [],
+          "paletteColors": [
+            "#000000",
+            "#000024",
+            "#242449",
+            "#492449",
+            "#24496d",
+            "#ffdb92",
+            "#6db6db",
+            "#246d6d",
+            "#db9249",
+            "#6d6d6d",
+            "#6db692",
+            "#924949",
+            "#dbdbdb",
+            "#ffffb6",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 15232,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1088,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "command_lab_bg.png",
+          "importedAt": "2026-06-18T16:12:38.956Z",
+          "converter": "Internal PCE image converter",
+          "regeneratedAt": "2026-06-27T14:22:17.864Z"
+        }
+      }
+    },
+    {
+      "id": "mika_voice",
+      "type": "adpcm",
+      "name": "voice/mika sample",
+      "source": "assets/adpcm/mika_voice.wav",
+      "options": {
+        "sampleRate": 16000,
+        "loop": false,
+        "stream": false,
+        "adpcmAddress": 0,
+        "divider": 14
+      },
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/mika_voice/adpcm.bin",
+          "previewFile": "assets/generated/mika_voice/preview.json",
+          "byteLength": 5280,
+          "sampleRate": 16000,
+          "channels": 1,
+          "durationSeconds": 0.66,
+          "codec": "oki-msm5205",
+          "encoderVersion": 2,
+          "nibbleOrder": "msn-first",
+          "waveform": [
+            0.2,
+            0.337,
+            0.336,
+            0.332,
+            0.326,
+            0.328,
+            0.328,
+            0.332,
+            0.338,
+            0.339,
+            0.335,
+            0.34,
+            0.338,
+            0.334,
+            0.335,
+            0.333,
+            0.194,
+            0.091,
+            0.337,
+            0.336,
+            0.33,
+            0.327,
+            0.333,
+            0.334,
+            0.334,
+            0.328,
+            0.338,
+            0.338,
+            0.331,
+            0.337,
+            0.339,
+            0.328,
+            0.126,
+            0.207,
+            0.339,
+            0.339,
+            0.333,
+            0.326,
+            0.335,
+            0.337,
+            0.34,
+            0.338,
+            0.337,
+            0.331,
+            0.34,
+            0.337,
+            0.338,
+            0.339,
+            0.337,
+            0.336,
+            0.323,
+            0.178,
+            0.129,
+            0.338,
+            0.337,
+            0.33,
+            0.331,
+            0.337,
+            0.339,
+            0.339,
+            0.337,
+            0.33,
+            0.338,
+            0.189
+          ],
+          "warnings": [],
+          "paletteFile": "",
+          "tilesFile": "",
+          "tilesCompressedFile": "",
+          "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
+          "tileCount": 0,
+          "paletteCount": 0,
+          "vramBytes": 0,
+          "paletteColors": [],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "cellMapFile": ""
+        },
+        "import": {
+          "originalFileName": "mika_voice.wav",
+          "importedAt": "2026-06-18T16:12:38.957Z",
+          "converter": "Internal WAV/ADPCM encoder",
+          "encoderVersion": 2,
+          "processing": {},
+          "groupId": "mika_voice",
+          "partIndex": 1,
+          "partCount": 1,
+          "splitPolicy": "",
+          "maxAdpcmBytes": 65535
+        }
+      }
+    },
+    {
+      "id": "guide_voice",
+      "type": "adpcm",
+      "name": "voice/guide command blip",
+      "source": "assets/adpcm/guide_voice.wav",
+      "options": {
+        "sampleRate": 16000,
+        "loop": false,
+        "stream": false,
+        "adpcmAddress": 0,
+        "divider": 14
+      },
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/guide_voice/adpcm.bin",
+          "previewFile": "assets/generated/guide_voice/preview.json",
+          "byteLength": 3840,
+          "sampleRate": 16000,
+          "channels": 1,
+          "durationSeconds": 0.48,
+          "codec": "oki-msm5205",
+          "encoderVersion": 2,
+          "nibbleOrder": "msn-first",
+          "waveform": [
+            0.193,
+            0.339,
+            0.338,
+            0.337,
+            0.33,
+            0.326,
+            0.325,
+            0.328,
+            0.328,
+            0.323,
+            0.329,
+            0.336,
+            0.339,
+            0.332,
+            0.274,
+            0.134,
+            0.16,
+            0.34,
+            0.338,
+            0.338,
+            0.337,
+            0.336,
+            0.338,
+            0.34,
+            0.34,
+            0.334,
+            0.33,
+            0.334,
+            0.339,
+            0.34,
+            0.317,
+            0.153,
+            0.216,
+            0.339,
+            0.338,
+            0.34,
+            0.34,
+            0.339,
+            0.336,
+            0.329,
+            0.331,
+            0.337,
+            0.338,
+            0.34,
+            0.34,
+            0.338,
+            0.335,
+            0.329,
+            0.333,
+            0.215,
+            0.064,
+            0.339,
+            0.338,
+            0.336,
+            0.332,
+            0.33,
+            0.327,
+            0.327,
+            0.332,
+            0.336,
+            0.34,
+            0.339,
+            0.334,
+            0.126
+          ],
+          "warnings": [],
+          "paletteFile": "",
+          "tilesFile": "",
+          "tilesCompressedFile": "",
+          "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
+          "tileCount": 0,
+          "paletteCount": 0,
+          "vramBytes": 0,
+          "paletteColors": [],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "cellMapFile": ""
+        },
+        "import": {
+          "originalFileName": "guide_voice.wav",
+          "importedAt": "2026-06-18T16:12:38.967Z",
+          "converter": "Internal WAV/ADPCM encoder",
+          "encoderVersion": 2,
+          "processing": {},
+          "groupId": "guide_voice",
+          "partIndex": 1,
+          "partCount": 1,
+          "splitPolicy": "",
+          "maxAdpcmBytes": 65535
+        }
+      }
+    },
+    {
+      "id": "vn_psg_confirm",
+      "type": "psg-sfx",
+      "name": "PSG/confirm blip",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 180,
+        "speed": 6,
+        "period": 384,
+        "channels": 2,
+        "steps": 8,
+        "volume": 100,
+        "pattern": [
+          {
+            "step": 0,
+            "channel": 0,
+            "period": 512,
+            "volume": 13
+          },
+          {
+            "step": 1,
+            "channel": 0,
+            "period": 406,
+            "volume": 12
+          },
+          {
+            "step": 2,
+            "channel": 0,
+            "period": 342,
+            "volume": 10
+          },
+          {
+            "step": 3,
+            "channel": 1,
+            "period": 256,
+            "volume": 8
+          },
+          {
+            "step": 4,
+            "channel": 0,
+            "period": 342,
+            "volume": 6
+          },
+          {
+            "step": 5,
+            "channel": 1,
+            "period": 512,
+            "volume": 4
+          }
+        ]
+      }
+    }
+  ]
+}

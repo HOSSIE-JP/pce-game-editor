@@ -1,0 +1,4 @@
+FILE "game.iso" BINARY
+  TRACK 01 MODE1/2048
+FILE "track02.wav" WAVE
+  TRACK 02 AUDIO

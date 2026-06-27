@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "type": "pce-cd-ipl",
+  "sourceFileName": "owned-disc.iso",
+  "cueFileName": null,
+  "inputFormat": "iso",
+  "trackNumber": 1,
+  "trackMode": "MODE1/2048",
+  "sectorIndex": 0,
+  "sectorSize": 2048,
+  "sourceOffset": 0,
+  "byteLength": 2048,
+  "sha256": "219325ec03e898e5510ad21c78a41cbf80fca74c50f064bd872fb728d85704ef",
+  "extractedAt": "2026-06-27T14:11:11.208Z"
+}

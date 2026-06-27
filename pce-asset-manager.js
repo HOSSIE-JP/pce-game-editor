@@ -25,6 +25,8 @@ const CD_AUDIO_MIN_SECTOR = 450;
 const CDDA_SECTORS_PER_SECOND = 75;
 const CDDA_PLAYBACK_GUARD_FRAMES = 2;
 const CD_MSF_LEAD_IN_SECTORS = 150;
+const PCE_CATALOG_MAX_ASSETS_PER_TYPE = 512;
+const PCE_CDDA_MAX_AUDIO_TRACKS = 98; // CD-DA track numbers 2..99.
 const PCE_BG_MAP_WIDTH_TILES = 32;
 const PCE_BG_MAP_HEIGHT_TILES = 32;
 const PCE_BG_AUTO_MAP_BASE = 0;
@@ -492,6 +494,16 @@ function readAssetDocument(projectDir) {
   const filePath = ensureAssetFile(projectDir);
   try {
     return normalizeAssetDocument(JSON.parse(fs.readFileSync(filePath, 'utf-8')));
+  } catch (err) {
+    throw new Error(`asset file parse failed: ${err.message || err}`);
+  }
+}
+
+function readRawAssetDocument(projectDir) {
+  const filePath = ensureAssetFile(projectDir);
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    return parsed && typeof parsed === 'object' ? parsed : defaultAssets();
   } catch (err) {
     throw new Error(`asset file parse failed: ${err.message || err}`);
   }
@@ -2306,9 +2318,12 @@ function psgPatternBytes(asset) {
   return serializePsgPattern(normalizePsgPatternEntries(asset, options));
 }
 
-// True when this asset's pattern is large enough to stream from CD (CD builds only).
-function psgAssetStreamsFromCd(asset, targetsCd) {
+// True when this asset's pattern streams from CD (CD builds only). Catalog mode
+// intentionally streams even tiny SFX so hundreds of PSG assets do not create
+// hundreds of resident .rodata pattern arrays.
+function psgAssetStreamsFromCd(asset, targetsCd, options = {}) {
   if (!targetsCd) return false;
+  if (options.catalogMode) return true;
   return psgPatternBytes(asset).length > PSG_PATTERN_CD_THRESHOLD_BYTES;
 }
 
@@ -2317,17 +2332,21 @@ function psgAssetStreamsFromCd(asset, targetsCd) {
 // BG / sprite payloads are written before collectCdDataFiles/buildCdDataLayout).
 function ensurePsgPatternFiles(projectDir, doc) {
   if (!projectTargetsCd(projectDir)) return;
+  const catalogMode = assetMetaShouldUseCd(projectDir, doc);
   (doc.assets || []).forEach((asset) => {
     if (asset.type !== 'psg-song' && asset.type !== 'psg-sfx') return;
-    if (!psgAssetStreamsFromCd(asset, true)) return;
+    if (!psgAssetStreamsFromCd(asset, true, { catalogMode })) return;
+    const bytes = psgPatternBytes(asset);
+    if (!bytes.length) return;
     const { absPath } = resolveUnderRoot(projectDir, psgPatternFile(asset), 'project');
     ensureDirSync(path.dirname(absPath));
-    fs.writeFileSync(absPath, psgPatternBytes(asset));
+    fs.writeFileSync(absPath, bytes);
   });
 }
 
 function generatePsgMetadata(projectDir, assets, generationOptions = {}) {
   const targetsCd = Boolean(generationOptions.targetsCd);
+  const catalogMode = Boolean(generationOptions.catalogMode);
   const psgAssets = assets.filter((asset) => asset.type === 'psg-song' || asset.type === 'psg-sfx');
   const arrayLines = [];
   const metaLines = psgAssets.map((asset, index) => {
@@ -2337,6 +2356,9 @@ function generatePsgMetadata(projectDir, assets, generationOptions = {}) {
     const last = index + 1 >= psgAssets.length;
     let patternPtr = '(const pce_editor_psg_step_t *)0';
     let patternCd = '(const pce_editor_cd_data_ref_t *)0';
+    if (catalogMode) {
+      return `  { ${asset.type === 'psg-song' ? '1u' : '0u'}, ${firstPsgPeriod(asset)}u, ${options.bpm}u, ${options.steps}u, (const pce_editor_psg_step_t *)0, ${pattern.length}u, (const pce_editor_cd_data_ref_t *)0 }${last ? '' : ','}`;
+    }
     if (pattern.length && psgAssetStreamsFromCd(asset, targetsCd)) {
       const ref = emitCdFileRef(`${ident}_pattern`, serializePsgPattern(pattern), psgPatternFile(asset), {
         cdLayout: generationOptions.cdLayout,
@@ -2390,12 +2412,17 @@ function sectorToCInitializer(sector) {
   return `{ ${value.lo}u, ${value.md}u, ${value.hi}u }`;
 }
 
-function sectorToTimeInitializer(sector) {
+function sectorToTimeParts(sector) {
   let value = Math.max(0, Math.trunc(Number(sector) || 0) + CD_MSF_LEAD_IN_SECTORS);
   const frame = value % CDDA_SECTORS_PER_SECOND;
   value = Math.floor(value / CDDA_SECTORS_PER_SECOND);
   const second = value % 60;
   const minute = Math.floor(value / 60);
+  return { frame, second, minute };
+}
+
+function sectorToTimeInitializer(sector) {
+  const { frame, second, minute } = sectorToTimeParts(sector);
   return `{ ${frame}u, ${second}u, ${minute}u }`;
 }
 
@@ -2495,6 +2522,8 @@ const ASSET_META_FILE = path.join('assets', 'generated', 'meta', 'asset_meta.bin
 const META_BG_SLOT = 128;
 const META_SPRITE_SLOT = 512;
 const META_ADPCM_SLOT = 32;
+const META_PSG_SLOT = 32;
+const META_CDDA_SLOT = 32;
 const META_CELL_MAP_MAX = 384; // inline cell_map cap; must match runtime VN_META_CELL_MAP_MAX
 // Struct-image field offsets (packed pce_editor_*_asset_t).
 const META_BG_TILES_SIZE = 11;   // tiles.size
@@ -2529,6 +2558,18 @@ const META_ADPCM_DIVIDER = 10;
 const META_ADPCM_LOOP = 11;
 const META_ADPCM_STREAM = 12;
 const META_ADPCM_CD = 15;
+const META_PSG_IS_SONG = 0;
+const META_PSG_PERIOD = 1;
+const META_PSG_BPM = 3;
+const META_PSG_STEPS = 5;
+const META_PSG_PATTERN_COUNT = 7;
+const META_PSG_PATTERN_CD = 9;
+const META_CDDA_TRACK = 0;
+const META_CDDA_LOOP = 1;
+const META_CDDA_START_SECTOR = 2;
+const META_CDDA_END_SECTOR = 5;
+const META_CDDA_END_TIME = 8;
+const META_CDDA_PLAY_FRAMES = 11;
 
 function metaRegionSectors(count, slot) {
   if (!count) return 0;
@@ -2541,30 +2582,54 @@ function computeAssetMetaLayout(doc) {
   const bg = assets.filter((a) => a.type === 'image' && a.data?.generated);
   const sprite = assets.filter((a) => a.type === 'sprite' && a.data?.generated);
   const adpcm = assets.filter((a) => a.type === 'adpcm' && a.data?.generated);
+  const psg = assets.filter((a) => a.type === 'psg-song' || a.type === 'psg-sfx');
+  const cdda = assets.filter((a) => a.type === 'cdda-track');
   const bgSectors = metaRegionSectors(bg.length, META_BG_SLOT);
   const spriteSectors = metaRegionSectors(sprite.length, META_SPRITE_SLOT);
   const adpcmSectors = metaRegionSectors(adpcm.length, META_ADPCM_SLOT);
+  const psgSectors = metaRegionSectors(psg.length, META_PSG_SLOT);
+  const cddaSectors = metaRegionSectors(cdda.length, META_CDDA_SLOT);
   const bgOffset = 0;
   const spriteOffset = bgOffset + bgSectors;
   const adpcmOffset = spriteOffset + spriteSectors;
-  const totalSectors = adpcmOffset + adpcmSectors;
+  const psgOffset = adpcmOffset + adpcmSectors;
+  const cddaOffset = psgOffset + psgSectors;
+  const totalSectors = cddaOffset + cddaSectors;
   return {
-    bg, sprite, adpcm,
-    bgSectors, spriteSectors, adpcmSectors,
-    bgOffset, spriteOffset, adpcmOffset, totalSectors,
+    bg, sprite, adpcm, psg, cdda,
+    bgSectors, spriteSectors, adpcmSectors, psgSectors, cddaSectors,
+    bgOffset, spriteOffset, adpcmOffset, psgOffset, cddaOffset, totalSectors,
     byteSize: Math.max(0, totalSectors) * CD_SECTOR_BYTES,
   };
 }
 
 // Moving the per-asset metadata onto CD trades a fixed ~1.4KB of resident accessor
-// code for O(1) resident metadata. That is a NET LOSS for small projects (the freed
-// per-asset rodata is less than the accessor code) and a net win only once the
-// resident metadata is large. So the CD on-demand path engages only when the
-// estimated resident metadata exceeds this budget; below it we keep the proven
-// resident arrays and the accessors get dropped by DCE (zero code cost). Raising
-// this delays the switch (more resident RAM used before offloading); lowering it
-// offloads sooner. Kept just above the accessor footprint so the switch is a win.
-const META_RESIDENT_BUDGET = 1536;
+// code (in the already-tight code banks 128/129/130) for O(1) resident bank132
+// metadata. So the CD on-demand path engages only once the resident metadata would
+// otherwise OVERFLOW bank132; below that we keep the proven resident arrays and the
+// accessors get dropped by DCE (zero code cost).
+//
+// The decision is therefore keyed off the real bank132 init-data budget, not a flat
+// asset-meta number: the same bank holds the asset cd_data_refs + sprite cell_maps
+// AND the VN-generated data (the scene-pack directory grows with the story). The
+// two large fixed runtime buffers were relocated onto the overlay's never-read tail
+// (see pce-vn-manager.js / .ram_bank132_tail), so the whole [0xc000, VN_OVERLAY_LMA)
+// region is available for this metadata.
+//
+// BANK132_INIT_BUDGET MUST track VN_OVERLAY_LMA in pce-vn-manager.js
+// (VN_OVERLAY_LMA - 0x0184c000). A safety cushion absorbs estimation slack; if the
+// estimate is still optimistic the linker reports the overflow and the budget can be
+// lowered via PCE_ASSET_META_BUDGET.
+const BANK132_INIT_BUDGET = 0x1078;          // 4216 B = VN_OVERLAY_LMA - bank132 base
+const BANK132_META_SAFETY = 512;
+const META_RESIDENT_BUDGET = BANK132_INIT_BUDGET - BANK132_META_SAFETY; // 3704 B
+// Rough per-record resident bank132 sizes; only the magnitude matters for the switch.
+const META_CD_REF_BYTES = 8;                 // pce_editor_cd_data_ref_t / pce_vn_cd_data_ref_t
+const META_SCENE_PACK_BYTES = 9;             // pce_vn_scene_pack_t directory entry
+const META_VN_BASE_BYTES = 160;              // sprite anims + variables + font/overlay refs + counts
+const META_BANK128_ACCESSOR_COST_ESTIMATE = 1536;
+const META_CATALOG_COUNT_THRESHOLD = 32;
+const META_PSG_RESIDENT_PATTERN_BUDGET = 512;
 
 // The budget is tunable via PCE_ASSET_META_BUDGET (bytes): lower it to offload
 // metadata to CD sooner, raise it to keep more resident. Read per-call so callers
@@ -2575,33 +2640,153 @@ function assetMetaBudget() {
   return Number.isFinite(env) && env >= 0 ? env : META_RESIDENT_BUDGET;
 }
 
-// Approximate the resident bytes the descriptor arrays would occupy (struct images
-// + palette bytes + sprite cell_map + cd refs). Only the magnitude matters for the
-// switch decision, so the per-asset struct/ref overheads are rough constants.
-function estimateResidentMetaBytes(projectDir, doc) {
+// Count VN scenes straight from the project file (no require of pce-vn-manager,
+// which would be a cycle). The scene-pack directory is resident in bank132 and is
+// usually the dominant GROWING contributor, so the on-demand decision must see it.
+function readVnSceneCount(projectDir) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(projectDir, 'assets', 'pce-vn-scenes.json'), 'utf-8'));
+    return Array.isArray(raw.scenes) ? raw.scenes.length : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+// Approximate the bytes that would sit resident in bank132 if the asset metadata
+// stays resident: asset cd_data_refs + sprite cell_maps (the bank132 portion; the
+// descriptor structs and palettes live in bank128 .rodata and are excluded) PLUS
+// the VN-generated data (scene-pack directory + a base for anims/variables/font
+// refs). When this would exceed the bank132 budget we offload the asset metadata.
+function estimateResidentBank132Bytes(projectDir, doc) {
+  const layout = computeAssetMetaLayout(doc);
+  let bytes = 0;
+  bytes += layout.bg.length * (2 * META_CD_REF_BYTES); // tiles + map cd refs
+  layout.sprite.forEach((asset) => {
+    const cellMap = readGeneratedBuffer(projectDir, asset.data.generated?.cellMapFile);
+    bytes += META_CD_REF_BYTES + cellMap.length; // patterns cd ref + inline cell_map
+  });
+  bytes += layout.adpcm.length * META_CD_REF_BYTES;
+  const sceneCount = readVnSceneCount(projectDir);
+  if (sceneCount) bytes += sceneCount * META_SCENE_PACK_BYTES + META_VN_BASE_BYTES;
+  return bytes;
+}
+
+function estimateResidentBank128Bytes(projectDir, doc) {
   const layout = computeAssetMetaLayout(doc);
   let bytes = 0;
   layout.bg.forEach((asset) => {
     const palette = readGeneratedBuffer(projectDir, asset.data.generated?.paletteFile);
-    bytes += 40 + Math.min(palette.length, 32) + 16; // struct + palette + 2 cd refs
+    bytes += 40 + Math.min(palette.length, 32); // descriptor + palette payload.
   });
   layout.sprite.forEach((asset) => {
     const palette = readGeneratedBuffer(projectDir, asset.data.generated?.paletteFile);
-    const cellMap = readGeneratedBuffer(projectDir, asset.data.generated?.cellMapFile);
-    bytes += 28 + 8 + Math.min(palette.length, 32) + cellMap.length + 8; // struct + draw_meta + palette + cell_map + cd ref
+    bytes += 28 + 8 + Math.min(palette.length, 32); // descriptor + draw_meta + palette.
   });
-  bytes += layout.adpcm.length * 28; // struct + cd ref
+  bytes += layout.adpcm.length * 28;
+  layout.psg.forEach((asset) => {
+    const patternBytes = psgPatternBytes(asset).length;
+    bytes += 16;
+    if (!psgAssetStreamsFromCd(asset, projectTargetsCd(projectDir))) bytes += patternBytes;
+  });
+  bytes += layout.cdda.length * 13;
+  bytes += 10; // five count constants after widening to unsigned int.
   return bytes;
 }
 
+function estimateResidentPsgPatternBytes(doc) {
+  return (doc.assets || [])
+    .filter((asset) => asset.type === 'psg-song' || asset.type === 'psg-sfx')
+    .reduce((sum, asset) => (psgAssetStreamsFromCd(asset, true) ? sum : sum + psgPatternBytes(asset).length), 0);
+}
+
+function assetMetaDecision(projectDir, doc) {
+  const document = doc || readAssetDocument(projectDir);
+  if (!projectTargetsCd(projectDir)) {
+    return {
+      useCd: false,
+      reason: 'non-cd-target',
+      bank128Bytes: 0,
+      bank132Bytes: 0,
+      psgPatternBytes: 0,
+      maxTypeCount: 0,
+      budget: assetMetaBudget(),
+    };
+  }
+  const layout = computeAssetMetaLayout(document);
+  const counts = {
+    bg: layout.bg.length,
+    sprite: layout.sprite.length,
+    adpcm: layout.adpcm.length,
+    psg: layout.psg.length,
+    cdda: layout.cdda.length,
+  };
+  const maxTypeCount = Math.max(counts.bg, counts.sprite, counts.adpcm, counts.psg);
+  const bank132Bytes = estimateResidentBank132Bytes(projectDir, document);
+  const bank128Bytes = estimateResidentBank128Bytes(projectDir, document);
+  const psgPatternBytesTotal = estimateResidentPsgPatternBytes(document);
+  const budget = assetMetaBudget();
+  const pressure = Math.max(bank132Bytes, bank128Bytes, psgPatternBytesTotal);
+  if (pressure > budget) {
+    return { useCd: true, reason: `resident-metadata ${pressure}B > budget ${budget}B`, bank128Bytes, bank132Bytes, psgPatternBytes: psgPatternBytesTotal, maxTypeCount, counts, budget };
+  }
+  if (maxTypeCount > META_CATALOG_COUNT_THRESHOLD) {
+    return { useCd: true, reason: `asset-count ${maxTypeCount} > ${META_CATALOG_COUNT_THRESHOLD}`, bank128Bytes, bank132Bytes, psgPatternBytes: psgPatternBytesTotal, maxTypeCount, counts, budget };
+  }
+  if (psgPatternBytesTotal > META_PSG_RESIDENT_PATTERN_BUDGET) {
+    return { useCd: true, reason: `psg-patterns ${psgPatternBytesTotal}B > ${META_PSG_RESIDENT_PATTERN_BUDGET}B`, bank128Bytes, bank132Bytes, psgPatternBytes: psgPatternBytesTotal, maxTypeCount, counts, budget };
+  }
+  return { useCd: false, reason: 'resident-metadata-within-budget', bank128Bytes, bank132Bytes, psgPatternBytes: psgPatternBytesTotal, maxTypeCount, counts, budget };
+}
+
 // Decide whether this project's metadata should be streamed from CD on demand.
-// Only CD targets are eligible, and only once the resident footprint crosses the
-// budget. Pure function of the project on disk so the reservation, CD file list,
+// Only CD targets are eligible, and only once the resident bank132 footprint crosses
+// the budget. Pure function of the project on disk so the reservation, CD file list,
 // and source emission all reach the same answer.
 function assetMetaShouldUseCd(projectDir, doc) {
-  if (!projectTargetsCd(projectDir)) return false;
-  const document = doc || readAssetDocument(projectDir);
-  return estimateResidentMetaBytes(projectDir, document) > assetMetaBudget();
+  return assetMetaDecision(projectDir, doc).useCd;
+}
+
+function validateGeneratedAssetScale(projectDir, doc, assetIds = null) {
+  const layout = computeAssetMetaLayout(doc);
+  const checks = [
+    ['BG', layout.bg.length],
+    ['sprite', layout.sprite.length],
+    ['ADPCM', layout.adpcm.length],
+    ['PSG', layout.psg.length],
+  ];
+  checks.forEach(([label, count]) => {
+    if (count > PCE_CATALOG_MAX_ASSETS_PER_TYPE) {
+      throw new Error(`PCE-CD VN supports up to ${PCE_CATALOG_MAX_ASSETS_PER_TYPE} referenced ${label} assets (got ${count}).`);
+    }
+  });
+  if (layout.cdda.length > PCE_CDDA_MAX_AUDIO_TRACKS) {
+    throw new Error(`CD-DA supports up to ${PCE_CDDA_MAX_AUDIO_TRACKS} audio tracks (track 2..99; got ${layout.cdda.length}). Use ADPCM or PSG for large audio libraries.`);
+  }
+  const tracks = new Map();
+  const rawDoc = readRawAssetDocument(projectDir);
+  const idFilter = assetIds instanceof Set ? assetIds : null;
+  (Array.isArray(rawDoc.assets) ? rawDoc.assets : []).forEach((asset) => {
+    if (!asset || asset.type !== 'cdda-track') return;
+    if (idFilter && !idFilter.has(String(asset.id || ''))) return;
+    const rawTrack = asset.options?.track;
+    const parsed = rawTrack == null || rawTrack === '' ? DEFAULT_CDDA_OPTIONS.track : Number(rawTrack);
+    if (!Number.isFinite(parsed) || Math.trunc(parsed) !== parsed || parsed < 2 || parsed > 99) {
+      throw new Error(`CD-DA asset "${asset.id}" has invalid track ${rawTrack}; use an integer track number from 2 to 99.`);
+    }
+  });
+  layout.cdda.forEach((asset) => {
+    const rawTrack = asset.options?.track;
+    const parsed = rawTrack == null || rawTrack === '' ? DEFAULT_CDDA_OPTIONS.track : Number(rawTrack);
+    if (!Number.isFinite(parsed) || Math.trunc(parsed) !== parsed || parsed < 2 || parsed > 99) {
+      throw new Error(`CD-DA asset "${asset.id}" has invalid track ${rawTrack}; use an integer track number from 2 to 99.`);
+    }
+    const track = Math.trunc(parsed);
+    const previous = tracks.get(track);
+    if (previous) {
+      throw new Error(`CD-DA track ${track} is used by both "${previous}" and "${asset.id}". Track numbers must be unique.`);
+    }
+    tracks.set(track, asset.id);
+  });
 }
 
 // Write ASSET_META_FILE at its final (count-derived) size up front, BEFORE any
@@ -2726,11 +2911,48 @@ function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout) {
     buf[base + META_ADPCM_STREAM] = options.stream ? 1 : 0;
     writeMetaCdRef(buf, base + META_ADPCM_CD, metaCdRefForFile(cdLayout, generated.outputFile, data.length, PCE_VISUAL_COMPRESSION_NONE));
   });
+  layout.psg.forEach((asset, index) => {
+    const base = (layout.psgOffset * CD_SECTOR_BYTES) + (index * META_PSG_SLOT);
+    const options = normalizePsgOptions(asset);
+    const pattern = normalizePsgPatternEntries(asset, options);
+    const patternBytes = serializePsgPattern(pattern);
+    buf[base + META_PSG_IS_SONG] = asset.type === 'psg-song' ? 1 : 0;
+    buf.writeUInt16LE(firstPsgPeriod(asset) & 0xffff, base + META_PSG_PERIOD);
+    buf.writeUInt16LE(options.bpm & 0xffff, base + META_PSG_BPM);
+    buf.writeUInt16LE(options.steps & 0xffff, base + META_PSG_STEPS);
+    buf.writeUInt16LE(pattern.length & 0xffff, base + META_PSG_PATTERN_COUNT);
+    if (patternBytes.length) {
+      writeMetaCdRef(buf, base + META_PSG_PATTERN_CD, metaCdRefForFile(cdLayout, psgPatternFile(asset), patternBytes.length, PCE_VISUAL_COMPRESSION_NONE));
+    }
+  });
+  {
+    const cddaLayout = buildCddaTrackLayout(projectDir, layout.cdda, cdLayout);
+    layout.cdda.forEach((asset, index) => {
+      const base = (layout.cddaOffset * CD_SECTOR_BYTES) + (index * META_CDDA_SLOT);
+      const options = normalizeCddaOptions(asset);
+      const cdda = cddaLayout.get(asset.id) || { startSector: 0, endSector: 0, playFrames: 0 };
+      const endTime = sectorToTimeParts(cdda.endSector);
+      buf[base + META_CDDA_TRACK] = options.track & 0xff;
+      buf[base + META_CDDA_LOOP] = options.loop ? 1 : 0;
+      const start = sectorToGeneratedSector(cdda.startSector);
+      const end = sectorToGeneratedSector(cdda.endSector);
+      buf[base + META_CDDA_START_SECTOR] = start.lo;
+      buf[base + META_CDDA_START_SECTOR + 1] = start.md;
+      buf[base + META_CDDA_START_SECTOR + 2] = start.hi;
+      buf[base + META_CDDA_END_SECTOR] = end.lo;
+      buf[base + META_CDDA_END_SECTOR + 1] = end.md;
+      buf[base + META_CDDA_END_SECTOR + 2] = end.hi;
+      buf[base + META_CDDA_END_TIME] = endTime.frame & 0xff;
+      buf[base + META_CDDA_END_TIME + 1] = endTime.second & 0xff;
+      buf[base + META_CDDA_END_TIME + 2] = endTime.minute & 0xff;
+      buf.writeUInt16LE((cdda.playFrames || 0) & 0xffff, base + META_CDDA_PLAY_FRAMES);
+    });
+  }
   return buf;
 }
 
-function collectCdDataFiles(projectDir) {
-  const doc = readAssetDocument(projectDir);
+function collectCdDataFilesForDocument(projectDir, doc) {
+  const catalogMode = assetMetaShouldUseCd(projectDir, doc);
   const files = [];
   (doc.assets || []).forEach((asset) => {
     const generated = asset.data?.generated || {};
@@ -2741,8 +2963,8 @@ function collectCdDataFiles(projectDir) {
     } else if (asset.type === 'adpcm') {
       files.push(generated.outputFile || '');
     } else if (asset.type === 'psg-song' || asset.type === 'psg-sfx') {
-      // Large PSG patterns stream from CD; small ones stay resident (no file).
-      if (psgAssetStreamsFromCd(asset, true)) files.push(psgPatternFile(asset));
+      // Catalog mode streams even tiny PSG patterns so resident metadata is O(1).
+      if (psgPatternBytes(asset).length && psgAssetStreamsFromCd(asset, true, { catalogMode })) files.push(psgPatternFile(asset));
     }
   });
   // The consolidated metadata file (reserved at final size by
@@ -2753,6 +2975,20 @@ function collectCdDataFiles(projectDir) {
     .map((entry) => normalizeRelativePath(entry || ''))
     .filter(Boolean)
     .filter((relativePath) => fs.existsSync(path.join(projectDir, relativePath)))));
+}
+
+function filterAssetDocumentByIds(doc, assetIds) {
+  if (!Array.isArray(assetIds)) return doc;
+  const ids = new Set(assetIds.map((id) => String(id || '').trim()).filter(Boolean));
+  return {
+    ...doc,
+    assets: (doc.assets || []).filter((asset) => asset?.id && ids.has(String(asset.id))),
+  };
+}
+
+function collectCdDataFiles(projectDir, options = {}) {
+  const doc = options?.doc || readAssetDocument(projectDir);
+  return collectCdDataFilesForDocument(projectDir, filterAssetDocumentByIds(doc, options?.assetIds));
 }
 
 function adpcmAssetNeedsRegeneration(projectDir, asset) {
@@ -2917,13 +3153,15 @@ function generateAssetSources(projectDir, options = {}) {
   const doc = readAssetDocument(projectDir);
   ensureVisualGeneratedAssets(projectDir, doc);
   ensureAdpcmGeneratedAssets(projectDir, doc);
-  ensurePsgPatternFiles(projectDir, doc);
   const assetIdFilter = Array.isArray(options.assetIds)
     ? new Set(options.assetIds.map((id) => String(id || '').trim()).filter(Boolean))
     : null;
   const sourceDoc = assetIdFilter
     ? { ...doc, assets: (doc.assets || []).filter((asset) => asset?.id && assetIdFilter.has(String(asset.id))) }
     : doc;
+  validateGeneratedAssetScale(projectDir, sourceDoc, assetIdFilter);
+  ensurePsgPatternFiles(projectDir, sourceDoc);
+  const assetMetaInfo = assetMetaDecision(projectDir, sourceDoc);
   // Reserve the consolidated metadata file at its final size before any CD layout
   // is computed, so its sector (and every file after it) stays stable.
   const metaLayout = ensureAssetMetaReservation(projectDir, sourceDoc);
@@ -2931,21 +3169,21 @@ function generateAssetSources(projectDir, options = {}) {
   const sound = sourceDoc.assets.find((asset) => asset.type === 'psg-sfx' || asset.type === 'psg-song');
   const targetsCd = projectTargetsCd(projectDir);
   // CD on-demand metadata engages only above the resident budget (see
-  // assetMetaShouldUseCd). Small CD projects keep resident arrays — same proven
-  // path as HuCard — so the accessor code is DCE'd and there is no regression.
-  const assetMetaOnCd = assetMetaShouldUseCd(projectDir, sourceDoc);
+  // assetMetaShouldUseCd). Small CD projects keep the resident-array path used by
+  // HuCard builds, so the accessor code is DCE'd and there is no regression.
+  const assetMetaOnCd = assetMetaInfo.useCd;
   const rows = targetsCd ? [] : (image ? generateTextMosaicForImage(projectDir, image).slice(0, 14) : ['NO IMAGE ASSET']);
   const tonePeriod = firstPsgPeriod(sound || {});
   const allowBanking = true;
   const bankAllocator = targetsCd ? createCdRamBankAllocator() : createRomBankAllocator();
   const requestedCdDataFiles = Array.isArray(options.cdDataFiles) ? options.cdDataFiles : null;
   const cdDataFiles = targetsCd
-    ? normalizeCdDataFileList(projectDir, requestedCdDataFiles || collectCdDataFiles(projectDir))
+    ? normalizeCdDataFileList(projectDir, requestedCdDataFiles || collectCdDataFilesForDocument(projectDir, sourceDoc))
     : [];
   const cdLayout = targetsCd ? buildCdDataLayout(projectDir, cdDataFiles) : new Map();
   const bgGenerated = generateConvertedAssetArrays(projectDir, sourceDoc.assets, 'image', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
   const spriteGenerated = generateConvertedAssetArrays(projectDir, sourceDoc.assets, 'sprite', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
-  const psgGenerated = generatePsgMetadata(projectDir, sourceDoc.assets, { targetsCd, cdLayout });
+  const psgGenerated = generatePsgMetadata(projectDir, sourceDoc.assets, { targetsCd, cdLayout, catalogMode: assetMetaOnCd });
   const adpcmGenerated = generateAdpcmMetadata(projectDir, sourceDoc.assets, { targetsCd, cdLayout });
   const cddaGenerated = generateCddaMetadata(projectDir, sourceDoc.assets, { targetsCd, cdLayout });
   const emptyDataRef = '{ (const unsigned char *)0, 0u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }';
@@ -2966,6 +3204,8 @@ function generateAssetSources(projectDir, options = {}) {
       `const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = ${region(metaLayout.bgOffset, bgGenerated.converted.length)};`,
       `const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = ${region(metaLayout.spriteOffset, spriteGenerated.converted.length)};`,
       `const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = ${region(metaLayout.adpcmOffset, adpcmGenerated.adpcmAssets.length)};`,
+      `const pce_editor_meta_region_t pce_editor_psg_meta PCE_EDITOR_RODATA_SECTION = ${region(metaLayout.psgOffset, psgGenerated.psgAssets.length)};`,
+      `const pce_editor_meta_region_t pce_editor_cdda_meta PCE_EDITOR_RODATA_SECTION = ${region(metaLayout.cddaOffset, cddaGenerated.cddaAssets.length)};`,
     ];
   }
 
@@ -3089,7 +3329,7 @@ function generateAssetSources(projectDir, options = {}) {
     '   byte offset (N % records_per_sector) * slot. */',
     'typedef struct {',
     '  pce_editor_cd_sector_t sector;',
-    '  unsigned char count;',
+    '  unsigned int count;',
     '} pce_editor_meta_region_t;',
     '/* BG/sprite records are packed images of the in-memory descriptor struct',
     '   (pointer fields zeroed) followed by appendices holding palettes, CD refs,',
@@ -3114,6 +3354,20 @@ function generateAssetSources(projectDir, options = {}) {
     '#define PCE_EDITOR_META_ADPCM_LOOP 11u',
     '#define PCE_EDITOR_META_ADPCM_STREAM 12u',
     '#define PCE_EDITOR_META_ADPCM_CD 15u',
+    '#define PCE_EDITOR_META_PSG_SLOT 32u',
+    '#define PCE_EDITOR_META_PSG_IS_SONG 0u',
+    '#define PCE_EDITOR_META_PSG_PERIOD 1u',
+    '#define PCE_EDITOR_META_PSG_BPM 3u',
+    '#define PCE_EDITOR_META_PSG_STEPS 5u',
+    '#define PCE_EDITOR_META_PSG_PATTERN_COUNT 7u',
+    '#define PCE_EDITOR_META_PSG_PATTERN_CD 9u',
+    '#define PCE_EDITOR_META_CDDA_SLOT 32u',
+    '#define PCE_EDITOR_META_CDDA_TRACK 0u',
+    '#define PCE_EDITOR_META_CDDA_LOOP 1u',
+    '#define PCE_EDITOR_META_CDDA_START_SECTOR 2u',
+    '#define PCE_EDITOR_META_CDDA_END_SECTOR 5u',
+    '#define PCE_EDITOR_META_CDDA_END_TIME 8u',
+    '#define PCE_EDITOR_META_CDDA_PLAY_FRAMES 11u',
     '/* 1 = descriptors stream from CD via pce_editor_*_meta (large projects);',
     '   0 = descriptors resident in pce_editor_*_assets[] (small projects / HuCard).',
     '   The runtime selects its accessor path on this; the unused path is DCE-dropped. */',
@@ -3121,18 +3375,20 @@ function generateAssetSources(projectDir, options = {}) {
     'extern const pce_editor_meta_region_t pce_editor_bg_meta;',
     'extern const pce_editor_meta_region_t pce_editor_sprite_meta;',
     'extern const pce_editor_meta_region_t pce_editor_adpcm_meta;',
+    'extern const pce_editor_meta_region_t pce_editor_psg_meta;',
+    'extern const pce_editor_meta_region_t pce_editor_cdda_meta;',
     '',
     'extern const pce_editor_bg_asset_t pce_editor_bg_assets[];',
-    'extern const unsigned char pce_editor_bg_asset_count;',
+    'extern const unsigned int pce_editor_bg_asset_count;',
     'extern const pce_editor_sprite_asset_t pce_editor_sprite_assets[];',
     'extern const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[];',
-    'extern const unsigned char pce_editor_sprite_asset_count;',
+    'extern const unsigned int pce_editor_sprite_asset_count;',
     'extern const pce_editor_psg_asset_t pce_editor_psg_assets[];',
-    'extern const unsigned char pce_editor_psg_asset_count;',
+    'extern const unsigned int pce_editor_psg_asset_count;',
     'extern const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[];',
-    'extern const unsigned char pce_editor_adpcm_asset_count;',
+    'extern const unsigned int pce_editor_adpcm_asset_count;',
     'extern const pce_editor_cdda_asset_t pce_editor_cdda_assets[];',
-    'extern const unsigned char pce_editor_cdda_asset_count;',
+    'extern const unsigned int pce_editor_cdda_asset_count;',
     'extern const char * const pce_editor_image_rows[];',
     'extern const unsigned char pce_editor_image_row_count;',
     'extern const unsigned int pce_editor_tone_period;',
@@ -3175,7 +3431,7 @@ function generateAssetSources(projectDir, options = {}) {
     '',
     '#include "assets.h"',
     '',
-    ...psgGenerated.arrayLines,
+    ...(assetMetaOnCd ? [] : psgGenerated.arrayLines),
     // BG/sprite/ADPCM descriptors: resident arrays for HuCard and small CD
     // projects, CD on-demand directory once large (records live in ASSET_META_FILE;
     // see metaRegionLines / assetMetaOnCd).
@@ -3187,15 +3443,17 @@ function generateAssetSources(projectDir, options = {}) {
     ...(assetMetaOnCd ? [
       ...metaRegionLines,
       '',
-      `const unsigned char pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = ${bgGenerated.converted.length};`,
-      `const unsigned char pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = ${spriteGenerated.converted.length};`,
-      `const unsigned char pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = ${adpcmGenerated.adpcmAssets.length};`,
+      `const unsigned int pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = ${bgGenerated.converted.length};`,
+      `const unsigned int pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = ${spriteGenerated.converted.length};`,
+      `const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = ${adpcmGenerated.adpcmAssets.length};`,
+      `const unsigned int pce_editor_psg_asset_count PCE_EDITOR_RODATA_SECTION = ${psgGenerated.psgAssets.length};`,
+      `const unsigned int pce_editor_cdda_asset_count PCE_EDITOR_RODATA_SECTION = ${cddaGenerated.cddaAssets.length};`,
       '',
     ] : [
       'const pce_editor_bg_asset_t pce_editor_bg_assets[] PCE_EDITOR_RODATA_SECTION = {',
       ...(bgGenerated.metaLines.length ? bgGenerated.metaLines : [`  { ${emptyDataRef}, ${emptyDataRef}, ${emptyDataRef}, 0u, 0u, 0u, 0u, 0u }`]),
       '};',
-      `const unsigned char pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = ${bgGenerated.converted.length};`,
+      `const unsigned int pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = ${bgGenerated.converted.length};`,
       '',
       'const pce_editor_sprite_asset_t pce_editor_sprite_assets[] PCE_EDITOR_RODATA_SECTION = {',
       ...(spriteGenerated.metaLines.length ? spriteGenerated.metaLines : [`  { ${emptyDataRef}, ${emptyDataRef}, 0u, 0u, 0u, 0u, 0u, 0u }`]),
@@ -3203,23 +3461,24 @@ function generateAssetSources(projectDir, options = {}) {
       'const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[] PCE_EDITOR_RODATA_SECTION = {',
       ...(spriteGenerated.drawMetaLines.length ? spriteGenerated.drawMetaLines : ['  { 16u, 16u, 1u, 1u, 384u, 0u }']),
       '};',
-      `const unsigned char pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = ${spriteGenerated.converted.length};`,
+      `const unsigned int pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = ${spriteGenerated.converted.length};`,
       '',
       'const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] PCE_EDITOR_RODATA_SECTION = {',
       ...(adpcmGenerated.metaLines.length ? adpcmGenerated.metaLines : ['  { (const unsigned char *)0, 0u, 0u, 0u, 0u, 0u, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
       '};',
-      `const unsigned char pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = ${adpcmGenerated.adpcmAssets.length};`,
+      `const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = ${adpcmGenerated.adpcmAssets.length};`,
+      '',
+      'const pce_editor_psg_asset_t pce_editor_psg_assets[] PCE_EDITOR_RODATA_SECTION = {',
+      ...(psgGenerated.metaLines.length ? psgGenerated.metaLines : ['  { 0u, 512u, 150u, 0u, (const pce_editor_psg_step_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
+      '};',
+      `const unsigned int pce_editor_psg_asset_count PCE_EDITOR_RODATA_SECTION = ${psgGenerated.psgAssets.length};`,
+      '',
+      'const pce_editor_cdda_asset_t pce_editor_cdda_assets[] PCE_EDITOR_RODATA_SECTION = {',
+      ...(cddaGenerated.metaLines.length ? cddaGenerated.metaLines : ['  { 0u, 0u, { 0u, 0u, 0u }, { 0u, 0u, 0u }, { 0u, 0u, 0u }, 0u }']),
+      '};',
+      `const unsigned int pce_editor_cdda_asset_count PCE_EDITOR_RODATA_SECTION = ${cddaGenerated.cddaAssets.length};`,
       '',
     ]),
-    'const pce_editor_psg_asset_t pce_editor_psg_assets[] PCE_EDITOR_RODATA_SECTION = {',
-    ...(psgGenerated.metaLines.length ? psgGenerated.metaLines : ['  { 0u, 512u, 150u, 0u, (const pce_editor_psg_step_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
-    '};',
-    `const unsigned char pce_editor_psg_asset_count PCE_EDITOR_RODATA_SECTION = ${psgGenerated.psgAssets.length};`,
-    '',
-    'const pce_editor_cdda_asset_t pce_editor_cdda_assets[] PCE_EDITOR_RODATA_SECTION = {',
-    ...(cddaGenerated.metaLines.length ? cddaGenerated.metaLines : ['  { 0u, 0u, { 0u, 0u, 0u }, { 0u, 0u, 0u }, { 0u, 0u, 0u }, 0u }']),
-    '};',
-    `const unsigned char pce_editor_cdda_asset_count PCE_EDITOR_RODATA_SECTION = ${cddaGenerated.cddaAssets.length};`,
     '',
     'const char * const pce_editor_image_rows[] PCE_EDITOR_RODATA_SECTION = {',
     `${quotedRows.join(',\n')}`,
@@ -3260,6 +3519,16 @@ function generateAssetSources(projectDir, options = {}) {
     psgCount: psgGenerated.psgAssets.length,
     adpcmCount: adpcmGenerated.adpcmAssets.length,
     cddaCount: cddaGenerated.cddaAssets.length,
+    assetCatalogMode: assetMetaOnCd ? 'cd' : 'resident',
+    assetCatalogReason: assetMetaInfo.reason,
+    assetCatalogBytes: assetMetaOnCd ? metaLayout.byteSize : 0,
+    assetCatalogCounts: assetMetaInfo.counts || {
+      bg: bgGenerated.converted.length,
+      sprite: spriteGenerated.converted.length,
+      adpcm: adpcmGenerated.adpcmAssets.length,
+      psg: psgGenerated.psgAssets.length,
+      cdda: cddaGenerated.cddaAssets.length,
+    },
   };
 }
 
@@ -3276,12 +3545,15 @@ module.exports = {
   SUPPORTED_TYPES,
   buildInternalPceConversionPlan,
   buildCdDataLayout,
+  assetMetaDecision,
   assetMetaShouldUseCd,
   buildAssetMetaBuffer,
   computeAssetMetaLayout,
+  ensurePsgPatternFiles,
   ensureAssetMetaReservation,
   collectCdDataFiles,
   ASSET_META_FILE,
+  psgPatternFile,
   defaultAssets,
   deleteAsset,
   decodePngImage,

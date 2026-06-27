@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "hero",
+      "type": "sprite",
+      "source": "assets/sprites/hero.png",
+      "options": {
+        "width": 64,
+        "height": 128,
+        "cellWidth": 16,
+        "cellHeight": 16
+      },
+      "data": {
+        "generated": {
+          "width": 64,
+          "height": 128,
+          "cellColumns": 4,
+          "cellRows": 8
+        }
+      }
+    }
+  ]
+}

@@ -844,7 +844,11 @@ function buildProject(onLog, options = {}) {
           visualNovelStampInfo.cddaTracks,
         );
       }
-      stageDone('asset source generation', assetStage, `${generated.assetCount || 0} asset(s)`);
+      stageDone(
+        'asset source generation',
+        assetStage,
+        `${generated.assetCount || 0} asset(s), asset catalog: ${generated.assetCatalogMode || 'resident'}${generated.assetCatalogBytes ? `, ${generated.assetCatalogBytes} bytes` : ''}`,
+      );
     } catch (err) {
       resolve({ success: false, error: `asset generation failed: ${err.message || err}` });
       return;
@@ -875,6 +879,9 @@ function buildProject(onLog, options = {}) {
       return;
     }
     log(`Generated assets: ${generated.assetCount} assets`);
+    if (generated.assetCatalogMode) {
+      log(`PCE asset catalog: ${generated.assetCatalogMode}${generated.assetCatalogReason ? ` (${generated.assetCatalogReason})` : ''}`);
+    }
     if (commandInfo.targetMedia === 'cd') {
       log(`PCE-CD data files: ${(config.cd?.dataFiles || []).length} file(s), CD-DA tracks: ${(commandInfo.cddaTracks || []).length}`);
     }

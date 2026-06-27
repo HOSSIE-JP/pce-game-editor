@@ -485,6 +485,7 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /data-scene-delete="\$\{esc\(item\.id\)\}"/);
   assert.match(renderer, /function deleteScene\(sceneId = selectedId\)/);
   assert.match(renderer, /data-role="scene-name"/);
+  assert.match(renderer, /class="pce-vn-edit-sticky"/);
   assert.match(renderer, /function normalizeSceneName\(value\)/);
   assert.match(renderer, /function scenePathParts\(item = \{\}\)/);
   assert.match(renderer, /function sceneDirectoryParts\(item = \{\}\)/);
@@ -579,6 +580,9 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(css, /\.pce-vn-shell\.is-json-mode \[data-column-resizer="left"\]/);
   assert.match(css, /\.pce-vn-shell\.is-json-mode \.pce-vn-commands/);
   assert.match(css, /\.pce-vn-view-switch/);
+  assert.match(css, /\.pce-vn-edit-sticky\s*\{[\s\S]*position:\s*sticky/);
+  assert.match(css, /\.pce-vn-edit\s*\{[\s\S]*grid-template-rows:\s*auto minmax\(0,\s*1fr\) auto;[\s\S]*overflow:\s*hidden/);
+  assert.match(css, /\.pce-vn-commands\s*\{[\s\S]*overflow:\s*auto/);
   assert.match(css, /\.pce-vn-script-json textarea/);
   assert.match(css, /\.pce-vn-scene-row/);
   assert.match(css, /\.pce-vn-scene-group/);

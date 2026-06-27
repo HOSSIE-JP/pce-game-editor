@@ -1,0 +1,84 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "beep",
+      "type": "psg-sfx",
+      "name": "beep",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": [
+          {
+            "step": 0,
+            "channel": 0,
+            "period": 512,
+            "volume": 20
+          },
+          {
+            "step": 1,
+            "channel": 0,
+            "period": 768,
+            "volume": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "opening",
+      "type": "cdda-track",
+      "name": "opening",
+      "source": "assets/cdda/opening.wav",
+      "options": {
+        "track": 2,
+        "loop": true
+      },
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/opening/cdda.wav",
+          "paletteFile": "",
+          "tilesFile": "",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
+          "previewFile": "",
+          "tileCount": 0,
+          "paletteCount": 0,
+          "vramBytes": 0,
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "warnings": [],
+          "paletteColors": [],
+          "waveform": [],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          }
+        }
+      }
+    }
+  ]
+}

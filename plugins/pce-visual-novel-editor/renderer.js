@@ -1852,6 +1852,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       </aside>
       <div class="pce-vn-column-resizer" data-column-resizer="left" role="separator" aria-orientation="vertical" aria-label="左列幅"></div>
       <section class="pce-vn-edit">
+        <div class="pce-vn-edit-sticky">
         <div class="pce-vn-edit-title">
           <div class="pce-vn-scene-title-block">
             <h2 data-role="scene-title">Scene</h2>
@@ -1880,6 +1881,7 @@ export function activatePlugin({ root, api, registerCapability }) {
           </div>
           <div class="pce-vn-scene-budget-bar"><span data-role="scene-budget-fill"></span></div>
           <div class="pce-vn-scene-budget-note" data-role="scene-budget-note" style="display:none"></div>
+        </div>
         </div>
         <div class="pce-vn-commands" data-role="commands"></div>
         <div class="pce-vn-script-json" data-role="script-json-pane" hidden>
