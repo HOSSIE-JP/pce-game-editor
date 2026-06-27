@@ -9,7 +9,7 @@ const assetManager = require('./pce-asset-manager');
 const VN_SCENE_FILE = path.join('assets', 'pce-vn-scenes.json');
 const VN_FONT_FILE = path.join('assets', 'pce-font.json');
 const VN_BUILD_STAMP_FILE = path.join('assets', 'generated', 'vn', 'build-stamp.json');
-const VN_BUILD_STAMP_VERSION = 1;
+const VN_BUILD_STAMP_VERSION = 2;
 // BG message / choice glyph streams stay byte-oriented so the common case costs
 // one byte per glyph, but a 0xfd escape prefix lets the project-wide font exceed
 // the old 254-glyph cap: glyph indices 0..252 are written as a single byte, while
@@ -45,18 +45,27 @@ const VN_COMMAND_BACKGROUND = 0;
 const VN_COMMAND_SPRITE = 1;
 const VN_COMMAND_MESSAGE = 2;
 const VN_COMMAND_AUDIO = 3;
-const VN_COMMAND_PRELOAD = 4;
-const VN_COMMAND_CHOICE = 5;
-const VN_COMMAND_JUMP = 6;
-const VN_COMMAND_WAIT = 7;
-const VN_COMMAND_EFFECT = 8;
-const VN_COMMAND_VARIABLE = 9;
-const VN_COMMAND_IF = 10;
-const VN_COMMAND_SWITCH = 11;
-const VN_COMMAND_LABEL = 12;
-const VN_COMMAND_GOTO = 13;
-const VN_COMMAND_INPUTCHECK = 14;
-const VN_COMMAND_SPRITETEXT = 15;
+const VN_COMMAND_CHOICE = 4;
+const VN_COMMAND_JUMP = 5;
+const VN_COMMAND_WAIT = 6;
+const VN_COMMAND_EFFECT = 7;
+const VN_COMMAND_VARIABLE = 8;
+const VN_COMMAND_IF = 9;
+const VN_COMMAND_SWITCH = 10;
+const VN_COMMAND_LABEL = 11;
+const VN_COMMAND_GOTO = 12;
+const VN_COMMAND_INPUTCHECK = 13;
+const VN_COMMAND_SPRITETEXT = 14;
+const VN_COMMAND_CACHE = 15;
+const VN_CACHE_ACTION_CLEAR = 0;
+const VN_CACHE_ACTION_LOAD = 1;
+const VN_CACHE_SCOPE_VISUAL = 0;
+const VN_CACHE_SCOPE_BG = 1;
+const VN_CACHE_SCOPE_SPRITE = 2;
+const VN_CACHE_SCOPE_ADPCM = 3;
+const VN_CACHE_SCOPE_ALL = 4;
+const VN_CACHE_SCOPES = ['visual', 'bg', 'sprite', 'adpcm', 'all'];
+const VN_ENABLE_VISUAL_PAYLOAD_CACHE = false;
 const VN_BG_TRANSITION_CUT = 0;
 const VN_BG_TRANSITION_FADE = 1;
 const VN_BG_FADE_FRAME_OPTIONS = [10, 20, 30, 40, 50, 60];
@@ -145,6 +154,17 @@ const VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000; // CPU address the overlay is linked a
 // overlay bytes after link.
 const VN_OVERLAY_RESERVED_SECTORS = 2;
 const VN_OVERLAY_RESERVED_BYTES = VN_OVERLAY_RESERVED_SECTORS * 2048; // 2048 = VN_CD_SECTOR_BYTES (defined below)
+// Disabled for standard Super CD-ROM2 builds. Geargrafx/System Card boot tests
+// showed that using bank112-120 for VN visual payload cache/code can destabilize
+// the CD boot path. Keep the constants behind VN_ENABLE_VISUAL_PAYLOAD_CACHE so
+// the experimental path can be revisited without changing the public command
+// record format.
+const VN_VISUAL_CODE_DATA_FILE = path.join('assets', 'generated', 'vn', 'visual_code.bin');
+const VN_VISUAL_CODE_SECTION = '.vn_visual_code';
+const VN_VISUAL_CODE_VRAM_LOAD_ADDR = 0x8000;
+const VN_VISUAL_CODE_LINK_ADDR = 0x01788000;
+const VN_VISUAL_CODE_RESERVED_SECTORS = 4;
+const VN_VISUAL_CODE_RESERVED_BYTES = VN_VISUAL_CODE_RESERVED_SECTORS * 2048;
 // LMA (physical/load address) for the .vn_overlay section: bank132's tail
 // (region 0x0184c000..0x0184dfff, CPU 0xc000..0xdfff in slot 6). The IPL loads
 // these bytes into bank132 RAM we never read (the real copy is CD-loaded into
@@ -968,6 +988,29 @@ function normalizeEffectKind(value = '') {
   return 'fadeOut';
 }
 
+function normalizeCacheScope(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  return VN_CACHE_SCOPES.includes(raw) ? raw : 'visual';
+}
+
+function normalizeCacheAction(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  return raw === 'load' ? 'load' : 'clear';
+}
+
+function cacheActionCode(action = '') {
+  return normalizeCacheAction(action) === 'load' ? VN_CACHE_ACTION_LOAD : VN_CACHE_ACTION_CLEAR;
+}
+
+function cacheScopeCode(scope = '') {
+  const normalized = normalizeCacheScope(scope);
+  if (normalized === 'bg') return VN_CACHE_SCOPE_BG;
+  if (normalized === 'sprite') return VN_CACHE_SCOPE_SPRITE;
+  if (normalized === 'adpcm') return VN_CACHE_SCOPE_ADPCM;
+  if (normalized === 'all') return VN_CACHE_SCOPE_ALL;
+  return VN_CACHE_SCOPE_VISUAL;
+}
+
 function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), assetDoc = { assets: [] }) {
   const raw = command && typeof command === 'object' ? command : {};
   const type = String(raw.type || '').trim();
@@ -1026,10 +1069,34 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
   if (type === 'inputcheck') {
     return normalizeInputCheckCommand(raw);
   }
-  if (type === 'preload') {
+  if (type === 'cache') {
+    const action = normalizeCacheAction(raw.action);
+    const rawScope = normalizeCacheScope(raw.scope);
+    if (action === 'load') {
+      const assetId = String(raw.assetId || raw.bgAssetId || raw.spriteAssetId || raw.voiceAssetId || '').trim();
+      const actualType = assetTypeForId(assetDoc, assetId);
+      let scope = rawScope;
+      if (scope === 'visual') {
+        if (actualType === 'image') scope = 'bg';
+        else if (actualType === 'sprite') scope = 'sprite';
+      }
+      const validAsset = (scope === 'bg' && valid.image?.has(assetId))
+        || (scope === 'sprite' && valid.sprite?.has(assetId))
+        || (scope === 'adpcm' && valid.adpcm?.has(assetId));
+      return {
+        type: 'cache',
+        action: 'load',
+        scope,
+        assetId: validAsset ? assetId : '',
+        slot: clampInt(raw.slot, 0, 3, 0),
+        x: clampInt(raw.x ?? raw.tileX ?? raw.mapX, 0, 63, 0),
+        y: clampInt(raw.y ?? raw.tileY ?? raw.mapY, 0, 31, 0),
+      };
+    }
     return {
-      type: 'preload',
-      sceneId: normalizeSceneRef(raw.sceneId || raw.nextSceneId || raw.targetSceneId || ''),
+      type: 'cache',
+      action: 'clear',
+      scope: rawScope,
     };
   }
   if (type === 'choice') {
@@ -1171,7 +1238,7 @@ function normalizeSceneDocument(doc = {}, assetDoc = { assets: [] }) {
         .filter((command) => command.type === 'label' && command.name)
         .map((command) => command.name));
       return (scene.commands || []).map((command) => {
-      if (command.type === 'preload' || command.type === 'jump') {
+      if (command.type === 'jump') {
         return {
           ...command,
           sceneId: command.sceneId && sceneIds.has(command.sceneId) ? command.sceneId : '',
@@ -1455,6 +1522,13 @@ function collectSceneVisualAssetUsage(doc = {}) {
           const slot = clampInt(command.slot, 0, 3, 0);
           spriteSlots[slot] = '';
           addSpriteLayout(spriteSlots);
+        } else if (command?.type === 'cache' && command.action === 'load') {
+          const assetId = normalizeAssetId(command.assetId);
+          if (command.scope === 'bg' && assetId) {
+            imageAssetIds.add(assetId);
+          } else if (command.scope === 'sprite' && assetId) {
+            spriteAssetIds.add(assetId);
+          }
         } else if (command?.type === 'jump') {
           enqueue(command.sceneId, spriteSlots);
         } else if (command?.type === 'choice') {
@@ -2713,20 +2787,36 @@ function generateVnSources(projectDir, options = {}) {
         });
         return;
       }
-      if (command.type === 'preload') {
-        const target = command.sceneId && sceneIndex.has(command.sceneId) ? sceneIndex.get(command.sceneId) : -1;
+      if (command.type === 'cache') {
+        const cacheAction = cacheActionCode(command.action);
+        let assetIndex = -1;
+        let slot = 0;
+        let x = 0;
+        let y = 0;
+        if (cacheAction === VN_CACHE_ACTION_LOAD && command.assetId) {
+          if (command.scope === 'bg') {
+            assetIndex = imageIndex.get(command.assetId) ?? -1;
+            x = command.x;
+            y = command.y;
+          } else if (command.scope === 'sprite') {
+            assetIndex = spriteIndex.get(command.assetId) ?? -1;
+            slot = command.slot;
+          } else if (command.scope === 'adpcm') {
+            assetIndex = adpcmIndex.get(command.assetId) ?? -1;
+          }
+        }
         pushCommand({
-          type: VN_COMMAND_PRELOAD,
-          assetIndex: -1,
-          slot: 0,
-          flags: 0,
-          arg0: 0,
+          type: VN_COMMAND_CACHE,
+          assetIndex,
+          slot,
+          flags: cacheAction,
+          arg0: cacheScopeCode(command.scope),
           arg1: 0,
-          x: 0,
-          y: 0,
+          x,
+          y,
           messageIndex: -1,
           animationIndex: -1,
-          sceneIndex: target,
+          sceneIndex: -1,
           choiceIndex: -1,
         });
         return;
@@ -3015,6 +3105,15 @@ function generateVnSources(projectDir, options = {}) {
     ? (overlayLayout.sectorCount || Math.max(1, Math.ceil(overlayByteSize / VN_CD_SECTOR_BYTES)))
     : 0;
   const overlayDataInitializer = `{ ${cdSectorInitializer(overlayLayout)}, ${overlaySectorCount}u, ${overlayByteSize}u }`;
+  const visualCodeDataPath = normalizeRelativePath(VN_VISUAL_CODE_DATA_FILE);
+  const visualCodeAbsPath = path.join(projectDir, visualCodeDataPath);
+  const visualCodeExists = fs.existsSync(visualCodeAbsPath);
+  const visualCodeLayout = visualCodeExists ? (cdLayout.get(visualCodeDataPath) || {}) : {};
+  const visualCodeByteSize = visualCodeExists ? fs.statSync(visualCodeAbsPath).size : 0;
+  const visualCodeSectorCount = visualCodeExists
+    ? (visualCodeLayout.sectorCount || Math.max(1, Math.ceil(visualCodeByteSize / VN_CD_SECTOR_BYTES)))
+    : 0;
+  const visualCodeDataInitializer = `{ ${cdSectorInitializer(visualCodeLayout)}, ${visualCodeSectorCount}u, ${visualCodeByteSize}u }`;
   const scenePackMeta = sceneBuilds.map((sceneBuild, index) => {
     const layout = cdLayout.get(sceneBuild.packPath) || {};
     const sectorCount = layout.sectorCount || Math.max(1, Math.ceil(sceneBuild.packBuffer.length / VN_CD_SECTOR_BYTES));
@@ -3031,7 +3130,6 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_COMMAND_SPRITE ${VN_COMMAND_SPRITE}u`,
     `#define PCE_VN_COMMAND_MESSAGE ${VN_COMMAND_MESSAGE}u`,
     `#define PCE_VN_COMMAND_AUDIO ${VN_COMMAND_AUDIO}u`,
-    `#define PCE_VN_COMMAND_PRELOAD ${VN_COMMAND_PRELOAD}u`,
     `#define PCE_VN_COMMAND_CHOICE ${VN_COMMAND_CHOICE}u`,
     `#define PCE_VN_COMMAND_JUMP ${VN_COMMAND_JUMP}u`,
     `#define PCE_VN_COMMAND_WAIT ${VN_COMMAND_WAIT}u`,
@@ -3043,6 +3141,14 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_COMMAND_GOTO ${VN_COMMAND_GOTO}u`,
     `#define PCE_VN_COMMAND_INPUTCHECK ${VN_COMMAND_INPUTCHECK}u`,
     `#define PCE_VN_COMMAND_SPRITETEXT ${VN_COMMAND_SPRITETEXT}u`,
+    `#define PCE_VN_COMMAND_CACHE ${VN_COMMAND_CACHE}u`,
+    `#define PCE_VN_CACHE_ACTION_CLEAR ${VN_CACHE_ACTION_CLEAR}u`,
+    `#define PCE_VN_CACHE_ACTION_LOAD ${VN_CACHE_ACTION_LOAD}u`,
+    `#define PCE_VN_CACHE_SCOPE_VISUAL ${VN_CACHE_SCOPE_VISUAL}u`,
+    `#define PCE_VN_CACHE_SCOPE_BG ${VN_CACHE_SCOPE_BG}u`,
+    `#define PCE_VN_CACHE_SCOPE_SPRITE ${VN_CACHE_SCOPE_SPRITE}u`,
+    `#define PCE_VN_CACHE_SCOPE_ADPCM ${VN_CACHE_SCOPE_ADPCM}u`,
+    `#define PCE_VN_CACHE_SCOPE_ALL ${VN_CACHE_SCOPE_ALL}u`,
     `#define PCE_VN_BG_TRANSITION_CUT ${VN_BG_TRANSITION_CUT}u`,
     `#define PCE_VN_BG_TRANSITION_FADE ${VN_BG_TRANSITION_FADE}u`,
     `#define PCE_VN_SPRITE_VISIBLE ${VN_SPRITE_VISIBLE}u`,
@@ -3188,6 +3294,12 @@ function generateVnSources(projectDir, options = {}) {
     'extern const pce_vn_cd_data_ref_t pce_vn_font_data;',
     `#define PCE_VN_OVERLAY_LOAD_ADDR ${VN_OVERLAY_VRAM_LOAD_ADDR}u`,
     'extern const pce_vn_cd_data_ref_t pce_vn_overlay_data;',
+    ...(VN_ENABLE_VISUAL_PAYLOAD_CACHE
+      ? [
+        `#define PCE_VN_VISUAL_CODE_LOAD_ADDR ${VN_VISUAL_CODE_VRAM_LOAD_ADDR}u`,
+        'extern const pce_vn_cd_data_ref_t pce_vn_visual_code_data;',
+      ]
+      : []),
     '#else',
     'extern const unsigned char pce_vn_font_tiles[];',
     '#endif',
@@ -3227,6 +3339,9 @@ function generateVnSources(projectDir, options = {}) {
     '#if defined(__PCE_CD__)',
     `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_data = ${fontDataInitializer};`,
     `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_overlay_data = ${overlayDataInitializer};`,
+    ...(VN_ENABLE_VISUAL_PAYLOAD_CACHE
+      ? [`const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_visual_code_data = ${visualCodeDataInitializer};`]
+      : []),
     '#else',
     ...bytesToCArray('PCE_VN_FONT_SECTION pce_vn_font_tiles', fontTiles, 'const unsigned char'),
     '#endif',
@@ -3390,6 +3505,8 @@ function collectSceneCommandAssetIds(scene = {}) {
       if (command.voiceAssetId) ids.push(command.voiceAssetId);
     } else if (command.type === 'audio' && command.action === 'play') {
       if (command.assetId) ids.push(command.assetId);
+    } else if (command.type === 'cache' && command.action === 'load') {
+      if (command.assetId) ids.push(command.assetId);
     }
   });
   return ids;
@@ -3425,6 +3542,10 @@ function collectCdDataFiles(projectDir) {
   // Overlay code blob, streamed into bank133 at boot. Placed right after the font
   // so its CD sector stays stable across scene edits. Only when it was built.
   addExistingCdDataFile(projectDir, files, seen, VN_OVERLAY_DATA_FILE);
+  if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) {
+    // Experimental visual cache helper code, streamed into bank120 at boot.
+    addExistingCdDataFile(projectDir, files, seen, VN_VISUAL_CODE_DATA_FILE);
+  }
   // The sprite-format font is only generated when spritetext is used; include it
   // only when the file actually exists so we never reserve a sector for nothing.
   addExistingCdDataFile(projectDir, files, seen, VN_FONT_SPRITE_DATA_FILE);
@@ -3492,8 +3613,30 @@ function writeOverlayFragment(projectDir) {
   // NOLOAD so they reuse the overlay copy's never-read RAM, leaving all of
   // [0xc000, VN_OVERLAY_LMA) for the GROWING resident metadata.
   const tailVma = `0x${(0xc000 + (VN_OVERLAY_LMA - (VN_BANK132_LMA_END - 0x2000))).toString(16)}`;
+  const visualCodeAddr = `0x${VN_VISUAL_CODE_LINK_ADDR.toString(16)}`;
+  const visualCodeSection = VN_ENABLE_VISUAL_PAYLOAD_CACHE
+    ? [
+      `  ${VN_VISUAL_CODE_SECTION} ${visualCodeAddr} : {`,
+      '    __vn_visual_code_start = .;',
+      `    KEEP(*(${VN_VISUAL_CODE_SECTION}.entry ${VN_VISUAL_CODE_SECTION}.entry.*))`,
+      `    KEEP(*(${VN_VISUAL_CODE_SECTION}.impl ${VN_VISUAL_CODE_SECTION}.impl.*))`,
+      '    __vn_visual_code_end = .;',
+      '  } >ram_bank120',
+    ]
+    : [];
+  const visualCacheSections = VN_ENABLE_VISUAL_PAYLOAD_CACHE
+    ? Array.from({ length: 8 }, (_, i) => {
+      const bank = 112 + i;
+      return [
+        `  .vn_visual_cache${bank} (NOLOAD) : {`,
+        `    KEEP(*(.vn_visual_cache${bank} .vn_visual_cache${bank}.*))`,
+        `  } >ram_bank${bank}`,
+      ].join('\n');
+    })
+    : [];
   const body = [
     'SECTIONS {',
+    ...visualCodeSection,
     `  ${VN_OVERLAY_SECTION} ${vma} : AT(${lma}) {`,
     '    __vn_overlay_start = .;',
     `    KEEP(*(${VN_OVERLAY_SECTION} ${VN_OVERLAY_SECTION}.*))`,
@@ -3502,6 +3645,7 @@ function writeOverlayFragment(projectDir) {
     `  .ram_bank132_tail ${tailVma} (NOLOAD) : {`,
     '    KEEP(*(.ram_bank132_tail .ram_bank132_tail.*))',
     '  }',
+    ...visualCacheSections,
     '} INSERT AFTER .ram_bank132;',
     '',
   ].join('\n');
@@ -3523,20 +3667,37 @@ function ensureOverlayReservation(projectDir) {
   return { byteSize: VN_OVERLAY_RESERVED_BYTES, sectorCount: VN_OVERLAY_RESERVED_SECTORS };
 }
 
-// Post-link: objcopy the .vn_overlay section out of the freshly linked main.elf
-// into overlay.bin (padded to the reserved size so the reserved CD sector still
-// matches), THEN strip the section's relocation table (.rela.vn_overlay) from
-// main.elf in place. The strip is required because pce-mkcd RE-APPLIES the ELF's
+function ensureVisualCodeReservation(projectDir) {
+  const visualCodeBin = path.join(projectDir, VN_VISUAL_CODE_DATA_FILE);
+  if (!VN_ENABLE_VISUAL_PAYLOAD_CACHE) {
+    try {
+      if (fs.existsSync(visualCodeBin)) fs.unlinkSync(visualCodeBin);
+    } catch (_) {}
+    return null;
+  }
+  ensureDirSync(path.dirname(visualCodeBin));
+  const ok = fs.existsSync(visualCodeBin) && fs.statSync(visualCodeBin).size === VN_VISUAL_CODE_RESERVED_BYTES;
+  if (!ok) fs.writeFileSync(visualCodeBin, Buffer.alloc(VN_VISUAL_CODE_RESERVED_BYTES));
+  return { byteSize: VN_VISUAL_CODE_RESERVED_BYTES, sectorCount: VN_VISUAL_CODE_RESERVED_SECTORS };
+}
+
+// Post-link: objcopy runtime helper blobs out of the freshly linked main.elf:
+// .vn_overlay -> overlay.bin (section body stays in the ELF with only its rela
+// table stripped), and .vn_visual_code -> visual_code.bin (section body is removed
+// from the ELF because pce-mkcd cannot encode that load-address range). Both
+// outputs are padded to their reserved sizes so their CD sectors stay stable.
+// The strip is required because pce-mkcd RE-APPLIES the ELF's
 // relocations when it assembles the image, and the overlay's internal relocations
 // live at the overlay's run-address VMA (CPU 0x8000, MPR slot 4) which is outside
 // the encoded bank range mkcd accepts ("File address 0x8001 out of range"). lld
 // already applied those relocations in the executable, so the extracted overlay.bin
 // is final machine code; dropping .rela.vn_overlay just stops mkcd from re-applying
 // them. The .vn_overlay section itself stays (its benign LMA copy loads into
-// bank132's unused tail and keeps the dispatcher's direct calls resolvable); the
-// resident code banks are unaffected, so bank130 stays relieved. Errors if the
-// section is missing or exceeds the reservation. Returns {realSize, byteSize} or
-// null when there is no toolchain / elf.
+// bank132's unused tail and keeps the dispatcher's direct calls resolvable);
+// visual_code.bin is called through a fixed 0x8000 entry, so the ELF can drop the
+// bank120 section entirely. Errors if a section is missing or exceeds its
+// reservation. Returns {realSize, byteSize, visualCode} or null when there is no
+// toolchain / elf.
 function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
   if (!clangPath || !elfPath || !fs.existsSync(elfPath)) return null;
   const binDir = path.dirname(clangPath);
@@ -3585,9 +3746,31 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
     fs.readFileSync(overlayBin).copy(buf);
     fs.writeFileSync(overlayBin, buf);
   }
+  let visualRealSize = 0;
+  let visualCodeInfo = null;
+  if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) {
+  const visualCodeBin = path.join(projectDir, VN_VISUAL_CODE_DATA_FILE);
+  ensureDirSync(path.dirname(visualCodeBin));
+  run(['-O', 'binary', `--only-section=${VN_VISUAL_CODE_SECTION}`, elfPath, visualCodeBin], 'visual code objcopy extract');
+  visualRealSize = fs.existsSync(visualCodeBin) ? fs.statSync(visualCodeBin).size : 0;
+  if (visualRealSize === 0) {
+    throw new Error(`visual cache code section ${VN_VISUAL_CODE_SECTION} was empty in ${path.basename(elfPath)} — visual cache code not linked`);
+  }
+  if (visualRealSize > VN_VISUAL_CODE_RESERVED_BYTES) {
+    throw new Error(`visual cache code ${visualRealSize} bytes exceeds reserved ${VN_VISUAL_CODE_RESERVED_BYTES} bytes (${VN_VISUAL_CODE_RESERVED_SECTORS} sectors). Move fewer functions into VN_VISUAL_CACHE_CODE or raise VN_VISUAL_CODE_RESERVED_SECTORS.`);
+  }
+  if (visualRealSize < VN_VISUAL_CODE_RESERVED_BYTES) {
+    const buf = Buffer.alloc(VN_VISUAL_CODE_RESERVED_BYTES);
+    fs.readFileSync(visualCodeBin).copy(buf);
+    fs.writeFileSync(visualCodeBin, buf);
+  }
+  visualCodeInfo = { realSize: visualRealSize, byteSize: VN_VISUAL_CODE_RESERVED_BYTES };
+  }
   // Strip the overlay's relocation table so mkcd does not re-apply overlay-internal
-  // relocations at the out-of-range 0x8000 VMA (the section itself stays). Write the
-  // stripped result to a temp file and atomically rename it over main.elf rather than
+  // relocations at the out-of-range 0x8000 VMA (the section itself stays), and strip
+  // the visual helper section completely because it is loaded from CD into
+  // bank120 instead of being part of the main program image. Write the stripped
+  // result to a temp file and atomically rename it over main.elf rather than
   // letting llvm-objcopy rewrite the ELF in place: on Windows an in-place rewrite can
   // race with antivirus/file-indexing scanning the freshly written executable and
   // leave a transient ZERO-LENGTH main.elf. pce-mkcd mmaps the ELF without checking
@@ -3596,7 +3779,13 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
   // Verifying the temp is non-empty before the rename guarantees mkcd never observes a
   // half-written ELF. (macOS never hit this because there is no such scanner race.)
   const strippedElf = `${elfPath}.stripped`;
-  run(['--remove-section', `.rela${VN_OVERLAY_SECTION}`, elfPath, strippedElf], 'objcopy strip rela');
+  const stripArgs = ['--remove-section', `.rela${VN_OVERLAY_SECTION}`];
+  if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) {
+    stripArgs.push('--remove-section', `.rela${VN_VISUAL_CODE_SECTION}`);
+    stripArgs.push('--remove-section', VN_VISUAL_CODE_SECTION);
+  }
+  stripArgs.push(elfPath, strippedElf);
+  run(stripArgs, 'objcopy strip runtime blobs');
   const strippedSize = fs.existsSync(strippedElf) ? fs.statSync(strippedElf).size : 0;
   if (strippedSize === 0) {
     try { if (fs.existsSync(strippedElf)) fs.unlinkSync(strippedElf); } catch (_) {}
@@ -3604,7 +3793,12 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
   }
   fs.renameSync(strippedElf, elfPath);
   logger?.info?.(`PCE VN overlay blob: ${realSize} bytes (reserved ${VN_OVERLAY_RESERVED_BYTES}) を main.elf から ${VN_OVERLAY_DATA_FILE} に抽出 (.rela${VN_OVERLAY_SECTION} 除去)`);
-  return { realSize, byteSize: VN_OVERLAY_RESERVED_BYTES };
+  if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) logger?.info?.(`PCE VN visual cache code blob: ${visualRealSize} bytes (reserved ${VN_VISUAL_CODE_RESERVED_BYTES}) を main.elf から ${VN_VISUAL_CODE_DATA_FILE} に抽出 (${VN_VISUAL_CODE_SECTION} 除去)`);
+  return {
+    realSize,
+    byteSize: VN_OVERLAY_RESERVED_BYTES,
+    visualCode: visualCodeInfo,
+  };
 }
 
 function collectCddaTracks(projectDir) {
@@ -3625,6 +3819,7 @@ function collectManagedGeneratedCdDataFiles(projectDir) {
   const managed = new Set();
   addManagedGeneratedPath(managed, VN_FONT_DATA_FILE);
   addManagedGeneratedPath(managed, VN_OVERLAY_DATA_FILE);
+  addManagedGeneratedPath(managed, VN_VISUAL_CODE_DATA_FILE);
   addManagedGeneratedPath(managed, VN_FONT_SPRITE_DATA_FILE);
   const scenePackDir = normalizeRelativePath(VN_SCENE_PACK_DIR);
   try {
@@ -3700,6 +3895,7 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
   // (clangPath is unused here now — extraction needs the linked main.elf and runs
   // in the build system post-link.)
   ensureOverlayReservation(projectDir);
+  ensureVisualCodeReservation(projectDir);
   writeOverlayFragment(projectDir);
   logBuildTiming(logger, 'reserve CD layout placeholders', stage);
   if (options.incremental) {
@@ -3803,7 +3999,6 @@ module.exports = {
   VN_COMMAND_SPRITE,
   VN_COMMAND_MESSAGE,
   VN_COMMAND_AUDIO,
-  VN_COMMAND_PRELOAD,
   VN_COMMAND_CHOICE,
   VN_COMMAND_JUMP,
   VN_COMMAND_WAIT,
@@ -3815,6 +4010,14 @@ module.exports = {
   VN_COMMAND_GOTO,
   VN_COMMAND_INPUTCHECK,
   VN_COMMAND_SPRITETEXT,
+  VN_COMMAND_CACHE,
+  VN_CACHE_ACTION_CLEAR,
+  VN_CACHE_ACTION_LOAD,
+  VN_CACHE_SCOPE_VISUAL,
+  VN_CACHE_SCOPE_BG,
+  VN_CACHE_SCOPE_SPRITE,
+  VN_CACHE_SCOPE_ADPCM,
+  VN_CACHE_SCOPE_ALL,
   VN_BG_TRANSITION_CUT,
   VN_BG_TRANSITION_FADE,
   VN_BG_FADE_FRAME_OPTIONS,

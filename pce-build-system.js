@@ -53,6 +53,30 @@ function resolveSpawn(command, args) {
   return { file: command, args, shell: false };
 }
 
+function expandLlvmMosClangWrapper(command, args = []) {
+  const raw = String(command || '');
+  if (process.platform !== 'win32' || !/\.(bat|cmd)$/i.test(raw)) {
+    return { command: raw, args };
+  }
+  const base = path.basename(raw);
+  const match = /^mos-.+-clang(\+\+|-cpp)?\.(bat|cmd)$/i.exec(base);
+  if (!match) return { command: raw, args };
+  const dir = path.dirname(raw);
+  const clangName = match[1] === '++'
+    ? 'clang++.exe'
+    : (match[1] === '-cpp' ? 'clang-cpp.exe' : 'clang.exe');
+  const clangPath = path.join(dir, clangName);
+  const cfgName = base.replace(/-clang(?:\+\+|-cpp)?\.(bat|cmd)$/i, '.cfg');
+  const cfgPath = path.join(dir, cfgName);
+  if (!fs.existsSync(clangPath) || !fs.existsSync(cfgPath)) {
+    return { command: raw, args };
+  }
+  return {
+    command: clangPath,
+    args: ['--config', cfgPath, ...args],
+  };
+}
+
 function attachProcessLineLogger(stream, level, log) {
   let pending = '';
   const flush = () => {
@@ -722,19 +746,27 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
     if (toolchain !== 'llvm-mos') {
       throw new Error('PCE-CD target requires llvm-mos toolchain');
     }
-    const command = setupManager.getLlvmMosPceCdPath() || toolPath || 'mos-pce-cd-clang';
+    const rawCommand = setupManager.getLlvmMosPceCdPath() || toolPath || 'mos-pce-cd-clang';
     const elfPath = path.join(outDir, `${romBase}.elf`);
     const isoPath = path.join(outDir, `${romBase}.iso`);
     const cuePath = path.join(outDir, `${romBase}.cue`);
+    const expandedCommand = expandLlvmMosClangWrapper(rawCommand, [
+      '-Oz',
+      '-DPCE_EDITOR_TARGET_CD=1',
+      ...vnManager.overlayLinkerArgs(projectDir),
+      '-o',
+      elfPath,
+      ...sources,
+    ]);
     const commandInfo = {
       toolchain,
       targetMedia,
-      command,
+      command: expandedCommand.command,
       // VN projects splice the bank133 overlay section into this link via -Wl,-T
       // (overlayLinkerArgs is [] for non-VN / when no fragment was written).
-      args: ['-Oz', '-DPCE_EDITOR_TARGET_CD=1', ...vnManager.overlayLinkerArgs(projectDir), '-o', elfPath, ...sources],
+      args: expandedCommand.args,
       cwd: projectDir,
-      env: buildSpawnEnv(command, toolchain),
+      env: buildSpawnEnv(expandedCommand.command, toolchain),
       elfPath,
       isoPath,
       cuePath,
@@ -748,15 +780,16 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
     return commandInfo;
   }
   if (toolchain === 'llvm-mos') {
-    const command = toolPath || 'mos-pce-clang';
+    const rawCommand = toolPath || 'mos-pce-clang';
     const romPath = path.join(outDir, `${romBase}.pce`);
+    const expandedCommand = expandLlvmMosClangWrapper(rawCommand, ['-Os', '-o', romPath, ...sources]);
     return {
       toolchain,
       targetMedia,
-      command,
-      args: ['-Os', '-o', romPath, ...sources],
+      command: expandedCommand.command,
+      args: expandedCommand.args,
       cwd: projectDir,
-      env: buildSpawnEnv(command, toolchain),
+      env: buildSpawnEnv(expandedCommand.command, toolchain),
       romPath,
     };
   }

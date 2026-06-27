@@ -12,8 +12,8 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 - scene の `id` は英数字・`_`・`-` のみを推奨します。例: `opening`, `chapter1_branch_a`。
 - scene の `name` は表示用です。`chapter1/opening` のように `/` 区切りにできます。
 - scene 遷移は `id` 参照です。`name` を参照先に使わないでください。
-- 使える command type は `background`, `sprite`, `message`, `audio`, `variable`, `choice`, `if`, `switch`, `label`, `goto`, `inputcheck`, `jump`, `wait`, `effect`, `spritetext` です。
-- `preload` は旧互換の no-op なので、新規シナリオでは原則使わないでください。
+- 使える command type は `background`, `sprite`, `message`, `audio`, `cache`, `variable`, `choice`, `if`, `switch`, `label`, `goto`, `inputcheck`, `jump`, `wait`, `effect`, `spritetext` です。
+- `cache` は基本的に `{ "type": "cache", "action": "clear", "scope": "visual" }` のような明示クリア、または ADPCM の `load` に使ってください。BG / Sprite の `cache load` は標準 Super CD-ROM2 runtime では no-op です。
 - 未定義の command type や独自フィールドを作らないでください。必要な説明は JSON の外に別セクションとして出してください。
 - 1 scene pack は runtime の 4096 byte cache に収まる必要があります。長い会話や分岐は複数 scene に分割し、`jump` でつないでください。
 - 1 scene の command 数、message 数、choice 数、switch 数、変数数などは各 255 未満にしてください。
@@ -410,7 +410,7 @@ ChatGPT に画像や音声案も作らせる場合は、スクリプト JSON と
 - command type は指定されたものだけを使う
 - message は 17 文字 x 4 行を意識して短く分割する
 - 1 scene が長くなりすぎないよう scene を分割する
-- `preload` は使わない
+- BG / Sprite の先読み目的で `cache load` を使わない
 - JSON 内にコメントを入れない
 - scene / label / variable / asset ID は英数字・`_`・`-` にする
 - 未登録 asset を使う場合は asset plan に必ず列挙する

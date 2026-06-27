@@ -55,6 +55,17 @@ const INPUT_BUTTONS = [
   { key: 'ii', label: 'II' },
 ];
 const INPUT_BUTTON_KEYS = INPUT_BUTTONS.map((button) => button.key);
+const CACHE_SCOPE_OPTIONS = [
+  { value: 'visual', label: 'Visual (BG + Sprite)' },
+  { value: 'bg', label: 'BG' },
+  { value: 'sprite', label: 'Sprite' },
+  { value: 'adpcm', label: 'ADPCM' },
+  { value: 'all', label: 'All' },
+];
+const CACHE_ACTION_OPTIONS = [
+  { value: 'clear', label: 'Clear' },
+  { value: 'load', label: 'Load' },
+];
 
 // PCE 表示可能色（3bit/ch）へスナップした "#rrggbb" を返す。空入力は '' のまま。
 function snapHexToPce(value) {
@@ -87,8 +98,8 @@ const COMMAND_DEFINITIONS = [
   { type: 'goto', label: 'GOTO', category: '分岐', description: '指定ラベルへ移動' },
   { type: 'inputcheck', label: 'Input', category: '分岐', description: '入力でラベルへGOTO' },
   { type: 'jump', label: 'Jump', category: '分岐', description: '別シーンへ移動' },
-  { type: 'preload', label: 'Preload', category: '分岐', description: '次シーンを先読み' },
   { type: 'wait', label: 'Wait', category: '制御', description: '指定フレーム待機' },
+  { type: 'cache', label: 'Cache', category: '制御', description: 'runtime cache control' },
   { type: 'audio', label: 'Audio', category: '音声', description: 'CD-DA/ADPCM/PSG再生停止' },
   { type: 'effect', label: 'Effect', category: '演出', description: 'フェード/フラッシュ/揺れ' },
   { type: 'spritetext', label: 'SpriteText', category: '演出', description: '短い文字をスプライトで重ねる' },
@@ -103,6 +114,35 @@ function esc(value) {
     '"': '&quot;',
     "'": '&#39;',
   }[ch]));
+}
+
+function normalizeCacheScope(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  return CACHE_SCOPE_OPTIONS.some((option) => option.value === raw) ? raw : 'visual';
+}
+
+function normalizeCacheAction(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  return raw === 'load' ? 'load' : 'clear';
+}
+
+function cacheActionOptions(current = '') {
+  const selected = normalizeCacheAction(current);
+  return CACHE_ACTION_OPTIONS.map((option) => (
+    `<option value="${esc(option.value)}" ${option.value === selected ? 'selected' : ''}>${esc(option.label)}</option>`
+  )).join('');
+}
+
+function cacheScopeLabel(scope = '') {
+  const normalized = normalizeCacheScope(scope);
+  return CACHE_SCOPE_OPTIONS.find((option) => option.value === normalized)?.label || 'Visual (BG + Sprite)';
+}
+
+function cacheScopeOptions(current = '') {
+  const selected = normalizeCacheScope(current);
+  return CACHE_SCOPE_OPTIONS.map((option) => (
+    `<option value="${esc(option.value)}" ${option.value === selected ? 'selected' : ''}>${esc(option.label)}</option>`
+  )).join('');
 }
 
 function asNumber(value, fallback = 0) {
@@ -600,6 +640,9 @@ function defaultCommand(type, assets = []) {
   if (type === 'inputcheck') {
     return { type: 'inputcheck', buttons: ['i'], mode: 'sync', targetLabel: '' };
   }
+  if (type === 'cache') {
+    return { type: 'cache', action: 'clear', scope: 'visual', assetId: '', slot: 0, x: 0, y: 0 };
+  }
   if (type === 'effect') {
     return { type: 'effect', effect: 'shake', frames: 16, intensity: 4, color: '' };
   }
@@ -608,9 +651,6 @@ function defaultCommand(type, assets = []) {
   }
   if (type === 'variable') {
     return { type: 'variable', variableName: 'flag_1', operation: 'set', value: 0, min: 0, max: 9 };
-  }
-  if (type === 'preload') {
-    return { type: 'preload', sceneId: '' };
   }
   if (type === 'choice') {
     return { type: 'choice', variableName: 'choice_1', defaultIndex: 0, choices: [{ label: '進む', value: 0, targetSceneId: '' }] };
@@ -666,6 +706,7 @@ function defaultDoc(assets = []) {
 function normalizeCommand(command = {}, assets = [], index = 0) {
   const byId = (id) => assets.find((asset) => asset.id === id) || null;
   const raw = command && typeof command === 'object' ? command : {};
+  if (raw.type && !COMMAND_DEFINITIONS.some((definition) => definition.type === raw.type)) return null;
   if (raw.type === 'background') {
     const asset = byId(raw.assetId);
     return {
@@ -723,8 +764,34 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       targetLabel: mode === 'cancel' ? '' : labelName(raw.targetLabel || raw.label || raw.target || '', ''),
     };
   }
-  if (raw.type === 'preload') {
-    return { type: 'preload', sceneId: safeId(raw.sceneId || raw.nextSceneId || raw.targetSceneId, '') };
+  if (raw.type === 'cache') {
+    const action = normalizeCacheAction(raw.action);
+    const rawScope = normalizeCacheScope(raw.scope);
+    if (action === 'load') {
+      const asset = byId(raw.assetId);
+      let scope = rawScope;
+      if (scope === 'visual') {
+        if (asset?.type === 'image') scope = 'bg';
+        else if (asset?.type === 'sprite') scope = 'sprite';
+      }
+      const valid = (scope === 'bg' && asset?.type === 'image')
+        || (scope === 'sprite' && asset?.type === 'sprite')
+        || (scope === 'adpcm' && asset?.type === 'adpcm');
+      return {
+        type: 'cache',
+        action: 'load',
+        scope,
+        assetId: valid ? asset.id : '',
+        slot: clamp(raw.slot, 0, 3, 0),
+        x: clamp(raw.x ?? raw.tileX ?? raw.mapX, 0, 63, 0),
+        y: clamp(raw.y ?? raw.tileY ?? raw.mapY, 0, 31, 0),
+      };
+    }
+    return {
+      type: 'cache',
+      action: 'clear',
+      scope: rawScope,
+    };
   }
   if (raw.type === 'choice') {
     const choices = (Array.isArray(raw.choices) ? raw.choices : [])
@@ -895,7 +962,7 @@ function normalizeDoc(doc, assets) {
           .filter((command) => command.type === 'label' && command.name)
           .map((command) => command.name));
         return (scene.commands || []).map((command) => {
-        if (command.type === 'preload' || command.type === 'jump') {
+        if (command.type === 'jump') {
           return { ...command, sceneId: command.sceneId && sceneIds.has(command.sceneId) ? command.sceneId : '' };
         }
         if (command.type === 'choice') {
@@ -1730,7 +1797,8 @@ function previewRuntime() {
       if (t === 'audio') { handleAudio(c); pc += 1; continue; }
       if (t === 'variable') { applyVar(c); pc += 1; continue; }
       if (t === 'effect') { applyEffect(c); pc += 1; continue; }
-      if (t === 'preload' || t === 'label') { pc += 1; continue; }
+      if (t === 'cache') { pc += 1; continue; }
+      if (t === 'label') { pc += 1; continue; }
       if (t === 'goto') { jumpLabel(c.targetLabel); continue; }
       if (t === 'if') {
         const ok = compare(getVar(c.variableName), c.operator, c.value);
@@ -2415,6 +2483,15 @@ export function activatePlugin({ root, api, registerCapability }) {
     }
     if (command.type === 'message') return `${command.speaker ? `${command.speaker}: ` : ''}${command.text || '本文なし'}`;
     if (command.type === 'audio') return `${command.kind}:${command.action}${command.assetId ? ` ${command.assetId}` : ''}${command.kind === 'psg' && command.action === 'play' ? ` ch${command.channel || 0}` : ''}`;
+    if (command.type === 'cache') {
+      if (command.action === 'load') {
+        const label = assetById(command.assetId)?.name || command.assetId || cacheScopeLabel(command.scope);
+        return command.scope === 'adpcm'
+          ? `Load ${label} ADPCM cache`
+          : `Load ${label} visual cache (disabled)`;
+      }
+      return `Clear ${cacheScopeLabel(command.scope)} cache`;
+    }
     if (command.type === 'effect') {
       const color = command.effect === 'fadeOut' || command.effect === 'flash' ? ` ${command.color || ''}` : '';
       return command.effect === 'shake' ? `shake ${command.frames}f / ${command.intensity}` : `${command.effect} ${command.frames}f${color}`;
@@ -2426,7 +2503,6 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (command.type === 'variable') return command.operation === 'random'
       ? `${command.variableName} = random(${command.min}..${command.max})`
       : `${command.variableName} ${command.operation} ${command.value}`;
-    if (command.type === 'preload') return command.sceneId ? `scene ${command.sceneId}` : 'scene未指定';
     if (command.type === 'choice') return `${command.variableName ? `${command.variableName} <= ` : ''}${(command.choices || []).map((choice) => choice.label).join(' / ') || '選択肢なし'}`;
     if (command.type === 'if') return `${command.variableName} ${command.operator} ${command.value} -> ${command.targetLabel || '未指定'}`;
     if (command.type === 'switch') return `${command.variableName} / ${(command.cases || []).length} branches`;
@@ -2491,6 +2567,17 @@ export function activatePlugin({ root, api, registerCapability }) {
         targetLabel: detailForm.elements.targetLabel?.value || '',
       }, assets);
     }
+    if (type === 'cache') {
+      return normalizeCommand({
+        type,
+        action: detailForm.elements.action?.value || 'clear',
+        scope: detailForm.elements.scope?.value || 'visual',
+        assetId: detailForm.elements.assetId?.value || '',
+        slot: detailForm.elements.slot?.value ?? 0,
+        x: detailForm.elements.x?.value ?? 0,
+        y: detailForm.elements.y?.value ?? 0,
+      }, assets);
+    }
     if (type === 'effect') {
       const effect = detailForm.elements.effect.value;
       const wasColorEffect = existing.effect === 'fadeOut' || existing.effect === 'flash';
@@ -2541,7 +2628,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (type === 'goto') {
       return normalizeCommand({ type, targetLabel: detailForm.elements.targetLabel.value }, assets);
     }
-    if (type === 'preload' || type === 'jump') {
+    if (type === 'jump') {
       return normalizeCommand({ type, sceneId: detailForm.elements.sceneId.value }, assets);
     }
     if (type === 'wait') {
@@ -2916,7 +3003,7 @@ export function activatePlugin({ root, api, registerCapability }) {
         ${targetField}
       `;
     }
-    if (command.type === 'preload' || command.type === 'jump') {
+    if (command.type === 'jump') {
       return `
         <label class="form-group"><span class="form-label">Scene</span><select class="form-select" name="sceneId">${sceneOptions(command.sceneId, 'なし')}</select></label>
       `;
@@ -2924,6 +3011,32 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (command.type === 'wait') {
       return `
         <label class="form-group"><span class="form-label">Frames</span><input class="form-input" name="frames" type="number" min="0" max="65535" value="${esc(command.frames)}" /></label>
+      `;
+    }
+    if (command.type === 'cache') {
+      const action = normalizeCacheAction(command.action);
+      const scope = normalizeCacheScope(command.scope);
+      const assetTypes = scope === 'sprite'
+        ? ['sprite']
+        : (scope === 'adpcm' ? ['adpcm'] : ['image']);
+      const loadFields = action === 'load'
+        ? `
+          <label class="form-group"><span class="form-label">Asset</span><select class="form-select" name="assetId">${optionsFor(byType(assetTypes), command.assetId, 'なし')}</select></label>
+          ${scope === 'sprite' ? `<label class="form-group"><span class="form-label">Slot</span><input class="form-input" name="slot" type="number" min="0" max="3" value="${esc(command.slot || 0)}" /></label>` : ''}
+          ${scope === 'bg' || scope === 'visual' ? `
+            <div class="pce-vn-grid tight">
+              <label class="form-group"><span class="form-label">Tile X</span><input class="form-input" name="x" type="number" min="0" max="63" value="${esc(command.x || 0)}" /></label>
+              <label class="form-group"><span class="form-label">Tile Y</span><input class="form-input" name="y" type="number" min="0" max="31" value="${esc(command.y || 0)}" /></label>
+            </div>
+          ` : ''}
+        `
+        : '';
+      return `
+        <div class="pce-vn-grid">
+          <label class="form-group"><span class="form-label">Action</span><select class="form-select" name="action">${cacheActionOptions(command.action)}</select></label>
+          <label class="form-group"><span class="form-label">Scope</span><select class="form-select" name="scope">${cacheScopeOptions(command.scope)}</select></label>
+        </div>
+        ${loadFields}
       `;
     }
     if (command.type === 'choice') {
@@ -3056,7 +3169,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     else if (command.type === 'switch') text.textContent = `${command.variableName}\n${(command.cases || []).map((branch) => `${branch.value} -> ${branch.targetLabel || 'continue'}`).join('\n')}${command.defaultLabel ? `\ndefault -> ${command.defaultLabel}` : ''}`;
     else if (command.type === 'label') text.textContent = command.name || 'label未指定';
     else if (command.type === 'goto') text.textContent = command.targetLabel ? `goto ${command.targetLabel}` : 'label未指定';
-    else if (command.type === 'jump' || command.type === 'preload') text.textContent = command.sceneId ? `Scene: ${command.sceneId}` : 'Scene未指定';
+    else if (command.type === 'jump') text.textContent = command.sceneId ? `Scene: ${command.sceneId}` : 'Scene未指定';
     else if (command.type === 'wait') text.textContent = `${command.frames} frames`;
     else if (command.type === 'effect') {
       const color = command.effect === 'fadeOut' || command.effect === 'flash' ? ` / ${command.color || '#000000'}` : '';
@@ -3710,7 +3823,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     syncDetailColorInputs(event.target);
     const isInputToggle = Boolean(event.target?.dataset?.inputButton);
     const rerenderDetail = isInputToggle
-      || ['type', 'kind', 'assetId', 'mode', 'effect', 'voiceAssetId', 'mouthSlot', 'textColorEnabled', 'textColor', 'textColorHex', 'color', 'colorHex'].includes(name);
+      || ['type', 'kind', 'action', 'scope', 'assetId', 'mode', 'effect', 'voiceAssetId', 'mouthSlot', 'textColorEnabled', 'textColor', 'textColorHex', 'color', 'colorHex'].includes(name);
     updateSelectedCommandFromDetail({ rerenderDetail, rerenderCommands: true, updatePreview: true });
   });
 

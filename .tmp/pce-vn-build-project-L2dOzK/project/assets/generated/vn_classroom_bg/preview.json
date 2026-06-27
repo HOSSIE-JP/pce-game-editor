@@ -1,0 +1,29 @@
+{
+  "source": "assets/images/vn_classroom_bg.png",
+  "kind": "background",
+  "width": 224,
+  "height": 136,
+  "tileCount": 476,
+  "paletteCount": 1,
+  "vramBytes": 16320,
+  "compression": {
+    "policy": "auto",
+    "tiles": {
+      "codec": "rle",
+      "file": "assets/generated/vn_classroom_bg/tiles.rle",
+      "rawBytes": 15232,
+      "byteLength": 13269,
+      "savedBytes": 1963
+    },
+    "map": {
+      "codec": "rle",
+      "file": "assets/generated/vn_classroom_bg/map_vram.rle",
+      "rawBytes": 1088,
+      "byteLength": 996,
+      "savedBytes": 92
+    }
+  },
+  "warnings": [
+    "Image uses 59 PCE colors; remapped to 15 opaque color slots"
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "cache",
+          "action": "clear",
+          "scope": "visual"
+        },
+        {
+          "type": "cache",
+          "action": "clear",
+          "scope": "bg"
+        },
+        {
+          "type": "cache",
+          "action": "clear",
+          "scope": "sprite"
+        },
+        {
+          "type": "cache",
+          "action": "clear",
+          "scope": "adpcm"
+        },
+        {
+          "type": "cache",
+          "action": "clear",
+          "scope": "all"
+        },
+        {
+          "type": "cache",
+          "action": "load",
+          "scope": "bg",
+          "assetId": "bg_a",
+          "slot": 0,
+          "x": 2,
+          "y": 3
+        },
+        {
+          "type": "cache",
+          "action": "load",
+          "scope": "sprite",
+          "assetId": "hero",
+          "slot": 2,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "type": "cache",
+          "action": "load",
+          "scope": "adpcm",
+          "assetId": "voice",
+          "slot": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "type": "wait",
+          "frames": 1
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}

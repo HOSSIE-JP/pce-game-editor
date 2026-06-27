@@ -1,0 +1,29 @@
+{
+  "source": "assets/images/rooftop_dusk_bg.png",
+  "kind": "background",
+  "width": 224,
+  "height": 136,
+  "tileCount": 476,
+  "paletteCount": 1,
+  "vramBytes": 16320,
+  "compression": {
+    "policy": "none",
+    "tiles": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 15232,
+      "byteLength": 0,
+      "savedBytes": 0
+    },
+    "map": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 1088,
+      "byteLength": 0,
+      "savedBytes": 0
+    }
+  },
+  "warnings": [
+    "Image uses 19 PCE colors; remapped to 15 opaque color slots"
+  ]
+}

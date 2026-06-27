@@ -211,7 +211,8 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.match(header, /PCE_VN_FONT_TILE_BASE 540u/);
   assert.match(header, /void pce_vn_font_tiles_map\(void\);/);
   assert.match(header, /PCE_VN_COMMAND_BACKGROUND 0u/);
-  assert.match(header, /PCE_VN_COMMAND_PRELOAD 4u/);
+  assert.doesNotMatch(header, /PCE_VN_COMMAND_PRELOAD/);
+  assert.match(header, /PCE_VN_COMMAND_CHOICE 4u/);
   assert.match(header, /PCE_VN_SCENE_PACK_CACHE_BYTES 4096u/);
   assert.match(header, /typedef struct \{\n  pce_vn_cd_sector_t sector;/);
   assert.match(header, /pce_vn_command_t/);
@@ -228,10 +229,13 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.match(header, /#define PCE_VN_OVERLAY_LOAD_ADDR 32768u/);
   assert.match(header, /extern const pce_vn_cd_data_ref_t pce_vn_overlay_data;/);
   assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_overlay_data = \{ \{ 65u, 0u, 0u \}, 2u, 4096u \};/);
-  // The reserved overlay blob exists on disk at exactly the reserved size, and the
-  // linker fragment that places .vn_overlay at 0x8000 was written.
+  assert.doesNotMatch(header, /PCE_VN_VISUAL_CODE_LOAD_ADDR/);
+  assert.doesNotMatch(source, /pce_vn_visual_code_data/);
+  // The reserved overlay blob exists on disk at exactly its reserved size, and
+  // the linker fragment that places .vn_overlay was written.
   assert.equal(fs.statSync(path.join(projectDir, 'assets', 'generated', 'vn', 'overlay.bin')).size, 4096);
   const overlayFragment = fs.readFileSync(path.join(projectDir, 'src', 'generated', 'overlay_insert.ld'), 'utf-8');
+  assert.doesNotMatch(overlayFragment, /\.vn_visual_code/);
   // Overlay LMA parks in bank132's tail after leaving a small resident-data
   // cushion. PSG song patterns stream from CD into bank134 rather than living in
   // bank132, so the LMA remains a benign copy that runtime never reads.
@@ -240,14 +244,16 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   // are parked NOLOAD over the overlay's never-read RAM window (CPU 0xd078) so the
   // whole [0xc000, 0xd078) region stays free for growing resident metadata.
   assert.match(overlayFragment, /\.ram_bank132_tail 0xd078 \(NOLOAD\) : \{[\s\S]*KEEP\(\*\(\.ram_bank132_tail \.ram_bank132_tail\.\*\)\)/);
+  assert.doesNotMatch(overlayFragment, /\.vn_visual_cache112/);
+  assert.doesNotMatch(overlayFragment, /\.vn_visual_cache119/);
   assert.match(overlayFragment, /INSERT AFTER \.ram_bank132;/);
-  // The runtime declares bank133, the CD->bank133 loader, and overlay-tagged code.
-  // RLE was removed, so the cd_rle_* overlay decoders are gone; the overlay now holds
-  // the message glyph compositor plus sprite SATB pattern refresh paths that do
-  // not need bank130 while running.
+  // The runtime declares bank133 for the message/sprite overlay, but leaves the
+  // experimental bank112-120 visual payload cache disabled for standard Super CD.
   const runtimeSrc = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'), 'utf-8');
   assert.match(runtimeSrc, /PCE_RAM_BANK_AT\(133, 4\);/);
+  assert.match(runtimeSrc, /#define VN_ENABLE_VISUAL_PAYLOAD_CACHE 0/);
   assert.match(runtimeSrc, /static void load_overlay_code\(void\)/);
+  assert.match(runtimeSrc, /#if VN_ENABLE_VISUAL_PAYLOAD_CACHE[\s\S]*static void load_visual_cache_code\(void\)/);
   assert.match(runtimeSrc, /#define VN_OVERLAY_CODE __attribute__\(\(noinline, section\(".vn_overlay"\)\)\)/);
   assert.doesNotMatch(runtimeSrc, /cd_rle_ref_to_vram/);
   assert.match(runtimeSrc, /VN_OVERLAY_CODE refresh_scene_sprite_patterns_impl\(/);
@@ -931,10 +937,8 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   });
 
   const normalized = vnManager.readSceneDocument(projectDir);
-  assert.equal(normalized.scenes[0].commands[2].type, 'preload');
-  assert.equal(normalized.scenes[0].commands[2].sceneId, 'next');
-  assert.equal(normalized.scenes[0].commands[3].type, 'choice');
-  assert.equal(normalized.scenes[0].commands[3].choices[0].targetSceneId, 'next');
+  assert.equal(normalized.scenes[0].commands[2].type, 'choice');
+  assert.equal(normalized.scenes[0].commands[2].choices[0].targetSceneId, 'next');
   assert.equal(normalized.scenes[0].commands[1].flipX, true);
   assert.equal(normalized.scenes[0].commands[1].flipY, true);
   assert.equal(normalized.scenes[0].commands[1].durationFrames, undefined);
@@ -998,18 +1002,18 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   const openingPack = readPack(projectDir, generated.scenePackPaths[0]);
   const nextPack = readPack(projectDir, generated.scenePackPaths[1]);
   assert.equal(generated.choiceCount, 1);
-  assert.match(header, /PCE_VN_COMMAND_CHOICE 5u/);
+  assert.match(header, /PCE_VN_COMMAND_CHOICE 4u/);
   assert.match(header, /PCE_VN_SPRITE_FLIP_X 2u/);
   assert.match(header, /PCE_VN_SPRITE_FLIP_Y 4u/);
   assert.match(header, /PCE_VN_EFFECT_FADE_OUT 0u/);
   assert.match(header, /PCE_VN_EFFECT_SHAKE 3u/);
   assert.match(header, /PCE_VN_EFFECT_FLASH 4u/);
-  // Font data holds sector 64; the overlay blob reserves sectors 65-66; scene packs
-  // follow after those and their (now uncompressed) assets. opening@67, then bg_a
+  // Font data holds sector 64; the overlay blob reserves sectors 65-66.
+  // Scene packs follow after those and their raw assets. opening@67, then bg_a
   // tiles (18432B=9 sectors) + map (1) + hero patterns (2) push next@80.
   assert.match(source, /\{ \{ 67u, 0u, 0u \}, 1u, \d+u, -1 \}/);
   assert.match(source, /\{ \{ 80u, 0u, 0u \}, 1u, \d+u, -1 \}/);
-  assert.equal(openingPack[5], 4);
+  assert.equal(openingPack[5], 3);
   assert.equal(openingPack[7], 1);
   assert.deepEqual(commandRecord(openingPack, 0), {
     type: 0,
@@ -1027,8 +1031,7 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   });
   assert.equal(commandRecord(openingPack, 1).flags, 7);
   assert.equal(commandRecord(openingPack, 1).arg0, 0);
-  assert.equal(commandRecord(openingPack, 2).sceneIndex, 1);
-  assert.equal(commandRecord(openingPack, 3).choiceIndex, 0);
+  assert.equal(commandRecord(openingPack, 2).choiceIndex, 0);
   const choice = choiceRecord(openingPack, 0);
   assert.equal(choice.optionCount, 2);
   assert.equal(choice.defaultIndex, 1);
@@ -1050,6 +1053,152 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   assert.equal(commandRecord(nextPack, 6).type, vnManager.VN_COMMAND_WAIT);
   assert.equal(commandRecord(nextPack, 6).arg0, 45);
   assert.equal(commandRecord(nextPack, 7).sceneIndex, 0);
+});
+
+test('PCE VN manager emits cache commands without restoring preload', () => {
+  const projectDir = makeTempDir('pce-vn-cache-clear-');
+  const vnManager = loadVnManager();
+  const makeFile = (relativePath, size) => {
+    const filePath = path.join(projectDir, relativePath);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, Buffer.alloc(size, 0));
+  };
+  makeFile('assets/generated/bg_a/tiles.bin', 18432);
+  makeFile('assets/generated/bg_a/map_vram.bin', 2048);
+  makeFile('assets/generated/hero/patterns.bin', 4096);
+  makeFile('assets/generated/voice/adpcm.bin', 2400);
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [
+      {
+        id: 'bg_a',
+        type: 'image',
+        data: { generated: {
+          tilesFile: 'assets/generated/bg_a/tiles.bin',
+          mapVramFile: 'assets/generated/bg_a/map_vram.bin',
+        } },
+      },
+      {
+        id: 'hero',
+        type: 'sprite',
+        data: { generated: {
+          tilesFile: 'assets/generated/hero/patterns.bin',
+        } },
+      },
+      { id: 'voice', type: 'adpcm', data: { generated: { outputFile: 'assets/generated/voice/adpcm.bin' } } },
+    ],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'cache', action: 'unknown', scope: 'unknown' },
+        { type: 'cache', action: 'clear', scope: 'bg' },
+        { type: 'cache', scope: 'sprite' },
+        { type: 'cache', scope: 'adpcm' },
+        { type: 'cache', scope: 'all' },
+        { type: 'cache', action: 'load', scope: 'bg', assetId: 'bg_a', x: 2, y: 3 },
+        { type: 'cache', action: 'load', scope: 'sprite', assetId: 'hero', slot: 2 },
+        { type: 'cache', action: 'load', scope: 'adpcm', assetId: 'voice' },
+        { type: 'preload', sceneId: 'next' },
+        { type: 'wait', frames: 1 },
+      ],
+    }],
+  });
+
+  const normalized = vnManager.readSceneDocument(projectDir);
+  assert.equal(normalized.scenes[0].commands.length, 9);
+  assert.deepEqual(normalized.scenes[0].commands[0], { type: 'cache', action: 'clear', scope: 'visual' });
+  assert.deepEqual(normalized.scenes[0].commands[1], { type: 'cache', action: 'clear', scope: 'bg' });
+  assert.deepEqual(normalized.scenes[0].commands[2], { type: 'cache', action: 'clear', scope: 'sprite' });
+  assert.deepEqual(normalized.scenes[0].commands[3], { type: 'cache', action: 'clear', scope: 'adpcm' });
+  assert.deepEqual(normalized.scenes[0].commands[4], { type: 'cache', action: 'clear', scope: 'all' });
+  assert.deepEqual(normalized.scenes[0].commands[5], { type: 'cache', action: 'load', scope: 'bg', assetId: 'bg_a', slot: 0, x: 2, y: 3 });
+  assert.deepEqual(normalized.scenes[0].commands[6], { type: 'cache', action: 'load', scope: 'sprite', assetId: 'hero', slot: 2, x: 0, y: 0 });
+  assert.deepEqual(normalized.scenes[0].commands[7], { type: 'cache', action: 'load', scope: 'adpcm', assetId: 'voice', slot: 0, x: 0, y: 0 });
+  assert.equal(normalized.scenes[0].commands[8].type, 'wait');
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+  assert.match(header, /PCE_VN_COMMAND_CACHE 15u/);
+  assert.match(header, /PCE_VN_CACHE_ACTION_CLEAR 0u/);
+  assert.match(header, /PCE_VN_CACHE_ACTION_LOAD 1u/);
+  assert.match(header, /PCE_VN_CACHE_SCOPE_VISUAL 0u/);
+  assert.match(header, /PCE_VN_CACHE_SCOPE_BG 1u/);
+  assert.match(header, /PCE_VN_CACHE_SCOPE_SPRITE 2u/);
+  assert.match(header, /PCE_VN_CACHE_SCOPE_ADPCM 3u/);
+  assert.match(header, /PCE_VN_CACHE_SCOPE_ALL 4u/);
+  assert.doesNotMatch(header, /PCE_VN_COMMAND_PRELOAD/);
+  assert.equal(generated.commandCount, 9);
+  assert.equal(pack[5], 9);
+  [
+    vnManager.VN_CACHE_SCOPE_VISUAL,
+    vnManager.VN_CACHE_SCOPE_BG,
+    vnManager.VN_CACHE_SCOPE_SPRITE,
+    vnManager.VN_CACHE_SCOPE_ADPCM,
+    vnManager.VN_CACHE_SCOPE_ALL,
+  ].forEach((scope, index) => {
+    assert.deepEqual(commandRecord(pack, index), {
+      type: vnManager.VN_COMMAND_CACHE,
+      assetIndex: -1,
+      slot: 0,
+      flags: vnManager.VN_CACHE_ACTION_CLEAR,
+      arg0: scope,
+      arg1: 0,
+      x: 0,
+      y: 0,
+      messageIndex: -1,
+      animationIndex: -1,
+      sceneIndex: -1,
+      choiceIndex: -1,
+    });
+  });
+  assert.deepEqual(commandRecord(pack, 5), {
+    type: vnManager.VN_COMMAND_CACHE,
+    assetIndex: 0,
+    slot: 0,
+    flags: vnManager.VN_CACHE_ACTION_LOAD,
+    arg0: vnManager.VN_CACHE_SCOPE_BG,
+    arg1: 0,
+    x: 2,
+    y: 3,
+    messageIndex: -1,
+    animationIndex: -1,
+    sceneIndex: -1,
+    choiceIndex: -1,
+  });
+  assert.deepEqual(commandRecord(pack, 6), {
+    type: vnManager.VN_COMMAND_CACHE,
+    assetIndex: 0,
+    slot: 2,
+    flags: vnManager.VN_CACHE_ACTION_LOAD,
+    arg0: vnManager.VN_CACHE_SCOPE_SPRITE,
+    arg1: 0,
+    x: 0,
+    y: 0,
+    messageIndex: -1,
+    animationIndex: -1,
+    sceneIndex: -1,
+    choiceIndex: -1,
+  });
+  assert.deepEqual(commandRecord(pack, 7), {
+    type: vnManager.VN_COMMAND_CACHE,
+    assetIndex: 0,
+    slot: 0,
+    flags: vnManager.VN_CACHE_ACTION_LOAD,
+    arg0: vnManager.VN_CACHE_SCOPE_ADPCM,
+    arg1: 0,
+    x: 0,
+    y: 0,
+    messageIndex: -1,
+    animationIndex: -1,
+    sceneIndex: -1,
+    choiceIndex: -1,
+  });
+  assert.equal(commandRecord(pack, 8).type, vnManager.VN_COMMAND_WAIT);
 });
 
 test('PCE VN manager emits variable, branch, switch, label, and goto commands', () => {
@@ -1098,11 +1247,11 @@ test('PCE VN manager emits variable, branch, switch, label, and goto commands', 
   assert.equal(generated.choiceCount, 1);
   assert.equal(generated.switchCount, 1);
   assert.equal(generated.commandCount, 13);
-  assert.match(header, /PCE_VN_COMMAND_VARIABLE 9u/);
-  assert.match(header, /PCE_VN_COMMAND_IF 10u/);
-  assert.match(header, /PCE_VN_COMMAND_SWITCH 11u/);
-  assert.match(header, /PCE_VN_COMMAND_LABEL 12u/);
-  assert.match(header, /PCE_VN_COMMAND_GOTO 13u/);
+  assert.match(header, /PCE_VN_COMMAND_VARIABLE 8u/);
+  assert.match(header, /PCE_VN_COMMAND_IF 9u/);
+  assert.match(header, /PCE_VN_COMMAND_SWITCH 10u/);
+  assert.match(header, /PCE_VN_COMMAND_LABEL 11u/);
+  assert.match(header, /PCE_VN_COMMAND_GOTO 12u/);
   assert.match(header, /PCE_VN_VARIABLE_STORAGE_COUNT 3u/);
   assert.match(header, /signed int voice_index;/);
   assert.match(header, /signed int mouth_animation_index;/);
@@ -1200,14 +1349,16 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   assert.match(runtime, /psg_pattern_ram_bank135_reserved\[VN_PSG_PATTERN_BANK_BYTES\][\s\S]*section\("\.ram_bank135"\)/);
   assert.match(runtime, /pce_ram_bank135_map\(\);[\s\S]*\(const pce_editor_psg_step_t \*\)psg_pattern_ram/);
   assert.match(runtime, /#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 20u/);
-  assert.match(runtime, /#define VN_PSG_VRAM_COPY_COMPENSATION_FRAMES 2u/);
+  assert.match(runtime, /#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 256u/);
   assert.match(runtime, /static void VN_RESIDENT_CODE service_psg_during_blocking_work\(void\);/);
   assert.match(runtime, /static void VN_RESIDENT_CODE service_psg_during_blocking_frames\(uint8_t frames\);/);
   assert.match(runtime, /cd_transfer_wait\(void\)[\s\S]*service_psg_during_blocking_frames\(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES\);/);
   // Resident SFX spread their PSG compensation ticks across the CD settle wait so
   // a sprite/BG load during playback no longer fast-forwards them into silence.
   assert.match(runtime, /if \(psg_active && !psg_pattern_banked\)[\s\S]*for \(wait = 0u; wait < \(65535u \/ VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES\); wait\+\+\) \{\}[\s\S]*service_psg_during_blocking_work\(\);/);
-  assert.match(runtime, /pce_editor_vram_copy\(vram_dest, cd_transfer_scratch, chunk\);\r?\n        service_psg_during_blocking_frames\(VN_PSG_VRAM_COPY_COMPENSATION_FRAMES\);/);
+  assert.match(runtime, /cd_transfer_wait\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);\r?\n        vram_copy_sliced_from_vn_data\(vram_dest, cd_transfer_scratch, chunk\);/);
+  assert.match(runtime, /vram_copy_sliced_from_vn_data_impl\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*VN_VISUAL_VRAM_COPY_SLICE_BYTES[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*service_psg_during_visual_cache_work\(\);/);
+  assert.match(runtime, /cd_transfer_wait\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);\r?\n        while \(row < copy_height_tiles && \(uint16_t\)\(local_offset \+ VN_MAP_ROW_BYTES\) <= chunk\)/);
   assert.match(runtime, /pce_editor_vram_copy\(\(uint16_t\)\(dest \+ \(\(uint16_t\)row \* VN_MAP_WIDTH\)\), &cd_transfer_scratch\[local_offset\], row_bytes\);\r?\n            service_psg_during_blocking_work\(\);/);
   assert.match(runtime, /fade_palette[\s\S]*delay_frame\(\);\r?\n        service_psg_during_blocking_work\(\);/);
   assert.match(runtime, /tick_psg\(\);[\s\S]*map_vn_data\(\);[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);/);
@@ -1241,7 +1392,7 @@ test('PCE VN manager encodes the input check command with button mask and modes'
   const generated = vnManager.generateVnSources(projectDir);
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const pack = readPack(projectDir, generated.scenePackPaths[0]);
-  assert.match(header, /PCE_VN_COMMAND_INPUTCHECK 14u/);
+  assert.match(header, /PCE_VN_COMMAND_INPUTCHECK 13u/);
   assert.match(header, /PCE_VN_INPUT_MODE_SYNC 0u/);
   assert.match(header, /PCE_VN_INPUT_MODE_ASYNC 1u/);
   assert.match(header, /PCE_VN_INPUT_MODE_CANCEL 2u/);
@@ -1292,7 +1443,7 @@ test('PCE VN manager encodes spritetext overlays with a sprite-format font', () 
   const generated = vnManager.generateVnSources(projectDir);
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
-  assert.match(header, /PCE_VN_COMMAND_SPRITETEXT 15u/);
+  assert.match(header, /PCE_VN_COMMAND_SPRITETEXT 14u/);
   assert.match(header, /#define PCE_VN_FONT_SPRITE_PATTERN_BASE \d+u/);
   assert.match(header, /#define PCE_VN_FONT_SPRITE_PALETTE_BANK 15u/);
   assert.match(source, /pce_vn_font_sprite_glyph_count = 7u;/);
@@ -1769,7 +1920,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(setBackgroundSource, /const uint8_t restore_display_after_bg_load = \(uint8_t\)!pending_display_enable;/);
   assert.match(setBackgroundSource, /clear_bg_map_region\(vn_get_bg_asset\(\(uint16_t\)current_bg_index\), current_bg_x, current_bg_y\);/);
   assert.match(setBackgroundSource, /clear_bg_map_region\(next_bg, next_x, next_y\);/);
-  assert.match(setBackgroundSource, /upload_bg_graphics\(next_bg, bg_map_dest_from_tile\(next_bg, next_x, next_y\)\);[\s\S]*if \(current_scene_full_screen_bg\)[\s\S]*if \(restore_display_after_bg_load\) display_enable\(\);/);
+  assert.match(setBackgroundSource, /upload_bg_graphics\(next_bg, bg_map_dest_from_tile\(next_bg, next_x, next_y\), \(uint16_t\)bg_index\);[\s\S]*if \(current_scene_full_screen_bg\)[\s\S]*if \(restore_display_after_bg_load\) display_enable\(\);/);
   assert.match(setBackgroundSource, /else if \(pending_display_enable\)\n    \{\n        display_enable\(\);\n        pending_display_enable = 0u;\n        delay_frame\(\);\n    \}/);
   assert.doesNotMatch(setBackgroundSource, /display_disable\(\);/);
   assert.doesNotMatch(setBackgroundSource, /preload_scene_assets/);
@@ -1884,6 +2035,8 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /cdda_active = 0u;/);
   assert.match(source, /cdda_resume_pending = 1u;/);
   assert.match(source, /static void VN_BANKED_CODE resume_cdda_after_cd_data_access\(void\)/);
+  assert.match(source, /static void VN_BANKED_CODE finish_cd_data_read_before_vram_copy\(void\)/);
+  assert.match(source, /finish_cd_data_read_before_vram_copy\(void\)\r?\n\{\r?\n    sync_cd_external_irq_after_bios_call\(\);\r?\n    resume_cdda_after_cd_data_access\(\);\r?\n    map_vn_data\(\);\r?\n\}/);
   assert.match(source, /static uint8_t VN_BANKED_CODE2 load_psg_pattern_cd\(const pce_editor_psg_asset_t \*asset\)/);
   assert.doesNotMatch(source, /static uint8_t VN_BANKED_CODE load_psg_pattern_cd\(const pce_editor_psg_asset_t \*asset\)/);
   assert.match(source, /if \(cdda_resume_defer_depth\) return;/);
@@ -1894,7 +2047,8 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static void VN_BANKED_CODE cancel_cdda_after_cd_data_conflict\(void\)/);
   assert.doesNotMatch(source, /PCE_CDB_VRAM_BYTES/);
   assert.match(source, /pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);/);
-  assert.match(source, /prepare_cd_data_access\(\);[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);[\s\S]*pce_editor_vram_copy\(vram_dest, cd_transfer_scratch, chunk\);[\s\S]*resume_cdda_after_cd_data_access\(\);/);
+  assert.match(source, /prepare_cd_data_access\(\);[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);[\s\S]*vram_copy_sliced_from_vn_data\(vram_dest, cd_transfer_scratch, chunk\);[\s\S]*resume_cdda_after_cd_data_access\(\);/);
+  assert.match(source, /\(void\)pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);\r?\n        cd_transfer_wait\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);\r?\n        vram_copy_sliced_from_vn_data\(vram_dest, cd_transfer_scratch, chunk\);/);
   assert.match(source, /!ref->cd->sector_count \|\| !ref->size/);
   // RLE removed: no cd_rle decoder, no overlay dispatch, no compression branch.
   assert.doesNotMatch(source, /cd_rle_ref_to_vram/);
@@ -1904,16 +2058,17 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /cd_sector_advance\(&sector\);\n    \}\n    sync_cd_external_irq_after_bios_call\(\);\n    resume_cdda_after_cd_data_access\(\);\n    return 1u;/);
   assert.doesNotMatch(source, /pce_cdb_cd_busy\(\)/);
   assert.match(source, /cd_sector_advance\(&sector\);/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE2 cd_bg_map_ref_to_vram\(uint16_t dest, const pce_editor_data_ref_t \*ref, uint8_t width_tiles, uint8_t height_tiles\)/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 cd_bg_map_ref_to_vram\(uint16_t dest, const pce_editor_data_ref_t \*ref, uint8_t width_tiles, uint8_t height_tiles, uint16_t asset_index\)/);
   assert.match(source, /const uint8_t dest_col = \(uint8_t\)\(dest % VN_MAP_WIDTH\);/);
   assert.match(source, /row_bytes = \(uint16_t\)\(copy_width_tiles \* 2u\);/);
   assert.match(source, /pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);/);
   assert.match(source, /prepare_cd_data_access\(\);[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);/);
+  assert.match(source, /\(void\)pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);\r?\n        cd_transfer_wait\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);\r?\n        while \(row < copy_height_tiles && \(uint16_t\)\(local_offset \+ VN_MAP_ROW_BYTES\) <= chunk\)/);
   assert.match(source, /pce_editor_vram_copy\(\(uint16_t\)\(dest \+ \(\(uint16_t\)row \* VN_MAP_WIDTH\)\), &cd_transfer_scratch\[local_offset\], row_bytes\);/);
   assert.doesNotMatch(source, /cd_rle_bg_map_ref_to_vram/);
   assert.match(source, /static uint16_t bg_map_dest_from_tile\(const pce_editor_bg_asset_t \*bg, uint16_t tile_x, uint16_t tile_y\)/);
-  assert.match(source, /copy_data_ref_to_vram\(\(uint16_t\)\(bg->tile_base \* 16u\), &bg->tiles, 16u\);\n    map_resident_data\(\);/);
-  assert.match(source, /if \(cd_bg_map_ref_to_vram\(map_dest, &bg->map, bg->width_tiles, bg->height_tiles\)\)\n        \{\n            clear_bg_map_side_margins\(map_dest, bg->width_tiles, bg->height_tiles\);\n            return;\n        \}/);
+  assert.match(source, /copy_data_ref_to_vram\(\(uint16_t\)\(bg->tile_base \* 16u\), &bg->tiles, 16u, VN_VISUAL_CACHE_KIND_BG_TILES, bg_index\);\n    map_resident_data\(\);/);
+  assert.match(source, /if \(cd_bg_map_ref_to_vram\(map_dest, &bg->map, bg->width_tiles, bg->height_tiles, bg_index\)\)\n        \{\n            clear_bg_map_side_margins\(map_dest, bg->width_tiles, bg->height_tiles\);\n            return;\n        \}/);
   assert.match(source, /clear_bg_map_side_margins\(map_dest, bg->width_tiles, bg->height_tiles\);/);
   assert.doesNotMatch(source, /copy_data_ref_to_vram\(bg->map_base, &bg->map, 16u\);/);
   assert.match(source, /cd_sector_from_ref\(&sector, &ref->cd->sector\);/);
@@ -2008,9 +2163,9 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /static uint8_t sprite_patterns_per_cell\(void\)/);
   assert.match(source, /static uint16_t sprite_pattern_units_for_ref\(const pce_editor_data_ref_t \*patterns\)/);
   assert.match(source, /return \(uint16_t\)\(\(patterns->size \+ 63u\) \/ 64u\);/);
-  assert.match(source, /static uint8_t ensure_sprite_patterns_loaded\(uint8_t slot_index, uint16_t sprite_index, const pce_editor_data_ref_t \*patterns, uint16_t pattern_base, uint16_t pattern_units\)/);
+  assert.match(source, /static inline uint8_t VN_BANKED_CODE_INLINE ensure_sprite_patterns_loaded\(uint8_t slot_index, uint16_t sprite_index, const pce_editor_data_ref_t \*patterns, uint16_t pattern_base, uint16_t pattern_units\)/);
   assert.match(source, /loaded_sprite_pattern_valid\[slot_index\][\s\S]*loaded_sprite_pattern_index\[slot_index\] == sprite_index[\s\S]*loaded_sprite_pattern_base\[slot_index\] == pattern_base[\s\S]*loaded_sprite_pattern_units\[slot_index\] == pattern_units/);
-  assert.match(source, /copy_data_ref_to_vram\(\(uint16_t\)\(pattern_base \* 32u\), patterns, 16u\);/);
+  assert.match(source, /copy_data_ref_to_vram\(\(uint16_t\)\(pattern_base \* 32u\), patterns, 16u, VN_VISUAL_CACHE_KIND_SPRITE_PATTERNS, sprite_index\);/);
   assert.match(source, /static uint16_t g_bg_cache_key\[2\];/);
   assert.match(source, /static uint16_t g_spr_cache_key\[VN_SPRITE_SLOT_COUNT\];/);
   assert.match(source, /static uint16_t g_adpcm_cache_key;/);
@@ -2070,14 +2225,8 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /scene_pack_read_command\(&active_scene_pack, current_command, command\)/);
   assert.match(source, /static signed int current_scene_next_scene\(void\)/);
   assert.match(source, /pack = pce_vn_scene_packs\[current_scene\];/);
-  assert.match(source, /PCE_VN_COMMAND_PRELOAD/);
-  {
-    const explicitPreloadMatch = executeCommandSource.match(/else if \(command->type == PCE_VN_COMMAND_PRELOAD\)[\s\S]*?\n    \}/);
-    assert.ok(explicitPreloadMatch);
-    assert.match(explicitPreloadMatch[0], /Retained for old scene data/);
-    assert.match(explicitPreloadMatch[0], /return VN_EXEC_CONTINUE;/);
-    assert.doesNotMatch(explicitPreloadMatch[0], /preload_scene_assets/);
-  }
+  assert.doesNotMatch(source, /PCE_VN_COMMAND_PRELOAD/);
+  assert.doesNotMatch(executeCommandSource, /PCE_VN_COMMAND_PRELOAD/);
   assert.match(source, /PCE_VN_COMMAND_CHOICE/);
   assert.match(source, /PCE_VN_COMMAND_VARIABLE/);
   assert.match(source, /PCE_VN_COMMAND_IF/);
@@ -2168,6 +2317,55 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /PCE_CDB_CDDA_PLAY_NOT_BUSY/);
 });
 
+test('PCE VN runtime cache clear only invalidates non-destructive cache flags', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
+    'utf-8',
+  ).replace(/\r\n/g, '\n');
+  const helperStart = source.indexOf('static void VN_BANKED_CODE load_bg_cache_asset(signed int bg_index, uint8_t tile_x, uint8_t tile_y)\n{\n    (void)bg_index;');
+  const clearHelperStart = source.indexOf('static void VN_BANKED_CODE clear_runtime_cache(uint8_t scope)');
+  const executeStart = source.indexOf('static uint8_t VN_BANKED_CODE execute_command', helperStart);
+  const executeEnd = source.indexOf('static uint8_t VN_BANKED_CODE run_commands_until_wait', executeStart);
+  assert.notEqual(helperStart, -1);
+  assert.notEqual(clearHelperStart, -1);
+  assert.notEqual(executeStart, -1);
+  assert.notEqual(executeEnd, -1);
+  const helperSource = source.slice(helperStart, executeStart);
+  const clearHelperSource = source.slice(clearHelperStart, executeStart);
+  const executeCommandSource = source.slice(executeStart, executeEnd);
+
+  assert.match(source, /#define VN_ENABLE_VISUAL_PAYLOAD_CACHE 0/);
+  assert.match(source, /#if VN_ENABLE_VISUAL_PAYLOAD_CACHE[\s\S]*PCE_RAM_BANK_AT\(120, 4\);[\s\S]*PCE_RAM_BANK_AT\(112, 6\);[\s\S]*PCE_RAM_BANK_AT\(119, 6\);/);
+  assert.match(source, /#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 256u/);
+  assert.match(source, /static void VN_BANKED_CODE vram_copy_sliced_from_vn_data\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*VN_VISUAL_VRAM_COPY_SLICE_BYTES[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*service_psg_during_blocking_work\(\);[\s\S]*map_vn_data\(\);[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE visual_cache_ref_to_vram\(uint16_t dest, uint8_t kind, uint16_t asset_index, const pce_editor_data_ref_t \*ref\)[\s\S]*return 0u;/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE visual_cache_bg_map_to_vram\(uint16_t dest, uint16_t asset_index, const pce_editor_data_ref_t \*ref, uint8_t width_tiles, uint8_t height_tiles\)[\s\S]*return 0u;/);
+  assert.match(helperSource, /load_bg_cache_asset[\s\S]*preloaded_bg_valid = 0u;[\s\S]*preloaded_scene_visual_valid = 0u;/);
+  assert.doesNotMatch(helperSource, /upload_bg_graphics|visual_cache_preload_ref_impl/);
+  assert.doesNotMatch(helperSource, /preloaded_bg_valid = 1u/);
+  assert.match(source, /static void VN_BANKED_CODE2 load_runtime_cache\(uint8_t scope, signed int asset_index, uint8_t slot, uint8_t x, uint8_t y\)/);
+  assert.match(source, /static inline uint8_t VN_BANKED_CODE_INLINE ensure_sprite_patterns_loaded/);
+  assert.match(helperSource, /load_sprite_pattern_cache_asset[\s\S]*preloaded_scene_visual_valid = 0u;/);
+  assert.doesNotMatch(helperSource, /ensure_sprite_patterns_loaded|visual_cache_preload_ref_impl/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE cd_data_ref_to_vram[\s\S]*vram_copy_sliced_from_vn_data\(vram_dest, cd_transfer_scratch, chunk\);/);
+  assert.match(source, /static void copy_data_ref_to_vram[\s\S]*visual_cache_ref_to_vram\(dest, cache_kind, cache_asset_index, ref\)[\s\S]*if \(cd_data_ref_to_vram\(dest, ref\)\) return;/);
+  assert.match(source, /upload_bg_graphics\(next_bg, bg_map_dest_from_tile\(next_bg, next_x, next_y\), \(uint16_t\)bg_index\);/);
+  assert.match(source, /copy_data_ref_to_vram\(\(uint16_t\)\(bg->tile_base \* 16u\), &bg->tiles, 16u, VN_VISUAL_CACHE_KIND_BG_TILES, bg_index\);/);
+  assert.match(source, /cd_bg_map_ref_to_vram\(map_dest, &bg->map, bg->width_tiles, bg->height_tiles, bg_index\)/);
+  assert.match(helperSource, /load_adpcm_cache_asset[\s\S]*if \(adpcm_playback_active\(\)\) return;[\s\S]*load_adpcm_voice\(voice_index, 1u, 0u\);/);
+  assert.match(helperSource, /load_runtime_cache[\s\S]*scope == PCE_VN_CACHE_SCOPE_BG[\s\S]*load_bg_cache_asset\(asset_index, x, y\);[\s\S]*scope == PCE_VN_CACHE_SCOPE_SPRITE[\s\S]*load_sprite_pattern_cache_asset\(asset_index, slot\);[\s\S]*scope == PCE_VN_CACHE_SCOPE_ADPCM[\s\S]*load_adpcm_cache_asset\(asset_index\);/);
+  assert.match(clearHelperSource, /if \(scope > PCE_VN_CACHE_SCOPE_ALL\) scope = PCE_VN_CACHE_SCOPE_VISUAL;/);
+  assert.match(clearHelperSource, /scope == PCE_VN_CACHE_SCOPE_VISUAL[\s\S]*scope == PCE_VN_CACHE_SCOPE_BG[\s\S]*preloaded_bg_valid = 0u;[\s\S]*preloaded_scene_visual_valid = 0u;/);
+  assert.match(clearHelperSource, /scope == PCE_VN_CACHE_SCOPE_SPRITE[\s\S]*for \(i = 0u; i < VN_SPRITE_SLOT_COUNT; i\+\+\)[\s\S]*loaded_sprite_pattern_valid\[i\] = 0u;[\s\S]*preloaded_scene_visual_valid = 0u;/);
+  assert.match(clearHelperSource, /visual_cache_invalidate\(scope\);/);
+  assert.match(clearHelperSource, /scope == PCE_VN_CACHE_SCOPE_ADPCM[\s\S]*loaded_adpcm_valid = 0u;/);
+  assert.match(clearHelperSource, /scope == PCE_VN_CACHE_SCOPE_ALL[\s\S]*message_glyph_cache_valid = 0u;/);
+  assert.doesNotMatch(clearHelperSource, /pce_cdb_adpcm_stop|pce_cdb_adpcm_reset|stop_adpcm_voice|display_disable|clear_screen_map|clear_sprites|sprite_slots\[|pce_editor_vram_copy|upload_sprite_table/);
+  assert.match(executeCommandSource, /command->type == PCE_VN_COMMAND_CACHE[\s\S]*command->flags == PCE_VN_CACHE_ACTION_CLEAR[\s\S]*clear_runtime_cache\(command->arg0\);/);
+  assert.match(executeCommandSource, /command->flags == PCE_VN_CACHE_ACTION_LOAD[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);[\s\S]*load_runtime_cache\(command->arg0, command->asset_index, command->slot, command->x, command->y\);/);
+  assert.doesNotMatch(executeCommandSource, /PCE_VN_COMMAND_PRELOAD/);
+});
+
 test('PCE build system regenerates visual novel sources from saved scenes', async () => {
   const projectDir = path.join(makeTempDir('pce-vn-build-project-'), 'project');
   fs.cpSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd'), projectDir, { recursive: true });
@@ -2200,10 +2398,11 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.deepEqual(result.generated.visualNovel.scenePackPaths, ['assets/generated/vn/scenes/000_opening.bin']);
   const source = fs.readFileSync(path.join(projectDir, 'src', 'generated', 'vn.c'), 'utf-8');
   assert.match(source, /const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs\[\]/);
-  // Font data occupies CD sector 64; the overlay blob reserves sectors 65-66; the
-  // scene pack follows at sector 67.
+  // Font data occupies CD sector 64; the overlay blob reserves sectors 65-66 and
+  // the scene pack follows at sector 67.
   assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_data = \{ \{ 64u, 0u, 0u \}, \d+u, \d+u \};/);
   assert.match(source, /\{ \{ 67u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  assert.doesNotMatch(source, /pce_vn_visual_code_data/);
   assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'font.bin')));
   assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'scenes', '000_opening.bin')));
   const syncedRuntime = fs.readFileSync(runtimePath, 'utf-8');
@@ -2291,4 +2490,57 @@ test('PCE build system derives CD data padding from the measured program size', 
   assert.equal(buildSystem.PCE_CD_DATA_BASE_SECTOR - firstData20, 43);
   // Unparseable output falls back to null so the build keeps the provisional pad.
   assert.equal(buildSystem.parseMkcdFirstDataSector('no useful output', 'TST.elf'), null);
+});
+
+test('PCE build system expands llvm-mos Windows clang wrappers to clang --config', {
+  skip: process.platform !== 'win32' ? 'Windows llvm-mos wrapper expansion only' : false,
+}, () => {
+  const buildSystem = loadPceBuildSystem();
+  const projectDir = makeTempDir('pce-wrapper-expand-project-');
+  const binDir = path.join(projectDir, 'toolchain', 'bin');
+  const iplPath = path.join(projectDir, 'ipl.bin');
+  fs.mkdirSync(path.join(projectDir, 'src'), { recursive: true });
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(path.join(projectDir, 'src', 'main.c'), 'int main(void) { return 0; }\n');
+  fs.writeFileSync(iplPath, Buffer.alloc(0));
+  fs.writeFileSync(path.join(binDir, 'clang.exe'), Buffer.alloc(0));
+  fs.writeFileSync(path.join(binDir, 'mos-pce-cd-clang.bat'), '@echo off\r\n');
+  fs.writeFileSync(path.join(binDir, 'mos-pce-cd.cfg'), '# cfg\n');
+  fs.writeFileSync(path.join(binDir, 'mos-pce-clang.bat'), '@echo off\r\n');
+  fs.writeFileSync(path.join(binDir, 'mos-pce.cfg'), '# cfg\n');
+
+  const cdInfo = buildSystem.buildCommandForProject(
+    projectDir,
+    {
+      title: 'Wrapper Test',
+      romName: 'wrapper-test',
+      targetMedia: 'cd',
+      toolchain: 'llvm-mos',
+      cd: { iplPath },
+    },
+    path.join(binDir, 'mos-pce-cd-clang.bat'),
+  );
+
+  assert.equal(path.basename(cdInfo.command).toLowerCase(), 'clang.exe');
+  assert.equal(cdInfo.args[0], '--config');
+  assert.equal(path.basename(cdInfo.args[1]).toLowerCase(), 'mos-pce-cd.cfg');
+  assert.ok(cdInfo.args.includes('-Oz'));
+  assert.ok(cdInfo.args.includes('-DPCE_EDITOR_TARGET_CD=1'));
+  assert.ok(cdInfo.args.some((arg) => /main\.c$/i.test(arg)));
+
+  const huCardInfo = buildSystem.buildCommandForProject(
+    projectDir,
+    {
+      title: 'Wrapper Test',
+      romName: 'wrapper-test',
+      targetMedia: 'hucard',
+      toolchain: 'llvm-mos',
+    },
+    path.join(binDir, 'mos-pce-clang.bat'),
+  );
+
+  assert.equal(path.basename(huCardInfo.command).toLowerCase(), 'clang.exe');
+  assert.equal(huCardInfo.args[0], '--config');
+  assert.equal(path.basename(huCardInfo.args[1]).toLowerCase(), 'mos-pce.cfg');
+  assert.ok(huCardInfo.args.includes('-Os'));
 });
