@@ -236,6 +236,10 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   // cushion. PSG song patterns stream from CD into bank134 rather than living in
   // bank132, so the LMA remains a benign copy that runtime never reads.
   assert.match(overlayFragment, /\.vn_overlay 0x8000 : AT\(0x184d078\)/);
+  // The write-before-read fixed buffers (cd_transfer_scratch, glyph mask cache)
+  // are parked NOLOAD over the overlay's never-read RAM window (CPU 0xd078) so the
+  // whole [0xc000, 0xd078) region stays free for growing resident metadata.
+  assert.match(overlayFragment, /\.ram_bank132_tail 0xd078 \(NOLOAD\) : \{[\s\S]*KEEP\(\*\(\.ram_bank132_tail \.ram_bank132_tail\.\*\)\)/);
   assert.match(overlayFragment, /INSERT AFTER \.ram_bank132;/);
   // The runtime declares bank133, the CD->bank133 loader, and overlay-tagged code.
   // RLE was removed, so the cd_rle_* overlay decoders are gone; the overlay now holds
@@ -1591,7 +1595,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /for \(gx = 0u; gx < VN_GLYPH_W; gx\+\+\)/);
   assert.match(source, /static uint16_t composer_prev_mask\[VN_GLYPH_MASK_WORDS\]/);
   assert.match(source, /#define VN_MESSAGE_GLYPH_CACHE_COUNT 68u/);
-  assert.match(source, /static uint16_t message_glyph_cache_masks\[VN_MESSAGE_GLYPH_CACHE_COUNT\]\[VN_GLYPH_MASK_WORDS\] __attribute__\(\(section\("\.ram_bank132"\)\)\);/);
+  assert.match(source, /static uint16_t message_glyph_cache_masks\[VN_MESSAGE_GLYPH_CACHE_COUNT\]\[VN_GLYPH_MASK_WORDS\] __attribute__\(\(section\("\.ram_bank132_tail"\)\)\);/);
   assert.match(source, /static pce_vn_message_t active_message_state __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(source, /static void VN_BANKED_CODE vn_wait_next_vblank\(void\)[\s\S]*ldy #\$80\\n"[\s\S]*lda \$0000\\n"[\s\S]*and #\$20\\n"[\s\S]*bne vn_wait_vblank_done%=/);
   assert.doesNotMatch(source, /volatile uint16_t guard;/);
@@ -1809,8 +1813,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /#define VN_CD_SECTOR_BYTES 2048u/);
   assert.match(source, /#define VN_MAP_ROW_BYTES \(VN_MAP_WIDTH \* 2u\)/);
   // cd_transfer_scratch lives in bank132 (MPR6), not console_ram, to relieve the
-  // scarce work RAM. The CD->VRAM helpers map MPR6 before touching it.
-  assert.match(source, /static uint8_t cd_transfer_scratch\[VN_CD_SECTOR_BYTES\] __attribute__\(\(section\("\.ram_bank132"\)\)\);/);
+  // scarce work RAM. The CD->VRAM helpers map MPR6 before touching it. It sits in
+  // ".ram_bank132_tail" (NOLOAD) so it reuses the overlay's never-read LMA window
+  // and leaves the [0xc000, VN_OVERLAY_LMA) region for growing resident metadata.
+  assert.match(source, /static uint8_t cd_transfer_scratch\[VN_CD_SECTOR_BYTES\] __attribute__\(\(section\("\.ram_bank132_tail"\)\)\);/);
   assert.match(source, /map_vn_data\(\);\n    while \(remaining\)\n    \{[\s\S]*?cd_transfer_scratch/);
   assert.match(source, /static uint8_t vn_active_scene_pack_data\[PCE_VN_SCENE_PACK_CACHE_BYTES\];/);
   assert.match(source, /static vn_sprite_slot_t sprite_slots_storage\[VN_SPRITE_SLOT_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);

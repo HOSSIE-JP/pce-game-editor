@@ -158,13 +158,18 @@ const VN_OVERLAY_RESERVED_BYTES = VN_OVERLAY_RESERVED_SECTORS * 2048; // 2048 = 
 // stream from CD into RAM bank134 only while playing (see psg_pattern_ram /
 // load_psg_pattern_cd in pce_vn_runtime.c) — so the resident budget stays small.
 // finalizeOverlayBlob asserts the section still fits below VN_BANK132_LMA_END.
-// Raised from 0xd040 to 0xd078: bank132 resident data (cd_data_refs + sprite
-// cellmaps) grows with the project's CD-streamed asset count, and large VN
-// projects were overflowing the old 0xc000..0xd040 (4160 B) budget by a few
-// bytes into the overlay LMA. The overlay is fixed template code (~3955 B) that
-// only uses the bottom of its tail, so moving the divider up reclaims its unused
-// top bytes for resident data (now 0xc000..0xd078 = 4216 B) while the overlay
-// still fits in [0xd078, 0xe000) with margin (finalizeOverlayBlob asserts it).
+// bank132 (8 KB, MPR slot 6) is shared between GROWING resident metadata
+// (cd_data_refs, sprite cell_maps, the scene-pack directory) growing up from
+// 0xc000, and the overlay's benign LMA copy parked in the tail. The two large
+// fixed runtime buffers (cd_transfer_scratch + message_glyph_cache_masks,
+// ~3.6 KB total) are write-before-read and now live NOLOAD in ".ram_bank132_tail"
+// placed over the overlay's never-read RAM window (see writeOverlayFragment), so
+// they cost the metadata region nothing. That leaves the whole
+// [0xc000, VN_OVERLAY_LMA) = 4216 B for metadata (was only ~536 B before the
+// buffers were relocated there), so large CD-streamed projects scale by ~70x in
+// resident-metadata headroom. The overlay (~3956 B fixed) must still fit in
+// [VN_OVERLAY_LMA, 0xe000); the buffers (~3680 B) overlap it in that window.
+// finalizeOverlayBlob asserts the overlay fits below VN_BANK132_LMA_END.
 const VN_OVERLAY_LMA = 0x0184d078;
 // End of bank132's LMA region (0x0184c000 + 8 KB). The overlay section must fit
 // in [VN_OVERLAY_LMA, VN_BANK132_LMA_END); resident data must fit below the LMA.
