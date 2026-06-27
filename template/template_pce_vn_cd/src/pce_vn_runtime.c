@@ -326,8 +326,15 @@ static vdc_sprite_t sprite_shadow[64];
 #if defined(__PCE_CD__)
 /* Moved out of the scarce console_ram work RAM into the VN data bank (MPR6).
    CD->VRAM transfer helpers and the active message glyph cache map MPR6 to
-   bank132 (map_vn_data) before reading or writing these buffers. */
-static uint8_t cd_transfer_scratch[VN_CD_SECTOR_BYTES] __attribute__((section(".ram_bank132")));
+   bank132 (map_vn_data) before reading or writing these buffers.
+   Section ".ram_bank132_tail" (not ".ram_bank132"): overlay_insert.ld places it
+   NOLOAD over the overlay's benign LMA window in bank132's tail. That window
+   holds a copy of the overlay that is loaded at boot but NEVER READ (the real
+   overlay runs from CD-streamed bank133), and these buffers are write-before-read,
+   so they safely reuse that otherwise-wasted ~4 KB. This frees the entire
+   [0xc000, VN_OVERLAY_LMA) region for the GROWING resident metadata (cd_data_refs,
+   cell_maps, scene-pack directory) so large CD-streamed projects scale. */
+static uint8_t cd_transfer_scratch[VN_CD_SECTOR_BYTES] __attribute__((section(".ram_bank132_tail")));
 static uint8_t vn_active_scene_pack_data[PCE_VN_SCENE_PACK_CACHE_BYTES];
 static uint8_t cdda_active = 0;
 static uint8_t cdda_has_frame_limit = 0;
@@ -1842,7 +1849,10 @@ static uint8_t composer_prev_valid __attribute__((section(".bss"))); /* 1 if com
 static uint8_t composer_row __attribute__((section(".bss")));        /* text row the previous glyph belongs to */
 #if defined(__PCE_CD__)
 static uint16_t message_glyph_cache_ids[VN_MESSAGE_GLYPH_CACHE_COUNT] __attribute__((section(".bss")));
-static uint16_t message_glyph_cache_masks[VN_MESSAGE_GLYPH_CACHE_COUNT][VN_GLYPH_MASK_WORDS] __attribute__((section(".ram_bank132")));
+/* ".ram_bank132_tail": NOLOAD overlay-window reuse (see cd_transfer_scratch). This
+   write-before-read cache shares bank132's never-read overlay LMA tail so the
+   resident metadata region stays free for growth. */
+static uint16_t message_glyph_cache_masks[VN_MESSAGE_GLYPH_CACHE_COUNT][VN_GLYPH_MASK_WORDS] __attribute__((section(".ram_bank132_tail")));
 static uint8_t message_glyph_cache_count __attribute__((section(".bss")));
 static uint8_t message_glyph_cache_valid __attribute__((section(".bss")));
 #endif

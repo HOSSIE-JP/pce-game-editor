@@ -3461,12 +3461,21 @@ function writeOverlayFragment(projectDir) {
   ensureDirSync(path.dirname(fragment));
   const lma = `0x${VN_OVERLAY_LMA.toString(16)}`;
   const vma = `0x${VN_OVERLAY_VRAM_LOAD_ADDR.toString(16)}`;
+  // CPU run-address of the overlay's benign LMA window = bank132 CPU base (0xc000,
+  // MPR slot 6) + the LMA's offset into the bank. The fixed write-before-read
+  // buffers (cd_transfer_scratch, message_glyph_cache_masks) are placed here
+  // NOLOAD so they reuse the overlay copy's never-read RAM, leaving all of
+  // [0xc000, VN_OVERLAY_LMA) for the GROWING resident metadata.
+  const tailVma = `0x${(0xc000 + (VN_OVERLAY_LMA - (VN_BANK132_LMA_END - 0x2000))).toString(16)}`;
   const body = [
     'SECTIONS {',
     `  ${VN_OVERLAY_SECTION} ${vma} : AT(${lma}) {`,
     '    __vn_overlay_start = .;',
     `    KEEP(*(${VN_OVERLAY_SECTION} ${VN_OVERLAY_SECTION}.*))`,
     '    __vn_overlay_end = .;',
+    '  }',
+    `  .ram_bank132_tail ${tailVma} (NOLOAD) : {`,
+    '    KEEP(*(.ram_bank132_tail .ram_bank132_tail.*))',
     '  }',
     '} INSERT AFTER .ram_bank132;',
     '',
