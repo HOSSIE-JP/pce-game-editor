@@ -484,6 +484,12 @@ CD-ROM2 VN runtime の `background` command は同期 command です。BG 切替
 
 VN runtime は PSG asset の step パターンをフレーム駆動シーケンサ (`tick_psg()`) で 1 step ずつ再生します。`psg-song` はパターン末尾で先頭へループ、`psg-sfx` はパターン終了で停止するワンショットです。指定した `channel` を基準チャンネルとし、各 step の channel をそこからのオフセットとして加算、0..5 にクランプして発音します（同じ SFX を別チャンネルへ振り分けられます）。1 step のフレーム数は asset の `bpm` から算出します（`3600 / (bpm * 4)`、2..24 frame にクランプ）。大きい PSG pattern は CD data file から bank134+bank135 の 16KB 再生バッファへ読み込み、最大 2048 pattern event（8byte/entry）まで扱います。`action: "stop"` は再生中に使用したチャンネルだけを停止します。CD-DA や ADPCM とは独立して鳴らせます。
 
+効果音は外部ファイルの取込だけでなく、エディタの **PSG 効果音デザイナー**（Sound タブ → PSG → `新規`）でプリセット＋スライダーから step pattern を直接生成して `psg-sfx` として登録できます。合成ロジックは renderer 側の純関数モジュール `plugins/pce-music-editor/psg-sfx-synth.mjs`（`synthesizeSfxPattern()`）にあり、出力は他の取込経路と同じ `options.pattern = [{ step, channel, period, volume, noise }]` 形式なので、シリアライズ（`serializePsgPattern()`）・C 生成（`generatePsgMetadata()`）・runtime は**変更なし**で共有します。デザイナーが生成する SFX は **31 step（pattern event 32 以下＝256 byte 以下）に収まる長さ**で末尾に note-off を付けるため、`PSG_PATTERN_CD_THRESHOLD_BYTES`(=256) を超えず常に常駐（`.rodata`）扱いになり、CD ストリーミングなしで即座に発音します。トーンは矩形波（`psg_load_basic_wave()`）固定で、独自波形テーブル（三角波・ノコギリ波など）は現行 runtime では未対応。音色はトーン（ch0）とノイズ（ch4）の sweep / envelope / vibrato で表現します。
+
+PSG asset には全体音量 `options.volume`（0〜100%、既定 100）があり、build 時に `normalizePsgPatternEntries()` が各 step の `volume`(0..31) を `round(volume * volume% / 100)` でスケールしてから serialize / C 生成します。エディタの WebAudio プレビュー（`normalizePsgPreviewPattern()`）も同じ式で同じ値を鳴らすため、プレビューと実機の音量が一致します。runtime のデータ構造・再生コードは非変更です。
+
+CD ロードと PSG の同時再生について: CD 転送待ち（`cd_transfer_wait()`）の補償 tick は、**常駐パターン（`psg_pattern_banked == 0`）のときは settle wait 内に分散**して `service_psg_during_blocking_work()` を呼び、シーケンサをほぼ実時間で滑らかに進めます。これにより、スプライト／背景の CD ロード中に短い one-shot SFX が一括補償で一気に末尾まで早送り（→`stop_psg()`）され無音化する問題を防ぎます。CD ストリーミング中のパターン（bank134/135）は、per-tick の bank remap が CD DMA（bank132 宛て）と競合しないよう、従来どおり wait 後にまとめて補償します。`VN_PSG_VRAM_COPY_COMPENSATION_FRAMES` は blit 実時間に合わせて縮小（8→2）。
+
 ### CD-DA 再生 command
 
 ```jsonc

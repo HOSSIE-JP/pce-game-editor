@@ -23,5 +23,6 @@ loadAppConfig(require('../app.config'));
   'pce-testplay-server.test.js',
   'pce-vgm-import.test.js',
   'pce-midi-import.test.js',
+  'pce-psg-sfx.test.js',
   'pce-vn-manager.test.js',
 ].forEach((file) => require(path.join(__dirname, file)));

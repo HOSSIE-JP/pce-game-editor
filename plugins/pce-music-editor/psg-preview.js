@@ -1,3 +1,5 @@
+import { psgNoiseHzFromValue } from './psg-sfx-synth.mjs';
+
 const PSG_CLOCK = 3579545;
 const PSG_CHANNEL_COUNT = 6;
 
@@ -34,9 +36,13 @@ function noteToPeriod(note = 'C4') {
 export function normalizePsgPreviewPattern(asset = {}) {
   const options = asset.options || {};
   const rawPattern = Array.isArray(options.pattern) ? options.pattern : [];
+  // Per-asset master volume (0-100%), mirrored from the build so the preview level
+  // matches the generated runtime.
+  const volumeScale = clampInt(options.volume, 0, 100, 100);
+  const scaleVolume = (volume) => clampInt(Math.round((volume * volumeScale) / 100), 0, 31, volume);
   if (!rawPattern.length) {
     const period = clampInt(options.period, 1, 4095, 512);
-    return period ? [{ step: 0, channel: 0, period, volume: 16, noise: 0 }] : [];
+    return period ? [{ step: 0, channel: 0, period, volume: scaleVolume(16), noise: 0 }] : [];
   }
   return rawPattern.map((entry, index) => {
     const raw = entry && typeof entry === 'object' ? entry : {};
@@ -50,7 +56,7 @@ export function normalizePsgPreviewPattern(asset = {}) {
       step: clampInt(raw.step ?? index, 0, 4095, index),
       channel: clampInt(raw.channel, 0, PSG_CHANNEL_COUNT - 1, 0),
       period,
-      volume: clampInt(raw.volume, 0, 31, volumeFallback),
+      volume: scaleVolume(clampInt(raw.volume, 0, 31, volumeFallback)),
       noise: clampInt(raw.noise, 0, 1, 0),
     };
   });
@@ -132,19 +138,35 @@ export function createPsgPreviewController({ onStateChange, onError } = {}) {
   function scheduleNoise(cell, start, duration) {
     if (!audioContext) return;
     const playDuration = Math.min(duration, 0.12);
-    const length = Math.max(1, Math.floor(audioContext.sampleRate * playDuration));
-    const buffer = audioContext.createBuffer(1, length, audioContext.sampleRate);
+    const sampleRate = audioContext.sampleRate;
+    const length = Math.max(1, Math.floor(sampleRate * playDuration));
+    const buffer = audioContext.createBuffer(1, length, sampleRate);
     const data = buffer.getChannelData(0);
-    for (let i = 0; i < data.length; i += 1) data[i] = (Math.random() * 2) - 1;
+    // Faithful PSG noise: a sample-and-hold LFSR clocked at the real HuC6280
+    // noise rate, not a bandpass-filtered white noise. This gives the metallic
+    // LFSR character (buzzy at low values, hiss at high) of the actual PSG /
+    // runtime, so designed SFX sound the same once built. The 5-bit value maps
+    // to pitch via psgNoiseHzFromValue (shared with the runtime convention).
+    const noiseHz = psgNoiseHzFromValue(cell.period & 0x1f);
+    const holdSamples = Math.max(1, Math.round(sampleRate / noiseHz));
+    let lfsr = 0x7fff;
+    let out = 1;
+    let counter = 0;
+    for (let i = 0; i < length; i += 1) {
+      if (counter <= 0) {
+        const bit = (lfsr ^ (lfsr >> 1)) & 1;
+        lfsr = (lfsr >> 1) | (bit << 14);
+        out = (lfsr & 1) ? 1 : -1;
+        counter = holdSamples;
+      }
+      counter -= 1;
+      data[i] = out;
+    }
     const source = audioContext.createBufferSource();
-    const filter = audioContext.createBiquadFilter();
     const gain = audioContext.createGain();
     source.buffer = buffer;
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(500 + ((31 - (cell.period & 31)) * 90), start);
-    filter.Q.setValueAtTime(0.75, start);
     scheduleEnvelope(gain, start, playDuration, Math.min(0.08, (cell.volume / 31) * 0.07));
-    source.connect(filter).connect(gain).connect(audioContext.destination);
+    source.connect(gain).connect(audioContext.destination);
     source.start(start);
     source.stop(start + playDuration);
     rememberNode(source);

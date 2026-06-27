@@ -130,7 +130,9 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_ADPCM_END_PAD_FRAMES 2ul
 #define VN_BG_IMPLICIT_FADE_FRAMES 6u
 #define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 20u
-#define VN_PSG_VRAM_COPY_COMPENSATION_FRAMES 8u
+/* The VRAM blit itself is short; a small post-copy burst keeps the sequencer
+   moving without fast-forwarding a one-shot SFX through several steps at once. */
+#define VN_PSG_VRAM_COPY_COMPENSATION_FRAMES 2u
 #define VN_BG_UPLOAD_DISPLAY_DISABLE() display_disable()
 #define VN_SPRITE_REFRESH_NONE 0u
 #define VN_SPRITE_REFRESH_PATTERNS 1u
@@ -912,6 +914,26 @@ static void cd_sector_advance(pce_sector_t *sector)
 static void cd_transfer_wait(void)
 {
     volatile uint16_t wait;
+    /* A resident PSG pattern (small SFX / short song in .rodata) never remaps MPR6
+       during its sequencer tick, so its compensation ticks can be spread across the
+       CD settle wait. This advances the sequencer smoothly in real time instead of
+       firing all VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES ticks in one instant burst
+       after the wait, which previously fast-forwarded a short one-shot SFX to its
+       end (silencing it) whenever a sprite/BG load ran during playback. Total settle
+       time and tick count are unchanged. */
+    if (psg_active && !psg_pattern_banked)
+    {
+        uint8_t slice;
+        for (slice = 0u; slice < VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES; slice++)
+        {
+            for (wait = 0u; wait < (65535u / VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES); wait++) {}
+            service_psg_during_blocking_work();
+        }
+        return;
+    }
+    /* No PSG playing, or a CD-streamed pattern (bank134/135): keep the original
+       settle wait + single post-wait compensation burst, so the per-tick bank remap
+       of a streamed pattern can never race the CD DMA targeting bank132. */
     for (wait = 0u; wait < 65535u; wait++) {}
     service_psg_during_blocking_frames(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES);
 }

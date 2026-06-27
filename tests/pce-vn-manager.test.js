@@ -235,7 +235,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   // Overlay LMA parks in bank132's tail after leaving a small resident-data
   // cushion. PSG song patterns stream from CD into bank134 rather than living in
   // bank132, so the LMA remains a benign copy that runtime never reads.
-  assert.match(overlayFragment, /\.vn_overlay 0x8000 : AT\(0x184d040\)/);
+  assert.match(overlayFragment, /\.vn_overlay 0x8000 : AT\(0x184d078\)/);
   assert.match(overlayFragment, /INSERT AFTER \.ram_bank132;/);
   // The runtime declares bank133, the CD->bank133 loader, and overlay-tagged code.
   // RLE was removed, so the cd_rle_* overlay decoders are gone; the overlay now holds
@@ -1192,10 +1192,13 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   assert.match(runtime, /psg_pattern_ram_bank135_reserved\[VN_PSG_PATTERN_BANK_BYTES\][\s\S]*section\("\.ram_bank135"\)/);
   assert.match(runtime, /pce_ram_bank135_map\(\);[\s\S]*\(const pce_editor_psg_step_t \*\)psg_pattern_ram/);
   assert.match(runtime, /#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 20u/);
-  assert.match(runtime, /#define VN_PSG_VRAM_COPY_COMPENSATION_FRAMES 8u/);
+  assert.match(runtime, /#define VN_PSG_VRAM_COPY_COMPENSATION_FRAMES 2u/);
   assert.match(runtime, /static void VN_RESIDENT_CODE service_psg_during_blocking_work\(void\);/);
   assert.match(runtime, /static void VN_RESIDENT_CODE service_psg_during_blocking_frames\(uint8_t frames\);/);
   assert.match(runtime, /cd_transfer_wait\(void\)[\s\S]*service_psg_during_blocking_frames\(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES\);/);
+  // Resident SFX spread their PSG compensation ticks across the CD settle wait so
+  // a sprite/BG load during playback no longer fast-forwards them into silence.
+  assert.match(runtime, /if \(psg_active && !psg_pattern_banked\)[\s\S]*for \(wait = 0u; wait < \(65535u \/ VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES\); wait\+\+\) \{\}[\s\S]*service_psg_during_blocking_work\(\);/);
   assert.match(runtime, /pce_editor_vram_copy\(vram_dest, cd_transfer_scratch, chunk\);\r?\n        service_psg_during_blocking_frames\(VN_PSG_VRAM_COPY_COMPENSATION_FRAMES\);/);
   assert.match(runtime, /pce_editor_vram_copy\(\(uint16_t\)\(dest \+ \(\(uint16_t\)row \* VN_MAP_WIDTH\)\), &cd_transfer_scratch\[local_offset\], row_bytes\);\r?\n            service_psg_during_blocking_work\(\);/);
   assert.match(runtime, /fade_palette[\s\S]*delay_frame\(\);\r?\n        service_psg_during_blocking_work\(\);/);

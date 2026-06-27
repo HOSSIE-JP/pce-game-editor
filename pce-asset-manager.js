@@ -93,6 +93,7 @@ const DEFAULT_PSG_OPTIONS = Object.freeze({
   period: 512,
   channels: 6,
   steps: 32,
+  volume: 100,
   pattern: [],
 });
 const PCE_PSG_MAX_STEPS = 4096;
@@ -397,6 +398,7 @@ function normalizePsgOptions(asset = {}) {
     period: clampInt(rawOptions.period, 1, 4095, DEFAULT_PSG_OPTIONS.period),
     channels: clampInt(rawOptions.channels, 1, 6, DEFAULT_PSG_OPTIONS.channels),
     steps: clampInt(rawOptions.steps, 1, PCE_PSG_MAX_STEPS, DEFAULT_PSG_OPTIONS.steps),
+    volume: clampInt(rawOptions.volume, 0, 100, DEFAULT_PSG_OPTIONS.volume),
     pattern: Array.isArray(rawOptions.pattern) ? rawOptions.pattern.slice(0, PCE_PSG_MAX_PATTERN_ENTRIES) : [],
   };
 }
@@ -2258,13 +2260,17 @@ function firstPsgPeriod(asset) {
 
 function normalizePsgPatternEntries(asset, options) {
   const pattern = Array.isArray(options.pattern) ? options.pattern : [];
+  // Per-asset master volume (0-100%) scales every step amplitude at build time so
+  // the same control works for designer SFX and imported songs alike.
+  const volumeScale = clampInt(options.volume, 0, 100, 100);
   return pattern.slice(0, PCE_PSG_MAX_PATTERN_ENTRIES).map((entry, index) => {
     const raw = entry && typeof entry === 'object' ? entry : {};
+    const baseVolume = clampInt(raw.volume, 0, 31, 16);
     return {
       step: clampInt(raw.step ?? index, 0, PCE_PSG_MAX_STEPS - 1, index),
       channel: clampInt(raw.channel, 0, 5, 0),
       period: clampInt(raw.period, 1, 4095, options.period),
-      volume: clampInt(raw.volume, 0, 31, 16),
+      volume: clampInt(Math.round((baseVolume * volumeScale) / 100), 0, 31, baseVolume),
       noise: clampInt(raw.noise, 0, 1, 0),
     };
   });

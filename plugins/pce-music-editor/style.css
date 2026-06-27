@@ -207,3 +207,106 @@
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
+
+/* PSG 効果音デザイナー */
+.pce-sfx-designer {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 14px;
+  padding: 12px;
+  min-width: 0;
+}
+
+.pce-sfx-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 6px;
+}
+
+.pce-sfx-preset {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pce-sfx-preset:hover {
+  background: var(--surface-hover);
+}
+
+.pce-sfx-wave {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: max-content;
+}
+
+.pce-sfx-wave-btn {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 16px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pce-sfx-wave-btn.is-active {
+  background: var(--surface-hover);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.pce-sfx-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.pce-sfx-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) 56px;
+  align-items: center;
+  gap: 10px;
+}
+
+.pce-sfx-row-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pce-sfx-slider,
+.pce-sfx-select {
+  width: 100%;
+  min-width: 0;
+}
+
+.pce-sfx-row-value {
+  text-align: right;
+  font-size: 12px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.pce-sfx-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pce-sfx-meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* デザイナー時は BPM/Steps を synth が決めるため隠す */
+.pce-plugin-form.is-designer .pce-form-grid {
+  display: none;
+}

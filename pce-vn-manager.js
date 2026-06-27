@@ -139,7 +139,7 @@ const VN_OVERLAY_SECTION = '.vn_overlay';
 const VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000; // CPU address the overlay is linked at / loaded to
 // Reserved on-CD/bank133 size for the overlay blob, in whole CD sectors. The
 // extracted .vn_overlay must fit this; it is also bounded by VN_OVERLAY_LMA's
-// headroom inside bank132 (currently 0xd040..0xdfff). Two sectors
+// headroom inside bank132 (currently 0xd078..0xdfff). Two sectors
 // (4 KB) keep the CD footprint stable while the LMA window is sized by the real
 // overlay bytes after link.
 const VN_OVERLAY_RESERVED_SECTORS = 2;
@@ -151,14 +151,21 @@ const VN_OVERLAY_RESERVED_BYTES = VN_OVERLAY_RESERVED_SECTORS * 2048; // 2048 = 
 //
 // bank132 is a SHARED 8 KB resource: resident data (cd_data_refs, CD transfer
 // scratch, glyph/cell caches) grows up from 0x0184c000, while this overlay LMA
-// copy is parked near the top (0xd040..0xdfff). The first bytes below
+// copy is parked near the top (0xd078..0xdfff). The first bytes below
 // the old tail window are returned to resident data so larger sprite/scene
 // metadata does not collide with the overlay LMA. The overlay is fixed runtime
 // code (~2.3 KB). Large PSG/VGM/MIDI song patterns are NOT kept here — they
 // stream from CD into RAM bank134 only while playing (see psg_pattern_ram /
 // load_psg_pattern_cd in pce_vn_runtime.c) — so the resident budget stays small.
 // finalizeOverlayBlob asserts the section still fits below VN_BANK132_LMA_END.
-const VN_OVERLAY_LMA = 0x0184d040;
+// Raised from 0xd040 to 0xd078: bank132 resident data (cd_data_refs + sprite
+// cellmaps) grows with the project's CD-streamed asset count, and large VN
+// projects were overflowing the old 0xc000..0xd040 (4160 B) budget by a few
+// bytes into the overlay LMA. The overlay is fixed template code (~3955 B) that
+// only uses the bottom of its tail, so moving the divider up reclaims its unused
+// top bytes for resident data (now 0xc000..0xd078 = 4216 B) while the overlay
+// still fits in [0xd078, 0xe000) with margin (finalizeOverlayBlob asserts it).
+const VN_OVERLAY_LMA = 0x0184d078;
 // End of bank132's LMA region (0x0184c000 + 8 KB). The overlay section must fit
 // in [VN_OVERLAY_LMA, VN_BANK132_LMA_END); resident data must fit below the LMA.
 const VN_BANK132_LMA_END = 0x0184e000;

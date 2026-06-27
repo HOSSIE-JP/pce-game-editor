@@ -951,7 +951,7 @@ window.electronAPI.onPluginLog((payload) => {
 | `pce-audio-converter` | 音声コンバーター | `converter` | 表示 | WAV / MP3 の trim / rate / mono / normalize など共通音声 import UI |
 | `pce-adpcm-manager` | ADPCM 管理 | `editor`, `asset` | 内部 | `sound-editor` の ADPCM タブ用モジュール |
 | `pce-cdda-manager` | CD-DA 管理 | `editor`, `asset` | 内部 | `sound-editor` の CD-DA タブ用モジュール |
-| `pce-music-editor` | ミュージックエディター | `editor`, `asset` | 内部 | `sound-editor` の PSG タブ用モジュール |
+| `pce-music-editor` | ミュージックエディター | `editor`, `asset` | 内部 | `sound-editor` の PSG タブ用モジュール（`新規`＝効果音デザイナーで step pattern を生成 / `取込`＝VGM・MIDI 量子化）。デザイナーの合成ロジックは `psg-sfx-synth.mjs` |
 | `pce-background-manager` | 背景管理 | `editor`, `asset` | 内部 | `image-editor` の BG タブ用モジュール |
 | `pce-sprite-manager` | スプライト管理 | `editor`, `asset` | 内部 | `image-editor` の Sprites タブ用モジュール |
 | `pce-palette-editor` | パレットエディター | `editor`, `asset` | 内部 | `image-editor` の Palette タブ用モジュール |

@@ -2,8 +2,32 @@ import {
   createPsgPreviewController,
   psgPreviewStats,
 } from './psg-preview.js';
+import {
+  SFX_PRESETS,
+  SFX_PARAM_RANGES,
+  defaultSfxParams,
+  presetParams,
+  synthesizeSfxPattern,
+  randomizeSfxParams,
+  mutateSfxParams,
+  psgFreqFromPeriod,
+  psgPeriodFromFreq,
+} from './psg-sfx-synth.mjs';
 
-const NOTES = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+const PITCH_RANGE = SFX_PARAM_RANGES.pitchHz;
+const PITCH_SLIDER_MAX = 1000;
+
+// Pitch is edited on a logarithmic Hz slider (0..PITCH_SLIDER_MAX) so low and
+// high octaves get comparable travel, then stored as a 12-bit PSG period.
+function pitchFreqToSlider(freq) {
+  const clamped = Math.max(PITCH_RANGE.min, Math.min(PITCH_RANGE.max, freq || PITCH_RANGE.min));
+  return Math.round((Math.log(clamped / PITCH_RANGE.min) / Math.log(PITCH_RANGE.max / PITCH_RANGE.min)) * PITCH_SLIDER_MAX);
+}
+function pitchSliderToFreq(value) {
+  const t = Math.max(0, Math.min(1, Number(value) / PITCH_SLIDER_MAX));
+  return PITCH_RANGE.min * Math.pow(PITCH_RANGE.max / PITCH_RANGE.min, t);
+}
+
 const MIDI_IMPORT_DEFAULTS = Object.freeze({
   maxToneVoices: 4,
   drumMode: 'soft',
@@ -37,14 +61,6 @@ function safeId(value, fallback = 'psg_track') {
     .replace(/^_+|_+$/g, '')
     .slice(0, 48);
   return id || fallback;
-}
-
-function noteToPeriod(note = 'C4') {
-  const base = { C: 1024, D: 912, E: 812, F: 768, G: 684, A: 608, B: 542 };
-  const name = String(note).slice(0, 1).toUpperCase();
-  const octave = asNumber(String(note).slice(1), 4);
-  const shift = Math.max(-2, Math.min(3, 4 - octave));
-  return Math.max(32, Math.min(4095, Math.round((base[name] || 1024) * (2 ** shift))));
 }
 
 function assetNameParts(asset = {}) {
@@ -89,6 +105,7 @@ export function activatePlugin({ root, api, registerCapability }) {
         <form class="settings-form compact-form pce-plugin-form" data-form>
           <label class="form-group"><span class="form-label">Name</span><input class="form-input" name="name" /></label>
           <label class="form-group"><span class="form-label">Type</span><select class="form-select" name="type"><option value="psg-sfx">SFX</option><option value="psg-song">Song</option></select></label>
+          <label class="form-group"><span class="form-label">Volume %</span><input class="form-input" name="volume" type="number" min="0" max="100" /></label>
           <div class="pce-form-grid">
             <label class="form-group"><span class="form-label">BPM</span><input class="form-input" name="bpm" type="number" min="30" max="300" /></label>
             <label class="form-group"><span class="form-label">Steps</span><input class="form-input" name="steps" type="number" min="1" max="4096" /></label>
@@ -105,6 +122,9 @@ export function activatePlugin({ root, api, registerCapability }) {
   const previewToggleButton = root.querySelector('[data-preview-toggle]');
   let assets = [];
   let selectedId = '';
+  let designerParams = null;
+  let designerAssetId = null;
+  let designerPreviewTimer = null;
   const assetApi = api.assets || {};
 
   const listPceAssets = (options = {}) => assetApi.listPceAssets
@@ -186,26 +206,177 @@ export function activatePlugin({ root, api, registerCapability }) {
     });
   }
 
-  function isTrackerEditable(asset) {
-    const rawPattern = asset?.options?.pattern;
-    if (!Array.isArray(rawPattern) || !rawPattern.length) return true;
-    return rawPattern.every((entry, index) => {
-      const raw = entry && typeof entry === 'object' ? entry : {};
-      const step = raw.step == null ? index : asNumber(raw.step, index);
-      const channel = raw.channel == null ? 0 : asNumber(raw.channel, 0);
-      const noise = raw.noise == null ? 0 : asNumber(raw.noise, 0);
-      return step === index
-        && channel === 0
-        && !noise
-        && raw.volume == null
-        && Object.prototype.hasOwnProperty.call(raw, 'note');
-    });
+  function isDesignerAsset(asset) {
+    // Imported MIDI/VGM patterns stay read-only; everything else is authored
+    // with the SFX designer.
+    if (!asset) return false;
+    return !(asset.data && asset.data.import);
   }
 
-  function trackerPattern(asset) {
-    const options = asset?.options || {};
-    const steps = Math.max(1, Math.min(64, asNumber(options.steps, 16)));
-    return Array.from({ length: steps }, (_unused, index) => options.pattern?.[index] || { note: index === 0 ? 'C4' : '', period: index === 0 ? 512 : 0 });
+  function loadDesignerParams(asset) {
+    const stored = asset?.options?.sfx;
+    return stored && typeof stored === 'object'
+      ? { ...defaultSfxParams(), ...stored }
+      : defaultSfxParams();
+  }
+
+  function ensureDesignerParams(asset) {
+    if (designerAssetId !== asset.id || !designerParams) {
+      designerAssetId = asset.id;
+      designerParams = loadDesignerParams(asset);
+    }
+    return designerParams;
+  }
+
+  async function playDesignerPreview() {
+    if (!designerParams) return;
+    error.textContent = '';
+    const options = { ...synthesizeSfxPattern(designerParams), volume: asNumber(form.elements.volume.value, 100) };
+    await previewController.play({ id: 'sfx_designer_preview', type: 'psg-sfx', options }, { loop: false });
+  }
+
+  function scheduleDesignerPreview() {
+    if (designerPreviewTimer) window.clearTimeout(designerPreviewTimer);
+    designerPreviewTimer = window.setTimeout(() => {
+      designerPreviewTimer = null;
+      void playDesignerPreview();
+    }, 160);
+  }
+
+  function pitchRow(labelText, key, period) {
+    const freq = Math.round(psgFreqFromPeriod(period) || PITCH_RANGE.min);
+    return `
+      <label class="pce-sfx-row">
+        <span class="pce-sfx-row-label">${esc(labelText)}</span>
+        <input class="pce-sfx-slider" type="range" min="0" max="${PITCH_SLIDER_MAX}" value="${pitchFreqToSlider(freq)}" data-pitch="${esc(key)}" />
+        <span class="pce-sfx-row-value" data-value-for="${esc(key)}">${freq}Hz</span>
+      </label>`;
+  }
+
+  function noiseRow(labelText, key, value) {
+    return `
+      <label class="pce-sfx-row">
+        <span class="pce-sfx-row-label">${esc(labelText)}</span>
+        <input class="pce-sfx-slider" type="range" min="0" max="31" value="${esc(value)}" data-noise="${esc(key)}" />
+        <span class="pce-sfx-row-value" data-value-for="${esc(key)}">${esc(value)}</span>
+      </label>`;
+  }
+
+  function numberRow(labelText, key, value, min, max, suffix = '') {
+    return `
+      <label class="pce-sfx-row">
+        <span class="pce-sfx-row-label">${esc(labelText)}</span>
+        <input class="pce-sfx-slider" type="range" min="${min}" max="${max}" value="${esc(value)}" data-num="${esc(key)}" />
+        <span class="pce-sfx-row-value" data-value-for="${esc(key)}">${esc(value)}${esc(suffix)}</span>
+      </label>`;
+  }
+
+  function setDesignerValueLabel(container, key, text) {
+    const el = container.querySelector(`[data-value-for="${key}"]`);
+    if (el) el.textContent = text;
+  }
+
+  function updateDesignerMeta(container) {
+    const meta = container.querySelector('[data-sfx-meta]');
+    if (!meta || !designerParams) return;
+    const synth = synthesizeSfxPattern(designerParams);
+    meta.textContent = `${synth.pattern.length} events / ${synth.steps} steps · 常駐`;
+  }
+
+  function applyDesignerParams(next) {
+    designerParams = { ...defaultSfxParams(), ...next };
+    renderDesigner(gridEl);
+    scheduleDesignerPreview();
+  }
+
+  function renderDesigner(container) {
+    const p = designerParams;
+    if (!p) return;
+    const isNoise = p.wave === 'noise';
+    const synth = synthesizeSfxPattern(p);
+    const presets = SFX_PRESETS
+      .map((preset) => `<button class="pce-sfx-preset" type="button" data-preset="${esc(preset.id)}">${esc(preset.label)}</button>`)
+      .join('');
+    container.innerHTML = `
+      <div class="pce-sfx-designer">
+        <div class="pce-sfx-presets">${presets}</div>
+        <div class="pce-sfx-wave" role="group" aria-label="波形">
+          <button class="pce-sfx-wave-btn${!isNoise ? ' is-active' : ''}" type="button" data-wave="tone">トーン</button>
+          <button class="pce-sfx-wave-btn${isNoise ? ' is-active' : ''}" type="button" data-wave="noise">ノイズ</button>
+        </div>
+        <div class="pce-sfx-rows">
+          ${isNoise
+            ? noiseRow('開始ノイズ', 'startNoise', p.startNoise) + noiseRow('終了ノイズ', 'endNoise', p.endNoise)
+            : pitchRow('開始ピッチ', 'startPeriod', p.startPeriod) + pitchRow('終了ピッチ', 'endPeriod', p.endPeriod)}
+          ${numberRow('長さ', 'lengthSteps', p.lengthSteps, 1, 31)}
+          ${numberRow('速さ', 'bpm', p.bpm, 60, 300)}
+          ${numberRow('音量', 'volumeStart', p.volumeStart, 0, 31)}
+          ${numberRow('終了音量', 'volumeEnd', p.volumeEnd, 0, 31)}
+          <label class="pce-sfx-row">
+            <span class="pce-sfx-row-label">減衰</span>
+            <select class="pce-sfx-select" data-select="decayCurve">
+              <option value="linear"${p.decayCurve !== 'exp' ? ' selected' : ''}>なめらか</option>
+              <option value="exp"${p.decayCurve === 'exp' ? ' selected' : ''}>急</option>
+            </select>
+            <span class="pce-sfx-row-value"></span>
+          </label>
+          ${!isNoise ? numberRow('ビブラート', 'vibratoDepth', p.vibratoDepth, 0, 100, '%') : ''}
+          ${!isNoise ? numberRow('ビブラート速さ', 'vibratoRate', p.vibratoRate, 0, 16) : ''}
+        </div>
+        <div class="pce-sfx-actions">
+          <button class="btn-sm" type="button" data-randomize>🎲 ランダム</button>
+          <button class="btn-sm" type="button" data-mutate>少し変える</button>
+          <span class="pce-sfx-meta" data-sfx-meta>${esc(synth.pattern.length)} events / ${esc(synth.steps)} steps · 常駐</span>
+        </div>
+      </div>
+    `;
+    wireDesignerEvents(container);
+  }
+
+  function wireDesignerEvents(container) {
+    container.querySelectorAll('[data-preset]').forEach((button) => {
+      button.addEventListener('click', () => applyDesignerParams(presetParams(button.dataset.preset)));
+    });
+    container.querySelectorAll('[data-wave]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (!designerParams || designerParams.wave === button.dataset.wave) return;
+        applyDesignerParams({ ...designerParams, wave: button.dataset.wave });
+      });
+    });
+    container.querySelector('[data-randomize]')?.addEventListener('click', () => applyDesignerParams(randomizeSfxParams()));
+    container.querySelector('[data-mutate]')?.addEventListener('click', () => applyDesignerParams(mutateSfxParams(designerParams)));
+    container.querySelector('[data-select="decayCurve"]')?.addEventListener('change', (event) => {
+      if (!designerParams) return;
+      designerParams.decayCurve = event.target.value === 'exp' ? 'exp' : 'linear';
+      updateDesignerMeta(container);
+      scheduleDesignerPreview();
+    });
+    container.querySelectorAll('[data-pitch]').forEach((slider) => {
+      slider.addEventListener('input', () => {
+        const freq = pitchSliderToFreq(slider.value);
+        designerParams[slider.dataset.pitch] = psgPeriodFromFreq(freq);
+        setDesignerValueLabel(container, slider.dataset.pitch, `${Math.round(freq)}Hz`);
+        updateDesignerMeta(container);
+        scheduleDesignerPreview();
+      });
+    });
+    container.querySelectorAll('[data-noise]').forEach((slider) => {
+      slider.addEventListener('input', () => {
+        designerParams[slider.dataset.noise] = asNumber(slider.value, 0);
+        setDesignerValueLabel(container, slider.dataset.noise, String(slider.value));
+        updateDesignerMeta(container);
+        scheduleDesignerPreview();
+      });
+    });
+    container.querySelectorAll('[data-num]').forEach((slider) => {
+      slider.addEventListener('input', () => {
+        const key = slider.dataset.num;
+        designerParams[key] = asNumber(slider.value, 0);
+        setDesignerValueLabel(container, key, `${slider.value}${key === 'vibratoDepth' ? '%' : ''}`);
+        updateDesignerMeta(container);
+        scheduleDesignerPreview();
+      });
+    });
   }
 
   function renderGrid() {
@@ -220,26 +391,22 @@ export function activatePlugin({ root, api, registerCapability }) {
     form.elements.type.value = asset.type === 'psg-song' ? 'psg-song' : 'psg-sfx';
     form.elements.bpm.value = asset.options?.bpm || 150;
     form.elements.steps.value = asset.options?.steps || 16;
-    if (!isTrackerEditable(asset)) {
-      const stats = psgPreviewStats(asset);
-      gridEl.innerHTML = `
-        <div class="pce-tracker-summary" data-psg-pattern-summary>
-          <strong>Pattern events</strong>
-          <span>${esc(stats.entries)} events / ${esc(asset.options?.steps || 16)} steps / ${esc(stats.channels)} channels${stats.noiseCount ? ` / ${esc(stats.noiseCount)} noise` : ''}</span>
-          <code>${esc((asset.options?.pattern || []).slice(0, 18).map((entry) => `s${entry.step ?? 0}:ch${entry.channel ?? 0}:p${entry.period ?? 0}:v${entry.volume ?? 0}${entry.noise ? ':n' : ''}`).join('  '))}</code>
-        </div>
-      `;
+    form.elements.volume.value = asset.options?.volume ?? 100;
+    if (isDesignerAsset(asset)) {
+      ensureDesignerParams(asset);
+      form.classList.add('is-designer');
+      renderDesigner(gridEl);
       return;
     }
-    gridEl.innerHTML = trackerPattern(asset).map((entry, index) => `
-      <label>
-        <span>${String(index + 1).padStart(2, '0')}</span>
-        <select data-step="${index}">
-          <option value=""></option>
-          ${NOTES.map((note) => `<option value="${note}4" ${entry.note === `${note}4` ? 'selected' : ''}>${note}4</option>`).join('')}
-        </select>
-      </label>
-    `).join('');
+    form.classList.remove('is-designer');
+    const stats = psgPreviewStats(asset);
+    gridEl.innerHTML = `
+      <div class="pce-tracker-summary" data-psg-pattern-summary>
+        <strong>Pattern events</strong>
+        <span>${esc(stats.entries)} events / ${esc(asset.options?.steps || 16)} steps / ${esc(stats.channels)} channels${stats.noiseCount ? ` / ${esc(stats.noiseCount)} noise` : ''}</span>
+        <code>${esc((asset.options?.pattern || []).slice(0, 18).map((entry) => `s${entry.step ?? 0}:ch${entry.channel ?? 0}:p${entry.period ?? 0}:v${entry.volume ?? 0}${entry.noise ? ':n' : ''}`).join('  '))}</code>
+      </div>
+    `;
   }
 
   function render() {
@@ -282,28 +449,39 @@ export function activatePlugin({ root, api, registerCapability }) {
   async function save() {
     const asset = selected();
     if (!asset) return;
-    const canEditPattern = isTrackerEditable(asset);
-    const nextPattern = canEditPattern
-      ? Array.from(gridEl.querySelectorAll('[data-step]')).map((select, index) => ({
-        step: index,
-        note: select.value,
-        period: select.value ? noteToPeriod(select.value) : 0,
-      }))
-      : (Array.isArray(asset.options?.pattern) ? asset.options.pattern.slice() : []);
-    const result = await upsertPceAsset({
-      ...asset,
-      type: form.elements.type.value,
-      name: form.elements.name.value,
-      options: {
+    const type = form.elements.type.value;
+    const volume = asNumber(form.elements.volume.value, 100);
+    let options;
+    if (isDesignerAsset(asset)) {
+      const params = ensureDesignerParams(asset);
+      const synth = synthesizeSfxPattern(params);
+      options = {
         ...(asset.options || {}),
-        kind: form.elements.type.value === 'psg-song' ? 'song' : 'sfx',
+        kind: type === 'psg-song' ? 'song' : 'sfx',
+        bpm: synth.bpm,
+        steps: synth.steps,
+        period: synth.period,
+        channels: synth.channels,
+        volume,
+        pattern: synth.pattern,
+        sfx: params,
+      };
+    } else {
+      options = {
+        ...(asset.options || {}),
+        kind: type === 'psg-song' ? 'song' : 'sfx',
         bpm: asNumber(form.elements.bpm.value, 150),
         steps: asNumber(form.elements.steps.value, 16),
-        period: canEditPattern
-          ? (nextPattern.find((entry) => entry.period)?.period || 512)
-          : (asset.options?.period || nextPattern.find((entry) => entry.period && !entry.noise)?.period || 512),
-        pattern: nextPattern,
-      },
+        period: asset.options?.period || 512,
+        volume,
+        pattern: Array.isArray(asset.options?.pattern) ? asset.options.pattern.slice() : [],
+      };
+    }
+    const result = await upsertPceAsset({
+      ...asset,
+      type,
+      name: form.elements.name.value,
+      options,
     });
     if (!result?.ok) {
       error.textContent = result?.error || '保存できませんでした';
@@ -331,7 +509,18 @@ export function activatePlugin({ root, api, registerCapability }) {
     const asset = selected();
     if (!asset) return;
     error.textContent = '';
-    await previewController.toggle(asset);
+    if (isDesignerAsset(asset) && designerParams) {
+      if (previewController.isPlaying) {
+        previewController.stop();
+        return;
+      }
+      await playDesignerPreview();
+      return;
+    }
+    await previewController.toggle({
+      ...asset,
+      options: { ...(asset.options || {}), volume: asNumber(form.elements.volume.value, 100) },
+    });
   }
 
   async function pickImportFile() {
@@ -509,19 +698,42 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   root.querySelector('[data-new]').addEventListener('click', () => {
     const id = `psg_${Date.now()}`;
-    assets.push({ id, type: 'psg-sfx', name: 'PSG SFX', source: '', options: { bpm: 150, steps: 16, period: 512, pattern: [{ step: 0, note: 'C4', period: 512 }] } });
+    const params = presetParams('jump');
+    const synth = synthesizeSfxPattern(params);
+    assets.push({
+      id,
+      type: 'psg-sfx',
+      name: 'PSG SFX',
+      source: '',
+      options: {
+        kind: 'sfx',
+        bpm: synth.bpm,
+        steps: synth.steps,
+        period: synth.period,
+        channels: synth.channels,
+        pattern: synth.pattern,
+        sfx: params,
+      },
+    });
     selectedId = id;
+    designerAssetId = id;
+    designerParams = params;
     render();
   });
   root.querySelector('[data-import]').addEventListener('click', () => { void runImport(); });
   root.querySelector('[data-save]').addEventListener('click', save);
   previewToggleButton.addEventListener('click', () => { void toggleSelectedPreview(); });
+  form.elements.volume.addEventListener('input', () => {
+    const asset = selected();
+    if (asset && isDesignerAsset(asset) && designerParams) scheduleDesignerPreview();
+  });
   registerCapability('psg-music-editor', { reload });
   const teardownAssetRefreshEvents = setupAssetRefreshEvents();
   void reload();
   return {
     deactivate() {
       teardownAssetRefreshEvents();
+      if (designerPreviewTimer) window.clearTimeout(designerPreviewTimer);
       previewController.close();
     },
   };

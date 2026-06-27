@@ -1239,3 +1239,42 @@ test('PCE CD build streams large PSG patterns from CD and keeps small ones resid
   assert.match(source, /pce_editor_psg_blip_pattern, 1u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
   assert.ok(!fs.existsSync(path.join(projectDir, 'assets/generated/psg/blip.bin')));
 });
+
+test('PCE PSG asset normalizes a master volume (default 100, clamped 0-100)', () => {
+  const assetManager = loadAssetManager();
+  assert.equal(assetManager.normalizeAsset({ id: 'a', type: 'psg-sfx', options: { period: 512 } }).options.volume, 100);
+  assert.equal(assetManager.normalizeAsset({ id: 'b', type: 'psg-sfx', options: { volume: 250 } }).options.volume, 100);
+  assert.equal(assetManager.normalizeAsset({ id: 'c', type: 'psg-sfx', options: { volume: -5 } }).options.volume, 0);
+  assert.equal(assetManager.normalizeAsset({ id: 'd', type: 'psg-sfx', options: { volume: 60 } }).options.volume, 60);
+});
+
+test('PCE PSG master volume scales generated step amplitudes', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-psg-volume-');
+  writeFile(projectDir, 'project.json', Buffer.from(JSON.stringify({ targetMedia: 'cd' })));
+  assetManager.writeAssetDocument(projectDir, {
+    version: 1,
+    assets: [
+      {
+        id: 'half',
+        type: 'psg-sfx',
+        source: '',
+        options: {
+          bpm: 150,
+          steps: 4,
+          period: 512,
+          volume: 50,
+          pattern: [
+            { step: 0, channel: 0, period: 512, volume: 20 },
+            { step: 1, channel: 0, period: 256, volume: 30 },
+          ],
+        },
+      },
+    ],
+  });
+  const out = assetManager.generateAssetSources(projectDir);
+  const source = fs.readFileSync(out.sourcePath, 'utf-8');
+  // 50% master volume: 20 -> 10, 30 -> 15.
+  assert.match(source, /\{ 0u, 0u, 512u, 10u, 0u, 0u \}/);
+  assert.match(source, /\{ 1u, 0u, 256u, 15u, 0u, 0u \}/);
+});
