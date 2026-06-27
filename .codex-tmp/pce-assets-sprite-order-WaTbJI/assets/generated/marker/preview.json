@@ -1,0 +1,27 @@
+{
+  "source": "assets/sprites/marker.png",
+  "kind": "sprite",
+  "width": 16,
+  "height": 16,
+  "tileCount": 1,
+  "paletteCount": 1,
+  "vramBytes": 128,
+  "compression": {
+    "policy": "none",
+    "tiles": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 128,
+      "byteLength": 0,
+      "savedBytes": 0
+    },
+    "map": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 0,
+      "byteLength": 0,
+      "savedBytes": 0
+    }
+  },
+  "warnings": []
+}

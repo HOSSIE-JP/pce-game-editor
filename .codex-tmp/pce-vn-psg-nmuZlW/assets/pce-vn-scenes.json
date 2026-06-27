@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "audio",
+          "kind": "psg",
+          "action": "play",
+          "assetId": "theme",
+          "channel": 3
+        },
+        {
+          "type": "audio",
+          "kind": "psg",
+          "action": "stop",
+          "assetId": "",
+          "channel": 0
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}

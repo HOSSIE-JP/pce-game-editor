@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "chime",
+      "name": "chime",
+      "type": "psg-sfx",
+      "options": {}
+    },
+    {
+      "id": "theme",
+      "name": "theme",
+      "type": "psg-song",
+      "options": {}
+    }
+  ]
+}

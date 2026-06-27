@@ -5,7 +5,7 @@
 ## なぜやるか（背景）
 
 - VN runtime のコードバンク 128/129/130 は恒常的に逼迫（95〜99%）。bank130 が満杯で、ADPCM/BG 中のスプライト破壊を直す **BG blit IRQ ガード**（`pce_editor_vram_copy` を noinline 常駐化してガード）が **LTO インラインカスケードで bank130 を ~700B 溢れさせて入らなかった**。
-- **Phase 1（完了・別ブランチ `refactor/vn-remove-rle` で commit `5e9fb26` 済み）**で RLE 圧縮を撤去し、**bank133 overlay が 4037B → 525B（約 3.5KB 空き）**になった。overlay は bank130 と MPR slot4 を時分割する offload 先なので、ここへ bank130 関数を移せば bank130 を空けられる。
+- **Phase 1（完了・別ブランチ `refactor/vn-remove-rle` で commit `5e9fb26` 済み）**で RLE 圧縮を撤去し、**bank133 overlay が 4037B → 525B（予約 4KB 内に余裕）**になった。overlay は bank130 と MPR slot4 を時分割する offload 先なので、ここへ bank130 関数を移せば bank130 を空けられる。
 - 目標: bank130 に **700B 以上**の余力を作り、BG blit IRQ ガード等を収められるようにする。
 
 ## Phase 1 後の現状（実測）
@@ -15,7 +15,7 @@
 | bank128(.text, slot2 常駐) | 7818B (95.43%) | ~370B 空き |
 | bank129(VN_BANKED_CODE, slot3) | 7801B (95.23%) | |
 | bank130(VN_BANKED_CODE2, slot4) | 7993B (97.57%) | **ここを空けたい** |
-| .vn_overlay(VN_OVERLAY_CODE, bank133, slot4 と時分割) | 525B / 予約4096B | `refresh_scene_sprite_patterns_impl` のみ。**~3.5KB 空き** |
+| .vn_overlay(VN_OVERLAY_CODE, bank133, slot4 と時分割) | 525B / 予約4096B | `refresh_scene_sprite_patterns_impl` のみ。**予約 4KB 内に余裕** |
 
 128/129/130 は MPR slot2/3/4 に同時マップ（co-resident）。bank133 は overlay 実行時のみ slot4 に入り、その間 **bank130 は不可視**。
 

@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "gallery",
+  "scenes": [
+    {
+      "id": "gallery",
+      "fullScreenBg": true,
+      "commands": [
+        {
+          "type": "background",
+          "assetId": "full_bg",
+          "transition": "fade",
+          "fadeOutFrames": 30,
+          "fadeInFrames": 30,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "hidden",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}

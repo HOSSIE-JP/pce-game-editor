@@ -1,0 +1,49 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "inputcheck",
+          "buttons": [
+            "right",
+            "i"
+          ],
+          "mode": "sync",
+          "targetLabel": "go"
+        },
+        {
+          "type": "inputcheck",
+          "buttons": [
+            "ii"
+          ],
+          "mode": "async",
+          "targetLabel": "go"
+        },
+        {
+          "type": "inputcheck",
+          "buttons": [],
+          "mode": "cancel",
+          "targetLabel": ""
+        },
+        {
+          "type": "label",
+          "name": "go"
+        },
+        {
+          "type": "wait",
+          "frames": 1
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 50,
+    "messageAdvanceMode": "auto",
+    "messageAutoWaitFrames": 90
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "spritetext",
+          "slot": 0,
+          "text": "PRESS RUN",
+          "x": 96,
+          "y": 180,
+          "color": "#ffff00",
+          "blinkFrames": 30,
+          "visible": true
+        },
+        {
+          "type": "spritetext",
+          "slot": 0,
+          "text": "",
+          "x": 0,
+          "y": 0,
+          "color": "#ffffff",
+          "blinkFrames": 0,
+          "visible": false
+        },
+        {
+          "type": "wait",
+          "frames": 1
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}

@@ -1084,6 +1084,13 @@ function encodePceSpritePattern(indices, width, startX, startY) {
   return pattern;
 }
 
+function spriteHardwarePatternSlots(cellWidth, cellHeight) {
+  const patternCols = Math.max(1, Math.ceil(cellWidth / 16));
+  const patternRows = Math.max(1, Math.ceil(cellHeight / 16));
+  const rowPatternSlots = patternRows > 1 ? Math.max(patternCols, 2) : patternCols;
+  return rowPatternSlots * patternRows;
+}
+
 function encodePceBackground(indexed, asset) {
   const options = normalizeImageOptions(asset);
   if (indexed.width % 8 || indexed.height % 8) throw new Error('BG image size must be aligned to 8px tiles');
@@ -1119,9 +1126,10 @@ function encodePceBackground(indexed, asset) {
 
 // Encode a sprite sheet into display-cell blocks, deduplicating identical
 // blocks so the VRAM upload carries only the unique cells used by SATB entries.
-// A 16x16 cell is one 128-byte pattern, while a 32x64 cell is eight consecutive
-// 16x16 patterns. The runtime indexes this map by display cell, so larger PCE
-// sprite sizes must stay contiguous in patterns.bin.
+// The VDC fetches tall 16px-wide sprites at a two-pattern row pitch (bit 0 is the
+// 16px lane; vertical rows advance by two pattern slots), so 16x32/16x64 cells
+// include padding slots between rows. The runtime indexes this map by display
+// cell, so larger PCE sprite sizes must stay contiguous in patterns.bin.
 function encodePceSprites(indexed, options = DEFAULT_SPRITE_OPTIONS) {
   if (indexed.width % 16 || indexed.height % 16) throw new Error('Sprite sheet size must be aligned to 16px patterns');
   const cellWidth = clampPositiveInt(options.cellWidth, 16, 32, DEFAULT_SPRITE_OPTIONS.cellWidth);
@@ -1131,6 +1139,8 @@ function encodePceSprites(indexed, options = DEFAULT_SPRITE_OPTIONS) {
   }
   const patternCols = Math.max(1, Math.ceil(cellWidth / 16));
   const patternRows = Math.max(1, Math.ceil(cellHeight / 16));
+  const rowPatternSlots = patternRows > 1 ? Math.max(patternCols, 2) : patternCols;
+  const blankSpritePattern = Buffer.alloc(128);
   const uniqueBlocks = [];
   const lookup = new Map();
   const cellMap = [];
@@ -1145,6 +1155,9 @@ function encodePceSprites(indexed, options = DEFAULT_SPRITE_OPTIONS) {
             x + patternX * 16,
             y + patternY * 16,
           ));
+        }
+        for (let patternX = patternCols; patternX < rowPatternSlots; patternX += 1) {
+          blockPatterns.push(blankSpritePattern);
         }
       }
       const block = Buffer.concat(blockPatterns);
@@ -1362,7 +1375,7 @@ function spriteGeneratedAssetNeedsRefresh(projectDir, asset) {
   const cellColumns = Math.max(1, Math.ceil((options.width || cellWidth) / cellWidth));
   const cellRows = Math.max(1, Math.ceil((options.height || cellHeight) / cellHeight));
   const expectedCells = cellColumns * cellRows;
-  const patternsPerCell = Math.max(1, Math.ceil(cellWidth / 16) * Math.ceil(cellHeight / 16));
+  const patternsPerCell = spriteHardwarePatternSlots(cellWidth, cellHeight);
   const bytesPerCellBlock = patternsPerCell * 128;
   if (!patterns.length) return true;
   // Patterns are deduplicated by display-cell block. Validate via the cell map:
@@ -1964,9 +1977,9 @@ function toCIdentifier(value) {
   return ident || 'asset';
 }
 
-function bufferToCArray(name, buffer) {
+function bufferToCArray(name, buffer, section = 'PCE_EDITOR_RODATA_SECTION') {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) return [];
-  const lines = [`static const unsigned char ${name}[] PCE_EDITOR_RODATA_SECTION = {`];
+  const lines = [`static const unsigned char ${name}[] ${section} = {`];
   for (let i = 0; i < buffer.length; i += 12) {
     const chunk = Array.from(buffer.subarray(i, i + 12)).map((value) => `0x${value.toString(16).padStart(2, '0')}`);
     lines.push(`  ${chunk.join(', ')}${i + 12 < buffer.length ? ',' : ''}`);
@@ -2181,7 +2194,8 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
             })
           : emitDataRef(`${ident}_map`, map, bankAllocator, { allowBanking: generationOptions.allowBanking }));
     const cellMapName = `${ident}_cellmap`;
-    const cellMapLines = isSprite ? bufferToCArray(cellMapName, cellMap) : [];
+    const cellMapSection = generationOptions.targetsCd ? 'PCE_EDITOR_CD_REF_SECTION' : 'PCE_EDITOR_RODATA_SECTION';
+    const cellMapLines = isSprite ? bufferToCArray(cellMapName, cellMap, cellMapSection) : [];
     arrayLines.push(...paletteRef.lines);
     arrayLines.push(...tilesRef.lines);
     if (isSprite) arrayLines.push(...cellMapLines);

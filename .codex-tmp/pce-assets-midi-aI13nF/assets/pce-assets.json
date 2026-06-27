@@ -1,0 +1,96 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "tune",
+      "type": "psg-song",
+      "name": "Tune",
+      "source": "assets/psg/tune.mid",
+      "options": {
+        "kind": "song",
+        "bpm": 120,
+        "speed": 6,
+        "period": 254,
+        "channels": 5,
+        "steps": 4,
+        "pattern": [
+          {
+            "step": 0,
+            "channel": 0,
+            "period": 254,
+            "volume": 24
+          },
+          {
+            "step": 0,
+            "channel": 4,
+            "period": 2,
+            "volume": 27,
+            "noise": 1
+          },
+          {
+            "step": 1,
+            "channel": 4,
+            "period": 1,
+            "volume": 0
+          },
+          {
+            "step": 3,
+            "channel": 0,
+            "period": 1,
+            "volume": 0
+          }
+        ]
+      },
+      "data": {
+        "import": {
+          "originalFileName": "tune.mid",
+          "importedAt": "2026-06-27T02:40:22.135Z",
+          "converter": "Internal MIDI -> PSG step importer",
+          "midi": {
+            "format": 0,
+            "ntracks": 1,
+            "division": 480,
+            "ppq": 480,
+            "smpteDivision": false,
+            "midiBpm": 120,
+            "tempoChanges": 1,
+            "noteCount": 2,
+            "drumNotes": 1,
+            "stolenVoices": 0,
+            "droppedNotes": 0,
+            "clampedNotes": 0,
+            "filteredVelocity": 0,
+            "ignoredDrums": 0,
+            "midiOptions": {
+              "maxToneVoices": 4,
+              "drumMode": "full",
+              "drumVolumeScale": 100,
+              "toneVolumeScale": 100,
+              "minVelocity": 0,
+              "voicePriority": "high",
+              "patternDetail": "auto"
+            },
+            "patternReductionStride": 1,
+            "framesPerStep": 7,
+            "durationSeconds": 0.25,
+            "patternCount": 4,
+            "stepCount": 4
+          },
+          "midiOptions": {
+            "maxToneVoices": 4,
+            "drumMode": "full",
+            "drumVolumeScale": 100,
+            "toneVolumeScale": 100,
+            "minVelocity": 0,
+            "voicePriority": "high",
+            "patternDetail": "auto"
+          },
+          "warnings": [
+            "MIDI のドラム (10ch) は PSG ノイズ (ch4/5) で近似しました",
+            "ピッチベンド / コントロールチェンジ / プログラムチェンジは再現されません"
+          ]
+        }
+      }
+    }
+  ]
+}

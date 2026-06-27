@@ -102,7 +102,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     threshold: 32,
     xOffset: 0,
     yOffset: 0,
-    tileBase: 712,
+    tileBase: 540,
     previewText: '256がめんのテストです\n17もじx4ぎょうです\nくろいよはくをのこします',
   };
 
@@ -114,7 +114,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       threshold: clamp(form.elements.threshold.value, 1, 254, 32),
       xOffset: clamp(form.elements.xOffset.value, -8, 8, 0),
       yOffset: clamp(form.elements.yOffset.value, -8, 8, 0),
-      tileBase: clamp(form.elements.tileBase.value, 0, 2047, 712),
+      tileBase: clamp(form.elements.tileBase.value, 0, 2047, 540),
       previewText: form.elements.previewText.value,
     };
   }
@@ -126,7 +126,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     form.elements.threshold.value = settings.threshold ?? 32;
     form.elements.xOffset.value = settings.xOffset ?? 0;
     form.elements.yOffset.value = settings.yOffset ?? 0;
-    form.elements.tileBase.value = settings.tileBase ?? 712;
+    form.elements.tileBase.value = settings.tileBase ?? 540;
     form.elements.previewText.value = settings.previewText || '';
   }
 
@@ -177,7 +177,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       <dt>renderer</dt><dd>${esc(result.renderer || '-')}</dd>
       <dt>font</dt><dd>${esc(result.fontPath || 'auto / fallback')}</dd>
       <dt>glyphs</dt><dd>${esc(glyphs.length)}</dd>
-      <dt>tile base</dt><dd>${esc(result.config?.tileBase ?? settings.tileBase ?? 712)}</dd>
+      <dt>tile base</dt><dd>${esc(result.config?.tileBase ?? settings.tileBase ?? 540)}</dd>
     `;
   }
 

@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "full_bg",
+      "type": "image",
+      "options": {
+        "width": 256,
+        "height": 224,
+        "tileBase": 64
+      },
+      "data": {
+        "generated": {
+          "width": 256,
+          "height": 224,
+          "tileCount": 896,
+          "tilesFile": "assets/generated/full_bg/tiles.bin",
+          "mapVramFile": "assets/generated/full_bg/map_vram.bin"
+        }
+      }
+    },
+    {
+      "id": "unused_full_bg",
+      "type": "image",
+      "options": {
+        "width": 256,
+        "height": 224,
+        "tileBase": 64
+      },
+      "data": {
+        "generated": {
+          "width": 256,
+          "height": 224,
+          "tileCount": 896,
+          "tilesFile": "assets/generated/full_bg/tiles.bin",
+          "mapVramFile": "assets/generated/full_bg/map_vram.bin"
+        }
+      }
+    }
+  ]
+}

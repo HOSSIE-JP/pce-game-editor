@@ -1,0 +1,30 @@
+{
+  "source": "assets/sprites/mika_sprite.png",
+  "kind": "sprite",
+  "width": 256,
+  "height": 128,
+  "tileCount": 36,
+  "paletteCount": 1,
+  "vramBytes": 4608,
+  "compression": {
+    "policy": "none",
+    "tiles": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 4608,
+      "byteLength": 0,
+      "savedBytes": 0
+    },
+    "map": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 0,
+      "byteLength": 0,
+      "savedBytes": 0
+    }
+  },
+  "warnings": [
+    "Image uses 85 PCE colors; remapped to 15 opaque color slots",
+    "Sprite sheet contains more than 64 cells; PCE SATB displays up to 64 sprites"
+  ]
+}

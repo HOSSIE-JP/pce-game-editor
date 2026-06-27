@@ -1,0 +1,102 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "marker",
+      "type": "sprite",
+      "name": "marker",
+      "source": "assets/sprites/marker.png",
+      "options": {
+        "kind": "sprite",
+        "paletteBank": 0,
+        "tileBase": 704,
+        "mapBase": 0,
+        "x": 144,
+        "y": 104,
+        "width": 16,
+        "height": 16,
+        "cellWidth": 16,
+        "cellHeight": 16,
+        "transparentIndex": 0,
+        "animations": [
+          {
+            "id": "default",
+            "name": "Default",
+            "frameWidth": 16,
+            "frameHeight": 16,
+            "firstCell": 0,
+            "frameCount": 1,
+            "frameDelay": 8,
+            "frameDelays": [
+              8
+            ],
+            "frameStrideCells": 1,
+            "loop": true
+          }
+        ]
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/marker/palette.bin",
+          "tilesFile": "assets/generated/marker/patterns.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "assets/generated/marker/cellmap.bin",
+          "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/marker/preview.json",
+          "tileCount": 1,
+          "paletteCount": 1,
+          "vramBytes": 128,
+          "warnings": [],
+          "paletteColors": [
+            "#000000",
+            "#ff0000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 128,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "marker.png",
+          "importedAt": "2026-06-26T20:36:09.945Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    }
+  ]
+}

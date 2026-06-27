@@ -659,6 +659,27 @@ test('PCE sprite import writes VCE colors and sprite pattern words in hardware o
   assert.equal(patterns.subarray(2).every((byte) => byte === 0), true);
 });
 
+test('PCE sprite import pads tall 16px cells for VDC sprite row pitch', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-sprite-tall-16-');
+  const imported = assetManager.importImage(projectDir, {
+    sourceFileName: 'tall-marker.png',
+    convertedDataUrl: makeSinglePixelPngDataUrl(16, 64, { x: 0, y: 16, rgba: [255, 0, 0, 255] }),
+    kind: 'sprite',
+    id: 'tall_marker',
+    cellWidth: 16,
+    cellHeight: 64,
+  });
+
+  const patterns = fs.readFileSync(path.join(projectDir, imported.asset.data.generated.tilesFile));
+
+  assert.equal(patterns.length, 1024);
+  assert.equal(imported.asset.data.generated.tileCount, 8);
+  assert.equal(patterns.subarray(128, 256).every((byte) => byte === 0), true);
+  assert.equal(patterns.readUInt16LE(256), 0x8000);
+  assert.equal(patterns.subarray(258).every((byte) => byte === 0), true);
+});
+
 test('PCE background import reserves palette color 0 for black backdrop', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-bg-backdrop-');

@@ -1,0 +1,83 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "bg",
+      "type": "image",
+      "source": "assets/images/bg.png",
+      "options": {
+        "width": 288,
+        "height": 128,
+        "tileBase": 128,
+        "mapBase": 130
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/bg/palette.bin",
+          "tilesFile": "assets/generated/bg/tiles.bin",
+          "mapFile": "assets/generated/bg/map.bin",
+          "mapVramFile": "assets/generated/bg/map_vram.bin"
+        }
+      }
+    },
+    {
+      "id": "hero",
+      "type": "sprite",
+      "source": "assets/sprites/hero.png",
+      "options": {
+        "width": 64,
+        "height": 128,
+        "cellWidth": 16,
+        "cellHeight": 16,
+        "tileBase": 880,
+        "paletteBank": 1
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/hero/palette.bin",
+          "tilesFile": "assets/generated/hero/patterns.bin"
+        }
+      }
+    },
+    {
+      "id": "voice",
+      "type": "adpcm",
+      "source": "assets/adpcm/voice.wav",
+      "options": {
+        "stream": true
+      },
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/voice/adpcm.bin"
+        }
+      }
+    },
+    {
+      "id": "ending",
+      "type": "cdda-track",
+      "source": "assets/cdda/ending.wav",
+      "options": {
+        "track": 3
+      },
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/ending/cdda.wav"
+        }
+      }
+    },
+    {
+      "id": "opening",
+      "type": "cdda-track",
+      "source": "assets/cdda/opening.wav",
+      "options": {
+        "track": 2,
+        "loop": true
+      },
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/opening/cdda.wav"
+        }
+      }
+    }
+  ]
+}

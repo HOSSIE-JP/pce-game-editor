@@ -1,0 +1,86 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "solid_bg",
+      "type": "image",
+      "name": "solid",
+      "source": "assets/images/solid_bg.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 32,
+        "height": 16,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/solid_bg/palette.bin",
+          "tilesFile": "assets/generated/solid_bg/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/solid_bg/map.bin",
+          "mapVramFile": "assets/generated/solid_bg/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/solid_bg/preview.json",
+          "tileCount": 8,
+          "paletteCount": 1,
+          "vramBytes": 384,
+          "warnings": [],
+          "paletteColors": [
+            "#000000",
+            "#0092db",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 256,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 128,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "solid.png",
+          "importedAt": "2026-06-26T19:41:43.179Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    }
+  ]
+}

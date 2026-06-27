@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "voice",
+      "type": "adpcm",
+      "source": "assets/adpcm/voice.wav",
+      "options": {
+        "sampleRate": 16000,
+        "loop": false
+      },
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/voice/adpcm.bin",
+          "sampleRate": 16000
+        }
+      }
+    }
+  ]
+}

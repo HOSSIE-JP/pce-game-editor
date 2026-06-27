@@ -20,6 +20,13 @@
 6. スプライト化けでは SATB の `x` / `y` / `pattern` / `attr`、sprite pattern VRAM、sprite palette を合わせて確認します。
 7. 修正後は Geargrafx MCP で同じフレームを再確認し、必要なら Electron Test Play でもユーザーが見る画面をキャプチャします。
 
+## Geargrafx MCP で CD-ROM2 を起動するとき
+
+- Super CD-ROM2 / CUE 起動直後に表示されるのはゲーム本体ではなく System Card 画面です。CD-ROM2 VN タイトルは、ここで RUN を押して CD boot を開始しない限り VN runtime / `main()` は動きません。RUN 前の VDC / SATB / CPU 状態をゲーム側の状態として扱わないでください。
+- MCP で進めるときは、`get_media_info` で `is_cdrom: true`、`loaded_bios: true`、`ready: true` を確認したあと、`controller_button` に `{ "player": 1, "button": "run", "action": "press_and_release" }` を送ります。
+- RUN 後に数秒の黒画面が出ても、CD data 読み込み待ちの正常な経過であることがあります。すぐハングと判断せず、数秒待って `get_screenshot` / `get_cdrom_status` / `get_huc6280_status` を見てから切り分けます。
+- `debug_reset` を使った直後は Geargrafx が paused のままになることがあります。黒画面で入力が効かない場合は `debug_get_status` の `paused` を確認し、必要なら `debug_continue` してから RUN / I / RIGHT などを送ります。
+
 ## 標準 WASM だけ ADPCM 後に進まない場合
 
 既知の切り分け結果として、Geargrafx では正常に進む Super CD-ROM2 / VN project が、標準 EmulatorJS/WASM の `mednafen_pce-wasm.data` だけ ADPCM 再生後に message input を受け付けず、同じ frame が描画され続けることがあります。この状態では emulator の frame counter は進み、`gameManager.simulateInput()` で PCE button index を直接注入しても VN script が次 command へ進みません。ADPCM command を抜いた同一 scene は同じ入力注入で進むため、単純な window focus / key mapping の不具合とは区別します。

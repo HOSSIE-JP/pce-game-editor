@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "hero",
+      "type": "sprite",
+      "source": "assets/sprites/hero.png",
+      "options": {
+        "width": 64,
+        "height": 32,
+        "cellWidth": 16,
+        "cellHeight": 16,
+        "spriteEditor": {
+          "time": "[[10,20,30,40][6,6,6,6]]"
+        },
+        "animations": [
+          {
+            "id": "default",
+            "frameWidth": 64,
+            "frameHeight": 16,
+            "firstCell": 0,
+            "frameCount": 4,
+            "frameDelay": 8,
+            "frameStrideCells": 1
+          },
+          {
+            "id": "row_1",
+            "frameWidth": 64,
+            "frameHeight": 16,
+            "firstCell": 4,
+            "frameCount": 4,
+            "frameDelay": 6,
+            "frameStrideCells": 1
+          }
+        ]
+      }
+    }
+  ]
+}

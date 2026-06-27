@@ -1,0 +1,27 @@
+{
+  "source": "assets/sprites/hero.png",
+  "kind": "sprite",
+  "width": 32,
+  "height": 32,
+  "tileCount": 4,
+  "paletteCount": 1,
+  "vramBytes": 512,
+  "compression": {
+    "policy": "none",
+    "tiles": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 512,
+      "byteLength": 0,
+      "savedBytes": 0
+    },
+    "map": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 0,
+      "byteLength": 0,
+      "savedBytes": 0
+    }
+  },
+  "warnings": []
+}

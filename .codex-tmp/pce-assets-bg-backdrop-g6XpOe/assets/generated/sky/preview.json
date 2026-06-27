@@ -1,0 +1,27 @@
+{
+  "source": "assets/images/sky.png",
+  "kind": "background",
+  "width": 8,
+  "height": 8,
+  "tileCount": 1,
+  "paletteCount": 1,
+  "vramBytes": 96,
+  "compression": {
+    "policy": "none",
+    "tiles": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 32,
+      "byteLength": 0,
+      "savedBytes": 0
+    },
+    "map": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 64,
+      "byteLength": 0,
+      "savedBytes": 0
+    }
+  },
+  "warnings": []
+}

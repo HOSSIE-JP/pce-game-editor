@@ -1,0 +1,102 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "tall_marker",
+      "type": "sprite",
+      "name": "tall-marker",
+      "source": "assets/sprites/tall_marker.png",
+      "options": {
+        "kind": "sprite",
+        "paletteBank": 0,
+        "tileBase": 704,
+        "mapBase": 0,
+        "x": 144,
+        "y": 104,
+        "width": 16,
+        "height": 64,
+        "cellWidth": 16,
+        "cellHeight": 64,
+        "transparentIndex": 0,
+        "animations": [
+          {
+            "id": "default",
+            "name": "Default",
+            "frameWidth": 16,
+            "frameHeight": 64,
+            "firstCell": 0,
+            "frameCount": 1,
+            "frameDelay": 8,
+            "frameDelays": [
+              8
+            ],
+            "frameStrideCells": 1,
+            "loop": true
+          }
+        ]
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/tall_marker/palette.bin",
+          "tilesFile": "assets/generated/tall_marker/patterns.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "assets/generated/tall_marker/cellmap.bin",
+          "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/tall_marker/preview.json",
+          "tileCount": 8,
+          "paletteCount": 1,
+          "vramBytes": 1024,
+          "warnings": [],
+          "paletteColors": [
+            "#000000",
+            "#ff0000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1024,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "tall-marker.png",
+          "importedAt": "2026-06-26T20:36:43.616Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    }
+  ]
+}

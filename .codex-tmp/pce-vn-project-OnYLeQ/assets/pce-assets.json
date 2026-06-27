@@ -1,0 +1,64 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "bg",
+      "type": "image",
+      "source": "assets/images/bg.png"
+    },
+    {
+      "id": "hero",
+      "type": "sprite",
+      "source": "assets/sprites/hero.png",
+      "options": {
+        "width": 64,
+        "height": 32,
+        "cellWidth": 16,
+        "cellHeight": 16,
+        "animations": [
+          {
+            "id": "default",
+            "frameWidth": 32,
+            "frameHeight": 32,
+            "firstCell": 0,
+            "frameCount": 1,
+            "frameDelay": 8,
+            "frameStrideCells": 2
+          },
+          {
+            "id": "mouth",
+            "frameWidth": 32,
+            "frameHeight": 32,
+            "firstCell": 2,
+            "frameCount": 2,
+            "frameDelay": 4,
+            "frameStrideCells": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "voice",
+      "type": "adpcm",
+      "source": "assets/adpcm/voice.wav",
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/voice/adpcm.bin"
+        }
+      }
+    },
+    {
+      "id": "track",
+      "type": "cdda-track",
+      "source": "assets/cdda/track.wav",
+      "options": {
+        "track": 2
+      },
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/track/cdda.wav"
+        }
+      }
+    }
+  ]
+}

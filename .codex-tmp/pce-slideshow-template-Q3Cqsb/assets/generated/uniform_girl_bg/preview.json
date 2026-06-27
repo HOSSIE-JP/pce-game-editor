@@ -1,0 +1,10 @@
+{
+  "source": "assets/images/uniform_girl_bg.png",
+  "kind": "background",
+  "width": 64,
+  "height": 64,
+  "tileCount": 63,
+  "paletteCount": 1,
+  "vramBytes": 2144,
+  "warnings": []
+}

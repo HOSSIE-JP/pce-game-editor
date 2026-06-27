@@ -1,0 +1,825 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "slide_01_seaside",
+      "type": "image",
+      "name": "Seaside Platform",
+      "source": "assets/images/slides/slide_01_seaside.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_01_seaside/palette.bin",
+          "tilesFile": "assets/generated/slide_01_seaside/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/slide_01_seaside/map.bin",
+          "mapVramFile": "assets/generated/slide_01_seaside/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/slide_01_seaside/preview.json",
+          "tileCount": 896,
+          "paletteCount": 1,
+          "vramBytes": 30464,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#002424",
+            "#6d4949",
+            "#db6d49",
+            "#ffb649",
+            "#b66d49",
+            "#ff9249",
+            "#242424",
+            "#242449",
+            "#494924",
+            "#ffdb92",
+            "#494949",
+            "#b6926d",
+            "#926d6d",
+            "#494992",
+            "#db926d"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 28672,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1792,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "slide_01_seaside.png",
+          "importedAt": "2026-05-23T00:00:00.000Z",
+          "converter": "Internal PCE image converter",
+          "regeneratedAt": "2026-06-27T02:14:23.151Z"
+        }
+      }
+    },
+    {
+      "id": "slide_02_arcade",
+      "type": "image",
+      "name": "Rainy Arcade",
+      "source": "assets/images/slides/slide_02_arcade.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_02_arcade/palette.bin",
+          "tilesFile": "assets/generated/slide_02_arcade/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/slide_02_arcade/map.bin",
+          "mapVramFile": "assets/generated/slide_02_arcade/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/slide_02_arcade/preview.json",
+          "tileCount": 896,
+          "paletteCount": 1,
+          "vramBytes": 30464,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#24246d",
+            "#242449",
+            "#492449",
+            "#000024",
+            "#926d49",
+            "#6d496d",
+            "#ffb649",
+            "#6d4949",
+            "#494992",
+            "#db6d49",
+            "#ffb66d",
+            "#000000",
+            "#9292b6",
+            "#db6d92",
+            "#dbb6b6"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 28672,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1792,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "slide_02_arcade.png",
+          "importedAt": "2026-05-23T00:00:00.000Z",
+          "converter": "Internal PCE image converter",
+          "regeneratedAt": "2026-06-27T02:14:23.172Z"
+        }
+      }
+    },
+    {
+      "id": "slide_03_music",
+      "type": "image",
+      "name": "Music Studio",
+      "source": "assets/images/slides/slide_03_music.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_03_music/palette.bin",
+          "tilesFile": "assets/generated/slide_03_music/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/slide_03_music/map.bin",
+          "mapVramFile": "assets/generated/slide_03_music/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/slide_03_music/preview.json",
+          "tileCount": 896,
+          "paletteCount": 1,
+          "vramBytes": 30464,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#242424",
+            "#000024",
+            "#dbb692",
+            "#49496d",
+            "#492449",
+            "#ffdbb6",
+            "#242449",
+            "#b6926d",
+            "#492424",
+            "#6d6d6d",
+            "#6d4949",
+            "#926d49",
+            "#92926d",
+            "#b66d6d",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 28672,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1792,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "slide_03_music.png",
+          "importedAt": "2026-05-23T00:00:00.000Z",
+          "converter": "Internal PCE image converter",
+          "regeneratedAt": "2026-06-27T02:14:23.193Z"
+        }
+      }
+    },
+    {
+      "id": "slide_04_festival",
+      "type": "image",
+      "name": "Shrine Festival",
+      "source": "assets/images/slides/slide_04_festival.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_04_festival/palette.bin",
+          "tilesFile": "assets/generated/slide_04_festival/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/slide_04_festival/map.bin",
+          "mapVramFile": "assets/generated/slide_04_festival/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/slide_04_festival/preview.json",
+          "tileCount": 896,
+          "paletteCount": 1,
+          "vramBytes": 30464,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#000024",
+            "#492424",
+            "#242424",
+            "#6d2424",
+            "#924924",
+            "#002449",
+            "#db926d",
+            "#24246d",
+            "#6d496d",
+            "#49496d",
+            "#b64924",
+            "#242449",
+            "#b69292",
+            "#926d6d",
+            "#ffb66d"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 28672,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1792,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "slide_04_festival.png",
+          "importedAt": "2026-05-23T00:00:00.000Z",
+          "converter": "Internal PCE image converter",
+          "regeneratedAt": "2026-06-27T02:14:23.212Z"
+        }
+      }
+    },
+    {
+      "id": "slide_05_cockpit",
+      "type": "image",
+      "name": "Starship Cockpit",
+      "source": "assets/images/slides/slide_05_cockpit.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_05_cockpit/palette.bin",
+          "tilesFile": "assets/generated/slide_05_cockpit/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/slide_05_cockpit/map.bin",
+          "mapVramFile": "assets/generated/slide_05_cockpit/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/slide_05_cockpit/preview.json",
+          "tileCount": 896,
+          "paletteCount": 1,
+          "vramBytes": 30464,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#242449",
+            "#002424",
+            "#000024",
+            "#242424",
+            "#492424",
+            "#b6926d",
+            "#b6dbb6",
+            "#926d49",
+            "#6d6d6d",
+            "#4992db",
+            "#6d2424",
+            "#494949",
+            "#494924",
+            "#24496d",
+            "#929292"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 28672,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1792,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "slide_05_cockpit.png",
+          "importedAt": "2026-05-23T00:00:00.000Z",
+          "converter": "Internal PCE image converter",
+          "regeneratedAt": "2026-06-27T02:14:23.230Z"
+        }
+      }
+    },
+    {
+      "id": "slideshow_bgm",
+      "type": "psg-song",
+      "name": "Slideshow PSG BGM",
+      "source": "assets/sound/slideshow_bgm.json",
+      "options": {
+        "kind": "song",
+        "bpm": 132,
+        "speed": 6,
+        "period": 512,
+        "channels": 3,
+        "steps": 32,
+        "pattern": [
+          {
+            "step": 0,
+            "channel": 0,
+            "period": 512,
+            "volume": 20
+          },
+          {
+            "step": 0,
+            "channel": 1,
+            "period": 1024,
+            "volume": 12
+          },
+          {
+            "step": 0,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 1,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 2,
+            "channel": 0,
+            "period": 406,
+            "volume": 16
+          },
+          {
+            "step": 2,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 3,
+            "channel": 1,
+            "period": 768,
+            "volume": 9
+          },
+          {
+            "step": 3,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 4,
+            "channel": 0,
+            "period": 456,
+            "volume": 20
+          },
+          {
+            "step": 4,
+            "channel": 1,
+            "period": 1024,
+            "volume": 12
+          },
+          {
+            "step": 4,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 5,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 6,
+            "channel": 0,
+            "period": 384,
+            "volume": 16
+          },
+          {
+            "step": 6,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 7,
+            "channel": 1,
+            "period": 768,
+            "volume": 9
+          },
+          {
+            "step": 7,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 8,
+            "channel": 0,
+            "period": 406,
+            "volume": 20
+          },
+          {
+            "step": 8,
+            "channel": 1,
+            "period": 912,
+            "volume": 12
+          },
+          {
+            "step": 8,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 9,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 10,
+            "channel": 0,
+            "period": 342,
+            "volume": 16
+          },
+          {
+            "step": 10,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 11,
+            "channel": 1,
+            "period": 684,
+            "volume": 9
+          },
+          {
+            "step": 11,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 12,
+            "channel": 0,
+            "period": 384,
+            "volume": 20
+          },
+          {
+            "step": 12,
+            "channel": 1,
+            "period": 912,
+            "volume": 12
+          },
+          {
+            "step": 12,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 13,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 14,
+            "channel": 0,
+            "period": 304,
+            "volume": 16
+          },
+          {
+            "step": 14,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 15,
+            "channel": 1,
+            "period": 684,
+            "volume": 9
+          },
+          {
+            "step": 15,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 16,
+            "channel": 0,
+            "period": 342,
+            "volume": 20
+          },
+          {
+            "step": 16,
+            "channel": 1,
+            "period": 812,
+            "volume": 12
+          },
+          {
+            "step": 16,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 17,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 18,
+            "channel": 0,
+            "period": 342,
+            "volume": 16
+          },
+          {
+            "step": 18,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 19,
+            "channel": 1,
+            "period": 608,
+            "volume": 9
+          },
+          {
+            "step": 19,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 20,
+            "channel": 0,
+            "period": 304,
+            "volume": 20
+          },
+          {
+            "step": 20,
+            "channel": 1,
+            "period": 812,
+            "volume": 12
+          },
+          {
+            "step": 20,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 21,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 22,
+            "channel": 0,
+            "period": 384,
+            "volume": 16
+          },
+          {
+            "step": 22,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 23,
+            "channel": 1,
+            "period": 608,
+            "volume": 9
+          },
+          {
+            "step": 23,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 24,
+            "channel": 0,
+            "period": 342,
+            "volume": 20
+          },
+          {
+            "step": 24,
+            "channel": 1,
+            "period": 768,
+            "volume": 12
+          },
+          {
+            "step": 24,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 25,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 26,
+            "channel": 0,
+            "period": 512,
+            "volume": 16
+          },
+          {
+            "step": 26,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 27,
+            "channel": 1,
+            "period": 684,
+            "volume": 9
+          },
+          {
+            "step": 27,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 28,
+            "channel": 0,
+            "period": 384,
+            "volume": 20
+          },
+          {
+            "step": 28,
+            "channel": 1,
+            "period": 768,
+            "volume": 12
+          },
+          {
+            "step": 28,
+            "channel": 2,
+            "period": 88,
+            "volume": 10
+          },
+          {
+            "step": 29,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          },
+          {
+            "step": 30,
+            "channel": 0,
+            "period": 456,
+            "volume": 16
+          },
+          {
+            "step": 30,
+            "channel": 2,
+            "period": 112,
+            "volume": 10
+          },
+          {
+            "step": 31,
+            "channel": 1,
+            "period": 684,
+            "volume": 9
+          },
+          {
+            "step": 31,
+            "channel": 2,
+            "period": 112,
+            "volume": 0
+          }
+        ]
+      }
+    }
+  ]
+}

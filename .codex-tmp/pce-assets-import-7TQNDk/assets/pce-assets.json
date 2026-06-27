@@ -1,0 +1,461 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "title",
+      "type": "image",
+      "name": "title",
+      "source": "assets/images/title.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 32,
+        "height": 16,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/title/palette.bin",
+          "tilesFile": "assets/generated/title/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/title/map.bin",
+          "mapVramFile": "assets/generated/title/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/title/preview.json",
+          "tileCount": 8,
+          "paletteCount": 1,
+          "vramBytes": 384,
+          "warnings": [],
+          "paletteColors": [
+            "#000000",
+            "#002449",
+            "#6db6db",
+            "#ffdb92",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 256,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 128,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "title.png",
+          "importedAt": "2026-06-27T02:10:28.288Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    },
+    {
+      "id": "hero",
+      "type": "sprite",
+      "name": "hero",
+      "source": "assets/sprites/hero.png",
+      "options": {
+        "kind": "sprite",
+        "paletteBank": 0,
+        "tileBase": 704,
+        "mapBase": 0,
+        "x": 144,
+        "y": 104,
+        "width": 32,
+        "height": 32,
+        "cellWidth": 32,
+        "cellHeight": 32,
+        "transparentIndex": 0,
+        "animations": [
+          {
+            "id": "default",
+            "name": "Default",
+            "frameWidth": 32,
+            "frameHeight": 32,
+            "firstCell": 0,
+            "frameCount": 1,
+            "frameDelay": 8,
+            "frameDelays": [
+              8
+            ],
+            "frameStrideCells": 1,
+            "loop": true
+          }
+        ]
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/hero/palette.bin",
+          "tilesFile": "assets/generated/hero/patterns.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "assets/generated/hero/cellmap.bin",
+          "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/hero/preview.json",
+          "tileCount": 4,
+          "paletteCount": 1,
+          "vramBytes": 512,
+          "warnings": [],
+          "paletteColors": [
+            "#000000",
+            "#002449",
+            "#6db6db",
+            "#ffdb92",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 512,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "hero.bmp",
+          "importedAt": "2026-06-27T02:10:28.295Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    },
+    {
+      "id": "tall_hero",
+      "type": "sprite",
+      "name": "tall-hero",
+      "source": "assets/sprites/tall_hero.png",
+      "options": {
+        "kind": "sprite",
+        "paletteBank": 0,
+        "tileBase": 704,
+        "mapBase": 0,
+        "x": 144,
+        "y": 104,
+        "width": 64,
+        "height": 64,
+        "cellWidth": 32,
+        "cellHeight": 64,
+        "transparentIndex": 0,
+        "animations": [
+          {
+            "id": "default",
+            "name": "Default",
+            "frameWidth": 64,
+            "frameHeight": 64,
+            "firstCell": 0,
+            "frameCount": 1,
+            "frameDelay": 8,
+            "frameDelays": [
+              8
+            ],
+            "frameStrideCells": 2,
+            "loop": true
+          }
+        ]
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/tall_hero/palette.bin",
+          "tilesFile": "assets/generated/tall_hero/patterns.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "assets/generated/tall_hero/cellmap.bin",
+          "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/tall_hero/preview.json",
+          "tileCount": 8,
+          "paletteCount": 1,
+          "vramBytes": 1024,
+          "warnings": [],
+          "paletteColors": [
+            "#000000",
+            "#002449",
+            "#6db6db",
+            "#ffdb92",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1024,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "tall-hero.png",
+          "importedAt": "2026-06-27T02:10:28.303Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    },
+    {
+      "id": "talking_hero",
+      "type": "sprite",
+      "name": "talking-hero",
+      "source": "assets/sprites/talking_hero.png",
+      "options": {
+        "kind": "sprite",
+        "paletteBank": 0,
+        "tileBase": 2040,
+        "mapBase": 0,
+        "x": 144,
+        "y": 104,
+        "width": 256,
+        "height": 128,
+        "cellWidth": 16,
+        "cellHeight": 16,
+        "transparentIndex": 0,
+        "animations": [
+          {
+            "id": "default",
+            "name": "Default",
+            "frameWidth": 256,
+            "frameHeight": 128,
+            "firstCell": 0,
+            "frameCount": 1,
+            "frameDelay": 8,
+            "frameDelays": [
+              8
+            ],
+            "frameStrideCells": 128,
+            "loop": true
+          }
+        ]
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/talking_hero/palette.bin",
+          "tilesFile": "assets/generated/talking_hero/patterns.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "assets/generated/talking_hero/cellmap.bin",
+          "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/talking_hero/preview.json",
+          "tileCount": 2,
+          "paletteCount": 1,
+          "vramBytes": 256,
+          "warnings": [
+            "Sprite sheet contains more than 64 cells; PCE SATB displays up to 64 sprites",
+            "Sprite patterns overlap the SATB VRAM area; lower tileBase or reduce sprite sheet size"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#002449",
+            "#6db6db",
+            "#ffdb92",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 256,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "talking-hero.png",
+          "importedAt": "2026-06-27T02:10:28.316Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    },
+    {
+      "id": "cover_webp",
+      "type": "image",
+      "name": "cover",
+      "source": "assets/images/cover_webp.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 16,
+        "height": 16,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/cover_webp/palette.bin",
+          "tilesFile": "assets/generated/cover_webp/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/cover_webp/map.bin",
+          "mapVramFile": "assets/generated/cover_webp/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/cover_webp/preview.json",
+          "tileCount": 4,
+          "paletteCount": 1,
+          "vramBytes": 256,
+          "warnings": [],
+          "paletteColors": [
+            "#000000",
+            "#002449",
+            "#6db6db",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 128,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 128,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "cover.webp",
+          "importedAt": "2026-06-27T02:10:28.323Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    }
+  ]
+}
