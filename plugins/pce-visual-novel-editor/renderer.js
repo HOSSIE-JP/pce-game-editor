@@ -552,6 +552,9 @@ function computeVisualState(commands = [], uptoIndex = -1, fullScreenBg = false)
           x: command.x,
           y: command.y,
           color: command.color,
+          blinkFrames: command.blinkFrames || 0,
+          blinkTimer: 0,
+          blinkOn: true,
         };
       }
     } else if (command.type === 'effect' && command.effect === 'blank') {
@@ -979,6 +982,7 @@ function previewRuntime() {
     '#pv-debug-toggle{display:inline-flex;align-items:center;gap:5px;color:#cfe0ee;cursor:pointer;user-select:none;}',
     '#pv-debug-toggle input{margin:0;}',
     '.pv-shake{animation:pv-shake .4s linear;}',
+    '.pv-hidden-layer{display:none;}',
     '@keyframes pv-shake{0%,100%{transform:none}20%{transform:translateX(-5px)}60%{transform:translateX(5px)}80%{transform:translateX(-3px)}}',
   ].join('\n');
   document.head.appendChild(style);
@@ -1021,6 +1025,9 @@ function previewRuntime() {
   let typeTimer = null;
   let waitTimer = null;
   let autoTimer = null;
+  let spriteTextBlinkRaf = 0;
+  let spriteTextBlinkPrev = 0;
+  let spriteTextBlinkAcc = 0;
   let pending = null;
   let choiceState = null;
   const audio = { cdda: null, adpcm: null };
@@ -1349,15 +1356,12 @@ function previewRuntime() {
     if (state.background && state.background.assetId && data.urls[state.background.assetId]) {
       stage.insertBefore(makeImg(state.background, 'background'), msgBox);
     }
-    Object.keys(state.sprites).map(Number).sort((a, b) => a - b).forEach((slot) => {
-      const s = state.sprites[slot];
-      if (s && s.assetId && data.urls[s.assetId]) stage.insertBefore(makeImg(s, 'sprite'), msgBox);
-    });
-    Object.keys(state.spriteTexts || {}).map(Number).sort((a, b) => a - b).forEach((slot) => {
+    Object.keys(state.spriteTexts || {}).map(Number).sort((a, b) => b - a).forEach((slot) => {
       const st = state.spriteTexts[slot];
       if (!st) return;
       const node = document.createElement('div');
       node.className = 'pv-layer';
+      if (st.blinkFrames && st.blinkOn === false) node.classList.add('pv-hidden-layer');
       node.style.position = 'absolute';
       node.style.left = (st.x || 0) + 'px';
       node.style.top = (st.y || 0) + 'px';
@@ -1367,7 +1371,43 @@ function previewRuntime() {
       node.textContent = st.text || '';
       stage.insertBefore(node, msgBox);
     });
+    Object.keys(state.sprites).map(Number).sort((a, b) => b - a).forEach((slot) => {
+      const s = state.sprites[slot];
+      if (s && s.assetId && data.urls[s.assetId]) stage.insertBefore(makeImg(s, 'sprite'), msgBox);
+    });
     sceneLabel.textContent = 'Scene: ' + (scene ? scene.id : '-');
+    scheduleSpriteTextBlink();
+  }
+
+  function hasBlinkingSpriteText() {
+    return Object.values(state.spriteTexts || {}).some((st) => st && st.blinkFrames > 0);
+  }
+  function scheduleSpriteTextBlink() {
+    if (spriteTextBlinkRaf || !hasBlinkingSpriteText()) return;
+    spriteTextBlinkPrev = performance.now ? performance.now() : Date.now();
+    spriteTextBlinkAcc = 0;
+    spriteTextBlinkRaf = requestAnimationFrame(tickSpriteTextBlink);
+  }
+  function tickSpriteTextBlink(nowValue) {
+    spriteTextBlinkRaf = 0;
+    if (!hasBlinkingSpriteText()) return;
+    const now = Number.isFinite(nowValue) ? nowValue : (performance.now ? performance.now() : Date.now());
+    spriteTextBlinkAcc += now - spriteTextBlinkPrev;
+    spriteTextBlinkPrev = now;
+    let changed = false;
+    while (spriteTextBlinkAcc >= (1000 / 60)) {
+      spriteTextBlinkAcc -= (1000 / 60);
+      Object.values(state.spriteTexts || {}).forEach((st) => {
+        if (!st || !st.blinkFrames) return;
+        st.blinkTimer = (st.blinkTimer || 0) + 1;
+        if (st.blinkTimer < st.blinkFrames) return;
+        st.blinkTimer = 0;
+        st.blinkOn = !st.blinkOn;
+        changed = true;
+      });
+    }
+    if (changed) renderStage();
+    if (!spriteTextBlinkRaf && hasBlinkingSpriteText()) spriteTextBlinkRaf = requestAnimationFrame(tickSpriteTextBlink);
   }
 
   function labelIndex(name) {
@@ -1661,7 +1701,7 @@ function previewRuntime() {
       if (t === 'spritetext') {
         if (scene.fullScreenBg) { pc += 1; continue; }
         if (c.visible === false) delete state.spriteTexts[c.slot];
-        else state.spriteTexts[c.slot] = { slot: c.slot, text: c.text, x: c.x, y: c.y, color: c.color };
+        else state.spriteTexts[c.slot] = { slot: c.slot, text: c.text, x: c.x, y: c.y, color: c.color, blinkFrames: c.blinkFrames || 0, blinkTimer: 0, blinkOn: true };
         renderStage();
         pc += 1;
         continue;
@@ -2019,30 +2059,32 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (state.background?.assetId && urls[state.background.assetId]) {
       stage.appendChild(makeStageImg(state.background, 'background', urls[state.background.assetId], command?.type === 'background'));
     }
-    Object.values(state.sprites)
-      .sort((a, b) => a.slot - b.slot)
-      .forEach((s) => {
-        if (s.assetId && urls[s.assetId]) {
-          stage.appendChild(makeStageImg(s, 'sprite', urls[s.assetId], command?.type === 'sprite' && s.slot === command.slot));
-        }
-      });
     Object.values(state.spriteTexts || {})
-      .sort((a, b) => a.slot - b.slot)
+      .sort((a, b) => b.slot - a.slot)
       .forEach((st) => {
         // Approximate the hardware-sprite overlay with positioned text. The real
         // glyphs use the generated sprite font; this is for placement feedback.
         const node = document.createElement('div');
         node.className = 'pce-vn-stage-spritetext';
+        if (st.blinkFrames) node.classList.add('is-blinking');
         node.style.position = 'absolute';
         node.style.left = `${st.x || 0}px`;
         node.style.top = `${st.y || 0}px`;
         node.style.color = st.color || '#ffffff';
+        if (st.blinkFrames) node.style.animationDuration = `${Math.max(1, Number(st.blinkFrames) || 1) / 30}s`;
         node.style.font = '16px/16px monospace';
         node.style.whiteSpace = 'pre';
         node.style.letterSpacing = '0';
         node.textContent = st.text || '';
         if (command?.type === 'spritetext' && st.slot === command.slot) node.classList.add('is-active');
         stage.appendChild(node);
+      });
+    Object.values(state.sprites)
+      .sort((a, b) => b.slot - a.slot)
+      .forEach((s) => {
+        if (s.assetId && urls[s.assetId]) {
+          stage.appendChild(makeStageImg(s, 'sprite', urls[s.assetId], command?.type === 'sprite' && s.slot === command.slot));
+        }
       });
   }
 

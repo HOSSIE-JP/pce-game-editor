@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "commands": [
+        {
+          "type": "message",
+          "text": "A"
+        }
+      ]
+    }
+  ]
+}
