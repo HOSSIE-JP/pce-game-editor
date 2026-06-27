@@ -10,6 +10,7 @@ const PCE_SCREEN_HEIGHT = 224;
 // 256x224 画面、メッセージ窓 208x64px を下部中央 (x=24,y=160) に配置。
 // 1 文字 12×12px を 12px 横ピッチで 17 文字、16px 行ピッチで 4 行。
 const MESSAGE_AREA = { x: 24, y: 160, cols: 17, rows: 4, cellW: 12, cellH: 16 };
+const MESSAGE_WAIT_GLYPH = '▼';
 const DEFAULT_CHARACTER_Y = 24;
 const COLUMN_LAYOUT_KEY = 'pce-vn-editor.columnLayout.v1';
 const SCENE_GROUP_COLLAPSE_KEY = 'pce-vn-editor.sceneGroupCollapse.v1';
@@ -372,6 +373,7 @@ function estimateScenePackBytes(scene = {}) {
 function layoutMessageLines(text) {
   const lines = [''];
   let col = 0;
+  const rowLimit = () => (lines.length === MESSAGE_AREA.rows ? MESSAGE_AREA.cols - 1 : MESSAGE_AREA.cols);
   for (const ch of String(text || '')) {
     if (ch === '\r') continue;
     if (lines.length > MESSAGE_AREA.rows) break;
@@ -383,7 +385,7 @@ function layoutMessageLines(text) {
     }
     lines[lines.length - 1] += ch;
     col += 1;
-    if (col >= MESSAGE_AREA.cols) {
+    if (col >= rowLimit()) {
       if (lines.length >= MESSAGE_AREA.rows) break;
       lines.push('');
       col = 0;
@@ -937,6 +939,7 @@ function normalizeDoc(doc, assets) {
 function previewRuntime() {
   const data = window.__PCE_VN_PREVIEW__ || { doc: { scenes: [] }, urls: {}, meta: {} };
   const settings = data.doc.settings || {};
+  const messageWaitGlyph = String(data.messageWaitGlyph || '▼').slice(0, 1) || '▼';
   const messageSpeedFrameOptions = [0, 10, 20, 30, 40, 50];
   const rawMessageSpeedFrames = Number(settings.messageSpeedFrames);
   const messageSpeedFrames = Number.isFinite(rawMessageSpeedFrames)
@@ -964,6 +967,7 @@ function previewRuntime() {
     '#pv-msg{position:absolute;left:' + MSG.x + 'px;top:' + MSG.y + 'px;width:' + (MSG.cols * MSG.cellW) + 'px;height:' + (MSG.rows * MSG.cellH) + 'px;display:flex;flex-direction:column;}',
     '.pv-row{height:' + MSG.cellH + 'px;display:flex;}',
     '.pv-cell{width:' + MSG.cellW + 'px;height:' + MSG.cellH + 'px;line-height:' + MSG.cellH + 'px;font-size:11px;text-align:center;color:inherit;text-shadow:0 1px 2px rgba(0,0,0,.9);overflow:hidden;}',
+    '.pv-wait-cursor{animation:pv-wait-cursor 1s steps(1,end) infinite;}',
     '#pv-msg.pv-hidden,#pv-choice.pv-hidden{display:none;}',
     '#pv-effect{position:absolute;inset:0;z-index:20;pointer-events:none;opacity:0;background:#fff;}',
     '#pv-choice{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;gap:6px;min-width:140px;}',
@@ -983,6 +987,7 @@ function previewRuntime() {
     '#pv-debug-toggle input{margin:0;}',
     '.pv-shake{animation:pv-shake .4s linear;}',
     '.pv-hidden-layer{display:none;}',
+    '@keyframes pv-wait-cursor{0%,49.999%{opacity:1}50%,100%{opacity:0}}',
     '@keyframes pv-shake{0%,100%{transform:none}20%{transform:translateX(-5px)}60%{transform:translateX(5px)}80%{transform:translateX(-3px)}}',
   ].join('\n');
   document.head.appendChild(style);
@@ -1541,6 +1546,7 @@ function previewRuntime() {
     const lines = [''];
     let col = 0;
     const src = String(text || '');
+    const rowLimit = () => (lines.length === MSG.rows ? MSG.cols - 1 : MSG.cols);
     for (let i = 0; i < src.length; i += 1) {
       const ch = src[i];
       if (ch === '\r') continue;
@@ -1553,7 +1559,7 @@ function previewRuntime() {
       }
       lines[lines.length - 1] += ch;
       col += 1;
-      if (col >= MSG.cols) {
+      if (col >= rowLimit()) {
         if (lines.length >= MSG.rows) break;
         lines.push('');
         col = 0;
@@ -1565,7 +1571,7 @@ function previewRuntime() {
     const color = String((c && c.textColor) || '').trim();
     return /^#[0-9a-f]{6}$/i.test(color) ? color : '#fff';
   }
-  function paintMsg(text, color) {
+  function paintMsg(text, color, waitCursor = false) {
     const lines = layoutLines(text);
     msgBox.style.color = color || '#fff';
     msgBox.innerHTML = '';
@@ -1578,6 +1584,17 @@ function previewRuntime() {
         cell.className = 'pv-cell';
         cell.textContent = line[c];
         row.appendChild(cell);
+      }
+      if (waitCursor && r === MSG.rows - 1) {
+        while (row.children.length < MSG.cols - 1) {
+          const spacer = document.createElement('span');
+          spacer.className = 'pv-cell';
+          row.appendChild(spacer);
+        }
+        const cursor = document.createElement('span');
+        cursor.className = 'pv-cell pv-wait-cursor';
+        cursor.textContent = messageWaitGlyph;
+        row.appendChild(cursor);
       }
       msgBox.appendChild(row);
     }
@@ -1613,9 +1630,12 @@ function previewRuntime() {
     if (c.voiceAssetId) playAudio('adpcm', c.voiceAssetId, false);
     function next() { clearTimers(); pending = null; run(); }
     function complete() {
+      if (done) return;
       done = true;
-      paintMsg(full, color);
+      shownBody = parts.body.length;
       if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
+      if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+      paintMsg(full, color, messageAdvanceMode === 'button');
       if (messageAdvanceMode === 'auto') autoTimer = setTimeout(next, messageAutoWaitFrames * 1000 / 60);
     }
     pending = function () { if (!done) complete(); else { if (c.voiceAssetId) stopAudio('adpcm'); next(); } };
@@ -1626,6 +1646,7 @@ function previewRuntime() {
     const voiceSpeed = voiceFrames && bodyDrawable ? Math.max(1, Math.ceil(voiceFrames / bodyDrawable)) * 1000 / 60 : 0;
     const speed = voiceSpeed || (messageSpeedFrames * 1000 / 60);
     function revealNextBodyGlyph() {
+      if (done) return;
       while (shownBody < parts.body.length) {
         const ch = parts.body[shownBody];
         shownBody += 1;
@@ -2128,7 +2149,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     return block;
   }
 
-  function paintMessageOverlay(overlay, text) {
+  function paintMessageOverlay(overlay, text, waitCursor = false) {
     const lines = layoutMessageLines(text);
     overlay.innerHTML = '';
     for (let r = 0; r < MESSAGE_AREA.rows; r += 1) {
@@ -2141,6 +2162,17 @@ export function activatePlugin({ root, api, registerCapability }) {
         cell.textContent = line[c];
         row.appendChild(cell);
       }
+      if (waitCursor && r === MESSAGE_AREA.rows - 1) {
+        while (row.children.length < MESSAGE_AREA.cols - 1) {
+          const spacer = document.createElement('span');
+          spacer.className = 'pce-vn-msg-cell';
+          row.appendChild(spacer);
+        }
+        const cursor = document.createElement('span');
+        cursor.className = 'pce-vn-msg-cell pce-vn-msg-wait-cursor';
+        cursor.textContent = MESSAGE_WAIT_GLYPH;
+        row.appendChild(cursor);
+      }
       overlay.appendChild(row);
     }
   }
@@ -2151,7 +2183,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (!overlay) return;
     const parts = messageParts(command);
     const full = parts.full;
-    paintMessageOverlay(overlay, full);
+    paintMessageOverlay(overlay, full, true);
     const play = () => {
       if (token !== previewToken) return;
       stopMessagePreview();
@@ -2164,7 +2196,7 @@ export function activatePlugin({ root, api, registerCapability }) {
         ? Math.max(1, (adpcmSeconds * 1000) / bodyDrawable)
         : systemSettings().messageSpeedFrames * 1000 / 60;
       if (speed <= 0 || !parts.body) {
-        paintMessageOverlay(overlay, full);
+        paintMessageOverlay(overlay, full, true);
       } else {
         let shownBody = 0;
         const revealNextBodyGlyph = () => {
@@ -2175,9 +2207,12 @@ export function activatePlugin({ root, api, registerCapability }) {
             if (ch !== '\r' && ch !== '\n') break;
           }
           paintMessageOverlay(overlay, parts.prefix + parts.body.slice(0, shownBody));
-          if (shownBody >= parts.body.length && messagePreviewTimer) {
-            clearInterval(messagePreviewTimer);
-            messagePreviewTimer = null;
+          if (shownBody >= parts.body.length) {
+            if (messagePreviewTimer) {
+              clearInterval(messagePreviewTimer);
+              messagePreviewTimer = null;
+            }
+            paintMessageOverlay(overlay, full, true);
           }
         };
         paintMessageOverlay(overlay, parts.prefix);
@@ -3343,6 +3378,7 @@ export function activatePlugin({ root, api, registerCapability }) {
         meta,
         screen: { w: PCE_SCREEN_WIDTH, h: PCE_SCREEN_HEIGHT },
         message: MESSAGE_AREA,
+        messageWaitGlyph: MESSAGE_WAIT_GLYPH,
       };
       const win = window.open('', `pce-vn-preview-${selectedId}`, 'width=720,height=560');
       if (!win) {

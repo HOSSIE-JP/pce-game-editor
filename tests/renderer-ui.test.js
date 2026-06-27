@@ -439,6 +439,28 @@ test('PCE visual novel editor keeps scene deletion in the scene list', () => {
   assert.match(renderer, /function deleteScene\(sceneId = selectedId\)/);
 });
 
+test('PCE visual novel preview message skip completes the typewriter page', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+  const previewRuntimeStart = renderer.indexOf('function previewRuntime()');
+  const buildPreviewHtmlStart = renderer.indexOf('function buildPreviewHtml(payload)');
+  const showMessageStart = renderer.indexOf('function showMessage(c)');
+  const showChoiceStart = renderer.indexOf('function showChoice(c)');
+  assert.notEqual(previewRuntimeStart, -1);
+  assert.notEqual(buildPreviewHtmlStart, -1);
+  assert.notEqual(showMessageStart, -1);
+  assert.notEqual(showChoiceStart, -1);
+  const previewRuntimeSource = renderer.slice(previewRuntimeStart, buildPreviewHtmlStart);
+  const showMessageSource = renderer.slice(showMessageStart, showChoiceStart);
+
+  assert.match(previewRuntimeSource, /const messageWaitGlyph = String\(data\.messageWaitGlyph \|\| '▼'\)/);
+  assert.match(previewRuntimeSource, /cursor\.textContent = messageWaitGlyph;/);
+  assert.match(showMessageSource, /function complete\(\) \{\n\s+if \(done\) return;\n\s+done = true;\n\s+shownBody = parts\.body\.length;/);
+  assert.match(showMessageSource, /if \(typeTimer\) \{ clearInterval\(typeTimer\); typeTimer = null; \}/);
+  assert.match(showMessageSource, /paintMsg\(full, color, messageAdvanceMode === 'button'\);/);
+  assert.match(showMessageSource, /function revealNextBodyGlyph\(\) \{\n\s+if \(done\) return;/);
+  assert.match(showMessageSource, /pending = function \(\) \{ if \(!done\) complete\(\); else \{ if \(c\.voiceAssetId\) stopAudio\('adpcm'\); next\(\); \} \};/);
+});
+
 test('PCE visual novel editor exposes resizable panes, command palette, detail editor, and drag ordering', () => {
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'style.css'), 'utf-8');

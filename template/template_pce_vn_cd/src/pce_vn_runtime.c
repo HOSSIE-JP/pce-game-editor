@@ -81,6 +81,9 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_TEXT_Y 20u
 #define VN_TEXT_COLS 17u
 #define VN_TEXT_ROWS 4u
+#define VN_WAIT_CURSOR_COL (VN_TEXT_COLS - 1u)
+#define VN_WAIT_CURSOR_ROW (VN_TEXT_ROWS - 1u)
+#define VN_WAIT_CURSOR_BLINK_FRAMES 30u
 #define VN_GLYPH_W 12u
 #define VN_GLYPH_H 12u
 /* Vertical pad to center a 12px glyph inside the 16px (2-tile) line band. */
@@ -227,6 +230,7 @@ static uint8_t message_col = 0;
 static uint8_t message_row = 0;
 static uint8_t message_complete = 0;
 static uint8_t message_auto_wait = 0;
+static uint8_t message_wait_indicator_state = 0;
 /* Effective per-character reveal frames for the active message (after ADPCM sync). */
 static uint8_t message_text_speed = 0;
 static pce_vn_message_t active_message_state __attribute__((section(".bss")));
@@ -1923,6 +1927,21 @@ static void VN_BANKED_CODE2 clear_window_tile_pixels(void)
     composer_row = 0xffu;
 }
 
+static void VN_BANKED_CODE map_message_wait_indicator_cell(uint8_t blank)
+{
+    uint8_t sub;
+    const uint8_t tc0 = (uint8_t)(((uint16_t)VN_WAIT_CURSOR_COL * VN_GLYPH_W) >> 3);
+    for (sub = 0u; sub < 2u; sub++)
+    {
+        const uint16_t strip_tile = (uint16_t)(VN_MSG_STRIP_TILE_BASE
+            + ((uint16_t)(((VN_WAIT_CURSOR_ROW * 2u) + sub) * VN_MSG_TILE_COLS)) + tc0);
+        msg_bat_row[0] = ui_tile(blank ? PCE_VN_BLANK_TILE : strip_tile);
+        msg_bat_row[1] = ui_tile(blank ? PCE_VN_BLANK_TILE : (uint16_t)(strip_tile + 1u));
+        write_map_words((uint16_t)(((VN_TEXT_Y + (VN_WAIT_CURSOR_ROW * 2u) + sub) * VN_MAP_WIDTH) + VN_TEXT_X + tc0),
+            msg_bat_row, 2u);
+    }
+}
+
 /* Draw a 12x12 glyph at logical column `col` of text `row`. The up-to-two affected
    tile columns (x two tile rows) are each rebuilt from the current glyph plus the
    previous glyph (which may share the left tile), then written once — no VRAM
@@ -2056,6 +2075,7 @@ static void VN_OVERLAY_CODE draw_message_glyph_at(uint16_t glyph, uint8_t col, u
 #define VN_MESSAGE_ENTRY_COMPLETE 0u
 #define VN_MESSAGE_ENTRY_NEWLINE 1u
 #define VN_MESSAGE_ENTRY_DRAWABLE 2u
+#define VN_MESSAGE_ROW_COL_LIMIT(row) ((row) == VN_WAIT_CURSOR_ROW ? VN_WAIT_CURSOR_COL : VN_TEXT_COLS)
 
 static uint8_t VN_OVERLAY_CODE draw_message_next_entry(const pce_vn_message_t *message)
 {
@@ -2076,7 +2096,7 @@ static uint8_t VN_OVERLAY_CODE draw_message_next_entry(const pce_vn_message_t *m
     }
     draw_message_glyph_at(glyph, message_col, message_row);
     message_col++;
-    if (message_col >= VN_TEXT_COLS)
+    if (message_col >= VN_MESSAGE_ROW_COL_LIMIT(message_row))
     {
         message_col = 0u;
         message_row++;
@@ -2135,7 +2155,7 @@ static void VN_OVERLAY_CODE draw_message_text(const pce_vn_message_t *message)
         }
         draw_message_glyph_at(glyph, col, row);
         col++;
-        if (col >= VN_TEXT_COLS)
+        if (col >= VN_MESSAGE_ROW_COL_LIMIT(row))
         {
             col = 0;
             row++;
@@ -3867,6 +3887,64 @@ static void VN_RESIDENT_CODE call_overlay_draw_message_glyph_at(uint16_t glyph, 
 #endif
 }
 
+static void VN_BANKED_CODE show_message_wait_indicator(void)
+{
+    message_wait_indicator_state = 1u;
+    message_frame_timer = 0u;
+    map_message_wait_indicator_cell(0u);
+    call_overlay_draw_message_glyph_at(PCE_VN_MESSAGE_WAIT_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
+}
+
+static void VN_BANKED_CODE hide_message_wait_indicator(void)
+{
+    if (message_wait_indicator_state)
+    {
+        map_message_wait_indicator_cell(1u);
+        message_frame_timer = 0u;
+    }
+    message_wait_indicator_state = 0u;
+}
+
+static void VN_BANKED_CODE refresh_message_wait_indicator(void)
+{
+    if (active_message_index < 0
+        || !message_complete
+        || active_message_state.advance_mode != PCE_VN_ADVANCE_BUTTON)
+    {
+        hide_message_wait_indicator();
+        return;
+    }
+    if (!message_wait_indicator_state) show_message_wait_indicator();
+}
+
+static void VN_BANKED_CODE tick_message_wait_indicator(void)
+{
+    if (active_message_index < 0
+        || !message_complete
+        || active_message_state.advance_mode != PCE_VN_ADVANCE_BUTTON)
+    {
+        hide_message_wait_indicator();
+        return;
+    }
+    if (!message_wait_indicator_state)
+    {
+        show_message_wait_indicator();
+        return;
+    }
+    message_frame_timer++;
+    if (message_frame_timer < VN_WAIT_CURSOR_BLINK_FRAMES) return;
+    message_frame_timer = 0u;
+    if (message_wait_indicator_state == 2u)
+    {
+        show_message_wait_indicator();
+    }
+    else
+    {
+        message_wait_indicator_state = 2u;
+        map_message_wait_indicator_cell(1u);
+    }
+}
+
 static uint8_t VN_BANKED_CODE2 begin_message_window_vram_update(void)
 {
 #if defined(__PCE_CD__)
@@ -3921,6 +3999,7 @@ static void start_message(uint8_t message_index)
         message_row = 0u;
         message_complete = 0u;
         message_auto_wait = message->auto_wait_frames;
+        message_wait_indicator_state = 0u;
         apply_message_text_color(message->text_color);
         if (message->mouth_animation_index >= 0 && mouth_slot < VN_SPRITE_SLOT_COUNT)
         {
@@ -3963,6 +4042,7 @@ static void start_message(uint8_t message_index)
             message_complete = draw_message_next_glyph_locked(message);
         }
         end_message_window_vram_update(restore_window_display);
+        refresh_message_wait_indicator();
         if (!restore_window_display && !pending_display_enable) delay_frame();
     }
 }
@@ -3975,6 +4055,7 @@ static void finish_active_message(void)
     {
         message_complete = draw_message_next_glyph_locked(&active_message_state);
     }
+    refresh_message_wait_indicator();
 }
 
 static void tick_active_message(void)
@@ -3990,6 +4071,7 @@ static void tick_active_message(void)
     message_frame_timer = 0u;
     VN_MAP_BANK130_FOR_CODE();
     message_complete = draw_message_next_glyph_locked(&active_message_state);
+    if (message_complete) refresh_message_wait_indicator();
 }
 
 static void hide_sprites_for_asset_load(void)
@@ -4464,6 +4546,7 @@ static uint8_t VN_BANKED_CODE run_commands_until_wait(void)
     uint8_t command_count;
     active_message_index = -1;
     message_complete = 1u;
+    message_wait_indicator_state = 0u;
     active_choice_index = -1;
     for (;;)
     {
@@ -4678,6 +4761,7 @@ int main(void)
                 /* Advancing off a finished message page: if its voice is still
                    playing (e.g. the reveal was skipped), end it now. */
                 if (active_message_index >= 0 && adpcm_playback_active()) stop_adpcm_voice();
+                if (active_message_index >= 0) hide_message_wait_indicator();
                 advance_story();
             }
         }
@@ -4692,12 +4776,17 @@ int main(void)
         tick_spritetext();
         if (pending_sprite_refresh) refresh_scene_sprites();
         tick_active_message();
+        tick_message_wait_indicator();
         if (active_message_index >= 0 && message_complete)
         {
             if (active_message_state.advance_mode == PCE_VN_ADVANCE_AUTO)
             {
                 if (message_auto_wait) message_auto_wait--;
-                else advance_story();
+                else
+                {
+                    hide_message_wait_indicator();
+                    advance_story();
+                }
             }
         }
         last_pad = pad;

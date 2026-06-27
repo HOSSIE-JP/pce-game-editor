@@ -23,6 +23,7 @@ const GLYPH_END_BYTE = 0xff;
 const GLYPH_NEWLINE_BYTE = 0xfe;
 const GLYPH_ESCAPE_BYTE = 0xfd;
 const GLYPH_DIRECT_MAX = 0xfc; // highest glyph index encodable as a single byte
+const MESSAGE_WAIT_GLYPH = '▼';
 // Append one glyph index to a stream: a single byte for 0..252, otherwise an
 // escape prefix plus a 16-bit little-endian index. Returns nothing; the caller
 // tracks the entry count (one per glyph/newline) for glyph_count.
@@ -1269,9 +1270,10 @@ function messageDisplayText(message) {
 }
 
 // Every distinct character that appears in messages/choices, untruncated.
-// The leading ' ' and '>' are always present (blank cell and choice cursor).
+// The leading ' ', '>', and wait marker are always present because the runtime
+// draws blank cells, choice cursors, and the blinking page-advance marker.
 function collectGlyphsRaw(doc) {
-  const glyphs = [' ', '>'];
+  const glyphs = [' ', '>', MESSAGE_WAIT_GLYPH];
   const seen = new Set(glyphs);
   (doc.scenes || []).forEach((scene) => {
     (scene.commands || []).forEach((command) => {
@@ -3150,6 +3152,7 @@ function generateVnSources(projectDir, options = {}) {
     '',
     `#define PCE_VN_FONT_TILE_BASE ${Number(fontConfig.tileBase || DEFAULT_FONT_TILE_BASE)}u`,
     `#define PCE_VN_CHOICE_CURSOR_GLYPH ${glyphIndex.get('>') ?? 0}u`,
+    `#define PCE_VN_MESSAGE_WAIT_GLYPH ${glyphIndex.get(MESSAGE_WAIT_GLYPH) ?? 0}u`,
     '#define PCE_VN_GLYPH_END 0xffffu',
     '#define PCE_VN_GLYPH_NEWLINE 0xfffeu',
     '#define PCE_VN_GLYPH_ESCAPE 0xfdu',

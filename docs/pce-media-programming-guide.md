@@ -466,7 +466,7 @@ CD-ROM2 VN runtime の `background` command は同期 command です。BG 切替
 
 `message.textColor` は本文色です。build 時に PCE 9bit GRB へ丸めた値を scene pack へ保存し、runtime は message 表示開始時に UI palette の前景色を書き換えます。エディタの VN プレビューも同じ `textColor` をメッセージ描画へ反映します。
 
-`settings.messageSpeedFrames` は全 message 共通の文字送り速度で、`0 / 10 / 20 / 30 / 40 / 50` のプリセット値へ正規化されます。`settings.messageAdvanceMode` は既定 `"button"` で、`"auto"` の場合は `settings.messageAutoWaitFrames` 経過後に次 command へ進みます。個々の `message` command の旧 `textSpeedFrames` / `advanceMode` / `autoWaitFrames` は読み込み時に破棄され、生成には使われません。`voiceAssetId` に ADPCM が指定されている場合、VN source 生成時に ADPCM の再生長から文字送り速度を自動算出し、scene pack の `text_speed_frames` に焼き込みます。runtime はゲーム中に再計算せず、この保存済み値をそのまま使います。これにより本文が最後まで表示されるタイミングと音声終了がほぼ同期します。再生長を確認できない asset の場合は同期せず `settings.messageSpeedFrames` を使います。システム設定の `messageAdvanceMode: "button"` で typewriter をボタンスキップ（即時全文表示）した後、さらにボタンで次ページへ送ると、まだ再生中の ADPCM は `stop_adpcm_voice()` で停止します。
+`settings.messageSpeedFrames` は全 message 共通の文字送り速度で、`0 / 10 / 20 / 30 / 40 / 50` のプリセット値へ正規化されます。`settings.messageAdvanceMode` は既定 `"button"` で、`"auto"` の場合は `settings.messageAutoWaitFrames` 経過後に次 command へ進みます。個々の `message` command の旧 `textSpeedFrames` / `advanceMode` / `autoWaitFrames` は読み込み時に破棄され、生成には使われません。`voiceAssetId` に ADPCM が指定されている場合、VN source 生成時に ADPCM の再生長から文字送り速度を自動算出し、scene pack の `text_speed_frames` に焼き込みます。runtime はゲーム中に再計算せず、この保存済み値をそのまま使います。これにより本文が最後まで表示されるタイミングと音声終了がほぼ同期します。再生長を確認できない asset の場合は同期せず `settings.messageSpeedFrames` を使います。システム設定の `messageAdvanceMode: "button"` で typewriter をボタンスキップ（即時全文表示）した後は、4 行目末尾の予約セルへ `▼` を点滅表示してページ送り待ちを示します（本文は 1〜3 行目 17 文字、4 行目 16 文字で折り返し）。さらにボタンで次ページへ送ると、まだ再生中の ADPCM は `stop_adpcm_voice()` で停止します。`messageAdvanceMode: "auto"` では待ちカーソルを表示しません。
 
 ### PSG 再生 command
 

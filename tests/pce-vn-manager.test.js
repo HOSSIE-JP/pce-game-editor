@@ -485,12 +485,24 @@ test('PCE VN manager encodes message newlines as line-break glyphs', () => {
   assert.equal(pack[message.glyphOffset + 1], 0xfe);
   assert.equal(pack[message.glyphOffset + message.glyphCount], 0xff);
   assert.match(header, /PCE_VN_GLYPH_NEWLINE 0xfffeu/);
+  assert.match(header, /PCE_VN_MESSAGE_WAIT_GLYPH \d+u/);
 
   const runtime = fs.readFileSync(
     path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'),
     'utf-8',
   );
   assert.match(runtime, /glyph == PCE_VN_GLYPH_NEWLINE/);
+  assert.match(runtime, /VN_WAIT_CURSOR_COL \(VN_TEXT_COLS - 1u\)/);
+  assert.match(runtime, /VN_MESSAGE_ROW_COL_LIMIT\(message_row\)/);
+  assert.match(runtime, /call_overlay_draw_message_glyph_at\(PCE_VN_MESSAGE_WAIT_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW\)/);
+  assert.match(runtime, /tick_message_wait_indicator\(\)/);
+  const hideWaitStart = runtime.indexOf('static void VN_BANKED_CODE hide_message_wait_indicator(void)');
+  const refreshWaitStart = runtime.indexOf('static void VN_BANKED_CODE refresh_message_wait_indicator(void)');
+  assert.notEqual(hideWaitStart, -1);
+  assert.notEqual(refreshWaitStart, -1);
+  const hideWaitSource = runtime.slice(hideWaitStart, refreshWaitStart);
+  assert.match(hideWaitSource, /if \(message_wait_indicator_state\)[\s\S]*message_frame_timer = 0u;[\s\S]*message_wait_indicator_state = 0u;/);
+  assert.doesNotMatch(hideWaitSource, /message_wait_indicator_state = 0u;\s*message_frame_timer = 0u;/);
 });
 
 test('PCE VN manager escape-encodes glyph indices past 252', () => {
