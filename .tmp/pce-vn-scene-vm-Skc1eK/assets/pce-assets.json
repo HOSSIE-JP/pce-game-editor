@@ -1,0 +1,102 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "bg_a",
+      "type": "image",
+      "data": {
+        "generated": {
+          "tilesFile": "assets/generated/bg_a/tiles.bin",
+          "tilesCompressedFile": "assets/generated/bg_a/tiles.rle",
+          "mapVramFile": "assets/generated/bg_a/map_vram.bin",
+          "mapVramCompressedFile": "assets/generated/bg_a/map_vram.rle",
+          "compression": {
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/bg_a/tiles.rle",
+              "rawBytes": 18432,
+              "byteLength": 64
+            },
+            "map": {
+              "codec": "rle",
+              "file": "assets/generated/bg_a/map_vram.rle",
+              "rawBytes": 2048,
+              "byteLength": 16
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "hero",
+      "type": "sprite",
+      "data": {
+        "generated": {
+          "tilesFile": "assets/generated/hero/patterns.bin",
+          "tilesCompressedFile": "assets/generated/hero/patterns.rle",
+          "compression": {
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/hero/patterns.rle",
+              "rawBytes": 4096,
+              "byteLength": 32
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "bg_b",
+      "type": "image",
+      "data": {
+        "generated": {
+          "tilesFile": "assets/generated/bg_b/tiles.bin",
+          "tilesCompressedFile": "assets/generated/bg_b/tiles.rle",
+          "mapVramFile": "assets/generated/bg_b/map_vram.bin",
+          "mapVramCompressedFile": "assets/generated/bg_b/map_vram.rle",
+          "compression": {
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/bg_b/tiles.rle",
+              "rawBytes": 18432,
+              "byteLength": 64
+            },
+            "map": {
+              "codec": "rle",
+              "file": "assets/generated/bg_b/map_vram.rle",
+              "rawBytes": 2048,
+              "byteLength": 16
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "rival",
+      "type": "sprite",
+      "data": {
+        "generated": {
+          "tilesFile": "assets/generated/rival/patterns.bin",
+          "tilesCompressedFile": "assets/generated/rival/patterns.rle",
+          "compression": {
+            "tiles": {
+              "codec": "rle",
+              "file": "assets/generated/rival/patterns.rle",
+              "rawBytes": 4096,
+              "byteLength": 32
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "voice",
+      "type": "adpcm",
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/voice/adpcm.bin"
+        }
+      }
+    }
+  ]
+}

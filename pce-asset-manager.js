@@ -2524,7 +2524,7 @@ const META_SPRITE_SLOT = 512;
 const META_ADPCM_SLOT = 32;
 const META_PSG_SLOT = 32;
 const META_CDDA_SLOT = 32;
-const META_CELL_MAP_MAX = 384; // inline cell_map cap; must match runtime VN_META_CELL_MAP_MAX
+const META_CELL_MAP_MAX = 256; // inline cell_map cap; must match runtime VN_META_CELL_MAP_MAX
 // Struct-image field offsets (packed pce_editor_*_asset_t).
 const META_BG_TILES_SIZE = 11;   // tiles.size
 const META_BG_MAP_SIZE = 20;     // map.size
@@ -2603,115 +2603,12 @@ function computeAssetMetaLayout(doc) {
   };
 }
 
-// Moving the per-asset metadata onto CD trades a fixed ~1.4KB of resident accessor
-// code (in the already-tight code banks 128/129/130) for O(1) resident bank132
-// metadata. So the CD on-demand path engages only once the resident metadata would
-// otherwise OVERFLOW bank132; below that we keep the proven resident arrays and the
-// accessors get dropped by DCE (zero code cost).
-//
-// The decision is therefore keyed off the real bank132 init-data budget, not a flat
-// asset-meta number: the same bank holds the asset cd_data_refs + sprite cell_maps
-// AND the VN-generated data (the scene-pack directory grows with the story). The
-// two large fixed runtime buffers were relocated onto the overlay's never-read tail
-// (see pce-vn-manager.js / .ram_bank132_tail), so the whole [0xc000, VN_OVERLAY_LMA)
-// region is available for this metadata.
-//
-// BANK132_INIT_BUDGET MUST track VN_OVERLAY_LMA in pce-vn-manager.js
-// (VN_OVERLAY_LMA - 0x0184c000). A safety cushion absorbs estimation slack; if the
-// estimate is still optimistic the linker reports the overflow and the budget can be
-// lowered via PCE_ASSET_META_BUDGET.
-const BANK132_INIT_BUDGET = 0x1078;          // 4216 B = VN_OVERLAY_LMA - bank132 base
-const BANK132_META_SAFETY = 512;
-const META_RESIDENT_BUDGET = BANK132_INIT_BUDGET - BANK132_META_SAFETY; // 3704 B
-// Rough per-record resident bank132 sizes; only the magnitude matters for the switch.
-const META_CD_REF_BYTES = 8;                 // pce_editor_cd_data_ref_t / pce_vn_cd_data_ref_t
-const META_SCENE_PACK_BYTES = 9;             // pce_vn_scene_pack_t directory entry
-const META_VN_BASE_BYTES = 160;              // sprite anims + variables + font/overlay refs + counts
-const META_BANK128_ACCESSOR_COST_ESTIMATE = 1536;
-const META_CATALOG_COUNT_THRESHOLD = 32;
-const META_PSG_RESIDENT_PATTERN_BUDGET = 512;
-
-// The budget is tunable via PCE_ASSET_META_BUDGET (bytes): lower it to offload
-// metadata to CD sooner, raise it to keep more resident. Read per-call so callers
-// (and tests) can force either mode deterministically. 0 forces CD on demand for
-// every CD project; a very large value pins everything resident.
-function assetMetaBudget() {
-  const env = Number(process.env.PCE_ASSET_META_BUDGET);
-  return Number.isFinite(env) && env >= 0 ? env : META_RESIDENT_BUDGET;
-}
-
-// Count VN scenes straight from the project file (no require of pce-vn-manager,
-// which would be a cycle). The scene-pack directory is resident in bank132 and is
-// usually the dominant GROWING contributor, so the on-demand decision must see it.
-function readVnSceneCount(projectDir) {
-  try {
-    const raw = JSON.parse(fs.readFileSync(path.join(projectDir, 'assets', 'pce-vn-scenes.json'), 'utf-8'));
-    return Array.isArray(raw.scenes) ? raw.scenes.length : 0;
-  } catch (_) {
-    return 0;
-  }
-}
-
-// Approximate the bytes that would sit resident in bank132 if the asset metadata
-// stays resident: asset cd_data_refs + sprite cell_maps (the bank132 portion; the
-// descriptor structs and palettes live in bank128 .rodata and are excluded) PLUS
-// the VN-generated data (scene-pack directory + a base for anims/variables/font
-// refs). When this would exceed the bank132 budget we offload the asset metadata.
-function estimateResidentBank132Bytes(projectDir, doc) {
-  const layout = computeAssetMetaLayout(doc);
-  let bytes = 0;
-  bytes += layout.bg.length * (2 * META_CD_REF_BYTES); // tiles + map cd refs
-  layout.sprite.forEach((asset) => {
-    const cellMap = readGeneratedBuffer(projectDir, asset.data.generated?.cellMapFile);
-    bytes += META_CD_REF_BYTES + cellMap.length; // patterns cd ref + inline cell_map
-  });
-  bytes += layout.adpcm.length * META_CD_REF_BYTES;
-  const sceneCount = readVnSceneCount(projectDir);
-  if (sceneCount) bytes += sceneCount * META_SCENE_PACK_BYTES + META_VN_BASE_BYTES;
-  return bytes;
-}
-
-function estimateResidentBank128Bytes(projectDir, doc) {
-  const layout = computeAssetMetaLayout(doc);
-  let bytes = 0;
-  layout.bg.forEach((asset) => {
-    const palette = readGeneratedBuffer(projectDir, asset.data.generated?.paletteFile);
-    bytes += 40 + Math.min(palette.length, 32); // descriptor + palette payload.
-  });
-  layout.sprite.forEach((asset) => {
-    const palette = readGeneratedBuffer(projectDir, asset.data.generated?.paletteFile);
-    bytes += 28 + 8 + Math.min(palette.length, 32); // descriptor + draw_meta + palette.
-  });
-  bytes += layout.adpcm.length * 28;
-  layout.psg.forEach((asset) => {
-    const patternBytes = psgPatternBytes(asset).length;
-    bytes += 16;
-    if (!psgAssetStreamsFromCd(asset, projectTargetsCd(projectDir))) bytes += patternBytes;
-  });
-  bytes += layout.cdda.length * 13;
-  bytes += 10; // five count constants after widening to unsigned int.
-  return bytes;
-}
-
-function estimateResidentPsgPatternBytes(doc) {
-  return (doc.assets || [])
-    .filter((asset) => asset.type === 'psg-song' || asset.type === 'psg-sfx')
-    .reduce((sum, asset) => (psgAssetStreamsFromCd(asset, true) ? sum : sum + psgPatternBytes(asset).length), 0);
+function projectUsesVnAssetCatalog(projectDir) {
+  return fs.existsSync(path.join(projectDir, 'assets', 'pce-vn-scenes.json'));
 }
 
 function assetMetaDecision(projectDir, doc) {
   const document = doc || readAssetDocument(projectDir);
-  if (!projectTargetsCd(projectDir)) {
-    return {
-      useCd: false,
-      reason: 'non-cd-target',
-      bank128Bytes: 0,
-      bank132Bytes: 0,
-      psgPatternBytes: 0,
-      maxTypeCount: 0,
-      budget: assetMetaBudget(),
-    };
-  }
   const layout = computeAssetMetaLayout(document);
   const counts = {
     bg: layout.bg.length,
@@ -2721,27 +2618,26 @@ function assetMetaDecision(projectDir, doc) {
     cdda: layout.cdda.length,
   };
   const maxTypeCount = Math.max(counts.bg, counts.sprite, counts.adpcm, counts.psg);
-  const bank132Bytes = estimateResidentBank132Bytes(projectDir, document);
-  const bank128Bytes = estimateResidentBank128Bytes(projectDir, document);
-  const psgPatternBytesTotal = estimateResidentPsgPatternBytes(document);
-  const budget = assetMetaBudget();
-  const pressure = Math.max(bank132Bytes, bank128Bytes, psgPatternBytesTotal);
-  if (pressure > budget) {
-    return { useCd: true, reason: `resident-metadata ${pressure}B > budget ${budget}B`, bank128Bytes, bank132Bytes, psgPatternBytes: psgPatternBytesTotal, maxTypeCount, counts, budget };
+  if (!projectTargetsCd(projectDir)) {
+    return {
+      useCd: false,
+      reason: 'non-cd-target',
+      bank128Bytes: 0,
+      bank132Bytes: 0,
+      psgPatternBytes: 0,
+      maxTypeCount,
+      counts,
+    };
   }
-  if (maxTypeCount > META_CATALOG_COUNT_THRESHOLD) {
-    return { useCd: true, reason: `asset-count ${maxTypeCount} > ${META_CATALOG_COUNT_THRESHOLD}`, bank128Bytes, bank132Bytes, psgPatternBytes: psgPatternBytesTotal, maxTypeCount, counts, budget };
+  if (!projectUsesVnAssetCatalog(projectDir)) {
+    return { useCd: false, reason: 'cd-non-vn-target', bank128Bytes: 0, bank132Bytes: 0, psgPatternBytes: 0, maxTypeCount, counts };
   }
-  if (psgPatternBytesTotal > META_PSG_RESIDENT_PATTERN_BUDGET) {
-    return { useCd: true, reason: `psg-patterns ${psgPatternBytesTotal}B > ${META_PSG_RESIDENT_PATTERN_BUDGET}B`, bank128Bytes, bank132Bytes, psgPatternBytes: psgPatternBytesTotal, maxTypeCount, counts, budget };
-  }
-  return { useCd: false, reason: 'resident-metadata-within-budget', bank128Bytes, bank132Bytes, psgPatternBytes: psgPatternBytesTotal, maxTypeCount, counts, budget };
+  return { useCd: true, reason: 'cd-vn-asset-catalog', bank128Bytes: 0, bank132Bytes: 0, psgPatternBytes: 0, maxTypeCount, counts };
 }
 
 // Decide whether this project's metadata should be streamed from CD on demand.
-// Only CD targets are eligible, and only once the resident bank132 footprint crosses
-// the budget. Pure function of the project on disk so the reservation, CD file list,
-// and source emission all reach the same answer.
+// CD-ROM2 VN always uses the catalog path; non-VN templates keep resident arrays
+// because their sample runtime reads pce_editor_*_assets[] directly.
 function assetMetaShouldUseCd(projectDir, doc) {
   return assetMetaDecision(projectDir, doc).useCd;
 }
@@ -2797,10 +2693,13 @@ function ensureAssetMetaReservation(projectDir, doc) {
   const document = doc || readAssetDocument(projectDir);
   const layout = computeAssetMetaLayout(document);
   const { absPath } = resolveUnderRoot(projectDir, ASSET_META_FILE, 'project');
-  // Resident-mode projects (small enough to keep descriptors in RAM) get no CD
-  // metadata file at all. Remove a stale one left by a previous large-mode build so
-  // it can't be picked up by collectCdDataFiles or waste an ISO sector.
+  // Non-CD / non-VN projects keep direct resident arrays. Remove a stale catalog
+  // left by an earlier VN build so it cannot waste an ISO sector.
   if (!assetMetaShouldUseCd(projectDir, document)) {
+    if (fs.existsSync(absPath)) fs.rmSync(absPath);
+    return layout;
+  }
+  if (layout.byteSize <= 0) {
     if (fs.existsSync(absPath)) fs.rmSync(absPath);
     return layout;
   }
@@ -2874,8 +2773,8 @@ function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout) {
     // (VN_META_CELL_MAP_MAX). A larger positional cell count would truncate and
     // mis-map sprite cells, so fail the build instead. Keep this in sync with the
     // runtime's VN_META_CELL_MAP_MAX.
-    if (cellMap.length > 384) {
-      throw new Error(`Sprite "${asset.id}" cell_map has ${cellMap.length} cells (> 384). Reduce the sheet's positional cell count (columns × rows).`);
+    if (cellMap.length > META_CELL_MAP_MAX) {
+      throw new Error(`Sprite "${asset.id}" cell_map has ${cellMap.length} cells (> ${META_CELL_MAP_MAX}). Reduce the sheet's positional cell count (columns × rows).`);
     }
     const patternsPayload = generatedCdPayload(projectDir, generated, 'tiles');
     const cellWidth = numeric(options.cellWidth, 16, 32, 16);
@@ -3168,9 +3067,8 @@ function generateAssetSources(projectDir, options = {}) {
   const image = sourceDoc.assets.find((asset) => asset.type === 'image');
   const sound = sourceDoc.assets.find((asset) => asset.type === 'psg-sfx' || asset.type === 'psg-song');
   const targetsCd = projectTargetsCd(projectDir);
-  // CD on-demand metadata engages only above the resident budget (see
-  // assetMetaShouldUseCd). Small CD projects keep the resident-array path used by
-  // HuCard builds, so the accessor code is DCE'd and there is no regression.
+  // CD-ROM2 VN uses catalog metadata unconditionally. HuCard and non-VN CD
+  // templates keep resident arrays because their runtime reads them directly.
   const assetMetaOnCd = assetMetaInfo.useCd;
   const rows = targetsCd ? [] : (image ? generateTextMosaicForImage(projectDir, image).slice(0, 14) : ['NO IMAGE ASSET']);
   const tonePeriod = firstPsgPeriod(sound || {});
@@ -3193,10 +3091,12 @@ function generateAssetSources(projectDir, options = {}) {
   // what keeps bank128 .rodata / bank132 cd refs O(1) in asset count.
   let metaRegionLines = [];
   if (assetMetaOnCd) {
-    const metaBuffer = buildAssetMetaBuffer(projectDir, sourceDoc, cdLayout, metaLayout);
-    const { absPath: metaAbs } = resolveUnderRoot(projectDir, ASSET_META_FILE, 'project');
-    ensureDirSync(path.dirname(metaAbs));
-    fs.writeFileSync(metaAbs, metaBuffer);
+    if (metaLayout.byteSize > 0) {
+      const metaBuffer = buildAssetMetaBuffer(projectDir, sourceDoc, cdLayout, metaLayout);
+      const { absPath: metaAbs } = resolveUnderRoot(projectDir, ASSET_META_FILE, 'project');
+      ensureDirSync(path.dirname(metaAbs));
+      fs.writeFileSync(metaAbs, metaBuffer);
+    }
     const metaEntry = cdLayout.get(normalizeRelativePath(ASSET_META_FILE));
     const metaSector = metaEntry?.sector || 0;
     const region = (offsetSectors, count) => `{ ${sectorToCInitializer(metaSector + offsetSectors)}, ${count}u }`;
@@ -3368,9 +3268,8 @@ function generateAssetSources(projectDir, options = {}) {
     '#define PCE_EDITOR_META_CDDA_END_SECTOR 5u',
     '#define PCE_EDITOR_META_CDDA_END_TIME 8u',
     '#define PCE_EDITOR_META_CDDA_PLAY_FRAMES 11u',
-    '/* 1 = descriptors stream from CD via pce_editor_*_meta (large projects);',
-    '   0 = descriptors resident in pce_editor_*_assets[] (small projects / HuCard).',
-    '   The runtime selects its accessor path on this; the unused path is DCE-dropped. */',
+    '/* 1 = descriptors stream from CD via pce_editor_*_meta (CD-ROM2 VN);',
+    '   0 = descriptors resident in pce_editor_*_assets[] (HuCard / non-VN templates). */',
     `#define PCE_EDITOR_ASSET_META_ON_CD ${assetMetaOnCd ? '1' : '0'}`,
     'extern const pce_editor_meta_region_t pce_editor_bg_meta;',
     'extern const pce_editor_meta_region_t pce_editor_sprite_meta;',
@@ -3432,9 +3331,8 @@ function generateAssetSources(projectDir, options = {}) {
     '#include "assets.h"',
     '',
     ...(assetMetaOnCd ? [] : psgGenerated.arrayLines),
-    // BG/sprite/ADPCM descriptors: resident arrays for HuCard and small CD
-    // projects, CD on-demand directory once large (records live in ASSET_META_FILE;
-    // see metaRegionLines / assetMetaOnCd).
+    // BG/sprite/ADPCM descriptors: resident arrays for HuCard / non-VN templates,
+    // catalog directory for CD-ROM2 VN (records live in ASSET_META_FILE).
     ...(assetMetaOnCd ? [] : [
       ...bgGenerated.arrayLines,
       ...spriteGenerated.arrayLines,

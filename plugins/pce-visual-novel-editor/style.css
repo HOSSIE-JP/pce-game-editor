@@ -112,6 +112,7 @@
 .pce-vn-scene-name-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
 }
@@ -132,6 +133,18 @@
 }
 
 .pce-vn-scene-name-field input {
+  min-width: 0;
+}
+
+.pce-vn-scene-id-field {
+  flex: 0 1 220px;
+}
+
+.pce-vn-scene-start-field {
+  flex: 0 1 260px;
+}
+
+.pce-vn-scene-start-field select {
   min-width: 0;
 }
 

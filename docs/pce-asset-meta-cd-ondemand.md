@@ -1,9 +1,9 @@
-# PCE-CD Asset Catalog v2
+# PCE-CD VN Asset Catalog
 
-VN プロジェクトで BG / Sprite / ADPCM / PSG / CD-DA の登録数が増えると、従来の常駐
-metadata は bank128 `.rodata` と bank132 VN data を圧迫します。Catalog v2 は、VN で実際に
-参照される asset の metadata を CD data file `assets/generated/meta/asset_meta.bin` へ移し、
-RAM 常駐量を asset 数に比例させないための形式です。
+CD-ROM2 VN build では、BG / Sprite / ADPCM / PSG / CD-DA の runtime metadata を常に
+CD data file `assets/generated/meta/asset_meta.bin` へ置きます。bank128 `.rodata` や
+bank132 VN data に asset 数ぶんの構造体配列を常駐させないため、参照 asset 数が増えても
+RAM 常駐量はほぼ一定です。
 
 CD-ROM2 VN では、BG / Sprite / ADPCM / PSG は各 512 件までを標準保証ラインにします。
 CD-DA は CD 規格の物理 track 制約があるため、track 2..99 の最大 98 本までです。数百件の
@@ -11,8 +11,9 @@ CD-DA は CD 規格の物理 track 制約があるため、track 2..99 の最大
 
 ## 対象
 
-Catalog v2 は CD-ROM2 VN build 用です。HuCard や小規模 CD project の resident mode は互換
-目的で残します。
+この asset catalog は CD-ROM2 VN build 用の現行形式です。`assets/pce-vn-scenes.json` を持つ
+CD target は常に catalog を生成します。HuCard や VN ではない CD template は別 runtime なので、
+従来の `pce_editor_*_assets[]` 配列を使いますが、これは CD-ROM2 VN の後方互換 mode ではありません。
 
 生成時は `assetIds` で絞った「VN から実際に参照される asset」だけを catalog と `cd.dataFiles`
 へ含めます。Asset 一覧に未使用素材が残っていても、runtime metadata、VRAM 予約、ISO data file
@@ -27,7 +28,7 @@ Catalog v2 は CD-ROM2 VN build 用です。HuCard や小規模 CD project の r
 | 種別 | record size | 内容 |
 |---|---:|---|
 | BG | 128B | descriptor、palette 32B、tile/map CD ref |
-| Sprite | 512B | descriptor、palette 32B、pattern CD ref、`cell_map` 最大 384 cell |
+| Sprite | 512B | descriptor、palette 32B、pattern CD ref、`cell_map` 最大 256 cell |
 | ADPCM | 32B | size/rate/address/divider/loop/stream、ADPCM CD ref |
 | PSG | 32B | song/SFX flag、period/BPM、step count、pattern count、PSG pattern CD ref |
 | CD-DA | 32B | track、loop、start/end sector、end time、play frames |
@@ -36,7 +37,7 @@ Catalog v2 は CD-ROM2 VN build 用です。HuCard や小規模 CD project の r
 `(N % (2048 / slot)) * slot` です。生成ヘッダの `PCE_EDITOR_META_*` offset と runtime の
 `_Static_assert` で record layout の drift を検出します。
 
-PSG は Catalog mode では短い SFX も含めて pattern を `assets/generated/psg/<id>.bin` に出し、
+PSG は短い SFX も含めて pattern を `assets/generated/psg/<id>.bin` に出し、
 `pce_editor_psg_*_pattern[]` を常駐生成しません。CD-DA も `pce_editor_cdda_assets[]` を出さず、
 catalog record から decode します。
 
@@ -56,23 +57,14 @@ Accessor は CD BIOS helper、MPR 復帰、`cd_transfer_scratch` を触るため
 特に ADPCM の multi-byte field は `memcpy` や構造体同士の連続 copy に戻さず、offset から
 scalar decode してください。llvm-mos が `tii` へ畳むと WRAM 高位アドレスを落とすことがあります。
 
-## 自動切替
+## Catalog 判定
 
-`assetMetaDecision()` は次の条件で Catalog mode へ切り替えます。
+`assetMetaDecision()` は CD target かつ `assets/pce-vn-scenes.json` を持つ project で
+`useCd: true` / `reason: "cd-vn-asset-catalog"` を返します。件数や見積もり budget による
+resident / catalog の自動切替はなく、環境変数による強制切替もありません。
 
-- CD target である。
-- 参照 asset 数が増え、resident metadata の bank128 見積もりが budget を超える。
-- bank132 init data 見積もりが budget を超える。
-- BG / Sprite / ADPCM / PSG のいずれかが 32 件を超える。
-- PSG resident pattern 見積もりが 512B を超える。
-
-`PCE_ASSET_META_BUDGET` で budget を上書きできます。`0` は catalog 強制に使えます。巨大値を
-指定しても、32 件超の scale 判定は残ります。大量 asset build を resident mode に戻すと
-bank overflow を再発させやすいためです。
-
-Build log には catalog mode、切替理由、種別ごとの件数、catalog size、resident 削減見積もりを
-出します。調査時は scene pack / font / overlay の制約と catalog metadata 制約を混同しないで
-ください。
+Build log には catalog 使用状態、理由、種別ごとの件数、catalog size を出します。調査時は
+scene pack / font / overlay の制約と catalog metadata 制約を混同しないでください。
 
 ## Hard Error
 
@@ -80,7 +72,7 @@ Build log には catalog mode、切替理由、種別ごとの件数、catalog s
 - CD-DA が 98 本を超える。
 - CD-DA track が 2..99 の範囲外。
 - CD-DA track が重複する。
-- Sprite `cell_map` が 384 cell を超える。
+- Sprite `cell_map` が 256 cell を超える。
 - PSG pattern が 2048 event を超える。
 - ADPCM 1 asset が `min(65535, 65536 - adpcmAddress)` bytes を超える。
 

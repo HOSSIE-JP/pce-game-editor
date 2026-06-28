@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "bg_a",
+      "type": "image",
+      "data": {
+        "generated": {
+          "tilesFile": "assets/generated/bg_a/tiles.bin",
+          "mapVramFile": "assets/generated/bg_a/map_vram.bin"
+        }
+      }
+    },
+    {
+      "id": "hero",
+      "type": "sprite",
+      "data": {
+        "generated": {
+          "tilesFile": "assets/generated/hero/patterns.bin"
+        }
+      }
+    },
+    {
+      "id": "voice",
+      "type": "adpcm",
+      "data": {
+        "generated": {
+          "outputFile": "assets/generated/voice/adpcm.bin"
+        }
+      }
+    }
+  ]
+}

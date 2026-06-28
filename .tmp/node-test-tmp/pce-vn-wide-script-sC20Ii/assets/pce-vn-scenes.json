@@ -1,0 +1,2732 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_0",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_1",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_2",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_3",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_4",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_5",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_6",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_7",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_8",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_9",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_10",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_11",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_12",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_13",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_14",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_15",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_16",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_17",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_18",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_19",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_20",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_21",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_22",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_23",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_24",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_25",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_26",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_27",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_28",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_29",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_30",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_31",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_32",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_33",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_34",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_35",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_36",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_37",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_38",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_39",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_40",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_41",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_42",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_43",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_44",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_45",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_46",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_47",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_48",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_49",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_50",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_51",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_52",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_53",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_54",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_55",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_56",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_57",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_58",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_59",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_60",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_61",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_62",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_63",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_64",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_65",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_66",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_67",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_68",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_69",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_70",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_71",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_72",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_73",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_74",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_75",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_76",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_77",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_78",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_79",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_80",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_81",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_82",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_83",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_84",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_85",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_86",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_87",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_88",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_89",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_90",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_91",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_92",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_93",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_94",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_95",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_96",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_97",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_98",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A0_99",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        }
+      ],
+      "nextSceneId": "part_1"
+    },
+    {
+      "id": "part_1",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_0",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_1",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_2",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_3",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_4",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_5",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_6",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_7",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_8",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_9",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_10",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_11",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_12",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_13",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_14",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_15",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_16",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_17",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_18",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_19",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_20",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_21",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_22",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_23",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_24",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_25",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_26",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_27",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_28",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_29",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_30",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_31",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_32",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_33",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_34",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_35",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_36",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_37",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_38",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_39",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_40",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_41",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_42",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_43",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_44",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_45",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_46",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_47",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_48",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_49",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_50",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_51",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_52",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_53",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_54",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_55",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_56",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_57",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_58",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_59",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_60",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_61",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_62",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_63",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_64",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_65",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_66",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_67",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_68",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_69",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_70",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_71",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_72",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_73",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_74",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_75",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_76",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_77",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_78",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_79",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_80",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_81",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_82",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_83",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_84",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_85",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_86",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_87",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_88",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_89",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_90",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_91",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_92",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_93",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_94",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_95",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_96",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_97",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_98",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A1_99",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        }
+      ],
+      "nextSceneId": "part_2"
+    },
+    {
+      "id": "part_2",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_0",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_1",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_2",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_3",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_4",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_5",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_6",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_7",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_8",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_9",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_10",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_11",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_12",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_13",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_14",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_15",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_16",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_17",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_18",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_19",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_20",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_21",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_22",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_23",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_24",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_25",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_26",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_27",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_28",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_29",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_30",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_31",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_32",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_33",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_34",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_35",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_36",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_37",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_38",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_39",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_40",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_41",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_42",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_43",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_44",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_45",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_46",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_47",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_48",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_49",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_50",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_51",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_52",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_53",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_54",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_55",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_56",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_57",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_58",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_59",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_60",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_61",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_62",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_63",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_64",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_65",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_66",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_67",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_68",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_69",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_70",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_71",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_72",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_73",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_74",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_75",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_76",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_77",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_78",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_79",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_80",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_81",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_82",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_83",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_84",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_85",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_86",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_87",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_88",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_89",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_90",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_91",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_92",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_93",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_94",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_95",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_96",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_97",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_98",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "A2_99",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}

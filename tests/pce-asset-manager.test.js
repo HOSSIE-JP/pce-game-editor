@@ -444,13 +444,11 @@ test('PCE ADPCM import auto-splits assets that exceed runtime-safe size', () => 
   assert.deepEqual(assetManager.collectCdDataFiles(projectDir), parts.map((part) => part.data.generated.outputFile));
 });
 
-test('PCE ADPCM streaming import keeps long samples as one CD data file', (t) => {
-  // Force CD on-demand metadata so this exercises the meta directory path.
-  process.env.PCE_ASSET_META_BUDGET = '0';
-  t.after(() => { delete process.env.PCE_ASSET_META_BUDGET; });
+test('PCE ADPCM streaming import keeps long samples as one CD data file', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-audio-stream-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({ scenes: [{ id: 's0', commands: [] }] }, null, 2));
 
   const result = assetManager.importAudio(projectDir, {
     dataUrl: makeWavDataUrl(8000, 96),
@@ -868,13 +866,11 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.match(source, /pce_editor_image_rows/);
 });
 
-test('PCE CD asset source generation streams large payloads through cd.dataFiles', (t) => {
-  // Force CD on-demand metadata so this exercises the meta directory path.
-  process.env.PCE_ASSET_META_BUDGET = '0';
-  t.after(() => { delete process.env.PCE_ASSET_META_BUDGET; });
+test('PCE CD VN asset source generation streams large payloads through cd.dataFiles', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-cd-assets-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({ scenes: [{ id: 's0', commands: [] }] }, null, 2));
   writeFile(projectDir, 'assets/generated/bg/palette.bin', Buffer.alloc(32, 0x01));
   writeFile(projectDir, 'assets/generated/bg/tiles.bin', Buffer.alloc(2048, 0x22));
   writeFile(projectDir, 'assets/generated/bg/map.bin', Buffer.alloc(1152, 0x80));
@@ -1020,13 +1016,11 @@ test('PCE CD asset source generation streams large payloads through cd.dataFiles
   assert.equal(meta.readUInt16LE(cddaBase + 43), 58); // opening play_frames
 });
 
-test('PCE CD asset source generation ships raw BG and sprite tiles (RLE removed)', (t) => {
-  // Force CD on-demand metadata so this exercises the meta directory path.
-  process.env.PCE_ASSET_META_BUDGET = '0';
-  t.after(() => { delete process.env.PCE_ASSET_META_BUDGET; });
+test('PCE CD VN asset source generation ships raw BG and sprite tiles (RLE removed)', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-cd-assets-raw-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({ scenes: [{ id: 's0', commands: [] }] }, null, 2));
   writeFile(projectDir, 'assets/generated/bg/palette.bin', Buffer.alloc(32, 0x01));
   writeFile(projectDir, 'assets/generated/bg/tiles.bin', Buffer.alloc(2048, 0x22));
   writeFile(projectDir, 'assets/generated/bg/map_vram.bin', Buffer.alloc(2048, 0x80));
@@ -1294,39 +1288,27 @@ test('PCE PSG master volume scales generated step amplitudes', () => {
   assert.match(source, /\{ 1u, 0u, 256u, 15u, 0u, 0u \}/);
 });
 
-test('PCE asset-meta CD on-demand decision keys off bank132 budget incl. VN scene-pack directory', () => {
+test('PCE CD VN asset metadata always uses the catalog path', () => {
   const assetManager = loadAssetManager();
-  const projectDir = makeTempDir('pce-assets-bank132-budget-');
+  const projectDir = makeTempDir('pce-assets-vn-catalog-');
   writeFile(projectDir, 'project.json', Buffer.from(JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' })));
   assetManager.writeAssetDocument(projectDir, { version: 1, assets: [] });
-  // 200 scenes contribute ~200*9 + 160 = ~1960 B of resident bank132 (scene-pack
-  // directory), which the bank132-budget decision must now account for even with
-  // zero registered assets — the previous asset-meta-only heuristic ignored it.
-  writeFile(projectDir, 'assets/pce-vn-scenes.json', Buffer.from(JSON.stringify({
-    scenes: Array.from({ length: 200 }, (_unused, i) => ({ id: `s${i}` })),
-  })));
-  // Default budget (~3704 B) keeps it resident; the scene-pack pressure alone is
-  // under budget after the bank132-tail reclaim freed room.
   assert.equal(assetManager.assetMetaShouldUseCd(projectDir), false);
-  // A budget below the scene-pack estimate offloads — proving the directory size
-  // (not just asset metadata) drives the decision.
-  process.env.PCE_ASSET_META_BUDGET = '1000';
-  try {
-    assert.equal(assetManager.assetMetaShouldUseCd(projectDir), true);
-  } finally {
-    delete process.env.PCE_ASSET_META_BUDGET;
-  }
+  // CD projects without a VN scene file keep the non-VN resident-array path.
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', Buffer.from(JSON.stringify({ scenes: [{ id: 's0' }] })));
+  // Once the VN scene file exists, CD-ROM2 VN always uses the catalog path.
+  assert.equal(assetManager.assetMetaShouldUseCd(projectDir), true);
+  assert.equal(assetManager.assetMetaDecision(projectDir).reason, 'cd-vn-asset-catalog');
   // Non-CD targets never offload.
   writeFile(projectDir, 'project.json', Buffer.from(JSON.stringify({ targetMedia: 'rom' })));
   assert.equal(assetManager.assetMetaShouldUseCd(projectDir), false);
 });
 
-test('PCE asset catalog v2 streams PSG and CD-DA metadata from CD', (t) => {
-  process.env.PCE_ASSET_META_BUDGET = '0';
-  t.after(() => { delete process.env.PCE_ASSET_META_BUDGET; });
+test('PCE asset catalog streams PSG and CD-DA metadata from CD', () => {
   const assetManager = loadAssetManager();
-  const projectDir = makeTempDir('pce-assets-catalog-v2-');
+  const projectDir = makeTempDir('pce-assets-catalog-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({ scenes: [{ id: 's0', commands: [] }] }, null, 2));
   writeFile(projectDir, 'assets/generated/opening/cdda.wav', makeWavBuffer(44100, 44100));
   assetManager.writeAssetDocument(projectDir, {
     version: 2,
@@ -1380,6 +1362,7 @@ test('PCE asset catalog accepts 512 BG/sprite/ADPCM/PSG assets and rejects 513',
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-catalog-512-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({ scenes: [{ id: 's0', commands: [] }] }, null, 2));
   writeFile(projectDir, 'assets/generated/bg/palette.bin', Buffer.alloc(32, 0x01));
   writeFile(projectDir, 'assets/generated/bg/tiles.bin', Buffer.alloc(128, 0x22));
   writeFile(projectDir, 'assets/generated/bg/map_vram.bin', Buffer.alloc(64, 0x80));

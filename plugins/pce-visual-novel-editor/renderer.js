@@ -234,6 +234,18 @@ function safeId(value, fallback) {
   return id || fallback;
 }
 
+function uniqueSceneId(value, existingIds = [], fallback = 'scene') {
+  const used = new Set(existingIds.filter(Boolean).map((id) => String(id)));
+  const base = safeId(value, fallback).slice(0, 32) || fallback;
+  if (!used.has(base)) return base;
+  for (let index = 2; index < 10000; index += 1) {
+    const suffix = `_${index}`;
+    const candidate = `${base.slice(0, Math.max(1, 32 - suffix.length))}${suffix}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `${base.slice(0, 24)}_${Date.now().toString(36).slice(-7)}`;
+}
+
 function normalizeSceneName(value) {
   return String(value ?? '')
     .replace(/[\r\n\t]+/g, ' ')
@@ -398,6 +410,10 @@ const VN_PACK_SWITCH_SIZE = 5;
 const VN_PACK_SWITCH_CASE_SIZE = 4;
 const VN_MAX_CHOICE_OPTIONS = 4;
 const VN_MAX_SWITCH_CASES = 16;
+const VN_VISUAL_CACHE_PAGE_BYTES = 8192;
+const VN_VISUAL_CACHE_PAGE_COUNT = 16;
+const VN_VISUAL_CACHE_TOTAL_BYTES = VN_VISUAL_CACHE_PAGE_BYTES * VN_VISUAL_CACHE_PAGE_COUNT;
+const VN_ADPCM_RAM_BYTES = 65536;
 
 // 1 シーンの scene pack バイト数を見積もる（buildScenePack と同じ加算規則）。
 function estimateScenePackBytes(scene = {}) {
@@ -499,6 +515,59 @@ function spriteAnimationMeta(asset = {}) {
     cellHeight: Number(options.cellHeight) || 0,
     animations: Array.isArray(options.animations) ? options.animations : [],
   };
+}
+
+function positiveBytes(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 0;
+}
+
+function visualRawBytes(generated = {}, slot = 'tiles') {
+  const compression = generated?.compression || {};
+  return positiveBytes(compression?.[slot]?.rawBytes);
+}
+
+function visualCachePayloadInfo(asset = {}) {
+  const generated = asset?.data?.generated || {};
+  const size = assetPixelSize(asset);
+  const parts = [];
+  const addParts = (kind, label, byteCount) => {
+    let remaining = positiveBytes(byteCount);
+    let part = 0;
+    while (remaining > 0) {
+      const bytes = Math.min(VN_VISUAL_CACHE_PAGE_BYTES, remaining);
+      parts.push({ kind, label, part, bytes });
+      remaining -= bytes;
+      part += 1;
+    }
+  };
+
+  if (asset?.type === 'image') {
+    const tileBytes = visualRawBytes(generated, 'tiles')
+      || (positiveBytes(generated.tileCount) * 32)
+      || Math.max(0, Math.ceil((size.width || PCE_SCREEN_WIDTH) / 8) * Math.ceil((size.height || PCE_SCREEN_HEIGHT) / 8) * 32);
+    const mapBytes = visualRawBytes(generated, 'map')
+      || Math.max(0, positiveBytes(generated.vramBytes) - tileBytes)
+      || (generated.mapVramFile ? 32 * Math.ceil((size.height || PCE_SCREEN_HEIGHT) / 8) * 2 : 0);
+    addParts('bgTiles', 'BG tiles', tileBytes);
+    addParts('bgMap', 'BG map', mapBytes);
+  } else if (asset?.type === 'sprite') {
+    const patternBytes = visualRawBytes(generated, 'tiles')
+      || positiveBytes(generated.vramBytes)
+      || (positiveBytes(generated.tileCount) * 128);
+    addParts('spritePatterns', 'Sprite patterns', patternBytes);
+  }
+
+  return {
+    bytes: parts.reduce((sum, part) => sum + part.bytes, 0),
+    pages: parts.length,
+    parts,
+  };
+}
+
+function adpcmRamPayloadBytes(asset = {}) {
+  const generated = asset?.data?.generated || {};
+  return positiveBytes(generated.byteLength || generated.dataSize || generated.size);
 }
 
 // スプライトシート画像から、指定アニメーションの各フレーム切り出し矩形を計算する。
@@ -1079,13 +1148,25 @@ function previewRuntime() {
     '#pv-bar{height:34px;display:flex;align-items:center;gap:12px;padding:0 12px;background:#0b1118;border-top:1px solid #1d2733;font-size:11px;color:#9fb0c0;flex:none;}',
     '#pv-bar button{font:inherit;font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #2a3a4a;background:#13202c;color:#cfe0ee;cursor:pointer;}',
     '#pv-hint{margin-left:auto;color:#6b7a88;}',
-    '#pv-debug{position:absolute;right:12px;top:12px;width:190px;max-height:calc(100% - 24px);overflow:auto;background:rgba(5,10,18,.86);border:1px solid rgba(125,160,205,.35);border-radius:6px;color:#cfe0ee;font-size:11px;line-height:1.35;box-shadow:0 8px 24px rgba(0,0,0,.35);}',
+    '#pv-debug{position:absolute;right:12px;top:12px;width:220px;max-height:calc(100% - 24px);overflow:auto;background:rgba(5,10,18,.86);border:1px solid rgba(125,160,205,.35);border-radius:6px;color:#cfe0ee;font-size:11px;line-height:1.35;box-shadow:0 8px 24px rgba(0,0,0,.35);}',
     '#pv-debug.pv-hidden{display:none;}',
+    '#pv-debug section+section{border-top:1px solid rgba(125,160,205,.22);}',
     '#pv-debug h2{margin:0;padding:7px 9px;border-bottom:1px solid rgba(125,160,205,.22);font-size:11px;color:#f3f8ff;}',
     '#pv-vars{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:7px 9px;}',
     '.pv-var-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9fb0c0;}',
     '.pv-var-value{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#ffffff;text-align:right;}',
     '.pv-var-empty{grid-column:1 / -1;color:#6b7a88;}',
+    '#pv-cache{display:grid;gap:7px;padding:7px 9px;}',
+    '.pv-cache-row{display:grid;gap:3px;}',
+    '.pv-cache-line{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;}',
+    '.pv-cache-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9fb0c0;}',
+    '.pv-cache-value{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#fff;text-align:right;white-space:nowrap;}',
+    '.pv-cache-meter{height:5px;overflow:hidden;border-radius:999px;background:rgba(125,160,205,.18);}',
+    '.pv-cache-fill{height:100%;width:0;background:#55d68b;}',
+    '.pv-cache-fill.pv-warn{background:#f6c453;}',
+    '.pv-cache-fill.pv-danger{background:#f26b6b;}',
+    '.pv-cache-detail{color:#6f8193;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.pv-cache-event{color:#cfe0ee;border-top:1px solid rgba(125,160,205,.16);padding-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
     '#pv-debug-toggle{display:inline-flex;align-items:center;gap:5px;color:#cfe0ee;cursor:pointer;user-select:none;}',
     '#pv-debug-toggle input{margin:0;}',
     '.pv-shake{animation:pv-shake .4s linear;}',
@@ -1103,9 +1184,9 @@ function previewRuntime() {
     + '<div id="pv-msg" class="pv-hidden"></div>'
     + '<div id="pv-choice" class="pv-hidden"></div>'
     + '<div id="pv-effect"></div>'
-    + '</div><aside id="pv-debug"><h2>Variables</h2><div id="pv-vars"></div></aside></div>'
+    + '</div><aside id="pv-debug"><section><h2>Variables</h2><div id="pv-vars"></div></section><section><h2>Cache</h2><div id="pv-cache"></div></section></aside></div>'
     + '<div id="pv-bar"><button id="pv-restart">最初から</button><span id="pv-scene"></span>'
-    + '<label id="pv-debug-toggle" title="変数デバッグ表示"><input id="pv-debug-vars" type="checkbox" checked /><span>Variables</span></label>'
+    + '<label id="pv-debug-toggle" title="Preview debug"><input id="pv-debug-vars" type="checkbox" checked /><span>Debug</span></label>'
     + '<span id="pv-hint">クリック / Enter で進む ・ Esc で閉じる</span></div>';
   document.body.appendChild(root);
 
@@ -1118,6 +1199,7 @@ function previewRuntime() {
   const debugBox = root.querySelector('#pv-debug');
   const debugToggle = root.querySelector('#pv-debug-vars');
   const varsBox = root.querySelector('#pv-vars');
+  const cacheBox = root.querySelector('#pv-cache');
 
   function fit() {
     const sc = Math.max(1, Math.min(stageWrap.clientWidth / SCREEN_W, stageWrap.clientHeight / SCREEN_H));
@@ -1338,6 +1420,255 @@ function previewRuntime() {
     variableNames.forEach((name) => { result[name] = s16(variableInitialValues[name]); });
     return result;
   }
+  const runtimeCache = data.runtimeCache || {};
+  const visualCachePageBytes = Math.max(1, Number(runtimeCache.visualPageBytes) || 8192);
+  const visualCachePageCount = Math.max(0, Number(runtimeCache.visualPageCount) || 0);
+  const visualCacheTotalBytes = visualCachePageBytes * visualCachePageCount;
+  const adpcmRamBytes = Math.max(0, Number(runtimeCache.adpcmRamBytes) || 65536);
+  const scenePackLimitBytes = Math.max(1, Number(runtimeCache.scenePackLimitBytes) || 4096);
+  let cacheState = null;
+
+  function resetPreviewCacheState() {
+    cacheState = {
+      visualEntries: [],
+      visualClock: 0,
+      visualEvictions: 0,
+      adpcm: null,
+      glyphInvalidated: false,
+      lastEvent: 'Cache simulator ready',
+    };
+  }
+  function htmlEsc(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[ch]));
+  }
+  function formatPreviewBytes(value) {
+    const bytes = Math.max(0, Math.round(Number(value) || 0));
+    if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    if (bytes >= 1024) return (bytes / 1024).toFixed(bytes >= 10 * 1024 ? 0 : 1) + ' KB';
+    return bytes + ' B';
+  }
+  function pctClass(used, total) {
+    if (!total) return '';
+    const pct = used / total;
+    if (pct >= 0.95) return ' pv-danger';
+    if (pct >= 0.8) return ' pv-warn';
+    return '';
+  }
+  function cacheScopeName(scope) {
+    if (scope === 'bg') return 'BG';
+    if (scope === 'sprite') return 'Sprite';
+    if (scope === 'adpcm') return 'ADPCM';
+    if (scope === 'all') return 'All';
+    return 'Visual';
+  }
+  function normalizedCacheScope(scope) {
+    return ['visual', 'bg', 'sprite', 'adpcm', 'all'].includes(scope) ? scope : 'visual';
+  }
+  function cacheEntryMatchesScope(entry, scope) {
+    const kind = entry && entry.kind;
+    if (scope === 'visual' || scope === 'all') return kind === 'bgTiles' || kind === 'bgMap' || kind === 'spritePatterns';
+    if (scope === 'bg') return kind === 'bgTiles' || kind === 'bgMap';
+    if (scope === 'sprite') return kind === 'spritePatterns';
+    return false;
+  }
+  function visualPartsForAsset(assetId, scope) {
+    const normalizedScope = normalizedCacheScope(scope);
+    const meta = data.meta[assetId] || {};
+    const parts = Array.isArray(meta.visualCacheParts) ? meta.visualCacheParts : [];
+    return parts
+      .map((part) => ({
+        kind: String(part.kind || ''),
+        label: String(part.label || part.kind || 'payload'),
+        part: Math.max(0, Number(part.part) || 0),
+        bytes: Math.max(0, Number(part.bytes) || 0),
+        assetId,
+      }))
+      .filter((part) => part.bytes > 0 && cacheEntryMatchesScope(part, normalizedScope));
+  }
+  function cacheAssetLabel(assetId) {
+    const meta = data.meta[assetId] || {};
+    return meta.name || assetId || '-';
+  }
+  function visualCacheKey(part) {
+    return [part.kind, part.assetId, part.part].join(':');
+  }
+  function touchVisualEntry(entry) {
+    if (!cacheState || !entry) return;
+    cacheState.visualClock += 1;
+    entry.lru = cacheState.visualClock;
+  }
+  function findVisualEntry(part) {
+    const key = visualCacheKey(part);
+    return cacheState.visualEntries.find((entry) => entry.key === key) || null;
+  }
+  function loadVisualCacheAsset(assetId, scope) {
+    const parts = visualPartsForAsset(assetId, scope);
+    const label = cacheAssetLabel(assetId);
+    if (!parts.length) {
+      cacheState.lastEvent = 'Load ' + cacheScopeName(scope) + ' ' + label + ': no payload metadata';
+      updateCacheDebug();
+      return;
+    }
+    let hits = 0;
+    let loaded = 0;
+    let evicted = 0;
+    parts.forEach((part) => {
+      const existing = findVisualEntry(part);
+      if (existing) {
+        hits += 1;
+        touchVisualEntry(existing);
+        return;
+      }
+      if (visualCachePageCount <= 0) return;
+      if (cacheState.visualEntries.length >= visualCachePageCount) {
+        let victimIndex = 0;
+        for (let i = 1; i < cacheState.visualEntries.length; i += 1) {
+          if ((cacheState.visualEntries[i].lru || 0) < (cacheState.visualEntries[victimIndex].lru || 0)) victimIndex = i;
+        }
+        cacheState.visualEntries.splice(victimIndex, 1);
+        cacheState.visualEvictions += 1;
+        evicted += 1;
+      }
+      const entry = {
+        key: visualCacheKey(part),
+        kind: part.kind,
+        assetId: part.assetId,
+        part: part.part,
+        bytes: part.bytes,
+        label: label + ' ' + part.label + ' #' + part.part,
+        lru: 0,
+      };
+      cacheState.visualEntries.push(entry);
+      touchVisualEntry(entry);
+      loaded += 1;
+    });
+    cacheState.lastEvent = 'Load ' + cacheScopeName(scope) + ' ' + label
+      + ': ' + loaded + ' page(s), ' + hits + ' hit' + (evicted ? ', ' + evicted + ' evict' : '');
+    updateCacheDebug();
+  }
+  function visualCacheHasAsset(assetId, scope) {
+    const parts = visualPartsForAsset(assetId, scope);
+    if (!parts.length) return { known: false, hit: false, missing: 0, total: 0 };
+    let missing = 0;
+    parts.forEach((part) => {
+      const entry = findVisualEntry(part);
+      if (entry) touchVisualEntry(entry);
+      else missing += 1;
+    });
+    return { known: true, hit: missing === 0, missing, total: parts.length };
+  }
+  function recordVisualDisplay(assetId, scope, labelPrefix) {
+    if (!assetId) return;
+    const label = cacheAssetLabel(assetId);
+    const result = visualCacheHasAsset(assetId, scope);
+    if (!result.known) {
+      cacheState.lastEvent = labelPrefix + ' ' + label + ': no cache payload metadata';
+    } else if (result.hit) {
+      cacheState.lastEvent = labelPrefix + ' ' + label + ': RAM cache hit';
+    } else {
+      cacheState.lastEvent = labelPrefix + ' ' + label + ': CD fallback (' + result.missing + '/' + result.total + ' page(s) missing)';
+    }
+    updateCacheDebug();
+  }
+  function loadAdpcmCacheAsset(assetId, labelPrefix) {
+    const meta = data.meta[assetId] || {};
+    const bytes = Math.max(0, Number(meta.adpcmBytes) || 0);
+    const label = cacheAssetLabel(assetId);
+    if (!bytes) {
+      cacheState.lastEvent = labelPrefix + ' ADPCM ' + label + ': no payload metadata';
+      updateCacheDebug();
+      return;
+    }
+    cacheState.adpcm = { assetId, bytes, label };
+    cacheState.lastEvent = labelPrefix + ' ADPCM ' + label + ': ' + formatPreviewBytes(bytes);
+    updateCacheDebug();
+  }
+  function recordAdpcmUse(assetId, labelPrefix) {
+    if (!assetId) return;
+    const label = cacheAssetLabel(assetId);
+    if (cacheState.adpcm && cacheState.adpcm.assetId === assetId) {
+      cacheState.lastEvent = labelPrefix + ' ' + label + ': ADPCM RAM hit';
+      updateCacheDebug();
+      return;
+    }
+    const meta = data.meta[assetId] || {};
+    const bytes = Math.max(0, Number(meta.adpcmBytes) || 0);
+    if (!bytes) {
+      cacheState.lastEvent = labelPrefix + ' ' + label + ': no ADPCM payload metadata';
+      updateCacheDebug();
+      return;
+    }
+    cacheState.adpcm = { assetId, bytes, label };
+    cacheState.lastEvent = labelPrefix + ' ' + label + ': CD load (' + formatPreviewBytes(bytes) + ')';
+    updateCacheDebug();
+  }
+  function clearPreviewRuntimeCache(scope) {
+    const normalizedScope = normalizedCacheScope(scope);
+    if (normalizedScope === 'visual' || normalizedScope === 'bg' || normalizedScope === 'sprite' || normalizedScope === 'all') {
+      cacheState.visualEntries = cacheState.visualEntries.filter((entry) => !cacheEntryMatchesScope(entry, normalizedScope));
+    }
+    if (normalizedScope === 'adpcm' || normalizedScope === 'all') cacheState.adpcm = null;
+    if (normalizedScope === 'all') cacheState.glyphInvalidated = true;
+    cacheState.lastEvent = 'Clear ' + cacheScopeName(normalizedScope) + ' cache';
+    updateCacheDebug();
+  }
+  function handleCacheCommand(c) {
+    const action = c.action === 'load' ? 'load' : 'clear';
+    const scope = normalizedCacheScope(c.scope);
+    if (action === 'clear') {
+      clearPreviewRuntimeCache(scope);
+      return;
+    }
+    if (scope === 'bg' || scope === 'sprite' || scope === 'visual') {
+      loadVisualCacheAsset(c.assetId, scope);
+    } else if (scope === 'adpcm') {
+      loadAdpcmCacheAsset(c.assetId, 'Load');
+    } else {
+      cacheState.lastEvent = 'Load ' + cacheScopeName(scope) + ': no preview action';
+      updateCacheDebug();
+    }
+  }
+  function meterRow(label, used, total, detail, basisUsed) {
+    const safeTotal = Math.max(1, Number(total) || 1);
+    const meterUsed = Math.max(0, Number(basisUsed == null ? used : basisUsed) || 0);
+    const width = Math.max(0, Math.min(100, (meterUsed / safeTotal) * 100));
+    return '<div class="pv-cache-row">'
+      + '<div class="pv-cache-line"><span class="pv-cache-label">' + htmlEsc(label) + '</span><span class="pv-cache-value">'
+      + htmlEsc(formatPreviewBytes(used)) + ' / ' + htmlEsc(formatPreviewBytes(total)) + '</span></div>'
+      + '<div class="pv-cache-meter"><div class="pv-cache-fill' + pctClass(meterUsed, safeTotal) + '" style="width:' + width.toFixed(1) + '%"></div></div>'
+      + '<div class="pv-cache-detail">' + htmlEsc(detail) + '</div>'
+      + '</div>';
+  }
+  function updateCacheDebug() {
+    if (!cacheBox || !cacheState) return;
+    const visualPages = cacheState.visualEntries.length;
+    const visualDataBytes = cacheState.visualEntries.reduce((sum, entry) => sum + (Number(entry.bytes) || 0), 0);
+    const visualPageBytesUsed = visualPages * visualCachePageBytes;
+    const visualFreeBytes = Math.max(0, visualCacheTotalBytes - visualPageBytesUsed);
+    const adpcmUsed = cacheState.adpcm ? cacheState.adpcm.bytes : 0;
+    const sceneBytesMap = data.scenePackBytesById || {};
+    const scenePackUsed = Math.max(0, Number(sceneBytesMap[scene?.id]) || 0);
+    const rows = [
+      meterRow('Visual RAM', visualDataBytes, visualCacheTotalBytes,
+        visualPages + '/' + visualCachePageCount + ' page(s), free ' + formatPreviewBytes(visualFreeBytes) + ', evict ' + cacheState.visualEvictions,
+        visualPageBytesUsed),
+      meterRow('ADPCM RAM', adpcmUsed, adpcmRamBytes,
+        'free ' + formatPreviewBytes(Math.max(0, adpcmRamBytes - adpcmUsed)) + (cacheState.adpcm ? ', ' + cacheState.adpcm.label : ''),
+        adpcmUsed),
+      meterRow('Scene pack', scenePackUsed, scenePackLimitBytes,
+        'free ' + formatPreviewBytes(Math.max(0, scenePackLimitBytes - scenePackUsed)),
+        scenePackUsed),
+    ];
+    if (cacheState.glyphInvalidated) rows.push('<div class="pv-cache-detail">Message glyph cache invalidated</div>');
+    rows.push('<div class="pv-cache-event" title="' + htmlEsc(cacheState.lastEvent) + '">' + htmlEsc(cacheState.lastEvent) + '</div>');
+    cacheBox.innerHTML = rows.join('');
+  }
   function updateVarDebug() {
     if (!varsBox) return;
     if (!variableNames.length) {
@@ -1536,6 +1867,7 @@ function previewRuntime() {
       hideMsg();
       hideChoice();
     }
+    updateCacheDebug();
   }
 
   function applyVar(c) {
@@ -1568,6 +1900,7 @@ function previewRuntime() {
       void playPsgPreview(c.assetId, meta.type === 'psg-song' || meta.psgOptions?.loop === true).catch(() => {});
       return;
     }
+    if (kind === 'adpcm') recordAdpcmUse(c.assetId, 'Audio');
     playAudio(kind, c.assetId, kind === 'cdda');
   }
   function scheduleRunAfter(ms) {
@@ -1730,7 +2063,10 @@ function previewRuntime() {
     let shownBody = 0;
     let done = false;
     paintMsg(parts.prefix, color);
-    if (c.voiceAssetId) playAudio('adpcm', c.voiceAssetId, false);
+    if (c.voiceAssetId) {
+      recordAdpcmUse(c.voiceAssetId, 'Message voice');
+      playAudio('adpcm', c.voiceAssetId, false);
+    }
     function next() { clearTimers(); pending = null; run(); }
     function complete() {
       if (done) return;
@@ -1813,11 +2149,14 @@ function previewRuntime() {
       }
       const c = scene.commands[pc];
       const t = c.type;
-      if (t === 'background') { pc += 1; applyBackground(c); return; }
+      if (t === 'background') { pc += 1; recordVisualDisplay(c.assetId, 'bg', 'BG'); applyBackground(c); return; }
       if (t === 'sprite') {
         if (scene.fullScreenBg) { pc += 1; continue; }
         if (c.visible === false) delete state.sprites[c.slot];
-        else state.sprites[c.slot] = { slot: c.slot, assetId: c.assetId, x: c.x, y: c.y, flipX: c.flipX, flipY: c.flipY, animationId: c.animationId };
+        else {
+          recordVisualDisplay(c.assetId, 'sprite', 'Sprite');
+          state.sprites[c.slot] = { slot: c.slot, assetId: c.assetId, x: c.x, y: c.y, flipX: c.flipX, flipY: c.flipY, animationId: c.animationId };
+        }
         renderStage();
         pc += 1;
         continue;
@@ -1833,7 +2172,7 @@ function previewRuntime() {
       if (t === 'audio') { handleAudio(c); pc += 1; continue; }
       if (t === 'variable') { applyVar(c); pc += 1; continue; }
       if (t === 'effect') { applyEffect(c); pc += 1; continue; }
-      if (t === 'cache') { pc += 1; continue; }
+      if (t === 'cache') { handleCacheCommand(c); pc += 1; continue; }
       if (t === 'label') { pc += 1; continue; }
       if (t === 'goto') { jumpLabel(c.targetLabel); continue; }
       if (t === 'if') {
@@ -1874,11 +2213,13 @@ function previewRuntime() {
     scene = scenesById[sceneId] || null;
     pc = 0;
     vars = initialVars();
+    resetPreviewCacheState();
     state = { background: null, sprites: {}, spriteTexts: {} };
     pending = null;
     choiceState = null;
     renderStage();
     updateVarDebug();
+    updateCacheDebug();
     hideMsg();
     hideChoice();
     run();
@@ -1965,6 +2306,14 @@ export function activatePlugin({ root, api, registerCapability }) {
                 <span>Name</span>
                 <input class="form-input" data-role="scene-name" placeholder="opening" />
               </label>
+              <label class="pce-vn-scene-name-field pce-vn-scene-id-field">
+                <span>ID</span>
+                <input class="form-input form-input-mono" data-role="scene-id" placeholder="opening" />
+              </label>
+              <label class="pce-vn-scene-name-field pce-vn-scene-start-field">
+                <span>Start</span>
+                <select class="form-select" data-role="scene-start"></select>
+              </label>
               <div class="pce-vn-view-switch" role="group" aria-label="スクリプト編集モード">
                 <button class="btn-sm active" type="button" data-script-mode="gui">GUI</button>
                 <button class="btn-sm" type="button" data-script-mode="json">JSON</button>
@@ -2024,6 +2373,8 @@ export function activatePlugin({ root, api, registerCapability }) {
   const sceneBudgetEl = root.querySelector('[data-role="scene-budget"]');
   const sceneFullScreenBgInput = root.querySelector('[data-role="scene-fullscreen-bg"]');
   const sceneNameInput = root.querySelector('[data-role="scene-name"]');
+  const sceneIdInput = root.querySelector('[data-role="scene-id"]');
+  const sceneStartSelect = root.querySelector('[data-role="scene-start"]');
   const scriptJsonPane = root.querySelector('[data-role="script-json-pane"]');
   const scriptJsonInput = root.querySelector('[data-role="script-json"]');
   let assets = [];
@@ -2773,6 +3124,8 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (sceneBudgetEl) sceneBudgetEl.hidden = editorMode === 'json';
     if (sceneFullScreenBgInput) sceneFullScreenBgInput.disabled = editorMode === 'json';
     if (sceneNameInput) sceneNameInput.disabled = editorMode === 'json';
+    if (sceneIdInput) sceneIdInput.disabled = editorMode === 'json';
+    if (sceneStartSelect) sceneStartSelect.disabled = editorMode === 'json';
   }
 
   function updateScriptJsonFromDoc() {
@@ -2812,7 +3165,57 @@ export function activatePlugin({ root, api, registerCapability }) {
     render();
   }
 
+  function ensureStartScene() {
+    if (!doc.scenes.length) return;
+    if (!doc.scenes.some((item) => item.id === doc.startScene)) {
+      doc.startScene = doc.scenes[0]?.id || 'opening';
+    }
+  }
+
+  function sceneStartOptions() {
+    ensureStartScene();
+    return doc.scenes.map((item) => (
+      `<option value="${esc(item.id)}" ${item.id === doc.startScene ? 'selected' : ''}>${esc(sceneOptionLabel(item))}</option>`
+    )).join('');
+  }
+
+  function updateSceneReferences(oldId, newId) {
+    if (!oldId || !newId || oldId === newId) return;
+    doc.scenes.forEach((item) => {
+      if (item.nextSceneId === oldId) item.nextSceneId = newId;
+      (item.commands || []).forEach((command) => {
+        if (command.type === 'jump' && command.sceneId === oldId) command.sceneId = newId;
+        if (command.type === 'choice') {
+          (command.choices || []).forEach((choice) => {
+            if (choice.targetSceneId === oldId) choice.targetSceneId = newId;
+          });
+        }
+      });
+    });
+    if (doc.startScene === oldId) doc.startScene = newId;
+  }
+
+  function renameSceneId(rawId) {
+    const current = scene();
+    if (!current) return;
+    const oldId = current.id;
+    const existingIds = doc.scenes.filter((item) => item !== current).map((item) => item.id);
+    const nextId = uniqueSceneId(rawId || oldId, existingIds, oldId || 'scene');
+    if (nextId === oldId) {
+      if (sceneIdInput) sceneIdInput.value = oldId;
+      return;
+    }
+    current.id = nextId;
+    selectedId = nextId;
+    updateSceneReferences(oldId, nextId);
+    errorEl.textContent = nextId === safeId(rawId, oldId).slice(0, 32)
+      ? ''
+      : `Scene ID adjusted to ${nextId}`;
+    render();
+  }
+
   function renderSceneList() {
+    ensureStartScene();
     sceneList.innerHTML = buildSceneListRows(doc.scenes, collapsedSceneGroups).map((row) => {
       if (row.type === 'group') {
         const depth = Math.min(4, Math.max(0, row.depth || 0));
@@ -2840,7 +3243,7 @@ export function activatePlugin({ root, api, registerCapability }) {
           <button type="button" data-scene-id="${esc(item.id)}" class="pce-vn-scene-select">
             <span class="pce-vn-drag-handle" aria-hidden="true">::</span>
             <span class="pce-vn-scene-label">
-              <strong>${esc(sceneLeafName(item))}${item.fullScreenBg ? '<span class="pce-vn-mode-badge">Full BG</span>' : ''}${badge}</strong>
+              <strong>${esc(sceneLeafName(item))}${item.id === doc.startScene ? '<span class="pce-vn-mode-badge">Start</span>' : ''}${item.fullScreenBg ? '<span class="pce-vn-mode-badge">Full BG</span>' : ''}${badge}</strong>
               ${idMeta}
               <span>${esc(firstMessage?.text || `${item.commands.length} commands`)}</span>
             </span>
@@ -3388,6 +3791,11 @@ export function activatePlugin({ root, api, registerCapability }) {
       sceneNameInput.value = current.name || '';
       sceneNameInput.placeholder = current.id || 'scene';
     }
+    if (sceneIdInput) {
+      sceneIdInput.value = current.id || '';
+      sceneIdInput.placeholder = current.id || 'scene';
+    }
+    if (sceneStartSelect) sceneStartSelect.innerHTML = sceneStartOptions();
     if (sceneFullScreenBgInput) sceneFullScreenBgInput.checked = Boolean(current.fullScreenBg);
     if (editorMode === 'json') {
       updateScriptJsonFromDoc();
@@ -3549,6 +3957,7 @@ export function activatePlugin({ root, api, registerCapability }) {
         if ((command.type === 'background' || command.type === 'sprite') && command.assetId) referenced.add(command.assetId);
         if (command.type === 'audio' && command.action === 'play' && command.assetId) referenced.add(command.assetId);
         if (command.type === 'message' && command.voiceAssetId) referenced.add(command.voiceAssetId);
+        if (command.type === 'cache' && command.action === 'load' && command.assetId) referenced.add(command.assetId);
       }));
       const urls = {};
       const meta = {};
@@ -3568,8 +3977,13 @@ export function activatePlugin({ root, api, registerCapability }) {
           width: size.width,
           height: size.height,
           durationSeconds: audioDurationSeconds(asset),
+          adpcmBytes: adpcmRamPayloadBytes(asset),
           loop: Boolean(asset.options?.loop),
         };
+        const visualCache = visualCachePayloadInfo(asset);
+        meta[id].visualCacheBytes = visualCache.bytes;
+        meta[id].visualCachePages = visualCache.pages;
+        meta[id].visualCacheParts = visualCache.parts;
         if (asset.type === 'sprite') {
           const anim = spriteAnimationMeta(asset);
           meta[id].cellWidth = anim.cellWidth;
@@ -3584,6 +3998,14 @@ export function activatePlugin({ root, api, registerCapability }) {
         startScene: selectedId,
         urls,
         meta,
+        runtimeCache: {
+          visualPageBytes: VN_VISUAL_CACHE_PAGE_BYTES,
+          visualPageCount: VN_VISUAL_CACHE_PAGE_COUNT,
+          visualTotalBytes: VN_VISUAL_CACHE_TOTAL_BYTES,
+          adpcmRamBytes: VN_ADPCM_RAM_BYTES,
+          scenePackLimitBytes: VN_SCENE_PACK_LIMIT,
+        },
+        scenePackBytesById: Object.fromEntries(snapshot.scenes.map((item) => [item.id, estimateScenePackBytes(item)])),
         screen: { w: PCE_SCREEN_WIDTH, h: PCE_SCREEN_HEIGHT },
         message: MESSAGE_AREA,
         messageWaitGlyph: MESSAGE_WAIT_GLYPH,
@@ -3757,6 +4179,21 @@ export function activatePlugin({ root, api, registerCapability }) {
     else delete current.name;
     sceneNameInput.value = current.name || '';
     root.querySelector('[data-role="scene-title"]').textContent = sceneDisplayName(current);
+    renderSceneList();
+  });
+
+  sceneIdInput?.addEventListener('input', () => {
+    sceneIdInput.value = safeId(sceneIdInput.value, '');
+  });
+
+  sceneIdInput?.addEventListener('change', () => {
+    commitCurrentUiToDoc();
+    renameSceneId(sceneIdInput.value);
+  });
+
+  sceneStartSelect?.addEventListener('change', () => {
+    if (!doc.scenes.some((item) => item.id === sceneStartSelect.value)) return;
+    doc.startScene = sceneStartSelect.value;
     renderSceneList();
   });
 
@@ -3963,7 +4400,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   root.querySelector('[data-action="add-scene"]').addEventListener('click', () => {
     if (editorMode === 'json' && !applyScriptJsonToDoc({ refreshText: false })) return;
     commitCurrentUiToDoc();
-    const id = safeId(`scene_${doc.scenes.length + 1}`, 'scene');
+    const id = uniqueSceneId(`scene_${doc.scenes.length + 1}`, doc.scenes.map((item) => item.id), 'scene');
     doc.scenes.push({ id, fullScreenBg: false, commands: [defaultCommand('message', assets)], nextSceneId: '' });
     selectedId = id;
     selectedCommandIndex = 0;

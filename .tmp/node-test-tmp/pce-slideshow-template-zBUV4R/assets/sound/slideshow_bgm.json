@@ -1,0 +1,392 @@
+{
+  "title": "Slideshow PSG BGM",
+  "bpm": 132,
+  "steps": 32,
+  "channels": 3,
+  "pattern": [
+    {
+      "step": 0,
+      "channel": 0,
+      "period": 512,
+      "volume": 20
+    },
+    {
+      "step": 0,
+      "channel": 1,
+      "period": 1024,
+      "volume": 12
+    },
+    {
+      "step": 0,
+      "channel": 2,
+      "period": 88,
+      "volume": 10
+    },
+    {
+      "step": 1,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 2,
+      "channel": 0,
+      "period": 406,
+      "volume": 16
+    },
+    {
+      "step": 2,
+      "channel": 2,
+      "period": 112,
+      "volume": 10
+    },
+    {
+      "step": 3,
+      "channel": 1,
+      "period": 768,
+      "volume": 9
+    },
+    {
+      "step": 3,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 4,
+      "channel": 0,
+      "period": 456,
+      "volume": 20
+    },
+    {
+      "step": 4,
+      "channel": 1,
+      "period": 1024,
+      "volume": 12
+    },
+    {
+      "step": 4,
+      "channel": 2,
+      "period": 88,
+      "volume": 10
+    },
+    {
+      "step": 5,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 6,
+      "channel": 0,
+      "period": 384,
+      "volume": 16
+    },
+    {
+      "step": 6,
+      "channel": 2,
+      "period": 112,
+      "volume": 10
+    },
+    {
+      "step": 7,
+      "channel": 1,
+      "period": 768,
+      "volume": 9
+    },
+    {
+      "step": 7,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 8,
+      "channel": 0,
+      "period": 406,
+      "volume": 20
+    },
+    {
+      "step": 8,
+      "channel": 1,
+      "period": 912,
+      "volume": 12
+    },
+    {
+      "step": 8,
+      "channel": 2,
+      "period": 88,
+      "volume": 10
+    },
+    {
+      "step": 9,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 10,
+      "channel": 0,
+      "period": 342,
+      "volume": 16
+    },
+    {
+      "step": 10,
+      "channel": 2,
+      "period": 112,
+      "volume": 10
+    },
+    {
+      "step": 11,
+      "channel": 1,
+      "period": 684,
+      "volume": 9
+    },
+    {
+      "step": 11,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 12,
+      "channel": 0,
+      "period": 384,
+      "volume": 20
+    },
+    {
+      "step": 12,
+      "channel": 1,
+      "period": 912,
+      "volume": 12
+    },
+    {
+      "step": 12,
+      "channel": 2,
+      "period": 88,
+      "volume": 10
+    },
+    {
+      "step": 13,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 14,
+      "channel": 0,
+      "period": 304,
+      "volume": 16
+    },
+    {
+      "step": 14,
+      "channel": 2,
+      "period": 112,
+      "volume": 10
+    },
+    {
+      "step": 15,
+      "channel": 1,
+      "period": 684,
+      "volume": 9
+    },
+    {
+      "step": 15,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 16,
+      "channel": 0,
+      "period": 342,
+      "volume": 20
+    },
+    {
+      "step": 16,
+      "channel": 1,
+      "period": 812,
+      "volume": 12
+    },
+    {
+      "step": 16,
+      "channel": 2,
+      "period": 88,
+      "volume": 10
+    },
+    {
+      "step": 17,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 18,
+      "channel": 0,
+      "period": 342,
+      "volume": 16
+    },
+    {
+      "step": 18,
+      "channel": 2,
+      "period": 112,
+      "volume": 10
+    },
+    {
+      "step": 19,
+      "channel": 1,
+      "period": 608,
+      "volume": 9
+    },
+    {
+      "step": 19,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 20,
+      "channel": 0,
+      "period": 304,
+      "volume": 20
+    },
+    {
+      "step": 20,
+      "channel": 1,
+      "period": 812,
+      "volume": 12
+    },
+    {
+      "step": 20,
+      "channel": 2,
+      "period": 88,
+      "volume": 10
+    },
+    {
+      "step": 21,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 22,
+      "channel": 0,
+      "period": 384,
+      "volume": 16
+    },
+    {
+      "step": 22,
+      "channel": 2,
+      "period": 112,
+      "volume": 10
+    },
+    {
+      "step": 23,
+      "channel": 1,
+      "period": 608,
+      "volume": 9
+    },
+    {
+      "step": 23,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 24,
+      "channel": 0,
+      "period": 342,
+      "volume": 20
+    },
+    {
+      "step": 24,
+      "channel": 1,
+      "period": 768,
+      "volume": 12
+    },
+    {
+      "step": 24,
+      "channel": 2,
+      "period": 88,
+      "volume": 10
+    },
+    {
+      "step": 25,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 26,
+      "channel": 0,
+      "period": 512,
+      "volume": 16
+    },
+    {
+      "step": 26,
+      "channel": 2,
+      "period": 112,
+      "volume": 10
+    },
+    {
+      "step": 27,
+      "channel": 1,
+      "period": 684,
+      "volume": 9
+    },
+    {
+      "step": 27,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 28,
+      "channel": 0,
+      "period": 384,
+      "volume": 20
+    },
+    {
+      "step": 28,
+      "channel": 1,
+      "period": 768,
+      "volume": 12
+    },
+    {
+      "step": 28,
+      "channel": 2,
+      "period": 88,
+      "volume": 10
+    },
+    {
+      "step": 29,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    },
+    {
+      "step": 30,
+      "channel": 0,
+      "period": 456,
+      "volume": 16
+    },
+    {
+      "step": 30,
+      "channel": 2,
+      "period": 112,
+      "volume": 10
+    },
+    {
+      "step": 31,
+      "channel": 1,
+      "period": 684,
+      "volume": 9
+    },
+    {
+      "step": 31,
+      "channel": 2,
+      "period": 112,
+      "volume": 0
+    }
+  ]
+}

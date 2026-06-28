@@ -1,0 +1,120 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "background",
+          "assetId": "bg_a",
+          "transition": "fade",
+          "fadeOutFrames": 30,
+          "fadeInFrames": 30,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
+          "assetId": "hero",
+          "x": 96,
+          "y": 24,
+          "animationId": "default",
+          "flipX": true,
+          "flipY": true,
+          "visible": true
+        },
+        {
+          "type": "choice",
+          "variableName": "",
+          "choices": [
+            {
+              "label": "見る",
+              "value": 0,
+              "targetSceneId": "next"
+            },
+            {
+              "label": "待つ",
+              "value": 1,
+              "targetSceneId": "opening"
+            }
+          ],
+          "defaultIndex": 1
+        }
+      ],
+      "nextSceneId": ""
+    },
+    {
+      "id": "next",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "effect",
+          "effect": "fadeOut",
+          "frames": 12,
+          "intensity": 0,
+          "color": "#0000ff"
+        },
+        {
+          "type": "background",
+          "assetId": "bg_b",
+          "transition": "fade",
+          "fadeOutFrames": 10,
+          "fadeInFrames": 20,
+          "x": 2,
+          "y": 4
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
+          "assetId": "rival",
+          "x": 96,
+          "y": 24,
+          "animationId": "default",
+          "flipX": false,
+          "flipY": false,
+          "visible": true
+        },
+        {
+          "type": "effect",
+          "effect": "shake",
+          "frames": 20,
+          "intensity": 6,
+          "color": ""
+        },
+        {
+          "type": "effect",
+          "effect": "flash",
+          "frames": 5,
+          "intensity": 0,
+          "color": "#00ff00"
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "次です",
+          "textColor": "",
+          "voiceAssetId": "voice",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "wait",
+          "frames": 45
+        },
+        {
+          "type": "jump",
+          "sceneId": "opening"
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}

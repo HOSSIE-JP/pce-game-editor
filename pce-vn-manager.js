@@ -160,7 +160,7 @@ const VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000; // CPU address the overlay is linked a
 const VN_OVERLAY_RESERVED_SECTORS = 2;
 const VN_OVERLAY_RESERVED_BYTES = VN_OVERLAY_RESERVED_SECTORS * 2048; // 2048 = VN_CD_SECTOR_BYTES (defined below)
 // Experimental Super CD-ROM2 visual cache. Helper code is loaded into bank121,
-// while raw BG/Sprite payload pages use low System Card RAM banks 112-119. Keep
+// while raw BG/Sprite payload pages use low System Card RAM banks 104-119. Keep
 // this behind one constant so the build can be switched back to the CD->scratch
 // path if a target emulator/hardware combination rejects the low-RAM cache.
 const VN_VISUAL_CODE_DATA_FILE = path.join('assets', 'generated', 'vn', 'visual_code.bin');
@@ -3691,11 +3691,9 @@ function collectCdDataFiles(projectDir) {
   // The sprite-format font is only generated when spritetext is used; include it
   // only when the file actually exists so we never reserve a sector for nothing.
   addExistingCdDataFile(projectDir, files, seen, VN_FONT_SPRITE_DATA_FILE);
-  // Consolidated per-asset metadata (palette/descriptor/cd refs/cell_map). Reserved
-  // at final size up front (ensureAssetMetaReservation) so it sits on a stable
-  // sector ahead of the scene packs / payloads. Only when the project is large
-  // enough to stream metadata on demand — small projects keep resident arrays and
-  // must not waste ISO sectors on (or pick up a stale) asset_meta.bin.
+  // Consolidated per-asset metadata (palette/descriptor/cd refs/cell_map). CD-ROM2
+  // VN always streams this catalog so resident metadata stays O(1);
+  // ensureAssetMetaReservation writes the final-size placeholder before layout.
   if (catalogMode) {
     addExistingCdDataFile(projectDir, files, seen, assetManager.ASSET_META_FILE);
   }
@@ -4057,7 +4055,7 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
   ensureSceneFile(projectDir);
   // Reserve the consolidated asset-metadata file at its final size before the CD
   // layout is computed so its sector (and every file after it) stays stable, the
-  // same reserve→overwrite contract used for the overlay blob below.
+  // same reserve/overwrite contract used for the overlay blob below.
   {
     const assetDoc = assetManager.readAssetDocument(projectDir);
     const sceneDoc = readSceneDocument(projectDir);

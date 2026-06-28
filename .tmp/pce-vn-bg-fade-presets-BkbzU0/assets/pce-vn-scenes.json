@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "commands": [
+        {
+          "type": "background",
+          "assetId": "bg_a",
+          "transition": "cut",
+          "fadeOutFrames": 0,
+          "fadeInFrames": 47
+        },
+        {
+          "type": "background",
+          "assetId": "bg_b",
+          "transition": "fade",
+          "fadeOutFrames": 16,
+          "fadeInFrames": 60
+        },
+        {
+          "type": "background",
+          "assetId": "bg_a"
+        }
+      ]
+    }
+  ]
+}

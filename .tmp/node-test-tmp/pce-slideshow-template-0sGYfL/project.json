@@ -1,0 +1,20 @@
+{
+  "coreId": "pc-engine",
+  "platform": "pce",
+  "title": "PCE Slideshow Sample",
+  "romName": "pce_slideshow",
+  "toolchain": "llvm-mos",
+  "targetMedia": "hucard",
+  "cd": {
+    "iplPath": "",
+    "systemCardPath": "",
+    "isoName": "",
+    "dataFiles": [],
+    "cddaTracks": []
+  },
+  "pluginRoles": {
+    "builder": "pce-sample-builder",
+    "testplay": "pce-standard-emulator"
+  },
+  "pluginSettings": {}
+}

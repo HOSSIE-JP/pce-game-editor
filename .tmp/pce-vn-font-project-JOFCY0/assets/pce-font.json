@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "fontPath": "",
+  "fonts": [
+    {
+      "file": "assets/fonts/My.ttf",
+      "label": "My フォント.ttf"
+    }
+  ],
+  "fontSize": 11,
+  "threshold": 32,
+  "xOffset": 0,
+  "yOffset": 0,
+  "tileBase": 540,
+  "previewText": "256がめんです\n17もじx4ぎょう"
+}

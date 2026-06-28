@@ -4,7 +4,7 @@ CD-ROM2 VN runtime の **コードオーバーレイ機構**（未使用物理 b
 
 > **このファイルを読むタイミング**: VN runtime のコードが 3 常駐バンク（128/129/130）に収まらず溢れたとき、またはオーバーレイ（bank133）に関数を追加・変更するとき。
 
-> **関連するが別物**: `cache load bg/sprite` 用の visual payload RAM cache は bank133 Path B overlay ではありません。現行の実験版では helper code を `assets/generated/vn/visual_code.bin` として bank121/slot4 へ読み込み、payload page は bank112-119/slot6 に保持します。bank133 overlay を上書きせず、BG/Sprite の VRAM/BAT/SATB 反映は引き続き `background` / `sprite` command 側で行います。
+> **関連するが別物**: `cache load bg/sprite` 用の visual payload RAM cache は bank133 Path B overlay ではありません。現行の実験版では helper code を `assets/generated/vn/visual_code.bin` として bank121/slot4 へ読み込み、payload page は bank104-119/slot6 に保持します。bank133 overlay を上書きせず、BG/Sprite の VRAM/BAT/SATB 反映は引き続き `background` / `sprite` command 側で行います。
 
 ## 1. 背景と現状
 
@@ -52,7 +52,7 @@ VDC を触る overlay（message compositor など）は、上の bank swap 全�
 |---|---|
 | オーバーレイ関数の配置タグ `VN_OVERLAY_CODE` | `template/template_pce_vn_cd/src/pce_vn_runtime.c`（マクロ定義部）|
 | bank133 宣言 `PCE_RAM_BANK_AT(133, 4)` | 同上（先頭バンク宣言部）|
-| visual cache 用低位 RAM 宣言 | 同上。`VN_ENABLE_VISUAL_PAYLOAD_CACHE 1` の実験版では bank121 を helper code、bank112-119 を payload cache として使う。Path B overlay ではない |
+| visual cache 用低位 RAM 宣言 | 同上。`VN_ENABLE_VISUAL_PAYLOAD_CACHE 1` の実験版では bank121 を helper code、bank104-119 を payload cache として使う。Path B overlay ではない |
 | ブート時ローダ `load_overlay_code()` | 同上（`init_video()` から呼ぶ）|
 | ブート時ローダ `load_visual_cache_code()` | 同上。標準 runtime では無効で `init_video()` から呼ばれない |
 | 常駐 dispatcher `draw_message_next_glyph_locked` / `draw_message_text_locked` / `call_overlay_preload_message_glyph_masks` / `call_overlay_draw_message_glyph_at` | 同上 |
