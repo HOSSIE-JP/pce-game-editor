@@ -130,6 +130,25 @@ const COMMAND_DEFINITIONS = [
 ];
 const COMMAND_CATEGORIES = [...new Set(COMMAND_DEFINITIONS.map((item) => item.category))];
 
+// コマンド分類ごとの固定色。スクリプト一覧の行とコマンドパレットを分類色で
+// 塗り分けて視覚的に見やすくする（エディタ表示専用・ビルドには影響しない）。
+// 文字色は readableTextColor で自動的に読みやすい黒/白を選ぶ前提のパステル。
+const CATEGORY_COLORS = {
+  '表示': '#7dd3fc',
+  'テキスト': '#86efac',
+  '変数': '#d8b4fe',
+  '分岐': '#fdba74',
+  '制御': '#94a3b8',
+  '音声': '#f9a8d4',
+  '演出': '#fca5a5',
+  'メモ': '#fde68a',
+};
+const DEFAULT_CATEGORY_COLOR = '#94a3b8';
+
+function categoryColor(category) {
+  return CATEGORY_COLORS[category] || DEFAULT_CATEGORY_COLOR;
+}
+
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
     '&': '&amp;',
@@ -769,7 +788,7 @@ function defaultCommand(type, assets = []) {
     return { type: 'wait', frames: 30 };
   }
   if (type === 'comment') {
-    return { type: 'comment', text: '', color: '#fde68a' };
+    return { type: 'comment', text: '' };
   }
   return {
     type: 'message',
@@ -2310,10 +2329,6 @@ export function activatePlugin({ root, api, registerCapability }) {
                 <span>ID</span>
                 <input class="form-input form-input-mono" data-role="scene-id" placeholder="opening" />
               </label>
-              <label class="pce-vn-scene-name-field pce-vn-scene-start-field">
-                <span>Start</span>
-                <select class="form-select" data-role="scene-start"></select>
-              </label>
               <div class="pce-vn-view-switch" role="group" aria-label="スクリプト編集モード">
                 <button class="btn-sm active" type="button" data-script-mode="gui">GUI</button>
                 <button class="btn-sm" type="button" data-script-mode="json">JSON</button>
@@ -2374,7 +2389,6 @@ export function activatePlugin({ root, api, registerCapability }) {
   const sceneFullScreenBgInput = root.querySelector('[data-role="scene-fullscreen-bg"]');
   const sceneNameInput = root.querySelector('[data-role="scene-name"]');
   const sceneIdInput = root.querySelector('[data-role="scene-id"]');
-  const sceneStartSelect = root.querySelector('[data-role="scene-start"]');
   const scriptJsonPane = root.querySelector('[data-role="script-json-pane"]');
   const scriptJsonInput = root.querySelector('[data-role="script-json"]');
   let assets = [];
@@ -2838,11 +2852,9 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   function syncDetailColorInputs(target) {
     const name = target?.name || '';
-    // comment は編集専用なので PCE 色へスナップせず自由色を保つ。
     const groups = [
       { color: 'textColor', hex: 'textColorHex', normalize: snapHexToPce },
       { color: 'color', hex: 'colorHex', normalize: snapHexToPce },
-      { color: 'commentColor', hex: 'commentColorHex', normalize: normalizeFreeHex },
     ];
     const group = groups.find((entry) => name === entry.color || name === entry.hex);
     if (!group) return;
@@ -3026,13 +3038,9 @@ export function activatePlugin({ root, api, registerCapability }) {
       return normalizeCommand({ type, frames: detailForm.elements.frames.value }, assets);
     }
     if (type === 'comment') {
-      const commentColor = normalizeFreeHex(detailForm.elements.commentColorHex?.value)
-        || normalizeFreeHex(detailForm.elements.commentColor?.value)
-        || '';
       return normalizeCommand({
         type,
         text: detailForm.elements.text?.value || '',
-        color: commentColor,
       }, assets);
     }
     if (type === 'choice') {
@@ -3125,7 +3133,6 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (sceneFullScreenBgInput) sceneFullScreenBgInput.disabled = editorMode === 'json';
     if (sceneNameInput) sceneNameInput.disabled = editorMode === 'json';
     if (sceneIdInput) sceneIdInput.disabled = editorMode === 'json';
-    if (sceneStartSelect) sceneStartSelect.disabled = editorMode === 'json';
   }
 
   function updateScriptJsonFromDoc() {
@@ -3170,13 +3177,6 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (!doc.scenes.some((item) => item.id === doc.startScene)) {
       doc.startScene = doc.scenes[0]?.id || 'opening';
     }
-  }
-
-  function sceneStartOptions() {
-    ensureStartScene();
-    return doc.scenes.map((item) => (
-      `<option value="${esc(item.id)}" ${item.id === doc.startScene ? 'selected' : ''}>${esc(sceneOptionLabel(item))}</option>`
-    )).join('');
   }
 
   function updateSceneReferences(oldId, newId) {
@@ -3243,11 +3243,19 @@ export function activatePlugin({ root, api, registerCapability }) {
           <button type="button" data-scene-id="${esc(item.id)}" class="pce-vn-scene-select">
             <span class="pce-vn-drag-handle" aria-hidden="true">::</span>
             <span class="pce-vn-scene-label">
-              <strong>${esc(sceneLeafName(item))}${item.id === doc.startScene ? '<span class="pce-vn-mode-badge">Start</span>' : ''}${item.fullScreenBg ? '<span class="pce-vn-mode-badge">Full BG</span>' : ''}${badge}</strong>
+              <strong>${esc(sceneLeafName(item))}${item.fullScreenBg ? '<span class="pce-vn-mode-badge">Full BG</span>' : ''}${badge}</strong>
               ${idMeta}
               <span>${esc(firstMessage?.text || `${item.commands.length} commands`)}</span>
             </span>
           </button>
+          <button
+            class="icon-btn-xs pce-vn-scene-start-toggle${item.id === doc.startScene ? ' active' : ''}"
+            type="button"
+            data-scene-start-toggle="${esc(item.id)}"
+            title="${item.id === doc.startScene ? '開始シーン' : '開始シーンに設定'}"
+            aria-label="${item.id === doc.startScene ? `${esc(item.id)} は開始シーン` : `${esc(item.id)} を開始シーンに設定`}"
+            aria-pressed="${item.id === doc.startScene ? 'true' : 'false'}"
+          >${item.id === doc.startScene ? '★' : '☆'}</button>
           <button
             class="icon-btn-xs danger pce-vn-scene-delete"
             type="button"
@@ -3266,6 +3274,18 @@ export function activatePlugin({ root, api, registerCapability }) {
         selectedId = button.dataset.sceneId;
         selectedCommandIndex = 0;
         render();
+      });
+    });
+    sceneList.querySelectorAll('[data-scene-start-toggle]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const id = button.dataset.sceneStartToggle;
+        if (!id) return;
+        if (editorMode === 'json' && !applyScriptJsonToDoc({ refreshText: false })) return;
+        if (!doc.scenes.some((item) => item.id === id) || doc.startScene === id) return;
+        doc.startScene = id;
+        if (editorMode === 'json') updateScriptJsonFromDoc();
+        renderSceneList();
       });
     });
     sceneList.querySelectorAll('[data-scene-delete]').forEach((button) => {
@@ -3299,8 +3319,9 @@ export function activatePlugin({ root, api, registerCapability }) {
     commandPaletteEl.innerHTML = COMMAND_CATEGORIES.map((category) => {
       const items = matches.filter((item) => item.category === category);
       if (!items.length) return '';
+      const color = categoryColor(category);
       return `
-        <section class="pce-vn-palette-category">
+        <section class="pce-vn-palette-category" style="--cat-color:${esc(color)}">
           <h3>${esc(category)}</h3>
           ${items.map((item) => `
             <div class="pce-vn-palette-command" draggable="true" data-palette-command="${item.type}">
@@ -3467,16 +3488,9 @@ export function activatePlugin({ root, api, registerCapability }) {
       `;
     }
     if (command.type === 'comment') {
-      const commentColor = command.color || '#fde68a';
       return `
         <label class="form-group"><span class="form-label">コメント</span><textarea class="form-input" name="text" rows="3" placeholder="エディタ用メモ（ビルド・実行には含まれません）">${esc(command.text || '')}</textarea></label>
-        <label class="form-group"><span class="form-label">背景色</span>
-          <span class="pce-vn-color-row">
-            <input type="color" name="commentColor" value="${esc(commentColor)}" />
-            <input class="form-input form-input-mono" name="commentColorHex" value="${esc(command.color || '')}" placeholder="#rrggbb" />
-          </span>
-        </label>
-        <small class="pce-vn-hint">コメントはエディタ表示専用です。スクリプト一覧では指定した背景色で表示され、ビルドやプレビュー実行には含まれません。</small>
+        <small class="pce-vn-hint">コメントはエディタ表示専用です。スクリプト一覧では「メモ」分類の固定色で表示され、ビルドやプレビュー実行には含まれません。</small>
       `;
     }
     if (command.type === 'cache') {
@@ -3590,13 +3604,10 @@ export function activatePlugin({ root, api, registerCapability }) {
     const pieces = ['<div class="pce-vn-command-dropzone" data-drop-index="0"></div>'];
     pieces.push(...current.commands.map((command, index) => {
       const definition = commandDefinition(command.type);
-      const isComment = command.type === 'comment';
-      const commentBg = isComment ? (normalizeFreeHex(command.color) || '#fde68a') : '';
-      const commentStyle = isComment
-        ? ` style="background:${esc(commentBg)};--comment-fg:${esc(readableTextColor(commentBg))}"`
-        : '';
+      const rowBg = categoryColor(definition.category);
+      const rowStyle = ` style="background:${esc(rowBg)};--row-fg:${esc(readableTextColor(rowBg))}"`;
       return `
-        <section class="pce-vn-command-row ${isComment ? 'pce-vn-command-comment ' : ''}${index === selectedCommandIndex ? 'active' : ''}" data-command data-command-index="${index}" draggable="true"${commentStyle}>
+        <section class="pce-vn-command-row${index === selectedCommandIndex ? ' active' : ''}" data-command data-command-index="${index}" draggable="true"${rowStyle}>
           <button class="pce-vn-command-select" type="button" data-command-select="${index}">
             <span class="pce-vn-drag-handle" aria-hidden="true">::</span>
             <span class="pce-vn-command-index">#${index + 1}</span>
@@ -3795,7 +3806,6 @@ export function activatePlugin({ root, api, registerCapability }) {
       sceneIdInput.value = current.id || '';
       sceneIdInput.placeholder = current.id || 'scene';
     }
-    if (sceneStartSelect) sceneStartSelect.innerHTML = sceneStartOptions();
     if (sceneFullScreenBgInput) sceneFullScreenBgInput.checked = Boolean(current.fullScreenBg);
     if (editorMode === 'json') {
       updateScriptJsonFromDoc();
@@ -4189,12 +4199,6 @@ export function activatePlugin({ root, api, registerCapability }) {
   sceneIdInput?.addEventListener('change', () => {
     commitCurrentUiToDoc();
     renameSceneId(sceneIdInput.value);
-  });
-
-  sceneStartSelect?.addEventListener('change', () => {
-    if (!doc.scenes.some((item) => item.id === sceneStartSelect.value)) return;
-    doc.startScene = sceneStartSelect.value;
-    renderSceneList();
   });
 
   commandLibraryHeader?.addEventListener('click', () => {
