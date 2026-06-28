@@ -271,8 +271,9 @@ test('PCE asset schema supports BG image, sprite, generated metadata, and legacy
   });
   const psg = assetManager.normalizeAsset({ id: 'old-beep', type: 'psg-sequence', options: { period: 384 } });
   const adpcm = assetManager.normalizeAsset({ id: 'voice', type: 'adpcm', source: 'assets/adpcm/voice.wav', options: { sampleRate: 12000 } });
-  const legacyAdpcm = assetManager.normalizeAsset({ id: 'legacy-voice', type: 'adpcm', source: 'assets/adpcm/legacy.wav', options: { sampleRate: 16000, divider: 1 } });
-  const defaultDividerAdpcm = assetManager.normalizeAsset({ id: 'old-default', type: 'adpcm', source: 'assets/adpcm/default.wav', options: { sampleRate: 8000, divider: 0 } });
+  const explicitLowDividerAdpcm = assetManager.normalizeAsset({ id: 'low-divider-voice', type: 'adpcm', source: 'assets/adpcm/low.wav', options: { sampleRate: 16000, divider: 1 } });
+  const explicitZeroDividerAdpcm = assetManager.normalizeAsset({ id: 'zero-divider-voice', type: 'adpcm', source: 'assets/adpcm/zero.wav', options: { sampleRate: 8000, divider: 0 } });
+  const autoDividerAdpcm = assetManager.normalizeAsset({ id: 'auto-divider-voice', type: 'adpcm', source: 'assets/adpcm/auto.wav', options: { sampleRate: 8000 } });
   const cdda = assetManager.normalizeAsset({ id: 'track', type: 'cdda-track', source: 'assets/cdda/track.wav', options: { track: 3 } });
 
   assert.equal(image.options.kind, 'background');
@@ -288,8 +289,9 @@ test('PCE asset schema supports BG image, sprite, generated metadata, and legacy
   assert.equal(psg.options.period, 384);
   assert.equal(adpcm.options.sampleRate, 12000);
   assert.equal(adpcm.options.divider, 13);
-  assert.equal(legacyAdpcm.options.divider, 14);
-  assert.equal(defaultDividerAdpcm.options.divider, 12);
+  assert.equal(explicitLowDividerAdpcm.options.divider, 1);
+  assert.equal(explicitZeroDividerAdpcm.options.divider, 0);
+  assert.equal(autoDividerAdpcm.options.divider, 12);
   assert.equal(assetManager.sampleRateToAdpcmDivider(16000), 14);
   assert.equal(assetManager.sampleRateToAdpcmDivider(8000), 12);
   assert.equal(cdda.options.track, 3);
@@ -748,7 +750,7 @@ test('PCE asset preview and reorder stay inside project root', () => {
   assert.deepEqual(reordered.assets.map((asset) => asset.id), ['b', 'a']);
 });
 
-test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', () => {
+test('PCE generated assets emit BG and sprite C arrays for resident templates', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-generate-');
   writeFile(projectDir, 'assets/generated/bg/palette.bin', Buffer.alloc(32, 0x07));
@@ -842,6 +844,7 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.match(header, /pce_editor_adpcm_asset_t/);
   assert.match(header, /unsigned long data_size;/);
   assert.match(header, /unsigned char stream;/);
+  assert.match(header, /unsigned int play_frames;/);
   assert.match(header, /pce_editor_cdda_asset_t/);
   assert.doesNotMatch(header, /const char \*id;/);
   assert.match(source, /static const unsigned char pce_editor_image_bg_palette\[\] PCE_EDITOR_RODATA_SECTION/);
@@ -856,7 +859,7 @@ test('PCE generated assets emit BG and sprite C arrays plus legacy fallback', ()
   assert.match(source, /pce_editor_psg_beep_pattern, 3u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
   assert.match(source, /static const unsigned char pce_editor_adpcm_voice_data\[\] PCE_EDITOR_RODATA_SECTION/);
   assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_tiles, 64u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_map, 8u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, 2u, 2u, 64u, 0u, 0u \}/);
-  assert.match(source, /\{ pce_editor_adpcm_voice_data, 4ul, 16000u, 0u, 14u, 0u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
+  assert.match(source, /\{ pce_editor_adpcm_voice_data, 4ul, 16000u, 0u, 14u, 0u, 0u, 3u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
   assert.match(source, /const unsigned int pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
   assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] PCE_EDITOR_RODATA_SECTION = \{\n  \{ 16u, 16u, 1u, 1u, 384u, 0u \}\n\};/);
   assert.match(source, /const unsigned int pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
@@ -958,6 +961,7 @@ test('PCE CD VN asset source generation streams large payloads through cd.dataFi
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_DIVIDER 10u/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_LOOP 11u/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_STREAM 12u/);
+  assert.match(header, /#define PCE_EDITOR_META_ADPCM_PLAY_FRAMES 13u/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_CD 15u/);
   assert.match(header, /#define PCE_EDITOR_META_PSG_SLOT 32u/);
   assert.match(header, /#define PCE_EDITOR_META_CDDA_SLOT 32u/);
@@ -1002,6 +1006,7 @@ test('PCE CD VN asset source generation streams large payloads through cd.dataFi
   const adBase = 2 * 2048;
   assert.equal(meta.readUInt32LE(adBase + 2), 4096); // data_size
   assert.equal(meta[adBase + 12], 1); // stream flag
+  assert.equal(meta.readUInt16LE(adBase + 13), 33); // ADPCM runtime play_frames
   assert.equal(meta[adBase + 15], 68); // adpcm cd sector lo
   // CDDA records (region at sector 73 -> byte offset 3*2048).
   const cddaBase = 3 * 2048;

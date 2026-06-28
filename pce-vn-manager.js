@@ -944,23 +944,6 @@ function normalizeMessageCommand(message = {}, index = 0, valid = assetIdsByType
   };
 }
 
-function normalizeLegacyCharacterCommand(character = {}, index = 0, valid = assetIdsByType(), assetDoc = { assets: [] }) {
-  const raw = character && typeof character === 'object' ? character : {};
-  const assetId = String(raw.assetId || '').trim();
-  if (!valid.sprite?.has(assetId)) return null;
-  return {
-    type: 'sprite',
-    slot: clampInt(raw.slot, 0, 3, index),
-    assetId,
-    x: clampInt(raw.x, 0, 319, defaultCharacterX(assetDoc, assetId)),
-    y: clampInt(raw.y, 0, 223, DEFAULT_CHARACTER_Y),
-    animationId: String(raw.animationId || raw.pose || 'default').trim().slice(0, 32) || 'default',
-    flipX: Boolean(raw.flipX ?? raw.flippedX ?? raw.hflip),
-    flipY: Boolean(raw.flipY ?? raw.flippedY ?? raw.vflip),
-    visible: raw.visible !== false,
-  };
-}
-
 function normalizeSceneRef(value = '') {
   return safeId(value, '');
 }
@@ -1292,42 +1275,11 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
   return null;
 }
 
-function legacyCommandsForScene(raw = {}, valid = assetIdsByType(), assetDoc = { assets: [] }) {
-  const commands = [];
-  const backgroundAssetId = String(raw.backgroundAssetId || '').trim();
-  const bgmAssetId = String(raw.bgmAssetId || '').trim();
-  if (valid.image?.has(backgroundAssetId)) {
-    commands.push(normalizeCommand({
-      type: 'background',
-      assetId: backgroundAssetId,
-      transition: 'fade',
-      fadeOutFrames: raw.fadeOutFrames,
-      fadeInFrames: raw.fadeInFrames,
-    }, commands.length, valid, assetDoc));
-  }
-  (Array.isArray(raw.characters) ? raw.characters : [])
-    .map((character, index) => normalizeLegacyCharacterCommand(character, index, valid, assetDoc))
-    .filter(Boolean)
-    .slice(0, 4)
-    .forEach((command) => commands.push(command));
-  if (valid['cdda-track']?.has(bgmAssetId)) {
-    commands.push(normalizeCommand({ type: 'audio', kind: 'cdda', action: 'play', assetId: bgmAssetId }, commands.length, valid, assetDoc));
-  }
-  const messages = Array.isArray(raw.messages) && raw.messages.length
-    ? raw.messages
-    : defaultSceneDocument(assetDoc).scenes[0].commands.filter((command) => command.type === 'message');
-  messages
-    .map((message, index) => normalizeMessageCommand(message, index, valid))
-    .filter((message) => message.text)
-    .forEach((command) => commands.push(command));
-  return commands.filter(Boolean);
-}
-
 function normalizeScene(scene = {}, index = 0, valid = assetIdsByType(), assetDoc = { assets: [] }) {
   const raw = scene && typeof scene === 'object' ? scene : {};
-  const commands = Array.isArray(raw.commands) && raw.commands.length
+  const commands = Array.isArray(raw.commands)
     ? raw.commands.map((command, commandIndex) => normalizeCommand(command, commandIndex, valid, assetDoc)).filter(Boolean)
-    : legacyCommandsForScene(raw, valid, assetDoc);
+    : [];
   const name = normalizeSceneName(raw.name ?? raw.title ?? raw.label ?? '');
   return {
     id: safeId(raw.id, index === 0 ? 'opening' : `scene_${index + 1}`),
@@ -1351,8 +1303,9 @@ function normalizeSceneDocument(doc = {}, assetDoc = { assets: [] }) {
     ids.add(id);
     return { ...scene, id };
   });
-  const startScene = deduped.some((scene) => scene.id === raw.startScene)
-    ? raw.startScene
+  const normalizedStartScene = safeId(raw.startScene, '');
+  const startScene = deduped.some((scene) => scene.id === normalizedStartScene)
+    ? normalizedStartScene
     : (deduped[0]?.id || 'opening');
   const sceneIds = new Set(deduped.map((scene) => scene.id));
   const normalizedScenes = deduped.map((scene) => ({
@@ -3464,7 +3417,7 @@ function generateVnSources(projectDir, options = {}) {
     '#endif',
     '',
   ];
-  const startScene = sceneIndex.get(doc.startScene) || 0;
+  const startScene = sceneIndex.has(doc.startScene) ? sceneIndex.get(doc.startScene) : 0;
   const source = [
     '#if defined(__PCE_CD__)',
     '#include <pce-cd.h>',

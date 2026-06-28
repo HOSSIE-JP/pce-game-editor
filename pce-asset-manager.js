@@ -411,17 +411,8 @@ function normalizeAdpcmOptions(asset = {}) {
   const autoDivider = audioConverter.sampleRateToAdpcmDivider(sampleRate);
   const rawDivider = rawOptions.divider;
   const normalizedDivider = clampInt(rawDivider, 0, 15, autoDivider);
-  const legacyDivider = typeof audioConverter.legacySampleRateToAdpcmDivider === 'function'
-    ? audioConverter.legacySampleRateToAdpcmDivider(sampleRate)
-    : autoDivider;
-  const slowLegacyDivider = typeof audioConverter.slowLegacySampleRateToAdpcmDivider === 'function'
-    ? audioConverter.slowLegacySampleRateToAdpcmDivider(sampleRate)
-    : autoDivider;
   const divider = rawDivider == null
     || rawDivider === ''
-    || normalizedDivider === legacyDivider
-    || normalizedDivider === slowLegacyDivider
-    || normalizedDivider < 8
     ? autoDivider
     : normalizedDivider;
   return {
@@ -476,7 +467,7 @@ function normalizeAsset(asset = {}) {
 function normalizeAssetDocument(doc = {}) {
   const assets = Array.isArray(doc.assets) ? doc.assets : [];
   return {
-    version: Math.max(2, Number(doc.version) || 2),
+    version: 2,
     assets: assets.map(normalizeAsset),
   };
 }
@@ -2393,7 +2384,8 @@ function generateAdpcmMetadata(projectDir, assets, generationOptions = {}) {
     arrayLines.push(...dataRef.lines);
     if (arrayLines[arrayLines.length - 1] !== '') arrayLines.push('');
     const options = normalizeAdpcmOptions(asset);
-    metaLines.push(`  { ${dataRef.pointer}, ${data.length}ul, ${options.sampleRate}u, ${options.adpcmAddress}u, ${options.divider}u, ${options.loop ? '1u' : '0u'}, ${options.stream ? '1u' : '0u'}, ${dataRef.cd} }${index + 1 < adpcmAssets.length ? ',' : ''}`);
+    const playFrames = adpcmRuntimePlayFrames(data.length, options);
+    metaLines.push(`  { ${dataRef.pointer}, ${data.length}ul, ${options.sampleRate}u, ${options.adpcmAddress}u, ${options.divider}u, ${options.loop ? '1u' : '0u'}, ${options.stream ? '1u' : '0u'}, ${playFrames}u, ${dataRef.cd} }${index + 1 < adpcmAssets.length ? ',' : ''}`);
   });
   return { adpcmAssets, arrayLines, metaLines };
 }
@@ -2557,6 +2549,7 @@ const META_ADPCM_ADDRESS = 8;
 const META_ADPCM_DIVIDER = 10;
 const META_ADPCM_LOOP = 11;
 const META_ADPCM_STREAM = 12;
+const META_ADPCM_PLAY_FRAMES = 13;
 const META_ADPCM_CD = 15;
 const META_PSG_IS_SONG = 0;
 const META_PSG_PERIOD = 1;
@@ -2720,6 +2713,25 @@ function writeMetaCdRef(buf, off, ref) {
   buf[off + 7] = ref.compression & 0xff;
 }
 
+const ADPCM_FRAME_RATE = 60;
+const ADPCM_END_PAD_FRAMES = 2;
+const ADPCM_BASE_SAMPLE_RATE = 32000;
+const ADPCM_MAX_RATE_CODE = 15;
+
+function adpcmRepresentableSampleRateFromDivider(divider) {
+  const code = Math.max(0, Math.min(ADPCM_MAX_RATE_CODE, Math.trunc(Number(divider) || 0)));
+  return Math.floor(ADPCM_BASE_SAMPLE_RATE / (16 - code));
+}
+
+function adpcmRuntimePlayFrames(byteLength, options = {}) {
+  const size = Math.max(0, Math.trunc(Number(byteLength) || 0));
+  if (!size) return 0;
+  const rate = adpcmRepresentableSampleRateFromDivider(options.divider);
+  if (!rate) return 0;
+  const frames = Math.ceil((size * 2 * ADPCM_FRAME_RATE) / rate) + ADPCM_END_PAD_FRAMES;
+  return Math.max(1, Math.min(65535, frames));
+}
+
 function metaCdRefForFile(cdLayout, relativePath, byteSize, compression) {
   const norm = normalizeRelativePath(relativePath || '');
   const entry = norm ? cdLayout?.get(norm) : null;
@@ -2808,6 +2820,7 @@ function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout) {
     buf[base + META_ADPCM_DIVIDER] = numeric(options.divider, 0, 15, 0) & 0xff;
     buf[base + META_ADPCM_LOOP] = options.loop ? 1 : 0;
     buf[base + META_ADPCM_STREAM] = options.stream ? 1 : 0;
+    buf.writeUInt16LE(adpcmRuntimePlayFrames(data.length, options) & 0xffff, base + META_ADPCM_PLAY_FRAMES);
     writeMetaCdRef(buf, base + META_ADPCM_CD, metaCdRefForFile(cdLayout, generated.outputFile, data.length, PCE_VISUAL_COMPRESSION_NONE));
   });
   layout.psg.forEach((asset, index) => {
@@ -3210,6 +3223,7 @@ function generateAssetSources(projectDir, options = {}) {
     '  unsigned char divider;',
     '  unsigned char loop;',
     '  unsigned char stream;',
+    '  unsigned int play_frames;',
     '  const pce_editor_cd_data_ref_t *cd;',
     '} pce_editor_adpcm_asset_t;',
     '',
@@ -3253,6 +3267,7 @@ function generateAssetSources(projectDir, options = {}) {
     '#define PCE_EDITOR_META_ADPCM_DIVIDER 10u',
     '#define PCE_EDITOR_META_ADPCM_LOOP 11u',
     '#define PCE_EDITOR_META_ADPCM_STREAM 12u',
+    '#define PCE_EDITOR_META_ADPCM_PLAY_FRAMES 13u',
     '#define PCE_EDITOR_META_ADPCM_CD 15u',
     '#define PCE_EDITOR_META_PSG_SLOT 32u',
     '#define PCE_EDITOR_META_PSG_IS_SONG 0u',
@@ -3362,7 +3377,7 @@ function generateAssetSources(projectDir, options = {}) {
       `const unsigned int pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = ${spriteGenerated.converted.length};`,
       '',
       'const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] PCE_EDITOR_RODATA_SECTION = {',
-      ...(adpcmGenerated.metaLines.length ? adpcmGenerated.metaLines : ['  { (const unsigned char *)0, 0u, 0u, 0u, 0u, 0u, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
+      ...(adpcmGenerated.metaLines.length ? adpcmGenerated.metaLines : ['  { (const unsigned char *)0, 0u, 0u, 0u, 0u, 0u, 0u, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
       '};',
       `const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = ${adpcmGenerated.adpcmAssets.length};`,
       '',

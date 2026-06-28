@@ -1036,24 +1036,13 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
   };
 }
 
-function legacyCommands(scene = {}, assets = []) {
-  const commands = [];
-  if (scene.backgroundAssetId) commands.push(normalizeCommand({ type: 'background', assetId: scene.backgroundAssetId }, assets));
-  (Array.isArray(scene.characters) ? scene.characters : []).forEach((character, index) => {
-    commands.push(normalizeCommand({ type: 'sprite', slot: index, ...character, animationId: character.animationId || character.pose }, assets, index));
-  });
-  if (scene.bgmAssetId) commands.push(normalizeCommand({ type: 'audio', kind: 'cdda', action: 'play', assetId: scene.bgmAssetId }, assets));
-  (Array.isArray(scene.messages) ? scene.messages : []).forEach((message, index) => commands.push(normalizeCommand({ type: 'message', ...message }, assets, index)));
-  return commands.filter(Boolean);
-}
-
 function normalizeDoc(doc, assets) {
   const fallback = defaultDoc(assets);
   const rawScenes = Array.isArray(doc?.scenes) && doc.scenes.length ? doc.scenes : fallback.scenes;
   const scenes = rawScenes.map((scene, index) => {
-    const commands = Array.isArray(scene?.commands) && scene.commands.length
+    const commands = Array.isArray(scene?.commands)
       ? scene.commands.map((command, commandIndex) => normalizeCommand(command, assets, commandIndex)).filter(Boolean)
-      : legacyCommands(scene, assets);
+      : [];
     const name = normalizeSceneName(scene?.name ?? scene?.title ?? scene?.label ?? '');
     return {
       id: safeId(scene?.id, index === 0 ? 'opening' : `scene_${index + 1}`),
@@ -1062,7 +1051,7 @@ function normalizeDoc(doc, assets) {
         || scene?.fullscreenBg === true
         || scene?.fullScreenBackground === true
         || ['fullscreenbg', 'full-screen-bg', 'fullscreen', 'full'].includes(String(scene?.layout || scene?.displayMode || '').trim().toLowerCase()),
-      commands: commands.length ? commands : fallback.scenes[0].commands,
+      commands,
       nextSceneId: safeId(scene?.nextSceneId, ''),
     };
   });
@@ -1074,10 +1063,11 @@ function normalizeDoc(doc, assets) {
     return { ...scene, id };
   });
   const sceneIds = new Set(deduped.map((scene) => scene.id));
+  const startScene = safeId(doc?.startScene, '');
   return {
     version: 2,
     settings: normalizeSystemSettings(doc?.settings || doc?.systemSettings || doc?.system),
-    startScene: sceneIds.has(doc?.startScene) ? doc.startScene : deduped[0]?.id || 'opening',
+    startScene: sceneIds.has(startScene) ? startScene : deduped[0]?.id || 'opening',
     scenes: deduped.map((scene) => ({
       ...scene,
       nextSceneId: scene.nextSceneId && sceneIds.has(scene.nextSceneId) ? scene.nextSceneId : '',

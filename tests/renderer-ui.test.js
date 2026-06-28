@@ -504,6 +504,8 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /function applyScriptJsonToDoc\(options = \{\}\)/);
   assert.match(renderer, /JSON\.parse\(scriptJsonInput\.value \|\| '\{\}'\)/);
   assert.match(renderer, /doc = normalizeDoc\(parsed, assets\)/);
+  assert.doesNotMatch(renderer, /function legacyCommands/);
+  assert.doesNotMatch(renderer, /backgroundAssetId\) commands\.push/);
   assert.match(renderer, /function setEditorMode\(mode\)/);
   assert.match(renderer, /if \(editorMode === 'json'\) \{[\s\S]*applyScriptJsonToDoc\(\{ refreshText: true \}\)/);
   assert.match(renderer, /data-scene-delete="\$\{esc\(item\.id\)\}"/);
@@ -514,6 +516,8 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.doesNotMatch(renderer, /data-role="scene-start"/);
   assert.match(renderer, /data-scene-start-toggle="\$\{esc\(item\.id\)\}"/);
   assert.match(renderer, /function uniqueSceneId\(value, existingIds = \[\], fallback = 'scene'\)/);
+  assert.match(renderer, /const startScene = safeId\(doc\?\.startScene, ''\);/);
+  assert.match(renderer, /startScene: sceneIds\.has\(startScene\) \? startScene : deduped\[0\]\?\.id \|\| 'opening'/);
   assert.match(renderer, /function renameSceneId\(rawId\)/);
   assert.match(renderer, /function updateSceneReferences\(oldId, newId\)/);
   assert.match(renderer, /command\.type === 'jump' && command\.sceneId === oldId/);

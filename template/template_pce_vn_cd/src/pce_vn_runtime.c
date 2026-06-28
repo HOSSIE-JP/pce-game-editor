@@ -67,17 +67,14 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_BG_SCROLL_WIDTH 512u
 #define VN_BG_SCROLL_HEIGHT 256u
 #define VN_MAP_ROW_BYTES (VN_MAP_WIDTH * 2u)
-#define VN_ADPCM_BASE_SAMPLE_RATE 32000u
-#define VN_ADPCM_LEGACY_BASE_SAMPLE_RATE 32000u
-#define VN_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE 16000u
 #define VN_ADPCM_MAX_RATE_CODE 15u
+#define VN_ADPCM_SNAPSHOT_DIVIDER() (adpcm_voice_snapshot.divider > VN_ADPCM_MAX_RATE_CODE ? VN_ADPCM_MAX_RATE_CODE : adpcm_voice_snapshot.divider)
+#define VN_ADPCM_SNAPSHOT_PLAY_FRAMES() (adpcm_voice_snapshot.play_frames ? (uint16_t)adpcm_voice_snapshot.play_frames : 1u)
 #define VN_SATB_ADDR 0x7f00u
 #define VN_SPRITE_PATTERN_END_BASE (VN_SATB_ADDR / 32u)
-#if defined(__PCE_CD__) && PCE_EDITOR_ASSET_META_ON_CD
 /* Max positional cells per sprite sheet whose cell_map we cache (1 byte/cell).
    Keep this in sync with the generator cap in pce-asset-manager.js. */
 #define VN_META_CELL_MAP_MAX 256u
-#endif
 #ifndef PCE_VN_SPRITE_PATTERN_BASE
 #define PCE_VN_SPRITE_PATTERN_BASE 704u
 #endif
@@ -139,8 +136,6 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_EXEC_WAIT 1u
 #define VN_EXEC_RESTART 2u
 #define VN_COMMAND_STEP_GUARD 1024u
-#define VN_ADPCM_FRAME_RATE 60ul
-#define VN_ADPCM_END_PAD_FRAMES 2ul
 #define VN_BG_IMPLICIT_FADE_FRAMES 6u
 #define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 20u
 #define VN_VISUAL_VRAM_COPY_SLICE_BYTES 64u
@@ -238,6 +233,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #endif
 
 static uint8_t current_scene = 0;
+static uint8_t runtime_start_scene = 0;
 static uint8_t current_command = 0;
 static uint8_t pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
 static uint8_t pending_display_enable = 0;
@@ -436,6 +432,7 @@ typedef struct
     unsigned long data_size;
     unsigned int sample_rate;
     unsigned int adpcm_address;
+    unsigned int play_frames;
     uint16_t cd_sector_count;
     pce_editor_cd_sector_t cd_sector;
     uint8_t divider;
@@ -1104,7 +1101,7 @@ static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call(void)
 static void VN_BANKED_CODE cdda_sector_from_remaining(const pce_editor_cdda_asset_t *cdda)
 {
     unsigned long start = 0ul;
-    unsigned long elapsed_frames = 0ul;
+    unsigned int elapsed_frames = 0u;
     unsigned long sector_offset = 0ul;
     unsigned long value;
     if (cdda)
@@ -1114,8 +1111,8 @@ static void VN_BANKED_CODE cdda_sector_from_remaining(const pce_editor_cdda_asse
             | ((unsigned long)cdda->start_sector.hi << 16);
         if (cdda->play_frames && cdda_frames_remaining < cdda->play_frames)
         {
-            elapsed_frames = (unsigned long)(cdda->play_frames - cdda_frames_remaining);
-            sector_offset = (elapsed_frames * 75ul) / 60ul;
+            elapsed_frames = (unsigned int)(cdda->play_frames - cdda_frames_remaining);
+            sector_offset = (unsigned long)elapsed_frames + ((unsigned long)elapsed_frames >> 2);
         }
     }
     value = start + sector_offset;
@@ -2060,15 +2057,14 @@ static void VN_RESIDENT_CODE copy_data_ref_to_vram(uint16_t dest, const pce_edit
    warm. These accessors are plain resident code (the freed per-asset rodata makes
    room) — no overlay. See docs/pce-asset-meta-cd-ondemand.md.
 
-   Gated on PCE_EDITOR_ASSET_META_ON_CD: CD-ROM2 VN sets it unconditionally.
-   Non-VN templates keep resident arrays and the #else macros below resolve to a
-   direct array index, so these accessor functions are never referenced there. */
-#if defined(__PCE_CD__) && PCE_EDITOR_ASSET_META_ON_CD
+   CD-ROM2 VN always uses the catalog metadata path; non-VN/HuCard templates are
+   generated from different runtime templates and keep their resident arrays. */
 #define VN_META_BG_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_BG_SLOT)
 #define VN_META_SPRITE_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_SPRITE_SLOT)
 #define VN_META_ADPCM_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_ADPCM_SLOT)
 #define VN_META_PSG_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_PSG_SLOT)
 #define VN_META_CDDA_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_CDDA_SLOT)
+#define VN_BG_META_CACHE_SLOTS 8u
 /* These asserts pin the appendix offsets past the struct image and the cd-ref
    byte layout, so any descriptor-struct change fails the build instead of
    silently mis-decoding. */
@@ -2076,6 +2072,7 @@ _Static_assert(sizeof(pce_editor_bg_asset_t) <= PCE_EDITOR_META_BG_PALETTE, "bg 
 _Static_assert(sizeof(pce_editor_sprite_asset_t) <= PCE_EDITOR_META_SPR_PALETTE, "sprite struct image overlaps palette appendix");
 _Static_assert(sizeof(pce_editor_cd_data_ref_t) == 8, "cd ref must be 8 bytes");
 _Static_assert(PCE_EDITOR_META_ADPCM_DATA_SIZE == 2, "adpcm data_size offset must follow data pointer");
+_Static_assert(PCE_EDITOR_META_ADPCM_PLAY_FRAMES + 2 <= PCE_EDITOR_META_ADPCM_CD, "adpcm play_frames must not overlap cd ref");
 _Static_assert(PCE_EDITOR_META_BG_SLOT >= PCE_EDITOR_META_BG_MAP_CD + 8, "bg record overruns its slot");
 _Static_assert(PCE_EDITOR_META_SPRITE_SLOT >= PCE_EDITOR_META_SPR_CELL_MAP + VN_META_CELL_MAP_MAX, "sprite record (incl inline cell_map) overruns its slot");
 _Static_assert(PCE_EDITOR_META_ADPCM_SLOT >= PCE_EDITOR_META_ADPCM_CD + 8, "adpcm record overruns its slot");
@@ -2105,15 +2102,15 @@ static void VN_RESIDENT_CODE vn_read_meta_sector(const pce_editor_cd_sector_t *r
     map_vn_data();
 }
 
-static pce_editor_bg_asset_t g_bg_cache[2];
-static uint8_t g_bg_palette[2][32];
-static pce_editor_cd_data_ref_t g_bg_tiles_cd[2];
-static pce_editor_cd_data_ref_t g_bg_map_cd[2];
-static uint16_t g_bg_cache_key[2] __attribute__((section(".bss")));
-static uint8_t g_bg_cache_lru = 0u;
+static pce_editor_bg_asset_t g_bg_cache[VN_BG_META_CACHE_SLOTS];
+static uint8_t g_bg_palette[VN_BG_META_CACHE_SLOTS][32] __attribute__((section(".ram_bank132_tail")));
+static pce_editor_cd_data_ref_t g_bg_tiles_cd[VN_BG_META_CACHE_SLOTS];
+static pce_editor_cd_data_ref_t g_bg_map_cd[VN_BG_META_CACHE_SLOTS];
+static uint16_t g_bg_cache_key[VN_BG_META_CACHE_SLOTS] __attribute__((section(".bss")));
 
-/* 2-slot cache: set_background needs current+next BG live at once during a
-   crossfade, so distinct indices must occupy distinct slots. */
+/* 8-slot direct-mapped cache: cache load bg warms both descriptor and payload;
+   keep several warmed descriptors alive so later background commands avoid
+   asset_meta reads without adding an LRU counter to bank128. */
 static const pce_editor_bg_asset_t *VN_RESIDENT_CODE vn_get_bg_asset(uint16_t idx)
 {
     uint8_t slot;
@@ -2121,9 +2118,8 @@ static const pce_editor_bg_asset_t *VN_RESIDENT_CODE vn_get_bg_asset(uint16_t id
     const uint8_t *p;
     pce_editor_bg_asset_t *rec;
     key = (uint16_t)(idx + 1u);
-    if (g_bg_cache_key[0] == key) { g_bg_cache_lru = 0u; return &g_bg_cache[0]; }
-    if (g_bg_cache_key[1] == key) { g_bg_cache_lru = 1u; return &g_bg_cache[1]; }
-    slot = (uint8_t)(g_bg_cache_lru ^ 1u);
+    slot = (uint8_t)(idx & (VN_BG_META_CACHE_SLOTS - 1u));
+    if (g_bg_cache_key[slot] == key) return &g_bg_cache[slot];
     rec = &g_bg_cache[slot];
     vn_read_meta_sector(&pce_editor_bg_meta.sector, (uint8_t)(idx / VN_META_BG_PER_SECTOR));
     p = &cd_transfer_scratch[(uint16_t)((uint16_t)(idx % VN_META_BG_PER_SECTOR) * PCE_EDITOR_META_BG_SLOT)];
@@ -2135,7 +2131,6 @@ static const pce_editor_bg_asset_t *VN_RESIDENT_CODE vn_get_bg_asset(uint16_t id
     rec->tiles.cd = &g_bg_tiles_cd[slot];
     rec->map.cd = &g_bg_map_cd[slot];
     g_bg_cache_key[slot] = key;
-    g_bg_cache_lru = slot;
     return rec;
 }
 
@@ -2218,6 +2213,8 @@ static const pce_editor_adpcm_asset_t *VN_RESIDENT_CODE vn_get_adpcm_asset(uint1
     g_adpcm_cache.divider = p[PCE_EDITOR_META_ADPCM_DIVIDER];
     g_adpcm_cache.loop = p[PCE_EDITOR_META_ADPCM_LOOP];
     g_adpcm_cache.stream = p[PCE_EDITOR_META_ADPCM_STREAM];
+    g_adpcm_cache.play_frames = (unsigned int)p[PCE_EDITOR_META_ADPCM_PLAY_FRAMES]
+        | ((unsigned int)p[PCE_EDITOR_META_ADPCM_PLAY_FRAMES + 1u] << 8);
     g_adpcm_cd.sector.lo = p[PCE_EDITOR_META_ADPCM_CD];
     g_adpcm_cd.sector.md = p[PCE_EDITOR_META_ADPCM_CD + 1u];
     g_adpcm_cd.sector.hi = p[PCE_EDITOR_META_ADPCM_CD + 2u];
@@ -2291,14 +2288,6 @@ static const pce_editor_cdda_asset_t *VN_RESIDENT_CODE vn_get_cdda_asset(uint16_
     g_cdda_cache_key = key;
     return &g_cdda_cache;
 }
-#else
-#define vn_get_bg_asset(idx) (&pce_editor_bg_assets[(idx)])
-#define vn_get_sprite_asset(idx, preferred_slot) (&pce_editor_sprite_assets[(idx)])
-#define vn_get_adpcm_asset(idx) (&pce_editor_adpcm_assets[(idx)])
-#define vn_get_psg_asset(idx) (&pce_editor_psg_assets[(idx)])
-#define vn_get_cdda_asset(idx) (&pce_editor_cdda_assets[(idx)])
-#endif
-
 static void upload_palette(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t fallback_dark)
 {
     uint16_t i;
@@ -3384,67 +3373,6 @@ static void stop_cdda_track(void)
 #endif
 }
 
-static unsigned int VN_BANKED_CODE2 adpcm_code_sample_rate(uint8_t code)
-{
-    uint8_t value;
-    value = code > VN_ADPCM_MAX_RATE_CODE ? VN_ADPCM_MAX_RATE_CODE : code;
-    return VN_ADPCM_BASE_SAMPLE_RATE / (16u - (unsigned int)value);
-}
-
-static uint8_t VN_BANKED_CODE2 adpcm_rate_code(unsigned int sample_rate)
-{
-    unsigned int rate;
-    unsigned int actual;
-    unsigned int diff;
-    unsigned int best_diff;
-    uint8_t code;
-    uint8_t best;
-    rate = sample_rate ? sample_rate : 16000u;
-    best = 0u;
-    best_diff = 65535u;
-    for (code = 0u; code <= VN_ADPCM_MAX_RATE_CODE; code += 1u)
-    {
-        actual = adpcm_code_sample_rate(code);
-        diff = actual > rate ? actual - rate : rate - actual;
-        if (diff < best_diff)
-        {
-            best = code;
-            best_diff = diff;
-            if (!diff) break;
-        }
-    }
-    return best;
-}
-
-static uint8_t VN_BANKED_CODE2 adpcm_legacy_divider(unsigned int sample_rate, unsigned int base_rate)
-{
-    unsigned int rate;
-    unsigned int computed;
-    rate = sample_rate ? sample_rate : 16000u;
-    computed = (base_rate + (rate / 2u)) / rate;
-    if (!computed) return 0u;
-    computed -= 1u;
-    if (computed > 255u) return 255u;
-    return (uint8_t)computed;
-}
-
-static uint8_t VN_BANKED_CODE adpcm_play_divider(unsigned int sample_rate, uint8_t divider)
-{
-    uint8_t computed;
-#if defined(__PCE_CD__)
-    pce_ram_bank130_map();
-#endif
-    if (!sample_rate) return divider > VN_ADPCM_MAX_RATE_CODE ? VN_ADPCM_MAX_RATE_CODE : divider;
-    computed = adpcm_rate_code(sample_rate);
-    if (divider > VN_ADPCM_MAX_RATE_CODE) return computed;
-    if (divider < 8u) return computed;
-    VN_MAP_BANK130_FOR_CODE();
-    if (divider == adpcm_legacy_divider(sample_rate, VN_ADPCM_LEGACY_BASE_SAMPLE_RATE)) return computed;
-    VN_MAP_BANK130_FOR_CODE();
-    if (divider == adpcm_legacy_divider(sample_rate, VN_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE)) return computed;
-    return divider;
-}
-
 static uint8_t VN_BANKED_CODE2 adpcm_voice_fits_buffer(void)
 {
 #if defined(__PCE_CD__)
@@ -3460,27 +3388,6 @@ static uint8_t VN_BANKED_CODE2 adpcm_voice_fits_buffer(void)
 #endif
 }
 
-static uint16_t VN_BANKED_CODE adpcm_voice_frame_count(void)
-{
-#if defined(__PCE_CD__)
-    uint8_t divider;
-    unsigned long rate;
-    unsigned long frames;
-    pce_ram_bank130_map();
-    divider = adpcm_play_divider(adpcm_voice_snapshot.sample_rate, adpcm_voice_snapshot.divider);
-    VN_MAP_BANK130_FOR_CODE();
-    rate = (unsigned long)adpcm_code_sample_rate(divider);
-    if (!rate) rate = 16000ul;
-    frames = ((adpcm_voice_snapshot.data_size * 2ul * VN_ADPCM_FRAME_RATE) + rate - 1ul) / rate;
-    frames += VN_ADPCM_END_PAD_FRAMES;
-    if (!frames) frames = 1ul;
-    if (frames > 65535ul) frames = 65535ul;
-    return (uint16_t)frames;
-#else
-    return 0u;
-#endif
-}
-
 static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
 {
 #if defined(__PCE_CD__)
@@ -3489,6 +3396,7 @@ static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
     unsigned long voice_data_size;
     unsigned int voice_sample_rate;
     unsigned int voice_adpcm_address;
+    unsigned int voice_play_frames;
     unsigned char voice_divider;
     unsigned char voice_loop;
     unsigned char voice_stream;
@@ -3500,6 +3408,7 @@ static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
     voice_data_size = voice->data_size;
     voice_sample_rate = voice->sample_rate;
     voice_adpcm_address = voice->adpcm_address;
+    voice_play_frames = voice->play_frames;
     voice_divider = voice->divider;
     voice_loop = voice->loop;
     voice_stream = voice->stream;
@@ -3507,6 +3416,7 @@ static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
     adpcm_voice_snapshot.data_size = voice_data_size;
     adpcm_voice_snapshot.sample_rate = voice_sample_rate;
     adpcm_voice_snapshot.adpcm_address = voice_adpcm_address;
+    adpcm_voice_snapshot.play_frames = voice_play_frames;
     adpcm_voice_snapshot.divider = voice_divider;
     adpcm_voice_snapshot.loop = voice_loop;
     adpcm_voice_snapshot.stream = voice_stream;
@@ -3556,7 +3466,7 @@ static uint8_t VN_BANKED_CODE wait_adpcm_transfer_ready(void)
 #endif
 }
 
-static void VN_BANKED_CODE2 restore_display_after_adpcm(uint8_t restore_display)
+static void VN_BANKED_CODE restore_display_after_adpcm(uint8_t restore_display)
 {
 #if defined(__PCE_CD__)
     restore_video_after_cdb_call(restore_display);
@@ -3566,7 +3476,7 @@ static void VN_BANKED_CODE2 restore_display_after_adpcm(uint8_t restore_display)
 #endif
 }
 
-static uint8_t VN_BANKED_CODE load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t allow_stream_asset)
+static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t allow_stream_asset)
 {
 #if defined(__PCE_CD__)
     uint8_t loaded = 0u;
@@ -3656,7 +3566,7 @@ static uint8_t VN_BANKED_CODE load_adpcm_voice(signed int voice_index, uint8_t a
 #endif
 }
 
-static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
+static uint8_t VN_BANKED_CODE2 stream_adpcm_voice(signed int voice_index)
 {
 #if defined(__PCE_CD__)
     pce_sector_t sector = {0};
@@ -3688,7 +3598,7 @@ static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
     }
     cd_sector_from_ref(&sector, &adpcm_voice_snapshot.cd_sector);
     cd_sector_from_uint(&length, (unsigned long)adpcm_voice_snapshot.cd_sector_count);
-    divider = adpcm_play_divider(adpcm_voice_snapshot.sample_rate, adpcm_voice_snapshot.divider);
+    divider = VN_ADPCM_SNAPSHOT_DIVIDER();
     if (pce_cdb_adpcm_stream(sector, length, divider))
     {
         map_resident_data();
@@ -3700,7 +3610,7 @@ static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
     map_resident_data();
     cancel_cdda_after_cd_data_conflict();
     adpcm_play_active = 1u;
-    adpcm_play_frames_remaining = adpcm_voice_frame_count();
+    adpcm_play_frames_remaining = VN_ADPCM_SNAPSHOT_PLAY_FRAMES();
     adpcm_stream_active = 1u;
     adpcm_stream_looping = adpcm_voice_snapshot.loop ? 1u : 0u;
     adpcm_stream_index = (uint16_t)voice_index;
@@ -3714,7 +3624,7 @@ static uint8_t VN_BANKED_CODE stream_adpcm_voice(signed int voice_index)
 #endif
 }
 
-static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice(signed int voice_index, uint8_t restore_display)
+static uint8_t VN_BANKED_CODE2 play_adpcm_buffered_voice(signed int voice_index, uint8_t restore_display)
 {
 #if defined(__PCE_CD__)
     uint8_t divider;
@@ -3727,7 +3637,7 @@ static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice(signed int voice_index, 
         restore_display_after_adpcm(restore_display);
         return 0u;
     }
-    divider = adpcm_play_divider(adpcm_voice_snapshot.sample_rate, adpcm_voice_snapshot.divider);
+    divider = VN_ADPCM_SNAPSHOT_DIVIDER();
     if (pce_cdb_adpcm_play(adpcm_voice_snapshot.adpcm_address, (uint16_t)adpcm_voice_snapshot.data_size, divider, adpcm_voice_snapshot.loop ? PCE_CDB_ADPCM_REPEAT : PCE_CDB_ADPCM_ONE_SHOT))
     {
         loaded_adpcm_valid = 0u;
@@ -3743,7 +3653,7 @@ static uint8_t VN_BANKED_CODE play_adpcm_buffered_voice(signed int voice_index, 
      * EmulatorJS mednafen_pce core unable to deliver joypad edges afterward.
      */
     adpcm_play_active = 1u;
-    adpcm_play_frames_remaining = adpcm_voice_snapshot.loop ? 0u : adpcm_voice_frame_count();
+    adpcm_play_frames_remaining = adpcm_voice_snapshot.loop ? 0u : VN_ADPCM_SNAPSHOT_PLAY_FRAMES();
     adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
     adpcm_stream_index = (uint16_t)voice_index;
@@ -3769,6 +3679,7 @@ static void VN_BANKED_CODE play_adpcm_voice(signed int voice_index)
 #if defined(__PCE_CD__)
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
     if (!copy_adpcm_voice(voice_index)) return;
+    VN_MAP_BANK130_FOR_CODE();
     if (adpcm_voice_snapshot.stream)
     {
         /* A stream:true asset is streamed from CD ONLY when it is too large to fit
@@ -4162,7 +4073,8 @@ static void show_scene(uint8_t scene_index)
     uint8_t use_preloaded_scene_visual;
     map_vn_data();
     if (!pce_vn_scene_count) return;
-    if (scene_index >= pce_vn_scene_count) scene_index = pce_vn_start_scene;
+    if (scene_index >= pce_vn_scene_count) scene_index = runtime_start_scene;
+    if (scene_index >= pce_vn_scene_count) scene_index = 0u;
     begin_cdda_deferred_resume();
     if (!load_scene_pack_into_cache(scene_index, &active_scene_pack))
     {
@@ -5143,6 +5055,9 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
     uint8_t i;
     if (bg_index < 0 || (unsigned int)bg_index >= pce_editor_bg_asset_count) return;
     next_bg = vn_get_bg_asset((uint16_t)bg_index);
+#if defined(__PCE_CD__)
+    pce_vn_font_tiles_map();
+#endif
     if (bg_fade_out_frames && current_bg_index >= 0 && !pending_display_enable && current_bg_palette_size)
     {
         /* Fade the OLD bg out using its resident palette snapshot (no descriptor refetch). */
@@ -5418,25 +5333,19 @@ static void VN_VISUAL_CACHE_CODE clear_runtime_cache_impl(uint8_t scope)
     {
         preloaded_bg_valid = 0u;
         preloaded_scene_visual_valid = 0u;
-#if defined(__PCE_CD__) && PCE_EDITOR_ASSET_META_ON_CD
-        for (i = 0u; i < 2u; i++)
+        for (i = 0u; i < VN_BG_META_CACHE_SLOTS; i++)
         {
             g_bg_cache_key[i] = 0u;
         }
-#endif
     }
     if (scope_bit & VN_CACHE_CLEAR_SPRITE_MASK)
     {
         for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
         {
             loaded_sprite_pattern_valid[i] = 0u;
-#if defined(__PCE_CD__) && PCE_EDITOR_ASSET_META_ON_CD
             g_spr_cache_key[i] = 0u;
-#endif
         }
-#if defined(__PCE_CD__) && PCE_EDITOR_ASSET_META_ON_CD
         g_spr_cache_next = 0u;
-#endif
         preloaded_scene_visual_valid = 0u;
     }
 #if defined(__PCE_CD__)
@@ -5467,25 +5376,19 @@ static void VN_BANKED_CODE clear_runtime_cache(uint8_t scope)
     {
         preloaded_bg_valid = 0u;
         preloaded_scene_visual_valid = 0u;
-#if defined(__PCE_CD__) && PCE_EDITOR_ASSET_META_ON_CD
-        for (i = 0u; i < 2u; i++)
+        for (i = 0u; i < VN_BG_META_CACHE_SLOTS; i++)
         {
             g_bg_cache_key[i] = 0u;
         }
-#endif
     }
     if (scope_bit & VN_CACHE_CLEAR_SPRITE_MASK)
     {
         for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
         {
             loaded_sprite_pattern_valid[i] = 0u;
-#if defined(__PCE_CD__) && PCE_EDITOR_ASSET_META_ON_CD
             g_spr_cache_key[i] = 0u;
-#endif
         }
-#if defined(__PCE_CD__) && PCE_EDITOR_ASSET_META_ON_CD
         g_spr_cache_next = 0u;
-#endif
         preloaded_scene_visual_valid = 0u;
     }
 #if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
@@ -5879,13 +5782,13 @@ int main(void)
     uint8_t pad;
     uint8_t last_pad;
     uint8_t pressed;
-    uint8_t start_scene;
 
     init_runtime_state();
     init_video();
     map_vn_data();
-    start_scene = pce_vn_start_scene;
-    show_scene(start_scene);
+    runtime_start_scene = pce_vn_start_scene;
+    if (runtime_start_scene >= pce_vn_scene_count) runtime_start_scene = 0u;
+    show_scene(runtime_start_scene);
     advance_story();
     last_pad = read_pad_raw();
 #if defined(__PCE_CD__)

@@ -29,7 +29,7 @@ CD target は常に catalog を生成します。HuCard や VN ではない CD t
 |---|---:|---|
 | BG | 128B | descriptor、palette 32B、tile/map CD ref |
 | Sprite | 512B | descriptor、palette 32B、pattern CD ref、`cell_map` 最大 256 cell |
-| ADPCM | 32B | size/rate/address/divider/loop/stream、ADPCM CD ref |
+| ADPCM | 32B | size/rate/address/divider/loop/stream/play_frames、ADPCM CD ref |
 | PSG | 32B | song/SFX flag、period/BPM、step count、pattern count、PSG pattern CD ref |
 | CD-DA | 32B | track、loop、start/end sector、end time、play frames |
 
@@ -48,7 +48,7 @@ runtime は `vn_get_bg_asset()` / `vn_get_sprite_asset()` / `vn_get_adpcm_asset(
 pointer は保存せず、palette、CD ref、`cell_map`、PSG pattern ref は runtime cache へ decode
 してから既存構造体の形で返します。
 
-Cache は現在、BG 2 枠、Sprite 4 枠、ADPCM 1 枠、PSG 1 枠、CD-DA 1 枠です。Cache key と
+Cache は現在、BG descriptor 8 枠（asset index 下位3bitの direct-mapped）、Sprite descriptor 4 枠、ADPCM 1 枠、PSG 1 枠、CD-DA 1 枠です。Cache key と
 preload / loaded index は 16bit asset index として扱い、scene command の signed index は
 `0..count-1` を検証してから使います。`(uint8_t)asset_index` で比較しないでください。
 
@@ -56,6 +56,8 @@ Accessor は CD BIOS helper、MPR 復帰、`cd_transfer_scratch` を触るため
 関数入口で 1 回呼び、必要 field を local snapshot へ落としてから hot path で使います。
 特に ADPCM の multi-byte field は `memcpy` や構造体同士の連続 copy に戻さず、offset から
 scalar decode してください。llvm-mos が `tii` へ畳むと WRAM 高位アドレスを落とすことがあります。
+ADPCM の自然終了 / streaming loop 用 frame counter は generator が `play_frames` として
+catalog record へ焼き込み、runtime では sample rate から再計算しません。
 
 ## Catalog 判定
 

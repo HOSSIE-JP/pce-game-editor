@@ -132,8 +132,6 @@ const OKI_INDEX_SHIFT = Object.freeze([-1, -1, -1, -1, 2, 4, 6, 8]);
 const PCE_ADPCM_MIN_SAMPLE_RATE = 4000;
 const PCE_ADPCM_MAX_SAMPLE_RATE = 32000;
 const PCE_ADPCM_BASE_SAMPLE_RATE = 32000;
-const PCE_ADPCM_LEGACY_BASE_SAMPLE_RATE = 32000;
-const PCE_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE = 16000;
 const PCE_ADPCM_CODEC = 'oki-msm5205';
 const PCE_ADPCM_EXPERIMENTAL_CODEC = 'pce-cd-adpcm-experimental';
 const PCE_ADPCM_NIBBLE_ORDER = 'msn-first';
@@ -159,18 +157,6 @@ function sampleRateToAdpcmDivider(sampleRate = 16000) {
     }
   }
   return best;
-}
-
-function legacySampleRateToAdpcmDivider(sampleRate = 16000) {
-  const rate = Math.max(1, Number(sampleRate) || 16000);
-  const divider = Math.round((PCE_ADPCM_LEGACY_BASE_SAMPLE_RATE / rate) - 1);
-  return Math.max(0, Math.min(255, divider));
-}
-
-function slowLegacySampleRateToAdpcmDivider(sampleRate = 16000) {
-  const rate = Math.max(1, Number(sampleRate) || 16000);
-  const divider = Math.round((PCE_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE / rate) - 1);
-  return Math.max(0, Math.min(255, divider));
 }
 
 function adpcmDividerToSampleRate(divider = 0) {
@@ -468,11 +454,9 @@ module.exports = {
   PCE_ADPCM_CODEC,
   PCE_ADPCM_ENCODER_VERSION,
   PCE_ADPCM_EXPERIMENTAL_CODEC,
-  PCE_ADPCM_LEGACY_BASE_SAMPLE_RATE,
   PCE_ADPCM_MAX_SAMPLE_RATE,
   PCE_ADPCM_MIN_SAMPLE_RATE,
   PCE_ADPCM_NIBBLE_ORDER,
-  PCE_ADPCM_SLOW_LEGACY_BASE_SAMPLE_RATE,
   adpcmDividerToSampleRate,
   convertWavForAdpcm,
   convertWavForAdpcmParts,
@@ -481,12 +465,10 @@ module.exports = {
   decodePceAdpcm,
   encodeOkiAdpcm,
   encodePceAdpcm,
-  legacySampleRateToAdpcmDivider,
   normalizeAdpcmNibbleOrder,
   parseWav,
   renderPcm16,
   sampleRateToAdpcmDivider,
-  slowLegacySampleRateToAdpcmDivider,
   waveformPeaks,
   waveformPeaksFromRendered,
   writeWavPcm16,
