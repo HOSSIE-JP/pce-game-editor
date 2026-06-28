@@ -1,0 +1,66 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "name": "Chapter 1/Opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "background",
+          "assetId": "bg",
+          "transition": "fade",
+          "fadeOutFrames": 30,
+          "fadeInFrames": 30,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "type": "sprite",
+          "slot": 0,
+          "assetId": "hero",
+          "x": 319,
+          "y": 0,
+          "animationId": "default",
+          "flipX": false,
+          "flipY": false,
+          "visible": true
+        },
+        {
+          "type": "sprite",
+          "slot": 1,
+          "assetId": "hero",
+          "x": 96,
+          "y": 24,
+          "animationId": "default",
+          "flipX": false,
+          "flipY": false,
+          "visible": true
+        },
+        {
+          "type": "audio",
+          "kind": "cdda",
+          "action": "play",
+          "assetId": "track",
+          "channel": 0
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "こんにちは",
+          "textColor": "",
+          "voiceAssetId": "voice",
+          "mouthSlot": 0,
+          "mouthAnimationId": "mouth"
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}

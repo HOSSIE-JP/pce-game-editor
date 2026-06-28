@@ -1,0 +1,6 @@
+{
+  "llvmMosPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\data\\tools\\llvm-mos-sdk\\llvm-mos\\bin\\mos-pce-clang.bat",
+  "llvmMosPceCdPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\data\\tools\\llvm-mos-sdk\\llvm-mos\\bin\\mos-pce-cd-clang.bat",
+  "pceMkcdPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\data\\tools\\llvm-mos-sdk\\llvm-mos\\bin\\pce-mkcd.exe",
+  "pceCdIplPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\data\\tools\\pce-cd\\ipl\\ipl.bin"
+}

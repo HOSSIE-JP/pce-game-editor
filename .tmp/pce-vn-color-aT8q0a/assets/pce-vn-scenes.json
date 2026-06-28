@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "あか",
+          "textColor": "#ff0000",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}

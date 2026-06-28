@@ -65,7 +65,7 @@ const VN_CACHE_SCOPE_SPRITE = 2;
 const VN_CACHE_SCOPE_ADPCM = 3;
 const VN_CACHE_SCOPE_ALL = 4;
 const VN_CACHE_SCOPES = ['visual', 'bg', 'sprite', 'adpcm', 'all'];
-const VN_ENABLE_VISUAL_PAYLOAD_CACHE = false;
+const VN_ENABLE_VISUAL_PAYLOAD_CACHE = true;
 const VN_BG_TRANSITION_CUT = 0;
 const VN_BG_TRANSITION_FADE = 1;
 const VN_BG_FADE_FRAME_OPTIONS = [10, 20, 30, 40, 50, 60];
@@ -154,11 +154,10 @@ const VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000; // CPU address the overlay is linked a
 // overlay bytes after link.
 const VN_OVERLAY_RESERVED_SECTORS = 2;
 const VN_OVERLAY_RESERVED_BYTES = VN_OVERLAY_RESERVED_SECTORS * 2048; // 2048 = VN_CD_SECTOR_BYTES (defined below)
-// Disabled for standard Super CD-ROM2 builds. Geargrafx/System Card boot tests
-// showed that using low System Card RAM banks for VN visual payload cache/code
-// can destabilize CD boot or hang CD BIOS DATA IN. Keep the constants behind
-// VN_ENABLE_VISUAL_PAYLOAD_CACHE so the experimental path can be revisited
-// without changing the public command record format.
+// Experimental Super CD-ROM2 visual cache. Helper code is loaded into bank121,
+// while raw BG/Sprite payload pages use low System Card RAM banks 112-119. Keep
+// this behind one constant so the build can be switched back to the CD->scratch
+// path if a target emulator/hardware combination rejects the low-RAM cache.
 const VN_VISUAL_CODE_DATA_FILE = path.join('assets', 'generated', 'vn', 'visual_code.bin');
 const VN_VISUAL_CODE_SECTION = '.vn_visual_code';
 const VN_VISUAL_CODE_VRAM_LOAD_ADDR = 0x8000;
@@ -3670,11 +3669,58 @@ function ensureVisualCodeReservation(projectDir) {
   return { byteSize: VN_VISUAL_CODE_RESERVED_BYTES, sectorCount: VN_VISUAL_CODE_RESERVED_SECTORS };
 }
 
+function neutralizeElfLoadSegments(elfPath, startAddress, byteLength) {
+  const buf = fs.readFileSync(elfPath);
+  if (buf.length < 52
+    || buf[0] !== 0x7f
+    || buf[1] !== 0x45
+    || buf[2] !== 0x4c
+    || buf[3] !== 0x46
+    || buf[4] !== 1
+    || buf[5] !== 1) {
+    throw new Error(`Cannot sanitize visual cache ELF load segments in ${path.basename(elfPath)}: expected ELF32 little-endian`);
+  }
+
+  const phoff = buf.readUInt32LE(28);
+  const phentsize = buf.readUInt16LE(42);
+  const phnum = buf.readUInt16LE(44);
+  if (phentsize < 32 || phoff + (phentsize * phnum) > buf.length) {
+    throw new Error(`Cannot sanitize visual cache ELF load segments in ${path.basename(elfPath)}: invalid program header table`);
+  }
+
+  const endAddress = startAddress + byteLength;
+  let patched = 0;
+  for (let i = 0; i < phnum; i++) {
+    const off = phoff + (i * phentsize);
+    const type = buf.readUInt32LE(off);
+    const vaddr = buf.readUInt32LE(off + 8);
+    const paddr = buf.readUInt32LE(off + 12);
+    const filesz = buf.readUInt32LE(off + 16);
+    const memsz = buf.readUInt32LE(off + 20);
+    const segEnd = paddr + Math.max(filesz, memsz);
+    if (type === 1 && paddr >= startAddress && segEnd <= endAddress && vaddr >= startAddress && vaddr < endAddress) {
+      // llvm-objcopy removes the section header but can leave the PT_LOAD entry.
+      // pce-mkcd follows program headers, so make this segment explicitly inert.
+      buf.writeUInt32LE(0, off);
+      buf.writeUInt32LE(0, off + 16);
+      buf.writeUInt32LE(0, off + 20);
+      buf.writeUInt32LE(0, off + 24);
+      patched++;
+    }
+  }
+
+  if (patched) fs.writeFileSync(elfPath, buf);
+  return patched;
+}
+
 // Post-link: objcopy runtime helper blobs out of the freshly linked main.elf:
 // .vn_overlay -> overlay.bin (section body stays in the ELF with only its rela
 // table stripped), and .vn_visual_code -> visual_code.bin (section body is removed
-// from the ELF because pce-mkcd cannot encode that load-address range). Both
-// outputs are padded to their reserved sizes so their CD sectors stay stable.
+// from the ELF because pce-mkcd cannot encode that load-address range). objcopy
+// can still leave a PT_LOAD program header for the removed section, so the final
+// ELF is sanitized after stripping; otherwise the System Card boot loader can see
+// the bank121 helper as part of the initial program image. Both outputs are
+// padded to their reserved sizes so their CD sectors stay stable.
 // The strip is required because pce-mkcd RE-APPLIES the ELF's
 // relocations when it assembles the image, and the overlay's internal relocations
 // live at the overlay's run-address VMA (CPU 0x8000, MPR slot 4) which is outside
@@ -3781,8 +3827,13 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
     throw new Error(`overlay strip produced an empty ELF (${path.basename(strippedElf)}) — aborting before pce-mkcd to avoid a crash on an unreadable ELF`);
   }
   fs.renameSync(strippedElf, elfPath);
+  let visualLoadSegmentsRemoved = 0;
+  if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) {
+    visualLoadSegmentsRemoved = neutralizeElfLoadSegments(elfPath, VN_VISUAL_CODE_LINK_ADDR, VN_VISUAL_CODE_RESERVED_BYTES);
+  }
   logger?.info?.(`PCE VN overlay blob: ${realSize} bytes (reserved ${VN_OVERLAY_RESERVED_BYTES}) を main.elf から ${VN_OVERLAY_DATA_FILE} に抽出 (.rela${VN_OVERLAY_SECTION} 除去)`);
   if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) logger?.info?.(`PCE VN visual cache code blob: ${visualRealSize} bytes (reserved ${VN_VISUAL_CODE_RESERVED_BYTES}) を main.elf から ${VN_VISUAL_CODE_DATA_FILE} に抽出 (${VN_VISUAL_CODE_SECTION} 除去)`);
+  if (visualLoadSegmentsRemoved) logger?.info?.(`PCE VN visual cache code PT_LOAD ${visualLoadSegmentsRemoved} 件を main.elf から無効化`);
   return {
     realSize,
     byteSize: VN_OVERLAY_RESERVED_BYTES,
@@ -4059,6 +4110,7 @@ module.exports = {
   renderGlyphBitmaps,
   renderGlyphMaskData,
   finalizeOverlayBlob,
+  neutralizeElfLoadSegments,
   overlayLinkerArgs,
   overlayFragmentPath,
   syncVisualNovelRuntime,

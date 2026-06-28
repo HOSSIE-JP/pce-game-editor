@@ -554,7 +554,7 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /name="scope">\$\{cacheScopeOptions\(command\.scope\)\}<\/select>/);
   assert.match(renderer, /name="assetId">\$\{optionsFor\(byType\(assetTypes\), command\.assetId, 'なし'\)\}<\/select>/);
   assert.match(renderer, /if \(t === 'cache'\) \{ pc \+= 1; continue; \}/);
-  assert.match(renderer, /Load \$\{label\} visual cache \(disabled\)/);
+  assert.match(renderer, /Load \$\{label\} visual RAM cache/);
   assert.match(renderer, /Load \$\{label\} ADPCM cache/);
   assert.match(renderer, /Clear \$\{cacheScopeLabel\(command\.scope\)\} cache/);
   assert.match(renderer, /type === 'choice'/);

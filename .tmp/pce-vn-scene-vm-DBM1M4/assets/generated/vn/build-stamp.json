@@ -1,0 +1,64 @@
+{
+  "version": 2,
+  "signature": "174149608dcdd5cbe6015d8edfef4725acb032d2",
+  "generated": {
+    "scenePath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\.tmp\\pce-vn-scene-vm-DBM1M4\\assets\\pce-vn-scenes.json",
+    "headerPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\.tmp\\pce-vn-scene-vm-DBM1M4\\src\\generated\\vn.h",
+    "sourcePath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\.tmp\\pce-vn-scene-vm-DBM1M4\\src\\generated\\vn.c",
+    "glyphCount": 10,
+    "messageCount": 1,
+    "choiceCount": 1,
+    "switchCount": 0,
+    "variableCount": 0,
+    "commandCount": 11,
+    "spriteAnimationCount": 0,
+    "sceneCount": 2,
+    "scenePackPaths": [
+      "assets/generated/vn/scenes/000_opening.bin",
+      "assets/generated/vn/scenes/001_next.bin"
+    ],
+    "scenePackBytes": [
+      103,
+      189
+    ],
+    "fontRenderer": "ffmpeg",
+    "fontPath": "C:\\Windows\\Fonts\\meiryo.ttc",
+    "fontDataPath": "assets/generated/vn/font.bin",
+    "fontByteSize": 240,
+    "fontSectorCount": 1,
+    "fontTileBase": 540,
+    "fontEndTile": 757,
+    "droppedGlyphCount": 0,
+    "fontSpriteDataPath": "assets/generated/vn/font_sprite.bin",
+    "fontSpriteGlyphCount": 0,
+    "fontSpriteByteSize": 0,
+    "fontSpritePatternBase": 379,
+    "fontSpritePaletteBank": 15,
+    "fontSpriteRenderer": "",
+    "assetIds": [
+      "bg_a",
+      "hero",
+      "bg_b",
+      "rival",
+      "voice"
+    ],
+    "warnings": []
+  },
+  "mergedDataFiles": [
+    "assets/generated/vn/font.bin",
+    "assets/generated/vn/overlay.bin",
+    "assets/generated/vn/visual_code.bin",
+    "assets/generated/vn/scenes/000_opening.bin",
+    "assets/generated/bg_a/tiles.bin",
+    "assets/generated/bg_a/map_vram.bin",
+    "assets/generated/hero/patterns.bin",
+    "assets/generated/vn/scenes/001_next.bin",
+    "assets/generated/bg_b/tiles.bin",
+    "assets/generated/bg_b/map_vram.bin",
+    "assets/generated/rival/patterns.bin",
+    "assets/generated/voice/adpcm.bin",
+    "assets/custom/extra.bin"
+  ],
+  "mergedCddaTracks": [],
+  "updatedAt": "2026-06-28T01:24:27.483Z"
+}

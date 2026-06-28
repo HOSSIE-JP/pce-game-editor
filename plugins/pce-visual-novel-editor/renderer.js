@@ -2488,7 +2488,7 @@ export function activatePlugin({ root, api, registerCapability }) {
         const label = assetById(command.assetId)?.name || command.assetId || cacheScopeLabel(command.scope);
         return command.scope === 'adpcm'
           ? `Load ${label} ADPCM cache`
-          : `Load ${label} visual cache (disabled)`;
+          : `Load ${label} visual RAM cache`;
       }
       return `Clear ${cacheScopeLabel(command.scope)} cache`;
     }
