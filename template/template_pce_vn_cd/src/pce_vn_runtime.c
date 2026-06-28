@@ -25,19 +25,11 @@ PCE_RAM_BANK_AT(133, 4);
    banks. */
 PCE_RAM_BANK_AT(134, 6);
 PCE_RAM_BANK_AT(135, 6);
-/* bank112-120 are left untouched. Although llvm-mos exposes them in the Super CD
-   linker script, Geargrafx/System Card boot tests show that using them for VN
-   code or payload cache can destabilize the CD boot path. */
+/* Visual payload cache helper code is streamed into bank121 after System Card
+   boot. Payload pages are raw-mapped into slot 6 at runtime, so they do not need
+   linker sections and are never part of the IPL-loaded program image. */
 #if VN_ENABLE_VISUAL_PAYLOAD_CACHE
-PCE_RAM_BANK_AT(120, 4);
-PCE_RAM_BANK_AT(112, 6);
-PCE_RAM_BANK_AT(113, 6);
-PCE_RAM_BANK_AT(114, 6);
-PCE_RAM_BANK_AT(115, 6);
-PCE_RAM_BANK_AT(116, 6);
-PCE_RAM_BANK_AT(117, 6);
-PCE_RAM_BANK_AT(118, 6);
-PCE_RAM_BANK_AT(119, 6);
+PCE_RAM_BANK_AT(121, 4);
 #endif
 PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #endif
@@ -145,7 +137,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_ADPCM_END_PAD_FRAMES 2ul
 #define VN_BG_IMPLICIT_FADE_FRAMES 6u
 #define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 20u
-#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 256u
+#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 64u
 #define VN_BG_UPLOAD_DISPLAY_DISABLE() display_disable()
 #define VN_SPRITE_REFRESH_NONE 0u
 #define VN_SPRITE_REFRESH_PATTERNS 1u
@@ -209,7 +201,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_OVERLAY_CODE __attribute__((noinline, section(".vn_overlay")))
 #define VN_MAP_BANK130_FOR_CODE() pce_ram_bank130_map()
 #if VN_ENABLE_VISUAL_PAYLOAD_CACHE
-#define VN_MAP_VISUAL_CACHE_CODE() pce_ram_bank120_map()
+#define VN_MAP_VISUAL_CACHE_CODE() pce_ram_bank121_map()
 #else
 #define VN_MAP_VISUAL_CACHE_CODE() ((void)0)
 #endif
@@ -311,14 +303,10 @@ static uint8_t psg_pattern_ram_bank135_reserved[VN_PSG_PATTERN_BANK_BYTES] __att
 #if VN_ENABLE_VISUAL_PAYLOAD_CACHE
 #define VN_VISUAL_CACHE_PAGE_COUNT 8u
 #define VN_VISUAL_CACHE_PAGE_BYTES 8192u
-static uint8_t vn_visual_cache_page0[VN_VISUAL_CACHE_PAGE_BYTES] __attribute__((section(".vn_visual_cache112")));
-static uint8_t vn_visual_cache_page1[VN_VISUAL_CACHE_PAGE_BYTES] __attribute__((section(".vn_visual_cache113")));
-static uint8_t vn_visual_cache_page2[VN_VISUAL_CACHE_PAGE_BYTES] __attribute__((section(".vn_visual_cache114")));
-static uint8_t vn_visual_cache_page3[VN_VISUAL_CACHE_PAGE_BYTES] __attribute__((section(".vn_visual_cache115")));
-static uint8_t vn_visual_cache_page4[VN_VISUAL_CACHE_PAGE_BYTES] __attribute__((section(".vn_visual_cache116")));
-static uint8_t vn_visual_cache_page5[VN_VISUAL_CACHE_PAGE_BYTES] __attribute__((section(".vn_visual_cache117")));
-static uint8_t vn_visual_cache_page6[VN_VISUAL_CACHE_PAGE_BYTES] __attribute__((section(".vn_visual_cache118")));
-static uint8_t vn_visual_cache_page7[VN_VISUAL_CACHE_PAGE_BYTES] __attribute__((section(".vn_visual_cache119")));
+#define VN_VISUAL_CACHE_FIRST_BANK 120u
+#define VN_VISUAL_CACHE_PAGE_ADDR ((uint8_t *)0xc000)
+#define VN_VISUAL_CACHE_COPY_CHUNK 128u
+static uint8_t vn_visual_cache_copy_buffer[VN_VISUAL_CACHE_COPY_CHUNK] __attribute__((section(".bss")));
 static uint8_t vn_visual_cache_valid[VN_VISUAL_CACHE_PAGE_COUNT] __attribute__((section(".bss")));
 static uint8_t vn_visual_cache_kind[VN_VISUAL_CACHE_PAGE_COUNT] __attribute__((section(".bss")));
 static uint16_t vn_visual_cache_asset[VN_VISUAL_CACHE_PAGE_COUNT] __attribute__((section(".bss")));
@@ -496,6 +484,8 @@ static void VN_RESIDENT_CODE service_psg_during_visual_cache_frames(uint8_t fram
 #if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
 static void VN_VISUAL_CACHE_CODE load_bg_cache_asset_impl(signed int bg_index, uint8_t tile_x, uint8_t tile_y);
 static void VN_VISUAL_CACHE_CODE load_sprite_pattern_cache_asset_impl(signed int sprite_index, uint8_t slot_index);
+static void load_overlay_code(void);
+static void load_visual_cache_code(void);
 #endif
 
 static void map_vn_data(void)
@@ -1141,18 +1131,42 @@ static void VN_BANKED_CODE cancel_cdda_after_cd_data_conflict(void)
 }
 
 #if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
+static void VN_VISUAL_CACHE_CODE visual_cache_map_page_bank_impl(uint8_t page)
+{
+    uint8_t bank = (uint8_t)(VN_VISUAL_CACHE_FIRST_BANK + page);
+    __asm__ volatile("tam #(1 << 6)" : : "a"(bank) : "p");
+}
+
 static uint8_t *VN_VISUAL_CACHE_CODE visual_cache_page_ptr_impl(uint8_t page)
 {
-    volatile uint8_t p = page;
-    if (p == 0u) { pce_ram_bank112_map(); return vn_visual_cache_page0; }
-    if (p == 1u) { pce_ram_bank113_map(); return vn_visual_cache_page1; }
-    if (p == 2u) { pce_ram_bank114_map(); return vn_visual_cache_page2; }
-    if (p == 3u) { pce_ram_bank115_map(); return vn_visual_cache_page3; }
-    if (p == 4u) { pce_ram_bank116_map(); return vn_visual_cache_page4; }
-    if (p == 5u) { pce_ram_bank117_map(); return vn_visual_cache_page5; }
-    if (p == 6u) { pce_ram_bank118_map(); return vn_visual_cache_page6; }
-    pce_ram_bank119_map();
-    return vn_visual_cache_page7;
+    uint8_t p = page;
+    if (p >= VN_VISUAL_CACHE_PAGE_COUNT) p = (uint8_t)(VN_VISUAL_CACHE_PAGE_COUNT - 1u);
+    visual_cache_map_page_bank_impl(p);
+    return VN_VISUAL_CACHE_PAGE_ADDR;
+}
+
+static void VN_VISUAL_CACHE_CODE visual_cache_copy_scratch_to_page_impl(uint8_t page, uint16_t page_offset, uint16_t length)
+{
+    uint16_t copied = 0u;
+    while (copied < length)
+    {
+        uint8_t i;
+        uint8_t *page_data;
+        uint16_t chunk = (uint16_t)(length - copied);
+        if (chunk > VN_VISUAL_CACHE_COPY_CHUNK) chunk = VN_VISUAL_CACHE_COPY_CHUNK;
+        map_vn_data();
+        for (i = 0u; i < chunk; i++)
+        {
+            vn_visual_cache_copy_buffer[i] = cd_transfer_scratch[(uint16_t)(copied + i)];
+        }
+        page_data = visual_cache_page_ptr_impl(page);
+        for (i = 0u; i < chunk; i++)
+        {
+            page_data[(uint16_t)(page_offset + copied + i)] = vn_visual_cache_copy_buffer[i];
+        }
+        copied = (uint16_t)(copied + chunk);
+    }
+    VN_MAP_VISUAL_CACHE_CODE();
 }
 
 static uint8_t VN_VISUAL_CACHE_CODE visual_cache_next_lru_impl(void)
@@ -1399,12 +1413,12 @@ static uint8_t VN_VISUAL_CACHE_CODE visual_cache_load_cd_part_impl(uint8_t kind,
     slot = visual_cache_alloc_impl(kind, asset_index, part);
     while (remaining)
     {
-        uint8_t *page_data;
         uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
         prepare_cd_data_access();
-        page_data = visual_cache_page_ptr_impl(slot);
-        (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)&page_data[page_offset], chunk);
+        map_vn_data();
+        (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)cd_transfer_scratch, chunk);
         cd_transfer_wait_visual_cache_impl();
+        visual_cache_copy_scratch_to_page_impl(slot, page_offset, chunk);
         page_offset = (uint16_t)(page_offset + chunk);
         remaining = (uint16_t)(remaining - chunk);
         cd_sector_advance(&sector);
@@ -1482,43 +1496,119 @@ static uint8_t VN_BANKED_CODE visual_cache_call(uint8_t op)
 
 static void VN_BANKED_CODE vram_copy_sliced_from_vn_data(uint16_t dest, const uint8_t *source, uint16_t length)
 {
-    vn_visual_cache_arg_dest = dest;
-    vn_visual_cache_arg_source = source;
-    vn_visual_cache_arg_length = length;
-    (void)visual_cache_call(VN_VISUAL_CACHE_OP_VRAM_COPY);
+    uint16_t offset = 0u;
+    uint16_t vram_dest = dest;
+    while (length)
+    {
+        uint16_t chunk = length > VN_VISUAL_VRAM_COPY_SLICE_BYTES ? VN_VISUAL_VRAM_COPY_SLICE_BYTES : length;
+        pce_editor_vram_copy(vram_dest, &source[offset], chunk);
+        service_psg_during_blocking_work();
+        map_vn_data();
+        VN_MAP_BANK130_FOR_CODE();
+        vram_dest = (uint16_t)(vram_dest + ((chunk + 1u) / 2u));
+        offset = (uint16_t)(offset + chunk);
+        length = (uint16_t)(length - chunk);
+    }
+}
+
+static uint8_t VN_BANKED_CODE2 visual_cache_find(uint8_t kind, uint16_t asset_index, uint8_t part)
+{
+    uint8_t i;
+    for (i = 0u; i < VN_VISUAL_CACHE_PAGE_COUNT; i++)
+    {
+        if (vn_visual_cache_valid[i]
+            && vn_visual_cache_kind[i] == kind
+            && vn_visual_cache_asset[i] == asset_index
+            && vn_visual_cache_part[i] == part)
+        {
+            vn_visual_cache_clock++;
+            if (!vn_visual_cache_clock) vn_visual_cache_clock = 1u;
+            vn_visual_cache_lru[i] = vn_visual_cache_clock;
+            return i;
+        }
+    }
+    return 0xffu;
+}
+
+static uint8_t *VN_BANKED_CODE2 visual_cache_page_ptr(uint8_t page)
+{
+    uint8_t p = page;
+    uint8_t bank;
+    if (p >= VN_VISUAL_CACHE_PAGE_COUNT) p = (uint8_t)(VN_VISUAL_CACHE_PAGE_COUNT - 1u);
+    bank = (uint8_t)(VN_VISUAL_CACHE_FIRST_BANK + p);
+    __asm__ volatile("tam #(1 << 6)" : : "a"(bank) : "p");
+    return VN_VISUAL_CACHE_PAGE_ADDR;
+}
+
+static void VN_BANKED_CODE2 visual_cache_page_to_vram(uint16_t dest, uint8_t page, uint16_t page_offset, uint16_t length)
+{
+    uint16_t vram_dest = dest;
+    while (length)
+    {
+        uint16_t chunk = length > VN_VISUAL_VRAM_COPY_SLICE_BYTES ? VN_VISUAL_VRAM_COPY_SLICE_BYTES : length;
+        uint8_t *page_data = visual_cache_page_ptr(page);
+        pce_editor_vram_copy(vram_dest, &page_data[page_offset], chunk);
+        service_psg_during_blocking_work();
+        map_vn_data();
+        VN_MAP_BANK130_FOR_CODE();
+        vram_dest = (uint16_t)(vram_dest + ((chunk + 1u) / 2u));
+        page_offset = (uint16_t)(page_offset + chunk);
+        length = (uint16_t)(length - chunk);
+    }
 }
 
 static uint8_t VN_BANKED_CODE visual_cache_ref_to_vram(uint16_t dest, uint8_t kind, uint16_t asset_index, const pce_editor_data_ref_t *ref)
 {
-    vn_visual_cache_arg_dest = dest;
-    vn_visual_cache_arg_kind = kind;
-    vn_visual_cache_arg_asset = asset_index;
-    vn_visual_cache_arg_ref = ref;
-    return visual_cache_call(VN_VISUAL_CACHE_OP_REF_TO_VRAM);
+    uint8_t part = 0u;
+    uint16_t vram_dest = dest;
+    unsigned long remaining;
+    if (!ref || !ref->size) return 0u;
+    remaining = (unsigned long)ref->size;
+    while (remaining)
+    {
+        uint16_t chunk = remaining > VN_VISUAL_CACHE_PAGE_BYTES ? VN_VISUAL_CACHE_PAGE_BYTES : (uint16_t)remaining;
+        const uint8_t slot = visual_cache_find(kind, asset_index, part);
+        if (slot == 0xffu || vn_visual_cache_size[slot] < chunk) return 0u;
+        visual_cache_page_to_vram(vram_dest, slot, 0u, chunk);
+        vram_dest = (uint16_t)(vram_dest + ((chunk + 1u) / 2u));
+        remaining -= (unsigned long)chunk;
+        part++;
+    }
+    map_vn_data();
+    VN_MAP_BANK130_FOR_CODE();
+    return 1u;
 }
 
-static uint8_t VN_BANKED_CODE visual_cache_bg_map_to_vram(uint16_t dest, uint16_t asset_index, const pce_editor_data_ref_t *ref, uint8_t width_tiles, uint8_t height_tiles)
-{
-    vn_visual_cache_arg_dest = dest;
-    vn_visual_cache_arg_asset = asset_index;
-    vn_visual_cache_arg_ref = ref;
-    vn_visual_cache_arg_x = width_tiles;
-    vn_visual_cache_arg_y = height_tiles;
-    return visual_cache_call(VN_VISUAL_CACHE_OP_BG_MAP_TO_VRAM);
-}
+#define visual_cache_bg_map_to_vram(dest, asset_index, ref, width_tiles, height_tiles) (0u)
 
-static void VN_BANKED_CODE visual_cache_preload_ref(uint8_t kind, uint16_t asset_index, const pce_editor_data_ref_t *ref)
+static void VN_BANKED_CODE2 visual_cache_invalidate(uint8_t scope)
 {
-    vn_visual_cache_arg_kind = kind;
-    vn_visual_cache_arg_asset = asset_index;
-    vn_visual_cache_arg_ref = ref;
-    (void)visual_cache_call(VN_VISUAL_CACHE_OP_PRELOAD_REF);
-}
-
-static void VN_BANKED_CODE visual_cache_invalidate(uint8_t scope)
-{
-    vn_visual_cache_arg_scope = scope;
-    (void)visual_cache_call(VN_VISUAL_CACHE_OP_INVALIDATE);
+    uint8_t i;
+    for (i = 0u; i < VN_VISUAL_CACHE_PAGE_COUNT; i++)
+    {
+        uint8_t clear_entry = 0u;
+        uint8_t kind;
+        if (!vn_visual_cache_valid[i]) continue;
+        kind = vn_visual_cache_kind[i];
+        if (scope == PCE_VN_CACHE_SCOPE_VISUAL || scope == PCE_VN_CACHE_SCOPE_ALL)
+        {
+            clear_entry = 1u;
+        }
+        else if (scope == PCE_VN_CACHE_SCOPE_BG)
+        {
+            if (kind == VN_VISUAL_CACHE_KIND_BG_TILES || kind == VN_VISUAL_CACHE_KIND_BG_MAP) clear_entry = 1u;
+        }
+        else if (scope == PCE_VN_CACHE_SCOPE_SPRITE)
+        {
+            if (kind == VN_VISUAL_CACHE_KIND_SPRITE_PATTERNS) clear_entry = 1u;
+        }
+        if (clear_entry)
+        {
+            vn_visual_cache_valid[i] = 0u;
+            vn_visual_cache_kind[i] = VN_VISUAL_CACHE_KIND_NONE;
+            vn_visual_cache_size[i] = 0u;
+        }
+    }
 }
 #else
 static void VN_BANKED_CODE vram_copy_sliced_from_vn_data(uint16_t dest, const uint8_t *source, uint16_t length)
@@ -5079,7 +5169,6 @@ static void VN_VISUAL_CACHE_CODE load_bg_cache_asset_impl(signed int bg_index, u
 {
     const pce_editor_bg_asset_t *bg;
     pce_editor_data_ref_t bg_tiles;
-    pce_editor_data_ref_t bg_map;
     if (bg_index < 0) return;
     if ((unsigned int)bg_index >= pce_editor_bg_asset_count) return;
     (void)tile_x;
@@ -5087,9 +5176,7 @@ static void VN_VISUAL_CACHE_CODE load_bg_cache_asset_impl(signed int bg_index, u
     map_resident_data();
     bg = vn_get_bg_asset((uint16_t)bg_index);
     SNAPSHOT_DATA_REF(bg_tiles, bg->tiles);
-    SNAPSHOT_DATA_REF(bg_map, bg->map);
     visual_cache_preload_ref_impl(VN_VISUAL_CACHE_KIND_BG_TILES, (uint16_t)bg_index, &bg_tiles);
-    visual_cache_preload_ref_impl(VN_VISUAL_CACHE_KIND_BG_MAP, (uint16_t)bg_index, &bg_map);
     preloaded_scene_visual_valid = 0u;
 }
 
@@ -5108,17 +5195,23 @@ static void VN_VISUAL_CACHE_CODE load_sprite_pattern_cache_asset_impl(signed int
 
 static void VN_BANKED_CODE load_bg_cache_asset(signed int bg_index, uint8_t tile_x, uint8_t tile_y)
 {
+    if (bg_index < 0) return;
+    load_visual_cache_code();
     vn_visual_cache_arg_asset = (uint16_t)bg_index;
     vn_visual_cache_arg_x = tile_x;
     vn_visual_cache_arg_y = tile_y;
     (void)visual_cache_call(VN_VISUAL_CACHE_OP_LOAD_BG);
+    load_overlay_code();
 }
 
 static void VN_BANKED_CODE load_sprite_pattern_cache_asset(signed int sprite_index, uint8_t slot_index)
 {
+    if (sprite_index < 0) return;
+    load_visual_cache_code();
     vn_visual_cache_arg_asset = (uint16_t)sprite_index;
     vn_visual_cache_arg_slot = slot_index;
     (void)visual_cache_call(VN_VISUAL_CACHE_OP_LOAD_SPRITE);
+    load_overlay_code();
 }
 #else
 static void VN_BANKED_CODE load_bg_cache_asset(signed int bg_index, uint8_t tile_x, uint8_t tile_y)
@@ -5516,7 +5609,7 @@ static void load_visual_cache_code(void)
     while (remaining)
     {
         const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
-        pce_ram_bank120_map();
+        pce_ram_bank133_map();
         (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, dest, chunk);
         cd_transfer_wait();
         dest = (uint16_t)(dest + chunk);
@@ -5567,9 +5660,6 @@ static void init_video(void)
        phase). The CD->bank133->slot4 load/map/execute path is verified in
        Geargrafx (overlay ran from slot 4 with MPR4=bank133). */
     load_overlay_code();
-#if VN_ENABLE_VISUAL_PAYLOAD_CACHE
-    load_visual_cache_code();
-#endif
 #endif
 }
 

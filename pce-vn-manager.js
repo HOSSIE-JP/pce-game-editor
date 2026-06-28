@@ -155,14 +155,14 @@ const VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000; // CPU address the overlay is linked a
 const VN_OVERLAY_RESERVED_SECTORS = 2;
 const VN_OVERLAY_RESERVED_BYTES = VN_OVERLAY_RESERVED_SECTORS * 2048; // 2048 = VN_CD_SECTOR_BYTES (defined below)
 // Disabled for standard Super CD-ROM2 builds. Geargrafx/System Card boot tests
-// showed that using bank112-120 for VN visual payload cache/code can destabilize
-// the CD boot path. Keep the constants behind VN_ENABLE_VISUAL_PAYLOAD_CACHE so
-// the experimental path can be revisited without changing the public command
-// record format.
+// showed that using low System Card RAM banks for VN visual payload cache/code
+// can destabilize CD boot or hang CD BIOS DATA IN. Keep the constants behind
+// VN_ENABLE_VISUAL_PAYLOAD_CACHE so the experimental path can be revisited
+// without changing the public command record format.
 const VN_VISUAL_CODE_DATA_FILE = path.join('assets', 'generated', 'vn', 'visual_code.bin');
 const VN_VISUAL_CODE_SECTION = '.vn_visual_code';
 const VN_VISUAL_CODE_VRAM_LOAD_ADDR = 0x8000;
-const VN_VISUAL_CODE_LINK_ADDR = 0x01788000;
+const VN_VISUAL_CODE_LINK_ADDR = 0x01798000;
 const VN_VISUAL_CODE_RESERVED_SECTORS = 4;
 const VN_VISUAL_CODE_RESERVED_BYTES = VN_VISUAL_CODE_RESERVED_SECTORS * 2048;
 // LMA (physical/load address) for the .vn_overlay section: bank132's tail
@@ -3543,7 +3543,7 @@ function collectCdDataFiles(projectDir) {
   // so its CD sector stays stable across scene edits. Only when it was built.
   addExistingCdDataFile(projectDir, files, seen, VN_OVERLAY_DATA_FILE);
   if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) {
-    // Experimental visual cache helper code, streamed into bank120 at boot.
+    // Visual cache helper code, streamed into bank121 at boot.
     addExistingCdDataFile(projectDir, files, seen, VN_VISUAL_CODE_DATA_FILE);
   }
   // The sprite-format font is only generated when spritetext is used; include it
@@ -3621,18 +3621,8 @@ function writeOverlayFragment(projectDir) {
       `    KEEP(*(${VN_VISUAL_CODE_SECTION}.entry ${VN_VISUAL_CODE_SECTION}.entry.*))`,
       `    KEEP(*(${VN_VISUAL_CODE_SECTION}.impl ${VN_VISUAL_CODE_SECTION}.impl.*))`,
       '    __vn_visual_code_end = .;',
-      '  } >ram_bank120',
+      '  } >ram_bank121',
     ]
-    : [];
-  const visualCacheSections = VN_ENABLE_VISUAL_PAYLOAD_CACHE
-    ? Array.from({ length: 8 }, (_, i) => {
-      const bank = 112 + i;
-      return [
-        `  .vn_visual_cache${bank} (NOLOAD) : {`,
-        `    KEEP(*(.vn_visual_cache${bank} .vn_visual_cache${bank}.*))`,
-        `  } >ram_bank${bank}`,
-      ].join('\n');
-    })
     : [];
   const body = [
     'SECTIONS {',
@@ -3645,7 +3635,6 @@ function writeOverlayFragment(projectDir) {
     `  .ram_bank132_tail ${tailVma} (NOLOAD) : {`,
     '    KEEP(*(.ram_bank132_tail .ram_bank132_tail.*))',
     '  }',
-    ...visualCacheSections,
     '} INSERT AFTER .ram_bank132;',
     '',
   ].join('\n');
@@ -3695,7 +3684,7 @@ function ensureVisualCodeReservation(projectDir) {
 // them. The .vn_overlay section itself stays (its benign LMA copy loads into
 // bank132's unused tail and keeps the dispatcher's direct calls resolvable);
 // visual_code.bin is called through a fixed 0x8000 entry, so the ELF can drop the
-// bank120 section entirely. Errors if a section is missing or exceeds its
+// bank121 section entirely. Errors if a section is missing or exceeds its
 // reservation. Returns {realSize, byteSize, visualCode} or null when there is no
 // toolchain / elf.
 function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
@@ -3769,7 +3758,7 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
   // Strip the overlay's relocation table so mkcd does not re-apply overlay-internal
   // relocations at the out-of-range 0x8000 VMA (the section itself stays), and strip
   // the visual helper section completely because it is loaded from CD into
-  // bank120 instead of being part of the main program image. Write the stripped
+  // bank121 instead of being part of the main program image. Write the stripped
   // result to a temp file and atomically rename it over main.elf rather than
   // letting llvm-objcopy rewrite the ELF in place: on Windows an in-place rewrite can
   // race with antivirus/file-indexing scanning the freshly written executable and

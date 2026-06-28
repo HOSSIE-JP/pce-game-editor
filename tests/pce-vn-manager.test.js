@@ -248,7 +248,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.doesNotMatch(overlayFragment, /\.vn_visual_cache119/);
   assert.match(overlayFragment, /INSERT AFTER \.ram_bank132;/);
   // The runtime declares bank133 for the message/sprite overlay, but leaves the
-  // experimental bank112-120 visual payload cache disabled for standard Super CD.
+  // experimental visual payload cache remains disabled for standard Super CD.
   const runtimeSrc = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'pce_vn_runtime.c'), 'utf-8');
   assert.match(runtimeSrc, /PCE_RAM_BANK_AT\(133, 4\);/);
   assert.match(runtimeSrc, /#define VN_ENABLE_VISUAL_PAYLOAD_CACHE 0/);
@@ -1349,7 +1349,7 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   assert.match(runtime, /psg_pattern_ram_bank135_reserved\[VN_PSG_PATTERN_BANK_BYTES\][\s\S]*section\("\.ram_bank135"\)/);
   assert.match(runtime, /pce_ram_bank135_map\(\);[\s\S]*\(const pce_editor_psg_step_t \*\)psg_pattern_ram/);
   assert.match(runtime, /#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 20u/);
-  assert.match(runtime, /#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 256u/);
+  assert.match(runtime, /#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 64u/);
   assert.match(runtime, /static void VN_RESIDENT_CODE service_psg_during_blocking_work\(void\);/);
   assert.match(runtime, /static void VN_RESIDENT_CODE service_psg_during_blocking_frames\(uint8_t frames\);/);
   assert.match(runtime, /cd_transfer_wait\(void\)[\s\S]*service_psg_during_blocking_frames\(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES\);/);
@@ -2335,8 +2335,9 @@ test('PCE VN runtime cache clear only invalidates non-destructive cache flags', 
   const executeCommandSource = source.slice(executeStart, executeEnd);
 
   assert.match(source, /#define VN_ENABLE_VISUAL_PAYLOAD_CACHE 0/);
-  assert.match(source, /#if VN_ENABLE_VISUAL_PAYLOAD_CACHE[\s\S]*PCE_RAM_BANK_AT\(120, 4\);[\s\S]*PCE_RAM_BANK_AT\(112, 6\);[\s\S]*PCE_RAM_BANK_AT\(119, 6\);/);
-  assert.match(source, /#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 256u/);
+  assert.match(source, /#if VN_ENABLE_VISUAL_PAYLOAD_CACHE[\s\S]*PCE_RAM_BANK_AT\(121, 4\);[\s\S]*#define VN_VISUAL_CACHE_FIRST_BANK 120u/);
+  assert.match(source, /#define VN_MAP_VISUAL_CACHE_CODE\(\) pce_ram_bank121_map\(\)/);
+  assert.match(source, /#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 64u/);
   assert.match(source, /static void VN_BANKED_CODE vram_copy_sliced_from_vn_data\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*VN_VISUAL_VRAM_COPY_SLICE_BYTES[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*service_psg_during_blocking_work\(\);[\s\S]*map_vn_data\(\);[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);/);
   assert.match(source, /static uint8_t VN_BANKED_CODE visual_cache_ref_to_vram\(uint16_t dest, uint8_t kind, uint16_t asset_index, const pce_editor_data_ref_t \*ref\)[\s\S]*return 0u;/);
   assert.match(source, /static uint8_t VN_BANKED_CODE visual_cache_bg_map_to_vram\(uint16_t dest, uint16_t asset_index, const pce_editor_data_ref_t \*ref, uint8_t width_tiles, uint8_t height_tiles\)[\s\S]*return 0u;/);
