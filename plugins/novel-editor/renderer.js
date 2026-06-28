@@ -5,7 +5,7 @@ import { activatePlugin as activateFontEditor } from '../pce-font-editor/rendere
 const NOVEL_TABS = [
   { id: 'vn', label: 'スクリプト', pluginId: 'novel-editor', activate: activateVnEditor },
   { id: 'system', label: 'システム設定', pluginId: 'novel-editor', activate: activateSystemSettings },
-  { id: 'font', label: 'Font', pluginId: 'novel-editor', activate: activateFontEditor },
+  { id: 'font', label: 'フォント', pluginId: 'novel-editor', activate: activateFontEditor },
 ];
 
 function esc(value) {

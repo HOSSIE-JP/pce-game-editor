@@ -72,6 +72,35 @@ function assetFullName(asset = {}) {
   return assetNameParts(asset).join('/');
 }
 
+// Build a folder tree from a flat, ordered asset list. Folder segments come from
+// the "/"-separated display name; child folders keep first-seen order and leaves
+// keep the list order so the active sort is preserved within each group.
+function buildAssetGroupTree(list = []) {
+  const root = { path: '', name: '', folders: new Map(), leaves: [] };
+  list.forEach((asset) => {
+    let node = root;
+    assetGroupParts(asset).forEach((segment) => {
+      if (!node.folders.has(segment)) {
+        node.folders.set(segment, {
+          path: node.path ? `${node.path}/${segment}` : segment,
+          name: segment,
+          folders: new Map(),
+          leaves: [],
+        });
+      }
+      node = node.folders.get(segment);
+    });
+    node.leaves.push(asset);
+  });
+  return root;
+}
+
+function assetGroupLeafCount(node) {
+  let total = node.leaves.length;
+  node.folders.forEach((child) => { total += assetGroupLeafCount(child); });
+  return total;
+}
+
 function compareText(left, right) {
   return String(left ?? '').localeCompare(String(right ?? ''), 'ja', { numeric: true, sensitivity: 'base' });
 }
@@ -378,6 +407,8 @@ export function createImageAssetManagerPlugin(config = {}) {
     let assets = [];
     let selectedId = '';
     let importBusy = false;
+    // Folder paths (from "/"-separated names) the user has collapsed in the list.
+    const collapsedGroups = new Set();
     let previewLoadToken = 0;
     let sortState = { key: 'name', direction: 'asc' };
     const spritePreviewState = {
@@ -640,28 +671,26 @@ export function createImageAssetManagerPlugin(config = {}) {
     }
 
     function renderGroupedRows(list, colSpan, rowRenderer) {
-      let previousGroup = [];
-      return list.map((asset) => {
-        const group = assetGroupParts(asset);
-        let shared = 0;
-        while (shared < previousGroup.length && shared < group.length && previousGroup[shared] === group[shared]) {
-          shared += 1;
-        }
+      const renderNode = (node, depth) => {
         let html = '';
-        for (let depth = shared; depth < group.length; depth += 1) {
-          const path = group.slice(0, depth + 1).join(' / ');
+        node.folders.forEach((child) => {
+          const collapsed = collapsedGroups.has(child.path);
           html += `
-            <tr class="pce-image-manager-group-row">
+            <tr class="pce-image-manager-group-row" data-group-path="${esc(child.path)}">
               <td colspan="${colSpan}" style="--asset-group-indent:${depth * 14}px">
-                <span>${esc(group[depth])}</span>
-                <code>${esc(path)}</code>
+                <span class="pce-image-manager-group-toggle">${collapsed ? '▸' : '▾'}</span>
+                <span>${esc(child.name)}</span>
+                <code>${esc(child.path)}</code>
+                <span class="pce-image-manager-group-count">${assetGroupLeafCount(child)}</span>
               </td>
             </tr>
           `;
-        }
-        previousGroup = group;
-        return html + rowRenderer(asset);
-      });
+          if (!collapsed) html += renderNode(child, depth + 1);
+        });
+        node.leaves.forEach((asset) => { html += rowRenderer(asset, depth); });
+        return html;
+      };
+      return [renderNode(buildAssetGroupTree(list), 0)];
     }
 
     function selectedAsset() {
@@ -1019,12 +1048,13 @@ export function createImageAssetManagerPlugin(config = {}) {
         rowsEl.innerHTML = '<tr><td colspan="7" class="pce-image-manager-empty">アセットがありません</td></tr>';
         return;
       }
-      rowsEl.innerHTML = renderGroupedRows(list, 6, (asset) => {
+      rowsEl.innerHTML = renderGroupedRows(list, 6, (asset, depth = 0) => {
         const generated = generatedInfo(asset);
         const warnings = [...(generated.warnings || []), asset.pathError].filter(Boolean);
+        const nameIndent = depth > 0 ? ` style="padding-left:${10 + depth * 14}px"` : '';
         return `
           <tr class="pce-image-manager-row ${asset.id === selectedId ? 'active' : ''}" data-id="${esc(asset.id)}">
-            <td class="pce-image-manager-name-cell"><span>${esc(assetDisplayName(asset))}</span></td>
+            <td class="pce-image-manager-name-cell"${nameIndent}><span>${esc(assetDisplayName(asset))}</span></td>
             <td class="pce-image-manager-id-cell"><code>${esc(asset.id)}</code></td>
             <td>${esc(formatSize(asset))}</td>
             <td>${esc(generated.tileCount || 0)}</td>
@@ -1035,6 +1065,15 @@ export function createImageAssetManagerPlugin(config = {}) {
           </tr>
         `;
       }).join('');
+      rowsEl.querySelectorAll('.pce-image-manager-group-row').forEach((row) => {
+        row.addEventListener('click', () => {
+          const path = row.dataset.groupPath || '';
+          if (!path) return;
+          if (collapsedGroups.has(path)) collapsedGroups.delete(path);
+          else collapsedGroups.add(path);
+          renderRows();
+        });
+      });
       rowsEl.querySelectorAll('.pce-image-manager-row').forEach((row) => {
         row.addEventListener('click', (event) => {
           if (event.target?.closest?.('button')) return;

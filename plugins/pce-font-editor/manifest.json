@@ -7,10 +7,10 @@
   "types": ["editor", "asset"],
   "hidden": true,
   "supportedCores": ["pc-engine"],
-  "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont"],
+  "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont", "importFontFile", "deleteFontFile"],
   "permissions": ["project.read", "project.write", "dialog.openFile", "main.invokeHook"],
   "mainApi": {
-    "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont"],
+    "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont", "importFontFile", "deleteFontFile"],
     "capabilities": ["font-editor"]
   }
 }

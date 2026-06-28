@@ -8,6 +8,11 @@ const assetManager = require('./pce-asset-manager');
 
 const VN_SCENE_FILE = path.join('assets', 'pce-vn-scenes.json');
 const VN_FONT_FILE = path.join('assets', 'pce-font.json');
+// Imported font files are copied here (project-relative) so rendering never
+// depends on an external absolute path that may contain non-ASCII / spaces that
+// break ffmpeg's `fontfile` argument on Windows.
+const VN_FONT_DIR = path.join('assets', 'fonts');
+const FONT_FILE_EXTS = ['.ttf', '.otf', '.ttc'];
 const VN_BUILD_STAMP_FILE = path.join('assets', 'generated', 'vn', 'build-stamp.json');
 const VN_BUILD_STAMP_VERSION = 2;
 // BG message / choice glyph streams stay byte-oriented so the common case costs
@@ -283,6 +288,7 @@ function adpcmActualSampleRate(sampleRate) {
 const DEFAULT_FONT_CONFIG = {
   version: 1,
   fontPath: '',
+  fonts: [],
   fontSize: 11,
   threshold: 32,
   xOffset: 0,
@@ -501,11 +507,43 @@ function clampSignedInt(value, fallback = 0) {
   return Math.max(-32768, Math.min(32767, parsed));
 }
 
+// A managed font library entry: `file` is a project-relative path under
+// assets/fonts (always forward-slash), `label` is a human-friendly name.
+function normalizeFontEntry(entry) {
+  if (!entry) return null;
+  if (typeof entry === 'string') {
+    const file = normalizeRelativePath(entry);
+    if (!file) return null;
+    return { file, label: path.basename(file) };
+  }
+  if (typeof entry === 'object') {
+    const file = normalizeRelativePath(String(entry.file || entry.path || ''));
+    if (!file) return null;
+    const label = String(entry.label || path.basename(file)).trim().slice(0, 120) || path.basename(file);
+    return { file, label };
+  }
+  return null;
+}
+
+function normalizeFontEntries(rawFonts) {
+  const list = Array.isArray(rawFonts) ? rawFonts : [];
+  const seen = new Set();
+  const out = [];
+  for (const entry of list) {
+    const normalized = normalizeFontEntry(entry);
+    if (!normalized || seen.has(normalized.file)) continue;
+    seen.add(normalized.file);
+    out.push(normalized);
+  }
+  return out;
+}
+
 function normalizeFontConfig(config = {}) {
   const raw = config && typeof config === 'object' ? config : {};
   return {
     version: 1,
-    fontPath: String(raw.fontPath || '').trim(),
+    fontPath: String(raw.fontPath || '').replace(/\\/g, '/').trim(),
+    fonts: normalizeFontEntries(raw.fonts),
     fontSize: clampInt(raw.fontSize, 8, 32, DEFAULT_FONT_CONFIG.fontSize),
     threshold: clampInt(raw.threshold, 1, 254, DEFAULT_FONT_CONFIG.threshold),
     xOffset: clampInt(raw.xOffset, -8, 8, DEFAULT_FONT_CONFIG.xOffset),
@@ -531,6 +569,85 @@ function writeFontConfig(projectDir, config = {}) {
   ensureDirSync(path.dirname(configPath));
   fs.writeFileSync(configPath, JSON.stringify(normalized, null, 2), 'utf-8');
   return normalized;
+}
+
+function getFontDirPath(projectDir) {
+  return path.join(projectDir, VN_FONT_DIR);
+}
+
+function fontFileSha1(filePath) {
+  return crypto.createHash('sha1').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+// Build an ASCII, space-free destination stem so the copied font lives at a path
+// ffmpeg can pass through reliably on Windows even when the source folder/name
+// contains Japanese characters or spaces.
+function safeFontStem(sourceName) {
+  const base = String(sourceName || '').replace(/\.[^.]+$/, '');
+  const ascii = base.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+  return ascii || 'font';
+}
+
+// Copy a font file into the project (assets/fonts) and register it in the font
+// config, making it the active selection. Re-importing identical bytes reuses
+// the existing copy instead of duplicating it.
+function importFontFile(projectDir, sourcePath) {
+  const source = String(sourcePath || '').trim();
+  if (!source) throw new Error('フォントファイルが指定されていません');
+  if (!fs.existsSync(source)) throw new Error('フォントファイルが見つかりません');
+  const ext = path.extname(source).toLowerCase();
+  if (!FONT_FILE_EXTS.includes(ext)) {
+    throw new Error('対応していないフォント形式です (.ttf / .otf / .ttc)');
+  }
+  const config = readFontConfig(projectDir);
+  const fontDir = getFontDirPath(projectDir);
+  ensureDirSync(fontDir);
+  const originalName = path.basename(source);
+  const sourceHash = fontFileSha1(source);
+
+  // Reuse an existing imported copy with identical content.
+  const existing = config.fonts.find((entry) => {
+    const abs = path.join(projectDir, entry.file);
+    return fs.existsSync(abs) && fontFileSha1(abs) === sourceHash;
+  });
+  if (existing) {
+    const nextConfig = normalizeFontConfig({ ...config, fontPath: existing.file });
+    return { config: writeFontConfig(projectDir, nextConfig), imported: existing };
+  }
+
+  // Pick a unique ASCII destination name.
+  const stem = safeFontStem(originalName);
+  let destName = `${stem}${ext}`;
+  let counter = 1;
+  while (fs.existsSync(path.join(fontDir, destName))) {
+    destName = `${stem}_${counter}${ext}`;
+    counter += 1;
+  }
+  fs.copyFileSync(source, path.join(fontDir, destName));
+  const relFile = normalizeRelativePath(path.join(VN_FONT_DIR, destName));
+  const fonts = config.fonts.filter((entry) => entry.file !== relFile);
+  fonts.push({ file: relFile, label: originalName });
+  const nextConfig = normalizeFontConfig({ ...config, fonts, fontPath: relFile });
+  return { config: writeFontConfig(projectDir, nextConfig), imported: { file: relFile, label: originalName } };
+}
+
+// Remove a project-local font copy and unregister it. Refuses paths outside
+// assets/fonts. If the removed font was active, falls back to the OS font.
+function deleteFontFile(projectDir, file) {
+  const rel = normalizeRelativePath(file);
+  if (!rel) throw new Error('削除するフォントが指定されていません');
+  const abs = path.resolve(projectDir, rel);
+  const fontDirAbs = path.resolve(projectDir, VN_FONT_DIR);
+  const within = abs === fontDirAbs || abs.startsWith(fontDirAbs + path.sep);
+  if (!within) throw new Error('プロジェクト内のフォントのみ削除できます');
+  if (fs.existsSync(abs)) {
+    try { fs.unlinkSync(abs); } catch (_) {}
+  }
+  const config = readFontConfig(projectDir);
+  const fonts = config.fonts.filter((entry) => entry.file !== rel);
+  const fontPath = normalizeRelativePath(config.fontPath) === rel ? '' : config.fontPath;
+  const nextConfig = normalizeFontConfig({ ...config, fonts, fontPath });
+  return { config: writeFontConfig(projectDir, nextConfig) };
 }
 
 function resolveBuildFontTileBase(savedConfig, options = {}) {
@@ -1162,6 +1279,15 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
       color: normalizeMessageColor(raw.color) || '#ffffff',
       blinkFrames: clampInt(raw.blinkFrames ?? raw.blink, 0, 255, 0),
       visible,
+    };
+  }
+  if (type === 'comment') {
+    // Editor-only annotation: kept in the saved scene document so it persists,
+    // but excluded from the compiled scene pack (see the scene compile loop).
+    return {
+      type: 'comment',
+      text: String(raw.text == null ? '' : raw.text).slice(0, 200),
+      color: normalizeHexColor(raw.color) || '',
     };
   }
   return null;
@@ -1883,13 +2009,26 @@ function validateVnSpritePaletteLayout(assetDoc, fontSpritePaletteBank = DEFAULT
   }
 }
 
-function fontCandidates(config = {}) {
+// Resolve a font reference to an absolute path. Project-relative references
+// (assets/fonts/...) are joined against projectDir so rendering uses the copy
+// inside the project rather than the original external path.
+function resolveFontPath(reference, projectDir = '') {
+  const value = String(reference || '').trim();
+  if (!value) return '';
+  if (path.isAbsolute(value)) return value;
+  return projectDir ? path.join(projectDir, value) : value;
+}
+
+function fontCandidates(config = {}, projectDir = '') {
   const normalized = normalizeFontConfig(config);
   const candidates = [];
   const addCandidate = (candidate) => {
-    if (candidate && fs.existsSync(candidate)) candidates.push(candidate);
+    const resolved = resolveFontPath(candidate, projectDir);
+    if (resolved && fs.existsSync(resolved)) candidates.push(resolved);
   };
+  // Active selection first, then the rest of the imported library, then OS fonts.
   addCandidate(normalized.fontPath);
+  normalized.fonts.forEach((entry) => addCandidate(entry.file));
   try {
     const systemFonts = path.join('/System', 'Library', 'Fonts');
     fs.readdirSync(systemFonts)
@@ -1979,8 +2118,8 @@ function renderGlyphBitmapWithFfmpeg(glyph, fontPath, config = {}) {
   return Array.from(proc.stdout.subarray(0, pixelCount), (value) => (value >= normalized.threshold ? 1 : 0));
 }
 
-function renderGlyphBitmapsWithFfmpeg(glyphs, config = {}) {
-  const candidates = fontCandidates(config);
+function renderGlyphBitmapsWithFfmpeg(glyphs, config = {}, projectDir = '') {
+  const candidates = fontCandidates(config, projectDir);
   if (!candidates.length) return null;
   for (const fontPath of candidates) {
     const bitmaps = [];
@@ -2000,8 +2139,8 @@ function renderGlyphBitmapsWithFfmpeg(glyphs, config = {}) {
   return null;
 }
 
-function renderGlyphBitmapsWithPython(glyphs, config = {}) {
-  const candidates = fontCandidates(config);
+function renderGlyphBitmapsWithPython(glyphs, config = {}, projectDir = '') {
+  const candidates = fontCandidates(config, projectDir);
   const normalized = normalizeFontConfig(config);
   if (!candidates.length) return null;
   const script = String.raw`
@@ -2112,9 +2251,9 @@ function encodeGlyphSpriteData(bitmaps) {
   return Buffer.concat(bitmaps.map((bitmap) => encodeGlyphSpritePattern(bitmap)));
 }
 
-function renderGlyphBitmaps(glyphs, config = {}) {
-  return renderGlyphBitmapsWithFfmpeg(glyphs, config)
-    || renderGlyphBitmapsWithPython(glyphs, config)
+function renderGlyphBitmaps(glyphs, config = {}, projectDir = '') {
+  return renderGlyphBitmapsWithFfmpeg(glyphs, config, projectDir)
+    || renderGlyphBitmapsWithPython(glyphs, config, projectDir)
     || {
       bitmaps: glyphs.map((glyph, index) => fallbackGlyphBitmap(glyph, index)),
       renderer: 'fallback',
@@ -2122,8 +2261,8 @@ function renderGlyphBitmaps(glyphs, config = {}) {
     };
 }
 
-function renderGlyphMaskData(glyphs, config = {}) {
-  return encodeGlyphMaskData(renderGlyphBitmaps(glyphs, config).bitmaps);
+function renderGlyphMaskData(glyphs, config = {}, projectDir = '') {
+  return encodeGlyphMaskData(renderGlyphBitmaps(glyphs, config, projectDir).bitmaps);
 }
 
 function toCIdentifier(value) {
@@ -2526,7 +2665,7 @@ function generateVnSources(projectDir, options = {}) {
   if (fontBudget.errors.length) {
     throw new Error(fontBudget.errors.join(' '));
   }
-  const fontRender = renderGlyphBitmaps(glyphs, fontConfig);
+  const fontRender = renderGlyphBitmaps(glyphs, fontConfig, projectDir);
   const fontTiles = encodeGlyphMaskData(fontRender.bitmaps);
   // Glyph masks live on the CD as a streamed data file, not in ram_bank132.
   const fontDataPath = normalizeRelativePath(VN_FONT_DATA_FILE);
@@ -2552,7 +2691,7 @@ function generateVnSources(projectDir, options = {}) {
     0, 15, DEFAULT_FONT_SPRITE_PALETTE_BANK,
   );
   if (spriteTextGlyphs.length) {
-    const fontSpriteRender = renderGlyphBitmaps(spriteTextGlyphs, fontConfig);
+    const fontSpriteRender = renderGlyphBitmaps(spriteTextGlyphs, fontConfig, projectDir);
     fontSpriteRenderer = fontSpriteRender.renderer;
     fontSpriteTiles = encodeGlyphSpriteData(fontSpriteRender.bitmaps);
     ensureDirSync(path.dirname(fontSpriteDataAbsPath));
@@ -2618,8 +2757,12 @@ function generateVnSources(projectDir, options = {}) {
       switches: [],
     };
     const slotSpriteAssets = ['', '', '', ''];
+    // Comment commands are editor-only annotations. Drop them before both the
+    // label pass and the emit pass so program-counter / label targets stay in
+    // sync with the emitted command records (which never include comments).
+    const compiledCommands = (scene.commands || []).filter((command) => command.type !== 'comment');
     const labels = new Map();
-    (scene.commands || []).forEach((command, commandIndex) => {
+    compiledCommands.forEach((command, commandIndex) => {
       if (command.type === 'label' && command.name && !labels.has(command.name)) {
         labels.set(command.name, commandIndex);
       }
@@ -2632,7 +2775,7 @@ function generateVnSources(projectDir, options = {}) {
       sceneBuild.commands.push(entry);
       commandCount += 1;
     };
-    (scene.commands || []).forEach((command) => {
+    compiledCommands.forEach((command) => {
       if (command.type === 'background') {
         const bgIndex = imageIndex.has(command.assetId) ? imageIndex.get(command.assetId) : -1;
         pushCommand({
@@ -3435,7 +3578,7 @@ function previewFontText(projectDir, payload = {}) {
       glyphs.push(char);
     }
   }
-  const render = renderGlyphBitmaps(glyphs.slice(0, VN_MAX_GLYPH_COUNT), config);
+  const render = renderGlyphBitmaps(glyphs.slice(0, VN_MAX_GLYPH_COUNT), config, projectDir);
   return {
     config,
     text,
@@ -3983,6 +4126,7 @@ module.exports = {
   VN_SCENE_PACK_DIR,
   VN_SCENE_PACK_CACHE_BYTES,
   VN_FONT_FILE,
+  VN_FONT_DIR,
   VN_FONT_DATA_FILE,
   VN_FONT_SPRITE_DATA_FILE,
   VN_MAX_GLYPH_COUNT,
@@ -4063,6 +4207,10 @@ module.exports = {
   getSceneFilePath,
   normalizeSceneDocument,
   normalizeFontConfig,
+  fontCandidates,
+  resolveFontPath,
+  importFontFile,
+  deleteFontFile,
   prepareVisualNovelBuild,
   previewFontText,
   readFontConfig,

@@ -155,6 +155,11 @@
   font-size: 11px;
 }
 
+.pce-image-manager-group-row {
+  cursor: pointer;
+  user-select: none;
+}
+
 .pce-image-manager-group-row td {
   padding-left: calc(10px + var(--asset-group-indent, 0px));
   background: rgba(255, 255, 255, 0.025);
@@ -162,9 +167,28 @@
   font-size: 11px;
 }
 
+.pce-image-manager-group-row:hover td {
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .pce-image-manager-group-row span {
   font-weight: 700;
   color: var(--text);
+}
+
+.pce-image-manager-group-row .pce-image-manager-group-toggle {
+  display: inline-block;
+  width: 1em;
+  margin-right: 4px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.pce-image-manager-group-row .pce-image-manager-group-count {
+  margin-left: 8px;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 10px;
 }
 
 .pce-image-manager-group-row code {

@@ -34,17 +34,19 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     <div class="pce-font-shell">
       <aside class="pce-font-settings">
         <div class="pce-font-header">
-          <h2>Font</h2>
+          <h2>フォント</h2>
           <p>12x12 / 17文字x4行の VN メッセージ用ビットマップフォントを作成します。</p>
         </div>
         <form class="settings-form compact-form pce-font-form" data-role="form">
-          <label class="form-group">
-            <span class="form-label">Font file</span>
-            <div class="pce-font-path-row">
-              <input class="form-input form-input-mono" name="fontPath" placeholder="未指定ならシステムフォントを自動使用" />
-              <button class="btn-sm" type="button" data-action="pick-font">選択</button>
+          <div class="form-group pce-font-fonts">
+            <span class="form-label">フォント</span>
+            <ul class="pce-font-list" data-role="font-list"></ul>
+            <div class="pce-font-list-actions">
+              <button class="btn-sm" type="button" data-action="add-font">フォントを追加</button>
             </div>
-          </label>
+            <p class="pce-font-hint">追加したフォントはプロジェクトの assets/fonts へコピーされます。未選択（OS標準）の場合はOSの日本語フォントを自動使用します。</p>
+            <input type="hidden" name="fontPath" />
+          </div>
           <div class="pce-font-grid">
             <label class="form-group"><span class="form-label">Font size</span><input class="form-input" name="fontSize" type="number" min="8" max="32" /></label>
             <label class="form-group"><span class="form-label">Threshold</span><input class="form-input" name="threshold" type="number" min="1" max="254" /></label>
@@ -95,9 +97,11 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   const textCanvas = root.querySelector('[data-role="text-canvas"]');
   const atlasCanvas = root.querySelector('[data-role="atlas-canvas"]');
   const metaEl = root.querySelector('[data-role="meta"]');
+  const fontListEl = root.querySelector('[data-role="font-list"]');
 
   let settings = {
     fontPath: '',
+    fonts: [],
     fontSize: 11,
     threshold: 32,
     xOffset: 0,
@@ -110,6 +114,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     return {
       version: 1,
       fontPath: form.elements.fontPath.value.trim(),
+      fonts: Array.isArray(settings.fonts) ? settings.fonts : [],
       fontSize: clamp(form.elements.fontSize.value, 8, 32, 11),
       threshold: clamp(form.elements.threshold.value, 1, 254, 32),
       xOffset: clamp(form.elements.xOffset.value, -8, 8, 0),
@@ -119,8 +124,52 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     };
   }
 
+  function renderFontList() {
+    const fonts = Array.isArray(settings.fonts) ? settings.fonts : [];
+    const active = String(settings.fontPath || '');
+    const rows = [];
+    const osActive = active === '';
+    rows.push(`
+      <li class="pce-font-list-item${osActive ? ' active' : ''}">
+        <button type="button" class="pce-font-pick" data-font-pick="">
+          <span class="pce-font-radio">${osActive ? '●' : '○'}</span>
+          <span class="pce-font-name">OS標準フォント（自動）</span>
+        </button>
+      </li>
+    `);
+    fonts.forEach((entry) => {
+      const file = String(entry.file || '');
+      const label = String(entry.label || file.split('/').pop() || file);
+      const isActive = active === file;
+      rows.push(`
+        <li class="pce-font-list-item${isActive ? ' active' : ''}">
+          <button type="button" class="pce-font-pick" data-font-pick="${esc(file)}">
+            <span class="pce-font-radio">${isActive ? '●' : '○'}</span>
+            <span class="pce-font-name" title="${esc(file)}">${esc(label)}</span>
+          </button>
+          <button type="button" class="icon-btn-xs" data-font-delete="${esc(file)}" title="削除" aria-label="削除">✕</button>
+        </li>
+      `);
+    });
+    // Legacy / externally set selection that is not in the imported library
+    // (e.g. an old absolute path). Show it so the state is visible; clicking it
+    // re-selects, and the OS row deselects it.
+    if (active && active !== '' && !fonts.some((entry) => String(entry.file || '') === active)) {
+      rows.push(`
+        <li class="pce-font-list-item active">
+          <button type="button" class="pce-font-pick" data-font-pick="${esc(active)}">
+            <span class="pce-font-radio">●</span>
+            <span class="pce-font-name" title="${esc(active)}">${esc(active.split(/[\\/]/).pop() || active)} <em class="pce-font-external">外部</em></span>
+          </button>
+        </li>
+      `);
+    }
+    fontListEl.innerHTML = rows.join('');
+  }
+
   function fillForm(nextSettings) {
     settings = { ...settings, ...(nextSettings || {}) };
+    if (!Array.isArray(settings.fonts)) settings.fonts = [];
     form.elements.fontPath.value = settings.fontPath || '';
     form.elements.fontSize.value = settings.fontSize ?? 11;
     form.elements.threshold.value = settings.threshold ?? 32;
@@ -128,6 +177,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     form.elements.yOffset.value = settings.yOffset ?? 0;
     form.elements.tileBase.value = settings.tileBase ?? 540;
     form.elements.previewText.value = settings.previewText || '';
+    renderFontList();
   }
 
   function drawPreview(result) {
@@ -217,7 +267,20 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     drawPreview(result);
   }
 
-  root.querySelector('[data-action="pick-font"]').addEventListener('click', async () => {
+  async function selectFont(file) {
+    form.elements.fontPath.value = file || '';
+    settings.fontPath = file || '';
+    renderFontList();
+    try {
+      await save();
+    } catch (err) {
+      errorEl.textContent = err.message || String(err);
+      return;
+    }
+    await preview();
+  }
+
+  async function addFont() {
     errorEl.textContent = '';
     const picked = await api.electronAPI.pickFile({
       properties: ['openFile'],
@@ -225,10 +288,42 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     });
     const filePath = picked?.sourcePath || picked?.filePath || picked?.filePaths?.[0] || '';
     if (picked?.canceled || !filePath) return;
-    form.elements.fontPath.value = filePath;
+    const result = await invoke('importFontFile', { sourcePath: filePath });
+    if (!result?.ok) {
+      errorEl.textContent = result?.error || 'フォントを追加できませんでした';
+      return;
+    }
+    fillForm(result.settings);
     await preview();
+  }
+
+  async function deleteFont(file) {
+    errorEl.textContent = '';
+    if (!file) return;
+    const result = await invoke('deleteFontFile', { file });
+    if (!result?.ok) {
+      errorEl.textContent = result?.error || 'フォントを削除できませんでした';
+      return;
+    }
+    fillForm(result.settings);
+    await preview();
+  }
+
+  fontListEl.addEventListener('click', (event) => {
+    const deleteBtn = event.target?.closest?.('[data-font-delete]');
+    if (deleteBtn) {
+      event.preventDefault();
+      void deleteFont(deleteBtn.dataset.fontDelete || '');
+      return;
+    }
+    const pickBtn = event.target?.closest?.('[data-font-pick]');
+    if (pickBtn) {
+      event.preventDefault();
+      void selectFont(pickBtn.dataset.fontPick || '');
+    }
   });
 
+  root.querySelector('[data-action="add-font"]').addEventListener('click', () => { void addFont(); });
   root.querySelector('[data-action="reload"]').addEventListener('click', reload);
   root.querySelector('[data-action="preview"]').addEventListener('click', preview);
   form.addEventListener('input', () => {

@@ -6,10 +6,10 @@
   "icon": "book",
   "types": ["editor", "asset"],
   "supportedCores": ["pc-engine"],
-  "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont"],
+  "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont", "importFontFile", "deleteFontFile"],
   "permissions": ["project.read", "project.write", "dialog.openFile", "asset.preview", "main.invokeHook"],
   "mainApi": {
-    "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont"],
+    "hooks": ["readFontSettings", "saveFontSettings", "previewFont", "generateFont", "importFontFile", "deleteFontFile"],
     "capabilities": ["novel-editor", "vn-system-settings", "font-editor"]
   },
   "tab": {
