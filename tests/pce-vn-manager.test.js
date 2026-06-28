@@ -1350,6 +1350,8 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   assert.match(runtime, /pce_ram_bank135_map\(\);[\s\S]*\(const pce_editor_psg_step_t \*\)psg_pattern_ram/);
   assert.match(runtime, /#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 20u/);
   assert.match(runtime, /#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 64u/);
+  assert.match(runtime, /#define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES/);
+  assert.match(runtime, /#define VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES\(\) \(\(psg_active && psg_current\) \? VN_VISUAL_VRAM_COPY_SLICE_BYTES : VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES\)/);
   assert.match(runtime, /static void VN_RESIDENT_CODE service_psg_during_blocking_work\(void\);/);
   assert.match(runtime, /static void VN_RESIDENT_CODE service_psg_during_blocking_frames\(uint8_t frames\);/);
   assert.match(runtime, /cd_transfer_wait\(void\)[\s\S]*service_psg_during_blocking_frames\(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES\);/);
@@ -1357,8 +1359,9 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   // a sprite/BG load during playback no longer fast-forwards them into silence.
   assert.match(runtime, /if \(psg_active && !psg_pattern_banked\)[\s\S]*for \(wait = 0u; wait < \(65535u \/ VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES\); wait\+\+\) \{\}[\s\S]*service_psg_during_blocking_work\(\);/);
   assert.match(runtime, /cd_transfer_wait\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);\r?\n        vram_copy_sliced_from_vn_data\(vram_dest, cd_transfer_scratch, chunk\);/);
-  assert.match(runtime, /vram_copy_sliced_from_vn_data_impl\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*VN_VISUAL_VRAM_COPY_SLICE_BYTES[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*service_psg_during_visual_cache_work\(\);/);
-  assert.match(runtime, /cd_transfer_wait\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);\r?\n        while \(row < copy_height_tiles && \(uint16_t\)\(local_offset \+ VN_MAP_ROW_BYTES\) <= chunk\)/);
+  assert.match(runtime, /vram_copy_sliced_from_vn_data_impl\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES\(\);[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*service_psg_during_visual_cache_work\(\);/);
+  assert.match(runtime, /cd_transfer_wait\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);/);
+  assert.match(runtime, /if \(dest_col == 0u && copy_width_tiles == VN_MAP_WIDTH\)[\s\S]*contiguous_bytes[\s\S]*vram_copy_sliced_from_vn_data\(\(uint16_t\)\(dest \+ \(\(uint16_t\)row \* VN_MAP_WIDTH\)\), &cd_transfer_scratch\[local_offset\], contiguous_bytes\);/);
   assert.match(runtime, /pce_editor_vram_copy\(\(uint16_t\)\(dest \+ \(\(uint16_t\)row \* VN_MAP_WIDTH\)\), &cd_transfer_scratch\[local_offset\], row_bytes\);\r?\n            service_psg_during_blocking_work\(\);/);
   assert.match(runtime, /fade_palette[\s\S]*delay_frame\(\);\r?\n        service_psg_during_blocking_work\(\);/);
   assert.match(runtime, /tick_psg\(\);[\s\S]*map_vn_data\(\);[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);/);
@@ -1765,7 +1768,9 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   // message window clears and raw BG/map/font/sprite pattern blits, not only glyph draw.
   assert.match(source, /static void VN_RESIDENT_CODE pce_editor_vram_copy\(uint16_t dest, const uint8_t \*source, uint16_t length\)/);
   assert.match(source, /static void VN_BANKED_CODE vn_vdc_set_copy_word\(void\)[\s\S]*st0 #\$05\\n\\tst2 #\$04/);
-  assert.match(source, /static void VN_RESIDENT_CODE pce_editor_vram_copy[\s\S]*uint8_t irq = vn_vdc_irq_lock\(\);[\s\S]*vn_vdc_set_copy_word\(\);[\s\S]*pce_vdc_copy_to_vram\(dest, source, length\);[\s\S]*vn_vdc_irq_unlock\(irq\);/);
+  assert.match(source, /static void VN_RESIDENT_CODE pce_editor_vram_copy_tia\(const uint8_t \*source, uint16_t length\)[\s\S]*\.byte \$e3, \$00, \$00, \$02, \$00, \$00, \$00/);
+  assert.match(source, /static void VN_RESIDENT_CODE pce_editor_vram_copy[\s\S]*uint8_t irq = vn_vdc_irq_lock\(\);[\s\S]*const uint16_t even_length = \(uint16_t\)\(length & 0xfffeu\);[\s\S]*vn_vdc_set_copy_word\(\);[\s\S]*\*IO_VDC_INDEX = VDC_REG_VRAM_WRITE_ADDR;[\s\S]*\*IO_VDC_INDEX = VDC_REG_VRAM_DATA;[\s\S]*pce_editor_vram_copy_tia\(source, even_length\);[\s\S]*\*IO_VDC_DATA_LO = source\[even_length\];[\s\S]*\*IO_VDC_DATA_HI = 0u;[\s\S]*vn_vdc_irq_unlock\(irq\);/);
+  assert.match(source, /#elif defined\(__PCE__\)[\s\S]*pce_vdc_copy_to_vram\(dest, source, length\);/);
   assert.match(source, /static void write_map_words\(uint16_t map_addr, const uint16_t \*words, uint16_t count\)\n\{\n    pce_editor_vram_copy\(map_addr, \(const uint8_t \*\)words, \(uint16_t\)\(count \* 2u\)\);\n\}/);
   assert.doesNotMatch(source, /static void write_map_words[\s\S]*pce_vdc_poke\(VDC_REG_VRAM_WRITE_ADDR, map_addr\);[\s\S]*pce_vdc_poke\(VDC_REG_VRAM_DATA, words\[i\]\);/);
   // Compositor scratch must be static (section .bss), not stack arrays: large stack
@@ -2063,7 +2068,9 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /row_bytes = \(uint16_t\)\(copy_width_tiles \* 2u\);/);
   assert.match(source, /pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);/);
   assert.match(source, /prepare_cd_data_access\(\);[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);/);
-  assert.match(source, /\(void\)pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);\r?\n        cd_transfer_wait\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);\r?\n        while \(row < copy_height_tiles && \(uint16_t\)\(local_offset \+ VN_MAP_ROW_BYTES\) <= chunk\)/);
+  assert.match(source, /\(void\)pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)cd_transfer_scratch, chunk\);\r?\n        cd_transfer_wait\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);/);
+  assert.match(source, /if \(dest_col == 0u && copy_width_tiles == VN_MAP_WIDTH\)[\s\S]*rows_in_chunk[\s\S]*contiguous_bytes[\s\S]*vram_copy_sliced_from_vn_data\(\(uint16_t\)\(dest \+ \(\(uint16_t\)row \* VN_MAP_WIDTH\)\), &cd_transfer_scratch\[local_offset\], contiguous_bytes\);/);
+  assert.match(source, /while \(row < copy_height_tiles && \(uint16_t\)\(local_offset \+ VN_MAP_ROW_BYTES\) <= chunk\)/);
   assert.match(source, /pce_editor_vram_copy\(\(uint16_t\)\(dest \+ \(\(uint16_t\)row \* VN_MAP_WIDTH\)\), &cd_transfer_scratch\[local_offset\], row_bytes\);/);
   assert.doesNotMatch(source, /cd_rle_bg_map_ref_to_vram/);
   assert.match(source, /static uint16_t bg_map_dest_from_tile\(const pce_editor_bg_asset_t \*bg, uint16_t tile_x, uint16_t tile_y\)/);
@@ -2338,7 +2345,8 @@ test('PCE VN runtime cache clear only invalidates non-destructive cache flags', 
   assert.match(source, /#if VN_ENABLE_VISUAL_PAYLOAD_CACHE[\s\S]*PCE_RAM_BANK_AT\(121, 4\);[\s\S]*#define VN_VISUAL_CACHE_FIRST_BANK 120u/);
   assert.match(source, /#define VN_MAP_VISUAL_CACHE_CODE\(\) pce_ram_bank121_map\(\)/);
   assert.match(source, /#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 64u/);
-  assert.match(source, /static void VN_BANKED_CODE vram_copy_sliced_from_vn_data\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*VN_VISUAL_VRAM_COPY_SLICE_BYTES[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*service_psg_during_blocking_work\(\);[\s\S]*map_vn_data\(\);[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);/);
+  assert.match(source, /#define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES/);
+  assert.match(source, /static void VN_BANKED_CODE vram_copy_sliced_from_vn_data\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES\(\);[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*service_psg_during_blocking_work\(\);[\s\S]*map_vn_data\(\);[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);/);
   assert.match(source, /static uint8_t VN_BANKED_CODE visual_cache_ref_to_vram\(uint16_t dest, uint8_t kind, uint16_t asset_index, const pce_editor_data_ref_t \*ref\)[\s\S]*return 0u;/);
   assert.match(source, /static uint8_t VN_BANKED_CODE visual_cache_bg_map_to_vram\(uint16_t dest, uint16_t asset_index, const pce_editor_data_ref_t \*ref, uint8_t width_tiles, uint8_t height_tiles\)[\s\S]*return 0u;/);
   assert.match(helperSource, /load_bg_cache_asset[\s\S]*preloaded_bg_valid = 0u;[\s\S]*preloaded_scene_visual_valid = 0u;/);

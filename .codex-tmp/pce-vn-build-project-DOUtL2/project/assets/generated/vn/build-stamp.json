@@ -1,0 +1,48 @@
+{
+  "version": 2,
+  "signature": "1f2952ff79d1eda4b1b4b5fe69394db7b3630091",
+  "generated": {
+    "scenePath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\.codex-tmp\\pce-vn-build-project-DOUtL2\\project\\assets\\pce-vn-scenes.json",
+    "headerPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\.codex-tmp\\pce-vn-build-project-DOUtL2\\project\\src\\generated\\vn.h",
+    "sourcePath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\.codex-tmp\\pce-vn-build-project-DOUtL2\\project\\src\\generated\\vn.c",
+    "glyphCount": 5,
+    "messageCount": 2,
+    "choiceCount": 0,
+    "switchCount": 0,
+    "variableCount": 0,
+    "commandCount": 2,
+    "spriteAnimationCount": 0,
+    "sceneCount": 1,
+    "scenePackPaths": [
+      "assets/generated/vn/scenes/000_opening.bin"
+    ],
+    "scenePackBytes": [
+      88
+    ],
+    "fontRenderer": "ffmpeg",
+    "fontPath": "C:\\Windows\\Fonts\\meiryo.ttc",
+    "fontDataPath": "assets/generated/vn/font.bin",
+    "fontByteSize": 120,
+    "fontSectorCount": 1,
+    "fontTileBase": 540,
+    "fontEndTile": 753,
+    "droppedGlyphCount": 0,
+    "fontSpriteDataPath": "assets/generated/vn/font_sprite.bin",
+    "fontSpriteGlyphCount": 0,
+    "fontSpriteByteSize": 0,
+    "fontSpritePatternBase": 377,
+    "fontSpritePaletteBank": 15,
+    "fontSpriteRenderer": "",
+    "assetIds": [],
+    "warnings": []
+  },
+  "mergedDataFiles": [
+    "assets/generated/vn/font.bin",
+    "assets/generated/vn/overlay.bin",
+    "assets/generated/vn/scenes/000_opening.bin"
+  ],
+  "mergedCddaTracks": [
+    "assets/generated/opening_cdda/cdda.wav"
+  ],
+  "updatedAt": "2026-06-28T00:27:17.329Z"
+}

@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "half",
+      "type": "psg-sfx",
+      "name": "half",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 4,
+        "volume": 50,
+        "pattern": [
+          {
+            "step": 0,
+            "channel": 0,
+            "period": 512,
+            "volume": 20
+          },
+          {
+            "step": 1,
+            "channel": 0,
+            "period": 256,
+            "volume": 30
+          }
+        ]
+      }
+    }
+  ]
+}

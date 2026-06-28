@@ -1,0 +1,14 @@
+{
+  "migratedAt": "2026-06-28T00:26:42.678Z",
+  "copied": [
+    {
+      "source": "D:\\homebrew\\SGDK\\projects\\md_emulator\\pce-game-editor\\data\\projects\\sample_pce_game",
+      "target": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\.codex-tmp\\pce-editor-core-state-rUqi4p\\projects\\sample_pce_game"
+    },
+    {
+      "source": "D:\\homebrew\\SGDK\\projects\\md_emulator\\pce-game-editor\\data\\projects\\slide test",
+      "target": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\.codex-tmp\\pce-editor-core-state-rUqi4p\\projects\\slide test"
+    }
+  ],
+  "skippedProjects": []
+}

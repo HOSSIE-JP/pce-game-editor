@@ -1,0 +1,86 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "sky",
+      "type": "image",
+      "name": "sky",
+      "source": "assets/images/sky.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 8,
+        "height": 8,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/sky/palette.bin",
+          "tilesFile": "assets/generated/sky/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/sky/map.bin",
+          "mapVramFile": "assets/generated/sky/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/sky/preview.json",
+          "tileCount": 1,
+          "paletteCount": 1,
+          "vramBytes": 96,
+          "warnings": [],
+          "paletteColors": [
+            "#000000",
+            "#0092db",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 32,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 64,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "sky.png",
+          "importedAt": "2026-06-28T00:26:43.161Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    }
+  ]
+}

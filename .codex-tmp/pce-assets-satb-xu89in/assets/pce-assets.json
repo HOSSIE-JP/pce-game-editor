@@ -1,0 +1,105 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "huge",
+      "type": "sprite",
+      "name": "huge",
+      "source": "assets/sprites/huge.png",
+      "options": {
+        "kind": "sprite",
+        "paletteBank": 0,
+        "tileBase": 2040,
+        "mapBase": 0,
+        "x": 144,
+        "y": 104,
+        "width": 256,
+        "height": 128,
+        "cellWidth": 16,
+        "cellHeight": 16,
+        "transparentIndex": 0,
+        "animations": [
+          {
+            "id": "default",
+            "name": "Default",
+            "frameWidth": 256,
+            "frameHeight": 128,
+            "firstCell": 0,
+            "frameCount": 1,
+            "frameDelay": 8,
+            "frameDelays": [
+              8
+            ],
+            "frameStrideCells": 128,
+            "loop": true
+          }
+        ]
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/huge/palette.bin",
+          "tilesFile": "assets/generated/huge/patterns.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "assets/generated/huge/cellmap.bin",
+          "mapFile": "",
+          "mapVramFile": "",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/huge/preview.json",
+          "tileCount": 2,
+          "paletteCount": 1,
+          "vramBytes": 256,
+          "warnings": [
+            "Sprite sheet contains more than 64 cells; PCE SATB displays up to 64 sprites",
+            "Sprite patterns overlap the SATB VRAM area; lower tileBase or reduce sprite sheet size"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#002449",
+            "#6db6db",
+            "#ffdb92",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 256,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "huge.png",
+          "importedAt": "2026-06-28T00:26:43.070Z",
+          "converter": "Internal PCE image converter"
+        }
+      }
+    }
+  ]
+}
