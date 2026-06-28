@@ -86,6 +86,29 @@ function snapHexToPce(value) {
   return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
 }
 
+// 編集専用のコメント色は PCE 表示色へスナップせず、自由な "#rrggbb" を許容する。
+function normalizeFreeHex(value) {
+  if (value == null) return '';
+  let s = String(value).trim();
+  if (!s) return '';
+  if (s[0] === '#') s = s.slice(1);
+  if (s.length === 3) s = s.split('').map((ch) => ch + ch).join('');
+  if (!/^[0-9a-fA-F]{6}$/.test(s)) return '';
+  return `#${s.toLowerCase()}`;
+}
+
+// 背景色に対して読みやすい文字色（黒/白）を相対輝度から選ぶ。
+function readableTextColor(hex) {
+  const norm = normalizeFreeHex(hex);
+  if (!norm) return '#ffffff';
+  const n = parseInt(norm.slice(1), 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? '#1a1a1a' : '#ffffff';
+}
+
 const COMMAND_DEFINITIONS = [
   { type: 'background', label: 'BG', category: '表示', description: '背景画像と切替' },
   { type: 'sprite', label: 'Sprite', category: '表示', description: '立ち絵の表示/非表示' },
@@ -103,6 +126,7 @@ const COMMAND_DEFINITIONS = [
   { type: 'audio', label: 'Audio', category: '音声', description: 'CD-DA/ADPCM/PSG再生停止' },
   { type: 'effect', label: 'Effect', category: '演出', description: 'フェード/フラッシュ/揺れ' },
   { type: 'spritetext', label: 'SpriteText', category: '演出', description: '短い文字をスプライトで重ねる' },
+  { type: 'comment', label: 'Comment', category: 'メモ', description: 'エディタ専用メモ（ビルド・実行には含まれない）' },
 ];
 const COMMAND_CATEGORIES = [...new Set(COMMAND_DEFINITIONS.map((item) => item.category))];
 
@@ -377,7 +401,9 @@ const VN_MAX_SWITCH_CASES = 16;
 
 // 1 シーンの scene pack バイト数を見積もる（buildScenePack と同じ加算規則）。
 function estimateScenePackBytes(scene = {}) {
-  const commands = Array.isArray(scene.commands) ? scene.commands : [];
+  // コメントはエディタ専用でビルドに含まれないため byte 計算から除外する。
+  const commands = (Array.isArray(scene.commands) ? scene.commands : [])
+    .filter((command) => command?.type !== 'comment');
   let messageCount = 0;
   let choiceCount = 0;
   let switchCount = 0;
@@ -673,6 +699,9 @@ function defaultCommand(type, assets = []) {
   if (type === 'wait') {
     return { type: 'wait', frames: 30 };
   }
+  if (type === 'comment') {
+    return { type: 'comment', text: '', color: '#fde68a' };
+  }
   return {
     type: 'message',
     speaker: '',
@@ -791,6 +820,13 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       type: 'cache',
       action: 'clear',
       scope: rawScope,
+    };
+  }
+  if (raw.type === 'comment') {
+    return {
+      type: 'comment',
+      text: String(raw.text == null ? '' : raw.text).slice(0, 200),
+      color: normalizeFreeHex(raw.color) || '',
     };
   }
   if (raw.type === 'choice') {
@@ -1924,16 +1960,18 @@ export function activatePlugin({ root, api, registerCapability }) {
         <div class="pce-vn-edit-title">
           <div class="pce-vn-scene-title-block">
             <h2 data-role="scene-title">Scene</h2>
-            <label class="pce-vn-scene-name-field">
-              <span>Name</span>
-              <input class="form-input" data-role="scene-name" placeholder="opening" />
-            </label>
+            <div class="pce-vn-scene-name-row">
+              <label class="pce-vn-scene-name-field">
+                <span>Name</span>
+                <input class="form-input" data-role="scene-name" placeholder="opening" />
+              </label>
+              <div class="pce-vn-view-switch" role="group" aria-label="スクリプト編集モード">
+                <button class="btn-sm active" type="button" data-script-mode="gui">GUI</button>
+                <button class="btn-sm" type="button" data-script-mode="json">JSON</button>
+              </div>
+            </div>
           </div>
           <div class="pce-vn-actions">
-            <div class="pce-vn-view-switch" role="group" aria-label="スクリプト編集モード">
-              <button class="btn-sm active" type="button" data-script-mode="gui">GUI</button>
-              <button class="btn-sm" type="button" data-script-mode="json">JSON</button>
-            </div>
             <label class="pce-vn-scene-toggle">
               <input type="checkbox" data-role="scene-fullscreen-bg" />
               <span>Full BG</span>
@@ -2449,26 +2487,27 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   function syncDetailColorInputs(target) {
     const name = target?.name || '';
-    const pairs = [
-      ['textColor', 'textColorHex'],
-      ['color', 'colorHex'],
+    // comment は編集専用なので PCE 色へスナップせず自由色を保つ。
+    const groups = [
+      { color: 'textColor', hex: 'textColorHex', normalize: snapHexToPce },
+      { color: 'color', hex: 'colorHex', normalize: snapHexToPce },
+      { color: 'commentColor', hex: 'commentColorHex', normalize: normalizeFreeHex },
     ];
-    const pair = pairs.find(([colorName, hexName]) => name === colorName || name === hexName);
-    if (!pair) return;
-    const [colorName, hexName] = pair;
-    const colorInput = detailForm.elements[colorName];
-    const hexInput = detailForm.elements[hexName];
+    const group = groups.find((entry) => name === entry.color || name === entry.hex);
+    if (!group) return;
+    const colorInput = detailForm.elements[group.color];
+    const hexInput = detailForm.elements[group.hex];
     if (!colorInput || !hexInput) return;
-    if (name === colorName) {
-      const snapped = snapHexToPce(colorInput.value);
-      if (snapped) {
-        colorInput.value = snapped;
-        hexInput.value = snapped;
+    if (name === group.color) {
+      const normalized = group.normalize(colorInput.value);
+      if (normalized) {
+        colorInput.value = normalized;
+        hexInput.value = normalized;
       }
       return;
     }
-    const snapped = snapHexToPce(hexInput.value);
-    if (snapped) colorInput.value = snapped;
+    const normalized = group.normalize(hexInput.value);
+    if (normalized) colorInput.value = normalized;
   }
 
   function commandSummary(command) {
@@ -2515,6 +2554,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     }
     if (command.type === 'jump') return command.sceneId ? `scene ${command.sceneId}` : 'scene未指定';
     if (command.type === 'wait') return `${command.frames} frames`;
+    if (command.type === 'comment') return command.text || '(コメント)';
     return command.type;
   }
 
@@ -2633,6 +2673,16 @@ export function activatePlugin({ root, api, registerCapability }) {
     }
     if (type === 'wait') {
       return normalizeCommand({ type, frames: detailForm.elements.frames.value }, assets);
+    }
+    if (type === 'comment') {
+      const commentColor = normalizeFreeHex(detailForm.elements.commentColorHex?.value)
+        || normalizeFreeHex(detailForm.elements.commentColor?.value)
+        || '';
+      return normalizeCommand({
+        type,
+        text: detailForm.elements.text?.value || '',
+        color: commentColor,
+      }, assets);
     }
     if (type === 'choice') {
       const choices = Array.from(detailForm.querySelectorAll('[data-choice-row]')).map((row) => ({
@@ -3013,6 +3063,19 @@ export function activatePlugin({ root, api, registerCapability }) {
         <label class="form-group"><span class="form-label">Frames</span><input class="form-input" name="frames" type="number" min="0" max="65535" value="${esc(command.frames)}" /></label>
       `;
     }
+    if (command.type === 'comment') {
+      const commentColor = command.color || '#fde68a';
+      return `
+        <label class="form-group"><span class="form-label">コメント</span><textarea class="form-input" name="text" rows="3" placeholder="エディタ用メモ（ビルド・実行には含まれません）">${esc(command.text || '')}</textarea></label>
+        <label class="form-group"><span class="form-label">背景色</span>
+          <span class="pce-vn-color-row">
+            <input type="color" name="commentColor" value="${esc(commentColor)}" />
+            <input class="form-input form-input-mono" name="commentColorHex" value="${esc(command.color || '')}" placeholder="#rrggbb" />
+          </span>
+        </label>
+        <small class="pce-vn-hint">コメントはエディタ表示専用です。スクリプト一覧では指定した背景色で表示され、ビルドやプレビュー実行には含まれません。</small>
+      `;
+    }
     if (command.type === 'cache') {
       const action = normalizeCacheAction(command.action);
       const scope = normalizeCacheScope(command.scope);
@@ -3124,8 +3187,13 @@ export function activatePlugin({ root, api, registerCapability }) {
     const pieces = ['<div class="pce-vn-command-dropzone" data-drop-index="0"></div>'];
     pieces.push(...current.commands.map((command, index) => {
       const definition = commandDefinition(command.type);
+      const isComment = command.type === 'comment';
+      const commentBg = isComment ? (normalizeFreeHex(command.color) || '#fde68a') : '';
+      const commentStyle = isComment
+        ? ` style="background:${esc(commentBg)};--comment-fg:${esc(readableTextColor(commentBg))}"`
+        : '';
       return `
-        <section class="pce-vn-command-row ${index === selectedCommandIndex ? 'active' : ''}" data-command data-command-index="${index}" draggable="true">
+        <section class="pce-vn-command-row ${isComment ? 'pce-vn-command-comment ' : ''}${index === selectedCommandIndex ? 'active' : ''}" data-command data-command-index="${index}" draggable="true"${commentStyle}>
           <button class="pce-vn-command-select" type="button" data-command-select="${index}">
             <span class="pce-vn-drag-handle" aria-hidden="true">::</span>
             <span class="pce-vn-command-index">#${index + 1}</span>
@@ -3280,6 +3348,31 @@ export function activatePlugin({ root, api, registerCapability }) {
       audio.src = result.dataUrl;
       frame.append(label, info, audio);
       commandPreviewEl.replaceChildren(frame);
+      return;
+    }
+    if (command.type === 'cache') {
+      const asset = assetById(command.assetId);
+      const isImageAsset = asset && (asset.type === 'image' || asset.type === 'sprite');
+      if (isImageAsset) {
+        renderCommandPreviewLoading(command, asset, '画像');
+        const url = await resolveAssetDataUrl(asset);
+        if (token !== previewToken) return;
+        if (url) {
+          const frame = document.createElement('div');
+          frame.className = 'pce-vn-cache-preview';
+          const label = document.createElement('strong');
+          label.textContent = previewTitle(command);
+          const sub = document.createElement('span');
+          sub.textContent = `${asset.name || asset.id} (${asset.type === 'sprite' ? 'Sprite' : 'BG'})`;
+          const img = document.createElement('img');
+          img.src = url;
+          img.alt = asset.name || asset.id;
+          frame.append(label, sub, img);
+          commandPreviewEl.replaceChildren(frame);
+          return;
+        }
+      }
+      renderCommandPreviewText(command);
       return;
     }
     renderCommandPreviewText(command);

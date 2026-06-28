@@ -2646,3 +2646,101 @@ test('PCE build system expands llvm-mos Windows clang wrappers to clang --config
   assert.equal(path.basename(huCardInfo.args[1]).toLowerCase(), 'mos-pce.cfg');
   assert.ok(huCardInfo.args.includes('-Os'));
 });
+
+test('PCE VN font library imports fonts into the project and resolves project-relative paths', () => {
+  const vnManager = loadVnManager();
+  const projectDir = makeTempDir('pce-vn-font-project-');
+  // Source font lives in a folder with non-ASCII characters + a space, the kind
+  // of path that broke ffmpeg's fontfile argument on Windows and forced the
+  // silent fallback to the OS font.
+  const sourceDir = path.join(makeTempDir('pce-vn-font-src-'), 'フォント 素材');
+  fs.mkdirSync(sourceDir, { recursive: true });
+  const sourceFont = path.join(sourceDir, 'My フォント.ttf');
+  fs.writeFileSync(sourceFont, Buffer.from('FONT-CONTENT-A'));
+
+  const imported = vnManager.importFontFile(projectDir, sourceFont);
+  const rel = imported.imported.file;
+  assert.match(rel, /^assets\/fonts\/[a-zA-Z0-9_-]+\.ttf$/); // ASCII-safe copy
+  assert.equal(imported.config.fontPath, rel); // newly imported font becomes active
+  assert.equal(imported.config.fonts.length, 1);
+  assert.equal(imported.config.fonts[0].label, 'My フォント.ttf'); // original name kept as label
+  assert.equal(fs.existsSync(path.join(projectDir, rel)), true);
+
+  // Config persists and re-reads with the project-relative reference.
+  const reread = vnManager.readFontConfig(projectDir);
+  assert.equal(reread.fontPath, rel);
+
+  // fontCandidates resolves the relative reference to the in-project copy first.
+  const candidates = vnManager.fontCandidates(reread, projectDir);
+  assert.equal(candidates[0], path.join(projectDir, rel));
+
+  // Re-importing identical bytes reuses the existing copy instead of duplicating.
+  const again = vnManager.importFontFile(projectDir, sourceFont);
+  assert.equal(again.config.fonts.length, 1);
+
+  // A different font adds a second library entry and becomes active.
+  const sourceFont2 = path.join(sourceDir, 'Other.ttf');
+  fs.writeFileSync(sourceFont2, Buffer.from('FONT-CONTENT-B'));
+  const imported2 = vnManager.importFontFile(projectDir, sourceFont2);
+  assert.equal(imported2.config.fonts.length, 2);
+  assert.equal(imported2.config.fontPath, imported2.imported.file);
+
+  // Deleting the active font removes the copy and falls back to the OS font.
+  const removed = vnManager.deleteFontFile(projectDir, imported2.imported.file);
+  assert.equal(fs.existsSync(path.join(projectDir, imported2.imported.file)), false);
+  assert.equal(removed.config.fonts.length, 1);
+  assert.equal(removed.config.fontPath, '');
+
+  // Unsupported extensions and path traversal are rejected.
+  const txt = path.join(sourceDir, 'note.txt');
+  fs.writeFileSync(txt, 'x');
+  assert.throws(() => vnManager.importFontFile(projectDir, txt), /対応していない/);
+  assert.throws(() => vnManager.deleteFontFile(projectDir, '../../escape.ttf'), /プロジェクト内/);
+});
+
+test('PCE VN font config without a selection uses OS fonts only', () => {
+  const vnManager = loadVnManager();
+  const projectDir = makeTempDir('pce-vn-font-os-');
+  const config = vnManager.normalizeFontConfig({ fontPath: '', fonts: [] });
+  assert.equal(config.fontPath, '');
+  // No user font is prepended; candidates come from the OS font search only.
+  const candidates = vnManager.fontCandidates(config, projectDir);
+  assert.equal(candidates.includes(path.join(projectDir, 'assets', 'fonts')), false);
+});
+
+test('PCE VN comment commands persist in the scene document but are excluded from the compiled pack', () => {
+  const projectDir = makeTempDir('pce-vn-comment-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'label', name: 'top' },
+        { type: 'comment', text: 'エディタ用メモ', color: '#abcdef' },
+        { type: 'message', text: 'hi' },
+        { type: 'goto', targetLabel: 'top' },
+      ],
+    }],
+  });
+
+  const generated = vnManager.generateVnSources(projectDir);
+
+  // Comment persists in the saved (normalized) scene document.
+  const doc = vnManager.readSceneDocument(projectDir);
+  const comment = doc.scenes[0].commands.find((c) => c.type === 'comment');
+  assert.ok(comment, 'comment command should be preserved in the scene document');
+  assert.equal(comment.text, 'エディタ用メモ');
+  assert.equal(comment.color, '#abcdef'); // editor-only color kept verbatim (no PCE snap)
+
+  // The compiled pack drops the comment: 3 records (label, message, goto). The
+  // goto target resolves to the label's compiled program counter (0), proving
+  // PC / label indices stay consistent after the comment is filtered out.
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+  assert.equal(pack[5], 3);
+  assert.equal(generated.commandCount, 3);
+  assert.equal(commandRecord(pack, 2).type, vnManager.VN_COMMAND_GOTO);
+  assert.equal(commandRecord(pack, 2).x, 0);
+});

@@ -103,8 +103,16 @@
 
 .pce-vn-scene-title-block {
   display: grid;
-  grid-template-columns: minmax(0, 320px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
+  min-width: 0;
+  flex: 1 1 360px;
+}
+
+.pce-vn-scene-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -114,8 +122,13 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
+  flex: 1 1 auto;
   color: var(--muted);
   font-size: 11px;
+}
+
+.pce-vn-scene-name-row .pce-vn-view-switch {
+  flex: 0 0 auto;
 }
 
 .pce-vn-scene-name-field input {
@@ -839,6 +852,49 @@
 
 .pce-vn-audio-preview audio {
   width: 100%;
+}
+
+.pce-vn-cache-preview {
+  display: grid;
+  gap: 8px;
+  align-content: center;
+  justify-items: center;
+  min-height: 128px;
+  padding: 12px;
+}
+
+.pce-vn-cache-preview strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.pce-vn-cache-preview span {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.pce-vn-cache-preview img {
+  max-width: 100%;
+  max-height: 220px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  image-rendering: pixelated;
+  background: #000;
+}
+
+/* エディタ専用コメント行: 指定背景色＋可読文字色で目立たせる。 */
+.pce-vn-command-comment .pce-vn-command-select,
+.pce-vn-command-comment .pce-vn-command-index,
+.pce-vn-command-comment .pce-vn-command-text strong,
+.pce-vn-command-comment .pce-vn-command-text small,
+.pce-vn-command-comment .pce-vn-drag-handle {
+  color: var(--comment-fg, var(--text));
+}
+
+.pce-vn-command-comment .pce-vn-command-select:hover {
+  color: var(--comment-fg, var(--text));
+  opacity: 0.85;
 }
 
 .pce-vn-detail-form {

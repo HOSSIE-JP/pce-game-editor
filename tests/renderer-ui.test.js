@@ -366,6 +366,11 @@ test('Image manager modules expose file-first image import, asset list editing, 
   assert.match(commonRenderer, /data-sort-key="id"/);
   assert.match(commonRenderer, /function sortedManagedAssets\(\)/);
   assert.match(commonRenderer, /function renderGroupedRows\(list, colSpan, rowRenderer\)/);
+  assert.match(commonRenderer, /function buildAssetGroupTree\(list = \[\]\)/);
+  assert.match(commonRenderer, /const collapsedGroups = new Set\(\)/);
+  assert.match(commonRenderer, /data-group-path="\$\{esc\(child\.path\)\}"/);
+  assert.match(commonRenderer, /pce-image-manager-group-toggle/);
+  assert.match(commonRenderer, /collapsedGroups\.has\(path\)\s*\?\s*collapsedGroups\.delete\(path\)\s*:\s*collapsedGroups\.add\(path\)|collapsedGroups\.delete\(path\)/);
   assert.match(commonRenderer, /assetDisplayName\(asset\)/);
   assert.match(commonRenderer, /pce-image-manager-id-cell/);
   assert.match(commonRenderer, /colspan="6"/);
@@ -397,6 +402,8 @@ test('Image manager modules expose file-first image import, asset list editing, 
   assert.match(bgCss, /\.pce-image-manager-sort/);
   assert.match(bgCss, /\.pce-image-manager-id-cell/);
   assert.match(bgCss, /\.pce-image-manager-group-row/);
+  assert.match(bgCss, /\.pce-image-manager-group-toggle/);
+  assert.match(bgCss, /\.pce-image-manager-group-row\s*\{[\s\S]*cursor:\s*pointer/);
   assert.match(bgCss, /\.pce-image-manager-table/);
   assert.match(bgCss, /\.pce-image-manager-preview\s*\{[\s\S]*aspect-ratio:\s*1 \/ 1/);
   assert.match(bgCss, /\.pce-image-manager-preview\.is-zoomed/);
@@ -474,6 +481,17 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /data-palette-add="\$\{item\.type\}"/);
   assert.match(renderer, /data-role="command-preview"/);
   assert.match(renderer, /data-role="command-detail"/);
+  // Cache command shows an image preview of the targeted BG/sprite asset.
+  assert.match(renderer, /command\.type === 'cache'/);
+  assert.match(renderer, /pce-vn-cache-preview/);
+  // Editor-only comment command with a configurable highlight color.
+  assert.match(renderer, /type: 'comment', label: 'Comment'/);
+  assert.match(renderer, /type: 'comment', text: '', color: '#fde68a'/);
+  assert.match(renderer, /pce-vn-command-comment/);
+  assert.match(renderer, /function readableTextColor/);
+  assert.match(renderer, /name="commentColorHex"/);
+  assert.match(css, /\.pce-vn-command-comment/);
+  assert.match(css, /\.pce-vn-cache-preview/);
   assert.match(renderer, /data-script-mode="gui"/);
   assert.match(renderer, /data-script-mode="json"/);
   assert.match(renderer, /data-role="script-json"/);
@@ -629,6 +647,10 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.equal(manifest.renderer.page, 'novel-editor');
   assert.ok(manifest.hooks.includes('readFontSettings'));
   assert.ok(manifest.mainApi.hooks.includes('generateFont'));
+  assert.ok(manifest.hooks.includes('importFontFile'));
+  assert.ok(manifest.hooks.includes('deleteFontFile'));
+  assert.ok(manifest.mainApi.hooks.includes('importFontFile'));
+  assert.ok(manifest.mainApi.hooks.includes('deleteFontFile'));
   assert.ok(manifest.renderer.capabilities.includes('novel-editor'));
   assert.ok(manifest.renderer.capabilities.includes('visual-novel-editor'));
   assert.ok(manifest.renderer.capabilities.includes('vn-system-settings'));
@@ -638,7 +660,7 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(renderer, /activateFontEditor/);
   assert.match(renderer, /label:\s*'スクリプト'/);
   assert.match(renderer, /label:\s*'システム設定'/);
-  assert.match(renderer, /label:\s*'Font'/);
+  assert.match(renderer, /label:\s*'フォント'/);
   assert.match(renderer, /data-novel-tab/);
   assert.match(renderer, /pluginId:\s*'novel-editor'/);
   assert.match(css, /pce-visual-novel-editor\/style\.css/);
@@ -646,6 +668,19 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(css, /pce-font-editor\/style\.css/);
   assert.match(index, /readFontSettings/);
   assert.match(index, /generateVnSources/);
+  assert.match(index, /importFontFile/);
+  assert.match(index, /deleteFontFile/);
+
+  const fontRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-font-editor', 'renderer.js'), 'utf-8');
+  // Font editor manages a project font library (add / select / delete) instead
+  // of a single external path.
+  assert.match(fontRenderer, /data-role="font-list"/);
+  assert.match(fontRenderer, /importFontFile/);
+  assert.match(fontRenderer, /deleteFontFile/);
+  assert.match(fontRenderer, /data-font-pick/);
+  assert.match(fontRenderer, /data-font-delete/);
+  const fontCss = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-font-editor', 'style.css'), 'utf-8');
+  assert.match(fontCss, /\.pce-font-list/);
 });
 
 test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page', () => {

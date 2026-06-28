@@ -36,6 +36,25 @@ function previewFont(payload = {}, context = {}) {
   };
 }
 
+function importFontFile(payload = {}, context = {}) {
+  const projectDir = requireProjectDir(context);
+  const result = vnManager.importFontFile(projectDir, payload.sourcePath || payload.path || '');
+  return {
+    ok: true,
+    settings: result.config,
+    imported: result.imported,
+  };
+}
+
+function deleteFontFile(payload = {}, context = {}) {
+  const projectDir = requireProjectDir(context);
+  const result = vnManager.deleteFontFile(projectDir, payload.file || payload.path || '');
+  return {
+    ok: true,
+    settings: result.config,
+  };
+}
+
 function generateFont(payload = {}, context = {}) {
   const projectDir = requireProjectDir(context);
   if (payload.config) vnManager.writeFontConfig(projectDir, payload.config);
@@ -53,4 +72,6 @@ module.exports = {
   saveFontSettings,
   previewFont,
   generateFont,
+  importFontFile,
+  deleteFontFile,
 };
