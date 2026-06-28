@@ -140,14 +140,6 @@
   flex: 0 1 220px;
 }
 
-.pce-vn-scene-start-field {
-  flex: 0 1 260px;
-}
-
-.pce-vn-scene-start-field select {
-  min-width: 0;
-}
-
 /* 1 シーンあたりの scene pack メモリ使用量インジケータ。 */
 .pce-vn-scene-budget {
   margin: 8px 12px 10px;
@@ -329,7 +321,7 @@
 .pce-vn-scene-row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-columns: minmax(0, 1fr) 24px 28px;
   align-items: center;
   gap: 4px;
   margin-left: calc(var(--scene-depth, 0) * 12px);
@@ -418,6 +410,25 @@
   cursor: default;
 }
 
+/* 開始シーンを選ぶ ★ トグル: ON=金色の★、OFF=淡い☆。 */
+.pce-vn-scene-start-toggle {
+  justify-self: center;
+  color: var(--muted);
+  opacity: 0.5;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.pce-vn-scene-start-toggle:hover {
+  color: #f7c948;
+  opacity: 1;
+}
+
+.pce-vn-scene-start-toggle.active {
+  color: #f7c948;
+  opacity: 1;
+}
+
 .pce-vn-items span {
   color: var(--muted);
   font-size: 11px;
@@ -446,9 +457,22 @@
 
 .pce-vn-palette-category h3 {
   margin: 0;
-  color: var(--muted);
+  /* 分類見出しは分類色で表示し、一覧の行色と対応させる。 */
+  color: var(--cat-color, var(--muted));
   font-size: 11px;
   font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pce-vn-palette-category h3::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--cat-color, var(--muted));
+  flex: 0 0 auto;
 }
 
 .pce-vn-palette-command {
@@ -457,6 +481,8 @@
   align-items: center;
   gap: 8px;
   border: 1px solid var(--border);
+  /* 左端に分類色のストライプを付けて、一覧の行色と対応させる。 */
+  border-left: 3px solid var(--cat-color, var(--border));
   border-radius: 7px;
   padding: 8px;
   background: rgba(255, 255, 255, 0.02);
@@ -464,6 +490,7 @@
 
 .pce-vn-palette-command:hover {
   border-color: var(--accent);
+  border-left-color: var(--cat-color, var(--accent));
   background: var(--panel-hover);
 }
 
@@ -574,7 +601,7 @@
 
 .pce-vn-command-row.active {
   border-color: var(--accent);
-  background: rgba(74, 163, 255, 0.11);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .pce-vn-command-row.is-dragging {
@@ -896,17 +923,21 @@
   background: #000;
 }
 
-/* エディタ専用コメント行: 指定背景色＋可読文字色で目立たせる。 */
-.pce-vn-command-comment .pce-vn-command-select,
-.pce-vn-command-comment .pce-vn-command-index,
-.pce-vn-command-comment .pce-vn-command-text strong,
-.pce-vn-command-comment .pce-vn-command-text small,
-.pce-vn-command-comment .pce-vn-drag-handle {
-  color: var(--comment-fg, var(--text));
+/* スクリプト一覧の行はコマンド分類ごとの固定色で塗り、可読な文字色にする。 */
+.pce-vn-command-row .pce-vn-command-select,
+.pce-vn-command-row .pce-vn-command-index,
+.pce-vn-command-row .pce-vn-command-text strong,
+.pce-vn-command-row .pce-vn-command-text small,
+.pce-vn-command-row .pce-vn-drag-handle {
+  color: var(--row-fg, var(--text));
 }
 
-.pce-vn-command-comment .pce-vn-command-select:hover {
-  color: var(--comment-fg, var(--text));
+.pce-vn-command-row .pce-vn-command-text small {
+  opacity: 0.78;
+}
+
+.pce-vn-command-row .pce-vn-command-select:hover {
+  color: var(--row-fg, var(--text));
   opacity: 0.85;
 }
 

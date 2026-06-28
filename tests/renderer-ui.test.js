@@ -484,13 +484,19 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   // Cache command shows an image preview of the targeted BG/sprite asset.
   assert.match(renderer, /command\.type === 'cache'/);
   assert.match(renderer, /pce-vn-cache-preview/);
-  // Editor-only comment command with a configurable highlight color.
+  // Editor-only comment command with a fixed (non-configurable) highlight color.
   assert.match(renderer, /type: 'comment', label: 'Comment'/);
-  assert.match(renderer, /type: 'comment', text: '', color: '#fde68a'/);
-  assert.match(renderer, /pce-vn-command-comment/);
+  assert.match(renderer, /\{ type: 'comment', text: '' \}/);
+  assert.doesNotMatch(renderer, /name="commentColorHex"/);
+  // Command list rows and palette are color-coded by command category.
+  assert.match(renderer, /const CATEGORY_COLORS = \{/);
+  assert.match(renderer, /function categoryColor\(category\)/);
   assert.match(renderer, /function readableTextColor/);
-  assert.match(renderer, /name="commentColorHex"/);
-  assert.match(css, /\.pce-vn-command-comment/);
+  assert.match(renderer, /categoryColor\(definition\.category\)/);
+  assert.match(renderer, /--row-fg:/);
+  assert.match(renderer, /--cat-color:/);
+  assert.match(css, /--row-fg/);
+  assert.match(css, /--cat-color/);
   assert.match(css, /\.pce-vn-cache-preview/);
   assert.match(renderer, /data-script-mode="gui"/);
   assert.match(renderer, /data-script-mode="json"/);
@@ -504,14 +510,16 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /function deleteScene\(sceneId = selectedId\)/);
   assert.match(renderer, /data-role="scene-name"/);
   assert.match(renderer, /data-role="scene-id"/);
-  assert.match(renderer, /data-role="scene-start"/);
+  // Start scene is chosen via a per-scene ★ toggle in the list, not a dropdown.
+  assert.doesNotMatch(renderer, /data-role="scene-start"/);
+  assert.match(renderer, /data-scene-start-toggle="\$\{esc\(item\.id\)\}"/);
   assert.match(renderer, /function uniqueSceneId\(value, existingIds = \[\], fallback = 'scene'\)/);
   assert.match(renderer, /function renameSceneId\(rawId\)/);
   assert.match(renderer, /function updateSceneReferences\(oldId, newId\)/);
   assert.match(renderer, /command\.type === 'jump' && command\.sceneId === oldId/);
   assert.match(renderer, /choice\.targetSceneId === oldId/);
-  assert.match(renderer, /doc\.startScene = sceneStartSelect\.value/);
-  assert.match(renderer, /<span class="pce-vn-mode-badge">Start<\/span>/);
+  assert.match(renderer, /doc\.startScene = id;/);
+  assert.doesNotMatch(renderer, /<span class="pce-vn-mode-badge">Start<\/span>/);
   assert.match(renderer, /class="pce-vn-edit-sticky"/);
   assert.match(renderer, /function normalizeSceneName\(value\)/);
   assert.match(renderer, /function scenePathParts\(item = \{\}\)/);
@@ -644,7 +652,7 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(css, /\.pce-vn-scene-row\.is-drop-after::after/);
   assert.match(css, /\.pce-vn-scene-name-field/);
   assert.match(css, /\.pce-vn-scene-id-field/);
-  assert.match(css, /\.pce-vn-scene-start-field/);
+  assert.match(css, /\.pce-vn-scene-start-toggle/);
   assert.match(css, /\.pce-vn-scene-delete/);
   assert.match(css, /\.pce-vn-command-palette/);
   assert.match(css, /\.pce-vn-command-preview/);
