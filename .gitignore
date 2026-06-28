@@ -1,3 +1,7 @@
+.codex-tmp/
+.codex-tmp-read/
+.tmp/
+.tmp-codex-build-user-data/
 node_modules/
 dist/
 data/
