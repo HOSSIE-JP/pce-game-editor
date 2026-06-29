@@ -3,6 +3,8 @@
 作成: 2026-06-13 / 調査・実装: Claude Code（Geargrafx MCP で特定・検証）
 関連: [pce-memory-bank-strategy.md](pce-memory-bank-strategy.md), [AGENTS.md](../AGENTS.md)
 
+> ⚠️ **この文書は 2026-06-13 当時の記録（歴史的経緯）です。** 本文 §4-5 の「bank130/131 を空けてコード用に使う」「preload バッファを bank131 へ」等の具体策は **現在 stale**（その後 bank130 は `VN_BANKED_CODE2` で常駐コード化されて満杯、bank131 は System Card が slot5 で実行するためコード不可、preload は廃止済み）。**コードバンク溢れの現行手順は [pce-vn-code-bank-optimization.md](pce-vn-code-bank-optimization.md)（最適化プレイブック）と [pce-vn-overlay-pathb.md](pce-vn-overlay-pathb.md) を参照**。後半の「VDC 表示ウィンドウ崩壊 / CD BIOS グラフィックドライバ無効化」の知見は引き続き有効。
+
 ## ★ 実装完了サマリ（2026-06-13）
 
 リンクオーバーフローと表示崩壊（BG/スプライト/テキストが出ない）は **同一の根本原因＝CD BIOS グラフィックドライバ（`PCE_CDB_USE_GRAPHICS_DRIVER`）** だった。対応済み:

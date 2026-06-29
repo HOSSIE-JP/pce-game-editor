@@ -141,23 +141,33 @@ const VN_FONT_DATA_FILE = path.join('assets', 'generated', 'vn', 'font.bin');
 // Overlay code blob (Path B, Phase B1). The overlay functions now live in
 // pce_vn_runtime.c (section .vn_overlay), compiled in the SAME link as the main
 // program so zp imaginary registers and resident symbols resolve. The linker
-// fragment overlay_insert.ld locates .vn_overlay at CPU 0x8000 (MPR slot 4) with
-// a benign LMA in the loaded image (VN_OVERLAY_LMA, bank132's unused tail), then
-// finalizeOverlayBlob() objcopy's the section out of main.elf into overlay.bin.
-// It is carried as a CD data file and streamed into physical RAM bank133 at boot
-// (the IPL only auto-loads banks 128-132), time-shared into slot 4 with bank130.
+// fragment overlay_insert.ld places .vn_overlay in its OWN load region
+// (ram_bank133, VN_OVERLAY_LINK_ADDR, low 16 bits = CPU 0x8000 / MPR slot 4),
+// then finalizeOverlayBlob() objcopy's the section out into overlay.bin AND
+// removes the section + neutralizes its PT_LOAD program header (exactly like the
+// bank121 visual-code blob). Resident code reaches the overlay ONLY through a
+// single fixed entry via an indirect call to the literal CPU 0x8000 (see
+// vn_overlay_entry / VN_OVERLAY_CALL in pce_vn_runtime.c), so there is no
+// resident->overlay relocation pinning the section in the image. That frees the
+// overlay from the old bank132-tail benign-LMA window (~4 KB cap) and lets it use
+// the FULL physical bank133 (8 KB), streamed in at boot (the IPL only auto-loads
+// banks 128-132), time-shared into slot 4 with bank130/bank121.
 // overlay.bin is reserved at a fixed size up front (so its CD sector is assigned
 // before the link) and the extracted section is padded to that size afterwards.
 const VN_OVERLAY_DATA_FILE = path.join('assets', 'generated', 'vn', 'overlay.bin');
 const VN_OVERLAY_FRAGMENT_FILE = path.join('src', 'generated', 'overlay_insert.ld');
 const VN_OVERLAY_SECTION = '.vn_overlay';
-const VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000; // CPU address the overlay is linked at / loaded to
+const VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000; // CPU address the overlay runs at (slot 4)
+// Linker load region for .vn_overlay: ram_bank133 (ORIGIN 0x01850000 + 0x8000).
+// Its low 16 bits are 0x8000 so the code executes at CPU 0x8000; the high bits
+// only separate it from bank130 (0x0182xxxx) in the linker's address space. The
+// section is dropped from the ELF after extraction, so this is purely link-time.
+const VN_OVERLAY_LINK_ADDR = 0x01858000;
 // Reserved on-CD/bank133 size for the overlay blob, in whole CD sectors. The
-// extracted .vn_overlay must fit this; it is also bounded by VN_OVERLAY_LMA's
-// headroom inside bank132 (currently 0xd078..0xdfff). Two sectors
-// (4 KB) keep the CD footprint stable while the LMA window is sized by the real
-// overlay bytes after link.
-const VN_OVERLAY_RESERVED_SECTORS = 2;
+// extracted .vn_overlay must fit this. Four sectors (8 KB) = the full physical
+// bank133, giving durable headroom for engine code that does not fit the three
+// resident code banks (128/129/130).
+const VN_OVERLAY_RESERVED_SECTORS = 4;
 const VN_OVERLAY_RESERVED_BYTES = VN_OVERLAY_RESERVED_SECTORS * 2048; // 2048 = VN_CD_SECTOR_BYTES (defined below)
 // Experimental Super CD-ROM2 visual cache. Helper code is loaded into bank121,
 // while raw BG/Sprite payload pages use low System Card RAM banks 104-119. Keep
@@ -169,36 +179,15 @@ const VN_VISUAL_CODE_VRAM_LOAD_ADDR = 0x8000;
 const VN_VISUAL_CODE_LINK_ADDR = 0x01798000;
 const VN_VISUAL_CODE_RESERVED_SECTORS = 4;
 const VN_VISUAL_CODE_RESERVED_BYTES = VN_VISUAL_CODE_RESERVED_SECTORS * 2048;
-// LMA (physical/load address) for the .vn_overlay section: bank132's tail
-// (region 0x0184c000..0x0184dfff, CPU 0xc000..0xdfff in slot 6). The IPL loads
-// these bytes into bank132 RAM we never read (the real copy is CD-loaded into
-// bank133), so the in-image copy is benign.
-//
-// bank132 is a SHARED 8 KB resource: resident data (cd_data_refs, CD transfer
-// scratch, glyph/cell caches) grows up from 0x0184c000, while this overlay LMA
-// copy is parked near the top (0xd078..0xdfff). The first bytes below
-// the old tail window are returned to resident data so larger sprite/scene
-// metadata does not collide with the overlay LMA. The overlay is fixed runtime
-// code (~2.3 KB). Large PSG/VGM/MIDI song patterns are NOT kept here — they
-// stream from CD into RAM bank134 only while playing (see psg_pattern_ram /
-// load_psg_pattern_cd in pce_vn_runtime.c) - so the resident budget stays small.
-// finalizeOverlayBlob asserts the section still fits below VN_BANK132_LMA_END.
-// bank132 (8 KB, MPR slot 6) is shared between GROWING resident metadata
-// (cd_data_refs, sprite cell_maps, the scene-pack directory) growing up from
-// 0xc000, and the overlay's benign LMA copy parked in the tail. The two large
-// fixed runtime buffers (cd_transfer_scratch + message_glyph_cache_masks,
-// ~3.6 KB total) are write-before-read and now live NOLOAD in ".ram_bank132_tail"
-// placed over the overlay's never-read RAM window (see writeOverlayFragment), so
-// they cost the metadata region nothing. That leaves the whole
-// [0xc000, VN_OVERLAY_LMA) = 4216 B for metadata (was only ~536 B before the
-// buffers were relocated there), so large CD-streamed projects scale by ~70x in
-// resident-metadata headroom. The overlay (~3956 B fixed) must still fit in
-// [VN_OVERLAY_LMA, 0xe000); the buffers (~3680 B) overlap it in that window.
-// finalizeOverlayBlob asserts the overlay fits below VN_BANK132_LMA_END.
-const VN_OVERLAY_LMA = 0x0184d078;
-// End of bank132's LMA region (0x0184c000 + 8 KB). The overlay section must fit
-// in [VN_OVERLAY_LMA, VN_BANK132_LMA_END); resident data must fit below the LMA.
-const VN_BANK132_LMA_END = 0x0184e000;
+// CPU run-address (MPR slot 6) of the .ram_bank132_tail NOLOAD buffers. bank132
+// (8 KB) holds GROWING resident metadata (cd_data_refs, sprite cell_maps, the
+// scene-pack directory) climbing up from 0xc000, while the large write-before-read
+// runtime buffers (cd_transfer_scratch + message_glyph_cache_masks + BG palette
+// storage, ~3.9 KB) live NOLOAD in the tail at 0xd078..0xdfff. Previously this
+// tail also doubled as the overlay's benign LMA window; the overlay now loads to
+// bank133, so the tail is just plain bank132 RAM and the metadata budget
+// [0xc000, 0xd078) is unchanged.
+const VN_BANK132_TAIL_VMA = 0xd078;
 // Sprite-format copy of the glyphs used by `spritetext` commands. Only the
 // characters referenced by spritetext are encoded here (BG-format font tiles
 // cannot be reused for hardware sprites), so this stays small even when the BG
@@ -3698,14 +3687,11 @@ function overlayLinkerArgs(projectDir) {
 function writeOverlayFragment(projectDir) {
   const fragment = overlayFragmentPath(projectDir);
   ensureDirSync(path.dirname(fragment));
-  const lma = `0x${VN_OVERLAY_LMA.toString(16)}`;
-  const vma = `0x${VN_OVERLAY_VRAM_LOAD_ADDR.toString(16)}`;
-  // CPU run-address of the overlay's benign LMA window = bank132 CPU base (0xc000,
-  // MPR slot 6) + the LMA's offset into the bank. The fixed write-before-read
-  // buffers (cd_transfer_scratch, message_glyph_cache_masks) are placed here
-  // NOLOAD so they reuse the overlay copy's never-read RAM, leaving all of
-  // [0xc000, VN_OVERLAY_LMA) for the GROWING resident metadata.
-  const tailVma = `0x${(0xc000 + (VN_OVERLAY_LMA - (VN_BANK132_LMA_END - 0x2000))).toString(16)}`;
+  const overlayAddr = `0x${VN_OVERLAY_LINK_ADDR.toString(16)}`;
+  // .ram_bank132_tail: NOLOAD write-before-read buffers parked in bank132's tail
+  // (CPU 0xd078..0xdfff, MPR slot 6). No longer overlaps the overlay (now in
+  // bank133); it just keeps these buffers out of the GROWING metadata region.
+  const tailVma = `0x${VN_BANK132_TAIL_VMA.toString(16)}`;
   const visualCodeAddr = `0x${VN_VISUAL_CODE_LINK_ADDR.toString(16)}`;
   const visualCodeSection = VN_ENABLE_VISUAL_PAYLOAD_CACHE
     ? [
@@ -3720,11 +3706,12 @@ function writeOverlayFragment(projectDir) {
   const body = [
     'SECTIONS {',
     ...visualCodeSection,
-    `  ${VN_OVERLAY_SECTION} ${vma} : AT(${lma}) {`,
+    `  ${VN_OVERLAY_SECTION} ${overlayAddr} : {`,
     '    __vn_overlay_start = .;',
+    `    KEEP(*(${VN_OVERLAY_SECTION}.entry ${VN_OVERLAY_SECTION}.entry.*))`,
     `    KEEP(*(${VN_OVERLAY_SECTION} ${VN_OVERLAY_SECTION}.*))`,
     '    __vn_overlay_end = .;',
-    '  }',
+    '  } >ram_bank133',
     `  .ram_bank132_tail ${tailVma} (NOLOAD) : {`,
     '    KEEP(*(.ram_bank132_tail .ram_bank132_tail.*))',
     '  }',
@@ -3860,15 +3847,7 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
     throw new Error(`overlay section ${VN_OVERLAY_SECTION} was empty in ${path.basename(elfPath)} — overlay code not linked`);
   }
   if (realSize > VN_OVERLAY_RESERVED_BYTES) {
-    throw new Error(`overlay code ${realSize} bytes exceeds reserved ${VN_OVERLAY_RESERVED_BYTES} bytes (${VN_OVERLAY_RESERVED_SECTORS} sectors). Move fewer functions into VN_OVERLAY_CODE or raise VN_OVERLAY_RESERVED_SECTORS (and confirm the bank132-tail LMA still fits).`);
-  }
-  // The overlay LMA copy is parked in bank132's tail; resident bank132 data
-  // (incl. PSG patterns) grows up to VN_OVERLAY_LMA. Ensure the section still
-  // fits below the bank end so it does not collide with resident data or spill
-  // past bank132 — a clearer error than the raw ld.lld overlap message.
-  if (VN_OVERLAY_LMA + realSize > VN_BANK132_LMA_END) {
-    const avail = VN_BANK132_LMA_END - VN_OVERLAY_LMA;
-    throw new Error(`overlay code ${realSize} bytes exceeds the ${avail}-byte bank132 tail at LMA 0x${VN_OVERLAY_LMA.toString(16)}. Move fewer functions into VN_OVERLAY_CODE, or lower VN_OVERLAY_LMA (which reduces the bank132 budget for PSG patterns / cd_refs).`);
+    throw new Error(`overlay code ${realSize} bytes exceeds reserved ${VN_OVERLAY_RESERVED_BYTES} bytes (${VN_OVERLAY_RESERVED_SECTORS} sectors = full physical bank133). Move fewer functions into VN_OVERLAY_CODE, or offload to the bank121 visual-code region instead.`);
   }
   if (realSize < VN_OVERLAY_RESERVED_BYTES) {
     const buf = Buffer.alloc(VN_OVERLAY_RESERVED_BYTES);
@@ -3895,10 +3874,15 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
   }
   visualCodeInfo = { realSize: visualRealSize, byteSize: VN_VISUAL_CODE_RESERVED_BYTES };
   }
-  // Strip the overlay's relocation table so mkcd does not re-apply overlay-internal
-  // relocations at the out-of-range 0x8000 VMA (the section itself stays), and strip
-  // the visual helper section completely because it is loaded from CD into
-  // bank121 instead of being part of the main program image. Write the stripped
+  // Strip BOTH runtime code blobs out of the program image: they are loaded from
+  // CD into bank133 (.vn_overlay) and bank121 (.vn_visual_code) at boot, not part
+  // of the main program. Remove each section AND its relocation table — mkcd
+  // RE-APPLIES the ELF's relocations, and the overlay's internal relocs live at
+  // the 0x8000 run-address VMA which is outside the bank range mkcd accepts
+  // ("File address 0x8001 out of range"); lld already applied them in the
+  // extracted .bin, so it is final machine code. Resident code reaches both blobs
+  // through fixed-address indirect calls (vn_overlay_entry / visual_cache_entry),
+  // so no resident->blob relocation dangles after removal. Write the stripped
   // result to a temp file and atomically rename it over main.elf rather than
   // letting llvm-objcopy rewrite the ELF in place: on Windows an in-place rewrite can
   // race with antivirus/file-indexing scanning the freshly written executable and
@@ -3908,7 +3892,7 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
   // Verifying the temp is non-empty before the rename guarantees mkcd never observes a
   // half-written ELF. (macOS never hit this because there is no such scanner race.)
   const strippedElf = `${elfPath}.stripped`;
-  const stripArgs = ['--remove-section', `.rela${VN_OVERLAY_SECTION}`];
+  const stripArgs = ['--remove-section', `.rela${VN_OVERLAY_SECTION}`, '--remove-section', VN_OVERLAY_SECTION];
   if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) {
     stripArgs.push('--remove-section', `.rela${VN_VISUAL_CODE_SECTION}`);
     stripArgs.push('--remove-section', VN_VISUAL_CODE_SECTION);
@@ -3921,11 +3905,17 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
     throw new Error(`overlay strip produced an empty ELF (${path.basename(strippedElf)}) — aborting before pce-mkcd to avoid a crash on an unreadable ELF`);
   }
   fs.renameSync(strippedElf, elfPath);
+  // The overlay (like the visual-code blob) is now its own ram_bank133 load
+  // region; objcopy --remove-section drops the section header but can leave the
+  // PT_LOAD program header, which mkcd follows. PT_NULL it so the System Card boot
+  // loader does not treat bank133 as part of the initial program image.
+  const overlayLoadSegmentsRemoved = neutralizeElfLoadSegments(elfPath, VN_OVERLAY_LINK_ADDR, VN_OVERLAY_RESERVED_BYTES);
   let visualLoadSegmentsRemoved = 0;
   if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) {
     visualLoadSegmentsRemoved = neutralizeElfLoadSegments(elfPath, VN_VISUAL_CODE_LINK_ADDR, VN_VISUAL_CODE_RESERVED_BYTES);
   }
-  logger?.info?.(`PCE VN overlay blob: ${realSize} bytes (reserved ${VN_OVERLAY_RESERVED_BYTES}) を main.elf から ${VN_OVERLAY_DATA_FILE} に抽出 (.rela${VN_OVERLAY_SECTION} 除去)`);
+  logger?.info?.(`PCE VN overlay blob: ${realSize} bytes (reserved ${VN_OVERLAY_RESERVED_BYTES}, full bank133) を main.elf から ${VN_OVERLAY_DATA_FILE} に抽出 (${VN_OVERLAY_SECTION} 除去)`);
+  if (overlayLoadSegmentsRemoved) logger?.info?.(`PCE VN overlay PT_LOAD ${overlayLoadSegmentsRemoved} 件を main.elf から無効化`);
   if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) logger?.info?.(`PCE VN visual cache code blob: ${visualRealSize} bytes (reserved ${VN_VISUAL_CODE_RESERVED_BYTES}) を main.elf から ${VN_VISUAL_CODE_DATA_FILE} に抽出 (${VN_VISUAL_CODE_SECTION} 除去)`);
   if (visualLoadSegmentsRemoved) logger?.info?.(`PCE VN visual cache code PT_LOAD ${visualLoadSegmentsRemoved} 件を main.elf から無効化`);
   return {
