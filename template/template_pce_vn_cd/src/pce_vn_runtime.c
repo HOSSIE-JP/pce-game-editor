@@ -137,6 +137,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_EXEC_RESTART 2u
 #define VN_COMMAND_STEP_GUARD 1024u
 #define VN_BG_IMPLICIT_FADE_FRAMES 6u
+#define VN_PSG_STEP_ACCUM_UNIT 3600u
+#define VN_PSG_STEPS_PER_BEAT 4u
 #define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 20u
 #define VN_VISUAL_VRAM_COPY_SLICE_BYTES 64u
 #define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES
@@ -344,7 +346,7 @@ static uint8_t psg_is_song = 0;
 static uint8_t psg_base_channel = 0;
 static uint8_t psg_used_mask = 0;
 static uint16_t psg_step = 0;
-static uint8_t psg_frame = 0;
+static uint16_t psg_step_accum = 0;
 static const pce_editor_psg_asset_t *psg_current = (const pce_editor_psg_asset_t *)0;
 /* Resolved pattern for the active song: either the resident .rodata array
    (small patterns) or the bank134 CD-streamed buffer (large patterns). */
@@ -3986,13 +3988,12 @@ static void VN_BANKED_CODE2 psg_set_noise(uint8_t channel, uint8_t noise_freq, u
     PCE_PSG_CONTROL = volume ? (uint8_t)(0x80u | (volume & 0x1fu)) : 0u;
 }
 
-static uint8_t VN_BANKED_CODE2 psg_frames_per_step(const pce_editor_psg_asset_t *asset)
+static uint16_t VN_BANKED_CODE2 psg_step_delta(const pce_editor_psg_asset_t *asset)
 {
     uint16_t bpm = (asset && asset->bpm) ? asset->bpm : 150u;
-    uint16_t frames = (uint16_t)(3600u / (bpm * 4u));
-    if (frames < 2u) frames = 2u;
-    if (frames > 24u) frames = 24u;
-    return (uint8_t)frames;
+    if (bpm < 30u) bpm = 30u;
+    if (bpm > 300u) bpm = 300u;
+    return (uint16_t)(bpm * VN_PSG_STEPS_PER_BEAT);
 }
 
 static uint8_t VN_BANKED_CODE2 psg_resolve_channel(uint8_t base, uint8_t step_channel)
@@ -4069,7 +4070,7 @@ static void VN_BANKED_CODE2 stop_psg(void)
     psg_is_song = 0u;
     psg_used_mask = 0u;
     psg_step = 0u;
-    psg_frame = 0u;
+    psg_step_accum = 0u;
     psg_current = (const pce_editor_psg_asset_t *)0;
     psg_active_pattern = (const pce_editor_psg_step_t *)0;
     psg_pattern_banked = 0u;
@@ -4150,7 +4151,7 @@ static void VN_BANKED_CODE2 play_psg_asset(signed int asset_index, uint8_t base_
     psg_base_channel = base_channel > 5u ? 5u : base_channel;
     psg_is_song = psg_current->is_song ? 1u : 0u;
     psg_step = 0u;
-    psg_frame = 0u;
+    psg_step_accum = 0u;
     psg_used_mask = 0u;
     if (!psg_current->pattern_count)
     {
@@ -4193,12 +4194,15 @@ static void VN_BANKED_CODE2 play_psg_asset(signed int asset_index, uint8_t base_
 
 static void VN_BANKED_CODE2 tick_psg(void)
 {
-    uint8_t frames_per_step;
+    uint16_t step_accum;
     if (!psg_active || !psg_current) return;
-    psg_frame++;
-    frames_per_step = psg_frames_per_step(psg_current);
-    if (psg_frame < frames_per_step) return;
-    psg_frame = 0u;
+    step_accum = (uint16_t)(psg_step_accum + psg_step_delta(psg_current));
+    if (step_accum < VN_PSG_STEP_ACCUM_UNIT)
+    {
+        psg_step_accum = step_accum;
+        return;
+    }
+    psg_step_accum = (uint16_t)(step_accum - VN_PSG_STEP_ACCUM_UNIT);
     psg_step++;
     if (psg_step >= psg_current->steps)
     {

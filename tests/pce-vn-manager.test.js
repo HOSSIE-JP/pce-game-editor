@@ -1475,6 +1475,12 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   assert.match(runtime, /psg_load_basic_wave\(ch\)/);
   assert.match(runtime, /PCE_PSG_CONTROL = 0u;[\s\S]*PCE_PSG_WAVE =/);
   assert.doesNotMatch(runtime, /PCE_PSG_CONTROL = 0x40u; \/\* enable write to the waveform buffer \*\//);
+  assert.match(runtime, /#define VN_PSG_STEP_ACCUM_UNIT 3600u/);
+  assert.match(runtime, /static uint16_t psg_step_accum = 0;/);
+  assert.match(runtime, /static uint16_t VN_BANKED_CODE2 psg_step_delta\(const pce_editor_psg_asset_t \*asset\)/);
+  assert.match(runtime, /psg_step_accum \+ psg_step_delta\(psg_current\)/);
+  assert.doesNotMatch(runtime, /psg_frames_per_step/);
+  assert.doesNotMatch(runtime, /psg_frame\+\+/);
   assert.match(runtime, /PCE_RAM_BANK_AT\(135, 6\);/);
   assert.match(runtime, /#define VN_PSG_PATTERN_BUFFER_BYTES \(VN_PSG_PATTERN_BANK_BYTES \* 2u\)/);
   assert.match(runtime, /psg_pattern_ram_bank135_reserved\[VN_PSG_PATTERN_BANK_BYTES\][\s\S]*section\("\.ram_bank135"\)/);

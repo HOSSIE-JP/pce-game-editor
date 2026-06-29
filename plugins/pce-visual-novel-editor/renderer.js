@@ -2,6 +2,7 @@ import {
   createPsgPreviewController,
   psgPreviewStats,
 } from '../pce-music-editor/psg-preview.js';
+import { psgNoiseHzFromValue } from '../pce-music-editor/psg-sfx-synth.mjs';
 
 const SCENE_FILE = 'assets/pce-vn-scenes.json';
 const PCE_SCREEN_WIDTH = 256;
@@ -1245,7 +1246,7 @@ function previewRuntime() {
   }
   function psgFramesPerStep(bpm) {
     const value = psgClampInt(bpm, 30, 300, 150);
-    return Math.max(2, Math.min(24, Math.floor(3600 / (value * 4))));
+    return 3600 / (value * 4);
   }
   function psgFrequencyFromPeriod(period) {
     const raw = Number(period);
@@ -1330,19 +1331,30 @@ function previewRuntime() {
   function schedulePsgNoise(cell, start, duration) {
     if (!psgAudioContext) return;
     const playDuration = Math.min(duration, 0.12);
-    const length = Math.max(1, Math.floor(psgAudioContext.sampleRate * playDuration));
-    const buffer = psgAudioContext.createBuffer(1, length, psgAudioContext.sampleRate);
+    const sampleRate = psgAudioContext.sampleRate;
+    const length = Math.max(1, Math.floor(sampleRate * playDuration));
+    const buffer = psgAudioContext.createBuffer(1, length, sampleRate);
     const samples = buffer.getChannelData(0);
-    for (let i = 0; i < samples.length; i += 1) samples[i] = (Math.random() * 2) - 1;
+    const noiseHz = psgNoiseHzFromValue(cell.period & 0x1f);
+    const holdSamples = Math.max(1, Math.round(sampleRate / noiseHz));
+    let lfsr = 0x7fff;
+    let out = 1;
+    let counter = 0;
+    for (let i = 0; i < samples.length; i += 1) {
+      if (counter <= 0) {
+        const bit = (lfsr ^ (lfsr >> 1)) & 1;
+        lfsr = (lfsr >> 1) | (bit << 14);
+        out = (lfsr & 1) ? 1 : -1;
+        counter = holdSamples;
+      }
+      counter -= 1;
+      samples[i] = out;
+    }
     const source = psgAudioContext.createBufferSource();
-    const filter = psgAudioContext.createBiquadFilter();
     const gain = psgAudioContext.createGain();
     source.buffer = buffer;
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(500 + ((31 - (cell.period & 31)) * 90), start);
-    filter.Q.setValueAtTime(0.75, start);
     schedulePsgEnvelope(gain, start, playDuration, Math.min(0.08, (cell.volume / 31) * 0.07));
-    source.connect(filter).connect(gain).connect(psgAudioContext.destination);
+    source.connect(gain).connect(psgAudioContext.destination);
     source.start(start);
     source.stop(start + playDuration);
     rememberPsgNode(source);

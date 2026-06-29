@@ -115,6 +115,20 @@ test('convertMidiToPsg derives BPM from the MIDI tempo when not overridden', () 
   assert.equal(result.stats.midiBpm, 200);
 });
 
+test('convertMidiToPsg keeps 120 BPM quarter notes on the 16th-note grid', () => {
+  const track = [
+    ...TEMPO(500000), // 120 BPM: one 16th note is 7.5 video frames.
+    0x00, 0x90, 69, 100,
+    ...vlq(480), 0x80, 69, 0, // one quarter note == four 16th-note steps.
+    ...END,
+  ];
+  const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }));
+  const noteOff = result.pattern.find((entry) => entry.channel === 0 && entry.volume === 0);
+  assert.equal(result.bpm, 120);
+  assert.equal(result.stats.framesPerStep, 7.5);
+  assert.equal(noteOff.step, 4);
+});
+
 test('convertMidiToPsg renders the drum channel as PSG noise on channels 4/5', () => {
   const track = [0x00, 0x99, 38, 100, ...vlq(240), 0x89, 38, 0, ...END]; // ch10 snare
   const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }), { bpm: 150, drumMode: 'full' });

@@ -16,7 +16,7 @@ function clampInt(value, min, max, fallback) {
 
 export function psgFramesPerStep(bpm) {
   const value = clampInt(bpm, 30, 300, 150);
-  return Math.max(2, Math.min(24, Math.floor(3600 / (value * 4))));
+  return 3600 / (value * 4);
 }
 
 export function psgFrequencyFromPeriod(period) {

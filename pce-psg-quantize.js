@@ -23,12 +23,13 @@ function clampInt(value, min, max, fallback) {
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
 }
 
-// Step grid, mirroring the runtime's frames_per_step so imported timing matches
-// playback: one step is a 16th note at `bpm`, 735 samples == one 60Hz frame.
+// Step grid, mirroring the runtime's fractional BPM accumulator: one step is a
+// 16th note at `bpm`. Do not quantize to whole 60Hz frames here; 120 BPM is
+// exactly 7.5 frames/step and the runtime alternates 7/8 frame advances.
 function gridForBpm(bpm) {
   const clamped = clampInt(bpm, 30, 300, 150);
-  const framesPerStep = Math.max(2, Math.min(24, Math.floor(3600 / (clamped * 4))));
-  return { bpm: clamped, framesPerStep, stepSamples: 735 * framesPerStep };
+  const framesPerStep = 3600 / (clamped * 4);
+  return { bpm: clamped, framesPerStep, stepSamples: (DEFAULT_SAMPLE_RATE * framesPerStep) / 60 };
 }
 
 // Turn per-step channel snapshots into compact pattern entries. A voice is held

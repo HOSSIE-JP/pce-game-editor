@@ -11,7 +11,8 @@
 // and tick_psg / psg_apply_step_row in the VN runtime): a fixed number of
 // `steps`, each step optionally SETs a channel's (period, volume). A voice
 // persists until a later step changes it. Step duration is derived from `bpm`
-// exactly as the runtime does: frames_per_step = clamp(floor(3600/(bpm*4)),2,24).
+// exactly as the runtime does: one step is a 16th note, with fractional 60Hz
+// frames accumulated at playback time.
 //
 // We therefore decode the VGM by simulating the PSG register state over time,
 // sampling each channel at every step boundary, and emitting a pattern entry
