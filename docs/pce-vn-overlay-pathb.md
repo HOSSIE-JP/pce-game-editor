@@ -14,36 +14,43 @@ CD-ROM2 VN runtime の **コードオーバーレイ機構**（未使用物理 b
   - **Phase B0（完了・コミット ebb9f78）**: bank133 への CD ロード基盤（no-op オーバーレイ）。
   - **Phase B1（完了・当時の実測）**: 実コード（CD RLE 展開 `cd_rle_ref_to_vram` / `cd_rle_bg_map_ref_to_vram`）をオーバーレイへ退避し、**bank130 を 95% → 55%（7782 → 4494 bytes、約3.3KB）緩和**。Geargrafx で BG/sprite/入力の正常動作を実証済み。
   - **Phase 2（完了）**: RLE 撤去後に空いた overlay へ message グリフコンポジタを退避。VBlank/VDC/SATB/message-window hardening 後の Kitahe build 実測で bank130 は 7686B/8192B、`.vn_overlay` は 2260B/4096B。
-- **重要な認識**: B1 で得た余白は「一度きりの約3.3KB ＋ 再利用可能な退避の仕組み」。常駐コード総枠（3バンク＝約24KB）は増えていない。Phase 2 後も overlay は 4KB 予約内だが、追加退避時は `-Wl,--print-memory-usage` と `llvm-size -A` で bank128/129/130/`.vn_overlay` を必ず確認する。
+  - **Phase 3（完了・全コマンド搭載対応）**: overlay を **op-dispatch 化して物理 bank133 を full 8KB へ解放**（残課題(A)を解消）。`call_overlay_*` の直接呼びを単一固定エントリ `vn_overlay_entry` への間接呼び（literal 0x8000）へ置換し、resident→overlay の reloc を消去。これで `.vn_overlay` を visual-code と同様に **ELF から完全除去＋PT_LOAD 無効化** でき、bank132 末尾の良性 LMA 窓（約4KB上限）を撤廃。予約は 4 sector(8KB)。さらに **scene_pack reader 群 / cache_sprite_animation / cdda_sector_from_remaining / message_glyph_cache_find** を overlay へ退避し、`ishi_no_ura`（全スクリプトコマンド搭載）が bank128=99.84% / bank129=99.61% / bank130=99.77% / `.vn_overlay`=7552B/8192B で **正常リンク**。
+- **重要な認識**: Phase 3 で overlay 予約が 4KB→8KB になり、slot4 退避リザーバが約2倍になった（durable headroom）。常駐コード総枠（128/129/130 ＝約24KB）は依然不変なので、機能追加で常駐が溢れたら **純粋関数（delay_frame/bank130/visual_cache を呼ばない自己完結関数）を overlay/bank121 へ退避** するのが基本。追加退避時は `-Wl,--print-memory-usage` で全 bank を、`llvm-objdump -dr --section=.vn_overlay` で overlay→bank130 の reloc が無いことを必ず確認する。
 
 ## 2. アーキテクチャ全体像
 
 ```
-[ビルド時]
- pce_vn_runtime.c の VN_OVERLAY_CODE 関数 ──(本体と同一 link)──> main.elf の .vn_overlay (VMA 0x8000, LMA bank132 末尾)
+[ビルド時]  ※ Phase 3 以降: visual-code と同じ op-dispatch + ELF 除去方式
+ pce_vn_runtime.c の VN_OVERLAY_CODE / VN_OVERLAY_ENTRY_CODE 関数 ──(本体と同一 link)──> main.elf の .vn_overlay
+   （独自 load 領域 >ram_bank133、VMA=VN_OVERLAY_LINK_ADDR 0x1858000。低16bit=0x8000 で CPU 0x8000 実行）
    └ 同一コンパイルなので zp 仮想レジスタ・常駐シンボルが解決される
- link 後: llvm-objcopy で .vn_overlay を overlay.bin に抽出（予約 2 sector に pad）
-          + .rela.vn_overlay を main.elf から除去（mkcd の reloc 再適用を回避）
+   └ 単一固定エントリ vn_overlay_entry(op,a0,a1,a2) を .vn_overlay.entry に先頭固定
+ link 後: llvm-objcopy で .vn_overlay を overlay.bin に抽出（予約 4 sector=8KB に pad）
+          + .rela.vn_overlay と .vn_overlay section 本体を main.elf から除去
+          + neutralizeElfLoadSegments() で ram_bank133 の PT_LOAD を PT_NULL 化（mkcd/IPL が初期像に含めない）
  mkcd: main.elf（除去済）+ overlay.bin（CD data file）を ISO へ
 
 [ブート時]
  IPL が bank128-132 を RAM へ自動ロード（bank133 は対象外）
- init_video() の load_overlay_code() が overlay.bin を CD から bank133(CPU 0x8000) へストリーム
+ init_video() の load_overlay_code() が overlay.bin を CD から bank133(CPU 0x8000) へ 8KB ストリーム
 
 [実行時]
- 常駐コード(bank128) の call_overlay_* ラッパが:
-   （VDC を触る overlay では IRQ mask）
-   pce_ram_bank133_map()  → MPR4 = bank133（slot4 が overlay に切替）
-   overlay 関数を JSR 0x8000 で実行
-   pce_ram_bank130_map()  → MPR4 = bank130 に復帰
+ 常駐コード(bank128/129) の dispatcher が:
+   （VDC を触る overlay では IRQ mask = vn_overlay_dispatch_locked、純粋関数は vn_overlay_dispatch）
+   pce_ram_bank133_map()                       → MPR4 = bank133（slot4 が overlay に切替）
+   ((fn)PCE_VN_OVERLAY_LOAD_ADDR)(op,a0,a1,a2)  → literal 0x8000 への間接呼び（reloc 無し）→ vn_overlay_entry が op 分岐
+   pce_ram_bank130_map()                       → MPR4 = bank130 に復帰
    （VDC を触る overlay では IRQ restore）
 ```
 
-VDC を触る overlay（message compositor など）は、上の bank swap 全体を `vn_vdc_irq_lock()` / `vn_vdc_irq_unlock()` で囲みます。順序は **IRQ lock → `pce_ram_bank133_map()` → overlay 関数 → `pce_ram_bank130_map()` → IRQ unlock** です。bank133 map 後から lock まで、または unlock 後から bank130 復帰までに ADPCM/CD external IRQ が入ると、slot4 が bank133 の状態を IRQ 側へ見せたり、VDC latch/MAWR を壊して数フレームだけ BG/メッセージが崩れることがあります。
+**op-dispatch の要点**: 直接 `call_overlay_xxx()` を呼ぶと resident→overlay の reloc が生まれ、section を ELF に残さざるを得ず（＝bank132 末尾良性 LMA 窓の約4KB上限に縛られる）。Phase 3 では visual-code(`visual_cache_entry`) と同じく **単一固定エントリへの literal 間接呼び**にして reloc を消し、section を丸ごと除去できるようにした。これで物理 bank133 8KB がフルに使える。引数 `op,a0,a1,a2` は通常呼出規約（zp 仮想レジスタ＋HW スタック、常時マップ）に乗るので console_ram グローバルを増やさない（ポインタは 16bit で渡し overlay 側でキャスト）。
+
+VDC を触る overlay（message compositor / sprite frame）は `vn_overlay_dispatch_locked` 経由で、bank swap 全体を `vn_vdc_irq_lock()` / `vn_vdc_irq_unlock()` で囲みます。順序は **IRQ lock → `pce_ram_bank133_map()` → overlay → `pce_ram_bank130_map()` → IRQ unlock**。純粋関数（scene_pack reader 等、VDC を触らない）は `vn_overlay_dispatch`（IRQ ロック無し、visual_cache_call と同様）。bank133 map 後から lock まで等に ADPCM/CD external IRQ が入ると VDC latch/MAWR を壊しうるため、VDC を触る経路は必ず locked を使う。
 
 ### co-residency（最重要の実行時制約）
-- slot4（CPU 0x8000-0x9fff）は **bank130 と bank133 が時分割**で共有する。オーバーレイ実行中は **bank130 が見えない**。
-- ⇒ **オーバーレイ関数は bank130 の関数を呼べない**。呼んでよいのは slot2(bank128)・slot3(bank129)・`always_inline` ヘルパ・console_ram(zp)・CD BIOS(MPR7) のみ。
+- slot4（CPU 0x8000-0x9fff）は **bank130 / bank133(overlay) / bank121(visual-code)** が時分割で共有する。オーバーレイ実行中は **bank130 が見えない**。
+- ⇒ **オーバーレイ関数は bank130 の関数を呼べない**。呼んでよいのは slot2(bank128)・slot3(bank129)・`always_inline`/`map_vn_data`(slot6) ヘルパ・console_ram(zp)・CD BIOS(MPR7) のみ。**`delay_frame()` は `pce_ram_bank130_map()` を含む**ため overlay からは呼べない（フレーム待ちを伴う関数・CD read で `service_psg`(bank130 map) を経由する `vn_get_*_asset` 系も不可）。退避候補は純粋デコーダ/純粋計算/bank132 read のみの自己完結関数に限る。
+- dispatcher は **bank128/129（slot2/3）に置く**。bank130 に置くと bank133 map で自分自身が slot4 から消える。
 - 引数は zp 仮想レジスタ（console_ram, MPR0/1 常駐）とハードウェアスタック（0x0100-0x01ff）に乗るため、バンク切替を跨いでも保持される。だから dispatcher は任意のシグネチャで機能する。
 
 ## 3. 実装ファイルと関数の地図
@@ -55,9 +62,11 @@ VDC を触る overlay（message compositor など）は、上の bank swap 全�
 | visual cache 用低位 RAM 宣言 | 同上。`VN_ENABLE_VISUAL_PAYLOAD_CACHE 1` の実験版では bank121 を helper code、bank104-119 を payload cache として使う。Path B overlay ではない |
 | ブート時ローダ `load_overlay_code()` | 同上（`init_video()` から呼ぶ）|
 | ブート時ローダ `load_visual_cache_code()` | 同上。標準 runtime では無効で `init_video()` から呼ばれない |
-| 常駐 dispatcher `draw_message_next_glyph_locked` / `draw_message_text_locked` / `call_overlay_preload_message_glyph_masks` / `call_overlay_draw_message_glyph_at` | 同上 |
-| 退避済み関数 `draw_message_glyph_at` / `draw_message_next_glyph` / `draw_message_text` / `preload_message_glyph_masks` / message compositor helper 群 | 同上（`VN_OVERLAY_CODE` タグ）|
-| オーバーレイ定数（LMA/予約 sector/section 名等） | `pce-vn-manager.js`（`VN_OVERLAY_*`）|
+| 固定エントリ `vn_overlay_entry(op,a0,a1,a2)`（`VN_OVERLAY_ENTRY_CODE` = `.vn_overlay.entry`、先頭固定） | 同上 |
+| 共有 dispatcher `vn_overlay_dispatch`(IRQ ロック無し・純粋関数用) / `vn_overlay_dispatch_locked`(IRQ ロック有り・VDC を触る関数用) | 同上 |
+| 常駐 dispatcher（元名を保持）`draw_message_*_locked` / `call_overlay_preload_message_glyph_masks` / `call_overlay_draw_message_glyph_at` / `call_overlay_show_sprite_slot` / `refresh_scene_sprite_patterns` / `scene_pack_read_*` / `cache_sprite_animation` / `cdda_sector_from_remaining` | 同上 |
+| 退避済み関数（`VN_OVERLAY_CODE`）: message compositor（`draw_message_*` / glyph mask cache / `message_glyph_cache_find`）、sprite（`show_character_sprite_frame` / `_slot` / `refresh_scene_sprite_patterns_impl`）、scene_pack decoder（`scene_pack_read_*_impl` / `scene_pack_u16` / `scene_pack_s16`）、`cache_sprite_animation_impl` / `cdda_sector_from_remaining_impl` | 同上 |
+| オーバーレイ定数（link addr/予約 sector/section 名等） | `pce-vn-manager.js`（`VN_OVERLAY_LINK_ADDR` / `VN_OVERLAY_RESERVED_SECTORS` / `VN_OVERLAY_SECTION` / `VN_BANK132_TAIL_VMA`）|
 | 予約・fragment 生成・抽出 | `pce-vn-manager.js`: `ensureOverlayReservation` / `writeOverlayFragment` / `overlayLinkerArgs` / `finalizeOverlayBlob` |
 | link への `-Wl,-T` 注入 | `pce-build-system.js`: `buildCommandForProject`（`vnManager.overlayLinkerArgs(projectDir)`）|
 | link 後の抽出フック | `pce-build-system.js`: `buildProject` の CD 分岐（`finalizePceCdDataPadding` の直前で `vnManager.finalizeOverlayBlob`）|
@@ -65,33 +74,32 @@ VDC を触る overlay（message compositor など）は、上の bank swap 全�
 | visual helper の CD ref / load addr | `src/generated/vn.{c,h}` に `pce_vn_visual_code_data`、`PCE_VN_VISUAL_CODE_LOAD_ADDR` を出す。`visual_code.bin` は bank121/slot4 用で、bank133 overlay とは別に予約・抽出する |
 | 生成されるリンカ fragment | `src/generated/overlay_insert.ld` |
 
-### 現在の定数（`pce-vn-manager.js`）
-- `VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000`（実行アドレス＝slot4）
-- `VN_OVERLAY_RESERVED_SECTORS = 2`（= 4096 bytes、CD/bank133 への固定予約。Phase 2 + VBlank/VDC/SATB/message-window hardening 後の Kitahe build 実測で 2260 bytes）
-- `VN_OVERLAY_LMA = 0x0184d078`（bank132 末尾 CPU 0xd078、良性 LMA。0xd078-0xdfff の window）。**この overlay 良性コピーは起動時に bank132 へロードされるが一切読まれない（実体は CD→bank133）。そこで `writeOverlayFragment` が固定ランタイムバッファ（`cd_transfer_scratch` 2KB ＋ `message_glyph_cache_masks` 1632B ＋ BG descriptor cache palette storage 256B＝計3936B、いずれも write-before-read）を `.ram_bank132_tail`(NOLOAD, CPU 0xd078) としてこの良性 window に重ね、無駄RAMを再利用する。結果 [0xc000, 0xd078) = 4216B が丸ごと「増える常駐メタデータ(cd_ref/cell_map/scene-pack ディレクトリ)」に空きます。CD アセットが増えても約500件以上の cd_ref を追加できる。overlay 実測 ~3964B は [0xd078,0xe000) にバッファと重ねて収まる（finalizeOverlayBlob が overlay の収まりを検査）**
-- `VN_OVERLAY_SECTION = '.vn_overlay'`
-- `VN_VISUAL_CODE_LINK_ADDR` / `VN_VISUAL_CODE_RESERVED_SECTORS = 4` / `VN_VISUAL_CODE_SECTION = '.vn_visual_code'` は visual cache helper code 用の予約定数です。`.vn_visual_code.entry` を先頭に固定して CPU 0x8000 へ dispatch し、出力 blob を `assets/generated/vn/visual_code.bin` に pad して main ELF から section 本体を除去します。さらに `llvm-objcopy --remove-section` 後も残り得る bank121 `PT_LOAD` program header を `neutralizeElfLoadSegments()` で `PT_NULL` 化します。`pce-mkcd` は section table ではなく program header も参照するため、ここを残すと初期ロードヘッダが `$8000` 側に引っ張られ、System Card の `JUST A MOMENT...` で停止することがあります。実コードが予約 4 sector を超えた場合は build error です。
+### 現在の定数（`pce-vn-manager.js`）— Phase 3
+- `VN_OVERLAY_VRAM_LOAD_ADDR = 0x8000`（実行アドレス＝slot4、dispatcher が literal 間接呼びに使う）
+- `VN_OVERLAY_LINK_ADDR = 0x01858000`（`.vn_overlay` の load 領域＝ram_bank133 ORIGIN `0x01850000 + __ram_bank133(=0x8000)`。低16bit=0x8000 で CPU 0x8000 実行。section は抽出後 ELF から除去するので link 専用）
+- `VN_OVERLAY_RESERVED_SECTORS = 4`（= 8192 bytes = 物理 bank133 フル。`ishi_no_ura` 全コマンド搭載で実測 7552 bytes）
+- `VN_OVERLAY_SECTION = '.vn_overlay'`（出力 section は `.vn_overlay.entry`(先頭) ＋ `.vn_overlay` をマージ）
+- `VN_BANK132_TAIL_VMA = 0xd078`：`.ram_bank132_tail`(NOLOAD) の CPU アドレス。固定 write-before-read バッファ（`cd_transfer_scratch` 2KB ＋ `message_glyph_cache_masks` 1632B ＋ BG descriptor cache palette storage 256B）を bank132 末尾に置く。**overlay はもう bank132 末尾に良性コピーを置かない**（bank133 に load 領域を持つ）ので、tail は素の bank132 RAM。メタデータ予算 [0xc000, 0xd078) は不変。
+- 旧 `VN_OVERLAY_LMA` / `VN_BANK132_LMA_END` は撤去（良性 LMA 窓が不要になったため）。
+- `VN_VISUAL_CODE_LINK_ADDR` / `VN_VISUAL_CODE_RESERVED_SECTORS = 4` / `VN_VISUAL_CODE_SECTION = '.vn_visual_code'` は visual cache helper code 用。overlay と**同じ** 抽出方式（`.entry` 先頭固定 → `--remove-section` → `neutralizeElfLoadSegments()` で bank121 `PT_LOAD` を `PT_NULL` 化）。`pce-mkcd` は section table でなく program header も参照するため、ここを残すと初期ロードヘッダが `$8000` 側へ引っ張られ System Card の `JUST A MOMENT...` で停止しうる。実コードが予約 sector を超えると build error。
 
 ## 4. オーバーレイに関数を追加する手順
 
-1. **退避候補を選ぶ**: 呼び出し先が bank130 を含まない自己完結した関数を選ぶ（後述の検証で確認）。RLE 展開のような「CD→VRAM のストリーミング処理」が好適。
-2. **タグを付ける**: `template/template_pce_vn_cd/src/pce_vn_runtime.c` で対象関数を `VN_BANKED_CODE2`（bank130）等から `VN_OVERLAY_CODE` に変更。
-3. **呼び出し元をラップする**: その関数を呼ぶ常駐コード（bank128 の `.text`、untagged）から、`call_overlay_*` ラッパ経由で呼ぶ。ラッパは `pce_ram_bank133_map()` → 関数 → `pce_ram_bank130_map()` の形（`#if defined(__PCE_CD__)` で囲み、非 CD は直接呼び出し）。VDC を触る overlay では、この 3 手を IRQ lock/unlock で外側から囲む。
-   - **ラッパは必ず常駐（untagged = bank128）に置く**。bank130 や overlay に置くと swap 中に自分自身が消える。
-4. **ビルド**: `node tools/dev/vn-cli-build.js`
-5. **co-residency 検証（必須）**: ビルド後の elf でオーバーレイの外部呼び出し先を確認する。
+1. **退避候補を選ぶ**: 呼び出し先が bank130/visual_cache/`delay_frame` を含まない自己完結した関数を選ぶ（後述の検証で確認）。純粋デコーダ（scene_pack reader）・純粋計算（cdda_sector）・bank132 read のみ（cache_sprite_animation）が好適。**全部が overlay-internal でしか呼ばれない関数なら、retag だけで dispatcher 不要**（例: `message_glyph_cache_find`）。
+2. **タグを付ける**: 対象関数を `VN_BANKED_CODE/CODE2` から `VN_OVERLAY_CODE` に変更。エントリから呼ぶため名前を `xxx_impl` にし、元の名前は dispatcher に使う（呼び出し元を変えない）。エントリ(4369付近)より後ろに定義する場合は forward 宣言を足す。
+3. **op を足してエントリに分岐を追加**: `VN_OVERLAY_OP_xxx` を定義し、`vn_overlay_entry(op,a0,a1,a2)` に `if (o==VN_OVERLAY_OP_xxx) return xxx_impl(...);` を追加。引数はポインタ=16bit(`(uintptr_t)`)・スカラ=a2 等に割付。
+4. **常駐 dispatcher を足す**: 元の名前で `VN_BANKED_CODE`（bank129）か `VN_RESIDENT_CODE`（bank128）の薄い wrapper を作り、純粋関数は `vn_overlay_dispatch(op,...)`、VDC を触る関数は `vn_overlay_dispatch_locked(op,...)` を呼ぶ。`#else`(非CD) は `_impl` を直接呼ぶ。
+   - **dispatcher は必ず bank128/129（slot2/3）に置く**。bank130 や overlay に置くと bank133 map で自分自身が消える。
+6. **co-residency 検証（必須・reloc ベース）**: build pipeline は `.vn_overlay` を ELF から除去するので、検証用に **`-Wl,--emit-relocs` を足して別 elf を link** し、`.rela.vn_overlay` の参照シンボルを確認する。⚠️ **アドレスでの判別は不可**: overlay(VMA 0x1858xxx) も bank130(VMA 0x1828xxx) も `R_MOS_ADDR16` は低16bit=0x8xxx に解決されるので、`jsr $8xxx` だけでは内部/bank130 を区別できない。reloc の**ターゲット symbol/section**で見る。
    ```sh
    SDK=data/tools/llvm-mos-sdk/llvm-mos/bin
-   PROJ=data/projects/my_pce_game
-   # オーバーレイ範囲（__vn_overlay_start..__vn_overlay_end）を確認
-   $SDK/llvm-readelf -s $PROJ/out/my_pce_game.elf | grep -E "__vn_overlay_(start|end)"
-   # JSR/JMP 先を列挙。0x8000-0x9fff(slot4) への "非内部" ジャンプがあれば bank130 を呼んでいる＝危険
-   $SDK/llvm-objdump -d --section=.vn_overlay $PROJ/out/my_pce_game.elf | grep -iE "jsr|jmp"
+   # <link cmd> に -Wl,--emit-relocs を足して dbg.elf を作る
+   $SDK/llvm-objdump -dr --section=.vn_overlay dbg.elf | grep -iE "jsr|jmp|R_MOS"
    ```
-  - 許容される外部呼び出し: `0x4000-0x5fff`(bank128/slot2)、`0x6000-0x7fff`(bank129/slot3)、`0xe000+`(BIOS/MPR7)。
-  - **危険**: オーバーレイ範囲外の `0x8000-0x9fff` への JSR/JMP（= 退避し忘れた bank130 関数を呼んでいる）。その関数も一緒に退避するか、退避をやめる。
-6. **サイズ確認**: ビルドログの「PCE VN overlay blob: N bytes (reserved ...)」。`N > 4096` だと build error（4KB 上限）。
-7. **Geargrafx 検証**（§6）。
+  - **許容**: 呼出先 reloc が `.vn_overlay+...`(内部)・`.text+...`(bank128/常駐)・`__memset` 等の compiler-rt(.text)・`.ram_bank129+...`(bank129/slot3)・BIOS。
+  - **危険**: `.ram_bank130+...` / `.ram_bank121+...`（slot4 を時分割する別バンク）への reloc。その関数も一緒に退避するか、退避をやめる。本 Phase 3 では全 228 件の JSR/JMP が `.vn_overlay`/`.text`/`__memset` のみで bank130 ゼロを確認済み。
+7. **サイズ確認**: ビルドログの「PCE VN overlay blob: N bytes (reserved 8192, full bank133)」。`N > 8192` だと build error（物理 bank133 8KB 上限）。超えたら bank121 visual-code への退避や runtime コード削減を検討。
+8. **Geargrafx 検証**（§6）。
 
 ## 5. ハマりどころ（B1 で実際に踏んだ罠）
 
@@ -128,13 +136,9 @@ message typewriter / skip / choice glyph が正常描画されれば、オーバ
 
 ## 7. 残課題と対応方針（Codex 向け）
 
-### (A) オーバーレイ 4KB 上限の引き上げ
-- **現状の上限は物理 bank133(8KB) ではなく、良性 LMA の置き場所（bank132 末尾 0xd078-0xdfff）**。CD 上の `overlay.bin` 予約は 4KB のまま固定し、実 `.vn_overlay` が LMA window に収まるかを `finalizeOverlayBlob()` で検査する。
-- **着眼点**: オーバーレイの LMA コピーは**実行時に一切読まれない**（実体は CD から bank133 へロードする）。LMA は「(a) link が通る」「(b) IPL がロードしても何も壊さない」だけ満たせばよい。
-- **候補アプローチ**（要・Geargrafx 実証）:
-  1. LMA をより広い良性領域へ移す（例: bank132 のデータ配置を見直して連続 8KB を確保、または別の常駐バンクの空き末尾）。Phase B1 直後は bank130 末尾に約3.7KB の空きがあったが、直近 meta build では bank128/129/130 ともほぼ満杯で、bank130 は残り37Bしかない点に注意。
-  2. `.vn_overlay` を PT_LOAD から完全に外す（PHDRS 制御 or 別 elf へ分離）。外せれば LMA 制約が消え bank133 フル(8KB)まで使える。`--set-section-flags` での alloc 落としは PT_LOAD を消せなかった（§5）ので、PHDRS を持つ別フラグメント or link 後の segment 編集が要る。
-  3. 予約サイズ `VN_OVERLAY_RESERVED_SECTORS` は CD/bank133 側の footprint。bank133 は 8KB あるので予約は最大 4 sector まで上げられる（上限を上げても LMA 制約が先に効く点に注意）。
+### (A) オーバーレイ 4KB 上限の引き上げ → ✅ **解決済み（Phase 3）**
+- 上記候補アプローチ 2（PT_LOAD から外す）を採用。**op-dispatch 化で resident→overlay の reloc を消し**、`.vn_overlay` を visual-code と同じく `--remove-section` ＋ `neutralizeElfLoadSegments()` で ELF から完全除去。良性 LMA 窓が不要になり、`.vn_overlay` は独自 load 領域 `>ram_bank133`(VMA `VN_OVERLAY_LINK_ADDR`=0x1858000) へ。予約 `VN_OVERLAY_RESERVED_SECTORS = 4`(8KB) で物理 bank133 フル。`finalizeOverlayBlob()` の上限検査は `realSize > 8192`(bank133 物理) に変更（旧 `VN_OVERLAY_LMA + realSize > VN_BANK132_LMA_END` は撤去）。
+- **残る上限**: 物理 bank133 = 8KB。これを超えるなら bank121 visual-code(別の 8KB slot4 退避先)へ分散するか、(B) の追加 overlay、または runtime コード削減。
 
 ### (B) 複数オーバーレイ（追加バンク）
 - bank134/135 は PSG pattern の CD ストリーム再生バッファとして使用中です。追加 overlay を作る場合は、PSG バッファと同じ物理 bank を共有しない未使用 bank を選んでください。

@@ -7,7 +7,8 @@
 - PCE プラグイン、アセット、ビルド、Test Play を変更する前に `PLUGIN.md` を読んでください。
 - Test Play や実機/エミュレーター表示崩れを調査する前に `docs/pce-testplay-debugging.md` を読んでください。
 - CD-ROM2 / VN runtime のメモリバンク配置を変更する前に `docs/pce-memory-bank-strategy.md` を読んでください。
-- VN runtime のコードが 3 常駐バンク(128/129/130)に収まらず溢れたとき、または bank133 コードオーバーレイ(Path B)を追加・拡張するときは `docs/pce-vn-overlay-pathb.md` を読んでください。
+- VN runtime のコードが 3 常駐バンク(128/129/130)に収まらず溢れてビルド失敗したとき、退避候補の選定・測定・op-dispatch 退避・ハマりどころは `docs/pce-vn-code-bank-optimization.md`（最適化プレイブック）を読んでください。
+- bank133 コードオーバーレイ(Path B)の link/抽出/dispatch 機構を追加・拡張するときは `docs/pce-vn-overlay-pathb.md` を読んでください。
 - 公開 API、プラグイン manifest、IPC、ビルド仕様を変更する場合は、同じ作業内で `PLUGIN.md` または `docs/` 配下の関連ファイルを更新してください。
 - ユーザーに見える機能追加・仕様変更・既知制約の追加を行う場合は、同じ作業内で `README.md`、`docs/user-guide.md`、`PLUGIN.md`、関連する `docs/` のいずれかを更新し、最終回答で更新したドキュメントを明記してください。
 - 外部リポジトリからコードをコピーしないでください。外部情報は挙動理解だけに使い、実装は独自に行ってください。
