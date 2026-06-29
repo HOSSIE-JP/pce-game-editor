@@ -102,6 +102,7 @@ function publicToolDefinition(tool) {
     license: tool.license,
     homepage: tool.homepage,
     note: tool.note || '',
+    optional: Boolean(tool.optional),
     defaultTargetDir: getDefaultTargetDir(tool.kind),
     sources: [
       ...(tool.fixedVersions || []).map((item) => ({
@@ -220,6 +221,42 @@ function findExecutable(baseDir, names) {
   return null;
 }
 
+function pathDirs() {
+  return String(process.env.PATH || '')
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function pathExecutableNames(names) {
+  const out = new Set();
+  const extensions = process.platform === 'win32'
+    ? String(process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM')
+      .split(';')
+      .map((ext) => ext.trim())
+      .filter(Boolean)
+    : [''];
+  names.forEach((name) => {
+    out.add(name);
+    if (process.platform === 'win32' && !path.extname(name)) {
+      extensions.forEach((ext) => out.add(`${name}${ext.toLowerCase()}`));
+      extensions.forEach((ext) => out.add(`${name}${ext.toUpperCase()}`));
+    }
+  });
+  return Array.from(out);
+}
+
+function findExecutableOnPath(names) {
+  const wanted = pathExecutableNames(names);
+  for (const dir of pathDirs()) {
+    for (const name of wanted) {
+      const candidate = path.join(dir, name);
+      if (isUsableExecutableCandidate(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 function findDirectory(baseDir, predicate) {
   if (!baseDir || !fs.existsSync(baseDir)) return null;
   const queue = [baseDir];
@@ -293,6 +330,108 @@ function getEmulatorJsDir() {
   const settings = loadSettings();
   if (settings.emulatorJsDir && fs.existsSync(settings.emulatorJsDir)) return settings.emulatorJsDir;
   return findEmulatorJsRuntimeDir(getEmulatorBaseDir());
+}
+
+function commandStatus(id, label, names, purpose, required = false) {
+  const found = findExecutableOnPath(names);
+  return {
+    id,
+    label,
+    required: Boolean(required),
+    configured: Boolean(found),
+    path: found || '',
+    purpose,
+  };
+}
+
+function firstConfiguredStatus(items) {
+  return items.find((item) => item.configured) || items[0] || null;
+}
+
+function pythonPillowStatus() {
+  const candidates = process.platform === 'win32'
+    ? [
+      { command: 'py', args: ['-3'] },
+      { command: 'python', args: [] },
+      { command: 'python3', args: [] },
+    ]
+    : [
+      { command: 'python3', args: [] },
+      { command: 'python', args: [] },
+    ];
+  for (const candidate of candidates) {
+    const commandPath = findExecutableOnPath([candidate.command]);
+    if (!commandPath) continue;
+    const proc = spawnSync(commandPath, [...candidate.args, '-c', 'import PIL; print("ok")'], {
+      encoding: 'utf-8',
+      timeout: 2000,
+      windowsHide: true,
+    });
+    if (proc.status === 0) {
+      return {
+        configured: true,
+        path: commandPath,
+        detail: candidate.args.length ? `${candidate.command} ${candidate.args.join(' ')}` : candidate.command,
+      };
+    }
+  }
+  return { configured: false, path: '', detail: '' };
+}
+
+function windowsDrawingStatus() {
+  if (process.platform !== 'win32') return { configured: false, path: '', detail: '' };
+  const powershell = findExecutableOnPath(['powershell.exe', 'powershell', 'pwsh']);
+  if (!powershell) return { configured: false, path: '', detail: '' };
+  return {
+    configured: true,
+    path: powershell,
+    detail: 'Windows System.Drawing',
+  };
+}
+
+function fontRendererDiagnostic() {
+  const ffmpegPath = findExecutableOnPath(['ffmpeg']);
+  const windowsDrawing = windowsDrawingStatus();
+  const python = pythonPillowStatus();
+  const configured = Boolean(ffmpegPath) || windowsDrawing.configured || python.configured;
+  const renderers = [
+    ffmpegPath ? `ffmpeg on PATH (${ffmpegPath})` : '',
+    windowsDrawing.configured ? `${windowsDrawing.detail} (${windowsDrawing.path})` : '',
+    python.configured ? `Python/Pillow (${python.detail})` : '',
+  ].filter(Boolean);
+  return {
+    id: 'fontRenderer',
+    label: 'VN フォント描画',
+    required: false,
+    configured,
+    path: ffmpegPath || windowsDrawing.path || python.path || '',
+    purpose: 'フォントタブの preview と VN build の 12x12 glyph 生成に使います。',
+    detail: renderers.length ? renderers.join(' / ') : 'Windows System.Drawing、Python/Pillow、PATH 上の ffmpeg のいずれも未検出',
+  };
+}
+
+function getEnvironmentDiagnostics(options = {}) {
+  const zipStatus = process.platform === 'win32'
+    ? firstConfiguredStatus([
+      commandStatus('zipExpandArchive', 'ZIP 展開 (PowerShell)', ['powershell.exe', 'powershell', 'pwsh'], 'llvm-mos-sdk などの .zip ツールアーカイブ展開に使います。', true),
+      commandStatus('zipTar', 'ZIP 展開 (tar)', ['tar'], 'llvm-mos-sdk などの .zip ツールアーカイブ展開に使います。', true),
+      commandStatus('zipUnzip', 'ZIP 展開 (unzip)', ['unzip'], 'llvm-mos-sdk などの .zip ツールアーカイブ展開に使います。', true),
+    ])
+    : firstConfiguredStatus([
+      commandStatus('zipUnzip', 'ZIP 展開 (unzip)', ['unzip'], 'llvm-mos-sdk などの .zip ツールアーカイブ展開に使います。', true),
+      commandStatus('zipTar', 'ZIP 展開 (tar)', ['tar'], 'llvm-mos-sdk などの .zip ツールアーカイブ展開に使います。', true),
+    ]);
+  const sevenZipStatus = firstConfiguredStatus([
+    commandStatus('sevenZip', '7z 展開 (7z)', ['7z'], 'EmulatorJS CDN の .7z 配布物を SetUp から展開するときに使います。', false),
+    commandStatus('sevenZipA', '7z 展開 (7za)', ['7za'], 'EmulatorJS CDN の .7z 配布物を SetUp から展開するときに使います。', false),
+    commandStatus('sevenZipBsdtar', '7z 展開 (bsdtar)', ['bsdtar'], 'EmulatorJS CDN の .7z 配布物を SetUp から展開するときに使います。', false),
+    commandStatus('sevenZipTar', '7z 展開 (tar)', ['tar'], 'EmulatorJS CDN の .7z 配布物を SetUp から展開するときに使います。', false),
+  ]);
+  return [
+    zipStatus,
+    sevenZipStatus,
+    fontRendererDiagnostic(),
+  ].filter(Boolean);
 }
 
 function getOptionalFileSetting(key) {
@@ -369,6 +508,7 @@ function getStatus() {
     emulatorJs: { configured: Boolean(emulatorJsDir), path: emulatorJsDir },
     pceCdIpl: { configured: Boolean(pceCdIplPath), path: pceCdIplPath },
     pceCdSystemCard: { configured: Boolean(pceCdSystemCardPath), path: pceCdSystemCardPath },
+    diagnostics: getEnvironmentDiagnostics(),
   };
 }
 

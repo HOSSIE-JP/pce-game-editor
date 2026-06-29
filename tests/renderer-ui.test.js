@@ -96,6 +96,9 @@ test('setup page exposes PCE-CD IPL extraction flow', () => {
   assert.match(html, /id="btnPickPceCdImage"/);
   assert.match(html, /id="btnExtractPceCdIpl"/);
   assert.match(html, /id="pceCdOwnSourceConfirm"/);
+  assert.match(html, /pce-tool-manual/);
+  assert.match(html, /pce-diagnostic-list/);
+  assert.match(html, /data-pce-action="set-path"/);
   assert.match(html, /ISO\/CUE\/BIN/);
   assert.match(html, /selectPceCdImage\(\)/);
   assert.match(html, /extractPceCdIpl\(\{ sourcePath, confirmOwnedSource \}\)/);

@@ -2195,8 +2195,11 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static void VN_BANKED_CODE resume_cdda_after_cd_data_access\(void\)/);
   assert.match(source, /static void VN_BANKED_CODE finish_cd_data_read_before_vram_copy\(void\)/);
   assert.match(source, /finish_cd_data_read_before_vram_copy\(void\)\r?\n\{\r?\n    sync_cd_external_irq_after_bios_call\(\);\r?\n    resume_cdda_after_cd_data_access\(\);\r?\n    map_vn_data\(\);\r?\n\}/);
-  assert.match(source, /static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl\(const pce_editor_psg_asset_t \*asset\)/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE load_psg_pattern_cd\(const pce_editor_psg_asset_t \*asset\)[\s\S]*visual_cache_call\(VN_VISUAL_CACHE_OP_LOAD_PSG_PATTERN\);/);
+  assert.match(source, /static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl\(void\)/);
+  assert.match(source, /ref\.sector\.lo = g_psg_pattern_cd\.sector\.lo;[\s\S]*ref\.compression = g_psg_pattern_cd\.compression;/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE load_psg_pattern_cd\(const pce_editor_psg_asset_t \*asset\)[\s\S]*\(void\)asset;[\s\S]*if \(!g_psg_pattern_cd\.sector_count\) return 0u;[\s\S]*visual_cache_call\(VN_VISUAL_CACHE_OP_LOAD_PSG_PATTERN\);/);
+  assert.doesNotMatch(source, /vn_visual_cache_arg_ptr/);
+  assert.match(source, /if \(psg_pattern_banked\)[\s\S]*map_vn_data\(\);\r?\n        return;/);
   assert.doesNotMatch(source, /static uint8_t VN_BANKED_CODE2 load_psg_pattern_cd\(const pce_editor_psg_asset_t \*asset\)/);
   assert.match(source, /if \(cdda_resume_defer_depth\) return;/);
   assert.match(source, /static void VN_BANKED_CODE cdda_sector_from_remaining\(const pce_editor_cdda_asset_t \*cdda\)/);
@@ -2829,6 +2832,26 @@ test('PCE VN font config without a selection uses OS fonts only', () => {
   // No user font is prepended; candidates come from the OS font search only.
   const candidates = vnManager.fontCandidates(config, projectDir);
   assert.equal(candidates.includes(path.join(projectDir, 'assets', 'fonts')), false);
+});
+
+test('PCE VN font preview uses Windows OS fonts without ffmpeg or Python', { skip: process.platform !== 'win32' }, () => {
+  const vnManager = loadVnManager();
+  const projectDir = makeTempDir('pce-vn-font-win-');
+  const preview = vnManager.previewFontText(projectDir, {
+    config: {
+      fontPath: '',
+      fonts: [],
+      fontSize: 11,
+      threshold: 32,
+      xOffset: 0,
+      yOffset: 0,
+      tileBase: 540,
+      previewText: '私立',
+    },
+    text: '私立',
+  });
+  assert.notEqual(preview.renderer, 'fallback');
+  assert.ok(preview.glyphs.some((entry) => entry.glyph !== ' ' && entry.bitmap.some(Boolean)));
 });
 
 test('PCE VN comment commands persist in the scene document but are excluded from the compiled pack', () => {

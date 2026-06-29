@@ -40,6 +40,7 @@ test('PCE setup manager detects llvm-mos PCE-CD companion tools and user-provide
   assert.equal(status.pceCdIpl.path, ipl);
   assert.equal(status.pceCdSystemCard.path, syscard);
   assert.deepEqual(catalog.tools.map((tool) => tool.kind), ['llvmMos', 'emulatorJs']);
+  assert.ok(status.diagnostics.some((item) => item.id === 'fontRenderer'));
   assert.equal(Object.hasOwn(status, 'superfamiconv'), false);
 });
 

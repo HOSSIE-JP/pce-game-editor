@@ -32,6 +32,8 @@ npm start
 
 `.portable` がある開発時は、ユーザーデータは `data/` 配下に作られます。`data/`、`node_modules/`、`dist/`、toolchain ダウンロード物はリポジトリ管理対象外です。
 
+アプリ内の `SetUp` 画面では、PCE 向けの `llvm-mos-sdk`、EmulatorJS runtime、PCE-CD IPL / System Card を設定できます。ZIP / 7z 展開コマンドや VN フォント描画 renderer も診断表示されるため、別ユーザーへ配布する前にこの画面で不足を確認してください。
+
 ## テスト
 
 ```sh
@@ -53,4 +55,4 @@ PCE 関連の基本回帰テストは `tests/run-tests.js` から実行されま
 
 ## 注意
 
-PCE-CD の IPL / System Card、EmulatorJS runtime、llvm-mos-sdk などの外部バイナリは同梱しません。Setup 画面からユーザー所有ファイルまたはユーザー操作によるダウンロードとして設定してください。
+PCE-CD の IPL / System Card、EmulatorJS runtime、llvm-mos-sdk などの外部バイナリは同梱しません。Setup 画面からユーザー所有ファイル、ユーザー操作によるダウンロード、または手動パス指定として設定してください。

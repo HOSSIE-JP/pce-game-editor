@@ -38,8 +38,12 @@
     .pce-tool-title { font-size: 14px; font-weight: 700; }
     .pce-tool-status { margin: 0 0 10px; }
     .pce-tool-actions { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 8px; align-items: center; }
+    .pce-tool-manual { display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: 8px; align-items: center; margin-top: 8px; }
     .pce-tool-url { margin-top: 8px; }
     .pce-tool-empty { border: 1px dashed #2a2f3a; border-radius: 9px; padding: 14px; color: #9ba7b8; font-size: 12px; }
+    .pce-diagnostic-list { display: grid; gap: 6px; margin-top: 12px; }
+    .pce-diagnostic-row { border-top: 1px solid rgba(42,47,58,0.8); padding-top: 8px; }
+    .pce-diagnostic-row .desc { margin: 3px 0 0; }
     .pce-cd-settings { border: 1px solid rgba(74,163,255,0.22); border-radius: 9px; background: rgba(74,163,255,0.04); padding: 14px; margin-top: 14px; }
     .pce-cd-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
     .pce-ipl-wizard { border: 1px solid #2a2f3a; border-radius: 9px; background: #10151f; padding: 12px; margin-top: 10px; }
@@ -47,6 +51,7 @@
     .pce-ipl-wizard-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
     @media (max-width: 640px) {
       .pce-tool-actions { grid-template-columns: 1fr; }
+      .pce-tool-manual { grid-template-columns: 1fr; }
     }
     .footer { position: sticky; bottom: 0; z-index: 20; display: flex; justify-content: flex-end; gap: 8px; margin: 20px -24px -96px; padding: 14px 24px 24px; background: linear-gradient(180deg, rgba(15,17,23,0.72), #0f1117 38%); border-top: 1px solid rgba(42,47,58,0.9); backdrop-filter: blur(8px); }
     #statusMsg { font-size: 12px; color: #3fb950; margin-top: 10px; min-height: 18px; }
@@ -321,6 +326,7 @@
       root.innerHTML = tools.map((tool) => {
         const statusItem = pceStatusItemForKind(tool.kind);
         const ready = isPceItemReady(statusItem);
+        const optional = Boolean(tool.optional);
         const versions = pceVersions[tool.kind] || [];
         const loading = pceVersionLoading[tool.kind];
         const selectedVersion = versions[0] || null;
@@ -336,7 +342,7 @@
           <section class="pce-tool-card" data-tool-kind="${escHtml(tool.kind)}">
             <div class="pce-tool-header">
               <span class="pce-tool-title">${escHtml(tool.label)}</span>
-              <span class="badge ${ready ? 'ok' : 'warn'}">${ready ? '設定済み' : '未設定'}</span>
+              <span class="badge ${ready ? 'ok' : (optional ? 'warn' : 'ng')}">${ready ? '設定済み' : (optional ? '任意 / 未設定' : '未設定')}</span>
             </div>
             <p class="path-text pce-tool-status">${escHtml(statusText)}</p>
             <p class="desc">
@@ -348,6 +354,10 @@
               <select class="input-path" id="pceToolVersion-${escHtml(tool.kind)}">${versionOptions}</select>
               <button class="btn" data-pce-action="reload" data-kind="${escHtml(tool.kind)}">候補更新</button>
               <button class="btn primary" data-pce-action="download" data-kind="${escHtml(tool.kind)}">DL</button>
+            </div>
+            <div class="pce-tool-manual">
+              <input class="input-path" id="pceToolPath-${escHtml(tool.kind)}" value="${escHtml(pceStatusPath(statusItem))}" placeholder="${optional ? '任意ツールの実行ファイル/フォルダを手動指定...' : '実行ファイル/フォルダを手動指定...'}" />
+              <button class="btn" data-pce-action="set-path" data-kind="${escHtml(tool.kind)}">適用</button>
             </div>
             <p class="path-text pce-tool-url" id="pceToolUrl-${escHtml(tool.kind)}">${escHtml(selectedVersion?.downloadUrl || 'ダウンロード候補が未選択です')}</p>
             <div class="progress-wrap" id="pceProgress-${escHtml(tool.kind)}">
@@ -371,6 +381,9 @@
       });
       document.querySelectorAll('[data-pce-action="download"]').forEach((btn) => {
         btn.addEventListener('click', () => downloadPceTool(btn.dataset.kind));
+      });
+      document.querySelectorAll('[data-pce-action="set-path"]').forEach((btn) => {
+        btn.addEventListener('click', () => setPceToolPath(btn.dataset.kind));
       });
       (pceCatalog?.tools || []).forEach((tool) => {
         document.getElementById(`pceToolVersion-${tool.kind}`)?.addEventListener('change', () => updatePceToolVersionInfo(tool.kind));
@@ -405,9 +418,22 @@
         ['llvmMosPceCd', 'mos-pce-cd-clang', status.llvmMosPceCd],
         ['pceMkcd', 'pce-mkcd', status.pceMkcd],
       ];
-      document.getElementById('pceSetupStatus').innerHTML = rows.map(([, label, item]) => `
+      const companionHtml = rows.map(([, label, item]) => `
         <div class="path-text">${label}: ${item?.installed || item?.configured ? `OK - ${item.path || item.runtimeDir || ''}` : '未設定'}</div>
       `).join('');
+      const diagnostics = Array.isArray(status.diagnostics) ? status.diagnostics : [];
+      const diagnosticsHtml = diagnostics.length ? `
+        <div class="pce-diagnostic-list">
+          ${diagnostics.map((item) => `
+            <div class="pce-diagnostic-row">
+              <span class="badge ${item.configured ? 'ok' : (item.required ? 'ng' : 'warn')}">${item.configured ? 'OK' : (item.required ? '要確認' : '任意')}</span>
+              <span class="path-text">${escHtml(item.label || item.id)}: ${escHtml(item.path || item.detail || '未検出')}</span>
+              <p class="desc">${escHtml(item.purpose || '')}${item.detail && item.path ? `<br>${escHtml(item.detail)}` : ''}</p>
+            </div>
+          `).join('')}
+        </div>
+      ` : '';
+      document.getElementById('pceSetupStatus').innerHTML = companionHtml + diagnosticsHtml;
       const isReady = (item) => Boolean(item?.installed || item?.configured);
       document.getElementById('pceCdIplPath').value = status.pceCdIpl?.path || '';
       document.getElementById('pceCdSystemCardPath').value = status.pceCdSystemCard?.path || '';
@@ -416,6 +442,19 @@
       badge.textContent = allRequired ? '✓ セットアップ済み' : '未完了';
       badge.className = allRequired ? 'badge ok' : 'badge warn';
       renderPceTools();
+    }
+
+    async function setPceToolPath(kind) {
+      const input = document.getElementById(`pceToolPath-${kind}`);
+      const value = input?.value?.trim?.() || '';
+      if (!kind || !value) return;
+      try {
+        await window.electronSetup.setToolPath(kind, value);
+        await loadPceStatus();
+        document.getElementById('statusMsg').textContent = `${kind} のパスを更新しました`;
+      } catch (err) {
+        document.getElementById('statusMsg').textContent = `パス更新失敗: ${err.message || err}`;
+      }
     }
 
     async function downloadPceTool(kind) {

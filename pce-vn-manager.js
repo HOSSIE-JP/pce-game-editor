@@ -2136,6 +2136,114 @@ print(json.dumps({"ok": True, "bitmaps": bitmaps, "fontPath": font_path_used}, e
   return null;
 }
 
+function renderGlyphBitmapsWithWindowsDrawing(glyphs, config = {}, projectDir = '') {
+  if (process.platform !== 'win32') return null;
+  const candidates = fontCandidates(config, projectDir);
+  const normalized = normalizeFontConfig(config);
+  if (!candidates.length) return null;
+  const script = String.raw`
+$ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+try {
+  Add-Type -AssemblyName System.Drawing
+  $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
+  $fontSize = [int]$payload.fontSize
+  $threshold = [int]$payload.threshold
+  $xOffset = [int]$payload.xOffset
+  $yOffset = [int]$payload.yOffset
+  $font = $null
+  $fontPathUsed = ''
+  $privateFonts = $null
+  foreach ($fontPath in @($payload.fontPaths)) {
+    if (-not $fontPath -or -not (Test-Path -LiteralPath $fontPath)) { continue }
+    try {
+      $privateFonts = New-Object System.Drawing.Text.PrivateFontCollection
+      $privateFonts.AddFontFile($fontPath)
+      if ($privateFonts.Families.Count -gt 0) {
+        $font = New-Object System.Drawing.Font($privateFonts.Families[0], $fontSize, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Pixel)
+        $fontPathUsed = $fontPath
+        break
+      }
+    } catch {
+      if ($privateFonts) { $privateFonts.Dispose(); $privateFonts = $null }
+    }
+  }
+  if ($font -eq $null) {
+    foreach ($familyName in @('Yu Gothic', 'Meiryo', 'MS Gothic', 'Microsoft Sans Serif')) {
+      try {
+        $font = New-Object System.Drawing.Font($familyName, $fontSize, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Pixel)
+        $fontPathUsed = $familyName
+        break
+      } catch {}
+    }
+  }
+  if ($font -eq $null) {
+    [Console]::Out.WriteLine((@{ ok = $false; error = 'font not found' } | ConvertTo-Json -Compress))
+    exit 0
+  }
+  $format = New-Object System.Drawing.StringFormat
+  $format.FormatFlags = [System.Drawing.StringFormatFlags]::NoClip
+  $format.Alignment = [System.Drawing.StringAlignment]::Near
+  $format.LineAlignment = [System.Drawing.StringAlignment]::Near
+  $bitmaps = New-Object System.Collections.ArrayList
+  foreach ($glyph in @($payload.glyphs)) {
+    $bitmap = New-Object System.Drawing.Bitmap(${FONT_GLYPH_PX}, ${FONT_GLYPH_PX}, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $graphics.Clear([System.Drawing.Color]::Black)
+    $graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+    if ($glyph -ne ' ') {
+      $size = $graphics.MeasureString($glyph, $font, 128, $format)
+      $x = [Math]::Floor((${FONT_GLYPH_PX} - $size.Width) / 2) + $xOffset
+      $y = [Math]::Floor((${FONT_GLYPH_PX} - $size.Height) / 2) + $yOffset
+      $graphics.DrawString($glyph, $font, [System.Drawing.Brushes]::White, [single]$x, [single]$y, $format)
+    }
+    $pixels = New-Object System.Collections.ArrayList
+    for ($py = 0; $py -lt ${FONT_GLYPH_PX}; $py++) {
+      for ($px = 0; $px -lt ${FONT_GLYPH_PX}; $px++) {
+        [void]$pixels.Add($(if ($bitmap.GetPixel($px, $py).R -ge $threshold) { 1 } else { 0 }))
+      }
+    }
+    $graphics.Dispose()
+    $bitmap.Dispose()
+    [void]$bitmaps.Add($pixels)
+  }
+  $font.Dispose()
+  if ($privateFonts) { $privateFonts.Dispose() }
+  [Console]::Out.WriteLine((@{ ok = $true; bitmaps = $bitmaps; fontPath = $fontPathUsed } | ConvertTo-Json -Compress -Depth 5))
+} catch {
+  [Console]::Out.WriteLine((@{ ok = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress))
+}
+`;
+  const proc = spawnSync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy', 'Bypass',
+    '-Command', script,
+  ], {
+    input: JSON.stringify({
+      glyphs,
+      fontPaths: candidates,
+      fontSize: normalized.fontSize,
+      threshold: normalized.threshold,
+      xOffset: normalized.xOffset,
+      yOffset: normalized.yOffset,
+    }),
+    encoding: 'utf-8',
+    maxBuffer: 1024 * 1024 * 4,
+    windowsHide: true,
+  });
+  if (proc.error || proc.status !== 0 || !proc.stdout) return null;
+  try {
+    const parsed = JSON.parse(proc.stdout);
+    if (parsed.ok && Array.isArray(parsed.bitmaps) && parsed.bitmaps.length === glyphs.length) {
+      const visibleGlyph = glyphs.some((glyph, index) => glyph !== ' ' && Array.isArray(parsed.bitmaps[index]) && parsed.bitmaps[index].some(Boolean));
+      if (visibleGlyph) return { bitmaps: parsed.bitmaps, renderer: 'windows', fontPath: parsed.fontPath || '' };
+    }
+  } catch (_) {}
+  return null;
+}
+
 // Encode a 12x12 glyph bitmap (0/1, 144 entries) as 12 mask words (24 bytes).
 // Per row: high byte = pixels 0..7, low byte high-nibble = pixels 8..11, so the
 // VRAM word's bit 0x8000 is the leftmost pixel. Bytes are emitted VRAM-word
@@ -2194,6 +2302,7 @@ function encodeGlyphSpriteData(bitmaps) {
 
 function renderGlyphBitmaps(glyphs, config = {}, projectDir = '') {
   return renderGlyphBitmapsWithFfmpeg(glyphs, config, projectDir)
+    || renderGlyphBitmapsWithWindowsDrawing(glyphs, config, projectDir)
     || renderGlyphBitmapsWithPython(glyphs, config, projectDir)
     || {
       bitmaps: glyphs.map((glyph, index) => fallbackGlyphBitmap(glyph, index)),

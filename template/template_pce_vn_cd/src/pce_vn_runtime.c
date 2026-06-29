@@ -384,7 +384,6 @@ static uint8_t vn_visual_cache_arg_x __attribute__((section(".bss")));
 static uint8_t vn_visual_cache_arg_y __attribute__((section(".bss")));
 static int16_t vn_visual_cache_arg_sprite_x __attribute__((section(".bss")));
 static const pce_editor_data_ref_t *vn_visual_cache_arg_ref __attribute__((section(".bss")));
-static const void *vn_visual_cache_arg_ptr __attribute__((section(".bss")));
 #endif
 #endif
 static uint16_t vn_rng_state = 0xace1u;
@@ -544,7 +543,7 @@ static void VN_RESIDENT_CODE service_psg_during_blocking_frames(uint8_t frames);
 static void VN_RESIDENT_CODE service_psg_during_visual_cache_work(void);
 static void VN_RESIDENT_CODE service_psg_during_visual_cache_frames(uint8_t frames);
 #if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
-static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(const pce_editor_psg_asset_t *asset);
+static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(void);
 static uint8_t VN_VISUAL_CACHE_CODE draw_spritetext_slots_impl(uint8_t satb_index);
 static void VN_VISUAL_CACHE_CODE clear_runtime_cache_impl(uint8_t scope);
 static void VN_VISUAL_CACHE_CODE tick_sprite_animations_impl(void);
@@ -1644,7 +1643,7 @@ static uint8_t VN_VISUAL_CACHE_ENTRY_CODE visual_cache_entry(uint8_t op)
     }
     if (visual_op == VN_VISUAL_CACHE_OP_LOAD_PSG_PATTERN)
     {
-        return load_psg_pattern_cd_impl((const pce_editor_psg_asset_t *)vn_visual_cache_arg_ptr);
+        return load_psg_pattern_cd_impl();
     }
     if (visual_op == VN_VISUAL_CACHE_OP_DRAW_SPRITETEXT)
     {
@@ -4045,6 +4044,7 @@ static void VN_BANKED_CODE2 psg_apply_step_row(uint16_t step_no)
                 psg_apply_step_entry(&pattern[i], step_no);
             }
         }
+        map_vn_data();
         return;
     }
 #endif
@@ -4081,15 +4081,19 @@ static void VN_BANKED_CODE2 stop_psg(void)
    load_scene_pack_into_cache's CD-read loop (CD-DA pause/resume + external IRQ
    handling via prepare/resume); the pattern's CD ref lives in bank132, so MPR6
    maps bank132 to read it, then bank134 to receive the bytes. */
-static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(const pce_editor_psg_asset_t *asset)
+static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(void)
 {
     pce_editor_cd_data_ref_t ref;
     pce_sector_t sector = {0};
     uint16_t remaining;
     uint8_t bank = 0u;
-    if (!asset->pattern_cd) return 0u;
     map_vn_data();              /* MPR6 = bank132: read the CD ref descriptor. */
-    ref = *asset->pattern_cd;
+    ref.sector.lo = g_psg_pattern_cd.sector.lo;
+    ref.sector.md = g_psg_pattern_cd.sector.md;
+    ref.sector.hi = g_psg_pattern_cd.sector.hi;
+    ref.sector_count = g_psg_pattern_cd.sector_count;
+    ref.byte_size = g_psg_pattern_cd.byte_size;
+    ref.compression = g_psg_pattern_cd.compression;
     if (!ref.byte_size || ref.byte_size > VN_PSG_PATTERN_BUFFER_BYTES || !ref.sector_count) return 0u;
     prepare_cd_data_access();
     sector.lo = ref.sector.lo;
@@ -4128,8 +4132,9 @@ static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(const pce_editor_ps
 static uint8_t VN_BANKED_CODE load_psg_pattern_cd(const pce_editor_psg_asset_t *asset)
 {
     uint8_t result;
+    (void)asset;
+    if (!g_psg_pattern_cd.sector_count) return 0u;
     load_visual_cache_code();
-    vn_visual_cache_arg_ptr = asset;
     result = visual_cache_call(VN_VISUAL_CACHE_OP_LOAD_PSG_PATTERN);
     map_vn_data();
     return result;
