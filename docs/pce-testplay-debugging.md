@@ -27,6 +27,21 @@
 - RUN 後に数秒の黒画面が出ても、CD data 読み込み待ちの正常な経過であることがあります。すぐハングと判断せず、数秒待って `get_screenshot` / `get_cdrom_status` / `get_huc6280_status` を見てから切り分けます。
 - `debug_reset` を使った直後は Geargrafx が paused のままになることがあります。黒画面で入力が効かない場合は `debug_get_status` の `paused` を確認し、必要なら `debug_continue` してから RUN / I / RIGHT などを送ります。
 
+## Codex から Geargrafx MCP が直接見えない場合
+
+この環境では Geargrafx MCP が Codex の通常 tool として露出していなくても、Geargrafx 本体を stdio MCP server として直接起動して調査できます。セットアップ不足とは限らず、Codex 側の tool discovery に出ていないだけのことがあります。
+
+- Windows の既定確認先は `C:\homebrew\emulator\Geargrafx\Geargrafx.exe` です。`--headless --mcp-stdio` を付けて起動します。
+- Geargrafx 1.7.x の stdio MCP は 1 行 1 JSON の JSON-RPC です。Language Server 風の `Content-Length:` framing ではないため、送信は `JSON.stringify(payload) + "\n"`、受信は改行単位で parse します。
+- 最初に `initialize` を送り、その後 `tools/list` で必ず schema を確認します。バージョン差で引数名が変わることがあります。
+- Geargrafx 1.7.12 では `load_media` の引数は `{ "file_path": "..." }` です。`path` では `File path is required` になります。
+- Geargrafx 1.7.12 では `controller_button` の引数は `{ "player": 1, "button": "I", "action": "press" | "release" | "press_and_release" }` です。`pressed: true/false` では動きません。
+- `tools/call` で `load_media`、`debug_continue`、`controller_button`、`get_psg_status`、`get_huc6280_status` などを直接呼べます。環境によっては `execute_tool` wrapper もありますが、まず `tools/list` の direct tool schema を正とします。
+- CD-ROM2 の boot / ADPCM / PSG / 入力 edge は実時間経過に依存します。`debug_step_frame` だけで高速に進めると、System Card boot や RUN/I edge の扱いを誤認しやすいため、`debug_continue` 後に `setTimeout` などで実時間待ちを入れて確認してください。
+- PSG song / sfx の確認では、画面遷移だけでなく `get_psg_status` を見ます。`main_amplitude: "FF"`、対象 channel の `enabled`、`frequency`、左右 volume が非ゼロかを確認します。短い SFX はすぐ自然終了するため、押下直後だけでなく数百 ms 間隔で複数回サンプリングします。
+- bank 切り替えが絡む PSG / CD data 調査では `get_huc6280_status` の MPR を確認します。たとえば VN data の MPR6 は通常 bank132 (`0x84`) に戻るべきで、PSG pattern 読み込み中だけ bank134/135 に切り替わります。
+- breakpoint は `set_breakpoint` で `memory_area: "cpu_addr"` と `execute: true`、または write breakpoint を使います。PSG なら `play_psg_asset`、`psg_apply_step_row`、`PCE_PSG_GLOBAL` (`$0801`) / `PCE_PSG_CONTROL` (`$0804`) への write を見ると、command 実行、pattern 適用、実 register 書き込みを分けられます。
+
 ## 標準 WASM だけ ADPCM 後に進まない場合
 
 既知の切り分け結果として、Geargrafx では正常に進む Super CD-ROM2 / VN project が、標準 EmulatorJS/WASM の `mednafen_pce-wasm.data` だけ ADPCM 再生後に message input を受け付けず、同じ frame が描画され続けることがあります。この状態では emulator の frame counter は進み、`gameManager.simulateInput()` で PCE button index を直接注入しても VN script が次 command へ進みません。ADPCM command を抜いた同一 scene は同じ入力注入で進むため、単純な window focus / key mapping の不具合とは区別します。
