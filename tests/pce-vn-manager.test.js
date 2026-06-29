@@ -2370,7 +2370,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static uint8_t vn_variable_hi\[PCE_VN_VARIABLE_STORAGE_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(source, /const uint16_t value = \(uint16_t\)\(int16_t\)pce_vn_variable_initial_values\[i\];[\s\S]*vn_variable_lo\[i\] = \(uint8_t\)\(value & 0xffu\);[\s\S]*vn_variable_hi\[i\] = \(uint8_t\)\(value >> 8\);/);
   assert.match(source, /static signed int VN_BANKED_CODE2 variable_value\(signed int variable_index\)[\s\S]*value = \(uint16_t\)vn_variable_lo\[index\] \| \(\(uint16_t\)vn_variable_hi\[index\] << 8\);/);
-  assert.match(source, /static void VN_BANKED_CODE2 set_variable_value\(signed int variable_index, signed int value\)[\s\S]*vn_variable_lo\[index\] = \(uint8_t\)\(raw & 0xffu\);[\s\S]*vn_variable_hi\[index\] = \(uint8_t\)\(raw >> 8\);/);
+  // The byte-array setter is offloaded to the bank133 overlay (pure bss write);
+  // the resident wrapper dispatches it by op so call sites are unchanged.
+  assert.match(source, /static void VN_OVERLAY_CODE set_variable_value_impl\(signed int variable_index, signed int value\)[\s\S]*vn_variable_lo\[index\] = \(uint8_t\)\(raw & 0xffu\);[\s\S]*vn_variable_hi\[index\] = \(uint8_t\)\(raw >> 8\);/);
+  assert.match(source, /static void VN_BANKED_CODE set_variable_value\(signed int variable_index, signed int value\)[\s\S]*vn_overlay_dispatch\(VN_OVERLAY_OP_SET_VARIABLE,/);
   assert.doesNotMatch(source, /static signed int vn_variables\[PCE_VN_VARIABLE_STORAGE_COUNT\];/);
   assert.match(source, /static signed int command_value_arg\(const pce_vn_command_t \*command\)/);
   assert.match(source, /static uint16_t ui_text_color;\n/);

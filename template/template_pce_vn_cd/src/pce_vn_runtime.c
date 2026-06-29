@@ -257,6 +257,10 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_OVERLAY_OP_CACHE_SPRITE_ANIM 14u
 /* a0 = cdda asset pointer (always-mapped snapshot). */
 #define VN_OVERLAY_OP_CDDA_SECTOR 15u
+/* a2 = blank flag. VDC を触る(BAT 書き込み)ので locked dispatch。 */
+#define VN_OVERLAY_OP_MAP_WAIT_CELL 16u
+/* a0 = variable index, a1 = value（共に 16bit signed を uint16 で運ぶ）。純粋(bss 書き込み)。 */
+#define VN_OVERLAY_OP_SET_VARIABLE 17u
 #if defined(__PCE_CD__)
 typedef uint8_t (*vn_overlay_entry_fn_t)(uint8_t, uint16_t, uint16_t, uint8_t);
 #define VN_OVERLAY_CALL(op, a0, a1, a2) \
@@ -882,7 +886,8 @@ static signed int VN_BANKED_CODE2 variable_value(signed int variable_index)
     return (signed int)(int16_t)value;
 }
 
-static void VN_BANKED_CODE2 set_variable_value(signed int variable_index, signed int value)
+/* Overlay (pure bss write). Reached via the resident dispatcher below. */
+static void VN_OVERLAY_CODE set_variable_value_impl(signed int variable_index, signed int value)
 {
     uint8_t index;
     uint16_t raw;
@@ -892,6 +897,15 @@ static void VN_BANKED_CODE2 set_variable_value(signed int variable_index, signed
     raw = (uint16_t)(int16_t)value;
     vn_variable_lo[index] = (uint8_t)(raw & 0xffu);
     vn_variable_hi[index] = (uint8_t)(raw >> 8);
+}
+
+static void VN_BANKED_CODE set_variable_value(signed int variable_index, signed int value)
+{
+#if defined(__PCE_CD__)
+    (void)vn_overlay_dispatch(VN_OVERLAY_OP_SET_VARIABLE, (uint16_t)variable_index, (uint16_t)value, 0u);
+#else
+    set_variable_value_impl(variable_index, value);
+#endif
 }
 
 static uint16_t next_random_value(void)
@@ -2888,7 +2902,10 @@ static void VN_BANKED_CODE2 clear_window_tile_pixels(void)
     composer_row = 0xffu;
 }
 
-static void VN_BANKED_CODE map_message_wait_indicator_cell(uint8_t blank)
+/* Overlay: writes 2 BAT cells for the wait-cursor strip via the resident VDC blit
+   helper (write_map_words -> pce_editor_vram_copy, bank128). VDC を触るので
+   dispatcher は locked。 */
+static void VN_OVERLAY_CODE map_message_wait_indicator_cell_impl(uint8_t blank)
 {
     uint8_t sub;
     const uint8_t tc0 = (uint8_t)(((uint16_t)VN_WAIT_CURSOR_COL * VN_GLYPH_W) >> 3);
@@ -2901,6 +2918,15 @@ static void VN_BANKED_CODE map_message_wait_indicator_cell(uint8_t blank)
         write_map_words((uint16_t)(((VN_TEXT_Y + (VN_WAIT_CURSOR_ROW * 2u) + sub) * VN_MAP_WIDTH) + VN_TEXT_X + tc0),
             msg_bat_row, 2u);
     }
+}
+
+static void VN_BANKED_CODE map_message_wait_indicator_cell(uint8_t blank)
+{
+#if defined(__PCE_CD__)
+    (void)vn_overlay_dispatch_locked(VN_OVERLAY_OP_MAP_WAIT_CELL, 0u, 0u, blank);
+#else
+    map_message_wait_indicator_cell_impl(blank);
+#endif
 }
 
 /* Draw a 12x12 glyph at logical column `col` of text `row`. The up-to-two affected
@@ -4505,6 +4531,8 @@ static uint8_t VN_OVERLAY_ENTRY_CODE vn_overlay_entry(uint8_t op, uint16_t a0, u
     if (o == VN_OVERLAY_OP_READ_SWITCH_CASE) return scene_pack_read_switch_case_impl(&active_scene_pack, (const vn_switch_ref_t *)(uintptr_t)a1, a2, (pce_vn_switch_case_t *)(uintptr_t)a0);
     if (o == VN_OVERLAY_OP_CACHE_SPRITE_ANIM) { cache_sprite_animation_impl(a2); return 0u; }
     if (o == VN_OVERLAY_OP_CDDA_SECTOR) { cdda_sector_from_remaining_impl((const pce_editor_cdda_asset_t *)(uintptr_t)a0); return 0u; }
+    if (o == VN_OVERLAY_OP_MAP_WAIT_CELL) { map_message_wait_indicator_cell_impl((uint8_t)a2); return 0u; }
+    if (o == VN_OVERLAY_OP_SET_VARIABLE) { set_variable_value_impl((signed int)(int16_t)a0, (signed int)(int16_t)a1); return 0u; }
     return 0u;
 }
 #endif
