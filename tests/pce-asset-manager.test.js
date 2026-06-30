@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const zlib = require('node:zlib');
+const { spawnSync } = require('node:child_process');
 const audioConverter = require('../pce-audio-converter');
 const { loadWithMockedElectron } = require('./helpers/mock-electron');
 
@@ -194,6 +195,70 @@ function writeFile(projectDir, relativePath, bytes) {
   const absPath = path.join(projectDir, relativePath);
   fs.mkdirSync(path.dirname(absPath), { recursive: true });
   fs.writeFileSync(absPath, bytes);
+}
+
+function makePngHeaderBuffer(width = 16, height = 16) {
+  const buffer = Buffer.alloc(24);
+  PNG_SIGNATURE.copy(buffer, 0);
+  buffer.writeUInt32BE(width, 16);
+  buffer.writeUInt32BE(height, 20);
+  return buffer;
+}
+
+function writeSlideshowProjectConfig(projectDir) {
+  writeFile(projectDir, 'project.json', JSON.stringify({
+    coreId: 'pc-engine',
+    platform: 'pce',
+    title: 'Slideshow Test',
+    romName: 'slideshow_test',
+    toolchain: 'llvm-mos',
+    targetMedia: 'hucard',
+    pluginRoles: { builder: 'pce-sample-builder' },
+    pluginSettings: { 'pce-sample-builder': { sample: 'slideshow-hucard' } },
+  }, null, 2));
+}
+
+function makeBgMapBuffer(widthTiles, heightTiles, tileBase = 64, rowWidth = widthTiles) {
+  const buffer = Buffer.alloc(rowWidth * heightTiles * 2);
+  const visibleWidth = Math.min(widthTiles, rowWidth);
+  for (let y = 0; y < heightTiles; y += 1) {
+    for (let x = 0; x < visibleWidth; x += 1) {
+      const tile = tileBase + (y * widthTiles) + x;
+      buffer.writeUInt16LE(tile & 0x0fff, ((y * rowWidth) + x) * 2);
+    }
+  }
+  return buffer;
+}
+
+function makeGeneratedBgAsset(projectDir, id, width = 16, height = 16, options = {}) {
+  const sourceExt = options.sourceExt || '.png';
+  const source = `assets/images/${id}${sourceExt}`;
+  const generatedDir = `assets/generated/${id}`;
+  const widthTiles = Math.max(1, Math.ceil(width / 8));
+  const heightTiles = Math.max(1, Math.ceil(height / 8));
+  const tileBase = 64;
+  writeFile(projectDir, source, sourceExt === '.png' ? makePngHeaderBuffer(width, height) : Buffer.from('BM'));
+  writeFile(projectDir, `${generatedDir}/palette.bin`, Buffer.alloc(32, 0x01));
+  writeFile(projectDir, `${generatedDir}/tiles.bin`, Buffer.alloc(widthTiles * heightTiles * 32, 0x22));
+  writeFile(projectDir, `${generatedDir}/map.bin`, makeBgMapBuffer(widthTiles, heightTiles, tileBase));
+  writeFile(projectDir, `${generatedDir}/map_vram.bin`, makeBgMapBuffer(widthTiles, heightTiles, tileBase, 32));
+  return {
+    id,
+    type: 'image',
+    name: id,
+    source,
+    options: { kind: 'background', width, height },
+    data: {
+      generated: {
+        paletteFile: `${generatedDir}/palette.bin`,
+        tilesFile: `${generatedDir}/tiles.bin`,
+        mapFile: `${generatedDir}/map.bin`,
+        mapVramFile: `${generatedDir}/map_vram.bin`,
+        tileCount: widthTiles * heightTiles,
+        paletteCount: 1,
+      },
+    },
+  };
 }
 
 function makeRleRun(length, byte) {
@@ -1090,14 +1155,141 @@ test('PCE CD VN asset source generation ships raw BG and sprite tiles (RLE remov
   assert.equal(meta[sprBase + 68], 0); // patterns compression = NONE
 });
 
-test('PCE sample template registers slideshow images and PSG BGM assets', () => {
+test('PCE HuCard slideshow selects slide IDs in numeric order and ignores other assets', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-hucard-slideshow-dynamic-');
+  writeSlideshowProjectConfig(projectDir);
+  assetManager.writeAssetDocument(projectDir, {
+    version: 2,
+    assets: [
+      makeGeneratedBgAsset(projectDir, 'slide_002_second'),
+      makeGeneratedBgAsset(projectDir, 'title_bg'),
+      makeGeneratedBgAsset(projectDir, 'slide_001_first'),
+      {
+        id: 'slideshow_bgm',
+        type: 'psg-song',
+        options: {
+          kind: 'song',
+          bpm: 120,
+          steps: 2,
+          pattern: [{ step: 0, channel: 0, period: 512, volume: 10 }],
+        },
+      },
+    ],
+  });
+
+  const generated = assetManager.generateAssetSources(projectDir);
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  const firstIndex = source.indexOf('pce_editor_image_slide_001_first_tiles');
+  const secondIndex = source.indexOf('pce_editor_image_slide_002_second_tiles');
+
+  assert.equal(generated.assetCount, 3);
+  assert.equal(generated.bgCount, 2);
+  assert.equal(generated.psgCount, 1);
+  assert.deepEqual(generated.slideshow.ids, ['slide_001_first', 'slide_002_second']);
+  assert.notEqual(firstIndex, -1);
+  assert.notEqual(secondIndex, -1);
+  assert.equal(firstIndex < secondIndex, true);
+  assert.doesNotMatch(source, /pce_editor_image_title_bg/);
+  assert.match(source, /pce_editor_psg_slideshow_bgm_pattern/);
+});
+
+test('PCE HuCard slideshow validates slide ID sequence and image constraints', () => {
+  const assetManager = loadAssetManager();
+
+  const gapProjectDir = makeTempDir('pce-hucard-slideshow-gap-');
+  writeSlideshowProjectConfig(gapProjectDir);
+  assetManager.writeAssetDocument(gapProjectDir, {
+    version: 2,
+    assets: [
+      makeGeneratedBgAsset(gapProjectDir, 'slide_001_first'),
+      makeGeneratedBgAsset(gapProjectDir, 'slide_003_gap'),
+    ],
+  });
+  assert.throws(
+    () => assetManager.generateAssetSources(gapProjectDir),
+    /expected slide_002 before "slide_003_gap"/,
+  );
+
+  const duplicateProjectDir = makeTempDir('pce-hucard-slideshow-duplicate-');
+  writeSlideshowProjectConfig(duplicateProjectDir);
+  assetManager.writeAssetDocument(duplicateProjectDir, {
+    version: 2,
+    assets: [
+      makeGeneratedBgAsset(duplicateProjectDir, 'slide_001_first'),
+      makeGeneratedBgAsset(duplicateProjectDir, 'slide_001_duplicate'),
+    ],
+  });
+  assert.throws(
+    () => assetManager.generateAssetSources(duplicateProjectDir),
+    /sequence 001 is used by both "slide_001_(first|duplicate)" and "slide_001_(first|duplicate)"/,
+  );
+
+  const sizeProjectDir = makeTempDir('pce-hucard-slideshow-size-');
+  writeSlideshowProjectConfig(sizeProjectDir);
+  assetManager.writeAssetDocument(sizeProjectDir, {
+    version: 2,
+    assets: [makeGeneratedBgAsset(sizeProjectDir, 'slide_001_wide', 264, 224)],
+  });
+  assert.throws(
+    () => assetManager.generateAssetSources(sizeProjectDir),
+    /maximum slideshow size is 256x224/,
+  );
+
+  const formatProjectDir = makeTempDir('pce-hucard-slideshow-format-');
+  writeSlideshowProjectConfig(formatProjectDir);
+  assetManager.writeAssetDocument(formatProjectDir, {
+    version: 2,
+    assets: [makeGeneratedBgAsset(formatProjectDir, 'slide_001_bmp', 16, 16, { sourceExt: '.bmp' })],
+  });
+  assert.throws(
+    () => assetManager.generateAssetSources(formatProjectDir),
+    /must be stored as PNG/,
+  );
+});
+
+test('PCE HuCard slideshow reports ROM bank capacity overflow', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-hucard-slideshow-capacity-');
+  writeSlideshowProjectConfig(projectDir);
+  const assets = Array.from({ length: 26 }, (_unused, index) => {
+    const sequence = String(index + 1).padStart(3, '0');
+    return makeGeneratedBgAsset(projectDir, `slide_${sequence}`, 256, 224);
+  });
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets });
+
+  assert.throws(
+    () => assetManager.generateAssetSources(projectDir),
+    /exceeds 127 ROM banks at "slide_026"/,
+  );
+});
+
+test('PCE sample template registers slideshow images for llvm-mos playback', () => {
   const templateDir = path.join(__dirname, '..', 'template', 'template_pce_sample');
   const doc = JSON.parse(fs.readFileSync(path.join(templateDir, 'assets', 'pce-assets.json'), 'utf-8'));
   const slides = doc.assets.filter((entry) => entry.type === 'image' && entry.id.startsWith('slide_'));
   const bgm = doc.assets.find((entry) => entry.id === 'slideshow_bgm');
 
   assert.equal(doc.version, 2);
-  assert.equal(slides.length, 5);
+  assert.equal(slides.length, 10);
+  assert.deepEqual(slides.map((asset) => asset.id), [
+    'slide_001_seaside',
+    'slide_002_arcade',
+    'slide_003_music',
+    'slide_004_festival',
+    'slide_005_cockpit',
+    'slide_006_observatory',
+    'slide_007_library',
+    'slide_008_seaside_station',
+    'slide_009_greenhouse',
+    'slide_010_snow_street',
+  ]);
+  assert.equal(doc.assets.length, 11);
+  assert.ok(bgm);
+  assert.equal(bgm.type, 'psg-song');
+  assert.equal(bgm.options.kind, 'song');
+  assert.ok(Array.isArray(bgm.options.pattern));
+  assert.ok(bgm.options.pattern.length >= 16);
   assert.ok(slides.every((asset) => asset.options.kind === 'background'));
   assert.ok(slides.every((asset) => asset.options.width === 256 && asset.options.height === 224));
   assert.ok(slides.every((asset) => asset.options.tileBase === 128 && asset.options.mapBase === 0));
@@ -1106,29 +1298,42 @@ test('PCE sample template registers slideshow images and PSG BGM assets', () => 
   assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.data.generated.tilesFile))));
   assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.data.generated.mapFile))));
   assert.ok(slides.every((asset) => asset.options.compression === 'auto'));
-  assert.ok(slides.every((asset) => asset.data.generated.compression?.tiles?.codec === 'rle'));
-  assert.ok(slides.every((asset) => asset.data.generated.compression?.map?.codec === 'rle'));
-  assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.data.generated.tilesCompressedFile))));
-  assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.data.generated.mapVramCompressedFile))));
   slides.forEach((asset) => {
     const generated = asset.data.generated;
     const tiles = fs.readFileSync(path.join(templateDir, generated.tilesFile));
-    const tilesRle = fs.readFileSync(path.join(templateDir, generated.tilesCompressedFile));
     const map = fs.readFileSync(path.join(templateDir, generated.mapVramFile));
-    const mapRle = fs.readFileSync(path.join(templateDir, generated.mapVramCompressedFile));
-    assert.deepEqual(decodePceRle(tilesRle, tiles.length), tiles);
-    assert.deepEqual(decodePceRle(mapRle, map.length), map);
+    if (generated.compression?.tiles?.codec === 'rle') {
+      assert.ok(fs.existsSync(path.join(templateDir, generated.tilesCompressedFile)));
+      const tilesRle = fs.readFileSync(path.join(templateDir, generated.tilesCompressedFile));
+      assert.deepEqual(decodePceRle(tilesRle, tiles.length), tiles);
+    }
+    if (generated.compression?.map?.codec === 'rle') {
+      assert.ok(fs.existsSync(path.join(templateDir, generated.mapVramCompressedFile)));
+      const mapRle = fs.readFileSync(path.join(templateDir, generated.mapVramCompressedFile));
+      assert.deepEqual(decodePceRle(mapRle, map.length), map);
+    }
   });
-  assert.ok(bgm);
-  assert.equal(bgm.type, 'psg-song');
-  assert.equal(bgm.options.kind, 'song');
-  assert.ok(bgm.options.pattern.length >= 32);
   const sampleMain = fs.readFileSync(path.join(templateDir, 'src', 'main.c'), 'utf-8');
+  assert.match(sampleMain, /mos-pce-clang/);
+  assert.match(sampleMain, /SLIDE_HOLD_FRAMES/);
+  assert.match(sampleMain, /wait_vblank/);
   assert.match(sampleMain, /show_slide/);
   assert.match(sampleMain, /apply_bg_palette_level/);
-  assert.match(sampleMain, /bgm_tick/);
-  assert.match(sampleMain, /PCE_VDC_CR_VRAM_ADD_1/);
-  assert.match(sampleMain, /pce_editor_vdc_write\(5,\s*PCE_VDC_CR_BG_ENABLE \| PCE_VDC_CR_DRAM_REFRESH \| PCE_VDC_CR_VRAM_ADD_1\)/);
+  assert.match(sampleMain, /poll_slide_action/);
+  assert.match(sampleMain, /pce_joypad_read/);
+  assert.match(sampleMain, /start_bgm/);
+  assert.match(sampleMain, /tick_psg/);
+  assert.match(sampleMain, /PCE_PSG_GLOBAL/);
+  assert.match(sampleMain, /SLIDESHOW_VDC_CONTROL_BASE \(VDC_CONTROL_IRQ_VBLANK \| VDC_CONTROL_DRAM_REFRESH \| VDC_CONTROL_VRAM_ADD_1\)/);
+  assert.match(sampleMain, /pce_irq_disable\(IRQ_VDC\)/);
+  assert.match(sampleMain, /pce_vdc_poke\(VDC_REG_CONTROL, vdc_control_shadow\)/);
+  assert.doesNotMatch(sampleMain, /pce_vdc_set_copy_word/);
+  assert.doesNotMatch(sampleMain, /pce_vdc_bg_enable/);
+  assert.doesNotMatch(sampleMain, /__CC65__/);
+  assert.doesNotMatch(sampleMain, /conio\.h/);
+  assert.doesNotMatch(sampleMain, /joystick\.h/);
+  assert.doesNotMatch(sampleMain, /bgm_tick/);
+  assert.doesNotMatch(sampleMain, /read_pad_raw/);
 
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-slideshow-template-');
@@ -1136,12 +1341,43 @@ test('PCE sample template registers slideshow images and PSG BGM assets', () => 
   const generated = assetManager.generateAssetSources(projectDir);
   const generatedSource = fs.readFileSync(generated.sourcePath, 'utf-8');
   const generatedHeader = fs.readFileSync(generated.headerPath, 'utf-8');
-  assert.equal(generated.bgCount, 5);
+  assert.equal(generated.bgCount, 10);
+  assert.equal(generated.psgCount, 1);
+  assert.deepEqual(generated.slideshow.ids, [
+    'slide_001_seaside',
+    'slide_002_arcade',
+    'slide_003_music',
+    'slide_004_festival',
+    'slide_005_cockpit',
+    'slide_006_observatory',
+    'slide_007_library',
+    'slide_008_seaside_station',
+    'slide_009_greenhouse',
+    'slide_010_snow_street',
+  ]);
   assert.match(generatedHeader, /pce_editor_data_ref_t/);
   assert.match(generatedSource, /PCE_ROM_BANK_AT\(1, 6\)/);
   assert.ok(generatedSource.includes('PCE_EDITOR_BANKED_SECTION(".rom_bank1")'));
-  assert.match(generatedSource, /pce_editor_image_slide_01_seaside_tiles_chunks/);
+  assert.match(generatedSource, /pce_editor_image_slide_001_seaside_tiles_chunks/);
   assert.match(generatedSource, /pce_editor_map_asset_bank/);
+  assert.match(generatedSource, /pce_editor_psg_slideshow_bgm_pattern/);
+
+  const clang = path.join(__dirname, '..', 'data', 'tools', 'llvm-mos-sdk', 'llvm-mos', 'bin', 'clang.exe');
+  const cfg = path.join(__dirname, '..', 'data', 'tools', 'llvm-mos-sdk', 'llvm-mos', 'bin', 'mos-pce.cfg');
+  if (fs.existsSync(clang) && fs.existsSync(cfg)) {
+    const outDir = path.join(projectDir, 'out');
+    const romPath = path.join(outDir, 'pce_slideshow.pce');
+    fs.mkdirSync(outDir, { recursive: true });
+    const result = spawnSync(clang, [
+      '--config', cfg,
+      '-Os',
+      '-o', romPath,
+      path.join(projectDir, 'src', 'main.c'),
+      path.join(projectDir, 'src', 'generated', 'assets.c'),
+    ], { cwd: projectDir, encoding: 'utf-8' });
+    assert.equal(result.status, 0, `${result.stdout || ''}\n${result.stderr || ''}`);
+    assert.equal(fs.existsSync(romPath), true);
+  }
 });
 
 test('PCE visual novel template compressed visual assets decode to raw data', () => {

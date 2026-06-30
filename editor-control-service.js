@@ -63,8 +63,8 @@ const COMMANDS = [
   { name: 'plugin_run_generator', description: 'Run a build plugin generator and write src/main.c.', mutates: true, inputSchema: objectSchema({ id: { type: 'string' } }, ['id']) },
   { name: 'build_run', description: 'Run the current project build pipeline.', mutates: true, inputSchema: objectSchema() },
   { name: 'testplay_open', description: 'Open Test Play for the current project ROM.', mutates: true, inputSchema: objectSchema() },
-  { name: 'export_rom', description: 'Export the current ROM through the editor export flow.', mutates: true, inputSchema: objectSchema() },
-  { name: 'export_html', description: 'Export the current ROM as a standalone HTML player.', mutates: true, inputSchema: objectSchema() },
+  { name: 'export_rom', description: 'Export the current PCE media through the editor export flow.', mutates: true, inputSchema: objectSchema() },
+  { name: 'export_html', description: 'Export the current PCE media as a standalone HTML player.', mutates: true, inputSchema: objectSchema() },
 ];
 
 function createToken() {

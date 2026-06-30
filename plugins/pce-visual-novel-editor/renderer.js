@@ -8,11 +8,13 @@ const SCENE_FILE = 'assets/pce-vn-scenes.json';
 const PCE_SCREEN_WIDTH = 256;
 const PCE_SCREEN_HEIGHT = 224;
 // ゲーム側 runtime のメッセージ領域に一致させる。
-// 256x224 画面、メッセージ窓 208x64px を下部中央 (x=24,y=160) に配置。
+// 256x224 画面、メッセージ窓 208x64px を下部中央から1タイル上 (x=24,y=152) に配置。
 // 1 文字 12×12px を 12px 横ピッチで 17 文字、16px 行ピッチで 4 行。
-const MESSAGE_AREA = { x: 24, y: 160, cols: 17, rows: 4, cellW: 12, cellH: 16 };
+const MESSAGE_AREA = { x: 24, y: 152, cols: 17, rows: 4, cellW: 12, cellH: 16 };
 const MESSAGE_WAIT_GLYPH = '▼';
 const DEFAULT_CHARACTER_Y = 24;
+const DEFAULT_BG_TILE_X = 2;
+const DEFAULT_BG_TILE_Y = 1;
 const COLUMN_LAYOUT_KEY = 'pce-vn-editor.columnLayout.v1';
 const SCENE_GROUP_COLLAPSE_KEY = 'pce-vn-editor.sceneGroupCollapse.v1';
 const COMMAND_LIBRARY_COLLAPSED_KEY = 'pce-vn-editor.commandLibraryCollapsed.v1';
@@ -372,6 +374,15 @@ function commandDefinition(type) {
   return COMMAND_DEFINITIONS.find((item) => item.type === type) || COMMAND_DEFINITIONS.find((item) => item.type === 'message');
 }
 
+function isCommandSkipped(command = {}) {
+  return command?.skip === true || command?.skipped === true || command?.debugSkip === true;
+}
+
+function applyCommandDebugFlags(rawCommand = {}, normalizedCommand = null) {
+  if (!normalizedCommand) return null;
+  return isCommandSkipped(rawCommand) ? { ...normalizedCommand, skip: true } : normalizedCommand;
+}
+
 function optionsFor(assets, current, label) {
   return [`<option value="">${esc(label)}</option>`]
     .concat(assets.map((asset) => `<option value="${esc(asset.id)}" ${asset.id === current ? 'selected' : ''}>${esc(asset.name || asset.id)}</option>`))
@@ -437,9 +448,9 @@ const VN_ADPCM_RAM_BYTES = 65536;
 
 // 1 シーンの scene pack バイト数を見積もる（buildScenePack と同じ加算規則）。
 function estimateScenePackBytes(scene = {}) {
-  // コメントはエディタ専用でビルドに含まれないため byte 計算から除外する。
+  // コメントとデバッグ用スキップはビルドに含まれないため byte 計算から除外する。
   const commands = (Array.isArray(scene.commands) ? scene.commands : [])
-    .filter((command) => command?.type !== 'comment');
+    .filter((command) => command?.type !== 'comment' && !isCommandSkipped(command));
   let messageCount = 0;
   let choiceCount = 0;
   let switchCount = 0;
@@ -682,7 +693,7 @@ function computeVisualState(commands = [], uptoIndex = -1, fullScreenBg = false)
   const last = Math.min(uptoIndex, commands.length - 1);
   for (let i = 0; i <= last; i += 1) {
     const command = commands[i];
-    if (!command) continue;
+    if (!command || isCommandSkipped(command)) continue;
     if (command.type === 'background') {
       state.background = { assetId: command.assetId, x: command.x, y: command.y };
     } else if (command.type === 'sprite' && !fullScreenBg) {
@@ -743,7 +754,7 @@ function animationOptions(asset, current, label = 'default') {
 function defaultCommand(type, assets = []) {
   const first = (assetType) => assets.find((asset) => asset.type === assetType)?.id || '';
   if (type === 'background') {
-    return { type: 'background', assetId: first('image'), transition: 'fade', fadeOutFrames: DEFAULT_BG_FADE_FRAMES, fadeInFrames: DEFAULT_BG_FADE_FRAMES, x: 0, y: 0 };
+    return { type: 'background', assetId: first('image'), transition: 'fade', fadeOutFrames: DEFAULT_BG_FADE_FRAMES, fadeInFrames: DEFAULT_BG_FADE_FRAMES, x: DEFAULT_BG_TILE_X, y: DEFAULT_BG_TILE_Y };
   }
   if (type === 'sprite') {
     const assetId = first('sprite');
@@ -833,8 +844,8 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       transition: 'fade',
       fadeOutFrames: normalizeBgFadeFrames(raw.fadeOutFrames),
       fadeInFrames: normalizeBgFadeFrames(raw.fadeInFrames),
-      x: clamp(raw.x ?? raw.tileX ?? raw.mapX, 0, 63, 0),
-      y: clamp(raw.y ?? raw.tileY ?? raw.mapY, 0, 31, 0),
+      x: clamp(raw.x ?? raw.tileX ?? raw.mapX, 0, 63, DEFAULT_BG_TILE_X),
+      y: clamp(raw.y ?? raw.tileY ?? raw.mapY, 0, 31, DEFAULT_BG_TILE_Y),
     };
   }
   if (raw.type === 'sprite') {
@@ -1042,7 +1053,9 @@ function normalizeDoc(doc, assets) {
   const rawScenes = Array.isArray(doc?.scenes) && doc.scenes.length ? doc.scenes : fallback.scenes;
   const scenes = rawScenes.map((scene, index) => {
     const commands = Array.isArray(scene?.commands)
-      ? scene.commands.map((command, commandIndex) => normalizeCommand(command, assets, commandIndex)).filter(Boolean)
+      ? scene.commands
+        .map((command, commandIndex) => applyCommandDebugFlags(command, normalizeCommand(command, assets, commandIndex)))
+        .filter(Boolean)
       : [];
     const name = normalizeSceneName(scene?.name ?? scene?.title ?? scene?.label ?? '');
     return {
@@ -1134,10 +1147,13 @@ function previewRuntime() {
   const messageAutoWaitFrames = Number.isFinite(rawMessageAutoWaitFrames) ? Math.max(0, Math.min(255, rawMessageAutoWaitFrames | 0)) : 60;
   const SCREEN_W = (data.screen && data.screen.w) || 256;
   const SCREEN_H = (data.screen && data.screen.h) || 224;
-  const MSG = data.message || { x: 24, y: 160, cols: 17, rows: 4, cellW: 12, cellH: 16 };
+  const MSG = data.message || { x: 24, y: 152, cols: 17, rows: 4, cellW: 12, cellH: 16 };
   const bgFadeFrameOptions = [10, 20, 30, 40, 50, 60];
   const scenesById = {};
   (data.doc.scenes || []).forEach((s) => { scenesById[s.id] = s; });
+  function isSkippedCommand(command) {
+    return command && (command.skip === true || command.skipped === true || command.debugSkip === true);
+  }
 
   const style = document.createElement('style');
   style.textContent = [
@@ -1424,6 +1440,7 @@ function previewRuntime() {
 
   (data.doc.scenes || []).forEach((item) => {
     (item.commands || []).forEach((command) => {
+      if (isSkippedCommand(command)) return;
       if (command.type === 'variable') rememberVariable(command.variableName, command.value, command.operation === 'define');
       else if (command.type === 'choice') rememberVariable(command.variableName, 0, false);
       else if (command.type === 'if' || command.type === 'switch') rememberVariable(command.variableName, 0, false);
@@ -1872,7 +1889,7 @@ function previewRuntime() {
 
   function labelIndex(name) {
     if (!name || !scene) return -1;
-    return (scene.commands || []).findIndex((c) => c.type === 'label' && c.name === name);
+    return (scene.commands || []).findIndex((c) => !isSkippedCommand(c) && c.type === 'label' && c.name === name);
   }
   function jumpLabel(name) {
     const i = labelIndex(name);
@@ -2169,6 +2186,10 @@ function previewRuntime() {
         return;
       }
       const c = scene.commands[pc];
+      if (isSkippedCommand(c)) {
+        pc += 1;
+        continue;
+      }
       const t = c.type;
       if (t === 'background') { pc += 1; recordVisualDisplay(c.assetId, 'bg', 'BG'); applyBackground(c); return; }
       if (t === 'sprite') {
@@ -2335,6 +2356,9 @@ export function activatePlugin({ root, api, registerCapability }) {
                 <button class="btn-sm active" type="button" data-script-mode="gui">GUI</button>
                 <button class="btn-sm" type="button" data-script-mode="json">JSON</button>
               </div>
+              <div class="pce-vn-command-list-search">
+                <input class="form-input" data-role="command-list-search" placeholder="シーン内コマンド検索" aria-label="シーン内コマンド検索" />
+              </div>
             </div>
           </div>
           <div class="pce-vn-actions">
@@ -2381,6 +2405,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   const detailForm = root.querySelector('[data-role="command-detail"]');
   const commandPreviewEl = root.querySelector('[data-role="command-preview"]');
   const commandSearchInput = root.querySelector('[data-role="command-search"]');
+  const commandListSearchInput = root.querySelector('[data-role="command-list-search"]');
   const commandPaletteEl = root.querySelector('[data-role="command-palette"]');
   const commandLibrarySection = root.querySelector('[data-role="command-library"]');
   const commandLibraryHeader = root.querySelector('[data-role="command-library-toggle"]');
@@ -2399,6 +2424,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   let selectedCommandIndex = 0;
   let editorMode = 'gui';
   let commandSearch = '';
+  let commandListSearch = '';
   let columnLayout = loadColumnLayout();
   let collapsedSceneGroups = loadCollapsedSceneGroups();
   let commandLibraryCollapsed = loadCommandLibraryCollapsed();
@@ -2446,6 +2472,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     const targetSlot = clamp(slot, 0, 3, 0);
     let assetId = '';
     (current?.commands || []).slice(0, Math.max(0, commandIndex)).forEach((command) => {
+      if (isCommandSkipped(command)) return;
       if (command.type !== 'sprite' || clamp(command.slot, 0, 3, 0) !== targetSlot) return;
       assetId = command.visible === false ? '' : (command.assetId || '');
     });
@@ -2923,6 +2950,54 @@ export function activatePlugin({ root, api, registerCapability }) {
     return command.type;
   }
 
+  function addAssetSearchText(parts, assetId) {
+    const id = String(assetId || '').trim();
+    if (!id) return;
+    const asset = assetById(id);
+    parts.push(id);
+    if (asset?.name) parts.push(asset.name);
+    if (asset?.source) parts.push(asset.source);
+  }
+
+  function commandListSearchText(command) {
+    if (!command) return '';
+    const definition = commandDefinition(command.type);
+    const parts = [
+      command.type,
+      definition.label,
+      definition.category,
+      definition.description,
+      commandSummary(command),
+    ];
+    if (command.type === 'background' || command.type === 'sprite') {
+      addAssetSearchText(parts, command.assetId);
+      if (command.animationId) parts.push(command.animationId);
+    } else if (command.type === 'message') {
+      parts.push(command.speaker || '', command.text || '');
+      addAssetSearchText(parts, command.voiceAssetId);
+      if (command.mouthAnimationId) parts.push(command.mouthAnimationId);
+    } else if (command.type === 'audio' || command.type === 'cache') {
+      addAssetSearchText(parts, command.assetId);
+    } else if (command.type === 'choice') {
+      (command.choices || []).forEach((choice) => parts.push(choice.label || '', choice.targetSceneId || ''));
+    } else if (command.type === 'spritetext' || command.type === 'comment') {
+      parts.push(command.text || '');
+    } else if (command.type === 'label') {
+      parts.push(command.name || '');
+    } else if (command.type === 'goto') {
+      parts.push(command.targetLabel || '');
+    } else if (command.type === 'jump') {
+      parts.push(command.sceneId || '');
+    }
+    return parts.filter(Boolean).join(' ').toLowerCase();
+  }
+
+  function commandMatchesListSearch(command) {
+    const query = commandListSearch.trim().toLowerCase();
+    if (!query) return true;
+    return commandListSearchText(command).includes(query);
+  }
+
   function selectedCommandFromDetail(existing) {
     if (!detailForm.elements.type) return existing;
     const type = detailForm.elements.type.value;
@@ -3093,7 +3168,8 @@ export function activatePlugin({ root, api, registerCapability }) {
     const current = scene();
     const existing = ensureSelectedCommand(current);
     if (!current || !existing || !detailForm.elements.type) return;
-    current.commands[selectedCommandIndex] = selectedCommandFromDetail(existing);
+    const nextCommand = selectedCommandFromDetail(existing);
+    current.commands[selectedCommandIndex] = isCommandSkipped(existing) ? { ...nextCommand, skip: true } : nextCommand;
     if (rerenderCommands) renderCommands(current);
     if (rerenderDetail) renderCommandDetail(current);
     if (updatePreview) void renderCommandPreview();
@@ -3603,13 +3679,27 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   function renderCommands(current) {
     ensureSelectedCommand(current);
-    const pieces = ['<div class="pce-vn-command-dropzone" data-drop-index="0"></div>'];
-    pieces.push(...current.commands.map((command, index) => {
+    const rows = current.commands
+      .map((command, index) => ({ command, index }))
+      .filter(({ command }) => commandMatchesListSearch(command));
+    const pieces = [];
+    if (!rows.length) {
+      pieces.push('<p class="pce-vn-empty">該当コマンドがありません</p>');
+      commandsEl.innerHTML = pieces.join('');
+      return;
+    }
+    pieces.push(`<div class="pce-vn-command-dropzone" data-drop-index="${rows[0].index}"></div>`);
+    pieces.push(...rows.map(({ command, index }) => {
       const definition = commandDefinition(command.type);
-      const rowBg = categoryColor(definition.category);
-      const rowStyle = ` style="background:${esc(rowBg)};--row-fg:${esc(readableTextColor(rowBg))}"`;
+      const skipped = isCommandSkipped(command);
+      const rowBg = skipped ? '#3f444d' : categoryColor(definition.category);
+      const rowFg = skipped ? '#c5ccd5' : readableTextColor(rowBg);
+      const rowStyle = ` style="background:${esc(rowBg)};--row-fg:${esc(rowFg)}"`;
       return `
-        <section class="pce-vn-command-row${index === selectedCommandIndex ? ' active' : ''}" data-command data-command-index="${index}" draggable="true"${rowStyle}>
+        <section class="pce-vn-command-row${index === selectedCommandIndex ? ' active' : ''}${skipped ? ' is-skipped' : ''}" data-command data-command-index="${index}" draggable="true"${rowStyle}>
+          <label class="pce-vn-command-skip" title="スキップして生成・プレビューから除外">
+            <input type="checkbox" data-command-skip="${index}" aria-label="#${index + 1} をスキップ" ${skipped ? 'checked' : ''} />
+          </label>
           <button class="pce-vn-command-select" type="button" data-command-select="${index}">
             <span class="pce-vn-drag-handle" aria-hidden="true">::</span>
             <span class="pce-vn-command-index">#${index + 1}</span>
@@ -3934,7 +4024,8 @@ export function activatePlugin({ root, api, registerCapability }) {
   }
 
   function cloneCommand(command) {
-    return normalizeCommand(JSON.parse(JSON.stringify(command)), assets);
+    const raw = JSON.parse(JSON.stringify(command));
+    return applyCommandDebugFlags(raw, normalizeCommand(raw, assets));
   }
 
   function copyCommand(index) {
@@ -3966,6 +4057,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       const snapshot = normalizeDoc(doc, assets);
       const referenced = new Set();
       snapshot.scenes.forEach((item) => (item.commands || []).forEach((command) => {
+        if (isCommandSkipped(command)) return;
         if ((command.type === 'background' || command.type === 'sprite') && command.assetId) referenced.add(command.assetId);
         if (command.type === 'audio' && command.action === 'play' && command.assetId) referenced.add(command.assetId);
         if (command.type === 'message' && command.voiceAssetId) referenced.add(command.voiceAssetId);
@@ -4208,9 +4300,14 @@ export function activatePlugin({ root, api, registerCapability }) {
     applyCommandLibraryState({ persist: true });
   });
 
-  commandSearchInput.addEventListener('input', () => {
+  commandSearchInput?.addEventListener('input', () => {
     commandSearch = commandSearchInput.value;
     renderCommandPalette();
+  });
+
+  commandListSearchInput?.addEventListener('input', () => {
+    commandListSearch = commandListSearchInput.value;
+    renderCommands(scene());
   });
 
   commandPaletteEl.addEventListener('click', (event) => {
@@ -4229,12 +4326,26 @@ export function activatePlugin({ root, api, registerCapability }) {
     event.dataTransfer.setData('text/plain', item.dataset.paletteCommand);
   });
 
+  commandsEl.addEventListener('change', (event) => {
+    const skipToggle = event.target?.closest?.('[data-command-skip]');
+    if (!skipToggle) return;
+    const current = scene();
+    const index = Number(skipToggle.dataset.commandSkip);
+    if (!current || !current.commands[index]) return;
+    current.commands[index].skip = Boolean(skipToggle.checked);
+    if (!current.commands[index].skip) delete current.commands[index].skip;
+    renderCommands(current);
+    updateSceneBudget();
+    void renderCommandPreview();
+  });
+
   commandsEl.addEventListener('click', (event) => {
     if (suppressCommandClick) {
       suppressCommandClick = false;
       event.preventDefault();
       return;
     }
+    if (event.target?.closest?.('[data-command-skip]')) return;
     const copy = event.target?.closest?.('[data-command-copy]');
     if (copy) {
       copyCommand(Number(copy.dataset.commandCopy));
@@ -4266,6 +4377,10 @@ export function activatePlugin({ root, api, registerCapability }) {
   });
 
   commandsEl.addEventListener('dragstart', (event) => {
+    if (event.target?.closest?.('[data-command-skip]')) {
+      event.preventDefault();
+      return;
+    }
     const row = event.target?.closest?.('[data-command-index]');
     if (!row) return;
     event.dataTransfer.effectAllowed = 'move';
@@ -4308,7 +4423,7 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   commandsEl.addEventListener('pointerdown', (event) => {
     const row = event.target?.closest?.('[data-command-index]');
-    if (!row || event.target?.closest?.('[data-command-remove]')) return;
+    if (!row || event.target?.closest?.('[data-command-remove], [data-command-skip]')) return;
     pointerDrag = {
       row,
       index: Number(row.dataset.commandIndex),

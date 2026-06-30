@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
@@ -10,7 +11,10 @@ const {
   loadAppConfig,
   normalizeAppConfig,
 } = require('../game-editor-common');
-const { migratePceProjectsIfNeeded } = require('../pce-project-migration');
+const {
+  migrateLegacySlideshowProject,
+  migratePceProjectsIfNeeded,
+} = require('../pce-project-migration');
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -115,4 +119,37 @@ test('PCE migration copies only PCE projects and never overwrites existing folde
   assert.equal(fs.existsSync(path.join(userData, 'projects', 'old_pce', 'project.json')), true);
   assert.equal(fs.existsSync(path.join(userData, 'projects', 'old_md')), false);
   assert.equal(second.skipped, true);
+});
+
+test('PCE legacy slideshow migration only replaces an exact old main.c match', () => {
+  const projectDir = makeTempDir('pce-legacy-slideshow-');
+  const templateDir = makeTempDir('pce-legacy-slideshow-template-');
+  const legacySource = 'old slideshow source\n';
+  const replacementSource = 'new llvm-mos slideshow source\n';
+  const legacyHash = crypto.createHash('sha256').update(legacySource).digest('hex');
+  fs.mkdirSync(path.join(projectDir, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(templateDir, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(projectDir, 'project.json'), JSON.stringify({
+    coreId: 'pc-engine',
+    targetMedia: 'hucard',
+    pluginRoles: { builder: 'pce-sample-builder' },
+  }), 'utf-8');
+  fs.writeFileSync(path.join(projectDir, 'src', 'main.c'), legacySource, 'utf-8');
+  fs.writeFileSync(path.join(templateDir, 'src', 'main.c'), replacementSource, 'utf-8');
+
+  const migrated = migrateLegacySlideshowProject(projectDir, {
+    legacyMainHashes: [legacyHash],
+    templateMainPath: path.join(templateDir, 'src', 'main.c'),
+  });
+  assert.equal(migrated.migrated, true);
+  assert.equal(fs.readFileSync(path.join(projectDir, 'src', 'main.c'), 'utf-8'), replacementSource);
+
+  fs.writeFileSync(path.join(projectDir, 'src', 'main.c'), 'user edited source\n', 'utf-8');
+  const skipped = migrateLegacySlideshowProject(projectDir, {
+    legacyMainHashes: [legacyHash],
+    templateMainPath: path.join(templateDir, 'src', 'main.c'),
+  });
+  assert.equal(skipped.migrated, false);
+  assert.equal(skipped.reason, 'main-modified-or-current');
+  assert.equal(fs.readFileSync(path.join(projectDir, 'src', 'main.c'), 'utf-8'), 'user edited source\n');
 });

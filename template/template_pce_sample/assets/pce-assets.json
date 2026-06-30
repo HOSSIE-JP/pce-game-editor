@@ -2,7 +2,7 @@
   "version": 2,
   "assets": [
     {
-      "id": "slide_01_seaside",
+      "id": "slide_001_seaside",
       "type": "image",
       "name": "Seaside Platform",
       "source": "assets/images/slides/slide_01_seaside.png",
@@ -85,7 +85,7 @@
       }
     },
     {
-      "id": "slide_02_arcade",
+      "id": "slide_002_arcade",
       "type": "image",
       "name": "Rainy Arcade",
       "source": "assets/images/slides/slide_02_arcade.png",
@@ -168,7 +168,7 @@
       }
     },
     {
-      "id": "slide_03_music",
+      "id": "slide_003_music",
       "type": "image",
       "name": "Music Studio",
       "source": "assets/images/slides/slide_03_music.png",
@@ -251,7 +251,7 @@
       }
     },
     {
-      "id": "slide_04_festival",
+      "id": "slide_004_festival",
       "type": "image",
       "name": "Shrine Festival",
       "source": "assets/images/slides/slide_04_festival.png",
@@ -334,7 +334,7 @@
       }
     },
     {
-      "id": "slide_05_cockpit",
+      "id": "slide_005_cockpit",
       "type": "image",
       "name": "Starship Cockpit",
       "source": "assets/images/slides/slide_05_cockpit.png",
@@ -417,403 +417,491 @@
       }
     },
     {
+      "id": "slide_006_observatory",
+      "type": "image",
+      "name": "Rooftop Observatory",
+      "source": "assets/images/slides/slide_006_observatory.png",
+      "options": {
+        "kind": "background",
+        "compression": "auto",
+        "paletteBank": 0,
+        "tileBase": 128,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_006_observatory/palette.bin",
+          "tilesFile": "assets/generated/slide_006_observatory/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/slide_006_observatory/map.bin",
+          "mapVramFile": "assets/generated/slide_006_observatory/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/slide_006_observatory/preview.json",
+          "tileCount": 896,
+          "paletteCount": 1,
+          "vramBytes": 30464,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#00246d",
+            "#000049",
+            "#494992",
+            "#002449",
+            "#b69249",
+            "#24246d",
+            "#dbb649",
+            "#000024",
+            "#242449",
+            "#49246d",
+            "#924949",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 28672,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1792,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "slide_006_observatory.png",
+          "importedAt": "2026-06-30T00:00:00.000Z",
+          "converter": "Internal PCE image converter",
+          "imageGenerator": "built-in image_gen"
+        }
+      }
+    },
+    {
+      "id": "slide_007_library",
+      "type": "image",
+      "name": "Rainy Library",
+      "source": "assets/images/slides/slide_007_library.png",
+      "options": {
+        "kind": "background",
+        "compression": "auto",
+        "paletteBank": 0,
+        "tileBase": 128,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_007_library/palette.bin",
+          "tilesFile": "assets/generated/slide_007_library/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/slide_007_library/map.bin",
+          "mapVramFile": "assets/generated/slide_007_library/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/slide_007_library/preview.json",
+          "tileCount": 896,
+          "paletteCount": 1,
+          "vramBytes": 30464,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#242424",
+            "#492424",
+            "#000000",
+            "#242449",
+            "#240000",
+            "#6d6d6d",
+            "#002424",
+            "#24496d",
+            "#b6926d",
+            "#6d4924",
+            "#000024",
+            "#000000",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 28672,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1792,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "slide_007_library.png",
+          "importedAt": "2026-06-30T00:00:00.000Z",
+          "converter": "Internal PCE image converter",
+          "imageGenerator": "built-in image_gen"
+        }
+      }
+    },
+    {
+      "id": "slide_008_seaside_station",
+      "type": "image",
+      "name": "Seaside Station",
+      "source": "assets/images/slides/slide_008_seaside_station.png",
+      "options": {
+        "kind": "background",
+        "compression": "auto",
+        "paletteBank": 0,
+        "tileBase": 128,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_008_seaside_station/palette.bin",
+          "tilesFile": "assets/generated/slide_008_seaside_station/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/slide_008_seaside_station/map.bin",
+          "mapVramFile": "assets/generated/slide_008_seaside_station/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/slide_008_seaside_station/preview.json",
+          "tileCount": 896,
+          "paletteCount": 1,
+          "vramBytes": 30464,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#242424",
+            "#b66d49",
+            "#924949",
+            "#242449",
+            "#db9249",
+            "#db6d24",
+            "#002424",
+            "#492424",
+            "#494949",
+            "#6d4949",
+            "#ffb649",
+            "#492449",
+            "#000024",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 28672,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1792,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "slide_008_seaside_station.png",
+          "importedAt": "2026-06-30T00:00:00.000Z",
+          "converter": "Internal PCE image converter",
+          "imageGenerator": "built-in image_gen"
+        }
+      }
+    },
+    {
+      "id": "slide_009_greenhouse",
+      "type": "image",
+      "name": "Morning Greenhouse",
+      "source": "assets/images/slides/slide_009_greenhouse.png",
+      "options": {
+        "kind": "background",
+        "compression": "auto",
+        "paletteBank": 0,
+        "tileBase": 128,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_009_greenhouse/palette.bin",
+          "tilesFile": "assets/generated/slide_009_greenhouse/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/slide_009_greenhouse/map.bin",
+          "mapVramFile": "assets/generated/slide_009_greenhouse/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/slide_009_greenhouse/preview.json",
+          "tileCount": 896,
+          "paletteCount": 1,
+          "vramBytes": 30464,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#494949",
+            "#6d6d6d",
+            "#92926d",
+            "#dbb692",
+            "#ffdbb6",
+            "#496d49",
+            "#926d6d",
+            "#244949",
+            "#b6b692",
+            "#dbdbb6",
+            "#242424",
+            "#b6926d",
+            "#929292",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 28672,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1792,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "slide_009_greenhouse.png",
+          "importedAt": "2026-06-30T00:00:00.000Z",
+          "converter": "Internal PCE image converter",
+          "imageGenerator": "built-in image_gen"
+        }
+      }
+    },
+    {
+      "id": "slide_010_snow_street",
+      "type": "image",
+      "name": "Snowy Shopping Street",
+      "source": "assets/images/slides/slide_010_snow_street.png",
+      "options": {
+        "kind": "background",
+        "compression": "auto",
+        "paletteBank": 0,
+        "tileBase": 128,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 224,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_010_snow_street/palette.bin",
+          "tilesFile": "assets/generated/slide_010_snow_street/tiles.bin",
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapFile": "assets/generated/slide_010_snow_street/map.bin",
+          "mapVramFile": "assets/generated/slide_010_snow_street/map_vram.bin",
+          "mapVramCompressedFile": "",
+          "previewFile": "assets/generated/slide_010_snow_street/preview.json",
+          "tileCount": 896,
+          "paletteCount": 1,
+          "vramBytes": 30464,
+          "warnings": [
+            "BG tiles overlap the sample UI/font VRAM area at tile 704"
+          ],
+          "paletteColors": [
+            "#000000",
+            "#492424",
+            "#002449",
+            "#000024",
+            "#6d2424",
+            "#242424",
+            "#db9249",
+            "#494992",
+            "#24246d",
+            "#b66d49",
+            "#924924",
+            "#240024",
+            "#242449",
+            "#000000",
+            "#000000",
+            "#000000"
+          ],
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 28672,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 1792,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          },
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "originalFileName": "slide_010_snow_street.png",
+          "importedAt": "2026-06-30T00:00:00.000Z",
+          "converter": "Internal PCE image converter",
+          "imageGenerator": "built-in image_gen"
+        }
+      }
+    },
+    {
       "id": "slideshow_bgm",
       "type": "psg-song",
-      "name": "Slideshow PSG BGM",
-      "source": "assets/sound/slideshow_bgm.json",
+      "name": "Slideshow BGM",
+      "source": "",
       "options": {
         "kind": "song",
-        "bpm": 132,
-        "speed": 6,
-        "period": 512,
+        "bpm": 150,
+        "speed": 4,
+        "period": 682,
         "channels": 3,
         "steps": 32,
+        "volume": 75,
         "pattern": [
-          {
-            "step": 0,
-            "channel": 0,
-            "period": 512,
-            "volume": 20
-          },
-          {
-            "step": 0,
-            "channel": 1,
-            "period": 1024,
-            "volume": 12
-          },
-          {
-            "step": 0,
-            "channel": 2,
-            "period": 88,
-            "volume": 10
-          },
-          {
-            "step": 1,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 2,
-            "channel": 0,
-            "period": 406,
-            "volume": 16
-          },
-          {
-            "step": 2,
-            "channel": 2,
-            "period": 112,
-            "volume": 10
-          },
-          {
-            "step": 3,
-            "channel": 1,
-            "period": 768,
-            "volume": 9
-          },
-          {
-            "step": 3,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 4,
-            "channel": 0,
-            "period": 456,
-            "volume": 20
-          },
-          {
-            "step": 4,
-            "channel": 1,
-            "period": 1024,
-            "volume": 12
-          },
-          {
-            "step": 4,
-            "channel": 2,
-            "period": 88,
-            "volume": 10
-          },
-          {
-            "step": 5,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 6,
-            "channel": 0,
-            "period": 384,
-            "volume": 16
-          },
-          {
-            "step": 6,
-            "channel": 2,
-            "period": 112,
-            "volume": 10
-          },
-          {
-            "step": 7,
-            "channel": 1,
-            "period": 768,
-            "volume": 9
-          },
-          {
-            "step": 7,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 8,
-            "channel": 0,
-            "period": 406,
-            "volume": 20
-          },
-          {
-            "step": 8,
-            "channel": 1,
-            "period": 912,
-            "volume": 12
-          },
-          {
-            "step": 8,
-            "channel": 2,
-            "period": 88,
-            "volume": 10
-          },
-          {
-            "step": 9,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 10,
-            "channel": 0,
-            "period": 342,
-            "volume": 16
-          },
-          {
-            "step": 10,
-            "channel": 2,
-            "period": 112,
-            "volume": 10
-          },
-          {
-            "step": 11,
-            "channel": 1,
-            "period": 684,
-            "volume": 9
-          },
-          {
-            "step": 11,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 12,
-            "channel": 0,
-            "period": 384,
-            "volume": 20
-          },
-          {
-            "step": 12,
-            "channel": 1,
-            "period": 912,
-            "volume": 12
-          },
-          {
-            "step": 12,
-            "channel": 2,
-            "period": 88,
-            "volume": 10
-          },
-          {
-            "step": 13,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 14,
-            "channel": 0,
-            "period": 304,
-            "volume": 16
-          },
-          {
-            "step": 14,
-            "channel": 2,
-            "period": 112,
-            "volume": 10
-          },
-          {
-            "step": 15,
-            "channel": 1,
-            "period": 684,
-            "volume": 9
-          },
-          {
-            "step": 15,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 16,
-            "channel": 0,
-            "period": 342,
-            "volume": 20
-          },
-          {
-            "step": 16,
-            "channel": 1,
-            "period": 812,
-            "volume": 12
-          },
-          {
-            "step": 16,
-            "channel": 2,
-            "period": 88,
-            "volume": 10
-          },
-          {
-            "step": 17,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 18,
-            "channel": 0,
-            "period": 342,
-            "volume": 16
-          },
-          {
-            "step": 18,
-            "channel": 2,
-            "period": 112,
-            "volume": 10
-          },
-          {
-            "step": 19,
-            "channel": 1,
-            "period": 608,
-            "volume": 9
-          },
-          {
-            "step": 19,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 20,
-            "channel": 0,
-            "period": 304,
-            "volume": 20
-          },
-          {
-            "step": 20,
-            "channel": 1,
-            "period": 812,
-            "volume": 12
-          },
-          {
-            "step": 20,
-            "channel": 2,
-            "period": 88,
-            "volume": 10
-          },
-          {
-            "step": 21,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 22,
-            "channel": 0,
-            "period": 384,
-            "volume": 16
-          },
-          {
-            "step": 22,
-            "channel": 2,
-            "period": 112,
-            "volume": 10
-          },
-          {
-            "step": 23,
-            "channel": 1,
-            "period": 608,
-            "volume": 9
-          },
-          {
-            "step": 23,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 24,
-            "channel": 0,
-            "period": 342,
-            "volume": 20
-          },
-          {
-            "step": 24,
-            "channel": 1,
-            "period": 768,
-            "volume": 12
-          },
-          {
-            "step": 24,
-            "channel": 2,
-            "period": 88,
-            "volume": 10
-          },
-          {
-            "step": 25,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 26,
-            "channel": 0,
-            "period": 512,
-            "volume": 16
-          },
-          {
-            "step": 26,
-            "channel": 2,
-            "period": 112,
-            "volume": 10
-          },
-          {
-            "step": 27,
-            "channel": 1,
-            "period": 684,
-            "volume": 9
-          },
-          {
-            "step": 27,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 28,
-            "channel": 0,
-            "period": 384,
-            "volume": 20
-          },
-          {
-            "step": 28,
-            "channel": 1,
-            "period": 768,
-            "volume": 12
-          },
-          {
-            "step": 28,
-            "channel": 2,
-            "period": 88,
-            "volume": 10
-          },
-          {
-            "step": 29,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          },
-          {
-            "step": 30,
-            "channel": 0,
-            "period": 456,
-            "volume": 16
-          },
-          {
-            "step": 30,
-            "channel": 2,
-            "period": 112,
-            "volume": 10
-          },
-          {
-            "step": 31,
-            "channel": 1,
-            "period": 684,
-            "volume": 9
-          },
-          {
-            "step": 31,
-            "channel": 2,
-            "period": 112,
-            "volume": 0
-          }
+          { "step": 0, "channel": 0, "period": 682, "volume": 15 },
+          { "step": 0, "channel": 1, "period": 1364, "volume": 10 },
+          { "step": 0, "channel": 2, "period": 1024, "volume": 7 },
+          { "step": 0, "channel": 4, "period": 7, "volume": 8, "noise": 1 },
+          { "step": 1, "channel": 4, "period": 7, "volume": 0, "noise": 1 },
+          { "step": 4, "channel": 0, "period": 608, "volume": 13 },
+          { "step": 4, "channel": 4, "period": 15, "volume": 5, "noise": 1 },
+          { "step": 5, "channel": 4, "period": 15, "volume": 0, "noise": 1 },
+          { "step": 8, "channel": 0, "period": 542, "volume": 14 },
+          { "step": 8, "channel": 1, "period": 1216, "volume": 9 },
+          { "step": 8, "channel": 2, "period": 912, "volume": 7 },
+          { "step": 8, "channel": 4, "period": 7, "volume": 8, "noise": 1 },
+          { "step": 9, "channel": 4, "period": 7, "volume": 0, "noise": 1 },
+          { "step": 12, "channel": 0, "period": 512, "volume": 12 },
+          { "step": 12, "channel": 4, "period": 15, "volume": 5, "noise": 1 },
+          { "step": 13, "channel": 4, "period": 15, "volume": 0, "noise": 1 },
+          { "step": 16, "channel": 0, "period": 456, "volume": 15 },
+          { "step": 16, "channel": 1, "period": 1024, "volume": 9 },
+          { "step": 16, "channel": 2, "period": 812, "volume": 7 },
+          { "step": 16, "channel": 4, "period": 7, "volume": 8, "noise": 1 },
+          { "step": 17, "channel": 4, "period": 7, "volume": 0, "noise": 1 },
+          { "step": 20, "channel": 0, "period": 512, "volume": 13 },
+          { "step": 20, "channel": 4, "period": 15, "volume": 5, "noise": 1 },
+          { "step": 21, "channel": 4, "period": 15, "volume": 0, "noise": 1 },
+          { "step": 24, "channel": 0, "period": 608, "volume": 14 },
+          { "step": 24, "channel": 1, "period": 1216, "volume": 9 },
+          { "step": 24, "channel": 2, "period": 912, "volume": 7 },
+          { "step": 24, "channel": 4, "period": 7, "volume": 8, "noise": 1 },
+          { "step": 25, "channel": 4, "period": 7, "volume": 0, "noise": 1 },
+          { "step": 28, "channel": 0, "period": 682, "volume": 12 },
+          { "step": 28, "channel": 4, "period": 15, "volume": 5, "noise": 1 },
+          { "step": 29, "channel": 4, "period": 15, "volume": 0, "noise": 1 }
         ]
+      },
+      "data": {
+        "generated": {
+          "outputFile": "",
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "waveform": []
+        },
+        "import": {
+          "createdAt": "2026-07-01T00:00:00.000Z",
+          "generator": "template"
+        }
       }
     }
   ]

@@ -34,6 +34,8 @@ npm start
 
 アプリ内の `SetUp` 画面では、PCE 向けの `llvm-mos-sdk`、EmulatorJS runtime、PCE-CD IPL / System Card を設定できます。ZIP / 7z 展開コマンドや VN フォント描画 renderer も診断表示されるため、別ユーザーへ配布する前にこの画面で不足を確認してください。
 
+`Export` では、HuCard の `.pce`、Super CD-ROM2 の `.zip` bundle、または EmulatorJS runtime/core とゲームデータを埋め込んだ単体 HTML を出力できます。CD-ROM2 HTML export は Setup 済みの System Card ROM も埋め込みます。
+
 ## テスト
 
 ```sh

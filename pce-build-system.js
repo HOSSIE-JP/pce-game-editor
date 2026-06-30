@@ -535,17 +535,49 @@ function buildSpawnEnv(toolPath, toolchain = DEFAULT_TOOLCHAIN) {
   return env;
 }
 
-function collectSourceFiles(projectDir) {
+function getSampleBuilderSample(config = {}) {
+  return String(config.pluginSettings?.['pce-sample-builder']?.sample || '').trim();
+}
+
+function isHuCardSlideshowProject(config = {}) {
+  return getSampleBuilderSample(config) === 'slideshow-hucard';
+}
+
+function resolveHuCardSlideshowTemplateMainPath() {
+  const mainPath = path.join(getTemplatesRootDir(), 'template_pce_sample', 'src', 'main.c');
+  return fs.existsSync(mainPath) ? mainPath : null;
+}
+
+function isThinVisualNovelMain(source) {
+  return String(source || '').replace(/\r\n/g, '\n').trim() === '#include "pce_vn_runtime.c"';
+}
+
+function repairHuCardSlideshowMainIfNeeded(projectDir, config = {}) {
+  if (!isHuCardSlideshowProject(config)) return false;
+  const mainPath = path.join(projectDir, 'src', 'main.c');
+  if (!fs.existsSync(mainPath)) return false;
+  const current = fs.readFileSync(mainPath, 'utf-8');
+  if (!isThinVisualNovelMain(current)) return false;
+  const templateMainPath = resolveHuCardSlideshowTemplateMainPath();
+  if (!templateMainPath) return false;
+  fs.copyFileSync(templateMainPath, mainPath);
+  return true;
+}
+
+function collectSourceFiles(projectDir, config = {}) {
   const sourceFiles = [
     path.join(projectDir, 'src', 'main.c'),
     path.join(projectDir, 'src', 'generated', 'assets.c'),
-    path.join(projectDir, 'src', 'generated', 'vn.c'),
   ];
+  if (isVisualNovelProject(projectDir, config)) {
+    sourceFiles.push(path.join(projectDir, 'src', 'generated', 'vn.c'));
+  }
   return sourceFiles.filter((filePath) => fs.existsSync(filePath));
 }
 
 function isVisualNovelProject(projectDir, config = {}) {
-  const sample = config.pluginSettings?.['pce-sample-builder']?.sample;
+  const sample = getSampleBuilderSample(config);
+  if (isHuCardSlideshowProject(config)) return false;
   return sample === 'visual-novel-cd' ||
     fs.existsSync(vnManager.getSceneFilePath(projectDir)) ||
     fs.existsSync(path.join(projectDir, 'src', 'generated', 'vn.c'));
@@ -741,7 +773,7 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
   const outDir = path.join(projectDir, 'out');
   const romBase = sanitizeRomName(config.romName || config.title);
   ensureDirSync(outDir);
-  const sources = collectSourceFiles(projectDir);
+  const sources = collectSourceFiles(projectDir, config);
   if (targetMedia === 'cd') {
     if (toolchain !== 'llvm-mos') {
       throw new Error('PCE-CD target requires llvm-mos toolchain');
@@ -815,6 +847,9 @@ function buildProject(onLog, options = {}) {
     ensureProjectStructure(projectDir, loadProjectConfigFromDir(projectDir));
     let config = normalizeProjectConfig({ ...loadProjectConfigFromDir(projectDir), ...options.config });
     const log = (message, level = 'info') => onLog?.(String(message), level);
+    if (repairHuCardSlideshowMainIfNeeded(projectDir, config)) {
+      log('HuCard slideshow main.c was restored from the template because it only contained the VN runtime wrapper.', 'warn');
+    }
     const stageStart = (label) => {
       const startedAt = Date.now();
       log(`Build timing: ${label} start`);
@@ -1043,6 +1078,7 @@ module.exports = {
   PCE_CD_DATA_BASE_SECTOR,
   parseMkcdFirstDataSector,
   buildCommandForProject,
+  collectSourceFiles,
   collectCddaTracks,
   buildProject,
   createProjectFromTemplate,
@@ -1071,6 +1107,7 @@ module.exports = {
   normalizeToolchain,
   openProject,
   postprocessCc65PceRom,
+  repairHuCardSlideshowMainIfNeeded,
   resolveCc65Home,
   saveProjectConfig,
   setPluginRole,

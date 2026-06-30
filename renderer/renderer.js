@@ -650,7 +650,7 @@ function updateRomOutputActions() {
   const hasRom = !!state.lastRomPath;
   if (el.btnExport) {
     el.btnExport.disabled = !hasRom;
-    el.btnExport.title = hasRom ? '最後にビルドされた ROM をエクスポート' : '先に Build を実行してください';
+    el.btnExport.title = hasRom ? '最後にビルドされた PCE メディアをエクスポート' : '先に Build を実行してください';
   }
   if (el.btnDownloadRom) {
     el.btnDownloadRom.disabled = !hasRom;
@@ -3750,7 +3750,7 @@ async function openExportModal() {
   state.lastRomPath = romPath || null;
   updateRomOutputActions();
   if (!state.lastRomPath) {
-    appendLog('app', 'Export できる ROM がありません。先に Build を実行してください。', 'warn');
+    appendLog('app', 'Export できる PCE メディアがありません。先に Build を実行してください。', 'warn');
     return;
   }
   openModal(el.exportModal);
@@ -3761,7 +3761,7 @@ async function exportLastBuild(format) {
   state.lastRomPath = romPath || null;
   updateRomOutputActions();
   if (!state.lastRomPath) {
-    appendLog('app', 'Export できる ROM がありません。先に Build を実行してください。', 'warn');
+    appendLog('app', 'Export できる PCE メディアがありません。先に Build を実行してください。', 'warn');
     return;
   }
   const isHtml = format === 'html';
@@ -8286,10 +8286,10 @@ async function openAboutDialog() {
     }
     const wasm = info.embeddedWasm || {};
     if (el.aboutTitle) el.aboutTitle.textContent = info.appName || 'PCE Game Editor';
-    if (el.aboutDescription) el.aboutDescription.textContent = info.appDescription || 'Embedded emulator information';
+    if (el.aboutDescription) el.aboutDescription.textContent = info.appDescription || 'PC Engine editor and EmulatorJS information';
     if (el.aboutAppVersion) el.aboutAppVersion.textContent = info.appVersion || 'unknown';
     if (el.aboutWasmBuildVersion) el.aboutWasmBuildVersion.textContent = wasm.buildVersion || 'unknown';
-    if (el.aboutWasmPackageVersion) el.aboutWasmPackageVersion.textContent = wasm.packageVersion || 'unknown';
+    if (el.aboutWasmPackageVersion) el.aboutWasmPackageVersion.textContent = wasm.runtimePath || wasm.packageVersion || 'unknown';
     if (el.aboutElectronVersion) el.aboutElectronVersion.textContent = info.electronVersion || 'unknown';
     if (el.aboutChromeVersion) el.aboutChromeVersion.textContent = info.chromeVersion || 'unknown';
     if (el.aboutNodeVersion) el.aboutNodeVersion.textContent = info.nodeVersion || 'unknown';

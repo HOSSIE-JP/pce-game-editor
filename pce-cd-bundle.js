@@ -129,21 +129,42 @@ function createCdTestPlayBundle(cuePath) {
   const resolvedCue = path.resolve(cuePath);
   const cueDir = path.dirname(resolvedCue);
   const outputPath = path.join(cueDir, `${path.basename(resolvedCue, path.extname(resolvedCue))}-testplay.zip`);
+  const bundle = createCdBundleBuffer(resolvedCue);
+  fs.writeFileSync(outputPath, bundle.zipBuffer);
+  return {
+    zipPath: outputPath,
+    files: bundle.files,
+    entryName: bundle.entryName,
+  };
+}
+
+function createCdBundleEntries(cuePath) {
+  const resolvedCue = path.resolve(cuePath);
   const files = [resolvedCue, ...parseCueFileReferences(resolvedCue)];
   const entries = files.map((filePath) => ({
     name: path.basename(filePath),
     data: fs.readFileSync(filePath),
     mtime: fs.statSync(filePath).mtime,
   }));
-  fs.writeFileSync(outputPath, createStoredZipBuffer(entries));
   return {
-    zipPath: outputPath,
     files,
+    entries,
     entryName: path.basename(resolvedCue),
+    zipName: `${path.basename(resolvedCue, path.extname(resolvedCue))}.zip`,
+  };
+}
+
+function createCdBundleBuffer(cuePath) {
+  const bundle = createCdBundleEntries(cuePath);
+  return {
+    ...bundle,
+    zipBuffer: createStoredZipBuffer(bundle.entries),
   };
 }
 
 module.exports = {
+  createCdBundleBuffer,
+  createCdBundleEntries,
   createCdTestPlayBundle,
   createStoredZipBuffer,
   parseCueFileReferences,

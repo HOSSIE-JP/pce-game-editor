@@ -16,5 +16,9 @@
     "builder": "pce-sample-builder",
     "testplay": "pce-standard-emulator"
   },
-  "pluginSettings": {}
+  "pluginSettings": {
+    "pce-sample-builder": {
+      "sample": "slideshow-hucard"
+    }
+  }
 }

@@ -18,12 +18,12 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 - 1 scene pack は runtime の 4096 byte cache に収まる必要があります。長い会話や分岐は複数 scene に分割し、`jump` でつないでください。
 - 1 scene の command 数、message 数、choice 数、switch 数、変数数などは各 255 未満にしてください。
 - 1 プロジェクトの使用文字種は既定レイアウトでおよそ 1000 種までです。漢字を大量に増やすより、表記ゆれを減らして文字種を抑えてください。
-- message は画面下部の 17 文字 x 4 行に表示されます。1 message は短く、読みやすく分割してください。
+- message は画面下部から 1 タイル上の 17 文字 x 4 行に表示されます。1 message は短く、読みやすく分割してください。
 - `message.text` は最大 96 文字に正規化されます。1 文を詰め込まず、2 から 4 行程度にしてください。
 - `message.speaker` は最大 16 文字です。
 - `choice.choices` は最大 4 個です。各 `label` は最大 24 文字です。
 - `spritetext.text` は短い演出文字向けです。最大 64 文字に正規化されますが、実用上は 16 から 32 文字程度にしてください。
-- `background` は BG asset を 32x32 BAT 上の tile 座標 `x`, `y` に配置します。通常は `x: 0..63`, `y: 0..31`、画面内では `x: 0`, `y: 0` または余白調整用の小さい値を使います。
+- `background` は BG asset を 32x32 BAT 上の tile 座標 `x`, `y` に配置します。通常は `x: 0..63`, `y: 0..31`、標準 224x136 BG では `x: 2`, `y: 1` を使います。
 - BG 切替は fade 前提です。`transition` は `"fade"`、`fadeOutFrames` / `fadeInFrames` は `10`, `20`, `30`, `40`, `50`, `60` のいずれかにしてください。既定は `30`。
 - 通常 BG 画像は 256px 幅以下にしてください。画面は 256x224 px です。
 - `fullScreenBg: true` の scene は 256x224 px の全画面 BG 専用です。この scene では `message`, `choice`, visible な `sprite`, visible な `spritetext` を置かないでください。`background` は `x: 0`, `y: 0` にしてください。

@@ -335,7 +335,7 @@ Visual Novel project では `assets/pce-vn-scenes.json` の `commands` が表示
     {
       "id": "opening",
       "commands": [
-        { "type": "background", "assetId": "classroom_bg", "transition": "fade", "fadeOutFrames": 30, "fadeInFrames": 30, "x": 0, "y": 0 },
+        { "type": "background", "assetId": "classroom_bg", "transition": "fade", "fadeOutFrames": 30, "fadeInFrames": 30, "x": 2, "y": 1 },
         { "type": "sprite", "slot": 0, "assetId": "akari_sprite", "x": 128, "y": 24, "animationId": "default", "flipX": false, "flipY": false, "visible": true },
         { "type": "effect", "effect": "shake", "frames": 20, "intensity": 6 },
         { "type": "audio", "kind": "cdda", "action": "play", "assetId": "opening_theme" },
@@ -359,7 +359,7 @@ Visual Novel project では `assets/pce-vn-scenes.json` の `commands` が表示
 ### 背景表示 command
 
 ```jsonc
-{ "type": "background", "assetId": "classroom_bg", "transition": "fade", "fadeOutFrames": 30, "fadeInFrames": 30, "x": 0, "y": 0 }
+{ "type": "background", "assetId": "classroom_bg", "transition": "fade", "fadeOutFrames": 30, "fadeInFrames": 30, "x": 2, "y": 1 }
 ```
 
 | field | 値 | 説明 |
@@ -369,7 +369,7 @@ Visual Novel project では `assets/pce-vn-scenes.json` の `commands` が表示
 | `transition` | `"fade"` | 互換用フィールド。エディタは Fade 前提で `cut` を表示しない |
 | `fadeOutFrames` | `10 / 20 / 30 / 40 / 50 / 60` | 現背景を暗転する frame 数。エディタでは速度1(速い)〜速度6(遅い)のリストから選ぶ。未指定時は速度3の `30` |
 | `fadeInFrames` | `10 / 20 / 30 / 40 / 50 / 60` | 次背景を表示する frame 数。エディタでは速度1(速い)〜速度6(遅い)のリストから選ぶ。未指定時は速度3の `30` |
-| `x`, `y` | `0..31` / `0..31` | 32x32 BAT 上の描画開始タイル座標。未指定時は `(0, 0)` |
+| `x`, `y` | `0..31` / `0..31` | 32x32 BAT 上の描画開始タイル座標。未指定時は通常 BG 向けの `(2, 1)` |
 
 CD-ROM2 VN runtime の `background` command は同期 command です。BG 切替は Fade 前提で、保存済みの旧 `transition: "cut"` は読み込み時に `transition: "fade"` へ正規化され、フレーム値も上記プリセットへ丸められます。BG の VRAM/BAT 転送と fade 完了が終わってから次 command へ進みます。fade は BG palette bank だけを段階変更し、メッセージ UI palette までは暗転させません。
 

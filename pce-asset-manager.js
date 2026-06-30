@@ -36,6 +36,10 @@ const PCE_BG_MAP_HEIGHT_TILES = 32;
 const PCE_BG_AUTO_MAP_BASE = 0;
 const PCE_BG_AUTO_TILE_BASE = Math.ceil((PCE_BG_MAP_WIDTH_TILES * PCE_BG_MAP_HEIGHT_TILES) / 16);
 const PCE_SATB_VRAM_WORD = 0x7f00;
+const PCE_HUCARD_ROM_BANK_COUNT = 127;
+const PCE_SLIDESHOW_ID_PATTERN = /^slide_([0-9]{3})(?:_[a-zA-Z0-9_-]+)?$/;
+const PCE_SLIDESHOW_MAX_WIDTH = 256;
+const PCE_SLIDESHOW_MAX_HEIGHT = 224;
 const PCE_VISUAL_COMPRESSION_NONE = 'none';
 const PCE_VISUAL_COMPRESSION_AUTO = 'auto';
 const PCE_VISUAL_COMPRESSION_RLE = 'rle';
@@ -2248,6 +2252,198 @@ function projectTargetsCd(projectDir) {
   }
 }
 
+function readProjectJson(projectDir) {
+  try {
+    const configPath = path.join(projectDir, 'project.json');
+    if (!fs.existsSync(configPath)) return {};
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function isHuCardSlideshowProject(projectDir, options = {}) {
+  if (options.hucardSlideshow === true) return true;
+  if (options.hucardSlideshow === false) return false;
+
+  const config = readProjectJson(projectDir);
+  const targetMedia = String(config.targetMedia || config.media || 'hucard').trim().toLowerCase();
+  if (targetMedia === 'cd' || targetMedia === 'cd-rom2' || targetMedia === 'super-cd-rom2') return false;
+
+  const builder = String(config.pluginRoles?.builder || '').trim();
+  if (builder && builder !== 'pce-sample-builder') return false;
+
+  const sample = String(config.pluginSettings?.['pce-sample-builder']?.sample || '').trim();
+  if (sample === 'visual-novel-cd') return false;
+  if (sample === 'slideshow-hucard' || sample === 'slideshow') return true;
+  if (sample) return false;
+
+  try {
+    const mainPath = path.join(projectDir, 'src', 'main.c');
+    if (!fs.existsSync(mainPath)) return false;
+    const mainSource = fs.readFileSync(mainPath, 'utf-8');
+    return mainSource.includes('SLIDE_HOLD_FRAMES') &&
+      mainSource.includes('pce_editor_bg_asset_count') &&
+      mainSource.includes('show_slide');
+  } catch (_) {
+    return false;
+  }
+}
+
+function slideshowSequenceForAsset(asset = {}) {
+  if (!asset || asset.type !== 'image') return null;
+  const match = String(asset.id || '').match(PCE_SLIDESHOW_ID_PATTERN);
+  if (!match) return null;
+  return Number.parseInt(match[1], 10);
+}
+
+function readRequiredGeneratedBuffer(projectDir, asset, relativePath, label) {
+  const rel = normalizeAssetSource(relativePath || '');
+  if (!rel) throw new Error(`HuCard slideshow image "${asset.id}" is missing generated ${label}; re-import or rebuild the image asset.`);
+  const { absPath } = resolveUnderRoot(projectDir, rel, 'project');
+  if (!fs.existsSync(absPath)) {
+    throw new Error(`HuCard slideshow image "${asset.id}" generated ${label} is missing: ${rel}`);
+  }
+  const buffer = fs.readFileSync(absPath);
+  if (!buffer.length) {
+    throw new Error(`HuCard slideshow image "${asset.id}" generated ${label} is empty: ${rel}`);
+  }
+  return buffer;
+}
+
+function bankedChunkCountForBuffer(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length <= BANKED_DATA_THRESHOLD) return 0;
+  return Math.ceil(buffer.length / ROM_BANKED_CHUNK_SIZE);
+}
+
+function validateHuCardSlideshowImage(projectDir, asset) {
+  const sourceRel = normalizeAssetSource(asset.source || '');
+  if (!sourceRel) throw new Error(`HuCard slideshow image "${asset.id}" must have a source PNG file.`);
+  if (path.extname(sourceRel).toLowerCase() !== '.png') {
+    throw new Error(`HuCard slideshow image "${asset.id}" must be stored as PNG. Re-import BMP/WebP sources through the asset manager so the build can regenerate PCE data.`);
+  }
+
+  const { absPath: sourceAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
+  if (!fs.existsSync(sourceAbs)) throw new Error(`HuCard slideshow image "${asset.id}" source file is missing: ${sourceRel}`);
+  const imageSize = readImageSize(sourceAbs);
+  const width = imageSize.width || 0;
+  const height = imageSize.height || 0;
+  if (!width || !height) throw new Error(`HuCard slideshow image "${asset.id}" has an unreadable PNG size.`);
+  if (width % 8 || height % 8) {
+    throw new Error(`HuCard slideshow image "${asset.id}" is ${width}x${height}; slideshow BG images must be aligned to 8px tiles.`);
+  }
+  if (width > PCE_SLIDESHOW_MAX_WIDTH || height > PCE_SLIDESHOW_MAX_HEIGHT) {
+    throw new Error(`HuCard slideshow image "${asset.id}" is ${width}x${height}; maximum slideshow size is ${PCE_SLIDESHOW_MAX_WIDTH}x${PCE_SLIDESHOW_MAX_HEIGHT}.`);
+  }
+
+  const options = normalizeImageOptions(asset);
+  if (options.kind !== 'background') {
+    throw new Error(`HuCard slideshow asset "${asset.id}" must be a BG image asset.`);
+  }
+  if (options.width !== width || options.height !== height) {
+    throw new Error(`HuCard slideshow image "${asset.id}" metadata size is ${options.width}x${options.height}, but the PNG is ${width}x${height}; re-import the image asset.`);
+  }
+
+  const generated = asset.data?.generated || {};
+  const palette = readRequiredGeneratedBuffer(projectDir, asset, generated.paletteFile, 'palette');
+  const tiles = readRequiredGeneratedBuffer(projectDir, asset, generated.tilesFile, 'tiles');
+  const map = readRequiredGeneratedBuffer(projectDir, asset, generated.mapFile, 'map');
+  const vramMap = readRequiredGeneratedBuffer(projectDir, asset, generated.mapVramFile, 'VRAM map');
+  const widthTiles = width / 8;
+  const heightTiles = height / 8;
+  const expectedTileBytes = widthTiles * heightTiles * 32;
+  const expectedMapBytes = widthTiles * heightTiles * 2;
+  const expectedVramMapBytes = PCE_BG_MAP_WIDTH_TILES * heightTiles * 2;
+  if (palette.length % 32) {
+    throw new Error(`HuCard slideshow image "${asset.id}" palette size (${palette.length} bytes) is invalid; re-import the image asset.`);
+  }
+  if (tiles.length !== expectedTileBytes) {
+    throw new Error(`HuCard slideshow image "${asset.id}" generated tiles are stale (${tiles.length} bytes, expected ${expectedTileBytes}); re-import the image asset.`);
+  }
+  if (map.length !== expectedMapBytes) {
+    throw new Error(`HuCard slideshow image "${asset.id}" generated map is stale (${map.length} bytes, expected ${expectedMapBytes}); re-import the image asset.`);
+  }
+  if (vramMap.length !== expectedVramMapBytes) {
+    throw new Error(`HuCard slideshow image "${asset.id}" generated VRAM map is stale (${vramMap.length} bytes, expected ${expectedVramMapBytes}); re-import the image asset.`);
+  }
+  const tileBase = options.tileBase & 0x0fff;
+  const mapFirstTile = readFirstTileIndex(map);
+  const vramFirstTile = readFirstTileIndex(vramMap);
+  if (mapFirstTile !== null && mapFirstTile !== tileBase) {
+    throw new Error(`HuCard slideshow image "${asset.id}" generated map tile base is stale (${mapFirstTile}, expected ${tileBase}); re-import the image asset.`);
+  }
+  if (vramFirstTile !== null && vramFirstTile !== tileBase) {
+    throw new Error(`HuCard slideshow image "${asset.id}" generated VRAM map tile base is stale (${vramFirstTile}, expected ${tileBase}); re-import the image asset.`);
+  }
+
+  const tileCount = tiles.length / 32;
+  if ((tileBase + tileCount) * 16 > PCE_SATB_VRAM_WORD) {
+    throw new Error(`HuCard slideshow image "${asset.id}" tiles overrun the SATB VRAM area; reduce the image size.`);
+  }
+
+  return {
+    bankedChunkCount: bankedChunkCountForBuffer(tiles) + bankedChunkCountForBuffer(map),
+  };
+}
+
+function selectHuCardSlideshowAssets(projectDir, assets = []) {
+  const sourceAssets = assets || [];
+  const images = sourceAssets.filter((asset) => asset?.type === 'image');
+  const selected = images
+    .map((asset) => ({ asset, sequence: slideshowSequenceForAsset(asset) }))
+    .filter((entry) => entry.sequence !== null)
+    .sort((a, b) => a.sequence - b.sequence || String(a.asset.id).localeCompare(String(b.asset.id), 'en'));
+  const psgAssets = sourceAssets.filter((asset) => asset?.type === 'psg-song' || asset?.type === 'psg-sfx');
+
+  if (!selected.length) {
+    const closeIds = images
+      .map((asset) => String(asset.id || ''))
+      .filter((id) => id.startsWith('slide_'))
+      .slice(0, 5);
+    const suffix = closeIds.length ? ` Found near-miss ID(s): ${closeIds.join(', ')}.` : '';
+    throw new Error(`HuCard slideshow requires image asset IDs like slide_001 or slide_001_title.${suffix}`);
+  }
+
+  const seenSequences = new Map();
+  selected.forEach((entry) => {
+    if (!Number.isInteger(entry.sequence) || entry.sequence < 1) {
+      throw new Error(`HuCard slideshow image "${entry.asset.id}" must use a sequence number from 001.`);
+    }
+    const previous = seenSequences.get(entry.sequence);
+    if (previous) {
+      throw new Error(`HuCard slideshow sequence ${String(entry.sequence).padStart(3, '0')} is used by both "${previous}" and "${entry.asset.id}".`);
+    }
+    seenSequences.set(entry.sequence, entry.asset.id);
+  });
+  selected.forEach((entry, index) => {
+    const expected = index + 1;
+    if (entry.sequence !== expected) {
+      throw new Error(`HuCard slideshow sequence must be contiguous from slide_001; expected slide_${String(expected).padStart(3, '0')} before "${entry.asset.id}".`);
+    }
+  });
+
+  let totalBankedChunks = 0;
+  let fittingSlides = 0;
+  for (const entry of selected) {
+    const validation = validateHuCardSlideshowImage(projectDir, entry.asset);
+    totalBankedChunks += validation.bankedChunkCount;
+    if (totalBankedChunks > PCE_HUCARD_ROM_BANK_COUNT) {
+      throw new Error(`HuCard slideshow image data exceeds ${PCE_HUCARD_ROM_BANK_COUNT} ROM banks at "${entry.asset.id}" (slide ${entry.sequence}). ${fittingSlides} slide(s) fit before this asset; reduce image count or size.`);
+    }
+    fittingSlides += 1;
+  }
+
+  return {
+    enabled: true,
+    assets: [...selected.map((entry) => entry.asset), ...psgAssets],
+    ids: selected.map((entry) => entry.asset.id),
+    psgIds: psgAssets.map((asset) => asset.id),
+    bankedChunkCount: totalBankedChunks,
+    capacityBanks: PCE_HUCARD_ROM_BANK_COUNT,
+  };
+}
+
 function cdRamBankOffset(bank) {
   if (bank === 129) return 3;
   if (bank === 130) return 4;
@@ -3176,9 +3372,14 @@ function generateAssetSources(projectDir, options = {}) {
   const assetIdFilter = Array.isArray(options.assetIds)
     ? new Set(options.assetIds.map((id) => String(id || '').trim()).filter(Boolean))
     : null;
-  const sourceDoc = assetIdFilter
+  let sourceDoc = assetIdFilter
     ? { ...doc, assets: (doc.assets || []).filter((asset) => asset?.id && assetIdFilter.has(String(asset.id))) }
     : doc;
+  const targetsCd = projectTargetsCd(projectDir);
+  const slideshow = !targetsCd && isHuCardSlideshowProject(projectDir, options)
+    ? selectHuCardSlideshowAssets(projectDir, sourceDoc.assets)
+    : null;
+  if (slideshow) sourceDoc = { ...sourceDoc, assets: slideshow.assets };
   validateGeneratedAssetScale(projectDir, sourceDoc, assetIdFilter);
   ensurePsgPatternFiles(projectDir, sourceDoc);
   const assetMetaInfo = assetMetaDecision(projectDir, sourceDoc);
@@ -3187,7 +3388,6 @@ function generateAssetSources(projectDir, options = {}) {
   const metaLayout = ensureAssetMetaReservation(projectDir, sourceDoc);
   const image = sourceDoc.assets.find((asset) => asset.type === 'image');
   const sound = sourceDoc.assets.find((asset) => asset.type === 'psg-sfx' || asset.type === 'psg-song');
-  const targetsCd = projectTargetsCd(projectDir);
   // CD-ROM2 VN uses catalog metadata unconditionally. HuCard and non-VN CD
   // templates keep resident arrays because their runtime reads them directly.
   const assetMetaOnCd = assetMetaInfo.useCd;
@@ -3550,6 +3750,7 @@ function generateAssetSources(projectDir, options = {}) {
       psg: psgGenerated.psgAssets.length,
       cdda: cddaGenerated.cddaAssets.length,
     },
+    slideshow,
   };
 }
 

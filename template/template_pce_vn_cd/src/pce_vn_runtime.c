@@ -79,16 +79,16 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define PCE_VN_SPRITE_PATTERN_BASE 704u
 #endif
 #define VN_SPRITE_HIDDEN_Y 0x00f0u
-/* 256x224 layout: BG 224x136 (top, centered), message window 208x64 (bottom,
-   centered). Window = 26x8 tiles at BAT (3,20). Glyphs are 12x12 composited at
+/* 256x224 layout: BG 224x136 (top, centered), message window 208x64 (1 tile
+   above bottom, centered). Window = 26x8 tiles at BAT (3,19). Glyphs are 12x12 composited at
    a 12px horizontal pitch (17 chars) and a 16px vertical pitch (4 rows), so the
    message text no longer aligns to the 8x8 tile grid: see the glyph compositor. */
 #define VN_WINDOW_X 3u
-#define VN_WINDOW_Y 20u
+#define VN_WINDOW_Y 19u
 #define VN_WINDOW_W 26u
 #define VN_WINDOW_H 8u
 #define VN_TEXT_X 3u
-#define VN_TEXT_Y 20u
+#define VN_TEXT_Y 19u
 #define VN_TEXT_COLS 17u
 #define VN_TEXT_ROWS 4u
 #define VN_WAIT_CURSOR_COL (VN_TEXT_COLS - 1u)

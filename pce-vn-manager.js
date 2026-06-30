@@ -44,6 +44,8 @@ const LEGACY_DEFAULT_FONT_TILE_BASE = 712;
 const DEFAULT_FONT_TILE_BASE = 540;
 const PCE_SCREEN_WIDTH = 256;
 const PCE_SCREEN_HEIGHT = 224;
+const VN_BG_DEFAULT_TILE_X = 2;
+const VN_BG_DEFAULT_TILE_Y = 1;
 const DEFAULT_CHARACTER_Y = 24;
 const VN_VERSION = 2;
 const VN_COMMAND_BACKGROUND = 0;
@@ -738,10 +740,24 @@ function assetPixelSize(asset = {}) {
   };
 }
 
+function isCommandSkipped(command = {}) {
+  return command?.skip === true || command?.skipped === true || command?.debugSkip === true;
+}
+
+function applyCommandDebugFlags(rawCommand = {}, normalizedCommand = null) {
+  if (!normalizedCommand) return null;
+  return isCommandSkipped(rawCommand) ? { ...normalizedCommand, skip: true } : normalizedCommand;
+}
+
+function compiledSceneCommands(scene = {}) {
+  return (Array.isArray(scene.commands) ? scene.commands : [])
+    .filter((command) => command && command.type !== 'comment' && !isCommandSkipped(command));
+}
+
 function validateFullScreenBgScene(scene = {}, assetDoc = { assets: [] }) {
   if (!scene.fullScreenBg) return;
   const sceneId = scene.id || 'scene';
-  (scene.commands || []).forEach((command) => {
+  compiledSceneCommands(scene).forEach((command) => {
     if (!command) return;
     if (command.type === 'message' || command.type === 'choice') {
       throw new Error(`PCE VN scene "${sceneId}" uses fullScreenBg and cannot contain ${command.type} commands`);
@@ -796,6 +812,8 @@ function defaultSceneDocument(assetDoc = { assets: [] }) {
       transition: 'fade',
       fadeOutFrames: VN_BG_DEFAULT_FADE_FRAMES,
       fadeInFrames: VN_BG_DEFAULT_FADE_FRAMES,
+      x: VN_BG_DEFAULT_TILE_X,
+      y: VN_BG_DEFAULT_TILE_Y,
     });
   }
   commands.push({
@@ -1111,8 +1129,8 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
       transition: 'fade',
       fadeOutFrames: normalizeBgFadeFrames(raw.fadeOutFrames),
       fadeInFrames: normalizeBgFadeFrames(raw.fadeInFrames),
-      x: clampInt(raw.x ?? raw.tileX ?? raw.mapX, 0, 63, 0),
-      y: clampInt(raw.y ?? raw.tileY ?? raw.mapY, 0, 31, 0),
+      x: clampInt(raw.x ?? raw.tileX ?? raw.mapX, 0, 63, VN_BG_DEFAULT_TILE_X),
+      y: clampInt(raw.y ?? raw.tileY ?? raw.mapY, 0, 31, VN_BG_DEFAULT_TILE_Y),
     };
   }
   if (type === 'sprite') {
@@ -1264,16 +1282,35 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
   return null;
 }
 
+function normalizeFullScreenBgCommand(rawCommand = {}, normalizedCommand = null) {
+  if (!normalizedCommand || normalizedCommand.type !== 'background') return normalizedCommand;
+  const raw = rawCommand && typeof rawCommand === 'object' ? rawCommand : {};
+  const hasX = raw.x != null || raw.tileX != null || raw.mapX != null;
+  const hasY = raw.y != null || raw.tileY != null || raw.mapY != null;
+  return {
+    ...normalizedCommand,
+    x: hasX ? normalizedCommand.x : 0,
+    y: hasY ? normalizedCommand.y : 0,
+  };
+}
+
 function normalizeScene(scene = {}, index = 0, valid = assetIdsByType(), assetDoc = { assets: [] }) {
   const raw = scene && typeof scene === 'object' ? scene : {};
+  const fullScreenBg = normalizeFullScreenBg(raw.fullScreenBg ?? raw.fullscreenBg ?? raw.fullScreenBackground ?? raw.layout ?? raw.displayMode);
   const commands = Array.isArray(raw.commands)
-    ? raw.commands.map((command, commandIndex) => normalizeCommand(command, commandIndex, valid, assetDoc)).filter(Boolean)
+    ? raw.commands
+      .map((command, commandIndex) => {
+        const normalized = normalizeCommand(command, commandIndex, valid, assetDoc);
+        const sceneAdjusted = fullScreenBg ? normalizeFullScreenBgCommand(command, normalized) : normalized;
+        return applyCommandDebugFlags(command, sceneAdjusted);
+      })
+      .filter(Boolean)
     : [];
   const name = normalizeSceneName(raw.name ?? raw.title ?? raw.label ?? '');
   return {
     id: safeId(raw.id, index === 0 ? 'opening' : `scene_${index + 1}`),
     ...(name ? { name } : {}),
-    fullScreenBg: normalizeFullScreenBg(raw.fullScreenBg ?? raw.fullscreenBg ?? raw.fullScreenBackground ?? raw.layout ?? raw.displayMode),
+    fullScreenBg,
     commands,
     nextSceneId: safeId(raw.nextSceneId, ''),
   };
@@ -1423,7 +1460,7 @@ function collectGlyphsRaw(doc) {
   const glyphs = [' ', '>', MESSAGE_WAIT_GLYPH];
   const seen = new Set(glyphs);
   (doc.scenes || []).forEach((scene) => {
-    (scene.commands || []).forEach((command) => {
+    compiledSceneCommands(scene).forEach((command) => {
       const text = command.type === 'message'
         ? messageDisplayText(command)
         : (command.type === 'choice' ? (command.choices || []).map((choice) => choice.label || '').join('') : '');
@@ -1453,7 +1490,7 @@ function collectSpriteTextGlyphsRaw(doc) {
   const seen = new Set();
   let used = false;
   (doc.scenes || []).forEach((scene) => {
-    (scene.commands || []).forEach((command) => {
+    compiledSceneCommands(scene).forEach((command) => {
       if (command.type !== 'spritetext') return;
       used = true;
       for (const char of String(command.text || '')) {
@@ -1526,7 +1563,7 @@ function collectFullScreenBgAssetIds(doc = {}) {
   const regularBgIds = new Set();
   (doc.scenes || []).forEach((scene) => {
     const target = scene?.fullScreenBg ? fullScreenBgIds : regularBgIds;
-    (scene?.commands || []).forEach((command) => {
+    compiledSceneCommands(scene).forEach((command) => {
       if (command?.type !== 'background') return;
       const assetId = normalizeAssetId(command.assetId);
       if (assetId) target.add(assetId);
@@ -1571,7 +1608,7 @@ function collectSceneVisualAssetUsage(doc = {}) {
       const { sceneId, spriteSlots: entrySlots } = queue.shift();
       const scene = sceneById.get(sceneId);
       const spriteSlots = scene?.fullScreenBg ? ['', '', '', ''] : entrySlots.slice(0, 4);
-      (scene?.commands || []).forEach((command) => {
+      compiledSceneCommands(scene).forEach((command) => {
         if (command?.type === 'background') {
           const assetId = normalizeAssetId(command.assetId);
           if (assetId) imageAssetIds.add(assetId);
@@ -2447,7 +2484,7 @@ function collectVariableDefinitions(doc = {}) {
     }
   };
   (doc.scenes || []).forEach((scene) => {
-    (scene.commands || []).forEach((command) => {
+    compiledSceneCommands(scene).forEach((command) => {
       if (command.type === 'variable') {
         add(command.variableName, command.value, command.operation === 'define');
       } else if (command.type === 'choice' && command.variableName) {
@@ -2807,10 +2844,10 @@ function generateVnSources(projectDir, options = {}) {
       switches: [],
     };
     const slotSpriteAssets = ['', '', '', ''];
-    // Comment commands are editor-only annotations. Drop them before both the
-    // label pass and the emit pass so program-counter / label targets stay in
-    // sync with the emitted command records (which never include comments).
-    const compiledCommands = (scene.commands || []).filter((command) => command.type !== 'comment');
+    // Comment and debug-skipped commands are editor-only. Drop them before both
+    // the label pass and the emit pass so program-counter / label targets stay
+    // in sync with the emitted command records.
+    const compiledCommands = compiledSceneCommands(scene);
     const labels = new Map();
     compiledCommands.forEach((command, commandIndex) => {
       if (command.type === 'label' && command.name && !labels.has(command.name)) {
@@ -3691,7 +3728,7 @@ function addAssetCdDataFiles(projectDir, files, seen, asset, options = {}) {
 
 function collectSceneCommandAssetIds(scene = {}) {
   const ids = [];
-  (scene.commands || []).forEach((command) => {
+  compiledSceneCommands(scene).forEach((command) => {
     if (command.type === 'background' || command.type === 'sprite') {
       if (command.assetId) ids.push(command.assetId);
     } else if (command.type === 'message') {
@@ -4259,6 +4296,8 @@ module.exports = {
   VN_BG_TRANSITION_FADE,
   VN_BG_FADE_FRAME_OPTIONS,
   VN_BG_DEFAULT_FADE_FRAMES,
+  VN_BG_DEFAULT_TILE_X,
+  VN_BG_DEFAULT_TILE_Y,
   VN_MESSAGE_SPEED_FRAME_OPTIONS,
   VN_DEFAULT_MESSAGE_SPEED_FRAMES,
   VN_DEFAULT_MESSAGE_AUTO_WAIT_FRAMES,
@@ -4284,6 +4323,7 @@ module.exports = {
   collectSceneVisualAssetUsage,
   collectSceneRuntimeAssetIds,
   collectSpriteTextGlyphsRaw,
+  isCommandSkipped,
   computeFontBudget,
   computeVnSpritePatternBase,
   computeVnSpritePatternBanks,

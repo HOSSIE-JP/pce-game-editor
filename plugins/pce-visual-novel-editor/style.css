@@ -16,6 +16,7 @@
 .pce-vn-shell.is-json-mode .pce-vn-list,
 .pce-vn-shell.is-json-mode [data-column-resizer="left"],
 .pce-vn-shell.is-json-mode [data-column-resizer="right"],
+.pce-vn-shell.is-json-mode .pce-vn-command-list-search,
 .pce-vn-shell.is-json-mode .pce-vn-commands,
 .pce-vn-shell.is-json-mode .pce-vn-preview {
   display: none !important;
@@ -210,6 +211,16 @@
 .pce-vn-scene-budget-badge[data-level="error"] {
   color: #fff;
   background: #d23;
+}
+
+.pce-vn-command-list-search {
+  flex: 1 1 260px;
+  min-width: 200px;
+  max-width: 520px;
+}
+
+.pce-vn-command-list-search .form-input {
+  width: 100%;
 }
 
 .pce-vn-actions {
@@ -576,10 +587,28 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   gap: 4px;
   align-items: center;
   background: rgba(255, 255, 255, 0.02);
+}
+
+.pce-vn-command-row.is-skipped {
+  opacity: 0.62;
+  border-color: rgba(148, 163, 184, 0.45);
+}
+
+.pce-vn-command-skip {
+  display: grid;
+  place-items: center;
+  min-height: 36px;
+  cursor: pointer;
+}
+
+.pce-vn-command-skip input {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
 }
 
 .pce-vn-command-actions {

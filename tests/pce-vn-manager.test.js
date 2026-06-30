@@ -252,6 +252,8 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.equal(normalized.scenes[0].commands[0].transition, 'fade');
   assert.equal(normalized.scenes[0].commands[0].fadeOutFrames, vnManager.VN_BG_DEFAULT_FADE_FRAMES);
   assert.equal(normalized.scenes[0].commands[0].fadeInFrames, vnManager.VN_BG_DEFAULT_FADE_FRAMES);
+  assert.equal(normalized.scenes[0].commands[0].x, vnManager.VN_BG_DEFAULT_TILE_X);
+  assert.equal(normalized.scenes[0].commands[0].y, vnManager.VN_BG_DEFAULT_TILE_Y);
   assert.equal(normalized.scenes[0].commands[1].type, 'sprite');
   assert.equal(normalized.scenes[0].commands[1].x, 319);
   assert.equal(normalized.scenes[0].commands[1].y, 0);
@@ -819,6 +821,8 @@ test('PCE VN manager default scene does not auto-play the first CD-DA asset', ()
   assert.equal(doc.scenes[0].commands[0].transition, 'fade');
   assert.equal(doc.scenes[0].commands[0].fadeOutFrames, vnManager.VN_BG_DEFAULT_FADE_FRAMES);
   assert.equal(doc.scenes[0].commands[0].fadeInFrames, vnManager.VN_BG_DEFAULT_FADE_FRAMES);
+  assert.equal(doc.scenes[0].commands[0].x, vnManager.VN_BG_DEFAULT_TILE_X);
+  assert.equal(doc.scenes[0].commands[0].y, vnManager.VN_BG_DEFAULT_TILE_Y);
   assert.equal(doc.scenes[0].commands.some((command) => command.type === 'audio'), false);
 });
 
@@ -1153,8 +1157,8 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
     flags: vnManager.VN_BG_TRANSITION_FADE,
     arg0: vnManager.VN_BG_DEFAULT_FADE_FRAMES,
     arg1: vnManager.VN_BG_DEFAULT_FADE_FRAMES,
-    x: 0,
-    y: 0,
+    x: vnManager.VN_BG_DEFAULT_TILE_X,
+    y: vnManager.VN_BG_DEFAULT_TILE_Y,
     messageIndex: -1,
     animationIndex: -1,
     sceneIndex: -1,
@@ -2779,6 +2783,46 @@ test('PCE build system expands llvm-mos Windows clang wrappers to clang --config
   assert.ok(huCardInfo.args.includes('-Os'));
 });
 
+test('PCE HuCard slideshow build ignores stale VN files and restores the slideshow main', () => {
+  const buildSystem = loadPceBuildSystem();
+  const projectDir = makeTempDir('pce-slideshow-stale-vn-project-');
+  const generatedDir = path.join(projectDir, 'src', 'generated');
+  const mainPath = path.join(projectDir, 'src', 'main.c');
+  fs.mkdirSync(generatedDir, { recursive: true });
+  fs.mkdirSync(path.join(projectDir, 'assets'), { recursive: true });
+  fs.writeFileSync(mainPath, '#include "pce_vn_runtime.c"\r\n', 'utf-8');
+  fs.writeFileSync(path.join(generatedDir, 'assets.c'), 'const unsigned char asset_stub = 0;\n', 'utf-8');
+  fs.writeFileSync(path.join(generatedDir, 'vn.c'), 'const unsigned char stale_vn_stub = 0;\n', 'utf-8');
+  writeJson(path.join(projectDir, 'assets', 'pce-vn-scenes.json'), {
+    scenes: [{ id: 'scene_001', commands: [] }],
+  });
+  const config = {
+    title: 'Slide Stale VN',
+    romName: 'slide-stale-vn',
+    targetMedia: 'hucard',
+    toolchain: 'llvm-mos',
+    pluginSettings: {
+      'pce-sample-builder': { sample: 'slideshow-hucard' },
+    },
+  };
+
+  assert.equal(buildSystem.repairHuCardSlideshowMainIfNeeded(projectDir, config), true);
+  const restoredMain = fs.readFileSync(mainPath, 'utf-8');
+  assert.match(restoredMain, /SLIDE_HOLD_FRAMES/);
+  assert.doesNotMatch(restoredMain, /pce_vn_runtime/);
+
+  const sources = buildSystem.collectSourceFiles(projectDir, config);
+  assert.ok(sources.some((filePath) => path.basename(filePath) === 'main.c'));
+  assert.ok(sources.some((filePath) => path.basename(filePath) === 'assets.c'));
+  assert.ok(!sources.some((filePath) => path.basename(filePath) === 'vn.c'));
+
+  const commandInfo = buildSystem.buildCommandForProject(projectDir, config, 'mos-pce-clang');
+  assert.equal(commandInfo.targetMedia, 'hucard');
+  assert.ok(commandInfo.args.some((arg) => path.basename(arg) === 'main.c'));
+  assert.ok(!commandInfo.args.some((arg) => path.basename(arg) === 'vn.c'));
+  assert.ok(!commandInfo.args.includes('-DPCE_EDITOR_TARGET_CD=1'));
+});
+
 test('PCE VN font library imports fonts into the project and resolves project-relative paths', () => {
   const vnManager = loadVnManager();
   const projectDir = makeTempDir('pce-vn-font-project-');
@@ -2895,4 +2939,45 @@ test('PCE VN comment commands persist in the scene document but are excluded fro
   assert.equal(generated.commandCount, 3);
   assert.equal(commandRecord(pack, 2).type, vnManager.VN_COMMAND_GOTO);
   assert.equal(commandRecord(pack, 2).x, 0);
+});
+
+test('PCE VN skipped commands persist but are excluded from generation inputs', () => {
+  const projectDir = makeTempDir('pce-vn-skip-command-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [
+      {
+        id: 'voice_skip',
+        type: 'adpcm',
+        source: 'assets/adpcm/voice_skip.wav',
+        data: { generated: { outputFile: 'assets/generated/voice_skip/adpcm.bin' } },
+        options: { sampleRate: 16000 },
+      },
+    ],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'message', text: '除外される', voiceAssetId: 'voice_skip', skip: true },
+        { type: 'message', text: 'hi' },
+      ],
+    }],
+  });
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const doc = vnManager.readSceneDocument(projectDir);
+
+  assert.equal(doc.scenes[0].commands[0].skip, true);
+  assert.equal(generated.commandCount, 1);
+  assert.equal(generated.messageCount, 1);
+  assert.deepEqual(Array.from(vnManager.collectSceneRuntimeAssetIds(doc)), []);
+  assert.equal(vnManager.collectGlyphsRaw(doc).includes('除'), false);
+
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+  assert.equal(pack[5], 1);
+  assert.equal(pack[6], 1);
 });

@@ -18,7 +18,7 @@
           "fadeOutFrames": 30,
           "fadeInFrames": 30,
           "x": 2,
-          "y": 2
+          "y": 1
         },
         {
           "type": "audio",
@@ -159,7 +159,7 @@
           "fadeOutFrames": 30,
           "fadeInFrames": 30,
           "x": 2,
-          "y": 2
+          "y": 1
         },
         {
           "type": "sprite",
@@ -399,7 +399,7 @@
           "fadeOutFrames": 30,
           "fadeInFrames": 30,
           "x": 2,
-          "y": 2
+          "y": 1
         },
         {
           "type": "sprite",
@@ -469,7 +469,7 @@
           "fadeOutFrames": 30,
           "fadeInFrames": 30,
           "x": 2,
-          "y": 2
+          "y": 1
         },
         {
           "type": "effect",
@@ -525,7 +525,7 @@
           "fadeOutFrames": 30,
           "fadeInFrames": 30,
           "x": 2,
-          "y": 2
+          "y": 1
         },
         {
           "type": "sprite",
@@ -601,7 +601,7 @@
           "fadeOutFrames": 30,
           "fadeInFrames": 30,
           "x": 2,
-          "y": 2
+          "y": 1
         },
         {
           "type": "sprite",

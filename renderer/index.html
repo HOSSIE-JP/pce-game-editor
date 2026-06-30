@@ -713,15 +713,15 @@
         <button class="icon-btn" id="btnExportModalClose" type="button">✕</button>
       </div>
       <div class="settings-form compact-form">
-        <p class="form-hint">最後にビルドされた ROM を出力します。必要に応じて先に Build を実行してください。</p>
+        <p class="form-hint">最後にビルドされた PCE メディアを出力します。必要に応じて先に Build を実行してください。</p>
         <div class="export-choice-grid">
           <button class="export-choice-btn" id="btnExportRom" type="button">
-            <span class="export-choice-title">ROM ファイル</span>
-            <span class="export-choice-desc">ビルド済み ROM を .bin として保存</span>
+            <span class="export-choice-title">PCE メディア</span>
+            <span class="export-choice-desc">HuCard は .pce、CD-ROM2 は .zip bundle として保存</span>
           </button>
           <button class="export-choice-btn" id="btnExportHtml" type="button">
             <span class="export-choice-title">HTML</span>
-            <span class="export-choice-desc">単体で遊べる HTML として保存</span>
+            <span class="export-choice-desc">ROM と EmulatorJS を埋め込んだ単体 HTML として保存</span>
           </button>
         </div>
         <div class="form-actions-inline modal-actions-end">
@@ -880,15 +880,15 @@
         <img class="about-app-icon" src="../build/icon.png" alt="PCE Game Editor icon" />
         <div class="about-heading">
           <h2 id="aboutTitle">PCE Game Editor</h2>
-          <p id="aboutDescription">Embedded emulator information</p>
+          <p id="aboutDescription">PC Engine editor and EmulatorJS information</p>
         </div>
       </div>
       <div class="about-section">
         <h3>バージョン情報</h3>
         <dl class="about-list">
           <div class="about-row"><dt>アプリ</dt><dd id="aboutAppVersion">-</dd></div>
-          <div class="about-row"><dt>内蔵 WASM (build)</dt><dd id="aboutWasmBuildVersion">-</dd></div>
-          <div class="about-row"><dt>内蔵 WASM (package)</dt><dd id="aboutWasmPackageVersion">-</dd></div>
+          <div class="about-row"><dt>EmulatorJS core</dt><dd id="aboutWasmBuildVersion">-</dd></div>
+          <div class="about-row"><dt>EmulatorJS runtime</dt><dd id="aboutWasmPackageVersion">-</dd></div>
           <div class="about-row"><dt>Electron</dt><dd id="aboutElectronVersion">-</dd></div>
           <div class="about-row"><dt>Chrome</dt><dd id="aboutChromeVersion">-</dd></div>
           <div class="about-row"><dt>Node.js</dt><dd id="aboutNodeVersion">-</dd></div>
