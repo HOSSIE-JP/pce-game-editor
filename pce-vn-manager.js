@@ -4110,6 +4110,9 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
   // same reserve/overwrite contract used for the overlay blob below.
   {
     const assetDoc = assetManager.readAssetDocument(projectDir);
+    if (typeof assetManager.ensurePsgImportedAssets === 'function') {
+      assetManager.ensurePsgImportedAssets(projectDir, assetDoc);
+    }
     const sceneDoc = readSceneDocument(projectDir);
     const runtimeAssetIds = collectSceneRuntimeAssetIds(sceneDoc);
     const runtimeAssetDoc = {

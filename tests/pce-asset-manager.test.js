@@ -1224,6 +1224,53 @@ test('PCE importMidi converts a MIDI file into a PSG song asset with noise drums
   assert.equal(preview.conversion.stats.midiOptions.drumMode, 'off');
 });
 
+test('PCE source generation refreshes stale imported PSG timing before build', () => {
+  const assetManager = loadAssetManager();
+  const { PSG_QUANTIZER_VERSION } = require('../pce-psg-quantize');
+  const projectDir = makeTempDir('pce-assets-psg-refresh-');
+  const vlq = (n) => {
+    const bytes = [n & 0x7f];
+    let rest = n >>> 7;
+    while (rest > 0) { bytes.unshift((rest & 0x7f) | 0x80); rest >>>= 7; }
+    return bytes;
+  };
+  const u32 = (n) => [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
+  const track = [
+    0x00, 0xff, 0x51, 0x03, 0x07, 0xa1, 0x20, // 120 BPM: 7.5 frames per step.
+    0x00, 0x90, 69, 100,
+    ...vlq(480), 0x80, 69, 0, // one quarter note == four 16th-note steps.
+    0x00, 0xff, 0x2f, 0x00,
+  ];
+  const midi = Buffer.concat([
+    Buffer.from([0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0x01, 0xe0]),
+    Buffer.from([0x4d, 0x54, 0x72, 0x6b]), Buffer.from(u32(track.length)), Buffer.from(track),
+  ]);
+  const source = path.join(makeTempDir('pce-assets-psg-refresh-source-'), 'song.mid');
+  fs.writeFileSync(source, midi);
+  assetManager.importMidi(projectDir, { sourcePath: source, id: 'song' });
+
+  const doc = assetManager.readAssetDocument(projectDir);
+  const asset = doc.assets[0];
+  asset.options.pattern = [
+    { step: 0, channel: 0, period: 254, volume: 24 },
+    { step: 5, channel: 0, period: 1, volume: 0 },
+  ];
+  asset.options.steps = 6;
+  asset.data.import.midi.framesPerStep = 6;
+  asset.data.import.midi.psgBpm = 120;
+  asset.data.import.midi.quantizerVersion = 1;
+  assetManager.writeAssetDocument(projectDir, doc);
+
+  assetManager.generateAssetSources(projectDir);
+
+  const refreshed = assetManager.readAssetDocument(projectDir).assets[0];
+  const noteOff = refreshed.options.pattern.find((entry) => entry.channel === 0 && entry.volume === 0);
+  assert.equal(noteOff.step, 4);
+  assert.equal(refreshed.data.import.midi.framesPerStep, 7.5);
+  assert.equal(refreshed.data.import.midi.quantizerVersion, PSG_QUANTIZER_VERSION);
+  assert.equal(typeof refreshed.data.import.regeneratedAt, 'string');
+});
+
 test('PCE CD build streams large PSG patterns from CD and keeps small ones resident', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-psg-stream-');

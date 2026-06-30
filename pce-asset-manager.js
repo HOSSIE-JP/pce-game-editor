@@ -4,12 +4,16 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const audioConverter = require('./pce-audio-converter');
+const psgQuantize = require('./pce-psg-quantize');
 const vgmImporter = require('./pce-vgm-import');
 const midiImporter = require('./pce-midi-import');
 const { normalizeRelativePath, resolveUnderRoot } = require('./pce-file-safety');
 
 const ASSET_FILE = path.join('assets', 'pce-assets.json');
 const PCE_INTERNAL_IMAGE_CONVERTER = 'Internal PCE image converter';
+const PCE_PSG_MIDI_IMPORTER = 'Internal MIDI -> PSG step importer';
+const PCE_PSG_VGM_IMPORTER = 'Internal VGM/VGZ -> PSG step importer';
+const PCE_PSG_QUANTIZER_VERSION = psgQuantize.PSG_QUANTIZER_VERSION || 2;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const SUPPORTED_TYPES = new Set(['image', 'sprite', 'psg-sequence', 'psg-song', 'psg-sfx', 'adpcm', 'cdda-track', 'tileset', 'tilemap', 'palette']);
 const IMAGE_EXTENSIONS = new Set(['.png', '.bmp', '.webp']);
@@ -1785,7 +1789,7 @@ function importVgm(projectDir, payload = {}) {
       import: {
         originalFileName,
         importedAt: new Date().toISOString(),
-        converter: 'Internal VGM/VGZ -> PSG step importer',
+        converter: PCE_PSG_VGM_IMPORTER,
         vgm: converted.stats,
         warnings: converted.warnings,
       },
@@ -1882,7 +1886,7 @@ function importMidi(projectDir, payload = {}) {
       import: {
         originalFileName,
         importedAt: new Date().toISOString(),
-        converter: 'Internal MIDI -> PSG step importer',
+        converter: PCE_PSG_MIDI_IMPORTER,
         midi: converted.stats,
         midiOptions: converted.stats?.midiOptions || midiOptions,
         warnings: converted.warnings,
@@ -2323,6 +2327,7 @@ function psgAssetStreamsFromCd(asset, targetsCd, options = {}) {
 // BG / sprite payloads are written before collectCdDataFiles/buildCdDataLayout).
 function ensurePsgPatternFiles(projectDir, doc) {
   if (!projectTargetsCd(projectDir)) return;
+  ensurePsgImportedAssets(projectDir, doc, { write: false });
   const catalogMode = assetMetaShouldUseCd(projectDir, doc);
   (doc.assets || []).forEach((asset) => {
     if (asset.type !== 'psg-song' && asset.type !== 'psg-sfx') return;
@@ -2900,7 +2905,109 @@ function filterAssetDocumentByIds(doc, assetIds) {
 
 function collectCdDataFiles(projectDir, options = {}) {
   const doc = options?.doc || readAssetDocument(projectDir);
+  ensurePsgImportedAssets(projectDir, doc, { write: !options?.doc });
   return collectCdDataFilesForDocument(projectDir, filterAssetDocumentByIds(doc, options?.assetIds));
+}
+
+function psgImportKind(asset) {
+  const sourceRel = normalizeRelativePath(asset?.source || '');
+  const ext = path.extname(sourceRel).toLowerCase();
+  if (MIDI_EXTENSIONS.has(ext)) return 'midi';
+  if (VGM_EXTENSIONS.has(ext)) return 'vgm';
+  const converter = String(asset?.data?.import?.converter || '');
+  if (converter === PCE_PSG_MIDI_IMPORTER) return 'midi';
+  if (converter === PCE_PSG_VGM_IMPORTER) return 'vgm';
+  return '';
+}
+
+function psgImportedStats(asset, kind = psgImportKind(asset)) {
+  const imported = asset?.data?.import || {};
+  return kind === 'midi' ? (imported.midi || {}) : kind === 'vgm' ? (imported.vgm || {}) : {};
+}
+
+function psgImportedGridMatchesCurrentBpm(asset) {
+  const options = normalizePsgOptions(asset);
+  const stats = psgImportedStats(asset);
+  const expected = psgQuantize.gridForBpm(options.bpm);
+  const savedFrames = Number(stats.framesPerStep);
+  const savedBpm = Number(stats.psgBpm);
+  if (!Number.isFinite(savedFrames)) return false;
+  if (Math.abs(savedFrames - expected.framesPerStep) > 0.000001) return false;
+  if (Number.isFinite(savedBpm) && Math.trunc(savedBpm) !== expected.bpm) return false;
+  return true;
+}
+
+function psgAssetNeedsRegeneration(projectDir, asset) {
+  if (!asset || (asset.type !== 'psg-song' && asset.type !== 'psg-sfx')) return false;
+  const kind = psgImportKind(asset);
+  if (!kind) return false;
+  const sourceRel = normalizeRelativePath(asset.source || '');
+  if (!sourceRel) return false;
+  const options = normalizePsgOptions(asset);
+  const stats = psgImportedStats(asset, kind);
+  if (!Array.isArray(options.pattern) || !options.pattern.length) return true;
+  if (stats.quantizerVersion !== PCE_PSG_QUANTIZER_VERSION) return true;
+  if (!psgImportedGridMatchesCurrentBpm(asset)) return true;
+  return false;
+}
+
+function regeneratePsgImportedAsset(projectDir, asset) {
+  const kind = psgImportKind(asset);
+  const sourceRel = normalizeRelativePath(asset.source || '');
+  if (!kind || !sourceRel) return asset;
+  const { absPath: sourceAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
+  if (!fs.existsSync(sourceAbs)) return asset;
+  const options = normalizePsgOptions(asset);
+  const input = fs.readFileSync(sourceAbs);
+  const type = asset.type === 'psg-sfx' ? 'psg-sfx' : 'psg-song';
+  const imported = asset.data?.import || {};
+  const converted = kind === 'midi'
+    ? midiImporter.convertMidiToPsg(input, {
+        bpm: options.bpm,
+        ...(imported.midiOptions || {}),
+      })
+    : vgmImporter.convertVgmToPsg(input, { bpm: options.bpm });
+  return normalizeAsset({
+    ...asset,
+    type,
+    options: {
+      ...(asset.options || {}),
+      kind: type === 'psg-song' ? 'song' : 'sfx',
+      bpm: converted.bpm,
+      steps: converted.steps,
+      channels: converted.channels,
+      period: converted.period,
+      volume: options.volume,
+      pattern: converted.pattern,
+    },
+    data: {
+      ...(asset.data || {}),
+      import: {
+        ...imported,
+        converter: kind === 'midi' ? PCE_PSG_MIDI_IMPORTER : PCE_PSG_VGM_IMPORTER,
+        regeneratedAt: new Date().toISOString(),
+        ...(kind === 'midi'
+          ? {
+              midi: converted.stats,
+              midiOptions: converted.stats?.midiOptions || imported.midiOptions || {},
+            }
+          : { vgm: converted.stats }),
+        warnings: converted.warnings,
+      },
+    },
+  });
+}
+
+function ensurePsgImportedAssets(projectDir, doc, options = {}) {
+  let changed = false;
+  doc.assets = (doc.assets || []).map((asset) => {
+    if (!psgAssetNeedsRegeneration(projectDir, asset)) return asset;
+    const regenerated = regeneratePsgImportedAsset(projectDir, asset);
+    if (regenerated !== asset) changed = true;
+    return regenerated;
+  });
+  if (changed && options.write !== false) writeAssetDocument(projectDir, doc);
+  return changed;
 }
 
 function adpcmAssetNeedsRegeneration(projectDir, asset) {
@@ -3065,6 +3172,7 @@ function generateAssetSources(projectDir, options = {}) {
   const doc = readAssetDocument(projectDir);
   ensureVisualGeneratedAssets(projectDir, doc);
   ensureAdpcmGeneratedAssets(projectDir, doc);
+  ensurePsgImportedAssets(projectDir, doc);
   const assetIdFilter = Array.isArray(options.assetIds)
     ? new Set(options.assetIds.map((id) => String(id || '').trim()).filter(Boolean))
     : null;
@@ -3463,6 +3571,7 @@ module.exports = {
   buildAssetMetaBuffer,
   computeAssetMetaLayout,
   ensurePsgPatternFiles,
+  ensurePsgImportedAssets,
   ensureAssetMetaReservation,
   collectCdDataFiles,
   ASSET_META_FILE,

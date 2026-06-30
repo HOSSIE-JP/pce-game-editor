@@ -16,6 +16,7 @@ const PSG_CHANNEL_COUNT = 6;
 const MAX_STEPS = 4096;
 const MAX_PATTERN_ENTRIES = 2048;
 const DEFAULT_SAMPLE_RATE = 44100; // VGM/MIDI both quantize on a 44100Hz grid.
+const PSG_QUANTIZER_VERSION = 2;
 
 function clampInt(value, min, max, fallback) {
   const parsed = Number(value);
@@ -91,7 +92,13 @@ function assembleConversion(snapshots, opts = {}) {
     channels: clampInt(usedChannels, 1, 6, 1),
     period: firstTone ? firstTone.period : 512,
     pattern,
-    stats: { ...(opts.stats || {}), patternCount: pattern.length, stepCount: steps },
+    stats: {
+      ...(opts.stats || {}),
+      psgBpm: opts.bpm,
+      quantizerVersion: PSG_QUANTIZER_VERSION,
+      patternCount: pattern.length,
+      stepCount: steps,
+    },
     warnings,
   };
 }
@@ -101,6 +108,7 @@ module.exports = {
   MAX_STEPS,
   MAX_PATTERN_ENTRIES,
   DEFAULT_SAMPLE_RATE,
+  PSG_QUANTIZER_VERSION,
   clampInt,
   gridForBpm,
   buildPattern,
