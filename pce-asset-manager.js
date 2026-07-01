@@ -40,6 +40,8 @@ const PCE_HUCARD_ROM_BANK_COUNT = 127;
 const PCE_SLIDESHOW_ID_PATTERN = /^slide_([0-9]{3})(?:_[a-zA-Z0-9_-]+)?$/;
 const PCE_SLIDESHOW_MAX_WIDTH = 256;
 const PCE_SLIDESHOW_MAX_HEIGHT = 224;
+const PCE_SLIDESHOW_BUILDER_ID = 'pce-slideshow-builder';
+const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
 const PCE_VISUAL_COMPRESSION_NONE = 'none';
 const PCE_VISUAL_COMPRESSION_AUTO = 'auto';
 const PCE_VISUAL_COMPRESSION_RLE = 'rle';
@@ -2272,23 +2274,9 @@ function isHuCardSlideshowProject(projectDir, options = {}) {
   if (targetMedia === 'cd' || targetMedia === 'cd-rom2' || targetMedia === 'super-cd-rom2') return false;
 
   const builder = String(config.pluginRoles?.builder || '').trim();
-  if (builder && builder !== 'pce-sample-builder') return false;
-
-  const sample = String(config.pluginSettings?.['pce-sample-builder']?.sample || '').trim();
-  if (sample === 'visual-novel-cd') return false;
-  if (sample === 'slideshow-hucard' || sample === 'slideshow') return true;
-  if (sample) return false;
-
-  try {
-    const mainPath = path.join(projectDir, 'src', 'main.c');
-    if (!fs.existsSync(mainPath)) return false;
-    const mainSource = fs.readFileSync(mainPath, 'utf-8');
-    return mainSource.includes('SLIDE_HOLD_FRAMES') &&
-      mainSource.includes('pce_editor_bg_asset_count') &&
-      mainSource.includes('show_slide');
-  } catch (_) {
-    return false;
-  }
+  if (builder === PCE_SLIDESHOW_BUILDER_ID) return true;
+  if (builder === PCE_VISUAL_NOVEL_BUILDER_ID) return false;
+  return false;
 }
 
 function slideshowSequenceForAsset(asset = {}) {

@@ -520,6 +520,7 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(css, /--cat-color/);
   assert.match(css, /\.pce-vn-shell\.is-json-mode \.pce-vn-command-list-search/);
   assert.match(css, /\.pce-vn-command-list-search\s*\{[\s\S]*flex:\s*1 1 260px/);
+  assert.match(css, /\.pce-vn-stage\s*\{[\s\S]*width:\s*256px;[\s\S]*height:\s*224px/);
   assert.match(css, /\.pce-vn-cache-preview/);
   assert.match(renderer, /data-script-mode="gui"/);
   assert.match(renderer, /data-script-mode="json"/);
@@ -571,7 +572,12 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /application\/x-pce-vn-scene-id/);
   assert.match(renderer, /function moveScene\(sceneId, rawToIndex\)/);
   assert.match(renderer, /function previewPathForAsset\(asset = \{\}\)/);
-  assert.match(renderer, /asset\?\.type === 'cdda-track' && generated\.outputFile/);
+  assert.match(renderer, /function previewPathCandidatesForAsset\(asset = \{\}\)/);
+  assert.match(renderer, /function previewSourceFromGeneratedMetadata\(asset = \{\}\)/);
+  assert.match(renderer, /const generatedSource = await previewSourceFromGeneratedMetadata\(asset\)/);
+  assert.match(renderer, /assetDataUrlCache\.set\(asset\.id, url\)/);
+  assert.match(renderer, /assetDataUrlCache\.delete\(asset\.id\)/);
+  assert.match(renderer, /asset\?\.type === 'cdda-track'[\s\S]*push\(generated\.outputFile\)/);
   assert.match(renderer, /const ADPCM_END_PAD_SECONDS = 2 \/ 60;/);
   assert.match(renderer, /const BG_FADE_SPEEDS = \[/);
   assert.match(renderer, /const DEFAULT_BG_FADE_FRAMES = 30;/);
@@ -770,8 +776,15 @@ test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page
   assert.match(css, /\.tool-tab-button/);
   assert.match(musicRenderer, /function renderGroupedList\(list, itemRenderer\)/);
   assert.match(musicRenderer, /assetDisplayName\(asset\)/);
+  assert.match(musicRenderer, /function psgImportFormat\(asset = \{\}\)/);
+  assert.match(musicRenderer, /function psgAssetOriginTag\(asset = \{\}\)/);
+  assert.match(musicRenderer, /label: 'エディタSFX'/);
+  assert.match(musicRenderer, /data-kind="\$\{esc\(originTag\.kind\)\}"/);
   assert.match(musicRenderer, /<code>\$\{esc\(asset\.id\)\}<\/code>/);
+  assert.match(musicRenderer, /pce-music-origin-tag/);
   assert.match(musicCss, /\.pce-music-editor-shell \.pce-plugin-group/);
+  assert.match(musicCss, /\.pce-music-origin-tag\[data-kind="import"\]/);
+  assert.match(musicCss, /\.pce-music-origin-tag\[data-kind="designer"\]/);
   // PSG can register an existing VGM/VGZ/MIDI file in addition to creating a new asset.
   assert.match(musicRenderer, /data-import/);
   assert.match(musicRenderer, /importPceVgm/);
@@ -822,6 +835,9 @@ test('CD-DA manager module exposes track-only import, edit, preview, and reorder
   assert.match(renderer, /function canDragReorder\(\)/);
   assert.match(renderer, /function renderGroupedRows\(list, colSpan, rowRenderer\)/);
   assert.match(renderer, /pce-cdda-id-cell/);
+  assert.match(renderer, /let draftAsset = null;/);
+  assert.match(renderer, /function updateDraftFromForm\(\)/);
+  assert.match(renderer, /\['id', 'name', 'track', 'loop'\]\.forEach/);
   assert.match(renderer, /data-role="pane-resizer"/);
   assert.match(renderer, /function setupPaneResizer\(\)/);
   assert.match(renderer, /localStorage\?\.setItem\(storageKey/);
@@ -839,6 +855,7 @@ test('CD-DA manager module exposes track-only import, edit, preview, and reorder
   assert.match(css, /\.pce-cdda-row-actions \.icon-btn-xs\s*\{[\s\S]*display:\s*inline-flex/);
   assert.match(css, /\.pce-cdda-table/);
   assert.match(css, /\.pce-cdda-stats/);
+  assert.match(css, /\.pce-cdda-status\[data-kind="warn"\]/);
 });
 
 test('ADPCM manager module exposes sample-only import, property edit, preview, and delete UI', () => {
@@ -854,9 +871,11 @@ test('ADPCM manager module exposes sample-only import, property edit, preview, a
   assert.match(renderer, /async function pickAudioFile\(\)/);
   assert.match(renderer, /filters:\s*\[\{ name: 'WAV \/ MP3'/);
   assert.match(renderer, /openImportSettingsModal/);
-  assert.match(renderer, /sampleRateToDivider/);
-  assert.match(renderer, /name="adpcmAddress"/);
-  assert.match(renderer, /name="divider"/);
+  assert.doesNotMatch(renderer, /sampleRateToDivider/);
+  assert.doesNotMatch(renderer, /name="adpcmAddress"/);
+  assert.doesNotMatch(renderer, /name="divider"/);
+  assert.doesNotMatch(renderer, /data-action="auto-divider"/);
+  assert.doesNotMatch(renderer, /data-import-auto-divider/);
   assert.match(renderer, /name="stream"/);
   assert.match(renderer, /name="splitPolicy"/);
   assert.match(renderer, /openAudioConvertModal/);
@@ -864,6 +883,11 @@ test('ADPCM manager module exposes sample-only import, property edit, preview, a
   assert.match(renderer, /importAssetAudio/);
   assert.match(renderer, /stream:\s*details\.stream/);
   assert.match(renderer, /splitPolicy:\s*details\.stream \? '' : \(details\.splitPolicy \? 'auto' : ''\)/);
+  assert.match(renderer, /let draftAsset = null;/);
+  assert.match(renderer, /function updateDraftFromForm\(\)/);
+  assert.match(renderer, /delete options\.adpcmAddress;/);
+  assert.match(renderer, /delete options\.divider;/);
+  assert.match(renderer, /\['id', 'name', 'loop', 'stream'\]\.forEach/);
   assert.match(renderer, /previewAssetSource/);
   assert.match(renderer, /data-row-play/);
   assert.match(renderer, /data-row-delete/);
@@ -871,7 +895,7 @@ test('ADPCM manager module exposes sample-only import, property edit, preview, a
   assert.match(renderer, /data-sort-key="id"/);
   assert.match(renderer, /function sortedAdpcmAssets\(\)/);
   assert.match(renderer, /function renderGroupedRows\(list, colSpan, rowRenderer\)/);
-  assert.match(renderer, /assetDisplayName\(asset\)/);
+  assert.match(renderer, /assetDisplayName\(displayAsset\)/);
   assert.match(renderer, /pce-adpcm-id-cell/);
   assert.match(renderer, /data-role="pane-resizer"/);
   assert.match(renderer, /function setupPaneResizer\(\)/);
@@ -880,6 +904,7 @@ test('ADPCM manager module exposes sample-only import, property edit, preview, a
   assert.match(css, /\.pce-adpcm-layout/);
   assert.match(css, /grid-template-columns:\s*minmax\(360px,\s*1fr\)\s*6px\s*minmax\(320px,\s*420px\)/);
   assert.match(css, /\.pce-adpcm-resizer/);
+  assert.doesNotMatch(css, /\.pce-adpcm-field-action/);
   assert.match(css, /\.pce-adpcm-sort/);
   assert.match(css, /\.pce-adpcm-id-cell/);
   assert.match(css, /\.pce-adpcm-group-row/);

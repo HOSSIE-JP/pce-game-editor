@@ -1,0 +1,13 @@
+{
+  "id": "pce-visual-novel-builder",
+  "name": "CD-ROM2 ノベルビルダー",
+  "description": "Super CD-ROM2 ビジュアルノベルテンプレートのシーン生成と CD-ROM2 ビルドを担当します。",
+  "version": "0.1.0",
+  "icon": "build",
+  "types": ["build"],
+  "generator": false,
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "project.write", "build.configure"],
+  "roles": [{ "id": "builder", "label": "Build", "exclusive": true, "order": 11 }],
+  "hooks": ["onBuildStart", "onBuildLog", "onBuildEnd", "onBuildError"]
+}

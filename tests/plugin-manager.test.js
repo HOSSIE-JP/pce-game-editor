@@ -151,7 +151,8 @@ test('listPlugins marks hasGenerator only when generateSource is exported or dec
   assert.equal(plugins.get('hook-only-builder').hasGenerator, false);
   assert.equal(plugins.get('source-builder').hasGenerator, true);
   assert.equal(plugins.get('manifest-builder').hasGenerator, true);
-  assert.equal(plugins.get('pce-sample-builder').hasGenerator, false);
+  assert.equal(plugins.get('pce-slideshow-builder').hasGenerator, false);
+  assert.equal(plugins.get('pce-visual-novel-builder').hasGenerator, false);
 });
 
 test('built-in PCE asset editor suite is scoped to the PC Engine core', () => {
@@ -162,6 +163,10 @@ test('built-in PCE asset editor suite is scoped to the PC Engine core', () => {
   ['novel-editor', 'pce-asset-manager', 'image-editor', 'sound-editor', 'pce-image-converter', 'pce-audio-converter'].forEach((id) => {
     assert.equal(pcePlugins.has(id), true, `${id} should be available for PC Engine`);
     assert.deepEqual(pcePlugins.get(id).supportedCores, ['pc-engine']);
+  });
+  ['pce-slideshow-builder', 'pce-visual-novel-builder'].forEach((id) => {
+    assert.equal(pcePlugins.has(id), true, `${id} should be available for PC Engine`);
+    assert.ok(pcePlugins.get(id).roles.some((role) => role.id === 'builder'));
   });
   ['pce-font-editor', 'pce-visual-novel-editor', 'pce-music-editor', 'pce-cdda-manager', 'pce-adpcm-manager', 'pce-background-manager', 'pce-sprite-manager', 'pce-palette-editor'].forEach((id) => {
     assert.equal(pcePlugins.has(id), false, `${id} should be hidden behind an integrated plugin`);

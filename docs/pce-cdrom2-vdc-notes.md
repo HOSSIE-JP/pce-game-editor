@@ -1,7 +1,7 @@
 # PCE CD-ROM2 / Super CD-ROM2 VDC・VRAM・スプライト作業ノート
 
 この文書は、PCE Game Editor の CD-ROM2 / Super CD-ROM2 向けテンプレート、
-`pce-sample-builder`、`pce-asset-manager`、Test Play、画像・スプライト・ADPCM
+`pce-visual-novel-builder`、`pce-asset-manager`、Test Play、画像・スプライト・ADPCM
 実装を変更する前に読む前提資料です。
 
 直近の失敗から、PCEのVDC・SATB・CD BIOSまわりを一般的なタイルエンジンや

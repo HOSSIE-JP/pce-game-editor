@@ -83,6 +83,40 @@ function assetFullName(asset = {}) {
   return assetNameParts(asset).join('/');
 }
 
+function psgImportFormat(asset = {}) {
+  const imported = asset.data?.import || {};
+  const source = String(asset.source || imported.originalFileName || '').toLowerCase();
+  const converter = String(imported.converter || '').toLowerCase();
+  if (/\.(mid|midi)$/.test(source) || converter.includes('midi')) return 'MIDI';
+  if (/\.(vgm|vgz)$/.test(source) || converter.includes('vgm')) return 'VGM';
+  return imported && Object.keys(imported).length ? '取込' : '';
+}
+
+function psgAssetOriginTag(asset = {}) {
+  const importFormat = psgImportFormat(asset);
+  if (importFormat) {
+    const label = importFormat === '取込' ? '取込' : `${importFormat}取込`;
+    const originalFileName = String(asset.data?.import?.originalFileName || '').trim();
+    return {
+      kind: 'import',
+      label,
+      title: originalFileName ? `${label}: ${originalFileName}` : label,
+    };
+  }
+  if (asset.options?.sfx && typeof asset.options.sfx === 'object') {
+    return {
+      kind: 'designer',
+      label: 'エディタSFX',
+      title: 'PSG効果音デザイナーで作成',
+    };
+  }
+  return {
+    kind: 'editor',
+    label: 'エディタ',
+    title: 'PSGエディタ上で作成',
+  };
+}
+
 function compareText(left, right) {
   return String(left ?? '').localeCompare(String(right ?? ''), 'ja', { numeric: true, sensitivity: 'base' });
 }
@@ -187,12 +221,22 @@ export function activatePlugin({ root, api, registerCapability }) {
   function renderList() {
     const list = psgAssets();
     listEl.innerHTML = list.length
-        ? renderGroupedList(list, (asset) => `
+        ? renderGroupedList(list, (asset) => {
+          const originTag = psgAssetOriginTag(asset);
+          return `
           <div class="pce-music-list-row${asset.id === selectedId ? ' active' : ''}" data-row-id="${esc(asset.id)}">
-            <button class="pce-music-list-select" type="button" data-id="${esc(asset.id)}"><strong>${esc(assetDisplayName(asset))}</strong><code>${esc(asset.id)}</code><span>${esc(asset.type)}</span></button>
+            <button class="pce-music-list-select" type="button" data-id="${esc(asset.id)}">
+              <strong>${esc(assetDisplayName(asset))}</strong>
+              <code>${esc(asset.id)}</code>
+              <span class="pce-music-list-tags">
+                <span class="pce-music-list-type">${esc(asset.type)}</span>
+                <span class="pce-music-origin-tag" data-kind="${esc(originTag.kind)}" title="${esc(originTag.title)}">${esc(originTag.label)}</span>
+              </span>
+            </button>
             <button class="icon-btn-xs pce-music-list-delete" type="button" data-delete-id="${esc(asset.id)}" title="削除" aria-label="削除">×</button>
           </div>
-        `)
+        `;
+        })
       : '<p class="asset-no-selection-hint">PSG アセットがありません</p>';
     listEl.querySelectorAll('[data-id]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -208,9 +252,10 @@ export function activatePlugin({ root, api, registerCapability }) {
 
   function isDesignerAsset(asset) {
     // Imported MIDI/VGM patterns stay read-only; everything else is authored
-    // with the SFX designer.
+    // with the SFX designer. Use the same origin heuristic as the list tag so
+    // legacy imports with only a PSG source file still behave as imports.
     if (!asset) return false;
-    return !(asset.data && asset.data.import);
+    return !psgImportFormat(asset);
   }
 
   function loadDesignerParams(asset) {

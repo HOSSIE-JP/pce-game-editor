@@ -738,10 +738,10 @@ sequenceDiagram
   participant RT as pce_vn_runtime.c
   participant CDB as CD block
   Scene->>RT: kind=cdda, action=play, asset_index
-  RT->>CDB: pce_cdb_cdda_play(start_sector, UNTIL_END, REPEAT)
+  RT->>CDB: pce_cdb_cdda_play(start_sector, UNTIL_END, ONE_SHOT)
   RT->>RT: service_cdda_playback() decrements generated play_frames
   alt loop
-    RT->>CDB: reissue pce_cdb_cdda_play(start_sector, UNTIL_END, REPEAT)
+    RT->>CDB: reissue pce_cdb_cdda_play(start_sector, UNTIL_END, ONE_SHOT)
   else one-shot end
     RT->>CDB: pce_cdb_cdda_pause()
   end
@@ -751,7 +751,7 @@ sequenceDiagram
 
 CD-DA は `cdda-track.options.track` 順で CUE に並べられ、asset 生成時に各 track の開始 sector が `pce_editor_cdda_asset_t.start_sector` へ保存されます。現行 runtime では track が 2 未満なら再生しません。再生開始時に古い CD-DA があれば `pce_cdb_cdda_pause()` で止め、`PCE_CDB_LOCATION_TYPE_SECTOR` と `PCE_CDB_LOCATION_TYPE_UNTIL_END` を指定して `pce_cdb_cdda_play()` を呼びます。BIOS へ track 番号や sector/time 終端を渡す形は、track 3 指定時に track 2 から流れたり GearGrafx 上で PLAYING へ遷移しなかったりするケースがあったため使っていません。また SubQ polling は再生を IRQ stop させることがあったため、runtime の loop/stop 判定にも使いません。
 
-track 境界と loop は、asset 生成時に WAV の sample count から算出した `play_frames` で管理します。`play_frames` はトラック境界へ食い込まないように短い guard frame を差し引いた値です。loop 有効時はこのカウンターが 0 になった時点で同じ asset の開始 sector へ `pce_cdb_cdda_play()` を再発行し、loop 無効時は `pce_cdb_cdda_pause()` で止めます。
+track 境界と loop は、asset 生成時に WAV の sample count から算出した `play_frames` で管理します。`play_frames` はトラック境界へ食い込まないように短い guard frame を差し引いた値です。CD-DA は BIOS repeat に任せず `PCE_CDB_CDDA_PLAY_ONE_SHOT` で開始し、loop 有効時はこのカウンターが 0 になった時点で同じ asset の開始 sector へ `pce_cdb_cdda_play()` を再発行します。loop 無効時は `pce_cdb_cdda_pause()` で止めます。
 
 ## 音量とフェード
 

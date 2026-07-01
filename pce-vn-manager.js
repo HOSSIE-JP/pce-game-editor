@@ -15,6 +15,7 @@ const VN_FONT_DIR = path.join('assets', 'fonts');
 const FONT_FILE_EXTS = ['.ttf', '.otf', '.ttc'];
 const VN_BUILD_STAMP_FILE = path.join('assets', 'generated', 'vn', 'build-stamp.json');
 const VN_BUILD_STAMP_VERSION = 2;
+const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
 // BG message / choice glyph streams stay byte-oriented so the common case costs
 // one byte per glyph, but a 0xfd escape prefix lets the project-wide font exceed
 // the old 254-glyph cap: glyph indices 0..252 are written as a single byte, while
@@ -4200,9 +4201,9 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
             },
             pluginSettings: {
               ...(config.pluginSettings || {}),
-              'pce-sample-builder': {
-                ...(config.pluginSettings?.['pce-sample-builder'] || {}),
-                sample: 'visual-novel-cd',
+              [PCE_VISUAL_NOVEL_BUILDER_ID]: {
+                ...(config.pluginSettings?.[PCE_VISUAL_NOVEL_BUILDER_ID] || {}),
+                template: 'visual-novel-cd',
               },
             },
           },
@@ -4242,9 +4243,9 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
       },
       pluginSettings: {
         ...(config.pluginSettings || {}),
-        'pce-sample-builder': {
-          ...(config.pluginSettings?.['pce-sample-builder'] || {}),
-          sample: 'visual-novel-cd',
+        [PCE_VISUAL_NOVEL_BUILDER_ID]: {
+          ...(config.pluginSettings?.[PCE_VISUAL_NOVEL_BUILDER_ID] || {}),
+          template: 'visual-novel-cd',
         },
       },
     },

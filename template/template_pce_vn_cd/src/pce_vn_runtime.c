@@ -1232,7 +1232,7 @@ static void VN_BANKED_CODE resume_cdda_after_cd_data_access(void)
     cdda_resume_end.hi = 0u;
     cdda_sector_from_remaining(cdda_current);
     pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
-    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, cdda_resume_end, cdda_current->loop ? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT);
+    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, cdda_resume_end, PCE_CDB_CDDA_PLAY_ONE_SHOT);
     cdda_active = 1u;
     cdda_resume_pending = 0u;
     sync_cd_external_irq_after_bios_call();
@@ -3488,7 +3488,7 @@ static void play_cdda_track(const pce_editor_cdda_asset_t *cdda)
     pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
     track = cdda->track;
     loop = cdda->loop;
-    const uint8_t mode = loop ? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT;
+    const uint8_t mode = PCE_CDB_CDDA_PLAY_ONE_SHOT;
     if (track < 2u)
     {
         sync_cd_external_irq_after_bios_call();
@@ -3525,7 +3525,19 @@ static void service_cdda_playback(void)
     {
         if (cdda_looping)
         {
+            pce_sector_t start = {0};
+            pce_sector_t end = {0};
+            const uint8_t restore_display_after_cdda = (uint8_t)!pending_display_enable;
+            start.lo = cdda_current->start_sector.lo;
+            start.md = cdda_current->start_sector.md;
+            start.hi = cdda_current->start_sector.hi;
             cdda_frames_remaining = cdda_current->play_frames;
+            pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+            (void)pce_cdb_cdda_pause();
+            (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, start, PCE_CDB_LOCATION_TYPE_UNTIL_END, end, PCE_CDB_CDDA_PLAY_ONE_SHOT);
+            cdda_active = 1u;
+            sync_cd_external_irq_after_bios_call();
+            restore_video_after_cdb_call(restore_display_after_cdda);
         }
         else
         {

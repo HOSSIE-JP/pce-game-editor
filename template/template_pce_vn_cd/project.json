@@ -37,12 +37,12 @@
     ]
   },
   "pluginRoles": {
-    "builder": "pce-sample-builder",
+    "builder": "pce-visual-novel-builder",
     "testplay": "pce-standard-emulator"
   },
   "pluginSettings": {
-    "pce-sample-builder": {
-      "sample": "visual-novel-cd"
+    "pce-visual-novel-builder": {
+      "template": "visual-novel-cd"
     },
     "sidebarOrder": [
       "novel-editor",

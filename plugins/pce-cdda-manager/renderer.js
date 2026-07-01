@@ -186,6 +186,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
 
   let assets = [];
   let selectedId = '';
+  let draftAsset = null;
+  let draftSourceId = '';
   let draggedId = '';
   let importBusy = false;
   let sortState = { key: 'track', direction: 'asc' };
@@ -387,6 +389,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     return cddaAssets().find((asset) => asset.id === selectedId) || null;
   }
 
+  function displayAssetForRow(asset) {
+    return draftAsset && draftSourceId === asset.id ? draftAsset : asset;
+  }
+
   function nextTrackNumber() {
     const tracks = cddaAssets().map(trackNumber);
     return Math.min(99, Math.max(1, ...tracks) + 1);
@@ -492,15 +498,16 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     }
     const dragEnabled = canDragReorder();
     rowsEl.innerHTML = renderGroupedRows(tracks, 7, (asset) => {
-      const generated = generatedInfo(asset);
+      const displayAsset = displayAssetForRow(asset);
+      const generated = generatedInfo(displayAsset);
       return `
         <tr class="pce-cdda-row ${asset.id === selectedId ? 'active' : ''}" draggable="${dragEnabled ? 'true' : 'false'}" data-id="${esc(asset.id)}">
           <td class="pce-cdda-drag-cell ${dragEnabled ? '' : 'is-disabled'}"><span class="drag-handle" title="並び替え">&#8942;&#8942;</span></td>
-          <td><strong>${String(trackNumber(asset)).padStart(2, '0')}</strong></td>
-          <td class="pce-cdda-name-cell"><span>${esc(assetDisplayName(asset))}</span></td>
-          <td class="pce-cdda-id-cell"><code>${esc(asset.id)}</code></td>
+          <td><strong>${String(trackNumber(displayAsset)).padStart(2, '0')}</strong></td>
+          <td class="pce-cdda-name-cell"><span>${esc(assetDisplayName(displayAsset))}</span></td>
+          <td class="pce-cdda-id-cell"><code>${esc(displayAsset.id)}</code></td>
           <td>${esc(formatSeconds(generated.durationSeconds))}</td>
-          <td>${asset.options?.loop ? '<span class="pce-cdda-loop">Loop</span>' : '<span class="pce-cdda-muted">-</span>'}</td>
+          <td>${displayAsset.options?.loop ? '<span class="pce-cdda-loop">Loop</span>' : '<span class="pce-cdda-muted">-</span>'}</td>
           <td class="pce-cdda-row-actions">
             <button class="icon-btn-xs" type="button" data-row-play="${esc(asset.id)}" title="プレビュー" aria-label="プレビュー">▶</button>
             <button class="icon-btn-xs" type="button" data-row-delete="${esc(asset.id)}" title="削除" aria-label="削除">✕</button>
@@ -558,6 +565,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   }
 
   async function reload(options = {}) {
+    draftAsset = null;
+    draftSourceId = '';
     const result = await listPceAssets({ force: Boolean(options.force) });
     if (!result?.ok) {
       rowsEl.innerHTML = `<tr><td colspan="7" class="pce-cdda-empty">${esc(result?.error || 'PCE assets を読み込めません')}</td></tr>`;
@@ -653,6 +662,18 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     };
   }
 
+  function updateDraftFromForm() {
+    const asset = collectFormAsset();
+    if (!asset) return;
+    draftAsset = asset;
+    draftSourceId = selectedId;
+    titleEl.textContent = asset.name || asset.id;
+    sourceEl.textContent = asset.source || '';
+    renderStats(asset);
+    renderRows();
+    setStatus('未保存の変更があります', 'warn');
+  }
+
   async function saveSelected(event) {
     event.preventDefault();
     const current = selectedAsset();
@@ -678,6 +699,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       assets = deleted.assets || assets;
     }
     selectedId = asset.id;
+    draftAsset = null;
+    draftSourceId = '';
     await saveTrackOrder(cddaAssets(), selectedId);
     setStatus('保存しました', 'ok');
   }
@@ -853,6 +876,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   }
 
   formEl.addEventListener('submit', saveSelected);
+  ['id', 'name', 'track', 'loop'].forEach((name) => {
+    formEl.elements[name]?.addEventListener('input', updateDraftFromForm);
+  });
   root.querySelectorAll('[data-sort-key]').forEach((button) => {
     button.addEventListener('click', () => {
       const key = button.dataset.sortKey || 'track';

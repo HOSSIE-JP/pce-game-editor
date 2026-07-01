@@ -250,6 +250,10 @@
   color: var(--green);
 }
 
+.pce-cdda-status[data-kind="warn"] {
+  color: var(--yellow);
+}
+
 .pce-cdda-detail-panel {
   overflow: auto;
 }

@@ -213,8 +213,8 @@ function writeSlideshowProjectConfig(projectDir) {
     romName: 'slideshow_test',
     toolchain: 'llvm-mos',
     targetMedia: 'hucard',
-    pluginRoles: { builder: 'pce-sample-builder' },
-    pluginSettings: { 'pce-sample-builder': { sample: 'slideshow-hucard' } },
+    pluginRoles: { builder: 'pce-slideshow-builder' },
+    pluginSettings: { 'pce-slideshow-builder': { template: 'slideshow-hucard' } },
   }, null, 2));
 }
 
@@ -550,6 +550,75 @@ test('PCE ADPCM streaming import keeps long samples as one CD data file', () => 
   assert.equal(meta[10], 12); // divider (8000Hz quantized code)
   assert.equal(meta[12], 1); // stream
   assert.equal(meta[15], 64); // adpcm cd sector lo
+});
+
+test('PCE ADPCM playback flags edited after import update CD catalog metadata', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-adpcm-edit-flags-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({ scenes: [{ id: 's0', commands: [] }] }, null, 2));
+
+  const imported = assetManager.importAudio(projectDir, {
+    dataUrl: makeWavDataUrl(16000, 160),
+    sourceFileName: 'voice.wav',
+    kind: 'adpcm',
+    id: 'voice',
+    sampleRate: 16000,
+    loop: false,
+    stream: true,
+  });
+
+  const edited = {
+    ...imported.asset,
+    options: {
+      ...imported.asset.options,
+      loop: true,
+      stream: false,
+    },
+  };
+  const saved = assetManager.upsertAsset(projectDir, edited);
+  assert.equal(saved.assets[0].options.loop, true);
+  assert.equal(saved.assets[0].options.stream, false);
+
+  const generated = assetManager.generateAssetSources(projectDir);
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 65u, 0u, 0u \}, 1u \};/);
+
+  const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
+  assert.equal(meta[11], 1); // loop
+  assert.equal(meta[12], 0); // stream
+});
+
+test('PCE CD-DA loop flag edited after import updates CD catalog metadata', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-cdda-edit-loop-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({ scenes: [{ id: 's0', commands: [] }] }, null, 2));
+
+  const imported = assetManager.importAudio(projectDir, {
+    dataUrl: makeWavDataUrl(44100, 4410),
+    sourceFileName: 'theme.wav',
+    kind: 'cdda-track',
+    id: 'theme',
+    track: 2,
+    loop: true,
+  });
+  assert.equal(imported.asset.options.loop, true);
+
+  const edited = {
+    ...imported.asset,
+    options: {
+      ...imported.asset.options,
+      loop: false,
+    },
+  };
+  const saved = assetManager.upsertAsset(projectDir, edited);
+  assert.equal(saved.assets[0].options.loop, false);
+
+  assetManager.generateAssetSources(projectDir);
+  const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
+  assert.equal(meta[0], 2); // track
+  assert.equal(meta[1], 0); // loop
 });
 
 test('PCE image import generates BG and sprite assets with the internal converter', () => {

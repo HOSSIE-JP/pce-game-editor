@@ -17,6 +17,8 @@ const DEFAULT_EXTERNAL_EMULATOR_PATH = process.platform === 'darwin'
 const PCE_CD_SECTOR_BYTES = 2048;
 const PCE_CD_IPL_PROGRAM_SECTORS = 20;
 const PCE_CD_DATA_BASE_SECTOR = 64;
+const PCE_SLIDESHOW_BUILDER_ID = 'pce-slideshow-builder';
+const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
 
 function formatBuildDuration(ms) {
   if (!Number.isFinite(ms) || ms < 0) return '0 ms';
@@ -227,12 +229,25 @@ function normalizeTestPlayConfig(value = {}) {
   };
 }
 
+function normalizeTemplateBuilderRole(builderId, targetMedia = 'hucard') {
+  const builder = String(builderId || '').trim();
+  if (builder) return builder;
+
+  return normalizeTargetMedia(targetMedia) === 'cd'
+    ? PCE_VISUAL_NOVEL_BUILDER_ID
+    : PCE_SLIDESHOW_BUILDER_ID;
+}
+
 function normalizeProjectConfig(config = {}) {
   const romName = String(config.romName || config.title || 'pce_sample').trim() || 'pce_sample';
   const pluginRoles = config.pluginRoles && typeof config.pluginRoles === 'object'
     ? { ...config.pluginRoles }
     : {};
   const targetMedia = normalizeTargetMedia(config.targetMedia || config.media);
+  const pluginSettings = config.pluginSettings && typeof config.pluginSettings === 'object'
+    ? { ...config.pluginSettings }
+    : {};
+  const builder = normalizeTemplateBuilderRole(pluginRoles.builder, targetMedia);
   return {
     coreId: 'pc-engine',
     platform: 'pce',
@@ -246,13 +261,11 @@ function normalizeProjectConfig(config = {}) {
     cd: normalizeCdConfig(config.cd),
     testPlay: normalizeTestPlayConfig(config.testPlay),
     pluginRoles: {
-      builder: 'pce-sample-builder',
       testplay: 'pce-standard-emulator',
       ...pluginRoles,
+      builder,
     },
-    pluginSettings: config.pluginSettings && typeof config.pluginSettings === 'object'
-      ? { ...config.pluginSettings }
-      : {},
+    pluginSettings,
     generatedAt: config.generatedAt || new Date().toISOString(),
   };
 }
@@ -535,12 +548,15 @@ function buildSpawnEnv(toolPath, toolchain = DEFAULT_TOOLCHAIN) {
   return env;
 }
 
-function getSampleBuilderSample(config = {}) {
-  return String(config.pluginSettings?.['pce-sample-builder']?.sample || '').trim();
+function getBuilderTemplateKind(config = {}) {
+  const builder = String(config.pluginRoles?.builder || '').trim();
+  if (builder === PCE_SLIDESHOW_BUILDER_ID) return 'slideshow-hucard';
+  if (builder === PCE_VISUAL_NOVEL_BUILDER_ID) return 'visual-novel-cd';
+  return '';
 }
 
 function isHuCardSlideshowProject(config = {}) {
-  return getSampleBuilderSample(config) === 'slideshow-hucard';
+  return getBuilderTemplateKind(config) === 'slideshow-hucard';
 }
 
 function resolveHuCardSlideshowTemplateMainPath() {
@@ -576,7 +592,7 @@ function collectSourceFiles(projectDir, config = {}) {
 }
 
 function isVisualNovelProject(projectDir, config = {}) {
-  const sample = getSampleBuilderSample(config);
+  const sample = getBuilderTemplateKind(config);
   if (isHuCardSlideshowProject(config)) return false;
   return sample === 'visual-novel-cd' ||
     fs.existsSync(vnManager.getSceneFilePath(projectDir)) ||
@@ -896,6 +912,9 @@ function buildProject(onLog, options = {}) {
       const assetSourceOptions = Array.isArray(config.cd?.dataFiles) && config.cd.dataFiles.length
         ? { cdDataFiles: config.cd.dataFiles }
         : {};
+      if (isHuCardSlideshowProject(config)) {
+        assetSourceOptions.hucardSlideshow = true;
+      }
       if (Array.isArray(generated.visualNovel?.assetIds)) {
         assetSourceOptions.assetIds = generated.visualNovel.assetIds;
       }
@@ -1075,6 +1094,8 @@ function loadCurrentSource() {
 module.exports = {
   DEFAULT_PROJECT_NAME,
   DEFAULT_TOOLCHAIN,
+  PCE_SLIDESHOW_BUILDER_ID,
+  PCE_VISUAL_NOVEL_BUILDER_ID,
   PCE_CD_DATA_BASE_SECTOR,
   parseMkcdFirstDataSector,
   buildCommandForProject,
@@ -1095,6 +1116,7 @@ module.exports = {
   getProjectsRootDir,
   getStatePath,
   getTemplatesRootDir,
+  getBuilderTemplateKind,
   hasProjectConfig,
   listProjects,
   listProjectTemplates,

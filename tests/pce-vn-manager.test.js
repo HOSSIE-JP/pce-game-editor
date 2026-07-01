@@ -1861,7 +1861,7 @@ test('PCE VN manager emits per-frame sprite delays and the runtime honors them',
 
 test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layers', () => {
   const wrapperPaths = [
-    path.join(__dirname, '..', 'plugins', 'pce-sample-builder', 'template-vn', 'src', 'main.c'),
+    path.join(__dirname, '..', 'plugins', 'pce-visual-novel-builder', 'template-vn', 'src', 'main.c'),
     path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'main.c'),
   ];
   for (const wrapperPath of wrapperPaths) {
@@ -2216,7 +2216,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /sector_offset = \(unsigned long\)elapsed_frames \+ \(\(unsigned long\)elapsed_frames >> 2\);/);
   assert.doesNotMatch(source, /sector_offset = \(elapsed_frames \* 75ul\) \/ 60ul;/);
   assert.match(source, /cdda_resume_start\.lo = \(uint8_t\)\(value & 0xfful\);/);
-  assert.match(source, /cdda_sector_from_remaining\(cdda_current\);[\s\S]*pce_cdb_cdda_play\(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, cdda_resume_end, cdda_current->loop \? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT\);[\s\S]*cdda_active = 1u;/);
+  assert.match(source, /cdda_sector_from_remaining\(cdda_current\);[\s\S]*pce_cdb_cdda_play\(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, cdda_resume_end, PCE_CDB_CDDA_PLAY_ONE_SHOT\);[\s\S]*cdda_active = 1u;/);
   assert.doesNotMatch(source, /cdda_sector_from_remaining\(&start/);
   assert.match(source, /static void VN_BANKED_CODE cancel_cdda_after_cd_data_conflict\(void\)/);
   assert.doesNotMatch(source, /PCE_CDB_VRAM_BYTES/);
@@ -2467,7 +2467,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /pce_sector_t start = \{0\};/);
   assert.match(source, /pce_sector_t end = \{0\};/);
   assert.match(source, /static void play_cdda_track\(const pce_editor_cdda_asset_t \*cdda\)/);
-  assert.match(source, /const uint8_t mode = loop \? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT;/);
+  assert.match(source, /const uint8_t mode = PCE_CDB_CDDA_PLAY_ONE_SHOT;/);
   assert.match(source, /const uint8_t restore_display_after_cdda = \(uint8_t\)!pending_display_enable;/);
   assert.match(source, /static void service_cdda_playback\(void\);/);
   assert.match(source, /service_adpcm_playback\(\);\n    vn_wait_next_vblank\(\);\n    service_cdda_playback\(\);/);
@@ -2493,8 +2493,9 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /if \(!cdda_active \|\| !cdda_has_frame_limit \|\| !cdda_current\) return;/);
   assert.match(source, /if \(cdda_frames_remaining\) cdda_frames_remaining--;/);
   assert.match(source, /if \(cdda_frames_remaining\) return;/);
-  assert.match(source, /if \(cdda_looping\)\n        \{\n            cdda_frames_remaining = cdda_current->play_frames;/);
+  assert.match(source, /if \(cdda_looping\)\n        \{\n            pce_sector_t start = \{0\};\n            pce_sector_t end = \{0\};[\s\S]*start\.lo = cdda_current->start_sector\.lo;\n            start\.md = cdda_current->start_sector\.md;\n            start\.hi = cdda_current->start_sector\.hi;[\s\S]*cdda_frames_remaining = cdda_current->play_frames;[\s\S]*pce_cdb_cdda_play\(PCE_CDB_LOCATION_TYPE_SECTOR, start, PCE_CDB_LOCATION_TYPE_UNTIL_END, end, PCE_CDB_CDDA_PLAY_ONE_SHOT\);/);
   assert.doesNotMatch(source, /play_cdda_track\(cdda_current\);/);
+  assert.doesNotMatch(source, /PCE_CDB_CDDA_PLAY_REPEAT/);
   assert.match(source, /restore_video_after_cdb_call\(restore_display_after_cdda\);/);
   assert.match(source, /prepare_cd_data_access\(\);[\s\S]*pce_cdb_adpcm_stream\(sector, length, divider\)[\s\S]*cancel_cdda_after_cd_data_conflict\(\);/);
   assert.doesNotMatch(source, /pce_cdb_cdda_read_subcode_q/);
@@ -2681,20 +2682,21 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.ok(changedLogs.some((line) => /VN timing: generate pass 1 done in /.test(line)));
 });
 
-test('PCE sample builder start hook leaves VN generation to the build system', () => {
-  const projectDir = makeTempDir('pce-sample-builder-hook-');
+test('PCE visual novel builder start hook leaves VN generation to the build system', () => {
+  const projectDir = makeTempDir('pce-vn-builder-hook-');
   writeJson(path.join(projectDir, 'project.json'), {
     targetMedia: 'cd',
     toolchain: 'llvm-mos',
-    pluginSettings: { 'pce-sample-builder': { sample: 'visual-novel-cd' } },
+    pluginRoles: { builder: 'pce-visual-novel-builder' },
+    pluginSettings: { 'pce-visual-novel-builder': { template: 'visual-novel-cd' } },
   });
   writeJson(path.join(projectDir, 'assets', 'pce-vn-scenes.json'), {
     version: 2,
     startScene: 'opening',
     scenes: [{ id: 'opening', commands: [{ type: 'message', text: 'A' }] }],
   });
-  delete require.cache[require.resolve('../plugins/pce-sample-builder')];
-  const builder = require('../plugins/pce-sample-builder');
+  delete require.cache[require.resolve('../plugins/pce-visual-novel-builder')];
+  const builder = require('../plugins/pce-visual-novel-builder');
   const logs = [];
 
   const result = builder.onBuildStart({ projectDir }, {
@@ -2703,7 +2705,7 @@ test('PCE sample builder start hook leaves VN generation to the build system', (
   });
 
   assert.deepEqual(result, { ok: true });
-  assert.deepEqual(logs, [`PCE build start: ${projectDir}`]);
+  assert.deepEqual(logs, [`PCE CD-ROM2 visual novel build start: ${projectDir}`]);
   assert.equal(fs.existsSync(path.join(projectDir, 'src', 'pce_vn_runtime.c')), false);
   assert.equal(fs.existsSync(path.join(projectDir, 'src', 'generated', 'vn.c')), false);
 });
@@ -2801,8 +2803,9 @@ test('PCE HuCard slideshow build ignores stale VN files and restores the slidesh
     romName: 'slide-stale-vn',
     targetMedia: 'hucard',
     toolchain: 'llvm-mos',
+    pluginRoles: { builder: 'pce-slideshow-builder' },
     pluginSettings: {
-      'pce-sample-builder': { sample: 'slideshow-hucard' },
+      'pce-slideshow-builder': { template: 'slideshow-hucard' },
     },
   };
 

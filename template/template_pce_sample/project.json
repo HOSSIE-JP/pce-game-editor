@@ -13,12 +13,21 @@
     "cddaTracks": []
   },
   "pluginRoles": {
-    "builder": "pce-sample-builder",
+    "builder": "pce-slideshow-builder",
     "testplay": "pce-standard-emulator"
   },
   "pluginSettings": {
-    "pce-sample-builder": {
-      "sample": "slideshow-hucard"
-    }
+    "pce-slideshow-builder": {
+      "template": "slideshow-hucard"
+    },
+    "enabled": {
+      "novel-editor": false,
+      "sound-editor": false
+    },
+    "sidebarOrder": [
+      "pce-asset-manager",
+      "image-editor",
+      "code-editor"
+    ]
   }
 }

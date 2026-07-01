@@ -1,7 +1,7 @@
 const AUDIO_EXTS = ['.wav', '.mp3'];
-const ADPCM_BASE_SAMPLE_RATE = 32000;
 const ADPCM_MIN_SAMPLE_RATE = 4000;
 const ADPCM_MAX_SAMPLE_RATE = 32000;
+const ADPCM_SAFE_BYTES = 65535;
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -37,21 +37,6 @@ function safeId(value, fallback = 'adpcm_sample') {
     .replace(/^_+|_+$/g, '')
     .slice(0, 48);
   return id || fallback;
-}
-
-function sampleRateToDivider(sampleRate) {
-  const rate = clampInt(sampleRate, ADPCM_MIN_SAMPLE_RATE, ADPCM_MAX_SAMPLE_RATE, 16000);
-  let best = 0;
-  let bestDiff = Infinity;
-  for (let code = 0; code <= 15; code += 1) {
-    const actual = Math.round(ADPCM_BASE_SAMPLE_RATE / (16 - code));
-    const diff = Math.abs(actual - rate);
-    if (diff < bestDiff) {
-      best = code;
-      bestDiff = diff;
-    }
-  }
-  return best;
 }
 
 function formatSeconds(value) {
@@ -112,8 +97,7 @@ function compareSortValues(left, right) {
 }
 
 function adpcmMaxBytes(asset = {}) {
-  const address = clampInt(asset.options?.adpcmAddress, 0, 65535, 0);
-  return Math.max(1, Math.min(65535, 65536 - address));
+  return ADPCM_SAFE_BYTES;
 }
 
 export function activatePlugin({ plugin, root, api, logger, registerCapability }) {
@@ -177,17 +161,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
               <input class="form-input" name="name" />
             </label>
             <label class="form-group">
-              <span class="form-label">ADPCM address</span>
-              <input class="form-input" name="adpcmAddress" type="number" min="0" max="65535" />
-            </label>
-            <label class="form-group">
-              <span class="form-label">Divider</span>
-              <div class="pce-adpcm-field-action">
-                <input class="form-input" name="divider" type="number" min="0" max="15" />
-                <button class="icon-btn-xs" type="button" data-action="auto-divider" title="Sample rate から divider を補完" aria-label="Sample rate から divider を補完">↺</button>
-              </div>
-            </label>
-            <label class="form-group">
               <span class="form-label">Loop</span>
               <label class="pce-adpcm-check"><input name="loop" type="checkbox" /><span>loop</span></label>
             </label>
@@ -228,6 +201,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
 
   let assets = [];
   let selectedId = '';
+  let draftAsset = null;
+  let draftSourceId = '';
   let importBusy = false;
   let sortState = { key: 'name', direction: 'asc' };
   // Folder paths (from "/"-separated names) the user has collapsed in the list.
@@ -343,6 +318,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     const byteLength = generated.byteLength || 0;
     const estimatedSeconds = byteLength ? byteLength * 2 / Math.max(1, sampleRate) : generated.durationSeconds;
     return { generated, sampleRate, byteLength, estimatedSeconds };
+  }
+
+  function displayAssetForRow(asset) {
+    return draftAsset && draftSourceId === asset.id ? draftAsset : asset;
   }
 
   function adpcmSortValue(asset, key, index = 0) {
@@ -492,11 +471,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     const estimatedSeconds = byteLength ? byteLength * 2 / Math.max(1, sampleRate) : generated.durationSeconds;
     statsEl.innerHTML = `
       <div><span>Sample rate</span><strong>${esc(sampleRate)} Hz</strong></div>
-      <div><span>Divider</span><strong>${esc(asset.options?.divider ?? sampleRateToDivider(sampleRate))}</strong></div>
       <div><span>Length</span><strong>${esc(formatSeconds(estimatedSeconds))}</strong></div>
       <div><span>Limit</span><strong>${esc(formatBytes(adpcmMaxBytes(asset)))}</strong></div>
       <div><span>Size</span><strong>${esc(formatBytes(byteLength))}</strong></div>
-      <div><span>Address</span><strong>${esc(asset.options?.adpcmAddress ?? 0)}</strong></div>
     `;
     const files = [
       ['adpcm', generated.outputFile],
@@ -527,9 +504,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     formEl.elements.id.value = asset.id || '';
     formEl.elements.name.value = asset.name || asset.id || '';
     formEl.elements.sampleRate.value = asset.options?.sampleRate ?? generatedInfo(asset).sampleRate ?? 16000;
-    formEl.elements.adpcmAddress.value = asset.options?.adpcmAddress ?? 0;
-    formEl.elements.divider.value = asset.options?.divider ?? sampleRateToDivider(formEl.elements.sampleRate.value);
-    delete formEl.elements.divider.dataset.touched;
     formEl.elements.loop.checked = Boolean(asset.options?.loop);
     formEl.elements.stream.checked = Boolean(asset.options?.stream ?? asset.options?.streaming);
     renderStats(asset);
@@ -551,15 +525,16 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       return;
     }
     rowsEl.innerHTML = renderGroupedRows(samples, 7, (asset) => {
-      const { sampleRate, byteLength, estimatedSeconds } = adpcmListMetrics(asset);
+      const displayAsset = displayAssetForRow(asset);
+      const { sampleRate, byteLength, estimatedSeconds } = adpcmListMetrics(displayAsset);
       return `
         <tr class="pce-adpcm-row ${asset.id === selectedId ? 'active' : ''}" data-id="${esc(asset.id)}">
-          <td class="pce-adpcm-name-cell"><span>${esc(assetDisplayName(asset))}</span></td>
-          <td class="pce-adpcm-id-cell"><code>${esc(asset.id)}</code></td>
+          <td class="pce-adpcm-name-cell"><span>${esc(assetDisplayName(displayAsset))}</span></td>
+          <td class="pce-adpcm-id-cell"><code>${esc(displayAsset.id)}</code></td>
           <td>${esc(sampleRate)} Hz</td>
           <td>${esc(formatSeconds(estimatedSeconds))}</td>
           <td>${esc(formatBytes(byteLength))}</td>
-          <td>${asset.options?.loop ? '<span class="pce-adpcm-loop">Loop</span>' : '<span class="pce-adpcm-muted">-</span>'}</td>
+          <td>${displayAsset.options?.loop ? '<span class="pce-adpcm-loop">Loop</span>' : '<span class="pce-adpcm-muted">-</span>'}</td>
           <td class="pce-adpcm-row-actions">
             <button class="icon-btn-xs" type="button" data-row-play="${esc(asset.id)}" title="プレビュー" aria-label="プレビュー">▶</button>
             <button class="icon-btn-xs" type="button" data-row-delete="${esc(asset.id)}" title="削除" aria-label="削除">✕</button>
@@ -591,6 +566,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   }
 
   async function reload(options = {}) {
+    draftAsset = null;
+    draftSourceId = '';
     const result = await listPceAssets({ force: Boolean(options.force) });
     if (!result?.ok) {
       rowsEl.innerHTML = `<tr><td colspan="7" class="pce-adpcm-empty">${esc(result?.error || 'PCE assets を読み込めません')}</td></tr>`;
@@ -634,20 +611,34 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     if (!asset) return null;
     const id = safeId(formEl.elements.id.value, asset.id);
     const sampleRate = clampInt(formEl.elements.sampleRate.value, ADPCM_MIN_SAMPLE_RATE, ADPCM_MAX_SAMPLE_RATE, 16000);
+    const options = { ...(asset.options || {}) };
+    delete options.adpcmAddress;
+    delete options.divider;
+    delete options.streaming;
     return {
       ...asset,
       id,
       type: 'adpcm',
       name: String(formEl.elements.name.value || id).trim(),
       options: {
-        ...(asset.options || {}),
+        ...options,
         sampleRate,
-        adpcmAddress: clampInt(formEl.elements.adpcmAddress.value, 0, 65535, 0),
-        divider: clampInt(formEl.elements.divider.value, 0, 15, sampleRateToDivider(sampleRate)),
         loop: Boolean(formEl.elements.loop.checked),
         stream: Boolean(formEl.elements.stream.checked),
       },
     };
+  }
+
+  function updateDraftFromForm() {
+    const asset = collectFormAsset();
+    if (!asset) return;
+    draftAsset = asset;
+    draftSourceId = selectedId;
+    titleEl.textContent = asset.name || asset.id;
+    sourceEl.textContent = asset.source || '';
+    renderStats(asset);
+    renderRows();
+    setStatus('未保存の変更があります', 'warn');
   }
 
   async function saveSelected(event) {
@@ -675,6 +666,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       assets = deleted.assets || assets;
     }
     selectedId = asset.id;
+    draftAsset = null;
+    draftSourceId = '';
     setStatus('保存しました', 'ok');
     await reload();
   }
@@ -756,17 +749,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
                 <input class="form-input" name="name" value="${esc(baseName)}" />
               </label>
               <label class="form-group">
-                <span class="form-label">ADPCM address</span>
-                <input class="form-input" name="adpcmAddress" type="number" min="0" max="65535" value="0" />
-              </label>
-              <label class="form-group">
-                <span class="form-label">Divider</span>
-                <div class="pce-adpcm-field-action">
-                  <input class="form-input" name="divider" type="number" min="0" max="15" value="14" />
-                  <button class="icon-btn-xs" type="button" data-import-auto-divider title="Sample rate から divider を補完" aria-label="Sample rate から divider を補完">↺</button>
-                </div>
-              </label>
-              <label class="form-group">
                 <span class="form-label">Loop</span>
                 <label class="pce-adpcm-check"><input name="loop" type="checkbox" /><span>loop</span></label>
               </label>
@@ -776,7 +758,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
               </label>
               <label class="form-group pce-adpcm-wide">
                 <span class="form-label">Split</span>
-                <label class="pce-adpcm-check"><input name="splitPolicy" type="checkbox" checked /><span>16-bit size/address 制約に合わせて自動分割</span></label>
+                <label class="pce-adpcm-check"><input name="splitPolicy" type="checkbox" checked /><span>16-bit size 制約に合わせて自動分割</span></label>
               </label>
             </div>
             <div class="form-error" data-import-error></div>
@@ -789,17 +771,12 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       });
       const form = modal.panel.querySelector('form');
       const error = modal.panel.querySelector('[data-import-error]');
-      const syncDivider = () => {
-        form.elements.divider.value = sampleRateToDivider(form.elements.sampleRate.value);
-      };
       const syncStreaming = () => {
         const stream = Boolean(form.elements.stream.checked);
         form.elements.splitPolicy.disabled = stream;
         if (stream) form.elements.splitPolicy.checked = false;
       };
-      form.elements.sampleRate.addEventListener('input', syncDivider);
       form.elements.stream.addEventListener('change', syncStreaming);
-      modal.panel.querySelector('[data-import-auto-divider]').addEventListener('click', syncDivider);
       modal.panel.querySelectorAll('[data-import-cancel]').forEach((button) => {
         button.addEventListener('click', () => {
           modal.close();
@@ -822,8 +799,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           id,
           name: String(form.elements.name.value || id).trim(),
           sampleRate,
-          adpcmAddress: clampInt(form.elements.adpcmAddress.value, 0, 65535, 0),
-          divider: clampInt(form.elements.divider.value, 0, 15, sampleRateToDivider(sampleRate)),
           loop: Boolean(form.elements.loop.checked),
           stream,
           splitPolicy: !stream && Boolean(form.elements.splitPolicy.checked),
@@ -871,8 +846,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         id: details.id,
         name: details.name,
         sampleRate,
-        adpcmAddress: details.adpcmAddress,
-        divider: details.divider,
         loop: details.loop,
         stream: details.stream,
         processing: converted.processing || {},
@@ -896,12 +869,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
 
   formEl.addEventListener('submit', saveSelected);
   formEl.elements.sampleRate.addEventListener('input', () => {
-    if (!formEl.elements.divider.dataset.touched) {
-      formEl.elements.divider.value = sampleRateToDivider(formEl.elements.sampleRate.value);
-    }
+    updateDraftFromForm();
   });
-  formEl.elements.divider.addEventListener('input', () => {
-    formEl.elements.divider.dataset.touched = '1';
+  ['id', 'name', 'loop', 'stream'].forEach((name) => {
+    formEl.elements[name]?.addEventListener('input', updateDraftFromForm);
   });
   root.querySelectorAll('[data-sort-key]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -911,10 +882,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         : { key, direction: 'asc' };
       renderRows();
     });
-  });
-  root.querySelector('[data-action="auto-divider"]').addEventListener('click', () => {
-    formEl.elements.divider.value = sampleRateToDivider(formEl.elements.sampleRate.value);
-    delete formEl.elements.divider.dataset.touched;
   });
   root.querySelector('[data-action="add"]').addEventListener('click', () => { void importAdpcmAsset(); });
   root.querySelector('[data-action="refresh"]').addEventListener('click', () => { void reload({ force: true }); });

@@ -119,6 +119,47 @@
   font-size: 11px;
 }
 
+.pce-music-editor-shell .pce-plugin-items .pce-music-list-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  min-width: 0;
+}
+
+.pce-music-editor-shell .pce-plugin-items .pce-music-list-type {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pce-music-editor-shell .pce-plugin-items .pce-music-origin-tag {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  max-width: 100%;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.pce-music-editor-shell .pce-plugin-items .pce-music-origin-tag[data-kind="import"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pce-music-editor-shell .pce-plugin-items .pce-music-origin-tag[data-kind="designer"] {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+
 .pce-music-editor-shell .pce-plugin-group {
   padding: 8px 10px 6px calc(10px + var(--asset-group-indent, 0px));
   color: var(--muted);

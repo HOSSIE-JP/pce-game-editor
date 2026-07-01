@@ -73,8 +73,10 @@ test('PCE core manager exposes only PC Engine and creates PCE projects', async (
   assert.deepEqual(Object.keys(templates).sort(), ['template_pce_sample', 'template_pce_vn_cd']);
   assert.equal(templates.template_pce_sample.coreId, 'pc-engine');
   assert.equal(templates.template_pce_sample.targetMedia, 'hucard');
+  assert.equal(templates.template_pce_sample.builderPlugin, 'pce-slideshow-builder');
   assert.equal(templates.template_pce_vn_cd.coreId, 'pc-engine');
   assert.equal(templates.template_pce_vn_cd.targetMedia, 'cd');
+  assert.equal(templates.template_pce_vn_cd.builderPlugin, 'pce-visual-novel-builder');
 
   const created = coreManager.createProjectInParent('', 'demo_pce', {
     coreId: 'pc-engine',
@@ -83,7 +85,11 @@ test('PCE core manager exposes only PC Engine and creates PCE projects', async (
   const config = JSON.parse(fs.readFileSync(path.join(created.projectDir, 'project.json'), 'utf-8'));
   assert.equal(config.coreId, 'pc-engine');
   assert.equal(config.platform, 'pce');
-  assert.equal(config.pluginRoles.builder, 'pce-sample-builder');
+  assert.equal(config.pluginRoles.builder, 'pce-slideshow-builder');
+  assert.deepEqual(config.pluginSettings.enabled, {
+    'novel-editor': false,
+    'sound-editor': false,
+  });
 
   const result = await coreManager.buildProject(() => {}, {
     dryRun: true,
@@ -132,7 +138,7 @@ test('PCE legacy slideshow migration only replaces an exact old main.c match', (
   fs.writeFileSync(path.join(projectDir, 'project.json'), JSON.stringify({
     coreId: 'pc-engine',
     targetMedia: 'hucard',
-    pluginRoles: { builder: 'pce-sample-builder' },
+    pluginRoles: { builder: 'pce-slideshow-builder' },
   }), 'utf-8');
   fs.writeFileSync(path.join(projectDir, 'src', 'main.c'), legacySource, 'utf-8');
   fs.writeFileSync(path.join(templateDir, 'src', 'main.c'), replacementSource, 'utf-8');

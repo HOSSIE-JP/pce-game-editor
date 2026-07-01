@@ -518,9 +518,24 @@ function assetPixelSize(asset = {}) {
 }
 
 function previewPathForAsset(asset = {}) {
+  return previewPathCandidatesForAsset(asset)[0] || '';
+}
+
+function previewPathCandidatesForAsset(asset = {}) {
   const generated = asset?.data?.generated || {};
-  if (asset?.type === 'cdda-track' && generated.outputFile) return generated.outputFile;
-  return asset?.source || '';
+  const candidates = [];
+  const push = (value) => {
+    const path = String(value || '').trim();
+    if (path && !candidates.includes(path)) candidates.push(path);
+  };
+  if (asset?.type === 'cdda-track') {
+    push(generated.outputFile);
+    push(asset.source);
+  } else {
+    push(asset.source);
+    push(generated.outputFile);
+  }
+  return candidates;
 }
 
 function audioDurationSeconds(asset = {}) {
@@ -2511,14 +2526,64 @@ export function activatePlugin({ root, api, registerCapability }) {
     return options.join('');
   }
 
+  function decodeDataUrlText(dataUrl = '') {
+    const match = String(dataUrl || '').match(/^data:([^;,]+)?(;base64)?,(.*)$/);
+    if (!match) return '';
+    const payload = match[3] || '';
+    try {
+      if (match[2]) {
+        const binary = atob(payload);
+        const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+        return new TextDecoder('utf-8').decode(bytes);
+      }
+      return decodeURIComponent(payload);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  async function previewSourceFromGeneratedMetadata(asset = {}) {
+    const previewFile = String(asset?.data?.generated?.previewFile || '').trim();
+    if (!previewFile) return '';
+    try {
+      const result = await previewPceAssetSource(previewFile);
+      if (!result?.dataUrl) return '';
+      const parsed = JSON.parse(decodeDataUrlText(result.dataUrl) || '{}');
+      return String(parsed?.source || '').trim();
+    } catch (_) {
+      return '';
+    }
+  }
+
   async function resolveAssetDataUrl(asset) {
-    const previewPath = previewPathForAsset(asset);
-    if (!asset?.id || !previewPath) return '';
+    if (!asset?.id) return '';
     if (assetDataUrlCache.has(asset.id)) return assetDataUrlCache.get(asset.id);
-    const result = await previewPceAssetSource(previewPath);
-    const url = result?.dataUrl || '';
-    assetDataUrlCache.set(asset.id, url);
-    return url;
+    const candidates = previewPathCandidatesForAsset(asset);
+    const tryPreviewPath = async (previewPath) => {
+      try {
+        const result = await previewPceAssetSource(previewPath);
+        const url = result?.dataUrl || '';
+        if (url) {
+          assetDataUrlCache.set(asset.id, url);
+          return url;
+        }
+      } catch (_) {
+        // Try another known path. Missing files should not poison the preview
+        // cache; assets may be regenerated or reimported in the same session.
+      }
+      return '';
+    };
+    for (const previewPath of candidates) {
+      const url = await tryPreviewPath(previewPath);
+      if (url) return url;
+    }
+    const generatedSource = await previewSourceFromGeneratedMetadata(asset);
+    if (generatedSource && !candidates.includes(generatedSource)) {
+      const url = await tryPreviewPath(generatedSource);
+      if (url) return url;
+    }
+    assetDataUrlCache.delete(asset.id);
+    return '';
   }
 
   function makeStageImg(layer, kind, url, active) {
