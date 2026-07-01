@@ -511,6 +511,30 @@ test('PCE ADPCM import auto-splits assets that exceed runtime-safe size', () => 
   assert.deepEqual(assetManager.collectCdDataFiles(projectDir), parts.map((part) => part.data.generated.outputFile));
 });
 
+test('PCE ADPCM non-stream auto-split uses the direct-buffered safe ceiling', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-audio-direct-safe-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+
+  const result = assetManager.importAudio(projectDir, {
+    dataUrl: makeWavDataUrl(8000, 70000),
+    sourceFileName: 'long.wav',
+    kind: 'adpcm',
+    id: 'long_voice',
+    sampleRate: 8000,
+    splitPolicy: 'auto',
+  });
+  const parts = result.assets.filter((asset) => asset.data?.import?.groupId === 'long_voice');
+
+  assert.equal(result.asset.id, 'long_voice_part01');
+  assert.equal(result.conversion.partCount > 1, true);
+  assert.equal(parts.length, result.conversion.partCount);
+  for (const part of parts) {
+    assert.equal(part.data.import.maxAdpcmBytes, 32767);
+    assert.equal(fs.statSync(path.join(projectDir, part.data.generated.outputFile)).size <= 32767, true);
+  }
+});
+
 test('PCE ADPCM streaming import keeps long samples as one CD data file', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-audio-stream-');
@@ -1604,6 +1628,39 @@ test('PCE CD build streams large PSG patterns from CD and keeps small ones resid
   assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_blip_pattern\[\] PCE_EDITOR_RODATA_SECTION = \{/);
   assert.match(source, /pce_editor_psg_blip_pattern, 1u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
   assert.ok(!fs.existsSync(path.join(projectDir, 'assets/generated/psg/blip.bin')));
+});
+
+test('PCE PSG source generation sorts pattern entries for cursor playback', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-psg-sort-');
+  assetManager.writeAssetDocument(projectDir, {
+    version: 1,
+    assets: [
+      {
+        id: 'arp',
+        type: 'psg-sfx',
+        source: '',
+        options: {
+          bpm: 150,
+          steps: 8,
+          period: 512,
+          pattern: [
+            { step: 2, channel: 1, period: 768, volume: 8 },
+            { step: 0, channel: 2, period: 384, volume: 9 },
+            { step: 0, channel: 0, period: 512, volume: 10 },
+          ],
+        },
+      },
+    ],
+  });
+  const out = assetManager.generateAssetSources(projectDir);
+  const source = fs.readFileSync(out.sourcePath, 'utf-8');
+  const step0ch0 = source.indexOf('{ 0u, 0u, 512u, 10u, 0u, 0u }');
+  const step0ch2 = source.indexOf('{ 0u, 2u, 384u, 9u, 0u, 0u }');
+  const step2ch1 = source.indexOf('{ 2u, 1u, 768u, 8u, 0u, 0u }');
+  assert.ok(step0ch0 >= 0);
+  assert.ok(step0ch2 > step0ch0);
+  assert.ok(step2ch1 > step0ch2);
 });
 
 test('PCE PSG asset normalizes a master volume (default 100, clamped 0-100)', () => {
