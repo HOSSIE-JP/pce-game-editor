@@ -1499,13 +1499,20 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   // Resident SFX spread their PSG compensation ticks across the CD settle wait so
   // a sprite/BG load during playback no longer fast-forwards them into silence.
   assert.match(runtime, /if \(psg_active && !psg_pattern_banked\)[\s\S]*for \(wait = 0u; wait < \(65535u \/ VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES\); wait\+\+\) \{\}[\s\S]*service_psg_during_blocking_work\(\);/);
+  assert.match(runtime, /cd_transfer_wait_visual_cache_impl\(void\)[\s\S]*if \(psg_active && !psg_pattern_banked\)[\s\S]*service_psg_during_visual_cache_work\(\);[\s\S]*service_psg_during_visual_cache_frames\(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES\);/);
   assert.match(runtime, /cd_transfer_wait_visual_cache_impl\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);\r?\n        VN_MAP_VISUAL_CACHE_CODE\(\);\r?\n        vram_copy_sliced_from_visual_code_impl\(vram_dest, cd_transfer_scratch, chunk\);/);
   assert.match(runtime, /vram_copy_sliced_from_vn_data\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES\(\);[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*service_psg_during_blocking_work\(\);/);
   assert.match(runtime, /vram_copy_sliced_from_visual_code_impl\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES\(\);[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*service_psg_during_visual_cache_work\(\);[\s\S]*VN_MAP_VISUAL_CACHE_CODE\(\);/);
   assert.match(runtime, /cd_transfer_wait\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);/);
   assert.match(runtime, /if \(dest_col == 0u && copy_width_tiles == VN_MAP_WIDTH\)[\s\S]*contiguous_bytes[\s\S]*vram_copy_sliced_from_vn_data\(\(uint16_t\)\(dest \+ \(\(uint16_t\)row \* VN_MAP_WIDTH\)\), &cd_transfer_scratch\[local_offset\], contiguous_bytes\);/);
   assert.match(runtime, /pce_editor_vram_copy\(\(uint16_t\)\(dest \+ \(\(uint16_t\)row \* VN_MAP_WIDTH\)\), &cd_transfer_scratch\[local_offset\], row_bytes\);\r?\n            service_psg_during_blocking_work\(\);/);
+  assert.match(runtime, /clear_screen_map\(void\)[\s\S]*write_map_words\(\(uint16_t\)\(row \* VN_MAP_WIDTH\), clear_line, VN_MAP_WIDTH\);\r?\n        service_psg_during_blocking_work\(\);/);
+  assert.match(runtime, /clear_map_rect_at_dest\(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles\)[\s\S]*write_map_words\(\(uint16_t\)\(map_dest \+ \(\(uint16_t\)row \* VN_MAP_WIDTH\)\), clear_line, copy_width\);\r?\n        service_psg_during_blocking_work\(\);/);
+  assert.match(runtime, /clear_window_tile_pixels\(void\)[\s\S]*pce_editor_vram_copy\(\(uint16_t\)\(\(VN_MSG_STRIP_TILE_BASE \+ tr\) \* 16u\), msg_enc, 32u\);\r?\n        if \(\(tr & 0x0fu\) == 0x0fu\) service_psg_during_blocking_work\(\);/);
+  assert.match(runtime, /upload_bg_graphics\(const pce_editor_bg_asset_t \*bg, uint16_t map_dest, uint16_t bg_index\)[\s\S]*pce_editor_vram_copy\([\s\S]*row_bytes\r?\n        \);\r?\n        service_psg_during_blocking_work\(\);/);
+  assert.match(runtime, /enable_display_if_pending\(void\)[\s\S]*delay_frame\(\);\r?\n    service_psg_during_blocking_work\(\);/);
   assert.match(runtime, /fade_palette[\s\S]*delay_frame\(\);\r?\n        service_psg_during_blocking_work\(\);/);
+  assert.match(runtime, /set_background\(signed int bg_index[\s\S]*display_enable\(\);\r?\n        pending_display_enable = 0u;\r?\n        delay_frame\(\);\r?\n        service_psg_during_blocking_work\(\);/);
   assert.match(runtime, /tick_psg\(\);[\s\S]*map_vn_data\(\);[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);/);
   assert.match(runtime, /while \(frames--\)[\s\S]*service_psg_during_blocking_work\(\);/);
 });
@@ -2078,7 +2085,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(setBackgroundSource, /clear_bg_map_region\(next_bg, next_x, next_y\);/);
   assert.match(setBackgroundSource, /upload_bg_graphics\(next_bg, bg_map_dest_from_tile\(next_bg, next_x, next_y\), \(uint16_t\)bg_index\);[\s\S]*if \(current_scene_full_screen_bg\)[\s\S]*if \(restore_display_after_bg_load\) display_enable\(\);/);
   assert.match(setBackgroundSource, /current_bg_map_base = next_bg->map_base;[\s\S]*current_bg_width_tiles = next_bg->width_tiles;[\s\S]*current_bg_height_tiles = next_bg->height_tiles;/);
-  assert.match(setBackgroundSource, /else if \(pending_display_enable\)\n    \{\n        display_enable\(\);\n        pending_display_enable = 0u;\n        delay_frame\(\);\n    \}/);
+  assert.match(setBackgroundSource, /else if \(pending_display_enable\)\n    \{\n        display_enable\(\);\n        pending_display_enable = 0u;\n        delay_frame\(\);\n        service_psg_during_blocking_work\(\);\n    \}/);
   assert.match(setBackgroundSource, /if \(bg_fade_in_frames\)[\s\S]*fade_palette\(&next_bg->palette[\s\S]*if \(pending_sprite_refresh\)\n    \{\n        refresh_scene_sprites\(\);\n    \}/);
   assert.doesNotMatch(setBackgroundSource, /display_disable\(\);/);
   assert.doesNotMatch(setBackgroundSource, /preload_scene_assets/);

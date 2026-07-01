@@ -74,9 +74,9 @@ Visual payload cache は低位 RAM 利用の実験版として標準有効です
 
 ## PSG 補償 tick 調整 TIPS
 
-BG 切替や sprite/font/scene pack の同期 CD ロード中は main loop に戻らないため、PSG は `service_psg_during_blocking_work()` / `service_psg_during_blocking_frames()` で cooperative に進めます。調整対象は `template/template_pce_vn_cd/src/pce_vn_runtime.c` の次の 2 定数です。
+BG 切替や sprite/font/scene pack の同期 CD ロード中は main loop に戻らないため、PSG は `service_psg_during_blocking_work()` / `service_psg_during_blocking_frames()` で cooperative に進めます。CD/VRAM の大きい転送だけでなく、scene 遷移時の BAT 行クリア、resident BG map fallback、message window tile clear、display 復帰直後の待ち frame でも service を挟みます。調整対象は `template/template_pce_vn_cd/src/pce_vn_runtime.c` の次の 2 定数です。
 
-- `VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES`: CD read 1 chunk (`cd_transfer_wait()` / visual cache CD read wait) ごとの補償 tick。BG 切替中の PSG 全体が遅く聞こえる場合はまずこちらを上げます。既定は `20u`。
+- `VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES`: CD read 1 chunk (`cd_transfer_wait()` / visual cache CD read wait) ごとの補償 tick。BG 切替中の PSG 全体が遅く聞こえる場合はまずこちらを上げます。既定は `20u`。resident pattern は通常 path / visual cache path とも待ち時間へ分散 tick し、bank134/135 の大きい pattern は MPR6 競合を避けるため post-wait 補償のままにします。
 - `VN_VISUAL_VRAM_COPY_SLICE_BYTES`: PSG 再生中の BG/Sprite RAM/CD buffer→VRAM copy を分割する byte 数。標準は Geargrafx 確認後 `64u` です。PSG が鳴っていない場合は `VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES`（既定 1 sector）までまとめて転送します。CD-DA/PSG の途切れが残る場合はこの値をさらに小さくできますが、総転送時間は伸びます。
 
 調整の目安: CD read 待ちで PSG 全体が遅く聞こえるなら `CD_TRANSFER` を `+2..+4` ずつ上げます。VRAM 転送中の瞬間的な音切れや CD-DA 停止感が残る場合は `VN_VISUAL_VRAM_COPY_SLICE_BYTES` を小さくします。通常 frame loop の `tick_psg()` は通常再生テンポそのものなので、BG ロード中だけの補正では触らないでください。大きい PSG pattern は tick 中に MPR6 を bank134/bank135 へ切り替えるため、補償 helper の最後で `map_vn_data()` と `VN_MAP_BANK130_FOR_CODE()` を戻すルールは維持してください。

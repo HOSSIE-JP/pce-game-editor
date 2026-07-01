@@ -847,6 +847,7 @@ static void enable_display_if_pending(void)
     display_enable();
     pending_display_enable = 0;
     delay_frame();
+    service_psg_during_blocking_work();
 }
 
 static uint8_t read_pad_raw(void)
@@ -1394,6 +1395,16 @@ static void VN_VISUAL_CACHE_CODE visual_cache_invalidate_impl(uint8_t scope)
 static void VN_VISUAL_CACHE_CODE cd_transfer_wait_visual_cache_impl(void)
 {
     volatile uint16_t wait;
+    if (psg_active && !psg_pattern_banked)
+    {
+        uint8_t slice;
+        for (slice = 0u; slice < VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES; slice++)
+        {
+            for (wait = 0u; wait < (65535u / VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES); wait++) {}
+            service_psg_during_visual_cache_work();
+        }
+        return;
+    }
     for (wait = 0u; wait < 65535u; wait++) {}
     service_psg_during_visual_cache_frames(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES);
 }
@@ -2743,6 +2754,7 @@ static void clear_screen_map(void)
     for (row = 0; row < VN_MAP_HEIGHT; row++)
     {
         write_map_words((uint16_t)(row * VN_MAP_WIDTH), clear_line, VN_MAP_WIDTH);
+        service_psg_during_blocking_work();
     }
 }
 
@@ -2770,6 +2782,7 @@ static void clear_map_rect_at_dest(uint16_t map_dest, uint8_t width_tiles, uint8
     for (row = 0; row < copy_height; row++)
     {
         write_map_words((uint16_t)(map_dest + ((uint16_t)row * VN_MAP_WIDTH)), clear_line, copy_width);
+        service_psg_during_blocking_work();
     }
 }
 
@@ -2898,6 +2911,7 @@ static void VN_BANKED_CODE2 clear_window_tile_pixels(void)
     for (tr = 0u; tr < VN_MSG_TILE_COUNT; tr++)
     {
         pce_editor_vram_copy((uint16_t)((VN_MSG_STRIP_TILE_BASE + tr) * 16u), msg_enc, 32u);
+        if ((tr & 0x0fu) == 0x0fu) service_psg_during_blocking_work();
     }
     composer_prev_valid = 0u;
     composer_row = 0xffu;
@@ -3239,6 +3253,7 @@ static void upload_bg_graphics(const pce_editor_bg_asset_t *bg, uint16_t map_des
             map + ((uint16_t)row * row_bytes),
             row_bytes
         );
+        service_psg_during_blocking_work();
     }
     clear_bg_map_side_margins(map_dest, bg->width_tiles, bg->height_tiles);
 }
@@ -5354,12 +5369,14 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
         display_enable();
         pending_display_enable = 0u;
         delay_frame();
+        service_psg_during_blocking_work();
     }
     else if (pending_display_enable)
     {
         display_enable();
         pending_display_enable = 0u;
         delay_frame();
+        service_psg_during_blocking_work();
     }
     if (bg_fade_in_frames)
     {
