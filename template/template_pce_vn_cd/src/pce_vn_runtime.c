@@ -74,6 +74,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_ADPCM_BUFFERED_PLAY_FRAMES() (adpcm_voice_snapshot.play_frames > VN_ADPCM_BUFFERED_END_GUARD_FRAMES ? (uint16_t)(adpcm_voice_snapshot.play_frames - VN_ADPCM_BUFFERED_END_GUARD_FRAMES) : 1u)
 #define VN_ADPCM_BUFFERED_SAFE_BYTES 32767u
 #define VN_ADPCM_BUFFERED_HARDWARE_LENGTH 0xffffu
+#define VN_ADPCM_CD_READ_CHUNK_SECTORS 4u
 #define VN_PCD_IRQ_STATUS_ADPCM_END 0x08u
 #define VN_SATB_ADDR 0x7f00u
 #define VN_SPRITE_PATTERN_END_BASE (VN_SATB_ADDR / 32u)
@@ -149,7 +150,9 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_BG_IMPLICIT_FADE_FRAMES 6u
 #define VN_PSG_STEP_ACCUM_UNIT 3600u
 #define VN_PSG_STEPS_PER_BEAT 4u
-#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 24u
+#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 1u
+#define VN_VBLANK_CREDIT_MAX 8u
+#define VN_VBLANK_CREDIT_SERVICE_LIMIT 4u
 #define VN_VISUAL_VRAM_COPY_SLICE_BYTES 32u
 #define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES
 #define VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES() ((psg_active && psg_current) ? VN_VISUAL_VRAM_COPY_SLICE_BYTES : VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES)
@@ -174,6 +177,9 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_VISUAL_CACHE_OP_CLEAR_RUNTIME_CACHE 13u
 #define VN_VISUAL_CACHE_OP_TICK_SPRITE_ANIMATIONS 14u
 #define VN_VISUAL_CACHE_OP_LOAD_SPRITE_PATTERN_CACHE 15u
+#define VN_VISUAL_CACHE_OP_FADE_SCREEN 16u
+#define VN_VISUAL_CACHE_OP_RESTORE_SCREEN_PALETTE 17u
+#define VN_VISUAL_CACHE_OP_FLASH_SCREEN 18u
 #define REQUEST_SPRITE_REFRESH_FULL() (pending_sprite_refresh = VN_SPRITE_REFRESH_FULL)
 #define REQUEST_SPRITE_REFRESH_PATTERNS() do { \
     if (pending_sprite_refresh != VN_SPRITE_REFRESH_FULL) pending_sprite_refresh = VN_SPRITE_REFRESH_PATTERNS; \
@@ -362,6 +368,7 @@ static uint16_t psg_step = 0;
 static uint16_t psg_step_accum = 0;
 static uint16_t psg_pattern_cursor = 0;
 static uint8_t psg_vblank_seen = 0;
+static uint8_t vn_vblank_credit = 0;
 static const pce_editor_psg_asset_t *psg_current = (const pce_editor_psg_asset_t *)0;
 /* Resolved pattern for the active song: either the resident .rodata array
    (small patterns) or the bank134 CD-streamed buffer (large patterns). */
@@ -572,11 +579,15 @@ static void VN_RESIDENT_CODE service_psg_during_blocking_work(void);
 static void VN_RESIDENT_CODE service_psg_during_blocking_frames(uint8_t frames);
 static void VN_RESIDENT_CODE service_psg_during_visual_cache_work(void);
 static void VN_RESIDENT_CODE service_psg_during_visual_cache_frames(uint8_t frames);
+static void VN_RESIDENT_CODE service_psg_compensation_ticks(uint8_t frames, uint8_t restore_visual_cache);
 #if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
 static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(void);
 static uint8_t VN_VISUAL_CACHE_CODE draw_spritetext_slots_impl(uint8_t satb_index);
 static void VN_VISUAL_CACHE_CODE clear_runtime_cache_impl(uint8_t scope);
 static void VN_VISUAL_CACHE_CODE tick_sprite_animations_impl(void);
+static void VN_VISUAL_CACHE_CODE fade_current_screen_to_color_impl(uint16_t target, uint8_t frames);
+static void VN_VISUAL_CACHE_CODE restore_current_screen_palette_impl(void);
+static void VN_VISUAL_CACHE_CODE flash_screen_color_impl(uint16_t color, uint8_t frames);
 static void load_overlay_code(void);
 static void VN_BANKED_CODE load_visual_cache_code(void);
 #endif
@@ -751,7 +762,6 @@ static void delay_frame(void)
 {
 #if defined(__PCE_CD__)
     pce_ram_bank130_map();
-    service_adpcm_playback();
     vn_wait_next_vblank();
     service_cdda_playback();
     service_psg_during_blocking_frames(1u);
@@ -1066,10 +1076,27 @@ static inline void vn_map_io_page(void)
 {
     __asm__ volatile("lda #$ff\n\ttam #$01" ::: "a");
 }
+/* Slot4 (MPR4, CPU 0x8000-0x9FFF) is time-shared between bank130 code, the
+   bank133 overlay and the bank121 visual cache. Cooperative audio services can
+   be reached from any of those contexts, so they must restore the exact bank
+   that was mapped on entry -- an unconditional bank130 restore unmaps an
+   overlay/visual-cache caller and its RTS lands in the wrong bank's bytes. */
+static inline uint8_t vn_slot4_current_bank(void)
+{
+    uint8_t bank;
+    __asm__ volatile("tma #$10" : "=a"(bank));
+    return bank;
+}
+static inline void vn_slot4_map_bank(uint8_t bank)
+{
+    __asm__ volatile("tam #$10" : : "a"(bank));
+}
 #else
 static inline uint8_t vn_vdc_irq_lock(void) { return 0u; }
 static inline void vn_vdc_irq_unlock(uint8_t flags) { (void)flags; }
 static inline void vn_map_io_page(void) {}
+static inline uint8_t vn_slot4_current_bank(void) { return 0u; }
+static inline void vn_slot4_map_bank(uint8_t bank) { (void)bank; }
 #endif
 
 static void VN_BANKED_CODE vn_vdc_set_copy_word(void)
@@ -1203,28 +1230,24 @@ static void cd_sector_end_from_count(pce_sector_t *dest, const pce_sector_t *sta
 static void cd_transfer_wait(void)
 {
     volatile uint16_t wait;
-    /* A resident PSG pattern (small SFX / short song in .rodata) never remaps MPR6
-       during its sequencer tick, so its compensation ticks can be spread across the
-       CD settle wait. This advances the sequencer smoothly in real time instead of
-       firing all VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES ticks in one instant burst
-       after the wait, which previously fast-forwarded a short one-shot SFX to its
-       end (silencing it) whenever a sprite/BG load ran during playback. Total settle
-       time and tick count are unchanged. */
+    /* This wait is normally paired with one 2048-byte CD sector. Its compensation
+       tick is PSG-only: ADPCM playback length follows real VBlank credit, not
+       this synthetic CD settle time. */
     if (psg_active && !psg_pattern_banked)
     {
         uint8_t slice;
         for (slice = 0u; slice < VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES; slice++)
         {
             for (wait = 0u; wait < (65535u / VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES); wait++) {}
-            service_psg_during_blocking_frames(1u);
+            service_psg_compensation_ticks(1u, 0u);
         }
         return;
     }
-    /* No PSG playing, or a CD-streamed pattern (bank134/135): keep the original
-       settle wait + single post-wait compensation burst, so the per-tick bank remap
-       of a streamed pattern can never race the CD DMA targeting bank132. */
+    /* No PSG playing, or a CD-streamed pattern (bank134/135): keep a single
+       post-wait PSG compensation so the bank134/135 MPR6 remap cannot overlap the
+       CD DMA target bank132. */
     for (wait = 0u; wait < 65535u; wait++) {}
-    service_psg_during_blocking_frames(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES);
+    service_psg_compensation_ticks(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES, 0u);
 }
 
 static void VN_BANKED_CODE quiet_cd_unit_irqs(void);
@@ -1578,12 +1601,12 @@ static void VN_VISUAL_CACHE_CODE cd_transfer_wait_visual_cache_impl(void)
         for (slice = 0u; slice < VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES; slice++)
         {
             for (wait = 0u; wait < (65535u / VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES); wait++) {}
-            service_psg_during_visual_cache_frames(1u);
+            service_psg_compensation_ticks(1u, 1u);
         }
         return;
     }
     for (wait = 0u; wait < 65535u; wait++) {}
-    service_psg_during_visual_cache_frames(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES);
+    service_psg_compensation_ticks(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES, 1u);
 }
 
 static void VN_VISUAL_CACHE_CODE vram_copy_sliced_from_visual_code_impl(uint16_t dest, const uint8_t *source, uint16_t length)
@@ -1847,6 +1870,21 @@ static uint8_t VN_VISUAL_CACHE_ENTRY_CODE visual_cache_entry(uint8_t op)
     if (visual_op == VN_VISUAL_CACHE_OP_TICK_SPRITE_ANIMATIONS)
     {
         tick_sprite_animations_impl();
+        return 0u;
+    }
+    if (visual_op == VN_VISUAL_CACHE_OP_FADE_SCREEN)
+    {
+        fade_current_screen_to_color_impl(vn_visual_cache_arg_dest, vn_visual_cache_arg_x);
+        return 0u;
+    }
+    if (visual_op == VN_VISUAL_CACHE_OP_RESTORE_SCREEN_PALETTE)
+    {
+        restore_current_screen_palette_impl();
+        return 0u;
+    }
+    if (visual_op == VN_VISUAL_CACHE_OP_FLASH_SCREEN)
+    {
+        flash_screen_color_impl(vn_visual_cache_arg_dest, vn_visual_cache_arg_x);
         return 0u;
     }
     return 0u;
@@ -2690,7 +2728,7 @@ static uint16_t scale_vce_color(uint16_t raw, uint8_t step, uint8_t frames)
     return (uint16_t)((g << 6) | (r << 3) | b);
 }
 
-static uint16_t VN_BANKED_CODE2 mix_vce_color(uint16_t from, uint16_t to, uint16_t step, uint8_t frames)
+static uint16_t VN_VISUAL_CACHE_CODE mix_vce_color(uint16_t from, uint16_t to, uint16_t step, uint8_t frames)
 {
     uint16_t b;
     uint16_t r;
@@ -2740,7 +2778,13 @@ static void write_ui_text_palette(uint16_t color)
     }
 }
 
-static void VN_BANKED_CODE2 fade_current_screen_to_color(uint16_t target, uint8_t frames)
+static void VN_VISUAL_CACHE_CODE delay_frame_visual_cache_impl(void)
+{
+    vn_wait_next_vblank();
+    service_psg_during_visual_cache_frames(1u);
+}
+
+static void VN_VISUAL_CACHE_CODE fade_current_screen_to_color_impl(uint16_t target, uint8_t frames)
 {
     uint16_t step;
     uint8_t i;
@@ -2770,12 +2814,12 @@ static void VN_BANKED_CODE2 fade_current_screen_to_color(uint16_t target, uint8_
         vce_write_color(0u, mix_vce_color(0x0000u, target, step, frames));
         if (frames)
         {
-            delay_frame();
+            delay_frame_visual_cache_impl();
         }
     }
 }
 
-static void VN_BANKED_CODE2 restore_current_screen_palette(void)
+static void VN_VISUAL_CACHE_CODE restore_current_screen_palette_impl(void)
 {
     if (current_bg_index >= 0 && current_bg_palette_size)
     {
@@ -2785,16 +2829,38 @@ static void VN_BANKED_CODE2 restore_current_screen_palette(void)
     write_ui_text_palette(ui_text_color_word(ui_text_color));
 }
 
-static void VN_BANKED_CODE2 flash_screen_color(uint16_t color, uint8_t frames)
+static void VN_VISUAL_CACHE_CODE flash_screen_color_impl(uint16_t color, uint8_t frames)
 {
     uint8_t i;
-    fade_current_screen_to_color(color, 0u);
+    fade_current_screen_to_color_impl(color, 0u);
     if (!frames) frames = 1u;
     for (i = 0u; i < frames; i++)
     {
-        delay_frame();
+        delay_frame_visual_cache_impl();
     }
-    restore_current_screen_palette();
+    restore_current_screen_palette_impl();
+}
+
+static void VN_BANKED_CODE2 fade_current_screen_to_color(uint16_t target, uint8_t frames)
+{
+    if (!vn_visual_cache_code_loaded) return;
+    vn_visual_cache_arg_dest = target;
+    vn_visual_cache_arg_x = frames;
+    (void)visual_cache_call(VN_VISUAL_CACHE_OP_FADE_SCREEN);
+}
+
+static void VN_BANKED_CODE2 restore_current_screen_palette(void)
+{
+    if (!vn_visual_cache_code_loaded) return;
+    (void)visual_cache_call(VN_VISUAL_CACHE_OP_RESTORE_SCREEN_PALETTE);
+}
+
+static void VN_BANKED_CODE2 flash_screen_color(uint16_t color, uint8_t frames)
+{
+    if (!vn_visual_cache_code_loaded) return;
+    vn_visual_cache_arg_dest = color;
+    vn_visual_cache_arg_x = frames;
+    (void)visual_cache_call(VN_VISUAL_CACHE_OP_FLASH_SCREEN);
 }
 
 static void upload_ui_palette(void)
@@ -3917,7 +3983,9 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
     uint8_t loaded = 0u;
     uint8_t same_loaded;
     uint8_t stopped_playback = 0u;
+#if !VN_ADPCM_CD_READ_CHUNK_SECTORS
     uint8_t cd_read_count = 0u;
+#endif
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
     if (voice_index < 0) return 0u;
     if (!copy_adpcm_voice(voice_index)) return 0u;
@@ -3969,10 +4037,34 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
         pce_sector_t sector = {0};
         const uint16_t sector_count = adpcm_voice_snapshot.cd_sector_count;
         const uint8_t read_count = sector_count > 255u ? 255u : (uint8_t)sector_count;
+#if VN_ADPCM_CD_READ_CHUNK_SECTORS
+        uint8_t remaining = read_count;
+        unsigned int adpcm_address = adpcm_voice_snapshot.adpcm_address;
+#else
         cd_read_count = read_count;
+#endif
         prepare_cd_data_access();
         cd_sector_from_ref(&sector, &adpcm_voice_snapshot.cd_sector);
+#if VN_ADPCM_CD_READ_CHUNK_SECTORS
+        loaded = 1u;
+        while (remaining)
+        {
+            uint8_t chunk = remaining;
+            if (chunk > VN_ADPCM_CD_READ_CHUNK_SECTORS) chunk = VN_ADPCM_CD_READ_CHUNK_SECTORS;
+            loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, chunk, adpcm_address));
+            if (!loaded) break;
+            if (!wait_adpcm_cd_transfer_ready(chunk))
+            {
+                loaded = 0u;
+                break;
+            }
+            remaining = (uint8_t)(remaining - chunk);
+            adpcm_address = (unsigned int)(adpcm_address + ((unsigned int)chunk << 11));
+            while (chunk--) cd_sector_advance(&sector);
+        }
+#else
         loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, read_count, adpcm_voice_snapshot.adpcm_address));
+#endif
     }
     else
     {
@@ -3989,6 +4081,7 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
     }
     if (adpcm_voice_snapshot.has_cd)
     {
+#if !VN_ADPCM_CD_READ_CHUNK_SECTORS
         if (!wait_adpcm_cd_transfer_ready(cd_read_count))
         {
             map_resident_data();
@@ -3997,6 +4090,7 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
             restore_display_after_adpcm(restore_display);
             return 0u;
         }
+#endif
     }
     else if (!wait_adpcm_transfer_ready())
     {
@@ -4523,6 +4617,7 @@ static void VN_BANKED_CODE2 play_psg_asset(signed int asset_index, uint8_t base_
     psg_active = 1u;
     psg_apply_step_row(0u);
     psg_vblank_seen = 0u;
+    vn_vblank_credit = 0u;
 }
 
 static void VN_BANKED_CODE2 tick_psg(void)
@@ -4556,8 +4651,17 @@ static void VN_BANKED_CODE2 tick_psg(void)
 static void VN_RESIDENT_CODE service_psg_ticks(uint8_t frames, uint8_t restore_visual_cache)
 {
 #if defined(__PCE_CD__)
+    uint8_t slot4_bank;
     if (!frames) return;
     if (!psg_active || !psg_current) return;
+    /* Save/restore the caller's slot4 bank instead of forcing bank130 (or the
+       visual cache) back in. This service is reached from bank130 code, from
+       bank121 visual-cache impls AND from the bank133 overlay (e.g.
+       refresh_scene_sprite_patterns_impl -> upload_sprite_pattern_words). An
+       unconditional bank130 restore unmapped the overlay caller, so its return
+       executed bank130 bytes at the overlay address and crashed into the I/O
+       page whenever PSG/ADPCM was active during a sprite refresh. */
+    slot4_bank = vn_slot4_current_bank();
     pce_ram_bank130_map();
     while (frames--)
     {
@@ -4567,11 +4671,36 @@ static void VN_RESIDENT_CODE service_psg_ticks(uint8_t frames, uint8_t restore_v
        CD/BG loaders resume by reading bank132 scratch or metadata, so leave that
        slot in the VN data state after the cooperative audio tick. */
     map_vn_data();
-    if (restore_visual_cache) VN_MAP_VISUAL_CACHE_CODE();
-    else VN_MAP_BANK130_FOR_CODE();
+    vn_slot4_map_bank(slot4_bank);
+    (void)restore_visual_cache;
 #else
     (void)frames;
     (void)restore_visual_cache;
+#endif
+}
+
+static void VN_RESIDENT_CODE vn_record_vblank_frames(uint8_t frames)
+{
+#if defined(__PCE_CD__)
+    uint8_t room;
+    if (!frames) return;
+    room = (uint8_t)(VN_VBLANK_CREDIT_MAX - vn_vblank_credit);
+    if (frames > room) vn_vblank_credit = VN_VBLANK_CREDIT_MAX;
+    else vn_vblank_credit = (uint8_t)(vn_vblank_credit + frames);
+#else
+    (void)frames;
+#endif
+}
+
+static uint8_t VN_RESIDENT_CODE vn_consume_vblank_credit(void)
+{
+#if defined(__PCE_CD__)
+    uint8_t frames = vn_vblank_credit;
+    if (frames > VN_VBLANK_CREDIT_SERVICE_LIMIT) frames = VN_VBLANK_CREDIT_SERVICE_LIMIT;
+    vn_vblank_credit = (uint8_t)(vn_vblank_credit - frames);
+    return frames;
+#else
+    return 1u;
 #endif
 }
 
@@ -4583,35 +4712,44 @@ static uint8_t VN_RESIDENT_CODE psg_vblank_elapsed(void)
     if (!in_vblank)
     {
         psg_vblank_seen = 0u;
-        return 0u;
     }
-    if (psg_vblank_seen) return 0u;
-    psg_vblank_seen = 1u;
-    return 1u;
+    else if (!psg_vblank_seen)
+    {
+        psg_vblank_seen = 1u;
+        vn_record_vblank_frames(1u);
+    }
+    return vn_consume_vblank_credit();
 #else
     return 1u;
 #endif
 }
 
-static void VN_RESIDENT_CODE psg_mark_frame_serviced(void)
+static void VN_RESIDENT_CODE service_psg_compensation_ticks(uint8_t frames, uint8_t restore_visual_cache)
 {
 #if defined(__PCE_CD__)
-    psg_vblank_seen = (uint8_t)((*IO_VDC_STATUS & VDC_FLAG_VBLANK) ? 1u : 0u);
+    if (!psg_active || !psg_current) return;
+    service_psg_ticks(frames, restore_visual_cache);
+#else
+    service_psg_ticks(frames, restore_visual_cache);
 #endif
 }
 
 static void VN_RESIDENT_CODE service_adpcm_during_blocking_frames(uint8_t frames, uint8_t restore_visual_cache)
 {
 #if defined(__PCE_CD__)
+    uint8_t slot4_bank;
     if (!frames) return;
     if (!adpcm_play_active) return;
+    /* Same slot4 save/restore contract as service_psg_ticks: callers may be
+       executing from the bank133 overlay or the bank121 visual cache. */
+    slot4_bank = vn_slot4_current_bank();
     pce_ram_bank130_map();
     while (frames--)
     {
         service_adpcm_playback();
     }
-    if (restore_visual_cache) VN_MAP_VISUAL_CACHE_CODE();
-    else VN_MAP_BANK130_FOR_CODE();
+    vn_slot4_map_bank(slot4_bank);
+    (void)restore_visual_cache;
 #else
     (void)frames;
     (void)restore_visual_cache;
@@ -4632,10 +4770,13 @@ static void VN_RESIDENT_CODE service_psg_during_blocking_work(void)
 
 static void VN_RESIDENT_CODE service_psg_during_blocking_frames(uint8_t frames)
 {
+#if defined(__PCE_CD__)
+    vn_record_vblank_frames(frames);
+    frames = vn_consume_vblank_credit();
+#endif
     service_adpcm_during_blocking_frames(frames, 0u);
     if (!psg_active || !psg_current) return;
     service_psg_ticks(frames, 0u);
-    psg_mark_frame_serviced();
 }
 
 static void VN_RESIDENT_CODE service_psg_during_visual_cache_work(void)
@@ -4652,16 +4793,20 @@ static void VN_RESIDENT_CODE service_psg_during_visual_cache_work(void)
 
 static void VN_RESIDENT_CODE service_psg_during_visual_cache_frames(uint8_t frames)
 {
+#if defined(__PCE_CD__)
+    vn_record_vblank_frames(frames);
+    frames = vn_consume_vblank_credit();
+#endif
     service_adpcm_during_blocking_frames(frames, 1u);
     if (!psg_active || !psg_current) return;
     service_psg_ticks(frames, 1u);
-    psg_mark_frame_serviced();
 }
 
 static void VN_BANKED_CODE2 init_psg_service(void)
 {
 #if defined(__PCE_CD__)
     psg_vblank_seen = 0u;
+    vn_vblank_credit = 0u;
 #endif
 }
 
@@ -5262,7 +5407,7 @@ static void VN_RESIDENT_CODE clear_spritetext_slots(void)
 #endif
 }
 
-static signed char VN_RESIDENT_CODE shake_offset_for_frame(uint8_t frame, uint8_t intensity)
+static signed char VN_BANKED_CODE2 shake_offset_for_frame(uint8_t frame, uint8_t intensity)
 {
     uint8_t phase = (uint8_t)(frame & 3u);
     signed char value = (signed char)intensity;
