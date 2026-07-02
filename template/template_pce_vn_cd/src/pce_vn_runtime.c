@@ -153,12 +153,32 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 1u
 #define VN_VBLANK_CREDIT_MAX 8u
 #define VN_VBLANK_CREDIT_SERVICE_LIMIT 4u
+/* 1 = drive the audio credit counter from the HuC6280 TIMER IRQ (~60Hz) so PSG
+   tempo and the ADPCM frame countdown keep advancing through blocking System
+   Card CD/ADPCM BIOS calls. The ISR is credit-only: it never touches PSG
+   registers, MPR2-7, or the VDC (the earlier IRQ-driven PSG attempt corrupted
+   sprites/BG precisely because its handler did real work). 0 = previous
+   cooperative VBlank-edge polling with blind CD compensation ticks. */
+#define VN_PSG_TIMER_IRQ_DRIVER 1
+#define VN_PSG_TIMER_HZ 60u
+/* Estimated frames per CD chunk (blocking BIOS sector read + SCSI settle
+   wait) while the timer is handed to the BIOS. Tuned against Geargrafx. */
+#define VN_CD_CHUNK_ESTIMATED_FRAMES 4u
 #define VN_VISUAL_VRAM_COPY_SLICE_BYTES 32u
 #define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES
 #define VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES() ((psg_active && psg_current) ? VN_VISUAL_VRAM_COPY_SLICE_BYTES : VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES)
 #define VN_VISUAL_CODE_RESERVED_SECTORS 4u
+/* The System Card uses the HuC6280 TIMER internally while its CD/ADPCM BIOS
+   helpers run (it reprograms the reload and relies on its own TIQ handling;
+   leaving the $20F5 TIMER dispatch bit set during CD_READ hangs the read).
+   The TIMER credit driver therefore owns the timer only BETWEEN BIOS calls:
+   the quiet mask keeps the TIMER bit and every $20F5 restore stays
+   EXTERNAL-only, exactly like the pre-driver state, and vn_psg_timer_own()
+   re-asserts the TIMER dispatch bit afterwards. */
 #define VN_CDB_IRQ_MASK_RUNTIME_QUIET ((uint8_t)(PCE_CDB_MASK_IRQ_EXTERNAL | PCE_CDB_MASK_IRQ_VDC | PCE_CDB_MASK_IRQ_TIMER | PCE_CDB_MASK_NMI | PCE_CDB_MASK_HBLANK | PCE_CDB_MASK_HBLANK_NO_BIOS | PCE_CDB_MASK_VBLANK | PCE_CDB_MASK_VBLANK_NO_BIOS))
+#define VN_CDB_BIOS_IRQ_MASK_IDLE ((uint8_t)PCE_CDB_MASK_IRQ_EXTERNAL)
 #define VN_PCD_IRQ_STATUS_ALL 0x0fu
+
 #define VN_BG_UPLOAD_DISPLAY_DISABLE() display_disable()
 #define VN_SPRITE_REFRESH_NONE 0u
 #define VN_SPRITE_REFRESH_PATTERNS 1u
@@ -251,6 +271,79 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_OVERLAY_ENTRY_CODE
 #define VN_MAP_BANK130_FOR_CODE() ((void)0)
 #define VN_MAP_VISUAL_CACHE_CODE() ((void)0)
+#endif
+
+#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
+/* Every System Card CD/ADPCM/CD-DA BIOS helper must run with the audio timer
+   handed back to the BIOS: the BIOS reprograms the timer for its own CD
+   pacing and relies on its internal TIQ handling, and entering e.g. CD_READ
+   with our $20F5 TIMER dispatch bit still set parks the BIOS in its
+   $E73x-$E82x IRQ dispatcher forever. Route every BIOS primitive through a
+   release()-first wrapper so no call site can be missed; ownership is
+   re-acquired at the next cd_transfer_wait() / quiet_cd_unit_irqs(). The
+   wrappers are static inline so bank121/bank133 callers inline them and only
+   the resident-callable vn_psg_timer_release() is shared. */
+static void VN_BANKED_CODE vn_psg_timer_release(void);
+static inline uint8_t vn_cdb_cd_read_guarded(pce_sector_t sector, uint8_t address_type, uint16_t address, uint16_t length)
+{
+    vn_psg_timer_release();
+    return pce_cdb_cd_read(sector, address_type, address, length);
+}
+static inline uint8_t vn_cdb_adpcm_read_from_cd_guarded(pce_sector_t sector, uint8_t length, uint16_t address)
+{
+    vn_psg_timer_release();
+    return pce_cdb_adpcm_read_from_cd(sector, length, address);
+}
+static inline uint8_t vn_cdb_adpcm_read_from_ram_guarded(uint8_t source_type, uint16_t source, uint16_t dest, uint16_t length)
+{
+    vn_psg_timer_release();
+    return pce_cdb_adpcm_read_from_ram(source_type, source, dest, length);
+}
+static inline uint8_t vn_cdb_adpcm_play_guarded(uint16_t address, uint16_t length, uint8_t divider, uint8_t mode)
+{
+    vn_psg_timer_release();
+    return pce_cdb_adpcm_play(address, length, divider, mode);
+}
+static inline void vn_cdb_adpcm_stop_guarded(void)
+{
+    vn_psg_timer_release();
+    pce_cdb_adpcm_stop();
+}
+static inline void vn_cdb_adpcm_reset_guarded(void)
+{
+    vn_psg_timer_release();
+    pce_cdb_adpcm_reset();
+}
+static inline uint8_t vn_cdb_adpcm_stream_guarded(pce_sector_t sector, pce_sector_t length, uint8_t divider)
+{
+    vn_psg_timer_release();
+    return pce_cdb_adpcm_stream(sector, length, divider);
+}
+static inline uint16_t vn_cdb_adpcm_status_guarded(void)
+{
+    vn_psg_timer_release();
+    return pce_cdb_adpcm_status();
+}
+static inline uint8_t vn_cdb_cdda_play_guarded(uint8_t start_type, pce_sector_t start, uint8_t end_type, pce_sector_t end, uint8_t mode)
+{
+    vn_psg_timer_release();
+    return pce_cdb_cdda_play(start_type, start, end_type, end, mode);
+}
+static inline uint8_t vn_cdb_cdda_pause_guarded(void)
+{
+    vn_psg_timer_release();
+    return pce_cdb_cdda_pause();
+}
+#define pce_cdb_cd_read(...) vn_cdb_cd_read_guarded(__VA_ARGS__)
+#define pce_cdb_adpcm_read_from_cd(...) vn_cdb_adpcm_read_from_cd_guarded(__VA_ARGS__)
+#define pce_cdb_adpcm_read_from_ram(...) vn_cdb_adpcm_read_from_ram_guarded(__VA_ARGS__)
+#define pce_cdb_adpcm_play(...) vn_cdb_adpcm_play_guarded(__VA_ARGS__)
+#define pce_cdb_adpcm_stop() vn_cdb_adpcm_stop_guarded()
+#define pce_cdb_adpcm_reset() vn_cdb_adpcm_reset_guarded()
+#define pce_cdb_adpcm_stream(...) vn_cdb_adpcm_stream_guarded(__VA_ARGS__)
+#define pce_cdb_adpcm_status() vn_cdb_adpcm_status_guarded()
+#define pce_cdb_cdda_play(...) vn_cdb_cdda_play_guarded(__VA_ARGS__)
+#define pce_cdb_cdda_pause() vn_cdb_cdda_pause_guarded()
 #endif
 
 /* Overlay op-dispatch (Path B, full-8KB unlock). All resident->overlay calls go
@@ -368,7 +461,16 @@ static uint16_t psg_step = 0;
 static uint16_t psg_step_accum = 0;
 static uint16_t psg_pattern_cursor = 0;
 static uint8_t psg_vblank_seen = 0;
-static uint8_t vn_vblank_credit = 0;
+/* Audio frame credit. With VN_PSG_TIMER_IRQ_DRIVER it is incremented by the
+   TIQ handler (so it must be volatile) and consumed by the resident service
+   helpers under a masked TIMER IRQ; without the driver it is recorded from
+   VBlank edges as before. */
+volatile uint8_t vn_vblank_credit = 0;
+#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
+/* 1 while the runtime owns the HuC6280 timer (see vn_psg_timer_own). Also
+   read by the IRQ1 quiet handler to preserve the $20F5 TIMER dispatch bit. */
+static uint8_t vn_timer_owned = 0;
+#endif
 static const pce_editor_psg_asset_t *psg_current = (const pce_editor_psg_asset_t *)0;
 /* Resolved pattern for the active song: either the resident .rodata array
    (small patterns) or the bank134 CD-streamed buffer (large patterns). */
@@ -783,7 +885,13 @@ static void VN_BANKED_CODE vn_cd_irq1_quiet_handler(void)
     *IO_PCD_CONTROL = 0u;
     *IO_PCD_STATUS = VN_PCD_IRQ_STATUS_ALL;
     *VN_CDB_IRQ_PENDING_FLAGS = 0u;
-    *VN_CDB_BIOS_IRQ_MASK = PCE_CDB_MASK_IRQ_EXTERNAL;
+#if VN_PSG_TIMER_IRQ_DRIVER
+    /* Preserve the TIMER dispatch bit while the audio timer is owned: losing
+       it here would leave TIQ deliverable with no acking handler. */
+    *VN_CDB_BIOS_IRQ_MASK = (uint8_t)(vn_timer_owned ? (VN_CDB_BIOS_IRQ_MASK_IDLE | PCE_CDB_MASK_IRQ_TIMER) : VN_CDB_BIOS_IRQ_MASK_IDLE);
+#else
+    *VN_CDB_BIOS_IRQ_MASK = VN_CDB_BIOS_IRQ_MASK_IDLE;
+#endif
     pce_irq_disable(IRQ_VDC);
     *IO_IRQ_ACK = IRQ_VDC;
 #endif
@@ -1227,9 +1335,69 @@ static void cd_sector_end_from_count(pce_sector_t *dest, const pce_sector_t *sta
     while (count--) cd_sector_advance(dest);
 }
 
+#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
+/* Cooperative TIMER ownership. vn_timer_owned gates the reload write so the
+   once-per-frame re-own cannot reset the counter phase (a reload rewrite each
+   VBlank would starve TIQ forever); the $20F5/IDR bits are re-asserted on
+   every own() because quiet paths and the System Card clear them behind the
+   flag's back. True ADPCM streaming leaves all CD IRQ timing to the BIOS. */
+static void VN_BANKED_CODE vn_psg_timer_own(void)
+{
+    if (adpcm_stream_active) return;
+    if (!vn_timer_owned)
+    {
+        pce_timer_set(PCE_FREQ_TO_TIMER(VN_PSG_TIMER_HZ));
+        pce_timer_enable();
+        vn_timer_owned = 1u;
+    }
+    pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_TIMER);
+    pce_irq_enable(IRQ_TIMER);
+}
+
+static void VN_BANKED_CODE vn_psg_timer_release(void)
+{
+    if (!vn_timer_owned) return;
+    /* Order matters: mask TIQ delivery BEFORE clearing the $20F5 dispatch
+       bit. A TIQ that fires while the bit is clear falls into the System
+       Card's default path, which never acks it, and the CPU parks in the
+       BIOS IRQ dispatcher forever. */
+    pce_irq_disable(IRQ_TIMER);
+    pce_timer_disable();
+    pce_cdb_irq_disable(PCE_CDB_MASK_IRQ_TIMER);
+    vn_timer_owned = 0u;
+}
+
+/* Estimated credit for the blocking BIOS sector read the timer cannot see
+   (~0.8 frame per 2048-byte sector at 1x). Unguarded RMW: a TIQ landing in
+   the middle at worst drops one credit, which is harmless. */
+#define VN_ADD_ESTIMATED_FRAME() do {     if (vn_vblank_credit < VN_VBLANK_CREDIT_MAX) vn_vblank_credit++; } while (0)
+#endif
+
+/* Opens the System Card external-IRQ window right before a CD/ADPCM/CD-DA
+   BIOS helper. With the TIMER driver this also hands the timer hardware back
+   to the BIOS (which reprograms it for its own CD pacing/timeouts). */
+static void VN_BANKED_CODE vn_cd_bios_irq_open(void)
+{
+#if defined(__PCE_CD__)
+#if VN_PSG_TIMER_IRQ_DRIVER
+    vn_psg_timer_release();
+#endif
+    pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+#endif
+}
+
 static void cd_transfer_wait(void)
 {
     volatile uint16_t wait;
+#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
+    /* Do NOT re-own the timer here: the System Card CD state machine is still
+       settling between chunk reads, and reprogramming the timer mid-sequence
+       hangs the next CD_READ in the BIOS IRQ dispatcher. Credit the blocked
+       span (read + settle) with a bounded estimate instead; ownership returns
+       at the next quiet_cd_unit_irqs() once the whole sequence is done. */
+    uint8_t est;
+    for (est = 0u; est < VN_CD_CHUNK_ESTIMATED_FRAMES; est++) VN_ADD_ESTIMATED_FRAME();
+#endif
     /* This wait is normally paired with one 2048-byte CD sector. Its compensation
        tick is PSG-only: ADPCM playback length follows real VBlank credit, not
        this synthetic CD settle time. */
@@ -1270,8 +1438,20 @@ static void VN_BANKED_CODE quiet_cd_unit_irqs(void)
     *IO_PCD_CONTROL = 0u;
     *IO_PCD_STATUS = VN_PCD_IRQ_STATUS_ALL;
     *VN_CDB_IRQ_PENDING_FLAGS = 0u;
-    *VN_CDB_BIOS_IRQ_MASK = PCE_CDB_MASK_IRQ_EXTERNAL;
+#if VN_PSG_TIMER_IRQ_DRIVER
+    /* Single write, TIMER dispatch bit preserved while owned: a clear-then-
+       re-enable pair would open a window where a TIQ lands on the System
+       Card's default (non-acking) path and hangs the CPU. */
+    *VN_CDB_BIOS_IRQ_MASK = (uint8_t)(vn_timer_owned ? (VN_CDB_BIOS_IRQ_MASK_IDLE | PCE_CDB_MASK_IRQ_TIMER) : VN_CDB_BIOS_IRQ_MASK_IDLE);
+#else
+    *VN_CDB_BIOS_IRQ_MASK = VN_CDB_BIOS_IRQ_MASK_IDLE;
+#endif
     pce_irq_disable(IRQ_VDC);
+#if VN_PSG_TIMER_IRQ_DRIVER
+    /* Runs once per frame (vn_wait_next_vblank) and after every BIOS helper:
+       re-acquire the audio timer whenever the CD unit is quiet. */
+    vn_psg_timer_own();
+#endif
 #endif
 }
 
@@ -1281,6 +1461,12 @@ static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call(void)
     if (!adpcm_stream_active)
     {
         pce_cdb_irq_set(PCE_CDB_ID_IRQ_VDC, vn_cd_irq1_quiet_handler);
+#if VN_PSG_TIMER_IRQ_DRIVER
+        /* The QUIET disable clears the $20F5 TIMER dispatch bit; mask TIQ
+           first (release) so no unackable TIQ can land in the window. The
+           trailing quiet_cd_unit_irqs() re-owns the timer. */
+        vn_psg_timer_release();
+#endif
         pce_cdb_irq_disable(VN_CDB_IRQ_MASK_RUNTIME_QUIET);
         quiet_cd_unit_irqs();
         if (adpcm_stream_irq_open)
@@ -1300,6 +1486,9 @@ static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call(void)
 static void VN_RESIDENT_CODE mask_buffered_adpcm_completion_irq(void)
 {
 #if defined(__PCE_CD__)
+#if VN_PSG_TIMER_IRQ_DRIVER
+    vn_psg_timer_release();
+#endif
     pce_cdb_irq_disable(VN_CDB_IRQ_MASK_RUNTIME_QUIET);
     quiet_cd_unit_irqs();
 #endif
@@ -1409,7 +1598,7 @@ static void VN_RESIDENT_CODE prepare_cd_data_access(void)
 {
     const uint8_t restore_display_after_pause = (uint8_t)!pending_display_enable;
 #if defined(__PCE_CD__)
-    pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+    vn_cd_bios_irq_open();
 #endif
     if (!cdda_active) return;
     (void)pce_cdb_cdda_pause();
@@ -1432,7 +1621,7 @@ static void VN_BANKED_CODE resume_cdda_after_cd_data_access(void)
     cdda_resume_end.md = 0u;
     cdda_resume_end.hi = 0u;
     cdda_sector_from_remaining(cdda_current);
-    pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+    vn_cd_bios_irq_open();
     (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, cdda_resume_end, PCE_CDB_CDDA_PLAY_ONE_SHOT);
     cdda_active = 1u;
     cdda_resume_pending = 0u;
@@ -1595,6 +1784,10 @@ static void VN_VISUAL_CACHE_CODE visual_cache_invalidate_impl(uint8_t scope)
 static void VN_VISUAL_CACHE_CODE cd_transfer_wait_visual_cache_impl(void)
 {
     volatile uint16_t wait;
+#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
+    uint8_t est;
+    for (est = 0u; est < VN_CD_CHUNK_ESTIMATED_FRAMES; est++) VN_ADD_ESTIMATED_FRAME();
+#endif
     if (psg_active && !psg_pattern_banked)
     {
         uint8_t slice;
@@ -3752,7 +3945,7 @@ static void play_cdda_track(const pce_editor_cdda_asset_t *cdda)
     uint8_t loop;
     const uint8_t restore_display_after_cdda = (uint8_t)!pending_display_enable;
     if (!cdda) return;
-    pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+    vn_cd_bios_irq_open();
     track = cdda->track;
     loop = cdda->loop;
     const uint8_t mode = PCE_CDB_CDDA_PLAY_ONE_SHOT;
@@ -3799,7 +3992,7 @@ static void service_cdda_playback(void)
             start.md = cdda_current->start_sector.md;
             start.hi = cdda_current->start_sector.hi;
             cdda_frames_remaining = cdda_current->play_frames;
-            pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+            vn_cd_bios_irq_open();
             (void)pce_cdb_cdda_pause();
             (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, start, PCE_CDB_LOCATION_TYPE_UNTIL_END, end, PCE_CDB_CDDA_PLAY_ONE_SHOT);
             cdda_active = 1u;
@@ -3809,7 +4002,7 @@ static void service_cdda_playback(void)
         else
         {
             const uint8_t restore_display_after_pause = (uint8_t)!pending_display_enable;
-            pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+            vn_cd_bios_irq_open();
             (void)pce_cdb_cdda_pause();
             cdda_active = 0u;
             cdda_has_frame_limit = 0u;
@@ -3828,7 +4021,7 @@ static void stop_cdda_track(void)
 {
 #if defined(__PCE_CD__)
     const uint8_t restore_display_after_pause = (uint8_t)!pending_display_enable;
-    pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+    vn_cd_bios_irq_open();
     (void)pce_cdb_cdda_pause();
     cdda_active = 0u;
     cdda_has_frame_limit = 0u;
@@ -3952,7 +4145,7 @@ static uint8_t VN_RESIDENT_CODE wait_adpcm_transfer_ready(void)
 #endif
 }
 
-static uint8_t VN_BANKED_CODE wait_adpcm_cd_transfer_ready(uint8_t sectors)
+static uint8_t VN_BANKED_CODE2 wait_adpcm_cd_transfer_ready(uint8_t sectors)
 {
 #if defined(__PCE_CD__)
     if (!sectors) sectors = 1u;
@@ -3967,7 +4160,7 @@ static uint8_t VN_BANKED_CODE wait_adpcm_cd_transfer_ready(uint8_t sectors)
 #endif
 }
 
-static void VN_BANKED_CODE restore_display_after_adpcm(uint8_t restore_display)
+static void VN_BANKED_CODE2 restore_display_after_adpcm(uint8_t restore_display)
 {
 #if defined(__PCE_CD__)
     restore_video_after_cdb_call(restore_display);
@@ -3996,7 +4189,7 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
         if (!allow_stop_playback) return same_loaded ? 1u : 0u;
         if (adpcm_stream_active)
         {
-            pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+            vn_cd_bios_irq_open();
             pce_cdb_adpcm_stop();
             (void)wait_adpcm_transfer_ready();
         }
@@ -4023,7 +4216,7 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
     loaded_adpcm_valid = 0u;
     adpcm_play_active = 0u;
     adpcm_play_frames_remaining = 0u;
-    pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+    vn_cd_bios_irq_open();
     pce_cdb_adpcm_reset();
     if (!wait_adpcm_transfer_ready())
     {
@@ -4128,7 +4321,7 @@ static uint8_t VN_BANKED_CODE2 stream_adpcm_voice(signed int voice_index)
     {
         if (adpcm_stream_active)
         {
-            pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+            vn_cd_bios_irq_open();
             pce_cdb_adpcm_stop();
             (void)wait_adpcm_transfer_ready();
         }
@@ -4285,7 +4478,7 @@ static void VN_BANKED_CODE stop_adpcm_voice(void)
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
     if (adpcm_stream_active)
     {
-        pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+        vn_cd_bios_irq_open();
         pce_cdb_adpcm_stop();
         (void)wait_adpcm_transfer_ready();
         pce_cdb_adpcm_reset();
@@ -4555,7 +4748,7 @@ static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(void)
     return 1u;
 }
 
-static uint8_t VN_BANKED_CODE load_psg_pattern_cd(const pce_editor_psg_asset_t *asset)
+static uint8_t VN_BANKED_CODE2 load_psg_pattern_cd(const pce_editor_psg_asset_t *asset)
 {
     uint8_t result;
     (void)asset;
@@ -4679,25 +4872,69 @@ static void VN_RESIDENT_CODE service_psg_ticks(uint8_t frames, uint8_t restore_v
 #endif
 }
 
+#if defined(__PCE_CD__) && !VN_PSG_TIMER_IRQ_DRIVER
 static void VN_RESIDENT_CODE vn_record_vblank_frames(uint8_t frames)
 {
-#if defined(__PCE_CD__)
     uint8_t room;
     if (!frames) return;
     room = (uint8_t)(VN_VBLANK_CREDIT_MAX - vn_vblank_credit);
     if (frames > room) vn_vblank_credit = VN_VBLANK_CREDIT_MAX;
     else vn_vblank_credit = (uint8_t)(vn_vblank_credit + frames);
-#else
-    (void)frames;
-#endif
 }
+#endif
+
+#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
+/* TIQ handler, reached through the System Card TIMER soft vector installed by
+   pce_cdb_irq_set(PCE_CDB_ID_IRQ_TIMER, ...). Credit-only by contract: acks
+   the timer IRQ and bumps vn_vblank_credit (bounded), nothing else. It MUST
+   NOT touch PSG registers, MPR2-7, the VDC, or call banked helpers -- the
+   earlier IRQ-driven PSG attempt corrupted sprites/BG because its handler did
+   real work while main-thread VDC/bank sequences were in flight. A/X/Y and
+   MPR0 are saved around the C credit bump so no main-thread state leaks. */
+static void VN_BANKED_CODE vn_psg_timer_irq_handler(void)
+{
+    /* The System Card dispatches the TIMER soft vector with JMP, not JSR:
+       the hook saves registers itself and returns with RTI. An RTS return
+       here unbalances the stack and crashes into wild execution. */
+    __asm__ volatile(
+        "pha\n\t"
+        "phx\n\t"
+        "phy\n\t"
+        "tma #$01\n\t"
+        "pha\n\t"
+        "lda #$ff\n\t"
+        "tam #$01\n\t"
+        "sta $1403" ::: "memory");
+    if (vn_vblank_credit < VN_VBLANK_CREDIT_MAX) vn_vblank_credit++;
+    __asm__ volatile(
+        "pla\n\t"
+        "tam #$01\n\t"
+        "ply\n\t"
+        "plx\n\t"
+        "pla\n\t"
+        "rti" ::: "memory");
+}
+#endif
 
 static uint8_t VN_RESIDENT_CODE vn_consume_vblank_credit(void)
 {
 #if defined(__PCE_CD__)
-    uint8_t frames = vn_vblank_credit;
+    uint8_t frames;
+#if VN_PSG_TIMER_IRQ_DRIVER
+    /* Mask TIQ across the read-modify-write so an ISR increment cannot land
+       between the load and the store. CPU-level SEI is not used here because
+       callers may already hold vn_vdc_irq_lock(). Only while owned: during
+       BIOS-call windows the timer belongs to the System Card and the ISR
+       cannot fire, so the plain RMW is already atomic. */
+    const uint8_t owned = vn_timer_owned;
+    if (owned) pce_irq_disable(IRQ_TIMER);
+#endif
+    frames = vn_vblank_credit;
     if (frames > VN_VBLANK_CREDIT_SERVICE_LIMIT) frames = VN_VBLANK_CREDIT_SERVICE_LIMIT;
     vn_vblank_credit = (uint8_t)(vn_vblank_credit - frames);
+#if VN_PSG_TIMER_IRQ_DRIVER
+    if (owned) pce_irq_enable(IRQ_TIMER);
+#endif
     return frames;
 #else
     return 1u;
@@ -4707,6 +4944,11 @@ static uint8_t VN_RESIDENT_CODE vn_consume_vblank_credit(void)
 static uint8_t VN_RESIDENT_CODE psg_vblank_elapsed(void)
 {
 #if defined(__PCE_CD__)
+#if VN_PSG_TIMER_IRQ_DRIVER
+    /* Timer credits already measure elapsed frames; no VDC status read here,
+       so the VBlank latch is left for vn_wait_next_vblank() alone. */
+    return vn_consume_vblank_credit();
+#else
     vn_map_io_page();
     const uint8_t in_vblank = (uint8_t)((*IO_VDC_STATUS & VDC_FLAG_VBLANK) ? 1u : 0u);
     if (!in_vblank)
@@ -4719,6 +4961,7 @@ static uint8_t VN_RESIDENT_CODE psg_vblank_elapsed(void)
         vn_record_vblank_frames(1u);
     }
     return vn_consume_vblank_credit();
+#endif
 #else
     return 1u;
 #endif
@@ -4726,7 +4969,14 @@ static uint8_t VN_RESIDENT_CODE psg_vblank_elapsed(void)
 
 static void VN_RESIDENT_CODE service_psg_compensation_ticks(uint8_t frames, uint8_t restore_visual_cache)
 {
-#if defined(__PCE_CD__)
+#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
+    /* CD settle waits no longer need blind PSG-only ticks: timer credits track
+       the real elapsed time, and feeding BOTH services keeps the PSG path from
+       stealing ADPCM countdown frames. */
+    (void)frames;
+    (void)restore_visual_cache;
+    service_psg_during_blocking_frames(0u);
+#elif defined(__PCE_CD__)
     if (!psg_active || !psg_current) return;
     service_psg_ticks(frames, restore_visual_cache);
 #else
@@ -4770,7 +5020,12 @@ static void VN_RESIDENT_CODE service_psg_during_blocking_work(void)
 
 static void VN_RESIDENT_CODE service_psg_during_blocking_frames(uint8_t frames)
 {
-#if defined(__PCE_CD__)
+#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
+    /* The TIQ handler is the only credit source: explicitly reported frames
+       would double-count time the timer has already recorded. */
+    (void)frames;
+    frames = vn_consume_vblank_credit();
+#elif defined(__PCE_CD__)
     vn_record_vblank_frames(frames);
     frames = vn_consume_vblank_credit();
 #endif
@@ -4793,7 +5048,10 @@ static void VN_RESIDENT_CODE service_psg_during_visual_cache_work(void)
 
 static void VN_RESIDENT_CODE service_psg_during_visual_cache_frames(uint8_t frames)
 {
-#if defined(__PCE_CD__)
+#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
+    (void)frames;
+    frames = vn_consume_vblank_credit();
+#elif defined(__PCE_CD__)
     vn_record_vblank_frames(frames);
     frames = vn_consume_vblank_credit();
 #endif
@@ -4807,6 +5065,15 @@ static void VN_BANKED_CODE2 init_psg_service(void)
 #if defined(__PCE_CD__)
     psg_vblank_seen = 0u;
     vn_vblank_credit = 0u;
+#if VN_PSG_TIMER_IRQ_DRIVER
+    /* Install the credit-only TIQ hook and take first ownership of the audio
+       timer. Ownership is released before every CD/ADPCM/CD-DA BIOS helper
+       (vn_cd_bios_irq_open) because the System Card reprograms the timer for
+       its own CD pacing, and re-acquired by quiet_cd_unit_irqs() once per
+       frame / after each helper. */
+    pce_cdb_irq_set(PCE_CDB_ID_IRQ_TIMER, vn_psg_timer_irq_handler);
+    vn_psg_timer_own();
+#endif
 #endif
 }
 
