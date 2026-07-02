@@ -161,9 +161,11 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
    cooperative VBlank-edge polling with blind CD compensation ticks. */
 #define VN_PSG_TIMER_IRQ_DRIVER 1
 #define VN_PSG_TIMER_HZ 60u
-/* Estimated frames per CD chunk (blocking BIOS sector read + SCSI settle
-   wait) while the timer is handed to the BIOS. Tuned against Geargrafx. */
-#define VN_CD_CHUNK_ESTIMATED_FRAMES 4u
+/* Estimated frames per cd_transfer_wait() sector/read-slice while the timer is
+   handed to the BIOS. A 1x CD sector is about 0.8 frame; keeping this at 1 and
+   consuming it in each wait prevents ADPCM voice loads from banking a large
+   catch-up burst when PSG is already playing. */
+#define VN_CD_CHUNK_ESTIMATED_FRAMES 1u
 #define VN_VISUAL_VRAM_COPY_SLICE_BYTES 32u
 #define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES
 #define VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES() ((psg_active && psg_current) ? VN_VISUAL_VRAM_COPY_SLICE_BYTES : VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES)
@@ -200,6 +202,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_VISUAL_CACHE_OP_FADE_SCREEN 16u
 #define VN_VISUAL_CACHE_OP_RESTORE_SCREEN_PALETTE 17u
 #define VN_VISUAL_CACHE_OP_FLASH_SCREEN 18u
+#define VN_VISUAL_CACHE_OP_SERVICE_CDDA 19u
 #define REQUEST_SPRITE_REFRESH_FULL() (pending_sprite_refresh = VN_SPRITE_REFRESH_FULL)
 #define REQUEST_SPRITE_REFRESH_PATTERNS() do { \
     if (pending_sprite_refresh != VN_SPRITE_REFRESH_FULL) pending_sprite_refresh = VN_SPRITE_REFRESH_PATTERNS; \
@@ -375,6 +378,8 @@ static inline uint8_t vn_cdb_cdda_pause_guarded(void)
 #define VN_OVERLAY_OP_SET_VARIABLE 17u
 /* a0 = PSG step number. Pure PSG/MMIO + MPR6 bank134/135 reads; no bank130 calls. */
 #define VN_OVERLAY_OP_APPLY_PSG_STEP 18u
+/* a0 = ADPCM asset index. Snapshot copy only; no bank130 calls. */
+#define VN_OVERLAY_OP_COPY_ADPCM_VOICE 19u
 #if defined(__PCE_CD__)
 typedef uint8_t (*vn_overlay_entry_fn_t)(uint8_t, uint16_t, uint16_t, uint8_t);
 #define VN_OVERLAY_CALL(op, a0, a1, a2) \
@@ -671,12 +676,15 @@ static void VN_BANKED_CODE refresh_scene_sprites(void);
 static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache);
 static uint8_t scene_pack_command_count(const vn_scene_pack_cache_t *cache);
 #if defined(__PCE_CD__)
-static void service_cdda_playback(void);
+static void VN_BANKED_CODE service_cdda_playback(void);
+static void VN_VISUAL_CACHE_CODE service_cdda_playback_impl(void);
 static void VN_BANKED_CODE2 service_adpcm_playback(void);
 static void VN_BANKED_CODE stop_adpcm_voice(void);
 static void VN_BANKED_CODE quiet_cd_unit_irqs(void);
 #endif
+static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset_index, uint8_t slot);
 static void VN_BANKED_CODE2 tick_psg(void);
+static void VN_RESIDENT_CODE service_psg_ticks(uint8_t frames, uint8_t restore_visual_cache);
 static void VN_RESIDENT_CODE service_psg_during_blocking_work(void);
 static void VN_RESIDENT_CODE service_psg_during_blocking_frames(uint8_t frames);
 static void VN_RESIDENT_CODE service_psg_during_visual_cache_work(void);
@@ -684,6 +692,7 @@ static void VN_RESIDENT_CODE service_psg_during_visual_cache_frames(uint8_t fram
 static void VN_RESIDENT_CODE service_psg_compensation_ticks(uint8_t frames, uint8_t restore_visual_cache);
 #if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
 static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(void);
+static void VN_VISUAL_CACHE_CODE service_cdda_playback_impl(void);
 static uint8_t VN_VISUAL_CACHE_CODE draw_spritetext_slots_impl(uint8_t satb_index);
 static void VN_VISUAL_CACHE_CODE clear_runtime_cache_impl(uint8_t scope);
 static void VN_VISUAL_CACHE_CODE tick_sprite_animations_impl(void);
@@ -860,7 +869,7 @@ static void VN_BANKED_CODE vn_wait_next_vblank(void)
 #endif
 }
 
-static void delay_frame(void)
+static void VN_BANKED_CODE delay_frame(void)
 {
 #if defined(__PCE_CD__)
     pce_ram_bank130_map();
@@ -2080,6 +2089,11 @@ static uint8_t VN_VISUAL_CACHE_ENTRY_CODE visual_cache_entry(uint8_t op)
         flash_screen_color_impl(vn_visual_cache_arg_dest, vn_visual_cache_arg_x);
         return 0u;
     }
+    if (visual_op == VN_VISUAL_CACHE_OP_SERVICE_CDDA)
+    {
+        service_cdda_playback_impl();
+        return 0u;
+    }
     return 0u;
 }
 
@@ -2290,7 +2304,7 @@ static uint8_t VN_BANKED_CODE2 cd_bg_map_ref_to_vram(uint16_t dest, const pce_ed
 }
 #endif
 
-static uint8_t scene_pack_has_range(const vn_scene_pack_cache_t *cache, uint16_t offset, uint16_t length)
+static uint8_t VN_OVERLAY_CODE scene_pack_has_range(const vn_scene_pack_cache_t *cache, uint16_t offset, uint16_t length)
 {
     if (!cache || !cache->valid || !cache->data) return 0u;
     if (offset > cache->size) return 0u;
@@ -2299,14 +2313,16 @@ static uint8_t scene_pack_has_range(const vn_scene_pack_cache_t *cache, uint16_t
 
 static uint8_t scene_pack_u8(const vn_scene_pack_cache_t *cache, uint16_t offset)
 {
-    if (!scene_pack_has_range(cache, offset, 1u)) return 0u;
+    if (!cache || !cache->valid || !cache->data) return 0u;
+    if (offset >= cache->size) return 0u;
     return cache->data[offset];
 }
 
 /* Overlay (bank133) functions: they are called only by the overlay scene-pack
    readers (and s16->u16), so they live in the overlay alongside them rather than
    inlining (which bloated the overlay) or sitting in bank130 (unreachable from the
-   overlay). has_range / u8 stay resident (bank128), which the overlay may call. */
+   overlay). u8 stays resident because spritetext command scanning also uses it;
+   has_range is overlay-only to keep bank128 below its fixed resident budget. */
 static uint16_t VN_OVERLAY_CODE scene_pack_u16(const vn_scene_pack_cache_t *cache, uint16_t offset)
 {
     if (!scene_pack_has_range(cache, offset, 2u)) return 0u;
@@ -2865,7 +2881,7 @@ static const pce_editor_psg_asset_t *VN_BANKED_CODE vn_get_psg_asset(uint16_t id
 static pce_editor_cdda_asset_t g_cdda_cache;
 static uint16_t g_cdda_cache_key;
 
-static const pce_editor_cdda_asset_t *VN_RESIDENT_CODE vn_get_cdda_asset(uint16_t idx)
+static const pce_editor_cdda_asset_t *VN_BANKED_CODE2 vn_get_cdda_asset(uint16_t idx)
 {
     const uint8_t *p;
     const uint16_t key = (uint16_t)(idx + 1u);
@@ -3935,7 +3951,7 @@ static uint8_t VN_BANKED_CODE call_overlay_show_sprite_slot(uint8_t i)
 #endif
 }
 
-static void play_cdda_track(const pce_editor_cdda_asset_t *cdda)
+static void VN_BANKED_CODE2 play_cdda_track(const pce_editor_cdda_asset_t *cdda)
 {
 #if defined(__PCE_CD__)
     pce_sector_t start = {0};
@@ -3976,7 +3992,7 @@ static void play_cdda_track(const pce_editor_cdda_asset_t *cdda)
 #endif
 }
 
-static void service_cdda_playback(void)
+static void VN_VISUAL_CACHE_CODE service_cdda_playback_impl(void)
 {
 #if defined(__PCE_CD__)
     if (!cdda_active || !cdda_has_frame_limit || !cdda_current) return;
@@ -4017,7 +4033,18 @@ static void service_cdda_playback(void)
 #endif
 }
 
-static void stop_cdda_track(void)
+static void VN_BANKED_CODE service_cdda_playback(void)
+{
+#if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
+    if (!vn_visual_cache_code_loaded) load_visual_cache_code();
+    if (!vn_visual_cache_code_loaded) return;
+    (void)visual_cache_call(VN_VISUAL_CACHE_OP_SERVICE_CDDA);
+#elif defined(__PCE_CD__)
+    service_cdda_playback_impl();
+#endif
+}
+
+static void VN_BANKED_CODE2 stop_cdda_track(void)
 {
 #if defined(__PCE_CD__)
     const uint8_t restore_display_after_pause = (uint8_t)!pending_display_enable;
@@ -4064,7 +4091,7 @@ static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer(void)
 #endif
 }
 
-static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
+static uint8_t VN_OVERLAY_CODE copy_adpcm_voice_impl(signed int voice_index)
 {
 #if defined(__PCE_CD__)
     const pce_editor_adpcm_asset_t *voice;
@@ -4122,6 +4149,16 @@ static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
 #endif
 }
 
+static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
+{
+#if defined(__PCE_CD__)
+    return vn_overlay_dispatch(VN_OVERLAY_OP_COPY_ADPCM_VOICE, (uint16_t)(int16_t)voice_index, 0u, 0u);
+#else
+    (void)voice_index;
+    return 0u;
+#endif
+}
+
 static uint8_t VN_RESIDENT_CODE adpcm_playback_active(void)
 {
 #if defined(__PCE_CD__)
@@ -4131,13 +4168,24 @@ static uint8_t VN_RESIDENT_CODE adpcm_playback_active(void)
 #endif
 }
 
-static uint8_t VN_RESIDENT_CODE wait_adpcm_transfer_ready(void)
+static uint8_t VN_BANKED_CODE2 wait_adpcm_transfer_ready(void)
 {
 #if defined(__PCE_CD__)
     uint16_t guard = 65535u;
     while (guard && (pce_cdb_adpcm_status() & ADPCM_BUSY))
     {
         guard--;
+#if VN_PSG_TIMER_IRQ_DRIVER
+        /* ADPCM reset/read busy waits can hold the timer in System Card
+           ownership with no cd_transfer_wait() calls. Tick PSG sparsely here,
+           but do not feed service_adpcm_playback(): this same wait is used by
+           stop/reset paths while ADPCM bookkeeping is intentionally being torn
+           down. */
+        if ((guard & 0x0fffu) == 0u && psg_active && psg_current)
+        {
+            service_psg_ticks(1u, 0u);
+        }
+#endif
     }
     return guard ? 1u : 0u;
 #else
@@ -4813,6 +4861,45 @@ static void VN_BANKED_CODE2 play_psg_asset(signed int asset_index, uint8_t base_
     vn_vblank_credit = 0u;
 }
 
+static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset_index, uint8_t slot)
+{
+    const uint8_t kind = (uint8_t)(flags & 0x0fu);
+    const uint8_t action = (uint8_t)(flags & 0xf0u);
+#if defined(__PCE_CD__)
+    if (kind == PCE_VN_AUDIO_KIND_ADPCM)
+    {
+        if (action == PCE_VN_AUDIO_ACTION_STOP) stop_adpcm_voice();
+        else play_adpcm_voice(asset_index);
+    }
+    else if (kind == PCE_VN_AUDIO_KIND_PSG)
+    {
+        if (action == PCE_VN_AUDIO_ACTION_STOP) stop_psg();
+        else play_psg_asset(asset_index, slot);
+    }
+    else
+    {
+        if (action == PCE_VN_AUDIO_ACTION_STOP) stop_cdda_track();
+        else if (asset_index >= 0 && (unsigned int)asset_index < pce_editor_cdda_asset_count)
+        {
+            const pce_editor_cdda_asset_t *cdda = vn_get_cdda_asset((uint16_t)asset_index);
+            play_cdda_track(cdda);
+        }
+    }
+#else
+    if (kind == PCE_VN_AUDIO_KIND_PSG)
+    {
+        if (action == PCE_VN_AUDIO_ACTION_STOP) stop_psg();
+        else play_psg_asset(asset_index, slot);
+    }
+    else
+    {
+        (void)action;
+        (void)asset_index;
+        (void)slot;
+    }
+#endif
+}
+
 static void VN_BANKED_CODE2 tick_psg(void)
 {
     uint16_t step_accum;
@@ -5323,6 +5410,7 @@ static uint8_t VN_OVERLAY_ENTRY_CODE vn_overlay_entry(uint8_t op, uint16_t a0, u
     if (o == VN_OVERLAY_OP_MAP_WAIT_CELL) { map_message_wait_indicator_cell_impl((uint8_t)a2); return 0u; }
     if (o == VN_OVERLAY_OP_SET_VARIABLE) { set_variable_value_impl((signed int)(int16_t)a0, (signed int)(int16_t)a1); return 0u; }
     if (o == VN_OVERLAY_OP_APPLY_PSG_STEP) { psg_apply_step_row_impl(a0); return 0u; }
+    if (o == VN_OVERLAY_OP_COPY_ADPCM_VOICE) return copy_adpcm_voice_impl((signed int)(int16_t)a0);
     return 0u;
 }
 #endif
@@ -6469,35 +6557,8 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
     }
     else if (command->type == PCE_VN_COMMAND_AUDIO)
     {
-        const uint8_t kind = (uint8_t)(command->flags & 0x0fu);
-        const uint8_t action = (uint8_t)(command->flags & 0xf0u);
-        if (kind == PCE_VN_AUDIO_KIND_ADPCM)
-        {
-            if (action == PCE_VN_AUDIO_ACTION_STOP) stop_adpcm_voice();
-            else play_adpcm_voice(command->asset_index);
-        }
-        else if (kind == PCE_VN_AUDIO_KIND_PSG)
-        {
-            if (action == PCE_VN_AUDIO_ACTION_STOP)
-            {
-                VN_MAP_BANK130_FOR_CODE();
-                stop_psg();
-            }
-            else
-            {
-                VN_MAP_BANK130_FOR_CODE();
-                play_psg_asset(command->asset_index, command->slot);
-            }
-        }
-        else
-        {
-            if (action == PCE_VN_AUDIO_ACTION_STOP) stop_cdda_track();
-            else if (command->asset_index >= 0 && (unsigned int)command->asset_index < pce_editor_cdda_asset_count)
-            {
-                const pce_editor_cdda_asset_t *cdda = vn_get_cdda_asset((uint16_t)command->asset_index);
-                play_cdda_track(cdda);
-            }
-        }
+        VN_MAP_BANK130_FOR_CODE();
+        handle_audio_command(command->flags, command->asset_index, command->slot);
     }
     else if (command->type == PCE_VN_COMMAND_CACHE)
     {
