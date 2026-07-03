@@ -248,6 +248,7 @@ const VN_SCENE_PACK_MAGIC = Buffer.from('PVNS');
 const VN_CD_SECTOR_BYTES = 2048;
 const VN_ADPCM_FRAME_RATE = 60;
 const VN_ADPCM_END_PAD_FRAMES = 2;
+const VN_ADPCM_BUFFERED_SAFE_BYTES = 32767;
 // Mirror the runtime ADPCM rate quantization (pce_vn_runtime.c adpcm_code_sample_rate /
 // adpcm_rate_code): the PCE ADPCM hardware can only play at 32000/(16-code) Hz for a
 // 4-bit rate code 0..15, so the nominal asset sample rate is snapped to the nearest
@@ -718,6 +719,30 @@ function adpcmVoiceFrameCount(asset = {}, projectDir = '') {
   }
   if (!frames) return 0;
   return Math.min(65535, frames);
+}
+
+function adpcmGeneratedByteLength(asset = {}, projectDir = '') {
+  const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
+  return (Number(generated.byteLength) || 0) || generatedFileByteLength(projectDir, generated.outputFile);
+}
+
+function adpcmBufferedSafeBytes(asset = {}) {
+  const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
+  const rawAddress = Number(asset.options?.adpcmAddress ?? generated.adpcmAddress ?? 0) || 0;
+  const address = Math.max(0, Math.min(65535, Math.trunc(rawAddress)));
+  return Math.max(1, Math.min(VN_ADPCM_BUFFERED_SAFE_BYTES, 65536 - address));
+}
+
+function assertBufferedMessageVoice(assetDoc = { assets: [] }, assetId = '', projectDir = '', sceneId = '') {
+  if (!assetId) return;
+  const asset = findAsset(assetDoc, assetId);
+  if (!asset || asset.type !== 'adpcm') return;
+  const byteLength = adpcmGeneratedByteLength(asset, projectDir);
+  const safeBytes = adpcmBufferedSafeBytes(asset);
+  const label = sceneId ? `scene "${sceneId}"` : 'VN scene';
+  if (byteLength > safeBytes) {
+    throw new Error(`PCE VN message voice "${assetId}" in ${label} is ${byteLength} bytes, exceeding buffered ADPCM limit ${safeBytes} bytes. Split the voice, lower the sample rate, or use CD-DA.`);
+  }
 }
 
 function voiceSyncedTextSpeedFrames(command = {}, glyphCount = 0, assetDoc = { assets: [] }, projectDir = '', fallbackSpeedFrames = VN_DEFAULT_MESSAGE_SPEED_FRAMES) {
@@ -2863,8 +2888,28 @@ function generateVnSources(projectDir, options = {}) {
       sceneBuild.commands.push(entry);
       commandCount += 1;
     };
+    let previousExplicitAdpcmPreloadAssetId = '';
+    const pushInternalAdpcmPreload = (assetId) => {
+      const assetIndex = adpcmIndex.get(assetId) ?? -1;
+      if (assetIndex < 0) return;
+      pushCommand({
+        type: VN_COMMAND_CACHE,
+        assetIndex,
+        slot: 0,
+        flags: VN_CACHE_ACTION_LOAD,
+        arg0: VN_CACHE_SCOPE_ADPCM,
+        arg1: 0,
+        x: 0,
+        y: 0,
+        messageIndex: -1,
+        animationIndex: -1,
+        sceneIndex: -1,
+        choiceIndex: -1,
+      });
+    };
     compiledCommands.forEach((command) => {
       if (command.type === 'background') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const bgIndex = imageIndex.has(command.assetId) ? imageIndex.get(command.assetId) : -1;
         pushCommand({
           type: VN_COMMAND_BACKGROUND,
@@ -2882,6 +2927,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'sprite') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const slot = clampInt(command.slot, 0, 3, 0);
         const spriteAssetId = command.assetId || '';
         const spriteAssetIndex = command.visible && spriteIndex.has(spriteAssetId) ? spriteIndex.get(spriteAssetId) : -1;
@@ -2909,6 +2955,13 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'message') {
+        if (command.voiceAssetId) {
+          assertBufferedMessageVoice(assetDoc, command.voiceAssetId, projectDir, sceneBuild.sceneId);
+          if (previousExplicitAdpcmPreloadAssetId !== command.voiceAssetId) {
+            pushInternalAdpcmPreload(command.voiceAssetId);
+          }
+        }
+        previousExplicitAdpcmPreloadAssetId = '';
         if (sceneBuild.messages.length >= VN_MAX_U8_COUNT) {
           throw new Error('PCE VN supports up to 255 messages per scene');
         }
@@ -2970,6 +3023,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'audio') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const kindCode = command.kind === 'adpcm'
           ? VN_AUDIO_KIND_ADPCM
           : (command.kind === 'psg' ? VN_AUDIO_KIND_PSG : VN_AUDIO_KIND_CDDA);
@@ -2999,6 +3053,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'inputcheck') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const mode = command.mode === 'async'
           ? VN_INPUT_MODE_ASYNC
           : (command.mode === 'cancel' ? VN_INPUT_MODE_CANCEL : VN_INPUT_MODE_SYNC);
@@ -3050,9 +3105,15 @@ function generateVnSources(projectDir, options = {}) {
           sceneIndex: -1,
           choiceIndex: -1,
         });
+        previousExplicitAdpcmPreloadAssetId = cacheAction === VN_CACHE_ACTION_LOAD
+          && command.scope === 'adpcm'
+          && command.assetId
+          ? command.assetId
+          : '';
         return;
       }
       if (command.type === 'choice') {
+        previousExplicitAdpcmPreloadAssetId = '';
         if (sceneBuild.choices.length >= VN_MAX_U8_COUNT) {
           throw new Error('PCE VN supports up to 255 choices per scene');
         }
@@ -3105,6 +3166,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'variable') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const varIndex = command.variableName && variableIndex.has(command.variableName) ? variableIndex.get(command.variableName) : -1;
         const [arg0, arg1] = int16ArgBytes(command.value);
         pushCommand({
@@ -3124,6 +3186,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'if') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const varIndex = command.variableName && variableIndex.has(command.variableName) ? variableIndex.get(command.variableName) : -1;
         const [arg0, arg1] = int16ArgBytes(command.value);
         pushCommand({
@@ -3143,6 +3206,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'switch') {
+        previousExplicitAdpcmPreloadAssetId = '';
         if (sceneBuild.switches.length >= VN_MAX_U8_COUNT) {
           throw new Error('PCE VN supports up to 255 switch commands per scene');
         }
@@ -3175,6 +3239,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'label') {
+        previousExplicitAdpcmPreloadAssetId = '';
         pushCommand({
           type: VN_COMMAND_LABEL,
           assetIndex: -1,
@@ -3192,6 +3257,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'goto') {
+        previousExplicitAdpcmPreloadAssetId = '';
         pushCommand({
           type: VN_COMMAND_GOTO,
           assetIndex: -1,
@@ -3209,6 +3275,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'jump') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const target = command.sceneId && sceneIndex.has(command.sceneId) ? sceneIndex.get(command.sceneId) : -1;
         pushCommand({
           type: VN_COMMAND_JUMP,
@@ -3227,6 +3294,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'wait') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const frames = clampInt(command.frames, 0, 65535, 30);
         pushCommand({
           type: VN_COMMAND_WAIT,
@@ -3245,6 +3313,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'effect') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const effect = command.effect === 'fadeIn'
           ? VN_EFFECT_FADE_IN
           : (command.effect === 'blank'
@@ -3269,6 +3338,7 @@ function generateVnSources(projectDir, options = {}) {
         });
       }
       if (command.type === 'spritetext') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const glyphBytes = [];
         for (const char of String(command.text || '')) {
           if (glyphBytes.length >= VN_SPRITETEXT_MAX_GLYPHS) break;

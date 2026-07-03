@@ -74,7 +74,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_ADPCM_BUFFERED_PLAY_FRAMES() (adpcm_voice_snapshot.play_frames > VN_ADPCM_BUFFERED_END_GUARD_FRAMES ? (uint16_t)(adpcm_voice_snapshot.play_frames - VN_ADPCM_BUFFERED_END_GUARD_FRAMES) : 1u)
 #define VN_ADPCM_BUFFERED_SAFE_BYTES 32767u
 #define VN_ADPCM_BUFFERED_HARDWARE_LENGTH 0xffffu
-#define VN_ADPCM_CD_READ_CHUNK_SECTORS 4u
+#define VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS 0u
+#define VN_ADPCM_PRELOAD_READ_CHUNK_SECTORS 4u
 #define VN_PCD_IRQ_STATUS_ADPCM_END 0x08u
 #define VN_SATB_ADDR 0x7f00u
 #define VN_SPRITE_PATTERN_END_BASE (VN_SATB_ADDR / 32u)
@@ -153,18 +154,17 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 1u
 #define VN_VBLANK_CREDIT_MAX 8u
 #define VN_VBLANK_CREDIT_SERVICE_LIMIT 4u
-/* 1 = drive the audio credit counter from the HuC6280 TIMER IRQ (~60Hz) so PSG
-   tempo and the ADPCM frame countdown keep advancing through blocking System
-   Card CD/ADPCM BIOS calls. The ISR is credit-only: it never touches PSG
-   registers, MPR2-7, or the VDC (the earlier IRQ-driven PSG attempt corrupted
-   sprites/BG precisely because its handler did real work). 0 = previous
-   cooperative VBlank-edge polling with blind CD compensation ticks. */
-#define VN_PSG_TIMER_IRQ_DRIVER 1
+#define VN_PSG_MAX_TICKS_PER_FRAME_DURING_ADPCM 1u
+#define VN_PSG_MAX_CATCHUP_TICKS_PER_FRAME 2u
+/* Experimental fallback: 1 drives the real-frame credit counter from the
+   HuC6280 TIMER IRQ (~60Hz). The default path is main-thread VBlank polling
+   plus PSG-only CD compensation; the TIMER path remains available for lab
+   comparison but is not the stable PSG+ADPCM contract. */
+#define VN_PSG_TIMER_IRQ_DRIVER 0
 #define VN_PSG_TIMER_HZ 60u
-/* Estimated frames per cd_transfer_wait() sector/read-slice while the timer is
-   handed to the BIOS. A 1x CD sector is about 0.8 frame; keeping this at 1 and
-   consuming it in each wait prevents ADPCM voice loads from banking a large
-   catch-up burst when PSG is already playing. */
+/* Estimated PSG-only frames per cd_transfer_wait() sector/read-slice while the
+   timer is handed to the BIOS. These credits never drive ADPCM countdown or
+   message timing. */
 #define VN_CD_CHUNK_ESTIMATED_FRAMES 1u
 #define VN_VISUAL_VRAM_COPY_SLICE_BYTES 32u
 #define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES
@@ -466,11 +466,14 @@ static uint16_t psg_step = 0;
 static uint16_t psg_step_accum = 0;
 static uint16_t psg_pattern_cursor = 0;
 static uint8_t psg_vblank_seen = 0;
-/* Audio frame credit. With VN_PSG_TIMER_IRQ_DRIVER it is incremented by the
-   TIQ handler (so it must be volatile) and consumed by the resident service
-   helpers under a masked TIMER IRQ; without the driver it is recorded from
-   VBlank edges as before. */
+/* Real audio frame credit. It is recorded from VBlank polling and explicit
+   frame wait sites, and is the only credit source allowed to advance ADPCM
+   bookkeeping or message timing. */
 volatile uint8_t vn_vblank_credit = 0;
+/* PSG-only compensation credit for blocking CD settle spans that the main
+   thread cannot observe. Synthetic CD estimates must never shorten ADPCM
+   playback or move message timing. */
+static uint8_t vn_psg_synthetic_credit = 0;
 #if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
 /* 1 while the runtime owns the HuC6280 timer (see vn_psg_timer_own). Also
    read by the IRQ1 quiet handler to preserve the $20F5 TIMER dispatch bit. */
@@ -1376,10 +1379,10 @@ static void VN_BANKED_CODE vn_psg_timer_release(void)
     vn_timer_owned = 0u;
 }
 
-/* Estimated credit for the blocking BIOS sector read the timer cannot see
-   (~0.8 frame per 2048-byte sector at 1x). Unguarded RMW: a TIQ landing in
-   the middle at worst drops one credit, which is harmless. */
-#define VN_ADD_ESTIMATED_FRAME() do {     if (vn_vblank_credit < VN_VBLANK_CREDIT_MAX) vn_vblank_credit++; } while (0)
+/* Estimated PSG-only credit for the blocking BIOS sector read the timer cannot
+   see (~0.8 frame per 2048-byte sector at 1x). It is separate from
+   vn_vblank_credit so ADPCM/message timing never consumes synthetic time. */
+#define VN_ADD_ESTIMATED_FRAME() do {     if (vn_psg_synthetic_credit < VN_VBLANK_CREDIT_MAX) vn_psg_synthetic_credit++; } while (0)
 #endif
 
 /* Opens the System Card external-IRQ window right before a CD/ADPCM/CD-DA
@@ -4218,19 +4221,17 @@ static void VN_BANKED_CODE2 restore_display_after_adpcm(uint8_t restore_display)
 #endif
 }
 
-static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t allow_stream_asset)
+static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t allow_stream_asset, uint8_t chunk_sectors)
 {
 #if defined(__PCE_CD__)
     uint8_t loaded = 0u;
     uint8_t same_loaded;
     uint8_t stopped_playback = 0u;
-#if !VN_ADPCM_CD_READ_CHUNK_SECTORS
     uint8_t cd_read_count = 0u;
-#endif
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
     if (voice_index < 0) return 0u;
     if (!copy_adpcm_voice(voice_index)) return 0u;
-    if (adpcm_voice_snapshot.stream && !allow_stream_asset) return 0u;
+    if (adpcm_voice_snapshot.stream && !allow_stream_asset && !adpcm_voice_fits_buffer()) return 0u;
     same_loaded = (uint8_t)(loaded_adpcm_valid && loaded_adpcm_index == (uint16_t)voice_index);
     if (adpcm_playback_active())
     {
@@ -4278,34 +4279,34 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
         pce_sector_t sector = {0};
         const uint16_t sector_count = adpcm_voice_snapshot.cd_sector_count;
         const uint8_t read_count = sector_count > 255u ? 255u : (uint8_t)sector_count;
-#if VN_ADPCM_CD_READ_CHUNK_SECTORS
         uint8_t remaining = read_count;
         unsigned int adpcm_address = adpcm_voice_snapshot.adpcm_address;
-#else
-        cd_read_count = read_count;
-#endif
         prepare_cd_data_access();
         cd_sector_from_ref(&sector, &adpcm_voice_snapshot.cd_sector);
-#if VN_ADPCM_CD_READ_CHUNK_SECTORS
-        loaded = 1u;
-        while (remaining)
+        if (chunk_sectors)
         {
-            uint8_t chunk = remaining;
-            if (chunk > VN_ADPCM_CD_READ_CHUNK_SECTORS) chunk = VN_ADPCM_CD_READ_CHUNK_SECTORS;
-            loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, chunk, adpcm_address));
-            if (!loaded) break;
-            if (!wait_adpcm_cd_transfer_ready(chunk))
+            loaded = 1u;
+            while (remaining)
             {
-                loaded = 0u;
-                break;
+                uint8_t chunk = remaining;
+                if (chunk > chunk_sectors) chunk = chunk_sectors;
+                loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, chunk, adpcm_address));
+                if (!loaded) break;
+                if (!wait_adpcm_cd_transfer_ready(chunk))
+                {
+                    loaded = 0u;
+                    break;
+                }
+                remaining = (uint8_t)(remaining - chunk);
+                adpcm_address = (unsigned int)(adpcm_address + ((unsigned int)chunk << 11));
+                while (chunk--) cd_sector_advance(&sector);
             }
-            remaining = (uint8_t)(remaining - chunk);
-            adpcm_address = (unsigned int)(adpcm_address + ((unsigned int)chunk << 11));
-            while (chunk--) cd_sector_advance(&sector);
         }
-#else
-        loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, read_count, adpcm_voice_snapshot.adpcm_address));
-#endif
+        else
+        {
+            cd_read_count = read_count;
+            loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, read_count, adpcm_voice_snapshot.adpcm_address));
+        }
     }
     else
     {
@@ -4322,8 +4323,7 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
     }
     if (adpcm_voice_snapshot.has_cd)
     {
-#if !VN_ADPCM_CD_READ_CHUNK_SECTORS
-        if (!wait_adpcm_cd_transfer_ready(cd_read_count))
+        if (!chunk_sectors && !wait_adpcm_cd_transfer_ready(cd_read_count))
         {
             map_resident_data();
             resume_cdda_after_cd_data_access();
@@ -4331,7 +4331,6 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
             restore_display_after_adpcm(restore_display);
             return 0u;
         }
-#endif
     }
     else if (!wait_adpcm_transfer_ready())
     {
@@ -4352,6 +4351,7 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
     (void)voice_index;
     (void)allow_stop_playback;
     (void)allow_stream_asset;
+    (void)chunk_sectors;
     return 0u;
 #endif
 }
@@ -4428,7 +4428,7 @@ static uint8_t VN_BANKED_CODE2 stream_adpcm_voice(signed int voice_index)
 #endif
 }
 
-static uint8_t VN_BANKED_CODE2 play_adpcm_buffered_voice(signed int voice_index, uint8_t restore_display)
+static uint8_t VN_BANKED_CODE2 play_adpcm_buffered_voice(signed int voice_index, uint8_t restore_display, uint8_t allow_stream_asset, uint8_t chunk_sectors)
 {
 #if defined(__PCE_CD__)
     uint8_t divider;
@@ -4436,7 +4436,7 @@ static uint8_t VN_BANKED_CODE2 play_adpcm_buffered_voice(signed int voice_index,
     if (!adpcm_voice_fits_buffer()) return 0u;
     adpcm_stream_active = 0u;
     adpcm_stream_looping = 0u;
-    if (!load_adpcm_voice(voice_index, 1u, 1u))
+    if (!load_adpcm_voice(voice_index, 1u, allow_stream_asset, chunk_sectors))
     {
         restore_display_after_adpcm(restore_display);
         return 0u;
@@ -4468,6 +4468,23 @@ static uint8_t VN_BANKED_CODE2 play_adpcm_buffered_voice(signed int voice_index,
 #else
     (void)voice_index;
     (void)restore_display;
+    (void)allow_stream_asset;
+    (void)chunk_sectors;
+    return 0u;
+#endif
+}
+
+static uint8_t VN_BANKED_CODE2 play_adpcm_message_voice(signed int voice_index)
+{
+#if defined(__PCE_CD__)
+    const uint8_t restore_display = (uint8_t)!pending_display_enable;
+    if (voice_index < 0) return 0u;
+    if (!copy_adpcm_voice(voice_index)) return 0u;
+    if (!adpcm_voice_fits_buffer()) return 0u;
+    VN_MAP_BANK130_FOR_CODE();
+    return play_adpcm_buffered_voice(voice_index, restore_display, 0u, VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS);
+#else
+    (void)voice_index;
     return 0u;
 #endif
 }
@@ -4491,7 +4508,7 @@ static void VN_BANKED_CODE play_adpcm_voice(signed int voice_index)
            loads once and plays from ADPCM RAM with no ongoing CD IRQ. */
         if (adpcm_voice_fits_buffer())
         {
-            (void)play_adpcm_buffered_voice(voice_index, restore_display);
+            (void)play_adpcm_buffered_voice(voice_index, restore_display, 1u, VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS);
             return;
         }
         /*
@@ -4514,7 +4531,7 @@ static void VN_BANKED_CODE play_adpcm_voice(signed int voice_index)
         }
         return;
     }
-    (void)play_adpcm_buffered_voice(voice_index, restore_display);
+    (void)play_adpcm_buffered_voice(voice_index, restore_display, 1u, VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS);
 #else
     (void)voice_index;
 #endif
@@ -4859,6 +4876,7 @@ static void VN_BANKED_CODE2 play_psg_asset(signed int asset_index, uint8_t base_
     psg_apply_step_row(0u);
     psg_vblank_seen = 0u;
     vn_vblank_credit = 0u;
+    vn_psg_synthetic_credit = 0u;
 }
 
 static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset_index, uint8_t slot)
@@ -4934,6 +4952,8 @@ static void VN_RESIDENT_CODE service_psg_ticks(uint8_t frames, uint8_t restore_v
     uint8_t slot4_bank;
     if (!frames) return;
     if (!psg_active || !psg_current) return;
+    if (adpcm_play_active && frames > VN_PSG_MAX_TICKS_PER_FRAME_DURING_ADPCM) frames = VN_PSG_MAX_TICKS_PER_FRAME_DURING_ADPCM;
+    else if (frames > VN_PSG_MAX_CATCHUP_TICKS_PER_FRAME) frames = VN_PSG_MAX_CATCHUP_TICKS_PER_FRAME;
     /* Save/restore the caller's slot4 bank instead of forcing bank130 (or the
        visual cache) back in. This service is reached from bank130 code, from
        bank121 visual-cache impls AND from the bank133 overlay (e.g.
@@ -5054,16 +5074,27 @@ static uint8_t VN_RESIDENT_CODE psg_vblank_elapsed(void)
 #endif
 }
 
+#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
+static uint8_t VN_RESIDENT_CODE vn_consume_psg_synthetic_credit(void)
+{
+    uint8_t frames = vn_psg_synthetic_credit;
+    const uint8_t limit = adpcm_play_active ? VN_PSG_MAX_TICKS_PER_FRAME_DURING_ADPCM : VN_PSG_MAX_CATCHUP_TICKS_PER_FRAME;
+    if (frames > limit) frames = limit;
+    vn_psg_synthetic_credit = (uint8_t)(vn_psg_synthetic_credit - frames);
+    return frames;
+}
+#endif
+
 static void VN_RESIDENT_CODE service_psg_compensation_ticks(uint8_t frames, uint8_t restore_visual_cache)
 {
-#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
-    /* CD settle waits no longer need blind PSG-only ticks: timer credits track
-       the real elapsed time, and feeding BOTH services keeps the PSG path from
-       stealing ADPCM countdown frames. */
+#if defined(__PCE_CD__)
+#if VN_PSG_TIMER_IRQ_DRIVER
+    /* TIMER fallback uses synthetic CD estimates for PSG only. Do not call
+       the combined blocking audio service here: that would consume real-frame
+       credit and advance ADPCM/message timing from a blind CD estimate. */
     (void)frames;
-    (void)restore_visual_cache;
-    service_psg_during_blocking_frames(0u);
-#elif defined(__PCE_CD__)
+    frames = vn_consume_psg_synthetic_credit();
+#endif
     if (!psg_active || !psg_current) return;
     service_psg_ticks(frames, restore_visual_cache);
 #else
@@ -5152,6 +5183,7 @@ static void VN_BANKED_CODE2 init_psg_service(void)
 #if defined(__PCE_CD__)
     psg_vblank_seen = 0u;
     vn_vblank_credit = 0u;
+    vn_psg_synthetic_credit = 0u;
 #if VN_PSG_TIMER_IRQ_DRIVER
     /* Install the credit-only TIQ hook and take first ownership of the audio
        timer. Ownership is released before every CD/ADPCM/CD-DA BIOS helper
@@ -5983,13 +6015,13 @@ static void start_message(uint8_t message_index)
         clear_window_tile_pixels();
         call_overlay_preload_message_glyph_masks(message);
         service_psg_during_blocking_work();
+        (void)play_adpcm_message_voice(message->voice_index);
         if (instant_glyph_count)
         {
             VN_MAP_BANK130_FOR_CODE();
             message_complete = draw_message_prefix_glyphs_locked(message);
             service_psg_during_blocking_work();
         }
-        play_adpcm_voice(message->voice_index);
         VN_MAP_BANK130_FOR_CODE();
         if (!message_complete && !message_text_speed)
         {
@@ -6406,7 +6438,7 @@ static void VN_BANKED_CODE2 load_adpcm_cache_asset(signed int voice_index)
     if ((unsigned int)voice_index >= pce_editor_adpcm_asset_count) return;
     if (loaded_adpcm_valid && loaded_adpcm_index == (uint16_t)voice_index) return;
     if (adpcm_playback_active()) return;
-    (void)load_adpcm_voice(voice_index, 1u, 0u);
+    (void)load_adpcm_voice(voice_index, 1u, 0u, VN_ADPCM_PRELOAD_READ_CHUNK_SECTORS);
 #else
     (void)voice_index;
 #endif
@@ -6533,6 +6565,18 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
 {
     uint8_t slot;
     if (!command) return VN_EXEC_CONTINUE;
+#if defined(__PCE_CD__)
+    if (adpcm_playback_active()
+        && (command->type == PCE_VN_COMMAND_BACKGROUND
+            || command->type == PCE_VN_COMMAND_SPRITE
+            || command->type == PCE_VN_COMMAND_CACHE
+            || command->type == PCE_VN_COMMAND_MESSAGE
+            || command->type == PCE_VN_COMMAND_JUMP
+            || (command->type == PCE_VN_COMMAND_AUDIO && (command->flags & 0xf0u) == PCE_VN_AUDIO_ACTION_PLAY)))
+    {
+        stop_adpcm_voice();
+    }
+#endif
     if (command->type == PCE_VN_COMMAND_BACKGROUND)
     {
         set_background(command->asset_index, command->flags, command->arg0, command->arg1, command->x, command->y);
@@ -6745,6 +6789,9 @@ static signed int current_scene_next_scene(void)
 
 static void advance_story(void)
 {
+#if defined(__PCE_CD__)
+    if (active_message_index >= 0 && adpcm_playback_active()) stop_adpcm_voice();
+#endif
     if (!run_commands_until_wait())
     {
         const signed int next_scene = current_scene_next_scene();
