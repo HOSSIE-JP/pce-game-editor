@@ -377,7 +377,13 @@ function vnBuildSignature(projectDir, _config = {}, mergedDataFiles = [], merged
     version: VN_BUILD_STAMP_VERSION,
     generator: {
       manager: readTextHash(__filename),
-      runtime: readTextHash(path.join(templateDir, 'pce_vn_runtime.c')),
+      // Phase A module split: the umbrella alone no longer changes when a
+      // module does, so hash every synced runtime source (umbrella + vn_*
+      // modules). main.c keeps its own field for stamp compatibility.
+      runtime: sha1Text(vnRuntimeSourceFileNames()
+        .filter((fileName) => fileName !== 'main.c')
+        .map((fileName) => `${fileName}:${readTextHash(path.join(templateDir, fileName))}`)
+        .join('\n')),
       main: readTextHash(path.join(templateDir, 'main.c')),
     },
     inputs: {
@@ -411,6 +417,23 @@ function vnGeneratedOutputsReady(projectDir, generated = {}) {
 
 function templateRuntimeDir() {
   return path.join(__dirname, 'template', 'template_pce_vn_cd', 'src');
+}
+
+// Runtime source file names synced from the template into <project>/src and
+// hashed into the VN build signature: the thin main.c, the umbrella
+// pce_vn_runtime.c and every vn_*.c / vn_*.h module the umbrella #includes
+// (Phase A module split). Top-level files only — generated/ stays excluded.
+function vnRuntimeSourceFileNames() {
+  const sourceDir = templateRuntimeDir();
+  const modules = [];
+  try {
+    for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      if (/^vn_.*\.(c|h)$/.test(entry.name)) modules.push(entry.name);
+    }
+  } catch (_) { /* fall through to the fixed core list */ }
+  modules.sort();
+  return ['main.c', 'pce_vn_runtime.c', ...modules];
 }
 
 function copyIfChanged(sourcePath, targetPath) {
@@ -3874,10 +3897,11 @@ function collectCdDataFiles(projectDir) {
 
 function syncVisualNovelRuntime(projectDir, logger) {
   const sourceDir = templateRuntimeDir();
-  const targets = [
-    ['main.c', path.join(projectDir, 'src', 'main.c')],
-    ['pce_vn_runtime.c', path.join(projectDir, 'src', 'pce_vn_runtime.c')],
-  ];
+  // Phase A module split: the runtime is the umbrella pce_vn_runtime.c plus the
+  // vn_*.c / vn_*.h modules it #includes. Enumerate the template dir (top level
+  // only, so generated/ is never picked up) so new modules sync automatically.
+  const targets = vnRuntimeSourceFileNames()
+    .map((fileName) => [fileName, path.join(projectDir, 'src', fileName)]);
   const changed = targets
     .map(([fileName, targetPath]) => copyIfChanged(path.join(sourceDir, fileName), targetPath))
     .some(Boolean);

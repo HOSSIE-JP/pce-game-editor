@@ -124,6 +124,22 @@ function readPack(projectDir, relativePath) {
   return fs.readFileSync(path.join(projectDir, relativePath));
 }
 
+// Phase A module split: pce_vn_runtime.c is an umbrella that #includes the
+// vn_*.c / vn_*.h modules, so runtime content pins grep the concatenation of
+// the umbrella plus every included module (in include order, mirroring the
+// unity translation unit the compiler sees).
+const TEMPLATE_VN_SRC_DIR = path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src');
+function readRuntimeSource() {
+  const umbrella = fs.readFileSync(path.join(TEMPLATE_VN_SRC_DIR, 'pce_vn_runtime.c'), 'utf-8');
+  const parts = [umbrella];
+  const includeRe = /^#include "(vn_[^"]+)"/gm;
+  let match;
+  while ((match = includeRe.exec(umbrella)) !== null) {
+    parts.push(fs.readFileSync(path.join(TEMPLATE_VN_SRC_DIR, match[1]), 'utf-8'));
+  }
+  return parts.join('\n');
+}
+
 function writeElf32ProgramHeaders(filePath, headers) {
   const headerSize = 52;
   const phSize = 32;

@@ -13,6 +13,7 @@
 - **VN runtime のコードが 3 常駐バンク(128/129/130)を超えてビルド失敗する / 退避候補の選定・測定・ハマりどころ（最適化の実務手順）** → [docs/pce-vn-code-bank-optimization.md](docs/pce-vn-code-bank-optimization.md)
 - **bank133 コードオーバーレイ(Path B)の link/抽出/dispatch 機構を追加・拡張する前** → [docs/pce-vn-overlay-pathb.md](docs/pce-vn-overlay-pathb.md)
 - **アセットのメタ情報（パレット/ディスクリプタ/cd_data_ref/cell_map）の常駐量・CD オンデマンド化を変更する前** → [docs/pce-asset-meta-cd-ondemand.md](docs/pce-asset-meta-cd-ondemand.md)
+- **VN runtime の音声/タイミング足回り（PSG/ADPCM/credit/engine_bus）を変更する前** → [docs/pce-vn-engine-redesign.md](docs/pce-vn-engine-redesign.md)
 - **画像 / スプライト / ADPCM / CD-DA の実装** → [docs/pce-media-programming-guide.md](docs/pce-media-programming-guide.md)
 - **AI Control（REST/MCP）API の仕様** → [AI_CONTROL.md](AI_CONTROL.md)
 

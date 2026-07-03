@@ -1,5 +1,7 @@
 # refactor-instructions-psg-adpcm.md — PSG(SONG) × ADPCM 同時再生の安定化
 
+> **[2026-07-03 更新]** 本書の F1〜F6 個別パッチ路線は、engine 足回りのゼロベース再設計（`refactor-instructions-engine-core.md` / 設計書 `docs/pce-vn-engine-redesign.md`）に置き換えられた。本書は背景調査（Findings F1〜F6）と Behaviors To Preserve の参照資料として残す。新規実装は本書のフェーズに従わないこと。
+
 このファイルは実装担当モデル（Codex / Opus 等）向けの作業指示書である。
 作業前に必ず `CLAUDE.md` / `AGENTS.md` を読み、本書と矛盾する場合は人間の指示 > `CLAUDE.md`/`AGENTS.md` > 本書 の順で優先すること。
 既存の `refactor-instructions.md`（MD レガシー除去）とは**別件**であり、本書のスコープは VN runtime の音声タイミングに限定する。

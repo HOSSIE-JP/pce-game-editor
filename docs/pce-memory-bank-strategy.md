@@ -77,6 +77,8 @@ Visual payload cache は低位 RAM 利用の実験版として標準有効です
 
 ## PSG TIMER IRQ クレジットドライバ（VN_PSG_TIMER_IRQ_DRIVER）
 
+> 本節の driver は次期 engine 再設計（[docs/pce-vn-engine-redesign.md](pce-vn-engine-redesign.md)）で一次テンポ源へ昇格予定です。再設計の全体像はそちらを参照してください。
+
 `pce_vn_runtime.c` の `VN_PSG_TIMER_IRQ_DRIVER` は既定 `0` です。標準 path は main-thread VBlank polling を実時間源にし、CD settle などの見えない待ちだけを PSG 専用 compensation credit として補います。`VN_PSG_TIMER_IRQ_DRIVER 1` は実験用 fallback として残しており、有効化する場合の絶対条件:
 
 - **ISR はクレジット専用**（`vn_psg_timer_irq_handler`）: A/X/Y と MPR0 を退避し、`$1403` ack と `vn_vblank_credit++`（上限 `VN_VBLANK_CREDIT_MAX`）だけを行い **RTI で戻る**。System Card は TIMER ソフトベクタを **JMP でディスパッチ**するため RTS で戻るとスタックがずれて暴走する。ISR 内で PSG レジスタ・MPR2-7・VDC・バンク切替・C ヘルパ呼び出しをしてはならない（過去の IRQ 駆動 PSG がスプライト/BG破壊で撤回された原因）。
