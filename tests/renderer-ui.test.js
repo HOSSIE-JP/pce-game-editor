@@ -607,6 +607,7 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /meta\[id\]\.psgOptions = asset\.options \|\| \{\}/);
   assert.match(renderer, /command\.kind === 'psg'[\s\S]*data-psg-command-preview/);
   assert.match(renderer, /function playPsgPreview\(assetId, loop\)/);
+  assert.match(renderer, /meta\[id\]\.psgPatternBytes = psgPatternPreviewBytes\(asset\)/);
   assert.match(renderer, /const kind = c\.kind === 'adpcm' \? 'adpcm' : \(c\.kind === 'psg' \? 'psg' : 'cdda'\)/);
   assert.match(renderer, /document\.createElement\('img'\)/);
   assert.match(renderer, /draggable="true"[\s\S]*data-command-index/);
@@ -615,12 +616,15 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /function moveCommand\(fromIndex, rawToIndex\)/);
   assert.doesNotMatch(renderer, /type === 'preload'/);
   assert.match(renderer, /type: 'cache', label: 'Cache'/);
+  assert.match(renderer, /\{ value: 'psg', label: 'PSG' \}/);
   assert.match(renderer, /return \{ type: 'cache', action: 'clear', scope: 'visual', assetId: '', slot: 0, x: 0, y: 0 \};/);
   assert.match(renderer, /function normalizeCacheAction\(value = ''\)/);
+  assert.match(renderer, /scope === 'psg' && \(asset\?\.type === 'psg-song' \|\| asset\?\.type === 'psg-sfx'\)/);
   assert.match(renderer, /if \(raw\.type === 'cache'\) \{[\s\S]*action === 'load'[\s\S]*type: 'cache'[\s\S]*action: 'load'[\s\S]*assetId: valid \? asset\.id : ''[\s\S]*action: 'clear'[\s\S]*scope: rawScope/);
   assert.match(renderer, /name="action">\$\{cacheActionOptions\(command\.action\)\}<\/select>/);
   assert.match(renderer, /name="scope">\$\{cacheScopeOptions\(command\.scope\)\}<\/select>/);
   assert.match(renderer, /name="assetId">\$\{optionsFor\(byType\(assetTypes\), command\.assetId, 'なし'\)\}<\/select>/);
+  assert.match(renderer, /scope === 'psg' \? \['psg-song', 'psg-sfx'\] : \['image'\]/);
   assert.match(renderer, /if \(t === 'cache'\) \{ handleCacheCommand\(c\); pc \+= 1; continue; \}/);
   assert.match(renderer, /const VN_VISUAL_CACHE_PAGE_BYTES = 8192;/);
   assert.match(renderer, /const VN_VISUAL_CACHE_PAGE_COUNT = 16;/);
@@ -628,11 +632,14 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /meta\[id\]\.visualCacheParts = visualCache\.parts;/);
   assert.match(renderer, /scenePackBytesById: Object\.fromEntries\(snapshot\.scenes\.map/);
   assert.match(renderer, /function handleCacheCommand\(c\)/);
+  assert.match(renderer, /function loadPsgCacheAsset\(assetId, labelPrefix\)/);
   assert.match(renderer, /function updateCacheDebug\(\)/);
+  assert.match(renderer, /meterRow\('PSG pattern', psgUsed, 16 \* 1024/);
   assert.match(renderer, /recordVisualDisplay\(c\.assetId, 'bg', 'BG'\)/);
   assert.match(renderer, /recordVisualDisplay\(c\.assetId, 'sprite', 'Sprite'\)/);
   assert.match(renderer, /Load \$\{label\} visual RAM cache/);
   assert.match(renderer, /Load \$\{label\} ADPCM cache/);
+  assert.match(renderer, /Load \$\{label\} PSG cache/);
   assert.match(renderer, /Clear \$\{cacheScopeLabel\(command\.scope\)\} cache/);
   assert.match(renderer, /type === 'choice'/);
   assert.match(renderer, /type === 'variable'/);

@@ -71,8 +71,9 @@ const VN_CACHE_SCOPE_VISUAL = 0;
 const VN_CACHE_SCOPE_BG = 1;
 const VN_CACHE_SCOPE_SPRITE = 2;
 const VN_CACHE_SCOPE_ADPCM = 3;
-const VN_CACHE_SCOPE_ALL = 4;
-const VN_CACHE_SCOPES = ['visual', 'bg', 'sprite', 'adpcm', 'all'];
+const VN_CACHE_SCOPE_PSG = 4;
+const VN_CACHE_SCOPE_ALL = 5;
+const VN_CACHE_SCOPES = ['visual', 'bg', 'sprite', 'adpcm', 'psg', 'all'];
 const VN_ENABLE_VISUAL_PAYLOAD_CACHE = true;
 const VN_BG_TRANSITION_CUT = 0;
 const VN_BG_TRANSITION_FADE = 1;
@@ -1139,6 +1140,7 @@ function cacheScopeCode(scope = '') {
   if (normalized === 'bg') return VN_CACHE_SCOPE_BG;
   if (normalized === 'sprite') return VN_CACHE_SCOPE_SPRITE;
   if (normalized === 'adpcm') return VN_CACHE_SCOPE_ADPCM;
+  if (normalized === 'psg') return VN_CACHE_SCOPE_PSG;
   if (normalized === 'all') return VN_CACHE_SCOPE_ALL;
   return VN_CACHE_SCOPE_VISUAL;
 }
@@ -1211,10 +1213,12 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
       if (scope === 'visual') {
         if (actualType === 'image') scope = 'bg';
         else if (actualType === 'sprite') scope = 'sprite';
+        else if (actualType === 'psg-song' || actualType === 'psg-sfx') scope = 'psg';
       }
       const validAsset = (scope === 'bg' && valid.image?.has(assetId))
         || (scope === 'sprite' && valid.sprite?.has(assetId))
-        || (scope === 'adpcm' && valid.adpcm?.has(assetId));
+        || (scope === 'adpcm' && valid.adpcm?.has(assetId))
+        || (scope === 'psg' && (valid['psg-song']?.has(assetId) || valid['psg-sfx']?.has(assetId)));
       return {
         type: 'cache',
         action: 'load',
@@ -3089,6 +3093,8 @@ function generateVnSources(projectDir, options = {}) {
             slot = command.slot;
           } else if (command.scope === 'adpcm') {
             assetIndex = adpcmIndex.get(command.assetId) ?? -1;
+          } else if (command.scope === 'psg') {
+            assetIndex = psgIndex.get(command.assetId) ?? -1;
           }
         }
         pushCommand({
@@ -3449,6 +3455,7 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_CACHE_SCOPE_BG ${VN_CACHE_SCOPE_BG}u`,
     `#define PCE_VN_CACHE_SCOPE_SPRITE ${VN_CACHE_SCOPE_SPRITE}u`,
     `#define PCE_VN_CACHE_SCOPE_ADPCM ${VN_CACHE_SCOPE_ADPCM}u`,
+    `#define PCE_VN_CACHE_SCOPE_PSG ${VN_CACHE_SCOPE_PSG}u`,
     `#define PCE_VN_CACHE_SCOPE_ALL ${VN_CACHE_SCOPE_ALL}u`,
     `#define PCE_VN_BG_TRANSITION_CUT ${VN_BG_TRANSITION_CUT}u`,
     `#define PCE_VN_BG_TRANSITION_FADE ${VN_BG_TRANSITION_FADE}u`,
@@ -4362,6 +4369,7 @@ module.exports = {
   VN_CACHE_SCOPE_BG,
   VN_CACHE_SCOPE_SPRITE,
   VN_CACHE_SCOPE_ADPCM,
+  VN_CACHE_SCOPE_PSG,
   VN_CACHE_SCOPE_ALL,
   VN_BG_TRANSITION_CUT,
   VN_BG_TRANSITION_FADE,

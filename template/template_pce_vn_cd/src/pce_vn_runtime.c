@@ -2849,7 +2849,9 @@ static const pce_editor_adpcm_asset_t *VN_RESIDENT_CODE vn_get_adpcm_asset(uint1
 
 static pce_editor_psg_asset_t g_psg_cache;
 static pce_editor_cd_data_ref_t g_psg_pattern_cd;
+static pce_editor_cd_data_ref_t g_psg_pattern_load_cd;
 static uint16_t g_psg_cache_key;
+static uint16_t loaded_psg_pattern_key = 0u;
 
 static const pce_editor_psg_asset_t *VN_BANKED_CODE vn_get_psg_asset(uint16_t idx)
 {
@@ -4772,12 +4774,11 @@ static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(void)
     uint16_t remaining;
     uint8_t bank = 0u;
     map_vn_data();              /* MPR6 = bank132: read the CD ref descriptor. */
-    ref.sector.lo = g_psg_pattern_cd.sector.lo;
-    ref.sector.md = g_psg_pattern_cd.sector.md;
-    ref.sector.hi = g_psg_pattern_cd.sector.hi;
-    ref.sector_count = g_psg_pattern_cd.sector_count;
-    ref.byte_size = g_psg_pattern_cd.byte_size;
-    ref.compression = g_psg_pattern_cd.compression;
+    ref.sector.lo = g_psg_pattern_load_cd.sector.lo;
+    ref.sector.md = g_psg_pattern_load_cd.sector.md;
+    ref.sector.hi = g_psg_pattern_load_cd.sector.hi;
+    ref.sector_count = g_psg_pattern_load_cd.sector_count;
+    ref.byte_size = g_psg_pattern_load_cd.byte_size;
     if (!ref.byte_size || ref.byte_size > VN_PSG_PATTERN_BUFFER_BYTES || !ref.sector_count) return 0u;
     prepare_cd_data_access();
     sector.lo = ref.sector.lo;
@@ -4813,24 +4814,69 @@ static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(void)
     return 1u;
 }
 
-static uint8_t VN_BANKED_CODE2 load_psg_pattern_cd(const pce_editor_psg_asset_t *asset)
+static uint8_t VN_BANKED_CODE load_prepared_psg_pattern_cd(void)
 {
     uint8_t result;
-    (void)asset;
-    if (!g_psg_pattern_cd.sector_count) return 0u;
+    if (!g_psg_pattern_load_cd.sector_count) return 0u;
     load_visual_cache_code();
     result = visual_cache_call(VN_VISUAL_CACHE_OP_LOAD_PSG_PATTERN);
     map_vn_data();
     return result;
+}
+
+static uint8_t VN_BANKED_CODE prepare_psg_pattern_load_ref(uint16_t idx)
+{
+    const uint8_t *p;
+    vn_read_meta_sector(&pce_editor_psg_meta.sector, (uint8_t)(idx / VN_META_PSG_PER_SECTOR));
+    p = &cd_transfer_scratch[(uint16_t)((uint16_t)(idx % VN_META_PSG_PER_SECTOR) * PCE_EDITOR_META_PSG_SLOT)];
+    g_psg_pattern_load_cd.sector.lo = p[PCE_EDITOR_META_PSG_PATTERN_CD];
+    g_psg_pattern_load_cd.sector.md = p[PCE_EDITOR_META_PSG_PATTERN_CD + 1u];
+    g_psg_pattern_load_cd.sector.hi = p[PCE_EDITOR_META_PSG_PATTERN_CD + 2u];
+    g_psg_pattern_load_cd.sector_count = (unsigned int)p[PCE_EDITOR_META_PSG_PATTERN_CD + 3u]
+        | ((unsigned int)p[PCE_EDITOR_META_PSG_PATTERN_CD + 4u] << 8);
+    g_psg_pattern_load_cd.byte_size = (unsigned int)p[PCE_EDITOR_META_PSG_PATTERN_CD + 5u]
+        | ((unsigned int)p[PCE_EDITOR_META_PSG_PATTERN_CD + 6u] << 8);
+    return g_psg_pattern_load_cd.sector_count ? 1u : 0u;
 }
 #endif
 
 static void VN_BANKED_CODE2 play_psg_asset(signed int asset_index, uint8_t base_channel)
 {
     uint8_t ch;
+    uint16_t target_index;
+#if defined(__PCE_CD__)
+    uint16_t target_key;
+    uint8_t target_is_banked = 0u;
+#endif
     if (asset_index < 0 || (unsigned int)asset_index >= pce_editor_psg_asset_count) return;
-    stop_psg();
-    psg_current = vn_get_psg_asset((uint16_t)asset_index);
+    target_index = (uint16_t)asset_index;
+#if defined(__PCE_CD__)
+    target_key = (uint16_t)(target_index + 1u);
+    target_is_banked = (loaded_psg_pattern_key == target_key) ? 1u : prepare_psg_pattern_load_ref(target_index);
+    if (target_is_banked)
+    {
+        if (loaded_psg_pattern_key != target_key)
+        {
+            if (psg_active && psg_pattern_banked)
+            {
+                stop_psg();
+            }
+            loaded_psg_pattern_key = 0u;
+            if (!load_prepared_psg_pattern_cd())
+            {
+                return;
+            }
+            loaded_psg_pattern_key = target_key;
+        }
+        stop_psg();
+        psg_current = vn_get_psg_asset(target_index);
+    }
+    else
+#endif
+    {
+        stop_psg();
+        psg_current = vn_get_psg_asset(target_index);
+    }
     psg_base_channel = base_channel > 5u ? 5u : base_channel;
     psg_is_song = psg_current->is_song ? 1u : 0u;
     psg_step = 0u;
@@ -4847,7 +4893,7 @@ static void VN_BANKED_CODE2 play_psg_asset(signed int asset_index, uint8_t base_
 #if defined(__PCE_CD__)
     if (psg_current->pattern_cd)
     {
-        if (!load_psg_pattern_cd(psg_current))
+        if (loaded_psg_pattern_key != target_key)
         {
             psg_current = (const pce_editor_psg_asset_t *)0;
             return;
@@ -4877,6 +4923,31 @@ static void VN_BANKED_CODE2 play_psg_asset(signed int asset_index, uint8_t base_
     psg_vblank_seen = 0u;
     vn_vblank_credit = 0u;
     vn_psg_synthetic_credit = 0u;
+}
+
+static uint8_t VN_BANKED_CODE2 load_psg_cache_asset(signed int asset_index)
+{
+#if defined(__PCE_CD__)
+    uint16_t target_index;
+    uint16_t target_key;
+    if (asset_index < 0) return 0u;
+    if ((unsigned int)asset_index >= pce_editor_psg_asset_count) return 0u;
+    target_index = (uint16_t)asset_index;
+    target_key = (uint16_t)(target_index + 1u);
+    if (loaded_psg_pattern_key == target_key) return 1u;
+    if (psg_active && psg_pattern_banked) return 0u;
+    if (!prepare_psg_pattern_load_ref(target_index)) return 1u;
+    loaded_psg_pattern_key = 0u;
+    if (!load_prepared_psg_pattern_cd())
+    {
+        return 0u;
+    }
+    loaded_psg_pattern_key = target_key;
+    return 1u;
+#else
+    (void)asset_index;
+    return 0u;
+#endif
 }
 
 static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset_index, uint8_t slot)
@@ -6458,6 +6529,10 @@ static void VN_BANKED_CODE2 load_runtime_cache(uint8_t scope, signed int asset_i
     {
         load_adpcm_cache_asset(asset_index);
     }
+    else if (scope == PCE_VN_CACHE_SCOPE_PSG)
+    {
+        (void)load_psg_cache_asset(asset_index);
+    }
 }
 
 #define VN_CACHE_SCOPE_BIT(scope) ((uint8_t)(1u << (scope)))
@@ -6465,6 +6540,7 @@ static void VN_BANKED_CODE2 load_runtime_cache(uint8_t scope, signed int asset_i
 #define VN_CACHE_CLEAR_SPRITE_MASK (VN_CACHE_SCOPE_BIT(PCE_VN_CACHE_SCOPE_VISUAL) | VN_CACHE_SCOPE_BIT(PCE_VN_CACHE_SCOPE_SPRITE) | VN_CACHE_SCOPE_BIT(PCE_VN_CACHE_SCOPE_ALL))
 #define VN_CACHE_CLEAR_VISUAL_PAYLOAD_MASK (VN_CACHE_SCOPE_BIT(PCE_VN_CACHE_SCOPE_VISUAL) | VN_CACHE_SCOPE_BIT(PCE_VN_CACHE_SCOPE_BG) | VN_CACHE_SCOPE_BIT(PCE_VN_CACHE_SCOPE_SPRITE) | VN_CACHE_SCOPE_BIT(PCE_VN_CACHE_SCOPE_ALL))
 #define VN_CACHE_CLEAR_ADPCM_MASK (VN_CACHE_SCOPE_BIT(PCE_VN_CACHE_SCOPE_ADPCM) | VN_CACHE_SCOPE_BIT(PCE_VN_CACHE_SCOPE_ALL))
+#define VN_CACHE_CLEAR_PSG_MASK (VN_CACHE_SCOPE_BIT(PCE_VN_CACHE_SCOPE_PSG) | VN_CACHE_SCOPE_BIT(PCE_VN_CACHE_SCOPE_ALL))
 #define VN_CACHE_CLEAR_GLYPH_MASK VN_CACHE_SCOPE_BIT(PCE_VN_CACHE_SCOPE_ALL)
 
 static void VN_VISUAL_CACHE_CODE clear_runtime_cache_impl(uint8_t scope)
@@ -6501,6 +6577,10 @@ static void VN_VISUAL_CACHE_CODE clear_runtime_cache_impl(uint8_t scope)
     if (scope_bit & VN_CACHE_CLEAR_ADPCM_MASK)
     {
         loaded_adpcm_valid = 0u;
+    }
+    if (scope_bit & VN_CACHE_CLEAR_PSG_MASK)
+    {
+        loaded_psg_pattern_key = 0u;
     }
     if (scope_bit & VN_CACHE_CLEAR_GLYPH_MASK)
     {
@@ -6546,6 +6626,10 @@ static void VN_BANKED_CODE2 clear_runtime_cache(uint8_t scope)
     {
         loaded_adpcm_valid = 0u;
     }
+    if (scope_bit & VN_CACHE_CLEAR_PSG_MASK)
+    {
+        loaded_psg_pattern_key = 0u;
+    }
     if (scope_bit & VN_CACHE_CLEAR_GLYPH_MASK)
     {
 #if defined(__PCE_CD__)
@@ -6559,6 +6643,7 @@ static void VN_BANKED_CODE2 clear_runtime_cache(uint8_t scope)
 #undef VN_CACHE_CLEAR_SPRITE_MASK
 #undef VN_CACHE_CLEAR_VISUAL_PAYLOAD_MASK
 #undef VN_CACHE_CLEAR_ADPCM_MASK
+#undef VN_CACHE_CLEAR_PSG_MASK
 #undef VN_CACHE_CLEAR_GLYPH_MASK
 
 static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)

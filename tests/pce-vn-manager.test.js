@@ -1238,6 +1238,11 @@ test('PCE VN manager emits cache commands without restoring preload', () => {
         } },
       },
       { id: 'voice', type: 'adpcm', data: { generated: { outputFile: 'assets/generated/voice/adpcm.bin' } } },
+      { id: 'theme', type: 'psg-song', options: {
+        bpm: 150,
+        steps: 16,
+        pattern: [{ step: 0, channel: 0, period: 512, volume: 16 }],
+      } },
     ],
   });
   writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
@@ -1250,10 +1255,12 @@ test('PCE VN manager emits cache commands without restoring preload', () => {
         { type: 'cache', action: 'clear', scope: 'bg' },
         { type: 'cache', scope: 'sprite' },
         { type: 'cache', scope: 'adpcm' },
+        { type: 'cache', scope: 'psg' },
         { type: 'cache', scope: 'all' },
         { type: 'cache', action: 'load', scope: 'bg', assetId: 'bg_a', x: 2, y: 3 },
         { type: 'cache', action: 'load', scope: 'sprite', assetId: 'hero', slot: 2 },
         { type: 'cache', action: 'load', scope: 'adpcm', assetId: 'voice' },
+        { type: 'cache', action: 'load', scope: 'psg', assetId: 'theme' },
         { type: 'preload', sceneId: 'next' },
         { type: 'wait', frames: 1 },
       ],
@@ -1261,16 +1268,18 @@ test('PCE VN manager emits cache commands without restoring preload', () => {
   });
 
   const normalized = vnManager.readSceneDocument(projectDir);
-  assert.equal(normalized.scenes[0].commands.length, 9);
+  assert.equal(normalized.scenes[0].commands.length, 11);
   assert.deepEqual(normalized.scenes[0].commands[0], { type: 'cache', action: 'clear', scope: 'visual' });
   assert.deepEqual(normalized.scenes[0].commands[1], { type: 'cache', action: 'clear', scope: 'bg' });
   assert.deepEqual(normalized.scenes[0].commands[2], { type: 'cache', action: 'clear', scope: 'sprite' });
   assert.deepEqual(normalized.scenes[0].commands[3], { type: 'cache', action: 'clear', scope: 'adpcm' });
-  assert.deepEqual(normalized.scenes[0].commands[4], { type: 'cache', action: 'clear', scope: 'all' });
-  assert.deepEqual(normalized.scenes[0].commands[5], { type: 'cache', action: 'load', scope: 'bg', assetId: 'bg_a', slot: 0, x: 2, y: 3 });
-  assert.deepEqual(normalized.scenes[0].commands[6], { type: 'cache', action: 'load', scope: 'sprite', assetId: 'hero', slot: 2, x: 0, y: 0 });
-  assert.deepEqual(normalized.scenes[0].commands[7], { type: 'cache', action: 'load', scope: 'adpcm', assetId: 'voice', slot: 0, x: 0, y: 0 });
-  assert.equal(normalized.scenes[0].commands[8].type, 'wait');
+  assert.deepEqual(normalized.scenes[0].commands[4], { type: 'cache', action: 'clear', scope: 'psg' });
+  assert.deepEqual(normalized.scenes[0].commands[5], { type: 'cache', action: 'clear', scope: 'all' });
+  assert.deepEqual(normalized.scenes[0].commands[6], { type: 'cache', action: 'load', scope: 'bg', assetId: 'bg_a', slot: 0, x: 2, y: 3 });
+  assert.deepEqual(normalized.scenes[0].commands[7], { type: 'cache', action: 'load', scope: 'sprite', assetId: 'hero', slot: 2, x: 0, y: 0 });
+  assert.deepEqual(normalized.scenes[0].commands[8], { type: 'cache', action: 'load', scope: 'adpcm', assetId: 'voice', slot: 0, x: 0, y: 0 });
+  assert.deepEqual(normalized.scenes[0].commands[9], { type: 'cache', action: 'load', scope: 'psg', assetId: 'theme', slot: 0, x: 0, y: 0 });
+  assert.equal(normalized.scenes[0].commands[10].type, 'wait');
 
   const generated = vnManager.generateVnSources(projectDir);
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
@@ -1282,15 +1291,17 @@ test('PCE VN manager emits cache commands without restoring preload', () => {
   assert.match(header, /PCE_VN_CACHE_SCOPE_BG 1u/);
   assert.match(header, /PCE_VN_CACHE_SCOPE_SPRITE 2u/);
   assert.match(header, /PCE_VN_CACHE_SCOPE_ADPCM 3u/);
-  assert.match(header, /PCE_VN_CACHE_SCOPE_ALL 4u/);
+  assert.match(header, /PCE_VN_CACHE_SCOPE_PSG 4u/);
+  assert.match(header, /PCE_VN_CACHE_SCOPE_ALL 5u/);
   assert.doesNotMatch(header, /PCE_VN_COMMAND_PRELOAD/);
-  assert.equal(generated.commandCount, 9);
-  assert.equal(pack[5], 9);
+  assert.equal(generated.commandCount, 11);
+  assert.equal(pack[5], 11);
   [
     vnManager.VN_CACHE_SCOPE_VISUAL,
     vnManager.VN_CACHE_SCOPE_BG,
     vnManager.VN_CACHE_SCOPE_SPRITE,
     vnManager.VN_CACHE_SCOPE_ADPCM,
+    vnManager.VN_CACHE_SCOPE_PSG,
     vnManager.VN_CACHE_SCOPE_ALL,
   ].forEach((scope, index) => {
     assert.deepEqual(commandRecord(pack, index), {
@@ -1308,7 +1319,7 @@ test('PCE VN manager emits cache commands without restoring preload', () => {
       choiceIndex: -1,
     });
   });
-  assert.deepEqual(commandRecord(pack, 5), {
+  assert.deepEqual(commandRecord(pack, 6), {
     type: vnManager.VN_COMMAND_CACHE,
     assetIndex: 0,
     slot: 0,
@@ -1322,7 +1333,7 @@ test('PCE VN manager emits cache commands without restoring preload', () => {
     sceneIndex: -1,
     choiceIndex: -1,
   });
-  assert.deepEqual(commandRecord(pack, 6), {
+  assert.deepEqual(commandRecord(pack, 7), {
     type: vnManager.VN_COMMAND_CACHE,
     assetIndex: 0,
     slot: 2,
@@ -1336,7 +1347,7 @@ test('PCE VN manager emits cache commands without restoring preload', () => {
     sceneIndex: -1,
     choiceIndex: -1,
   });
-  assert.deepEqual(commandRecord(pack, 7), {
+  assert.deepEqual(commandRecord(pack, 8), {
     type: vnManager.VN_COMMAND_CACHE,
     assetIndex: 0,
     slot: 0,
@@ -1350,7 +1361,21 @@ test('PCE VN manager emits cache commands without restoring preload', () => {
     sceneIndex: -1,
     choiceIndex: -1,
   });
-  assert.equal(commandRecord(pack, 8).type, vnManager.VN_COMMAND_WAIT);
+  assert.deepEqual(commandRecord(pack, 9), {
+    type: vnManager.VN_COMMAND_CACHE,
+    assetIndex: 0,
+    slot: 0,
+    flags: vnManager.VN_CACHE_ACTION_LOAD,
+    arg0: vnManager.VN_CACHE_SCOPE_PSG,
+    arg1: 0,
+    x: 0,
+    y: 0,
+    messageIndex: -1,
+    animationIndex: -1,
+    sceneIndex: -1,
+    choiceIndex: -1,
+  });
+  assert.equal(commandRecord(pack, 10).type, vnManager.VN_COMMAND_WAIT);
 });
 
 test('PCE VN manager injects internal ADPCM preload before voiced messages', () => {
@@ -1573,6 +1598,11 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   assert.match(runtime, /kind == PCE_VN_AUDIO_KIND_PSG/);
   assert.match(runtime, /handle_audio_command\(command->flags, command->asset_index, command->slot\)/);
   assert.match(runtime, /play_psg_asset\(asset_index, slot\)/);
+  assert.match(runtime, /static uint16_t loaded_psg_pattern_key = 0u;/);
+  assert.match(runtime, /static uint8_t VN_BANKED_CODE prepare_psg_pattern_load_ref\(uint16_t idx\)[\s\S]*g_psg_pattern_load_cd\.sector\.lo = p\[PCE_EDITOR_META_PSG_PATTERN_CD\];[\s\S]*return g_psg_pattern_load_cd\.sector_count \? 1u : 0u;/);
+  assert.match(runtime, /target_key = \(uint16_t\)\(target_index \+ 1u\);[\s\S]*target_is_banked = \(loaded_psg_pattern_key == target_key\) \? 1u : prepare_psg_pattern_load_ref\(target_index\);/);
+  assert.match(runtime, /if \(psg_active && psg_pattern_banked\)\s*\{\s*stop_psg\(\);\s*\}[\s\S]*loaded_psg_pattern_key = 0u;[\s\S]*load_prepared_psg_pattern_cd\(\)/);
+  assert.match(runtime, /loaded_psg_pattern_key = target_key;[\s\S]*stop_psg\(\);\s*psg_current = vn_get_psg_asset\(target_index\);/);
   assert.match(runtime, /psg_load_basic_wave\(ch\)/);
   assert.match(runtime, /PCE_PSG_CONTROL = 0u;[\s\S]*PCE_PSG_WAVE =/);
   assert.doesNotMatch(runtime, /PCE_PSG_CONTROL = 0x40u; \/\* enable write to the waveform buffer \*\//);
@@ -2410,8 +2440,8 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static void VN_BANKED_CODE finish_cd_data_read_before_vram_copy\(void\)/);
   assert.match(source, /finish_cd_data_read_before_vram_copy\(void\)\r?\n\{\r?\n    sync_cd_external_irq_after_bios_call\(\);\r?\n    resume_cdda_after_cd_data_access\(\);\r?\n    map_vn_data\(\);\r?\n\}/);
   assert.match(source, /static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl\(void\)/);
-  assert.match(source, /ref\.sector\.lo = g_psg_pattern_cd\.sector\.lo;[\s\S]*ref\.compression = g_psg_pattern_cd\.compression;/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE2 load_psg_pattern_cd\(const pce_editor_psg_asset_t \*asset\)[\s\S]*\(void\)asset;[\s\S]*if \(!g_psg_pattern_cd\.sector_count\) return 0u;[\s\S]*visual_cache_call\(VN_VISUAL_CACHE_OP_LOAD_PSG_PATTERN\);/);
+  assert.match(source, /ref\.sector\.lo = g_psg_pattern_load_cd\.sector\.lo;[\s\S]*ref\.byte_size = g_psg_pattern_load_cd\.byte_size;/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE load_prepared_psg_pattern_cd\(void\)[\s\S]*if \(!g_psg_pattern_load_cd\.sector_count\) return 0u;[\s\S]*visual_cache_call\(VN_VISUAL_CACHE_OP_LOAD_PSG_PATTERN\);/);
   assert.doesNotMatch(source, /vn_visual_cache_arg_ptr/);
   assert.match(source, /if \(psg_pattern_banked\)[\s\S]*map_vn_data\(\);\r?\n        return;/);
   // load_psg_pattern_cd moved to bank130 (caller play_psg_asset is bank130;
@@ -2831,12 +2861,14 @@ test('PCE VN runtime cache clear only invalidates non-destructive cache flags', 
   assert.match(source, /static void VN_BANKED_CODE load_visual_cache_code\(void\)[\s\S]*if \(vn_visual_cache_code_loaded\) return;[\s\S]*pce_ram_bank121_map\(\);[\s\S]*pce_cdb_cd_read[\s\S]*vn_visual_cache_code_loaded = 1u;/);
   assert.match(source, /load_overlay_code\(\);\n#if VN_ENABLE_VISUAL_PAYLOAD_CACHE\n    load_visual_cache_code\(\);\n#endif/);
   assert.match(helperSource, /load_adpcm_cache_asset[\s\S]*if \(adpcm_playback_active\(\)\) return;[\s\S]*load_adpcm_voice\(voice_index, 1u, 0u, VN_ADPCM_PRELOAD_READ_CHUNK_SECTORS\);/);
-  assert.match(helperSource, /load_runtime_cache[\s\S]*scope == PCE_VN_CACHE_SCOPE_BG[\s\S]*load_bg_cache_asset\(asset_index, x, y\);[\s\S]*scope == PCE_VN_CACHE_SCOPE_SPRITE[\s\S]*load_sprite_pattern_cache_asset\(asset_index, slot\);[\s\S]*scope == PCE_VN_CACHE_SCOPE_ADPCM[\s\S]*load_adpcm_cache_asset\(asset_index\);/);
+  assert.match(helperSource, /load_runtime_cache[\s\S]*scope == PCE_VN_CACHE_SCOPE_BG[\s\S]*load_bg_cache_asset\(asset_index, x, y\);[\s\S]*scope == PCE_VN_CACHE_SCOPE_SPRITE[\s\S]*load_sprite_pattern_cache_asset\(asset_index, slot\);[\s\S]*scope == PCE_VN_CACHE_SCOPE_ADPCM[\s\S]*load_adpcm_cache_asset\(asset_index\);[\s\S]*scope == PCE_VN_CACHE_SCOPE_PSG[\s\S]*load_psg_cache_asset\(asset_index\);/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 load_psg_cache_asset\(signed int asset_index\)[\s\S]*target_key = \(uint16_t\)\(target_index \+ 1u\);[\s\S]*if \(loaded_psg_pattern_key == target_key\) return 1u;[\s\S]*if \(psg_active && psg_pattern_banked\) return 0u;[\s\S]*prepare_psg_pattern_load_ref\(target_index\)[\s\S]*load_prepared_psg_pattern_cd\(\)/);
   assert.match(clearImplSource, /if \(scope > PCE_VN_CACHE_SCOPE_ALL\) scope = PCE_VN_CACHE_SCOPE_VISUAL;/);
   assert.match(source, /#define VN_CACHE_CLEAR_BG_MASK \(VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_VISUAL\) \| VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_BG\) \| VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_ALL\)\)/);
   assert.match(source, /#define VN_CACHE_CLEAR_SPRITE_MASK \(VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_VISUAL\) \| VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_SPRITE\) \| VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_ALL\)\)/);
   assert.match(source, /#define VN_CACHE_CLEAR_VISUAL_PAYLOAD_MASK \(VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_VISUAL\) \| VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_BG\) \| VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_SPRITE\) \| VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_ALL\)\)/);
   assert.match(source, /#define VN_CACHE_CLEAR_ADPCM_MASK \(VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_ADPCM\) \| VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_ALL\)\)/);
+  assert.match(source, /#define VN_CACHE_CLEAR_PSG_MASK \(VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_PSG\) \| VN_CACHE_SCOPE_BIT\(PCE_VN_CACHE_SCOPE_ALL\)\)/);
   assert.match(clearImplSource, /scope_bit = VN_CACHE_SCOPE_BIT\(scope\);/);
   assert.match(clearImplSource, /if \(scope_bit & VN_CACHE_CLEAR_BG_MASK\)[\s\S]*preloaded_bg_valid = 0u;[\s\S]*preloaded_scene_visual_valid = 0u;/);
   assert.match(clearImplSource, /if \(scope_bit & VN_CACHE_CLEAR_BG_MASK\)[\s\S]*for \(i = 0u; i < VN_BG_META_CACHE_SLOTS; i\+\+\)[\s\S]*g_bg_cache_key\[i\] = 0u;/);
@@ -2844,8 +2876,10 @@ test('PCE VN runtime cache clear only invalidates non-destructive cache flags', 
   assert.match(clearImplSource, /if \(scope_bit & VN_CACHE_CLEAR_SPRITE_MASK\)[\s\S]*g_spr_cache_key\[i\] = 0u;[\s\S]*g_spr_cache_next = 0u;/);
   assert.match(clearImplSource, /visual_cache_invalidate_impl\(scope\);/);
   assert.match(clearImplSource, /if \(scope_bit & VN_CACHE_CLEAR_ADPCM_MASK\)[\s\S]*loaded_adpcm_valid = 0u;/);
+  assert.match(clearImplSource, /if \(scope_bit & VN_CACHE_CLEAR_PSG_MASK\)[\s\S]*loaded_psg_pattern_key = 0u;/);
   assert.match(clearImplSource, /if \(scope_bit & VN_CACHE_CLEAR_GLYPH_MASK\)[\s\S]*message_glyph_cache_valid = 0u;/);
   assert.match(clearHelperSource, /scope_bit = VN_CACHE_SCOPE_BIT\(scope\);[\s\S]*if \(scope_bit & VN_CACHE_CLEAR_BG_MASK\)[\s\S]*preloaded_bg_valid = 0u;[\s\S]*for \(i = 0u; i < VN_BG_META_CACHE_SLOTS; i\+\+\)[\s\S]*g_bg_cache_key\[i\] = 0u;[\s\S]*if \(scope_bit & VN_CACHE_CLEAR_SPRITE_MASK\)[\s\S]*loaded_sprite_pattern_valid\[i\] = 0u;[\s\S]*visual_cache_invalidate\(scope\);[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);/);
+  assert.match(clearHelperSource, /if \(scope_bit & VN_CACHE_CLEAR_PSG_MASK\)[\s\S]*loaded_psg_pattern_key = 0u;/);
   assert.doesNotMatch(clearHelperSource, /load_visual_cache_code\(\)|VN_VISUAL_CACHE_OP_CLEAR_RUNTIME_CACHE|pce_cdb_cd_read/);
   assert.doesNotMatch(clearImplSource + clearHelperSource, /pce_cdb_adpcm_stop|pce_cdb_adpcm_reset|stop_adpcm_voice|display_disable|clear_screen_map|clear_sprites|sprite_slots\[|pce_editor_vram_copy|upload_sprite_table/);
   assert.match(executeCommandSource, /command->type == PCE_VN_COMMAND_CACHE[\s\S]*command->flags == PCE_VN_CACHE_ACTION_CLEAR[\s\S]*clear_runtime_cache\(command->arg0\);/);
