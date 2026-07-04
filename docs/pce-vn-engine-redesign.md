@@ -302,3 +302,29 @@ DMA/settle 完了
 - **Phase E — msg_core の credit 化 + 死コード削除 + ドキュメント/テスト最終化**: typewriter を credit 消費方式にし、旧5系統サービス関数等の死コードを除去し、ドキュメント・テストを最終形にする。
 
 各 Phase はビルド可能・Geargrafx 検証可能・1コミットでの revert 境界を維持することを前提とする。
+
+## 12. 実装結果（as-built、2026-07-05 時点）
+
+本設計の実装は以下の状態で完了した。コミットは `codex/psg` ブランチ（Phase A = `4fa52c6`、Phase B+C = `bdad97b`）。
+
+### 完了状況
+- **Phase A（モジュール分割）**: 完了。umbrella `#include` 方式で 13 module へ分割。関数欠落・重複ゼロを機械照合、bank 使用量ベースライン同等を確認。
+- **Phase B（TIMER credit 一次昇格）**: 完了。`VN_TIME_SOURCE_TIMER`（既定1）へ。synthetic credit 全廃、service 2本化、blocked-poll 実測。Gate G-B1 実機合格（TIQ 配送・テンポ±1%・破壊なし）。
+- **Phase C（state-driven PSG）**: 完了。`psg_logical`/`psg_dirty_mask`/`psg_advance`/`psg_commit`/`psg_mark_hw_dirty`。**これが「再生中の cache load / ADPCM start による PSG 論理状態と HW レジスタの乖離」という本再設計の主目的を解決する**。Gate C 実機合格（logical が実 note を時系列変化、note-off 機能、cache load 跨ぎで乖離なし）。
+- **Phase D（bus_cd_* 集約）**: **構造的集約は見送り（deferred）**。理由は §12「Phase D 見送り」参照。機能要件は Phase B/C で達成済み。
+- **Phase E（最終化）**: msg_core credit 化と死コード削除は見送り（下記）、本節と関連 docs の as-built 更新のみ実施。
+
+### RAM 予算の壁（重要・恒久制約）
+実装完了時点で **console_ram 7469〜7470 / 7472B（残 2〜3B）**、bank128/129/130 は **99.4〜99.8%**。§8/§9 が予見したとおり RAM/コードは限界に達した。この結果:
+- **新規の常駐コード・RAM をほぼ一切足せない**。Phase D の構造的集約（`bus_cd_read_ref_to_vram` への font upload 統合）は、struct 値渡しにより 6502 コードが純増して bank130 を 59B 溢れさせたため revert した。ソース行数が減っても実バイナリが増えるケースに注意。
+- **死コード削除で bank は空かない**: LTO（`-mlto`）が未参照 static を既にストリップ済みで、bank 使用は全て live コード。よって Phase E の「死コード削除」は無益。
+- **msg_core の credit 化は見送り**: メッセージ表示は実機で正常動作しており、`textSpeedFrames` は凍結仕様。credit 化はコード増（RAM 壁に抵触）とテキスト速度回帰のリスクを負う一方、体感上の利益が無いため実施しない。message pacing は現行の main-loop 駆動を維持する。
+
+### zp / MPR0 ポインタの罠（Phase C で発覚・最重要の実装知見）
+この runtime は **MPR0 = I/O（$FF）を常時維持**するため、llvm-mos のゼロページはハードウェア page 0 に無い。**address を取られる／far deref されるグローバルが `.zp`（`-mlto-zp=188` の自動割り当て）に入ると、`&obj` が page-0 相対（高位バイト 0x00、例 `0x00A0`）になり、実体（`0x20A0`）に届かず壊れる**。Phase C で `psg_logical` を追加した際に `g_psg_cache`（アドレスが `psg_current` に入る）と `psg_logical`（`&psg_logical[ch]` を commit が取る）が zp に押し込まれ、**ビルド・テストは通るのに実機で PSG が完全無音化**した。対策は既存コード（`active_message_state` / `loaded_sprite_pattern_*` 等）と同じ `__attribute__((section(".bss")))` による zp からの追い出し。ポインタ「値」を持つだけ・null チェックのみの参照先・名前アクセスのみのグローバルは zp のままでよい（過剰 pin は console_ram を溢れさせる）。**新規グローバル追加時は `llvm-readelf -S` で `.zp.bss` に入っていないか必ず確認すること。**
+
+### Phase D 見送りの根拠
+設計 §6.2 の `bus_cd_begin/read_chunk/settle/end` 名前付きプロトコルは、**単一チョークポイントの機能的実体が既に存在する**ため構造的集約の価値が低い: (1) 全 `pce_cdb_*` は guarded wrapper マクロで横取り済み、(2) BIOS 完了共通点 `sync_cd_external_irq_after_bios_call()` が `psg_mark_hw_dirty()` を必ず呼ぶ（Phase C）、(3) ADPCM 残フレームは Phase B の統一 credit 駆動。名前付き wrapper の追加は cosmetic であり、RAM 壁（bank 99%+）では実装できない。将来 runtime コードを削減して余地ができた場合に再検討可。
+
+### 未完了の検証
+- Phase D の ADPCM voice 発音長 ±4 frame の精密計測は、テストプロジェクト `ishi_no_ura` の scene 遷移操作が難しく、クリーンな長尺 voice countdown の測定には至っていない。ただし ADPCM voice の再生自体（`adpcm_play_active`=1、`adpcm_play_frames_remaining` の減算、PSG BGM との同時再生、破壊なし）は実機確認済み。CD-DA pause/resume は本再設計でコード変更しておらず（設計スコープ外）、個別再検証はしていない。

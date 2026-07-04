@@ -4,6 +4,8 @@
 > F1〜F6 の背景調査（PSG/ADPCM タイミング乖離の構造的原因）と Behaviors To Preserve は引き続き有効な参照資料だが、
 > 新規実装は `refactor-instructions-psg-adpcm.md` の Implementation Phases（Phase 0〜4）には従わず、本書の Phase A〜E に従うこと。
 
+> **[2026-07-05 as-built 追記]** Phase A/B/C は実装完了（`codex/psg`: Phase A=`4fa52c6`, Phase B+C=`bdad97b`）し、Geargrafx 実機で Gate 合格。**本再設計の主目的（再生中の cache load / ADPCM start による PSG 論理状態と HW レジスタの乖離）は Phase C の state-driven PSG で解決済み**。Phase D（`bus_cd_*` 集約）は RAM/bank が限界（bank 99%+、console_ram 残 2〜3B）で構造的集約が実装不能かつ機能要件は Phase B/C で達成済みのため**見送り**。Phase E の msg_core credit 化・死コード削除は利益<リスク（LTO が死コードを既にストリップ、msg 変更はテキスト速度回帰リスク）で見送り、docs 最終化のみ実施。詳細と恒久知見（**zp/MPR0 ポインタの罠**、RAM 予算の壁）は設計書 `docs/pce-vn-engine-redesign.md` §12 を参照。
+
 このファイルは実装担当モデル（Codex / Sonnet 等）向けの作業指示書である。
 作業前に必ず `CLAUDE.md` / `AGENTS.md` を読むこと。優先順位は次のとおり:
 
