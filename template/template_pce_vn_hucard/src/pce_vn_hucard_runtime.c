@@ -21,16 +21,21 @@
 #define VN_TEXT_ROWS 4u
 #define VN_WAIT_CURSOR_ROW 3u
 #define VN_WAIT_CURSOR_COL 16u
+#define VN_CHOICE_CURSOR_COL 0u
+#define VN_CHOICE_TEXT_COL 2u
 #define VN_GLYPH_W 12u
 #define VN_GLYPH_H 12u
 #define VN_GLYPH_Y_OFFSET 2u
 #define VN_GLYPH_MASK_WORDS 12u
+#define VN_MSG_GLYPH_MAX_TILES 4u
+#define VN_MSG_CLEAR_TILES_PER_VBLANK 16u
 #define VN_MSG_TILE_COLS 26u
 #define VN_MSG_TILE_ROWS 8u
 #define VN_MSG_TILE_COUNT (VN_MSG_TILE_COLS * VN_MSG_TILE_ROWS)
 #define VN_MSG_STRIP_TILE_BASE PCE_VN_FONT_TILE_BASE
 #define VN_UI_BLANK_TILE (PCE_VN_FONT_TILE_BASE + VN_MSG_TILE_COUNT)
 #define VN_UI_PALETTE 15u
+#define VN_WAIT_CURSOR_BLINK_FRAMES 24u
 #define VN_SATB_ADDR 0x7f00u
 #define VN_SPRITE_SLOT_COUNT 4u
 #define VN_SPRITE_SATB_PER_SLOT 12u
@@ -141,9 +146,12 @@ static uint16_t blank_bat_row[VN_MAP_WIDTH] __attribute__((section(".bss")));
  * CPU RAM addresses at $2000+. */
 static uint16_t msg_bat_row[VN_MSG_TILE_COLS] __attribute__((section(".bss")));
 static uint8_t msg_tile[32] __attribute__((section(".bss")));
+static uint8_t msg_tile_batch[VN_MSG_GLYPH_MAX_TILES][32] __attribute__((section(".bss")));
+static uint16_t msg_tile_batch_addr[VN_MSG_GLYPH_MAX_TILES] __attribute__((section(".bss")));
 static uint8_t msg_mask8[8] __attribute__((section(".bss")));
 static uint16_t msg_gmask[VN_GLYPH_MASK_WORDS] __attribute__((section(".bss")));
 static uint16_t composer_prev_mask[VN_GLYPH_MASK_WORDS] __attribute__((section(".bss")));
+static uint8_t msg_tile_batch_count;
 static uint8_t composer_prev_col;
 static uint8_t composer_prev_valid;
 static uint8_t composer_row;
@@ -169,6 +177,8 @@ static uint16_t wait_frames_remaining;
 static uint8_t async_input_mask;
 static uint16_t async_input_target = PCE_VN_NO_COMMAND;
 static uint16_t vdc_control_shadow = VN_VDC_CONTROL_BASE;
+static uint16_t bg_scroll_x_shadow;
+static uint16_t bg_scroll_y_shadow;
 static vn_psg_player_t psg_song __attribute__((section(".bss")));
 static vn_psg_player_t psg_sfx __attribute__((section(".bss")));
 
@@ -219,6 +229,12 @@ static void vn_vdc_set_copy_word(void)
     pce_vdc_poke(VDC_REG_CONTROL, vdc_control_shadow);
 }
 
+static void restore_bg_scroll(void)
+{
+    pce_vdc_poke(VDC_REG_BG_SCROLL_X, bg_scroll_x_shadow);
+    pce_vdc_poke(VDC_REG_BG_SCROLL_Y, bg_scroll_y_shadow);
+}
+
 static void vn_vram_copy(uint16_t dest, const void *source, uint16_t byte_count)
 {
     vn_vdc_set_copy_word();
@@ -227,8 +243,8 @@ static void vn_vram_copy(uint16_t dest, const void *source, uint16_t byte_count)
 
 static void service_psg_during_blocking_work(void)
 {
-    if (!psg_song.active && !psg_sfx.active) return;
     wait_vblank();
+    restore_bg_scroll();
     tick_psg();
 }
 
@@ -316,11 +332,11 @@ static void VN_HUCARD_CODE_VIDEO copy_data_ref_to_vram_guarded(uint16_t dest, co
             {
                 uint16_t slice = (uint16_t)(chunk->size - copied);
                 if (slice > VN_VRAM_SLICE_BYTES) slice = VN_VRAM_SLICE_BYTES;
+                service_psg_during_blocking_work();
                 pce_editor_map_asset_bank(chunk->bank);
                 vn_vram_copy((uint16_t)(dest + word_offset), chunk->data + copied, slice);
                 copied = (uint16_t)(copied + slice);
                 word_offset = (uint16_t)(word_offset + ((slice + 1u) / 2u));
-                service_psg_during_blocking_work();
             }
         }
         return;
@@ -332,10 +348,10 @@ static void VN_HUCARD_CODE_VIDEO copy_data_ref_to_vram_guarded(uint16_t dest, co
         {
             uint16_t slice = (uint16_t)(ref->size - copied);
             if (slice > VN_VRAM_SLICE_BYTES) slice = VN_VRAM_SLICE_BYTES;
+            service_psg_during_blocking_work();
             vn_vram_copy((uint16_t)(dest + word_offset), ref->data + copied, slice);
             copied = (uint16_t)(copied + slice);
             word_offset = (uint16_t)(word_offset + ((slice + 1u) / 2u));
-            service_psg_during_blocking_work();
         }
     }
 }
@@ -373,6 +389,7 @@ static void VN_HUCARD_CODE_VIDEO fade_palette(const pce_editor_data_ref_t *palet
             : (uint8_t)(16u - (((uint16_t)step * 16u) / frames));
         upload_palette(palette, base, level);
         wait_vblank();
+        restore_bg_scroll();
         tick_psg();
     }
 }
@@ -393,8 +410,8 @@ static void VN_HUCARD_CODE_VIDEO clear_screen_map_with_tile(uint16_t blank_word)
     }
     for (row = 0u; row < VN_MAP_HEIGHT; row++)
     {
+        if ((row & 3u) == 0u) service_psg_during_blocking_work();
         vn_vram_copy((uint16_t)((uint16_t)row * VN_MAP_WIDTH), blank_bat_row, (uint16_t)sizeof(blank_bat_row));
-        if ((row & 3u) == 3u) service_psg_during_blocking_work();
     }
 }
 
@@ -405,6 +422,7 @@ static void VN_HUCARD_CODE_VIDEO clear_screen_map(const pce_editor_bg_asset_t *b
     const uint16_t tile = bg_blank_tile_index(bg);
     const uint16_t word = (uint16_t)(((uint16_t)(bg ? bg->palette_bank : 0u) << 12) | tile);
     for (i = 0u; i < VN_BG_TILE_BYTES; i++) blank_tile[i] = 0u;
+    service_psg_during_blocking_work();
     vn_vram_copy((uint16_t)(tile * 16u), blank_tile, VN_BG_TILE_BYTES);
     clear_screen_map_with_tile(word);
 }
@@ -425,9 +443,9 @@ static void VN_HUCARD_CODE_VIDEO upload_bg_graphics(const pce_editor_bg_asset_t 
     for (row = 0u; row < bg->height_tiles; row++)
     {
         if ((uint16_t)tile_y + row >= VN_VISIBLE_HEIGHT) break;
+        if ((row & 3u) == 0u) service_psg_during_blocking_work();
         data_ref_copy_to_ram(&bg->map, (uint16_t)((uint16_t)row * (uint16_t)(bg->width_tiles * 2u)), map_row, row_bytes);
         vn_vram_copy((uint16_t)(((uint16_t)(tile_y + row) * VN_MAP_WIDTH) + tile_x), map_row, (uint16_t)(source_width * 2u));
-        service_psg_during_blocking_work();
     }
 }
 
@@ -466,7 +484,10 @@ static void VN_HUCARD_CODE_TEXT map_message_window_cells(uint8_t blank)
         {
             msg_bat_row[tc] = ui_tile(blank ? VN_UI_BLANK_TILE : (uint16_t)(row_tile + tc));
         }
+        wait_vblank();
+        restore_bg_scroll();
         vn_vram_copy((uint16_t)(((VN_TEXT_Y + tr) * VN_MAP_WIDTH) + VN_TEXT_X), msg_bat_row, (uint16_t)(VN_MSG_TILE_COLS * 2u));
+        tick_psg();
     }
 }
 
@@ -477,8 +498,8 @@ static void VN_HUCARD_CODE_TEXT clear_window_tile_pixels(void)
     for (i = 0u; i < 32u; i++) msg_tile[i] = 0u;
     for (tile = 0u; tile < VN_MSG_TILE_COUNT; tile++)
     {
+        if ((tile & (VN_MSG_CLEAR_TILES_PER_VBLANK - 1u)) == 0u) service_psg_during_blocking_work();
         vn_vram_copy((uint16_t)((VN_MSG_STRIP_TILE_BASE + tile) * 16u), msg_tile, 32u);
-        if ((tile & 0x0fu) == 0x0fu) service_psg_during_blocking_work();
     }
     composer_prev_valid = 0u;
     composer_row = 0xffu;
@@ -488,6 +509,7 @@ static void VN_HUCARD_CODE_VIDEO upload_blank_tile(void)
 {
     uint8_t i;
     for (i = 0u; i < 32u; i++) msg_tile[i] = 0u;
+    service_psg_during_blocking_work();
     vn_vram_copy((uint16_t)(VN_UI_BLANK_TILE * 16u), msg_tile, 32u);
 }
 
@@ -529,6 +551,35 @@ static void VN_HUCARD_CODE_TEXT encode_msg_tile(const uint8_t *mask8, uint8_t *o
         out32[16u + ((uint16_t)sy * 2u)] = m;
         out32[16u + ((uint16_t)sy * 2u) + 1u] = m;
     }
+}
+
+static void VN_HUCARD_CODE_TEXT reset_msg_tile_batch(void)
+{
+    msg_tile_batch_count = 0u;
+}
+
+static void VN_HUCARD_CODE_TEXT queue_msg_tile(uint16_t tile, const uint8_t *tile_data)
+{
+    uint8_t i;
+    uint8_t *dest;
+    if (msg_tile_batch_count >= VN_MSG_GLYPH_MAX_TILES) return;
+    msg_tile_batch_addr[msg_tile_batch_count] = (uint16_t)(tile * 16u);
+    dest = msg_tile_batch[msg_tile_batch_count];
+    for (i = 0u; i < 32u; i++) dest[i] = tile_data[i];
+    msg_tile_batch_count++;
+}
+
+static void VN_HUCARD_CODE_TEXT flush_msg_tile_batch(void)
+{
+    uint8_t i;
+    if (!msg_tile_batch_count) return;
+    wait_vblank();
+    restore_bg_scroll();
+    for (i = 0u; i < msg_tile_batch_count; i++)
+    {
+        vn_vram_copy(msg_tile_batch_addr[i], msg_tile_batch[i], 32u);
+    }
+    msg_tile_batch_count = 0u;
 }
 
 static void VN_HUCARD_CODE_TEXT add_glyph_tile(const uint16_t *gmask, uint16_t gpx0, uint8_t tile_x0, uint8_t sub, uint8_t *mask8)
@@ -579,6 +630,7 @@ static void VN_HUCARD_CODE_TEXT draw_message_glyph_at(uint16_t glyph, uint8_t co
     if (row != composer_row) composer_prev_valid = 0u;
     use_prev = composer_prev_valid;
     load_glyph_mask(glyph, msg_gmask);
+    reset_msg_tile_batch();
     for (tc = tc0; tc <= tc1 && tc < VN_MSG_TILE_COLS; tc++)
     {
         const uint8_t tile_x0 = (uint8_t)(tc * 8u);
@@ -590,13 +642,36 @@ static void VN_HUCARD_CODE_TEXT draw_message_glyph_at(uint16_t glyph, uint8_t co
             add_glyph_tile(msg_gmask, px0, tile_x0, sub, msg_mask8);
             if (use_prev) add_glyph_tile(composer_prev_mask, prev_px0, tile_x0, sub, msg_mask8);
             encode_msg_tile(msg_mask8, msg_tile);
-            vn_vram_copy((uint16_t)(tile * 16u), msg_tile, 32u);
+            queue_msg_tile(tile, msg_tile);
         }
     }
+    flush_msg_tile_batch();
     for (k = 0u; k < VN_GLYPH_MASK_WORDS; k++) composer_prev_mask[k] = msg_gmask[k];
     composer_prev_col = col;
     composer_prev_valid = 1u;
     composer_row = row;
+}
+
+static void VN_HUCARD_CODE_TEXT clear_message_glyph_area(uint8_t col, uint8_t row)
+{
+    const uint16_t px0 = (uint16_t)col * VN_GLYPH_W;
+    const uint8_t tc0 = (uint8_t)(px0 >> 3);
+    const uint8_t tc1 = (uint8_t)((px0 + VN_GLYPH_W - 1u) >> 3);
+    uint8_t tc;
+    uint8_t sub;
+    uint8_t k;
+    composer_prev_valid = 0u;
+    for (k = 0u; k < 32u; k++) msg_tile[k] = 0u;
+    reset_msg_tile_batch();
+    for (tc = tc0; tc <= tc1 && tc < VN_MSG_TILE_COLS; tc++)
+    {
+        for (sub = 0u; sub < 2u; sub++)
+        {
+            const uint16_t tile = (uint16_t)(VN_MSG_STRIP_TILE_BASE + ((uint16_t)((row * 2u) + sub) * VN_MSG_TILE_COLS) + tc);
+            queue_msg_tile(tile, msg_tile);
+        }
+    }
+    flush_msg_tile_batch();
 }
 
 static uint8_t VN_HUCARD_CODE_TEXT draw_message_next_entry(const pce_vn_message_t *message)
@@ -633,14 +708,96 @@ static void VN_HUCARD_CODE_TEXT draw_message_text(const pce_vn_message_t *messag
     message_complete = 1u;
 }
 
-static void VN_HUCARD_CODE_TEXT refresh_message_wait_indicator(void)
+static void VN_HUCARD_CODE_TEXT blank_message_wait_indicator(void)
 {
-    if (!message_complete || active_message_index < 0) return;
-    message_wait_indicator_state ^= 1u;
+    clear_message_glyph_area(VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
+}
+
+static void VN_HUCARD_CODE_TEXT show_message_wait_indicator(void)
+{
+    message_wait_indicator_state = 1u;
+    message_frame_timer = 0u;
+    composer_prev_valid = 0u;
+    draw_message_glyph_at(PCE_VN_MESSAGE_WAIT_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
+}
+
+static void VN_HUCARD_CODE_TEXT hide_message_wait_indicator(void)
+{
     if (message_wait_indicator_state)
     {
-        draw_message_glyph_at(PCE_VN_MESSAGE_WAIT_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
+        blank_message_wait_indicator();
     }
+    message_wait_indicator_state = 0u;
+    message_frame_timer = 0u;
+}
+
+static void VN_HUCARD_CODE_TEXT reset_message_wait_indicator_state(void)
+{
+    message_wait_indicator_state = 0u;
+    message_frame_timer = 0u;
+}
+
+static void VN_HUCARD_CODE_TEXT refresh_message_wait_indicator(void)
+{
+    if (active_message_index < 0
+        || !message_complete
+        || active_message_state.advance_mode != PCE_VN_ADVANCE_BUTTON)
+    {
+        hide_message_wait_indicator();
+        return;
+    }
+    if (!message_wait_indicator_state) show_message_wait_indicator();
+}
+
+static void VN_HUCARD_CODE_TEXT tick_message_wait_indicator(void)
+{
+    if (active_message_index < 0
+        || !message_complete
+        || active_message_state.advance_mode != PCE_VN_ADVANCE_BUTTON)
+    {
+        hide_message_wait_indicator();
+        return;
+    }
+    if (!message_wait_indicator_state)
+    {
+        show_message_wait_indicator();
+        return;
+    }
+    message_frame_timer++;
+    if (message_frame_timer < VN_WAIT_CURSOR_BLINK_FRAMES) return;
+    message_frame_timer = 0u;
+    if (message_wait_indicator_state == 2u)
+    {
+        show_message_wait_indicator();
+    }
+    else
+    {
+        message_wait_indicator_state = 2u;
+        blank_message_wait_indicator();
+    }
+}
+
+static uint8_t VN_HUCARD_CODE_TEXT begin_message_window_vram_update(void)
+{
+    wait_vblank();
+    map_message_window_cells(1u);
+    tick_psg();
+    return 1u;
+}
+
+static void VN_HUCARD_CODE_TEXT end_message_window_vram_update(uint8_t restore_display)
+{
+    if (!restore_display) return;
+    wait_vblank();
+    map_message_window_cells(0u);
+    tick_psg();
+}
+
+static void VN_HUCARD_CODE_TEXT hide_message_window_map(void)
+{
+    wait_vblank();
+    map_message_window_cells(1u);
+    tick_psg();
 }
 
 static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_has_range(const vn_scene_pack_cache_t *cache, uint16_t offset, uint16_t length)
@@ -1024,6 +1181,7 @@ static void VN_HUCARD_CODE_VIDEO clear_sprite_slot_shadow(uint8_t slot)
 static void VN_HUCARD_CODE_VIDEO upload_sprite_table(void)
 {
     wait_vblank();
+    restore_bg_scroll();
     vn_vram_copy(VN_SATB_ADDR, (const uint8_t *)sprite_shadow, (uint16_t)(64u * sizeof(vdc_sprite_t)));
     pce_vdc_poke(VDC_REG_DMA_CONTROL, VDC_DMA_SRC_INC);
     pce_vdc_poke(VDC_REG_SATB_START, VN_SATB_ADDR);
@@ -1373,6 +1531,7 @@ static void VN_HUCARD_CODE_SCRIPT apply_effect(const pce_vn_command_t *command)
 static void VN_HUCARD_CODE_TEXT start_message(uint8_t message_index)
 {
     pce_vn_message_t message;
+    uint8_t restore_window_display;
     if (!scene_pack_read_message(&active_scene_pack, message_index, &message)) return;
     active_message_state = message;
     active_message_index = message_index;
@@ -1388,7 +1547,7 @@ static void VN_HUCARD_CODE_TEXT start_message(uint8_t message_index)
     message_wait_indicator_state = 0u;
     message_text_speed = message.text_speed_frames;
     write_ui_text_palette(ui_text_color_word(message.text_color));
-    map_message_window_cells(0u);
+    restore_window_display = begin_message_window_vram_update();
     clear_window_tile_pixels();
     if (!message_text_speed)
     {
@@ -1398,12 +1557,14 @@ static void VN_HUCARD_CODE_TEXT start_message(uint8_t message_index)
     {
         message_complete = draw_message_next_entry(&active_message_state);
     }
+    end_message_window_vram_update(restore_window_display);
     if (message_complete) refresh_message_wait_indicator();
 }
 
 static void VN_HUCARD_CODE_TEXT finish_active_message(void)
 {
     if (active_message_index < 0) return;
+    hide_message_wait_indicator();
     while (!message_complete)
     {
         message_complete = draw_message_next_entry(&active_message_state);
@@ -1429,11 +1590,12 @@ static void VN_HUCARD_CODE_TEXT tick_active_message(void)
 static void VN_HUCARD_CODE_TEXT draw_choice_options(void)
 {
     uint8_t row;
+    uint8_t restore_window_display;
     vn_choice_ref_t choice;
     if (active_choice_index < 0) return;
     if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, &choice)) return;
     write_ui_text_palette(ui_text_color_word(PCE_VN_MESSAGE_COLOR_NONE));
-    map_message_window_cells(0u);
+    restore_window_display = begin_message_window_vram_update();
     clear_window_tile_pixels();
     for (row = 0u; row < choice.option_count && row < VN_TEXT_ROWS; row++)
     {
@@ -1441,16 +1603,52 @@ static void VN_HUCARD_CODE_TEXT draw_choice_options(void)
         uint16_t pos = 0u;
         pce_vn_choice_option_t option;
         if (!scene_pack_read_choice_option(&active_scene_pack, &choice, row, &option)) continue;
-        draw_message_glyph_at(row == choice_selected_index ? PCE_VN_CHOICE_CURSOR_GLYPH : 0u, 0u, row);
-        for (col = 0u; col < option.glyph_count && (uint8_t)(col + 1u) < VN_TEXT_COLS; col++)
+        draw_message_glyph_at(row == choice_selected_index ? PCE_VN_CHOICE_CURSOR_GLYPH : 0u, VN_CHOICE_CURSOR_COL, row);
+        for (col = 0u; col < option.glyph_count && (uint8_t)(col + VN_CHOICE_TEXT_COL) < VN_TEXT_COLS; col++)
         {
             const uint16_t glyph = vn_glyph_decode(option.glyphs, pos);
             pos = (uint16_t)(pos + vn_glyph_stride(option.glyphs, pos));
             if (glyph == PCE_VN_GLYPH_END) break;
-            draw_message_glyph_at(glyph, (uint8_t)(col + 1u), row);
+            draw_message_glyph_at(glyph, (uint8_t)(col + VN_CHOICE_TEXT_COL), row);
         }
         composer_prev_valid = 0u;
     }
+    end_message_window_vram_update(restore_window_display);
+}
+
+static void VN_HUCARD_CODE_TEXT draw_choice_cursor_row(const vn_choice_ref_t *choice, uint8_t row, uint8_t selected)
+{
+    uint16_t pos = 0u;
+    uint16_t glyph = PCE_VN_GLYPH_END;
+    pce_vn_choice_option_t option;
+    if (!choice || row >= choice->option_count || row >= VN_TEXT_ROWS) return;
+    if (!scene_pack_read_choice_option(&active_scene_pack, choice, row, &option)) return;
+    composer_prev_valid = 0u;
+    clear_message_glyph_area(VN_CHOICE_CURSOR_COL, row);
+    clear_message_glyph_area((uint8_t)(VN_CHOICE_CURSOR_COL + 1u), row);
+    if (selected)
+    {
+        draw_message_glyph_at(PCE_VN_CHOICE_CURSOR_GLYPH, VN_CHOICE_CURSOR_COL, row);
+    }
+    if (option.glyph_count)
+    {
+        glyph = vn_glyph_decode(option.glyphs, pos);
+    }
+    if (glyph != PCE_VN_GLYPH_END && glyph != PCE_VN_GLYPH_NEWLINE)
+    {
+        draw_message_glyph_at(glyph, VN_CHOICE_TEXT_COL, row);
+    }
+    composer_prev_valid = 0u;
+}
+
+static void VN_HUCARD_CODE_TEXT update_choice_cursor(uint8_t old_index, uint8_t new_index)
+{
+    vn_choice_ref_t choice;
+    if (active_choice_index < 0 || old_index == new_index) return;
+    if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, &choice)) return;
+    if (old_index < choice.option_count) draw_choice_cursor_row(&choice, old_index, 0u);
+    if (new_index < choice.option_count) draw_choice_cursor_row(&choice, new_index, 1u);
+    tick_psg();
 }
 
 static void VN_HUCARD_CODE_TEXT start_choice(uint8_t choice_index)
@@ -1473,16 +1671,18 @@ static uint8_t VN_HUCARD_CODE_TEXT handle_choice_input(uint8_t pressed)
     if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, &choice)) return 0u;
     if (pressed & PAD_UP)
     {
+        const uint8_t old_index = choice_selected_index;
         if (choice_selected_index) choice_selected_index--;
         else choice_selected_index = (uint8_t)(choice.option_count - 1u);
-        draw_choice_options();
+        update_choice_cursor(old_index, choice_selected_index);
         return 1u;
     }
     if (pressed & PAD_DOWN)
     {
+        const uint8_t old_index = choice_selected_index;
         choice_selected_index++;
         if (choice_selected_index >= choice.option_count) choice_selected_index = 0u;
-        draw_choice_options();
+        update_choice_cursor(old_index, choice_selected_index);
         return 1u;
     }
     if (pressed & (PAD_I | PAD_II | PAD_RUN))
@@ -1490,7 +1690,7 @@ static uint8_t VN_HUCARD_CODE_TEXT handle_choice_input(uint8_t pressed)
         pce_vn_choice_option_t option;
         if (!scene_pack_read_choice_option(&active_scene_pack, &choice, choice_selected_index, &option)) return 0u;
         active_choice_index = -1;
-        clear_window_tile_pixels();
+        hide_message_window_map();
         if (choice.variable_index >= 0) set_variable_value(choice.variable_index, option.value);
         if (option.target_scene >= 0) show_scene((uint8_t)option.target_scene);
         advance_story();
@@ -1647,10 +1847,13 @@ static void VN_HUCARD_CODE_VIDEO init_video(void)
 {
     pce_cpu_irq_disable();
     pce_irq_disable(IRQ_VDC);
+    bg_scroll_x_shadow = 0u;
+    bg_scroll_y_shadow = 0u;
     pce_vdc_set_resolution(256u, 224u, VCE_COLORBURST_ON);
     pce_vdc_bg_set_size(VDC_BG_SIZE_32_32);
     pce_vdc_poke(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL);
     vn_vdc_set_copy_word();
+    restore_bg_scroll();
     set_vdc_control(VN_VDC_CONTROL_BASE);
     pce_vdc_sprite_set_table_start(VN_SATB_ADDR);
     clear_sprites();
@@ -1678,7 +1881,20 @@ int main(void)
     {
         uint8_t pad;
         uint8_t pressed;
+        uint8_t message_ticked = 0u;
         wait_vblank();
+        if (active_message_index >= 0)
+        {
+            if (!message_complete)
+            {
+                tick_active_message();
+                message_ticked = 1u;
+            }
+            else
+            {
+                tick_message_wait_indicator();
+            }
+        }
         tick_psg();
         tick_sprites();
         pad = pce_joypad_read();
@@ -1689,9 +1905,11 @@ int main(void)
             current_command = async_input_target;
             async_input_mask = 0u;
             async_input_target = PCE_VN_NO_COMMAND;
+            reset_message_wait_indicator_state();
             active_message_index = -1;
             active_choice_index = -1;
             wait_frames_remaining = 0u;
+            hide_message_window_map();
             advance_story();
             continue;
         }
@@ -1702,14 +1920,15 @@ int main(void)
         }
         if (active_message_index >= 0)
         {
-            tick_active_message();
+            if (!message_ticked && !message_complete) tick_active_message();
             if (message_complete && active_message_state.advance_mode == PCE_VN_ADVANCE_AUTO)
             {
                 if (message_auto_wait) message_auto_wait--;
                 else
                 {
+                    reset_message_wait_indicator_state();
                     active_message_index = -1;
-                    clear_window_tile_pixels();
+                    hide_message_window_map();
                     advance_story();
                 }
             }
@@ -1718,8 +1937,9 @@ int main(void)
                 if (!message_complete) finish_active_message();
                 else
                 {
+                    reset_message_wait_indicator_state();
                     active_message_index = -1;
-                    clear_window_tile_pixels();
+                    hide_message_window_map();
                     advance_story();
                 }
             }

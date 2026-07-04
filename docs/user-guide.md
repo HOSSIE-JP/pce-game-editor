@@ -138,7 +138,7 @@ CD-ROM2 VN build では、scene から参照される BG / Sprite / ADPCM / PSG 
 
 Build Log には `VN generation`、`asset source generation`、`compile/link ELF`、`VN overlay extraction`、`PCE-CD padding update`、`PCE-CD ISO assembly` の各段階の所要時間が表示されます。ビルドが長い場合は、この timing 行で VN スクリプト生成、画像/音声アセット生成、llvm-mos link、ISO 作成のどこが重いかを切り分けてください。
 
-Test Play は直前の出力を残したままビルドします。VN シーン、アセット定義、フォント、runtime template、CD data file のサイズが前回から変わっていない場合は `assets/generated/vn/build-stamp.json` を使って VN スクリプト生成をスキップし、Build Log に `VN generation skipped: inputs unchanged` と表示します。通常の Build や入力変更後の Test Play は、スタンプを更新するためフル生成します。
+Test Play は直前の出力を残したままビルドします。VN シーン、アセット定義、フォント、runtime template、CD data file のサイズが前回から変わっていない場合は `assets/generated/vn/build-stamp.json` を使って VN スクリプト生成をスキップし、Build Log に `VN generation skipped: inputs unchanged` と表示します。さらに生成後の `src/`、CD data、ツール設定、ビルド引数、出力 ROM/CUE/ISO が `out/build-stamp.json` と一致する場合は clang/link/mkcd も起動せず、`Build skipped: inputs unchanged` と表示して既存出力をそのまま Test Play に渡します。通常の Build や入力変更後の Test Play は、スタンプを更新するためフル生成します。
 
 ## Export
 

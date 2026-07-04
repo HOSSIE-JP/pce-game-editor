@@ -48,9 +48,54 @@ function syncHuCardVisualNovelRuntime(projectDir, logger = null) {
   return { changed };
 }
 
+function huCardConfigPatch(config = {}) {
+  return {
+    toolchain: 'llvm-mos',
+    targetMedia: 'hucard',
+    cd: {
+      ...(config.cd || {}),
+      dataFiles: [],
+      cddaTracks: [],
+    },
+    pluginSettings: {
+      ...(config.pluginSettings || {}),
+      [PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID]: {
+        ...(config.pluginSettings?.[PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID] || {}),
+        template: 'visual-novel-hucard',
+      },
+    },
+  };
+}
+
 function prepareHuCardVisualNovelBuild(projectDir, config = {}, logger = null, options = {}) {
-  syncHuCardVisualNovelRuntime(projectDir, logger);
+  const runtimeSync = syncHuCardVisualNovelRuntime(projectDir, logger);
   vnManager.ensureSceneFile(projectDir);
+  const signatureConfig = {
+    ...config,
+    targetMedia: 'hucard',
+  };
+  const configPatch = huCardConfigPatch(config);
+  if (options.incremental && !runtimeSync.changed) {
+    const cached = vnManager.readVnBuildStamp(projectDir);
+    if (cached?.generated && vnManager.vnGeneratedOutputsReady(projectDir, cached.generated)) {
+      const signature = vnManager.vnBuildSignature(projectDir, signatureConfig, [], []);
+      if (signature === cached.signature) {
+        logger?.info?.(`VN generation skipped: inputs unchanged (${cached.generated.sceneCount || 0} scene(s), ${cached.generated.messageCount || 0} message(s), ${cached.generated.glyphCount || 0} glyph(s))`);
+        return {
+          ok: true,
+          generated: {
+            ...cached.generated,
+            incrementalSkipped: true,
+          },
+          stampInfo: {
+            dataFiles: [],
+            cddaTracks: [],
+          },
+          configPatch,
+        };
+      }
+    }
+  }
   const generated = vnManager.generateVnSources(projectDir, {
     ...(options.generateOptions || {}),
     targetMedia: 'hucard',
@@ -58,22 +103,11 @@ function prepareHuCardVisualNovelBuild(projectDir, config = {}, logger = null, o
   return {
     ok: true,
     generated,
-    configPatch: {
-      toolchain: 'llvm-mos',
-      targetMedia: 'hucard',
-      cd: {
-        ...(config.cd || {}),
-        dataFiles: [],
-        cddaTracks: [],
-      },
-      pluginSettings: {
-        ...(config.pluginSettings || {}),
-        [PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID]: {
-          ...(config.pluginSettings?.[PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID] || {}),
-          template: 'visual-novel-hucard',
-        },
-      },
+    stampInfo: {
+      dataFiles: [],
+      cddaTracks: [],
     },
+    configPatch,
   };
 }
 

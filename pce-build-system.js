@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn, spawnSync } = require('child_process');
 const { app } = require('electron');
 const assetManager = require('./pce-asset-manager');
@@ -18,6 +19,8 @@ const DEFAULT_EXTERNAL_EMULATOR_PATH = process.platform === 'darwin'
 const PCE_CD_SECTOR_BYTES = 2048;
 const PCE_CD_IPL_PROGRAM_SECTORS = 20;
 const PCE_CD_DATA_BASE_SECTOR = 64;
+const PCE_INCREMENTAL_BUILD_STAMP_VERSION = 1;
+const PCE_INCREMENTAL_BUILD_STAMP_FILE = path.join('out', 'build-stamp.json');
 const PCE_SLIDESHOW_BUILDER_ID = 'pce-slideshow-builder';
 const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
 const PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID = 'pce-visual-novel-hucard-builder';
@@ -656,6 +659,216 @@ function collectSourceFiles(projectDir, config = {}) {
   return sourceFiles.filter((filePath) => fs.existsSync(filePath));
 }
 
+function sha1Buffer(buffer) {
+  return crypto.createHash('sha1').update(buffer).digest('hex');
+}
+
+function normalizeStampPath(projectDir, filePath) {
+  const projectRoot = path.resolve(projectDir);
+  const resolved = path.resolve(filePath);
+  const rel = path.relative(projectRoot, resolved);
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+    return rel.replace(/\\/g, '/');
+  }
+  return resolved.replace(/\\/g, '/');
+}
+
+function contentSignatureForFile(projectDir, filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return null;
+    return {
+      path: normalizeStampPath(projectDir, filePath),
+      size: stat.size,
+      sha1: sha1Buffer(fs.readFileSync(filePath)),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function statSignatureForFile(projectDir, filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return null;
+    return {
+      path: normalizeStampPath(projectDir, filePath),
+      size: stat.size,
+      mtimeMs: Math.round(stat.mtimeMs),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function collectFilesRecursive(rootDir, predicate) {
+  if (!fs.existsSync(rootDir)) return [];
+  const out = [];
+  const visit = (dir) => {
+    fs.readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
+      const absPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(absPath);
+      } else if (entry.isFile() && predicate(absPath)) {
+        out.push(absPath);
+      }
+    });
+  };
+  visit(rootDir);
+  return out.sort((a, b) => normalizeStampPath(rootDir, a).localeCompare(normalizeStampPath(rootDir, b), 'en'));
+}
+
+function compileSourceInputFiles(projectDir) {
+  const sourceExts = new Set(['.c', '.h', '.s', '.asm', '.inc', '.ld']);
+  const files = collectFilesRecursive(path.join(projectDir, 'src'), (filePath) => sourceExts.has(path.extname(filePath).toLowerCase()));
+  [
+    'project.json',
+    assetManager.ASSET_FILE || path.join('assets', 'pce-assets.json'),
+    vnManager.VN_SCENE_FILE || path.join('assets', 'pce-vn-scenes.json'),
+    vnManager.VN_FONT_FILE || path.join('assets', 'pce-font.json'),
+  ].forEach((relativePath) => {
+    const absPath = path.join(projectDir, relativePath);
+    if (fs.existsSync(absPath)) files.push(absPath);
+  });
+  const fontDir = path.join(projectDir, 'assets', 'fonts');
+  files.push(...collectFilesRecursive(fontDir, () => true));
+  return Array.from(new Set(files.map((filePath) => path.resolve(filePath))))
+    .sort((a, b) => normalizeStampPath(projectDir, a).localeCompare(normalizeStampPath(projectDir, b), 'en'));
+}
+
+function compileBinaryInputFiles(projectDir, config = {}, commandInfo = {}) {
+  const files = [];
+  if (commandInfo.targetMedia === 'cd') {
+    (config.cd?.dataFiles || []).forEach((entry) => {
+      const resolved = resolveProjectRelativeFile(projectDir, entry);
+      if (resolved) files.push(path.join(projectDir, resolved));
+    });
+    (commandInfo.cddaTracks || []).forEach((track) => {
+      if (track?.sourcePath && fs.existsSync(track.sourcePath)) files.push(track.sourcePath);
+    });
+    if (commandInfo.iplPath && fs.existsSync(commandInfo.iplPath)) files.push(commandInfo.iplPath);
+  }
+  return Array.from(new Set(files.map((filePath) => path.resolve(filePath))))
+    .sort((a, b) => normalizeStampPath(projectDir, a).localeCompare(normalizeStampPath(projectDir, b), 'en'));
+}
+
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((out, key) => {
+      out[key] = stableValue(value[key]);
+      return out;
+    }, {});
+  }
+  return value;
+}
+
+function sha1Json(value) {
+  return crypto.createHash('sha1').update(JSON.stringify(stableValue(value))).digest('hex');
+}
+
+function stampRelevantConfig(config = {}) {
+  const { generatedAt, testPlay, ...rest } = config || {};
+  return rest;
+}
+
+function normalizeArgForStamp(projectDir, arg) {
+  const normalizedProject = path.resolve(projectDir).replace(/\\/g, '/');
+  return String(arg || '').replace(/\\/g, '/').split(normalizedProject).join('<project>');
+}
+
+function buildOutputStampPath(projectDir) {
+  return path.join(projectDir, PCE_INCREMENTAL_BUILD_STAMP_FILE);
+}
+
+function readBuildOutputStamp(projectDir) {
+  try {
+    const stamp = JSON.parse(fs.readFileSync(buildOutputStampPath(projectDir), 'utf-8'));
+    return stamp && stamp.version === PCE_INCREMENTAL_BUILD_STAMP_VERSION ? stamp : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function computeBuildOutputSignature(projectDir, config = {}, commandInfo = {}) {
+  const sourceInputs = compileSourceInputFiles(projectDir)
+    .map((filePath) => contentSignatureForFile(projectDir, filePath))
+    .filter(Boolean);
+  const binaryInputs = compileBinaryInputFiles(projectDir, config, commandInfo)
+    .map((filePath) => statSignatureForFile(projectDir, filePath))
+    .filter(Boolean);
+  const toolInputs = [
+    commandInfo.command,
+    findLlvmMosLinkerPath(commandInfo),
+    ...(Array.isArray(commandInfo.args) ? commandInfo.args : [])
+      .filter((arg, index, args) => args[index - 1] === '--config'),
+    commandInfo.mkcdCommand,
+  ]
+    .filter((entry) => entry && fs.existsSync(entry))
+    .map((entry) => statSignatureForFile(projectDir, entry))
+    .filter(Boolean);
+  return sha1Json({
+    version: PCE_INCREMENTAL_BUILD_STAMP_VERSION,
+    targetMedia: commandInfo.targetMedia,
+    toolchain: commandInfo.toolchain,
+    command: normalizeArgForStamp(projectDir, commandInfo.command),
+    args: (commandInfo.args || []).map((arg) => normalizeArgForStamp(projectDir, arg)),
+    mkcdCommand: normalizeArgForStamp(projectDir, commandInfo.mkcdCommand || ''),
+    mkcdArgs: (commandInfo.mkcdArgs || []).map((arg) => normalizeArgForStamp(projectDir, arg)),
+    config: stampRelevantConfig(config),
+    sourceInputs,
+    binaryInputs,
+    toolInputs,
+  });
+}
+
+function buildOutputsReady(commandInfo = {}) {
+  const isFile = (filePath) => Boolean(filePath && fs.existsSync(filePath) && fs.statSync(filePath).isFile() && fs.statSync(filePath).size > 0);
+  if (commandInfo.targetMedia === 'cd') {
+    return isFile(commandInfo.cuePath)
+      && isFile(commandInfo.isoPath)
+      && (commandInfo.cddaTracks || []).every((track) => !track?.outputPath || isFile(track.outputPath));
+  }
+  return isFile(commandInfo.romPath);
+}
+
+function writeBuildOutputStamp(projectDir, config = {}, commandInfo = {}) {
+  const stamp = {
+    version: PCE_INCREMENTAL_BUILD_STAMP_VERSION,
+    signature: computeBuildOutputSignature(projectDir, config, commandInfo),
+    targetMedia: commandInfo.targetMedia,
+    romPath: normalizeStampPath(projectDir, commandInfo.romPath || ''),
+    isoPath: commandInfo.isoPath ? normalizeStampPath(projectDir, commandInfo.isoPath) : '',
+    cuePath: commandInfo.cuePath ? normalizeStampPath(projectDir, commandInfo.cuePath) : '',
+    updatedAt: new Date().toISOString(),
+  };
+  ensureDirSync(path.dirname(buildOutputStampPath(projectDir)));
+  fs.writeFileSync(buildOutputStampPath(projectDir), JSON.stringify(stamp, null, 2), 'utf-8');
+  return stamp;
+}
+
+function buildOutputStampMatches(projectDir, config = {}, commandInfo = {}) {
+  if (!buildOutputsReady(commandInfo)) return false;
+  const stamp = readBuildOutputStamp(projectDir);
+  if (!stamp?.signature) return false;
+  return computeBuildOutputSignature(projectDir, config, commandInfo) === stamp.signature;
+}
+
+function buildSuccessResult(commandInfo = {}, generated = {}, extra = {}) {
+  const romSize = fs.existsSync(commandInfo.isoPath || '') && commandInfo.targetMedia === 'cd'
+    ? fs.statSync(commandInfo.isoPath).size
+    : (fs.existsSync(commandInfo.romPath || '') ? fs.statSync(commandInfo.romPath).size : 0);
+  return {
+    success: true,
+    romPath: commandInfo.romPath,
+    ...(commandInfo.targetMedia === 'cd' ? { isoPath: commandInfo.isoPath, cuePath: commandInfo.cuePath } : {}),
+    romSize,
+    commandInfo,
+    generated,
+    ...extra,
+  };
+}
+
 function isVisualNovelProject(projectDir, config = {}) {
   return isCdVisualNovelProject(projectDir, config) || isHuCardVisualNovelProject(projectDir, config);
 }
@@ -980,7 +1193,9 @@ function buildProject(onLog, options = {}) {
       const stage = stageStart('VN generation');
       try {
         const prepared = isHuCardVisualNovelProject(projectDir, config)
-          ? hucardVnManager.prepareHuCardVisualNovelBuild(projectDir, config, { info: (m) => log(m, 'info') }, {})
+          ? hucardVnManager.prepareHuCardVisualNovelBuild(projectDir, config, { info: (m) => log(m, 'info') }, {
+            incremental: Boolean(options.skipClean),
+          })
           : vnManager.prepareVisualNovelBuild(projectDir, config, setupManager.getLlvmMosPceCdPath(), { info: (m) => log(m, 'info') }, {
             incremental: Boolean(options.skipClean),
           });
@@ -1090,6 +1305,23 @@ function buildProject(onLog, options = {}) {
       log(`PCE-CD image command: ${commandInfo.mkcdCommand} ${commandInfo.mkcdArgs.join(' ')}`);
     }
 
+    if (options.skipClean) {
+      try {
+        if (buildOutputStampMatches(projectDir, config, commandInfo)) {
+          log(`Build skipped: inputs unchanged (${path.basename(commandInfo.romPath)})`);
+          totalDone();
+          resolve(buildSuccessResult(commandInfo, generated, {
+            dryRun: Boolean(options.dryRun),
+            buildSkipped: true,
+            incrementalSkipped: true,
+          }));
+          return;
+        }
+      } catch (err) {
+        log(`Build cache check ignored: ${err.message || err}`, 'warn');
+      }
+    }
+
     if (options.dryRun) {
       resolve({ success: true, dryRun: true, commandInfo, generated });
       return;
@@ -1181,6 +1413,11 @@ function buildProject(onLog, options = {}) {
             }
             try {
               writeCueFile(commandInfo);
+              try {
+                writeBuildOutputStamp(projectDir, config, commandInfo);
+              } catch (stampErr) {
+                log(`Build cache stamp update failed: ${stampErr.message || stampErr}`, 'warn');
+              }
               const romSize = fs.existsSync(commandInfo.isoPath) ? fs.statSync(commandInfo.isoPath).size : 0;
               totalDone();
               resolve({ success: true, romPath: commandInfo.romPath, isoPath: commandInfo.isoPath, cuePath: commandInfo.cuePath, romSize, commandInfo, romInfo });
@@ -1191,6 +1428,11 @@ function buildProject(onLog, options = {}) {
           return;
         }
         const romSize = fs.existsSync(commandInfo.romPath) ? fs.statSync(commandInfo.romPath).size : 0;
+        try {
+          writeBuildOutputStamp(projectDir, config, commandInfo);
+        } catch (stampErr) {
+          log(`Build cache stamp update failed: ${stampErr.message || stampErr}`, 'warn');
+        }
         totalDone();
         resolve({ success: true, romPath: commandInfo.romPath, romSize, commandInfo, romInfo });
       } catch (err) {
@@ -1228,6 +1470,10 @@ module.exports = {
   preflightLlvmMosLinker,
   buildCommandForProject,
   collectSourceFiles,
+  buildOutputStampMatches,
+  computeBuildOutputSignature,
+  readBuildOutputStamp,
+  writeBuildOutputStamp,
   collectCddaTracks,
   buildProject,
   createProjectFromTemplate,

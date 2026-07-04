@@ -370,15 +370,32 @@ function updateVisualNovelBuildStamp(projectDir, config = {}, generated = {}, me
   return stamp;
 }
 
-function vnBuildSignature(projectDir, _config = {}, mergedDataFiles = [], mergedCddaTracks = []) {
+function vnRuntimeSignature(config = {}) {
+  const targetMedia = String(config?.targetMedia || '').trim().toLowerCase() === 'hucard' ? 'hucard' : 'cd';
+  if (targetMedia === 'hucard') {
+    const templateDir = path.join(__dirname, 'template', 'template_pce_vn_hucard', 'src');
+    return {
+      targetMedia,
+      manager: readTextHash(__filename),
+      hucardManager: readTextHash(path.join(__dirname, 'pce-vn-hucard-manager.js')),
+      runtime: readTextHash(path.join(templateDir, 'pce_vn_hucard_runtime.c')),
+      banks: readTextHash(path.join(templateDir, 'pce_vn_hucard_banks.h')),
+      main: readTextHash(path.join(templateDir, 'main.c')),
+    };
+  }
   const templateDir = templateRuntimeDir();
+  return {
+    targetMedia,
+    manager: readTextHash(__filename),
+    runtime: readTextHash(path.join(templateDir, 'pce_vn_runtime.c')),
+    main: readTextHash(path.join(templateDir, 'main.c')),
+  };
+}
+
+function vnBuildSignature(projectDir, _config = {}, mergedDataFiles = [], mergedCddaTracks = []) {
   const signature = {
     version: VN_BUILD_STAMP_VERSION,
-    generator: {
-      manager: readTextHash(__filename),
-      runtime: readTextHash(path.join(templateDir, 'pce_vn_runtime.c')),
-      main: readTextHash(path.join(templateDir, 'main.c')),
-    },
+    generator: vnRuntimeSignature(_config),
     inputs: {
       scenes: readProjectTextHash(projectDir, VN_SCENE_FILE),
       assets: readProjectTextHash(projectDir, assetManager.ASSET_FILE || path.join('assets', 'pce-assets.json')),
@@ -395,12 +412,20 @@ function vnBuildSignature(projectDir, _config = {}, mergedDataFiles = [], merged
   return sha1Text(JSON.stringify(signature));
 }
 
+function generatedDataFilePath(entry) {
+  if (entry && typeof entry === 'object') {
+    return normalizeRelativePath(entry.relativePath || entry.path || entry.file || '');
+  }
+  return normalizeRelativePath(entry || '');
+}
+
 function vnGeneratedOutputsReady(projectDir, generated = {}) {
   const required = [
     path.join('src', 'generated', 'vn.h'),
     path.join('src', 'generated', 'vn.c'),
     VN_FONT_DATA_FILE,
-    ...((generated.scenePackPaths || []).map((entry) => normalizeRelativePath(entry || '')).filter(Boolean)),
+    ...((generated.scenePackPaths || []).map((entry) => generatedDataFilePath(entry)).filter(Boolean)),
+    ...((generated.extraDataFiles || []).map((entry) => generatedDataFilePath(entry)).filter(Boolean)),
   ];
   if ((generated.fontSpriteBudget || {}).byteSize > 0) {
     required.push(VN_FONT_SPRITE_DATA_FILE);
@@ -4519,7 +4544,10 @@ module.exports = {
   overlayLinkerArgs,
   overlayFragmentPath,
   syncVisualNovelRuntime,
+  readVnBuildStamp,
   updateVisualNovelBuildStamp,
+  vnBuildSignature,
+  vnGeneratedOutputsReady,
   writeFontConfig,
   writeSceneDocument,
 };
