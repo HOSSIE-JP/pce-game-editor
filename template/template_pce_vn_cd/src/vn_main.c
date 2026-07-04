@@ -160,7 +160,7 @@ static void VN_BANKED_CODE delay_frame(void)
     pce_ram_bank130_map();
     vn_wait_next_vblank();
     service_cdda_playback();
-    service_psg_during_blocking_frames(1u);
+    engine_service();
 #else
     volatile uint16_t delay;
     for (delay = 0; delay < 6200u; delay++) {}

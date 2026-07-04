@@ -9,8 +9,8 @@
    Include order (dependency-driven):
    - vn_engine_config.h first: every #define / section macro / MMIO address.
    - vn_engine_state.c: global state, shared typedefs, forward declarations.
-   - vn_engine_time.c before vn_engine_bus.c: cd_transfer_wait (bus) expands
-     the VN_ADD_ESTIMATED_FRAME macro defined with the TIMER driver in time.
+   - vn_engine_time.c before vn_engine_bus.c: cd_transfer_wait (bus) calls
+     engine_service_blocking(), defined in time.
    - vn_engine_bus.c before all CD/BIOS users: it defines the pce_cdb_*
      interception wrappers, MPR slot helpers and overlay dispatch.
    - vn_port_video.c before the cores: VRAM copy helpers, palette/fade and the

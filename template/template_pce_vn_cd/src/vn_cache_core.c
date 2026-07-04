@@ -152,23 +152,9 @@ static void VN_VISUAL_CACHE_CODE visual_cache_invalidate_impl(uint8_t scope)
 
 static void VN_VISUAL_CACHE_CODE cd_transfer_wait_visual_cache_impl(void)
 {
-    volatile uint16_t wait;
-#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
-    uint8_t est;
-    for (est = 0u; est < VN_CD_CHUNK_ESTIMATED_FRAMES; est++) VN_ADD_ESTIMATED_FRAME();
-#endif
-    if (psg_active && !psg_pattern_banked)
-    {
-        uint8_t slice;
-        for (slice = 0u; slice < VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES; slice++)
-        {
-            for (wait = 0u; wait < (65535u / VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES); wait++) {}
-            service_psg_compensation_ticks(1u, 1u);
-        }
-        return;
-    }
-    for (wait = 0u; wait < 65535u; wait++) {}
-    service_psg_compensation_ticks(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES, 1u);
+    /* Same settle-wait contract as cd_transfer_wait() (vn_engine_bus.c): the
+       measured-credit path replaces the old blind per-sector PSG estimate. */
+    engine_service_blocking(65535u);
 }
 
 static void VN_VISUAL_CACHE_CODE vram_copy_sliced_from_visual_code_impl(uint16_t dest, const uint8_t *source, uint16_t length)
@@ -180,7 +166,7 @@ static void VN_VISUAL_CACHE_CODE vram_copy_sliced_from_visual_code_impl(uint16_t
         const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES();
         uint16_t chunk = length > slice_bytes ? slice_bytes : length;
         pce_editor_vram_copy(vram_dest, &source[offset], chunk);
-        service_psg_during_visual_cache_work();
+        engine_service();
         map_vn_data();
         VN_MAP_VISUAL_CACHE_CODE();
         vram_dest = (uint16_t)(vram_dest + ((chunk + 1u) / 2u));
@@ -241,7 +227,7 @@ static void VN_VISUAL_CACHE_CODE visual_cache_page_to_vram_impl(uint16_t dest, u
         const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES();
         uint16_t chunk = length > slice_bytes ? slice_bytes : length;
         pce_editor_vram_copy(vram_dest, &page_data[page_offset], chunk);
-        service_psg_during_visual_cache_work();
+        engine_service();
         page_offset = (uint16_t)(page_offset + chunk);
         vram_dest = (uint16_t)(vram_dest + ((chunk + 1u) / 2u));
         length = (uint16_t)(length - chunk);
@@ -477,7 +463,7 @@ static void VN_BANKED_CODE vram_copy_sliced_from_vn_data(uint16_t dest, const ui
         const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES();
         uint16_t chunk = length > slice_bytes ? slice_bytes : length;
         pce_editor_vram_copy(vram_dest, &source[offset], chunk);
-        service_psg_during_blocking_work();
+        engine_service();
         map_vn_data();
         VN_MAP_BANK130_FOR_CODE();
         vram_dest = (uint16_t)(vram_dest + ((chunk + 1u) / 2u));
@@ -521,7 +507,7 @@ static void VN_BANKED_CODE vram_copy_sliced_from_vn_data(uint16_t dest, const ui
         const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES();
         uint16_t chunk = length > slice_bytes ? slice_bytes : length;
         pce_editor_vram_copy(vram_dest, &source[offset], chunk);
-        service_psg_during_blocking_work();
+        engine_service();
         map_vn_data();
         VN_MAP_BANK130_FOR_CODE();
         vram_dest = (uint16_t)(vram_dest + ((chunk + 1u) / 2u));
@@ -651,7 +637,7 @@ static uint8_t VN_BANKED_CODE2 cd_bg_map_ref_to_vram(uint16_t dest, const pce_ed
         while (row < copy_height_tiles && (uint16_t)(local_offset + VN_MAP_ROW_BYTES) <= chunk)
         {
             pce_editor_vram_copy((uint16_t)(dest + ((uint16_t)row * VN_MAP_WIDTH)), &cd_transfer_scratch[local_offset], row_bytes);
-            service_psg_during_blocking_work();
+            engine_service();
             local_offset = (uint16_t)(local_offset + VN_MAP_ROW_BYTES);
             row++;
         }

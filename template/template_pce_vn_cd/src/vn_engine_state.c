@@ -68,15 +68,66 @@ static uint16_t psg_step = 0;
 static uint16_t psg_step_accum = 0;
 static uint16_t psg_pattern_cursor = 0;
 static uint8_t psg_vblank_seen = 0;
-/* Real audio frame credit. It is recorded from VBlank polling and explicit
-   frame wait sites, and is the only credit source allowed to advance ADPCM
-   bookkeeping or message timing. */
+/* PHASE_C: psg_core state-driven sequencer (design doc §4). psg_advance(n)
+   applies pattern entries to psg_logical[] only (no PSG MMIO); psg_commit()
+   writes only the channels that changed. Must be console RAM (always
+   mapped), NOT bank132_tail/134/135: psg_commit() is called while MPR6 may be
+   mapped to the PSG pattern bank, so it cannot itself depend on any
+   MPR6-backed storage.
+   RAM BUDGET DEVIATION FROM THE DESIGN SKETCH (see final report --
+   docs/pce-vn-engine-redesign.md §9 item 3 / refactor-instructions-engine-core.md
+   §6 item 2, fallback (a)): the design sketch stores a *value* shadow
+   (psg_shadow[6], mirroring "last written HW value") alongside psg_logical[6]
+   so psg_commit() can diff old-vs-new per register. A literal 6-channel dual
+   array costs 36-49 bytes even packed; console_ram measured only ~22 bytes
+   free before this change, so the literal sketch does not fit.
+   Implemented instead: psg_logical[6] (packed 3 bytes/channel: period_lo,
+   period_hi(4b)+noise(1b), volume) + a 1-byte psg_dirty_mask, no separate
+   shadow array (19 bytes total, fits the ~22-byte budget). psg_used_mask
+   (existing) tracks "channel this pattern reaches"; psg_dirty_mask tracks
+   "channel whose logical value differs from what was last committed to HW".
+   psg_apply_step_entry (vn_psg_core.c, overlay) sets a dirty bit only when
+   the incoming step actually changes psg_logical[ch] (comparing against the
+   value already there, which always holds "what commit() last saw" until the
+   next apply) -- so the *observable* contract is identical to a value-shadow
+   diff (psg_commit() still writes only channels whose logical state changed
+   since the previous commit), just computed incrementally at apply time
+   instead of in bulk at commit time. psg_commit() still never reads the
+   pattern bank and is callable from any context; psg_mark_hw_dirty() still
+   just forces a full resync (OR the dirty mask with psg_used_mask). See
+   vn_psg_core.c psg_commit()/psg_apply_step_entry() for the implementation
+   and the final report for the full rationale and RAM measurements. */
+typedef struct
+{
+    uint8_t period_lo;  /* period bits 0-7. */
+    uint8_t period_hi_noise; /* bit0-3 = period bits 8-11; bit7 = noise flag. */
+    uint8_t volume;     /* 0 = silent; 1..31 = level (gate on). */
+} vn_psg_channel_state_t;
+/* PHASE_C fix: pinned to .bss (not the llvm-mos zero page). psg_commit() takes
+   &psg_logical[ch]; with MPR0 = I/O the runtime's zp is not at hardware page 0,
+   so a page-0 address of a .zp array element does not reach the object. Keeping
+   it in .bss (regular MPR1 RAM, always mapped) is both correct for the
+   address-of and satisfies the design requirement that commit be callable while
+   MPR6 is mapped to bank134/135 (zp/MPR1 RAM is unaffected by MPR6). See the
+   g_psg_cache note in vn_psg_core.c for the full failure mode. */
+static vn_psg_channel_state_t psg_logical[6] __attribute__((section(".bss")));
+/* PHASE_C: single dirty bitmask (no separate psg_shadow_valid). A channel bit
+   is set when its psg_logical[] value differs from what was last committed to
+   HW (psg_apply_step_entry), OR when psg_mark_hw_dirty() forces a full resync
+   after a BIOS helper (it ORs in psg_used_mask). Dropping the separate
+   shadow_valid byte both saves 1 byte of the razor-thin console_ram budget
+   and avoids a value-init global: psg_dirty_mask lives in .zp.bss (zeroed at
+   boot) so its 0 init is correct, whereas a `= 1` shadow_valid would need
+   .zp.data init that the current CD link places in bss (zeroed) -- i.e. it
+   was silently starting at 0 anyway. */
+static uint8_t psg_dirty_mask = 0;   /* bit set => channel needs a HW write on next commit. */
+/* Single real audio frame credit (engine_time design doc §5.1/§5.2). Recorded
+   by the TIMER ISR (primary, VN_TIME_SOURCE_TIMER=1) or by cooperative
+   VBlank-edge polling (fallback, =0), and by time_blocked_poll() for BIOS
+   block windows. It is the only credit source: there is no separate
+   synthetic/PSG-only counter any more. */
 volatile uint8_t vn_vblank_credit = 0;
-/* PSG-only compensation credit for blocking CD settle spans that the main
-   thread cannot observe. Synthetic CD estimates must never shorten ADPCM
-   playback or move message timing. */
-static uint8_t vn_psg_synthetic_credit = 0;
-#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
+#if defined(__PCE_CD__) && VN_TIME_SOURCE_TIMER
 /* 1 while the runtime owns the HuC6280 timer (see vn_psg_timer_own). Also
    read by the IRQ1 quiet handler to preserve the $20F5 TIMER dispatch bit. */
 static uint8_t vn_timer_owned = 0;
@@ -288,13 +339,29 @@ static void VN_BANKED_CODE stop_adpcm_voice(void);
 static void VN_BANKED_CODE quiet_cd_unit_irqs(void);
 #endif
 static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset_index, uint8_t slot);
-static void VN_BANKED_CODE2 tick_psg(void);
-static void VN_RESIDENT_CODE service_psg_ticks(uint8_t frames, uint8_t restore_visual_cache);
-static void VN_RESIDENT_CODE service_psg_during_blocking_work(void);
-static void VN_RESIDENT_CODE service_psg_during_blocking_frames(uint8_t frames);
-static void VN_RESIDENT_CODE service_psg_during_visual_cache_work(void);
-static void VN_RESIDENT_CODE service_psg_during_visual_cache_frames(uint8_t frames);
-static void VN_RESIDENT_CODE service_psg_compensation_ticks(uint8_t frames, uint8_t restore_visual_cache);
+/* PHASE_C: psg_core state-driven sequencer (design doc §4). psg_advance(n)
+   reads the pattern (bank134/135 via the overlay, or resident .rodata) and
+   updates psg_logical[] only -- no PSG MMIO, so it is safe to call from any
+   blocking context (it also maintains psg_dirty_mask, the RAM-budget
+   substitute for a value shadow -- see the note above psg_logical).
+   psg_commit() writes only the channels marked dirty; it never touches the
+   pattern bank, so it is safe to call with MPR6 mapped to anything.
+   psg_mark_hw_dirty() ORs psg_used_mask into psg_dirty_mask so the next
+   commit() re-writes every active channel (called by engine_bus after every
+   BIOS helper closes, which may have clobbered the PSG SELECT latch). */
+static void VN_BANKED_CODE2 psg_advance(uint8_t n);
+static void VN_RESIDENT_CODE psg_commit(void);
+static void VN_RESIDENT_CODE psg_mark_hw_dirty(void);
+static void VN_RESIDENT_CODE service_adpcm_during_blocking_frames(uint8_t frames, uint8_t restore_visual_cache);
+/* engine_time (design doc §5.2): the two service entry points that replaced
+   the old 5-variant/6-function service topology
+   (service_psg_ticks/_compensation_ticks/_during_blocking_work/_during_
+   blocking_frames/_during_visual_cache_work/_during_visual_cache_frames).
+   engine_service() is the normal per-frame heartbeat; engine_service_blocking()
+   is called from inside blocking CD/ADPCM/BG work and folds a measured
+   VBlank-edge span (time_blocked_poll) into the same real credit counter. */
+static void VN_RESIDENT_CODE engine_service(void);
+static void VN_RESIDENT_CODE engine_service_blocking(uint16_t iterations);
 #if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
 static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(void);
 static void VN_VISUAL_CACHE_CODE service_cdda_playback_impl(void);

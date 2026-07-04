@@ -157,21 +157,23 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_BG_IMPLICIT_FADE_FRAMES 6u
 #define VN_PSG_STEP_ACCUM_UNIT 3600u
 #define VN_PSG_STEPS_PER_BEAT 4u
-#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 1u
 #define VN_VBLANK_CREDIT_MAX 8u
 #define VN_VBLANK_CREDIT_SERVICE_LIMIT 4u
-#define VN_PSG_MAX_TICKS_PER_FRAME_DURING_ADPCM 1u
-#define VN_PSG_MAX_CATCHUP_TICKS_PER_FRAME 2u
-/* Experimental fallback: 1 drives the real-frame credit counter from the
-   HuC6280 TIMER IRQ (~60Hz). The default path is main-thread VBlank polling
-   plus PSG-only CD compensation; the TIMER path remains available for lab
-   comparison but is not the stable PSG+ADPCM contract. */
-#define VN_PSG_TIMER_IRQ_DRIVER 0
+/* PHASE_C: the old per-frame tick clamps (VN_PSG_MAX_TICKS_PER_FRAME_DURING_ADPCM /
+   VN_PSG_MAX_CATCHUP_TICKS_PER_FRAME) are removed. psg_core is now state-driven
+   (psg_advance/psg_commit, see vn_psg_core.c): advancing several ticks in one
+   call only updates psg_logical[] (no MMIO), so a multi-tick catch-up cannot
+   drop a note-off or skip a chord the way the edge-driven driver could. The
+   credit cap above (VN_VBLANK_CREDIT_MAX / _SERVICE_LIMIT) is the only
+   remaining bound, and it now bounds latency only, not correctness. */
+/* Primary time source (design doc engine_time §5.1/§5.4): 1 drives the single
+   real-frame credit counter from the HuC6280 TIMER IRQ (~60Hz), with BIOS
+   block windows filled by time_blocked_poll()'s measured VBlank-edge count
+   instead of a per-sector estimate. Set to 0 to fall back to cooperative
+   VBlank-edge polling (the pre-Phase-B behaviour) if the TIMER path fails its
+   Gate (G-B1: TIQ delivery during BIOS CD_READ). */
+#define VN_TIME_SOURCE_TIMER 1
 #define VN_PSG_TIMER_HZ 60u
-/* Estimated PSG-only frames per cd_transfer_wait() sector/read-slice while the
-   timer is handed to the BIOS. These credits never drive ADPCM countdown or
-   message timing. */
-#define VN_CD_CHUNK_ESTIMATED_FRAMES 1u
 #define VN_VISUAL_VRAM_COPY_SLICE_BYTES 32u
 #define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES
 #define VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES() ((psg_active && psg_current) ? VN_VISUAL_VRAM_COPY_SLICE_BYTES : VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES)

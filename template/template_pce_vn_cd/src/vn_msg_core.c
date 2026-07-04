@@ -136,7 +136,7 @@ static void VN_BANKED_CODE2 map_message_window_cells(uint8_t blank)
 #if defined(__PCE_CD__)
         vn_vdc_irq_unlock(irq);
 #endif
-        service_psg_during_blocking_work();
+        engine_service();
     }
 }
 
@@ -148,7 +148,7 @@ static void VN_BANKED_CODE2 clear_window_tile_pixels(void)
     for (tr = 0u; tr < VN_MSG_TILE_COUNT; tr++)
     {
         pce_editor_vram_copy((uint16_t)((VN_MSG_STRIP_TILE_BASE + tr) * 16u), msg_enc, 32u);
-        if ((tr & 0x0fu) == 0x0fu) service_psg_during_blocking_work();
+        if ((tr & 0x0fu) == 0x0fu) engine_service();
     }
     composer_prev_valid = 0u;
     composer_row = 0xffu;
@@ -494,7 +494,7 @@ static uint8_t VN_BANKED_CODE2 begin_message_window_vram_update(void)
         return 0u;
     }
     vn_wait_next_vblank();
-    service_psg_during_blocking_frames(1u);
+    engine_service();
     map_message_window_cells(1u);
     return 1u;
 #elif defined(__PCE__)
@@ -510,7 +510,7 @@ static void VN_BANKED_CODE2 end_message_window_vram_update(uint8_t restore_displ
 #if defined(__PCE__) || defined(__PCE_CD__)
     if (!restore_display) return;
     vn_wait_next_vblank();
-    service_psg_during_blocking_frames(1u);
+    engine_service();
     map_message_window_cells(0u);
     delay_frame();
 #else
@@ -526,9 +526,9 @@ static void VN_BANKED_CODE2 draw_message_remaining_with_psg_service(const pce_vn
     {
         message_complete = draw_message_next_glyph_locked(message);
         glyph_service_count++;
-        if ((glyph_service_count & 3u) == 0u) service_psg_during_blocking_work();
+        if ((glyph_service_count & 3u) == 0u) engine_service();
     }
-    if (glyph_service_count) service_psg_during_blocking_work();
+    if (glyph_service_count) engine_service();
 }
 
 static void start_message(uint8_t message_index)
@@ -568,13 +568,13 @@ static void start_message(uint8_t message_index)
         restore_window_display = begin_message_window_vram_update();
         clear_window_tile_pixels();
         call_overlay_preload_message_glyph_masks(message);
-        service_psg_during_blocking_work();
+        engine_service();
         (void)play_adpcm_message_voice(message->voice_index);
         if (instant_glyph_count)
         {
             VN_MAP_BANK130_FOR_CODE();
             message_complete = draw_message_prefix_glyphs_locked(message);
-            service_psg_during_blocking_work();
+            engine_service();
         }
         VN_MAP_BANK130_FOR_CODE();
         if (!message_complete && !message_text_speed)
@@ -585,7 +585,7 @@ static void start_message(uint8_t message_index)
         {
             VN_MAP_BANK130_FOR_CODE();
             message_complete = draw_message_next_glyph_locked(message);
-            service_psg_during_blocking_work();
+            engine_service();
         }
         end_message_window_vram_update(restore_window_display);
         refresh_message_wait_indicator();
@@ -644,7 +644,7 @@ static void VN_BANKED_CODE2 draw_choice_options(void)
             if (glyph == PCE_VN_GLYPH_END) break;
             call_overlay_draw_message_glyph_at(glyph, (uint8_t)(col + 1u), row);
         }
-        service_psg_during_blocking_work();
+        engine_service();
     }
     end_message_window_vram_update(restore_window_display);
     if (!restore_window_display && !pending_display_enable)

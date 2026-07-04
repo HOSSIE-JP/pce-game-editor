@@ -68,7 +68,7 @@ static void VN_RESIDENT_CODE upload_sprite_table(void)
     if (!pending_display_enable)
     {
         vn_wait_next_vblank();
-        service_psg_during_blocking_frames(1u);
+        engine_service();
     }
 #else
     vn_wait_next_vblank();
@@ -80,7 +80,7 @@ static void VN_RESIDENT_CODE upload_sprite_table(void)
     pce_vdc_poke(VDC_REG_SATB_START, VN_SATB_ADDR);
     vn_vdc_irq_unlock(irq);
 #if defined(__PCE_CD__)
-    service_psg_during_blocking_work();
+    engine_service();
 #endif
 #endif
 }
@@ -98,7 +98,7 @@ static void VN_RESIDENT_CODE upload_sprite_pattern_words(uint8_t satb_index, uin
     if (!pending_display_enable)
     {
         vn_wait_next_vblank();
-        service_psg_during_blocking_frames(1u);
+        engine_service();
     }
 #else
     vn_wait_next_vblank();
@@ -122,7 +122,7 @@ static void VN_RESIDENT_CODE upload_sprite_pattern_words(uint8_t satb_index, uin
     *IO_VDC_DATA = VN_SATB_ADDR;
     vn_vdc_irq_unlock(irq);
 #if defined(__PCE_CD__)
-    service_psg_during_blocking_work();
+    engine_service();
 #endif
 #else
     (void)satb_index;

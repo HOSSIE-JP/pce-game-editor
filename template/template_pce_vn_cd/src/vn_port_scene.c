@@ -451,7 +451,7 @@ static void upload_bg_graphics(const pce_editor_bg_asset_t *bg, uint16_t map_des
             map + ((uint16_t)row * row_bytes),
             row_bytes
         );
-        service_psg_during_blocking_work();
+        engine_service();
     }
     clear_bg_map_side_margins(map_dest, bg->width_tiles, bg->height_tiles);
 }

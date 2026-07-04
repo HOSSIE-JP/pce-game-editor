@@ -169,20 +169,22 @@ static uint8_t VN_BANKED_CODE2 wait_adpcm_transfer_ready(void)
 {
 #if defined(__PCE_CD__)
     uint16_t guard = 65535u;
+    uint8_t poll_sub = 0u;
     while (guard && (pce_cdb_adpcm_status() & ADPCM_BUSY))
     {
         guard--;
-#if VN_PSG_TIMER_IRQ_DRIVER
         /* ADPCM reset/read busy waits can hold the timer in System Card
-           ownership with no cd_transfer_wait() calls. Tick PSG sparsely here,
-           but do not feed service_adpcm_playback(): this same wait is used by
-           stop/reset paths while ADPCM bookkeeping is intentionally being torn
-           down. */
-        if ((guard & 0x0fffu) == 0u && psg_active && psg_current)
+           ownership with no cd_transfer_wait() calls. Fold a measured slice
+           of this span into real credit and tick PSG sparsely here, but do
+           not feed service_adpcm_playback(): this same wait is used by
+           stop/reset paths while ADPCM bookkeeping is intentionally being
+           torn down. An 8-bit sub-counter (rather than masking the 16-bit
+           guard) keeps this poll-rate check a single decrement+branch. */
+        poll_sub--;
+        if (!poll_sub)
         {
-            service_psg_ticks(1u, 0u);
+            time_blocked_poll_psg_only(1u);
         }
-#endif
     }
     return guard ? 1u : 0u;
 #else

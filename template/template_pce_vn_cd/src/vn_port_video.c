@@ -28,7 +28,7 @@ static void VN_BANKED_CODE2 display_disable(void)
     vn_wait_next_vblank();
 #endif
 #if defined(__PCE_CD__)
-    service_psg_during_blocking_frames(1u);
+    engine_service();
 #endif
 #if defined(__PCE_CD__)
     set_vdc_control(VN_VDC_BLANK_CONTROL);
@@ -54,7 +54,7 @@ static void VN_BANKED_CODE2 sprite_layer_disable(void)
     vn_wait_next_vblank();
 #endif
 #if defined(__PCE_CD__)
-    service_psg_during_blocking_frames(1u);
+    engine_service();
 #endif
 #if defined(__PCE_CD__)
     set_vdc_control(VN_VDC_BG_ONLY_CONTROL);
@@ -69,7 +69,7 @@ static void VN_BANKED_CODE2 sprite_layer_enable(void)
     vn_wait_next_vblank();
 #endif
 #if defined(__PCE_CD__)
-    service_psg_during_blocking_frames(1u);
+    engine_service();
 #endif
 #if defined(__PCE_CD__)
     set_vdc_control(VN_VDC_DISPLAY_CONTROL);
@@ -110,7 +110,7 @@ static void VN_BANKED_CODE restore_video_after_cdb_call(uint8_t restore_display)
     if (restore_display)
     {
         vn_wait_next_vblank();
-        service_psg_during_blocking_frames(1u);
+        engine_service();
     }
     irq = vn_vdc_irq_lock();
     pce_vdc_set_resolution(256, 224, VCE_COLORBURST_ON);
@@ -320,7 +320,7 @@ static void write_ui_text_palette(uint16_t color)
 static void VN_VISUAL_CACHE_CODE delay_frame_visual_cache_impl(void)
 {
     vn_wait_next_vblank();
-    service_psg_during_visual_cache_frames(1u);
+    engine_service();
 }
 
 static void VN_VISUAL_CACHE_CODE fade_current_screen_to_color_impl(uint16_t target, uint8_t frames)
@@ -542,7 +542,7 @@ static void clear_screen_map(void)
     for (row = 0; row < VN_MAP_HEIGHT; row++)
     {
         write_map_words((uint16_t)(row * VN_MAP_WIDTH), clear_line, VN_MAP_WIDTH);
-        service_psg_during_blocking_work();
+        engine_service();
     }
 }
 
@@ -570,7 +570,7 @@ static void clear_map_rect_at_dest(uint16_t map_dest, uint8_t width_tiles, uint8
     for (row = 0; row < copy_height; row++)
     {
         write_map_words((uint16_t)(map_dest + ((uint16_t)row * VN_MAP_WIDTH)), clear_line, copy_width);
-        service_psg_during_blocking_work();
+        engine_service();
     }
 }
 

@@ -29,7 +29,7 @@ static void VN_OVERLAY_CODE psg_apply_step_row_impl(uint16_t step_no);
 static uint8_t VN_OVERLAY_CODE copy_adpcm_voice_impl(signed int voice_index);
 #endif
 /* PHASE_A_SPLIT:END */
-#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
+#if defined(__PCE_CD__) && VN_TIME_SOURCE_TIMER
 /* Every System Card CD/ADPCM/CD-DA BIOS helper must run with the audio timer
    handed back to the BIOS: the BIOS reprograms the timer for its own CD
    pacing and relies on its internal TIQ handling, and entering e.g. CD_READ
@@ -39,7 +39,7 @@ static uint8_t VN_OVERLAY_CODE copy_adpcm_voice_impl(signed int voice_index);
    re-acquired at the next cd_transfer_wait() / quiet_cd_unit_irqs(). The
    wrappers are static inline so bank121/bank133 callers inline them and only
    the resident-callable vn_psg_timer_release() is shared. */
-static void VN_BANKED_CODE vn_psg_timer_release(void);
+static void VN_RESIDENT_CODE vn_psg_timer_release(void);
 static inline uint8_t vn_cdb_cd_read_guarded(pce_sector_t sector, uint8_t address_type, uint16_t address, uint16_t length)
 {
     vn_psg_timer_release();
@@ -116,20 +116,32 @@ static void map_resident_data(void)
 #endif
 }
 
-static void VN_BANKED_CODE vn_cd_irq1_quiet_handler(void)
+/* Shared prefix for quiet_cd_unit_irqs()/vn_cd_irq1_quiet_handler(): drop the
+   CD unit back to idle and restore the BIOS IRQ mask, preserving the TIMER
+   dispatch bit while the audio timer is owned (losing it would leave TIQ
+   deliverable with no acking handler; a clear-then-re-enable pair would also
+   open a window where a TIQ lands on the System Card's default, non-acking
+   path and hangs the CPU). Factored out of the two near-identical callers to
+   avoid duplicating this sequence twice in bank129. */
+static void VN_BANKED_CODE vn_cdb_quiet_idle(void)
 {
 #if defined(__PCE_CD__)
     vn_map_io_page();
     *IO_PCD_CONTROL = 0u;
     *IO_PCD_STATUS = VN_PCD_IRQ_STATUS_ALL;
     *VN_CDB_IRQ_PENDING_FLAGS = 0u;
-#if VN_PSG_TIMER_IRQ_DRIVER
-    /* Preserve the TIMER dispatch bit while the audio timer is owned: losing
-       it here would leave TIQ deliverable with no acking handler. */
+#if VN_TIME_SOURCE_TIMER
     *VN_CDB_BIOS_IRQ_MASK = (uint8_t)(vn_timer_owned ? (VN_CDB_BIOS_IRQ_MASK_IDLE | PCE_CDB_MASK_IRQ_TIMER) : VN_CDB_BIOS_IRQ_MASK_IDLE);
 #else
     *VN_CDB_BIOS_IRQ_MASK = VN_CDB_BIOS_IRQ_MASK_IDLE;
 #endif
+#endif
+}
+
+static void VN_BANKED_CODE vn_cd_irq1_quiet_handler(void)
+{
+#if defined(__PCE_CD__)
+    vn_cdb_quiet_idle();
     pce_irq_disable(IRQ_VDC);
     *IO_IRQ_ACK = IRQ_VDC;
 #endif
@@ -240,47 +252,28 @@ static void cd_sector_end_from_count(pce_sector_t *dest, const pce_sector_t *sta
 #if defined(__PCE_CD__) /* PHASE_A_SPLIT: re-opened (was inside the file-spanning conditional) */
 /* Opens the System Card external-IRQ window right before a CD/ADPCM/CD-DA
    BIOS helper. With the TIMER driver this also hands the timer hardware back
-   to the BIOS (which reprograms it for its own CD pacing/timeouts). */
-static void VN_BANKED_CODE vn_cd_bios_irq_open(void)
+   to the BIOS (which reprograms it for its own CD pacing/timeouts). Resident
+   (bank128), not bank129/130: both banks are saturated after TIMER promotion;
+   see the vn_psg_timer_own() comment for the same bank-balance rationale. */
+static void VN_RESIDENT_CODE vn_cd_bios_irq_open(void)
 {
 #if defined(__PCE_CD__)
-#if VN_PSG_TIMER_IRQ_DRIVER
+#if VN_TIME_SOURCE_TIMER
     vn_psg_timer_release();
 #endif
     pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
 #endif
 }
 
+/* Settle wait paired with one CD chunk read/write. This used to be a bare
+   65535-iteration busy loop followed by a blind per-sector PSG credit
+   estimate; engine_time §5.1 replaces the estimate with time_blocked_poll(),
+   which spins the same bound while measuring real VBlank edges, then
+   engine_service_blocking() folds that measured credit into PSG/ADPCM. No
+   synthetic credit is added here. */
 static void cd_transfer_wait(void)
 {
-    volatile uint16_t wait;
-#if defined(__PCE_CD__) && VN_PSG_TIMER_IRQ_DRIVER
-    /* Do NOT re-own the timer here: the System Card CD state machine is still
-       settling between chunk reads, and reprogramming the timer mid-sequence
-       hangs the next CD_READ in the BIOS IRQ dispatcher. Credit the blocked
-       span (read + settle) with a bounded estimate instead; ownership returns
-       at the next quiet_cd_unit_irqs() once the whole sequence is done. */
-    uint8_t est;
-    for (est = 0u; est < VN_CD_CHUNK_ESTIMATED_FRAMES; est++) VN_ADD_ESTIMATED_FRAME();
-#endif
-    /* This wait is normally paired with one 2048-byte CD sector. Its compensation
-       tick is PSG-only: ADPCM playback length follows real VBlank credit, not
-       this synthetic CD settle time. */
-    if (psg_active && !psg_pattern_banked)
-    {
-        uint8_t slice;
-        for (slice = 0u; slice < VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES; slice++)
-        {
-            for (wait = 0u; wait < (65535u / VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES); wait++) {}
-            service_psg_compensation_ticks(1u, 0u);
-        }
-        return;
-    }
-    /* No PSG playing, or a CD-streamed pattern (bank134/135): keep a single
-       post-wait PSG compensation so the bank134/135 MPR6 remap cannot overlap the
-       CD DMA target bank132. */
-    for (wait = 0u; wait < 65535u; wait++) {}
-    service_psg_compensation_ticks(VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES, 0u);
+    engine_service_blocking(65535u);
 }
 
 static void VN_BANKED_CODE quiet_cd_unit_irqs(void);
@@ -301,20 +294,9 @@ static void VN_BANKED_CODE cancel_cdda_after_cd_data_conflict(void);
 static void VN_BANKED_CODE quiet_cd_unit_irqs(void)
 {
 #if defined(__PCE_CD__)
-    vn_map_io_page();
-    *IO_PCD_CONTROL = 0u;
-    *IO_PCD_STATUS = VN_PCD_IRQ_STATUS_ALL;
-    *VN_CDB_IRQ_PENDING_FLAGS = 0u;
-#if VN_PSG_TIMER_IRQ_DRIVER
-    /* Single write, TIMER dispatch bit preserved while owned: a clear-then-
-       re-enable pair would open a window where a TIQ lands on the System
-       Card's default (non-acking) path and hangs the CPU. */
-    *VN_CDB_BIOS_IRQ_MASK = (uint8_t)(vn_timer_owned ? (VN_CDB_BIOS_IRQ_MASK_IDLE | PCE_CDB_MASK_IRQ_TIMER) : VN_CDB_BIOS_IRQ_MASK_IDLE);
-#else
-    *VN_CDB_BIOS_IRQ_MASK = VN_CDB_BIOS_IRQ_MASK_IDLE;
-#endif
+    vn_cdb_quiet_idle();
     pce_irq_disable(IRQ_VDC);
-#if VN_PSG_TIMER_IRQ_DRIVER
+#if VN_TIME_SOURCE_TIMER
     /* Runs once per frame (vn_wait_next_vblank) and after every BIOS helper:
        re-acquire the audio timer whenever the CD unit is quiet. */
     vn_psg_timer_own();
@@ -325,10 +307,19 @@ static void VN_BANKED_CODE quiet_cd_unit_irqs(void)
 static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call(void)
 {
 #if defined(__PCE_CD__)
+    /* PHASE_C (design doc §4.3/§6.2): every BIOS helper may have touched the
+       PSG SELECT latch or other shared PSG state; mark the shadow
+       untrustworthy here -- the single common point every CD/ADPCM/CD-DA BIOS
+       helper call site routes through on completion -- so the next
+       psg_commit() does a full resync instead of trusting a possibly-stale
+       diff. Cheap (just clears a flag) and safe to call unconditionally,
+       including on the true-ADPCM-streaming branch below where the System
+       Card external IRQ stays open. */
+    psg_mark_hw_dirty();
     if (!adpcm_stream_active)
     {
         pce_cdb_irq_set(PCE_CDB_ID_IRQ_VDC, vn_cd_irq1_quiet_handler);
-#if VN_PSG_TIMER_IRQ_DRIVER
+#if VN_TIME_SOURCE_TIMER
         /* The QUIET disable clears the $20F5 TIMER dispatch bit; mask TIQ
            first (release) so no unackable TIQ can land in the window. The
            trailing quiet_cd_unit_irqs() re-owns the timer. */
@@ -353,7 +344,7 @@ static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call(void)
 static void VN_RESIDENT_CODE mask_buffered_adpcm_completion_irq(void)
 {
 #if defined(__PCE_CD__)
-#if VN_PSG_TIMER_IRQ_DRIVER
+#if VN_TIME_SOURCE_TIMER
     vn_psg_timer_release();
 #endif
     pce_cdb_irq_disable(VN_CDB_IRQ_MASK_RUNTIME_QUIET);
