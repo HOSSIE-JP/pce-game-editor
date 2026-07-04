@@ -2003,12 +2003,45 @@ function bufferToCArray(name, buffer, section = 'PCE_EDITOR_RODATA_SECTION') {
   return lines;
 }
 
-function createRomBankAllocator() {
+function normalizeReservedRomBanks(values = []) {
+  const banks = new Set();
+  (Array.isArray(values) ? values : []).forEach((entry) => {
+    const raw = typeof entry === 'object' && entry ? entry.bank : entry;
+    const bank = Math.trunc(Number(raw));
+    if (Number.isFinite(bank) && bank >= 1 && bank <= 127) {
+      banks.add(bank);
+    }
+  });
+  return banks;
+}
+
+function normalizeFixedRomBanks(values = []) {
+  const seen = new Set();
+  const banks = [];
+  (Array.isArray(values) ? values : []).forEach((entry) => {
+    if (!entry || typeof entry !== 'object') return;
+    const bank = Math.trunc(Number(entry.bank));
+    const offset = Math.trunc(Number(entry.offset));
+    if (!Number.isFinite(bank) || bank < 1 || bank > 127) return;
+    if (!Number.isFinite(offset) || offset < 2 || offset > 6) return;
+    if (seen.has(bank)) return;
+    seen.add(bank);
+    banks.push({ bank, offset });
+  });
+  return banks;
+}
+
+function createRomBankAllocator(options = {}) {
+  const nextBank = Math.trunc(Number(options.nextBank));
+  const maxBank = Math.trunc(Number(options.maxBank));
   return {
     kind: 'rom',
-    nextBank: 1,
-    maxBank: 127,
+    nextBank: Number.isFinite(nextBank) ? Math.max(1, Math.min(127, nextBank)) : 1,
+    maxBank: Number.isFinite(maxBank) ? Math.max(1, Math.min(127, maxBank)) : 127,
     sectionPrefix: 'rom_bank',
+    dataBankOffset: Number.isFinite(Number(options.dataBankOffset)) ? Math.max(2, Math.min(6, Math.trunc(Number(options.dataBankOffset)))) : 6,
+    reservedBanks: normalizeReservedRomBanks(options.reservedBanks),
+    reservedLabel: String(options.reservedLabel || '').trim(),
     banks: [],
   };
 }
@@ -2025,10 +2058,13 @@ function createCdRamBankAllocator() {
 
 function allocateAssetBank(allocator) {
   if (!allocator) throw new Error('ROM bank allocator is required');
+  while (allocator.reservedBanks?.has(allocator.nextBank)) {
+    allocator.nextBank += 1;
+  }
   if (allocator.nextBank > allocator.maxBank) {
     throw new Error(allocator.kind === 'ram'
       ? 'PCE-CD banked asset data exceeds reserved fallback RAM banks 130-131'
-      : 'PCE HuCard banked asset data exceeds 127 ROM banks');
+      : `PCE HuCard banked asset data exceeds available ROM data banks${allocator.reservedLabel ? ` (${allocator.reservedLabel})` : ''}`);
   }
   const bank = allocator.nextBank;
   allocator.nextBank += 1;
@@ -2078,7 +2114,7 @@ function emitDataRef(name, buffer, allocator, options = {}) {
     };
   }
   const threshold = Number.isFinite(Number(options.threshold)) ? Number(options.threshold) : BANKED_DATA_THRESHOLD;
-  if (options.allowBanking !== false && buffer.length > threshold) {
+  if (options.allowBanking !== false && (options.forceBanking || buffer.length > threshold)) {
     const banked = bufferToBankedCArray(name, buffer, allocator);
     return {
       lines: banked.lines,
@@ -2130,6 +2166,46 @@ function dataRefLiteral(ref) {
   return `{ ${ref.pointer}, ${ref.size}u, ${ref.chunks}, ${ref.chunkCount}u, ${ref.cd || '(const pce_editor_cd_data_ref_t *)0'} }`;
 }
 
+function normalizeExtraDataFiles(extraDataFiles = []) {
+  if (!Array.isArray(extraDataFiles)) return [];
+  const seen = new Set();
+  const normalized = [];
+  extraDataFiles.forEach((entry, index) => {
+    if (!entry || typeof entry !== 'object') return;
+    const relativePath = normalizeRelativePath(entry.relativePath || entry.path || '');
+    if (!relativePath) return;
+    const baseSymbol = String(entry.symbol || entry.id || `pce_editor_extra_data_${index}`).trim();
+    const symbol = toCIdentifier(baseSymbol || `pce_editor_extra_data_${index}`);
+    if (!symbol || seen.has(symbol)) return;
+    seen.add(symbol);
+    normalized.push({
+      symbol,
+      relativePath,
+      forceBanked: Boolean(entry.forceBanked || entry.forceBanking || entry.alwaysBanked),
+    });
+  });
+  return normalized;
+}
+
+function generateExtraDataRefs(projectDir, extraDataFiles, bankAllocator) {
+  const entries = normalizeExtraDataFiles(extraDataFiles);
+  const arrayLines = [];
+  const externLines = [];
+  const refLines = [];
+  entries.forEach((entry) => {
+    const buffer = readGeneratedBuffer(projectDir, entry.relativePath);
+    const dataRef = emitDataRef(`${entry.symbol}_data`, buffer, bankAllocator, {
+      allowBanking: true,
+      forceBanking: entry.forceBanked,
+    });
+    arrayLines.push(...dataRef.lines);
+    if (arrayLines[arrayLines.length - 1] !== '') arrayLines.push('');
+    externLines.push(`extern const pce_editor_data_ref_t ${entry.symbol};`);
+    refLines.push(`const pce_editor_data_ref_t ${entry.symbol} PCE_EDITOR_RODATA_SECTION = ${dataRefLiteral(dataRef)};`);
+  });
+  return { entries, arrayLines, externLines, refLines };
+}
+
 function readGeneratedBuffer(projectDir, relativePath) {
   if (!relativePath) return Buffer.alloc(0);
   try {
@@ -2171,6 +2247,7 @@ function numeric(value, min, max, fallback = 0) {
 function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, generationOptions = {}) {
   const isSprite = type === 'sprite';
   const useCdFiles = generationOptions.targetsCd && generationOptions.useCdDataFiles;
+  const forceBanking = Boolean(generationOptions.forceBanking);
   const converted = assets.filter((asset) => asset.type === type && asset.data?.generated);
   const arrayLines = [];
   const metaLines = [];
@@ -2189,7 +2266,11 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
       ? generatedCdPayload(projectDir, generated, 'map')
       : { buffer: isSprite ? Buffer.alloc(0) : readGeneratedBuffer(projectDir, mapFile), relativePath: mapFile, uncompressedSize: 0, byteSize: 0, compression: PCE_VISUAL_COMPRESSION_NONE };
     const map = mapPayload.buffer;
-    const paletteRef = emitDataRef(`${ident}_palette`, palette, bankAllocator, { threshold: Number.MAX_SAFE_INTEGER, allowBanking: generationOptions.allowBanking });
+    const paletteRef = emitDataRef(`${ident}_palette`, palette, bankAllocator, {
+      threshold: Number.MAX_SAFE_INTEGER,
+      allowBanking: generationOptions.allowBanking,
+      forceBanking,
+    });
     const tilesRef = useCdFiles
       ? emitCdFileRef(`${ident}_${isSprite ? 'patterns' : 'tiles'}`, tiles, tilesPayload.relativePath, {
           cdLayout: generationOptions.cdLayout,
@@ -2197,9 +2278,15 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
           byteSize: tilesPayload.byteSize,
           compression: tilesPayload.compression,
         })
-      : emitDataRef(`${ident}_${isSprite ? 'patterns' : 'tiles'}`, tiles, bankAllocator, { allowBanking: generationOptions.allowBanking });
+      : emitDataRef(`${ident}_${isSprite ? 'patterns' : 'tiles'}`, tiles, bankAllocator, {
+          allowBanking: generationOptions.allowBanking,
+          forceBanking,
+        });
     const mapRef = isSprite
-      ? emitDataRef(`${ident}_map`, map, bankAllocator, { allowBanking: generationOptions.allowBanking })
+      ? emitDataRef(`${ident}_map`, map, bankAllocator, {
+          allowBanking: generationOptions.allowBanking,
+          forceBanking,
+        })
       : (useCdFiles && generated.mapVramFile
           ? emitCdFileRef(`${ident}_map`, map, mapPayload.relativePath, {
               cdLayout: generationOptions.cdLayout,
@@ -2207,7 +2294,10 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
               byteSize: mapPayload.byteSize,
               compression: mapPayload.compression,
             })
-          : emitDataRef(`${ident}_map`, map, bankAllocator, { allowBanking: generationOptions.allowBanking }));
+          : emitDataRef(`${ident}_map`, map, bankAllocator, {
+              allowBanking: generationOptions.allowBanking,
+              forceBanking,
+            }));
     const cellMapName = `${ident}_cellmap`;
     const cellMapSection = generationOptions.targetsCd ? 'PCE_EDITOR_CD_REF_SECTION' : 'PCE_EDITOR_RODATA_SECTION';
     const cellMapLines = isSprite ? bufferToCArray(cellMapName, cellMap, cellMapSection) : [];
@@ -2252,6 +2342,21 @@ function projectTargetsCd(projectDir) {
   } catch (_) {
     return false;
   }
+}
+
+function normalizeTargetMediaOverride(value) {
+  const media = String(value || '').trim().toLowerCase();
+  if (!media) return '';
+  if (media === 'cd' || media === 'cd-rom2' || media === 'super-cd-rom2') return 'cd';
+  if (media === 'hucard' || media === 'hu-card' || media === 'rom' || media === 'cartridge') return 'hucard';
+  return media;
+}
+
+function assetSourceTargetsCd(projectDir, options = {}) {
+  const explicit = normalizeTargetMediaOverride(options.targetMedia || options.media || options.target);
+  if (explicit === 'cd') return true;
+  if (explicit === 'hucard') return false;
+  return projectTargetsCd(projectDir);
 }
 
 function readProjectJson(projectDir) {
@@ -2509,10 +2614,10 @@ function psgAssetStreamsFromCd(asset, targetsCd, options = {}) {
 // Write the CD data file for every streamed PSG pattern before the CD layout is
 // computed, so each lands on the ISO with a stable sector (mirrors how ADPCM /
 // BG / sprite payloads are written before collectCdDataFiles/buildCdDataLayout).
-function ensurePsgPatternFiles(projectDir, doc) {
-  if (!projectTargetsCd(projectDir)) return;
+function ensurePsgPatternFiles(projectDir, doc, options = {}) {
+  if (!assetSourceTargetsCd(projectDir, options)) return;
   ensurePsgImportedAssets(projectDir, doc, { write: false });
-  const catalogMode = assetMetaShouldUseCd(projectDir, doc);
+  const catalogMode = assetMetaShouldUseCd(projectDir, doc, options);
   (doc.assets || []).forEach((asset) => {
     if (asset.type !== 'psg-song' && asset.type !== 'psg-sfx') return;
     if (!psgAssetStreamsFromCd(asset, true, { catalogMode })) return;
@@ -2789,7 +2894,7 @@ function projectUsesVnAssetCatalog(projectDir) {
   return fs.existsSync(path.join(projectDir, 'assets', 'pce-vn-scenes.json'));
 }
 
-function assetMetaDecision(projectDir, doc) {
+function assetMetaDecision(projectDir, doc, options = {}) {
   const document = doc || readAssetDocument(projectDir);
   const layout = computeAssetMetaLayout(document);
   const counts = {
@@ -2800,7 +2905,7 @@ function assetMetaDecision(projectDir, doc) {
     cdda: layout.cdda.length,
   };
   const maxTypeCount = Math.max(counts.bg, counts.sprite, counts.adpcm, counts.psg);
-  if (!projectTargetsCd(projectDir)) {
+  if (!assetSourceTargetsCd(projectDir, options)) {
     return {
       useCd: false,
       reason: 'non-cd-target',
@@ -2820,8 +2925,8 @@ function assetMetaDecision(projectDir, doc) {
 // Decide whether this project's metadata should be streamed from CD on demand.
 // CD-ROM2 VN always uses the catalog path; non-VN templates keep resident arrays
 // because their sample runtime reads pce_editor_*_assets[] directly.
-function assetMetaShouldUseCd(projectDir, doc) {
-  return assetMetaDecision(projectDir, doc).useCd;
+function assetMetaShouldUseCd(projectDir, doc, options = {}) {
+  return assetMetaDecision(projectDir, doc, options).useCd;
 }
 
 function validateGeneratedAssetScale(projectDir, doc, assetIds = null) {
@@ -3363,14 +3468,14 @@ function generateAssetSources(projectDir, options = {}) {
   let sourceDoc = assetIdFilter
     ? { ...doc, assets: (doc.assets || []).filter((asset) => asset?.id && assetIdFilter.has(String(asset.id))) }
     : doc;
-  const targetsCd = projectTargetsCd(projectDir);
+  const targetsCd = assetSourceTargetsCd(projectDir, options);
   const slideshow = !targetsCd && isHuCardSlideshowProject(projectDir, options)
     ? selectHuCardSlideshowAssets(projectDir, sourceDoc.assets)
     : null;
   if (slideshow) sourceDoc = { ...sourceDoc, assets: slideshow.assets };
   validateGeneratedAssetScale(projectDir, sourceDoc, assetIdFilter);
-  ensurePsgPatternFiles(projectDir, sourceDoc);
-  const assetMetaInfo = assetMetaDecision(projectDir, sourceDoc);
+  ensurePsgPatternFiles(projectDir, sourceDoc, options);
+  const assetMetaInfo = assetMetaDecision(projectDir, sourceDoc, options);
   // Reserve the consolidated metadata file at its final size before any CD layout
   // is computed, so its sector (and every file after it) stays stable.
   const metaLayout = ensureAssetMetaReservation(projectDir, sourceDoc);
@@ -3382,17 +3487,46 @@ function generateAssetSources(projectDir, options = {}) {
   const rows = targetsCd ? [] : (image ? generateTextMosaicForImage(projectDir, image).slice(0, 14) : ['NO IMAGE ASSET']);
   const tonePeriod = firstPsgPeriod(sound || {});
   const allowBanking = true;
-  const bankAllocator = targetsCd ? createCdRamBankAllocator() : createRomBankAllocator();
+  const forceBankedAssets = !targetsCd && Boolean(options.forceBankedAssets || options.forceBankedVisualAssets);
+  const fixedRomBanks = targetsCd ? [] : normalizeFixedRomBanks(options.fixedRomBanks || options.runtimeRomBanks);
+  const reservedRomBanks = targetsCd
+    ? new Set()
+    : new Set([
+      ...normalizeReservedRomBanks(options.reservedRomBanks || options.romBankReservations),
+      ...fixedRomBanks.map((entry) => entry.bank),
+    ]);
+  const bankAllocator = targetsCd
+    ? createCdRamBankAllocator()
+    : createRomBankAllocator({
+      nextBank: options.romBankStart,
+      maxBank: options.romBankMax,
+      dataBankOffset: options.romBankDataOffset,
+      reservedBanks: Array.from(reservedRomBanks),
+      reservedLabel: options.romBankReservedLabel,
+    });
   const requestedCdDataFiles = Array.isArray(options.cdDataFiles) ? options.cdDataFiles : null;
   const cdDataFiles = targetsCd
     ? normalizeCdDataFileList(projectDir, requestedCdDataFiles || collectCdDataFilesForDocument(projectDir, sourceDoc))
     : [];
   const cdLayout = targetsCd ? buildCdDataLayout(projectDir, cdDataFiles) : new Map();
-  const bgGenerated = generateConvertedAssetArrays(projectDir, sourceDoc.assets, 'image', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
-  const spriteGenerated = generateConvertedAssetArrays(projectDir, sourceDoc.assets, 'sprite', bankAllocator, { allowBanking, targetsCd, useCdDataFiles: targetsCd, cdLayout });
+  const bgGenerated = generateConvertedAssetArrays(projectDir, sourceDoc.assets, 'image', bankAllocator, {
+    allowBanking,
+    targetsCd,
+    useCdDataFiles: targetsCd,
+    cdLayout,
+    forceBanking: forceBankedAssets,
+  });
+  const spriteGenerated = generateConvertedAssetArrays(projectDir, sourceDoc.assets, 'sprite', bankAllocator, {
+    allowBanking,
+    targetsCd,
+    useCdDataFiles: targetsCd,
+    cdLayout,
+    forceBanking: forceBankedAssets,
+  });
   const psgGenerated = generatePsgMetadata(projectDir, sourceDoc.assets, { targetsCd, cdLayout, catalogMode: assetMetaOnCd });
   const adpcmGenerated = generateAdpcmMetadata(projectDir, sourceDoc.assets, { targetsCd, cdLayout });
   const cddaGenerated = generateCddaMetadata(projectDir, sourceDoc.assets, { targetsCd, cdLayout });
+  const extraGenerated = generateExtraDataRefs(projectDir, options.extraDataFiles, bankAllocator);
   const emptyDataRef = '{ (const unsigned char *)0, 0u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }';
 
   // For CD builds, serialize the per-asset metadata into ASSET_META_FILE (already
@@ -3599,6 +3733,7 @@ function generateAssetSources(projectDir, options = {}) {
     'extern const unsigned int pce_editor_adpcm_asset_count;',
     'extern const pce_editor_cdda_asset_t pce_editor_cdda_assets[];',
     'extern const unsigned int pce_editor_cdda_asset_count;',
+    ...extraGenerated.externLines,
     'extern const char * const pce_editor_image_rows[];',
     'extern const unsigned char pce_editor_image_row_count;',
     'extern const unsigned int pce_editor_tone_period;',
@@ -3612,8 +3747,11 @@ function generateAssetSources(projectDir, options = {}) {
   const cdBankDeclarations = targetsCd
     ? bankAllocator.banks.map((bank) => `PCE_RAM_BANK_AT(${bank}, ${cdRamBankOffset(bank)});`)
     : [];
+  const runtimeRomBankDeclarations = !targetsCd
+    ? fixedRomBanks.map((entry) => `PCE_ROM_BANK_AT(${entry.bank}, ${entry.offset});`)
+    : [];
   const romBankDeclarations = !targetsCd
-    ? bankAllocator.banks.map((bank) => `PCE_ROM_BANK_AT(${bank}, 6);`)
+    ? bankAllocator.banks.map((bank) => `PCE_EDITOR_ROM_DATA_BANK_AT(${bank}, ${bankAllocator.dataBankOffset});`)
     : [];
   const bankSwitchLines = bankAllocator.banks.map((bank) => (targetsCd
     ? `    case ${bank}u: pce_ram_bank${bank}_map(); return;`
@@ -3629,6 +3767,8 @@ function generateAssetSources(projectDir, options = {}) {
     '#elif defined(__PCE__) && !defined(__CC65__) && !defined(PCE_EDITOR_TARGET_CD)',
     '#define PCE_CONFIG_IMPLEMENTATION',
     '#include <pce.h>',
+    '#define PCE_EDITOR_ROM_DATA_BANK_AT(id, offset) __PCE_ROM_BANK_DECLARE(id, offset, 1); __PCE_ROM_BANK_USE(id, offset)',
+    ...runtimeRomBankDeclarations,
     ...romBankDeclarations,
     '#define PCE_EDITOR_BANKED_SECTION(name) __attribute__((section(name)))',
     '#define PCE_EDITOR_RODATA_SECTION __attribute__((section(".rodata")))',
@@ -3641,6 +3781,8 @@ function generateAssetSources(projectDir, options = {}) {
     '',
     '#include "assets.h"',
     '',
+    ...extraGenerated.arrayLines,
+    ...(extraGenerated.refLines.length ? [...extraGenerated.refLines, ''] : []),
     ...(assetMetaOnCd ? [] : psgGenerated.arrayLines),
     // BG/sprite/ADPCM descriptors: resident arrays for HuCard / non-VN templates,
     // catalog directory for CD-ROM2 VN (records live in ASSET_META_FILE).
@@ -3739,6 +3881,7 @@ function generateAssetSources(projectDir, options = {}) {
       cdda: cddaGenerated.cddaAssets.length,
     },
     slideshow,
+    extraDataCount: extraGenerated.entries.length,
   };
 }
 
@@ -3762,6 +3905,11 @@ module.exports = {
   ensurePsgPatternFiles,
   ensurePsgImportedAssets,
   ensureAssetMetaReservation,
+  normalizePsgOptions,
+  normalizePsgPatternEntries,
+  firstPsgPeriod,
+  serializePsgPattern,
+  psgPatternBytes,
   collectCdDataFiles,
   ASSET_META_FILE,
   psgPatternFile,

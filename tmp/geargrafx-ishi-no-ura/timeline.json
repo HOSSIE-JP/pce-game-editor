@@ -1,0 +1,1772 @@
+[
+  {
+    "label": "t00",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t00.png",
+    "cpu_pc": "E03B",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2B"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": false,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t01",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t01.png",
+    "cpu_pc": "E1DB",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2A"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t02",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t02.png",
+    "cpu_pc": "E2F6",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2A"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 2283,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 807,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t03",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t03.png",
+    "cpu_pc": "E4B6",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 186,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 807,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t04",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t04.png",
+    "cpu_pc": "A2EB",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2B"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t05",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t05.png",
+    "cpu_pc": "A347",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2A"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 49,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t06",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t06.png",
+    "cpu_pc": "A2EB",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2A"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 2,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 21,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 180,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t07",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t07.png",
+    "cpu_pc": "E325",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2B"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 1,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 21,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t08",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t08.png",
+    "cpu_pc": "E1C4",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2A"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 21,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t09",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t09.png",
+    "cpu_pc": "A34B",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2A"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 4,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 3047,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t10",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t10.png",
+    "cpu_pc": "E323",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2B"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 5,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 453,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 3047,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t11",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t11.png",
+    "cpu_pc": "E302",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2A"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 2283,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t12",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t12.png",
+    "cpu_pc": "E351",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2A"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 2,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t13",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t13.png",
+    "cpu_pc": "A31B",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2B"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 5,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 1524,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 453,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  },
+  {
+    "label": "t14",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura\\t14.png",
+    "cpu_pc": "A315",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2B"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 1,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 2283,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": []
+  }
+]

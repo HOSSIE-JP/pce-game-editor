@@ -1,0 +1,37 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "除外される",
+          "textColor": "",
+          "voiceAssetId": "voice_skip",
+          "mouthSlot": 0,
+          "mouthAnimationId": "",
+          "skip": true
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "hi",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}

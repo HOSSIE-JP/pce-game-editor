@@ -1,0 +1,27 @@
+{
+  "source": "assets/sprites/tall_marker.png",
+  "kind": "sprite",
+  "width": 16,
+  "height": 64,
+  "tileCount": 8,
+  "paletteCount": 1,
+  "vramBytes": 1024,
+  "compression": {
+    "policy": "none",
+    "tiles": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 1024,
+      "byteLength": 0,
+      "savedBytes": 0
+    },
+    "map": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 0,
+      "byteLength": 0,
+      "savedBytes": 0
+    }
+  },
+  "warnings": []
+}

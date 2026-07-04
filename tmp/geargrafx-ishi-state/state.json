@@ -1,0 +1,2606 @@
+[
+  {
+    "label": "s00",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s00.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 1,
+    "activeMessage": -1,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s01",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s01.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 1,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 3,
+    "activeMessage": 0,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s02",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s02.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 5,
+    "activeMessage": 1,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s03",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s03.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 3,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 5,
+    "activeMessage": 1,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 81,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 453,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s04",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s04.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 7,
+    "activeMessage": 2,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 21,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s05",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s05.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 7,
+    "activeMessage": 2,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 381,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 453,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 285,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 3047,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s06",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s06.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 8,
+    "activeMessage": 3,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s07",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s07.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 8,
+    "activeMessage": 3,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 381,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 2283,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 285,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s08",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s08.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 9,
+    "activeMessage": 4,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 381,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 453,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 2283,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 285,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s09",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s09.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 9,
+    "activeMessage": 4,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 3047,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 381,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 453,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 285,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s10",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s10.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 11,
+    "activeMessage": 5,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 381,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 285,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s11",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s11.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 1,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 11,
+    "activeMessage": 5,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 1524,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s12",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s12.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 12,
+    "activeMessage": 6,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 381,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 2283,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 285,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 453,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s14",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s14.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 2,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 13,
+    "activeMessage": 7,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 285,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 2283,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 381,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s16",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s16.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 2,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 14,
+    "activeMessage": 8,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 2283,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s18",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s18.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 2,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 15,
+    "activeMessage": 9,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 3047,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s20",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s20.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 16,
+    "activeMessage": 10,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 285,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 143,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 381,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 1524,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s22",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s22.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 17,
+    "activeMessage": 11,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 2283,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s24",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s24.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 18,
+    "activeMessage": 12,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 170,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 2283,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s26",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s26.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": true,
+      "x": 2,
+      "y": 0
+    },
+    "currentScene": 3,
+    "currentCommand": 19,
+    "activeMessage": -1,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "0000 0000 0040 0041 0042 0043 0044 0045",
+    "bat20FirstWords": "0000 0000 0000 f21c f21d f21e f21f f220",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 190,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 2283,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  },
+  {
+    "label": "s28",
+    "imgPath": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-state\\s28.png",
+    "vdc": {
+      "bg": true,
+      "spr": true,
+      "vblank": false,
+      "x": 0,
+      "y": 0
+    },
+    "currentScene": 4,
+    "currentCommand": 3,
+    "activeMessage": -1,
+    "blankFirst": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "bat2FirstWords": "ff00 0000 0000 00ff 0000 00ff 0000 00ff",
+    "bat20FirstWords": "1000 000f ff00 0000 db00 0062 0000 00ff",
+    "slotValid": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotBase": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotPal": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "slotState": [
+      {
+        "s": 0,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 1,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 2,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      },
+      {
+        "s": 3,
+        "asset": 0,
+        "anim": 0,
+        "x": 0,
+        "y": 0,
+        "flags": 0,
+        "frame": 0,
+        "timer": 0,
+        "satb": 0,
+        "visible": 0
+      }
+    ],
+    "spriteEntries": [],
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "vol": "FF"
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 285,
+        "vol": "FF"
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 226,
+        "vol": "FF"
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 3047,
+        "vol": "FF"
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "vol": "00"
+      }
+    ]
+  }
+]

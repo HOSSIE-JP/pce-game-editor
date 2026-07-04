@@ -6,6 +6,7 @@ const { spawn, spawnSync } = require('child_process');
 const { app } = require('electron');
 const assetManager = require('./pce-asset-manager');
 const vnManager = require('./pce-vn-manager');
+const hucardVnManager = require('./pce-vn-hucard-manager');
 const setupManager = require('./pce-setup-manager');
 
 const DEFAULT_PROJECT_NAME = 'sample_pce_game';
@@ -19,6 +20,7 @@ const PCE_CD_IPL_PROGRAM_SECTORS = 20;
 const PCE_CD_DATA_BASE_SECTOR = 64;
 const PCE_SLIDESHOW_BUILDER_ID = 'pce-slideshow-builder';
 const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
+const PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID = 'pce-visual-novel-hucard-builder';
 
 function formatBuildDuration(ms) {
   if (!Number.isFinite(ms) || ms < 0) return '0 ms';
@@ -77,6 +79,53 @@ function expandLlvmMosClangWrapper(command, args = []) {
     command: clangPath,
     args: ['--config', cfgPath, ...args],
   };
+}
+
+function findLlvmMosLinkerPath(commandInfo = {}) {
+  if (commandInfo.toolchain !== 'llvm-mos') return null;
+  const command = String(commandInfo.command || '');
+  const commandDir = command ? path.dirname(command) : '';
+  if (!commandDir || commandDir === '.') return null;
+  const names = process.platform === 'win32'
+    ? ['ld.lld.exe', 'lld.exe']
+    : ['ld.lld', 'lld'];
+  for (const name of names) {
+    const candidate = path.join(commandDir, name);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function formatLlvmMosLinkerPreflightFailure(linkerPath, result = {}) {
+  const error = result.error || null;
+  const status = result.status;
+  const stderr = String(result.stderr || '').trim();
+  const stdout = String(result.stdout || '').trim();
+  const detail = [
+    error?.message,
+    stderr,
+    stdout,
+    status !== null && status !== undefined ? `exit ${status}` : '',
+  ].filter(Boolean).join('\n');
+  const appControlHint = process.platform === 'win32'
+    ? ' Windows Application Control / Smart App Control / WDAC が llvm-mos SDK の LLD を拒否している可能性があります。Windows 側でこの ld.lld.exe を許可するか、SetUp で実行可能な llvm-mos-sdk を指定してください。'
+    : '';
+  return [
+    `llvm-mos linker を起動できません: ${linkerPath}`,
+    appControlHint.trim(),
+    detail ? `詳細: ${detail}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function preflightLlvmMosLinker(commandInfo = {}) {
+  const linkerPath = findLlvmMosLinkerPath(commandInfo);
+  if (!linkerPath) return null;
+  const result = spawnSync(linkerPath, ['--version'], {
+    encoding: 'utf-8',
+    windowsHide: true,
+  });
+  if (!result.error && result.status === 0) return null;
+  return formatLlvmMosLinkerPreflightFailure(linkerPath, result);
 }
 
 function attachProcessLineLogger(stream, level, log) {
@@ -552,11 +601,27 @@ function getBuilderTemplateKind(config = {}) {
   const builder = String(config.pluginRoles?.builder || '').trim();
   if (builder === PCE_SLIDESHOW_BUILDER_ID) return 'slideshow-hucard';
   if (builder === PCE_VISUAL_NOVEL_BUILDER_ID) return 'visual-novel-cd';
+  if (builder === PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID) return 'visual-novel-hucard';
   return '';
 }
 
 function isHuCardSlideshowProject(config = {}) {
   return getBuilderTemplateKind(config) === 'slideshow-hucard';
+}
+
+function isHuCardVisualNovelProject(projectDir, config = {}) {
+  void projectDir;
+  return getBuilderTemplateKind(config) === 'visual-novel-hucard';
+}
+
+function isCdVisualNovelProject(projectDir, config = {}) {
+  const sample = getBuilderTemplateKind(config);
+  if (sample === 'visual-novel-cd') return true;
+  if (sample === 'visual-novel-hucard' || isHuCardSlideshowProject(config)) return false;
+  return normalizeTargetMedia(config.targetMedia) === 'cd' && (
+    fs.existsSync(vnManager.getSceneFilePath(projectDir)) ||
+    fs.existsSync(path.join(projectDir, 'src', 'generated', 'vn.c'))
+  );
 }
 
 function resolveHuCardSlideshowTemplateMainPath() {
@@ -592,11 +657,7 @@ function collectSourceFiles(projectDir, config = {}) {
 }
 
 function isVisualNovelProject(projectDir, config = {}) {
-  const sample = getBuilderTemplateKind(config);
-  if (isHuCardSlideshowProject(config)) return false;
-  return sample === 'visual-novel-cd' ||
-    fs.existsSync(vnManager.getSceneFilePath(projectDir)) ||
-    fs.existsSync(path.join(projectDir, 'src', 'generated', 'vn.c'));
+  return isCdVisualNovelProject(projectDir, config) || isHuCardVisualNovelProject(projectDir, config);
 }
 
 function mergeVisualNovelConfig(config, patch = {}) {
@@ -830,7 +891,9 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
   if (toolchain === 'llvm-mos') {
     const rawCommand = toolPath || 'mos-pce-clang';
     const romPath = path.join(outDir, `${romBase}.pce`);
-    const expandedCommand = expandLlvmMosClangWrapper(rawCommand, ['-Os', '-o', romPath, ...sources]);
+    const mapPath = isHuCardVisualNovelProject(projectDir, config) ? path.join(outDir, `${romBase}.map`) : null;
+    const linkerArgs = mapPath ? [`-Wl,-Map=${mapPath}`] : [];
+    const expandedCommand = expandLlvmMosClangWrapper(rawCommand, ['-Os', ...linkerArgs, '-o', romPath, ...sources]);
     return {
       toolchain,
       targetMedia,
@@ -838,6 +901,7 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
       args: expandedCommand.args,
       cwd: projectDir,
       env: buildSpawnEnv(expandedCommand.command, toolchain),
+      mapPath,
       romPath,
     };
   }
@@ -854,6 +918,39 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
     binPath,
     romPath,
   };
+}
+
+function summarizeHuCardVnMapBanks(mapPath) {
+  if (!mapPath || !fs.existsSync(mapPath)) return null;
+  const text = fs.readFileSync(mapPath, 'utf-8');
+  const sections = new Map();
+  text.split(/\r?\n/).forEach((line) => {
+    if (!line.trim() || line.includes(':(')) return;
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5) return;
+    const size = parseInt(parts[2], 16);
+    const section = parts[4];
+    if (!Number.isFinite(size) || !section?.startsWith('.')) return;
+    sections.set(section, (sections.get(section) || 0) + size);
+  });
+  const bank0Sections = ['.text', '.rodata', '.data', '.zp.data'];
+  const bank0 = bank0Sections.reduce((sum, section) => sum + (sections.get(section) || 0), 0);
+  const runtimeBanks = hucardVnManager.HUCARD_VN_RUNTIME_ROM_BANKS.map(({ bank, role }) => ({
+    bank,
+    role,
+    size: sections.get(`.rom_bank${bank}`) || 0,
+  }));
+  const dataBanks = [];
+  for (let bank = hucardVnManager.HUCARD_VN_DATA_ROM_BANK_START; bank <= hucardVnManager.HUCARD_VN_DATA_ROM_BANK_MAX; bank++) {
+    const size = sections.get(`.rom_bank${bank}`) || 0;
+    if (size > 0) dataBanks.push({ bank, size });
+  }
+  const formatBank = (entry) => `bank${entry.bank}${entry.role ? ` ${entry.role}` : ''} ${entry.size}/8192`;
+  return [
+    `bank0 payload ${bank0}/8192`,
+    `runtime ${runtimeBanks.map(formatBank).join(', ')}`,
+    `data ${dataBanks.length ? dataBanks.map(formatBank).join(', ') : 'none'}`,
+  ].join('; ');
 }
 
 function buildProject(onLog, options = {}) {
@@ -882,10 +979,11 @@ function buildProject(onLog, options = {}) {
     if (isVisualNovelProject(projectDir, config)) {
       const stage = stageStart('VN generation');
       try {
-        // VN projects are always CD; the overlay blob is built with the CD clang.
-        const prepared = vnManager.prepareVisualNovelBuild(projectDir, config, setupManager.getLlvmMosPceCdPath(), { info: (m) => log(m, 'info') }, {
-          incremental: Boolean(options.skipClean),
-        });
+        const prepared = isHuCardVisualNovelProject(projectDir, config)
+          ? hucardVnManager.prepareHuCardVisualNovelBuild(projectDir, config, { info: (m) => log(m, 'info') }, {})
+          : vnManager.prepareVisualNovelBuild(projectDir, config, setupManager.getLlvmMosPceCdPath(), { info: (m) => log(m, 'info') }, {
+            incremental: Boolean(options.skipClean),
+          });
         visualNovelStampInfo = prepared?.stampInfo || null;
         if (prepared?.generated) {
           generated.visualNovel = prepared.generated;
@@ -912,10 +1010,25 @@ function buildProject(onLog, options = {}) {
       const assetSourceOptions = Array.isArray(config.cd?.dataFiles) && config.cd.dataFiles.length
         ? { cdDataFiles: config.cd.dataFiles }
         : {};
+      assetSourceOptions.targetMedia = config.targetMedia;
       if (isHuCardSlideshowProject(config)) {
         assetSourceOptions.hucardSlideshow = true;
       }
-      if (Array.isArray(generated.visualNovel?.assetIds)) {
+      if (isHuCardVisualNovelProject(projectDir, config)) {
+        assetSourceOptions.assetIds = Array.isArray(generated.visualNovel?.visualAssetIds)
+          ? generated.visualNovel.visualAssetIds
+          : [];
+        assetSourceOptions.fixedRomBanks = hucardVnManager.HUCARD_VN_RUNTIME_ROM_BANKS;
+        assetSourceOptions.reservedRomBanks = hucardVnManager.HUCARD_VN_RUNTIME_ROM_BANKS;
+        assetSourceOptions.romBankStart = hucardVnManager.HUCARD_VN_DATA_ROM_BANK_START;
+        assetSourceOptions.romBankMax = hucardVnManager.HUCARD_VN_DATA_ROM_BANK_MAX;
+        assetSourceOptions.romBankDataOffset = hucardVnManager.HUCARD_VN_DATA_ROM_BANK_OFFSET;
+        assetSourceOptions.romBankReservedLabel = 'HuCARD VN runtime code banks 1-4 reserve ROM banks 1-4; data banks use 5-127';
+        assetSourceOptions.forceBankedAssets = true;
+        if (Array.isArray(generated.visualNovel?.extraDataFiles)) {
+          assetSourceOptions.extraDataFiles = generated.visualNovel.extraDataFiles;
+        }
+      } else if (Array.isArray(generated.visualNovel?.assetIds)) {
         assetSourceOptions.assetIds = generated.visualNovel.assetIds;
       }
       generated = {
@@ -982,6 +1095,13 @@ function buildProject(onLog, options = {}) {
       return;
     }
 
+    const linkerPreflightError = preflightLlvmMosLinker(commandInfo);
+    if (linkerPreflightError) {
+      log(linkerPreflightError, 'error');
+      resolve({ success: false, error: linkerPreflightError, commandInfo });
+      return;
+    }
+
     const compileStage = stageStart(commandInfo.targetMedia === 'cd' ? 'compile/link ELF' : 'compile ROM');
     const buildSpawn = resolveSpawn(commandInfo.command, commandInfo.args);
     const proc = spawn(buildSpawn.file, buildSpawn.args, {
@@ -998,6 +1118,10 @@ function buildProject(onLog, options = {}) {
       flushBuildStdout();
       flushBuildStderr();
       stageDone(commandInfo.targetMedia === 'cd' ? 'compile/link ELF' : 'compile ROM', compileStage, `exit ${code}`);
+      const hucardVnMapSummary = summarizeHuCardVnMapBanks(commandInfo.mapPath);
+      if (hucardVnMapSummary) {
+        log(`HuCARD VN bank usage: ${hucardVnMapSummary}`);
+      }
       if (code !== 0) {
         resolve({ success: false, error: `build failed (exit code: ${code})`, commandInfo });
         return;
@@ -1096,8 +1220,12 @@ module.exports = {
   DEFAULT_TOOLCHAIN,
   PCE_SLIDESHOW_BUILDER_ID,
   PCE_VISUAL_NOVEL_BUILDER_ID,
+  PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID,
   PCE_CD_DATA_BASE_SECTOR,
   parseMkcdFirstDataSector,
+  findLlvmMosLinkerPath,
+  formatLlvmMosLinkerPreflightFailure,
+  preflightLlvmMosLinker,
   buildCommandForProject,
   collectSourceFiles,
   collectCddaTracks,

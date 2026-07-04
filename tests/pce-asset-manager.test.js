@@ -14,6 +14,12 @@ function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
+function makeWorkspaceTempDir(prefix) {
+  const root = path.join(__dirname, '..', 'node_modules', '.pce-asset-test-tmp');
+  fs.mkdirSync(root, { recursive: true });
+  return fs.mkdtempSync(path.join(root, prefix));
+}
+
 function loadAssetManager(userData = makeTempDir('pce-assets-user-data-')) {
   delete require.cache[require.resolve('../pce-asset-manager')];
   delete require.cache[require.resolve('../pce-setup-manager')];
@@ -1333,6 +1339,195 @@ test('PCE HuCard slideshow reports ROM bank capacity overflow', () => {
   );
 });
 
+test('PCE asset manager allocates extra data files through HuCARD ROM banks', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeWorkspaceTempDir('pce-extra-data-rom-bank-');
+  writeFile(projectDir, 'project.json', JSON.stringify({
+    coreId: 'pc-engine',
+    platform: 'pce',
+    title: 'Extra Data',
+    romName: 'extra_data',
+    toolchain: 'llvm-mos',
+    targetMedia: 'hucard',
+  }, null, 2));
+  writeFile(projectDir, 'assets/generated/vn/font.bin', Buffer.alloc(48, 0x12));
+  writeFile(projectDir, 'assets/generated/vn/scenes/000_opening.bin', Buffer.alloc(9000, 0x5a));
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: [] });
+
+  const generated = assetManager.generateAssetSources(projectDir, {
+    fixedRomBanks: [
+      { bank: 1, offset: 2 },
+      { bank: 2, offset: 3 },
+      { bank: 3, offset: 4 },
+      { bank: 4, offset: 5 },
+    ],
+    reservedRomBanks: [1, 2, 3, 4],
+    romBankStart: 5,
+    romBankDataOffset: 6,
+    extraDataFiles: [
+      { symbol: 'pce_vn_font_data_ref', relativePath: 'assets/generated/vn/font.bin', forceBanked: true },
+      { symbol: 'pce_vn_scene_pack_ref_0', relativePath: 'assets/generated/vn/scenes/000_opening.bin', forceBanked: true },
+    ],
+  });
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+
+  assert.equal(generated.extraDataCount, 2);
+  assert.equal(generated.bankedChunkCount, 3);
+  assert.match(header, /extern const pce_editor_data_ref_t pce_vn_font_data_ref;/);
+  assert.match(header, /extern const pce_editor_data_ref_t pce_vn_scene_pack_ref_0;/);
+  assert.match(source, /PCE_ROM_BANK_AT\(1, 2\)/);
+  assert.match(source, /PCE_ROM_BANK_AT\(4, 5\)/);
+  assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(5, 6\)/);
+  assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(6, 6\)/);
+  assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(7, 6\)/);
+  assert.doesNotMatch(source, /PCE_ROM_BANK_AT\(5, 6\)/);
+  assert.match(source, /pce_vn_font_data_ref_data_chunks\[\]/);
+  assert.match(source, /const pce_editor_data_ref_t pce_vn_font_data_ref PCE_EDITOR_RODATA_SECTION = \{ \(const unsigned char \*\)0, 48u, pce_vn_font_data_ref_data_chunks, 1u,/);
+  assert.match(source, /pce_vn_scene_pack_ref_0_data_chunks\[\]/);
+  assert.match(source, /const pce_editor_data_ref_t pce_vn_scene_pack_ref_0 PCE_EDITOR_RODATA_SECTION = \{ \(const unsigned char \*\)0, 9000u, pce_vn_scene_pack_ref_0_data_chunks, 2u,/);
+
+  const overflowDir = makeWorkspaceTempDir('pce-extra-data-rom-overflow-');
+  writeFile(overflowDir, 'project.json', JSON.stringify({
+    coreId: 'pc-engine',
+    platform: 'pce',
+    title: 'Extra Data Overflow',
+    romName: 'extra_overflow',
+    toolchain: 'llvm-mos',
+    targetMedia: 'hucard',
+  }, null, 2));
+  writeFile(overflowDir, 'assets/generated/vn/scenes/too_big.bin', Buffer.alloc((123 * 8192) + 1, 0x33));
+  assetManager.writeAssetDocument(overflowDir, { version: 2, assets: [] });
+  assert.throws(
+    () => assetManager.generateAssetSources(overflowDir, {
+      fixedRomBanks: [
+        { bank: 1, offset: 2 },
+        { bank: 2, offset: 3 },
+        { bank: 3, offset: 4 },
+        { bank: 4, offset: 5 },
+      ],
+      reservedRomBanks: [1, 2, 3, 4],
+      romBankStart: 5,
+      romBankDataOffset: 6,
+      romBankReservedLabel: 'HuCARD VN runtime code banks 1-4 reserve ROM banks 1-4; data banks use 5-127',
+      extraDataFiles: [{ symbol: 'too_big_ref', relativePath: 'assets/generated/vn/scenes/too_big.bin', forceBanked: true }],
+    }),
+    /PCE HuCard banked asset data exceeds available ROM data banks.*runtime code banks 1-4/,
+  );
+});
+
+test('PCE HuCARD VN font data stays banked when glyph count grows', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeWorkspaceTempDir('pce-vn-hucard-font-banks-');
+  writeFile(projectDir, 'project.json', JSON.stringify({
+    coreId: 'pc-engine',
+    platform: 'pce',
+    title: 'Font Banks',
+    romName: 'font_banks',
+    toolchain: 'llvm-mos',
+    targetMedia: 'hucard',
+  }, null, 2));
+  writeFile(projectDir, 'assets/generated/vn/font.bin', Buffer.alloc(1000 * 24, 0x44));
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: [] });
+
+  const generated = assetManager.generateAssetSources(projectDir, {
+    fixedRomBanks: [
+      { bank: 1, offset: 2 },
+      { bank: 2, offset: 3 },
+      { bank: 3, offset: 4 },
+      { bank: 4, offset: 5 },
+    ],
+    reservedRomBanks: [1, 2, 3, 4],
+    romBankStart: 5,
+    romBankDataOffset: 6,
+    extraDataFiles: [
+      { symbol: 'pce_vn_font_data_ref', relativePath: 'assets/generated/vn/font.bin', forceBanked: true },
+    ],
+  });
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+
+  assert.equal(generated.bankedChunkCount, 3);
+  assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(5, 6\);/);
+  assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(6, 6\);/);
+  assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(7, 6\);/);
+  assert.match(source, /pce_vn_font_data_ref_data_bank5/);
+  assert.match(source, /pce_vn_font_data_ref_data_bank6/);
+  assert.match(source, /pce_vn_font_data_ref_data_bank7/);
+  assert.match(source, /const pce_editor_data_ref_t pce_vn_font_data_ref PCE_EDITOR_RODATA_SECTION = \{ \(const unsigned char \*\)0, 24000u, pce_vn_font_data_ref_data_chunks, 3u,/);
+  assert.doesNotMatch(source, /static const unsigned char pce_vn_font_data_ref_data\[\] PCE_EDITOR_RODATA_SECTION/);
+  assert.doesNotMatch(source, /PCE_ROM_BANK_AT\(5, 6\);/);
+});
+
+test('PCE asset manager honors explicit HuCARD media over a stale CD project config', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeWorkspaceTempDir('pce-extra-data-stale-cd-config-');
+  writeFile(projectDir, 'project.json', JSON.stringify({
+    coreId: 'pc-engine',
+    platform: 'pce',
+    title: 'Stale CD Config',
+    romName: 'stale_cd_config',
+    toolchain: 'llvm-mos',
+    targetMedia: 'cd',
+    cd: { dataFiles: ['assets/generated/vn/font.bin'], cddaTracks: ['assets/generated/opening/cdda.wav'] },
+  }, null, 2));
+  writeFile(projectDir, 'assets/generated/vn/font.bin', Buffer.alloc((2 * 8192) + 1, 0x21));
+  writeFile(projectDir, 'assets/generated/bg/palette.bin', Buffer.alloc(32, 0x00));
+  writeFile(projectDir, 'assets/generated/bg/tiles.bin', Buffer.alloc(32, 0x00));
+  writeFile(projectDir, 'assets/generated/bg/map_vram.bin', Buffer.alloc(2, 0x00));
+  assetManager.writeAssetDocument(projectDir, {
+    version: 2,
+    assets: [{
+      id: 'bg',
+      type: 'image',
+      data: {
+        generated: {
+          paletteFile: 'assets/generated/bg/palette.bin',
+          tilesFile: 'assets/generated/bg/tiles.bin',
+          mapFile: 'assets/generated/bg/map_vram.bin',
+        },
+      },
+      options: { width: 8, height: 8 },
+    }],
+  });
+
+  const generated = assetManager.generateAssetSources(projectDir, {
+    targetMedia: 'hucard',
+    fixedRomBanks: [
+      { bank: 1, offset: 2 },
+      { bank: 2, offset: 3 },
+      { bank: 3, offset: 4 },
+      { bank: 4, offset: 5 },
+    ],
+    reservedRomBanks: [1, 2, 3, 4],
+    romBankStart: 5,
+    romBankDataOffset: 6,
+    forceBankedAssets: true,
+    extraDataFiles: [
+      { symbol: 'pce_vn_font_data_ref', relativePath: 'assets/generated/vn/font.bin', forceBanked: true },
+    ],
+  });
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+
+  assert.equal(generated.bankedChunkCount, 6);
+  assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(5, 6\);/);
+  assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(10, 6\);/);
+  assert.match(source, /pce_editor_image_bg_palette_bank5/);
+  assert.match(source, /pce_editor_image_bg_tiles_bank6/);
+  assert.match(source, /pce_editor_image_bg_map_bank7/);
+  assert.match(source, /pce_vn_font_data_ref_data_bank8/);
+  assert.match(source, /pce_vn_font_data_ref_data_bank10/);
+  assert.match(source, /const pce_editor_data_ref_t pce_vn_font_data_ref PCE_EDITOR_RODATA_SECTION = \{ \(const unsigned char \*\)0, 16385u, pce_vn_font_data_ref_data_chunks, 3u,/);
+  assert.match(header, /#define PCE_EDITOR_ASSET_META_ON_CD 0/);
+  assert.match(source, /const pce_editor_bg_asset_t pce_editor_bg_assets\[\] PCE_EDITOR_RODATA_SECTION/);
+  assert.doesNotMatch(source, /static const unsigned char pce_editor_image_bg_palette\[\] PCE_EDITOR_RODATA_SECTION/);
+  assert.doesNotMatch(source, /static const unsigned char pce_editor_image_bg_tiles\[\] PCE_EDITOR_RODATA_SECTION/);
+  assert.doesNotMatch(source, /static const unsigned char pce_editor_image_bg_map\[\] PCE_EDITOR_RODATA_SECTION/);
+  assert.doesNotMatch(source, /PCE_RAM_BANK_AT\(130/);
+  assert.doesNotMatch(source, /pce_ram_bank130_map/);
+  assert.doesNotMatch(source, /const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ [0-9]+u,/);
+});
+
 test('PCE sample template registers slideshow images for llvm-mos playback', () => {
   const templateDir = path.join(__dirname, '..', 'template', 'template_pce_sample');
   const doc = JSON.parse(fs.readFileSync(path.join(templateDir, 'assets', 'pce-assets.json'), 'utf-8'));
@@ -1425,7 +1620,7 @@ test('PCE sample template registers slideshow images for llvm-mos playback', () 
     'slide_010_snow_street',
   ]);
   assert.match(generatedHeader, /pce_editor_data_ref_t/);
-  assert.match(generatedSource, /PCE_ROM_BANK_AT\(1, 6\)/);
+  assert.match(generatedSource, /PCE_EDITOR_ROM_DATA_BANK_AT\(1, 6\)/);
   assert.ok(generatedSource.includes('PCE_EDITOR_BANKED_SECTION(".rom_bank1")'));
   assert.match(generatedSource, /pce_editor_image_slide_001_seaside_tiles_chunks/);
   assert.match(generatedSource, /pce_editor_map_asset_bank/);

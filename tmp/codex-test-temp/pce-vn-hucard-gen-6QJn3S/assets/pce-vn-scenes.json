@@ -1,0 +1,104 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 50,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "variable",
+          "variableName": "route",
+          "operation": "define",
+          "value": 0,
+          "min": 0,
+          "max": 9
+        },
+        {
+          "type": "audio",
+          "kind": "psg",
+          "action": "play",
+          "assetId": "theme",
+          "channel": 2
+        },
+        {
+          "type": "audio",
+          "kind": "adpcm",
+          "action": "play",
+          "assetId": "voice",
+          "channel": 0
+        },
+        {
+          "type": "audio",
+          "kind": "cdda",
+          "action": "play",
+          "assetId": "track",
+          "channel": 0
+        },
+        {
+          "type": "message",
+          "speaker": "",
+          "text": "AB",
+          "textColor": "",
+          "voiceAssetId": "voice",
+          "mouthSlot": 0,
+          "mouthAnimationId": ""
+        },
+        {
+          "type": "inputcheck",
+          "buttons": [
+            "run"
+          ],
+          "mode": "async",
+          "targetLabel": "skip"
+        },
+        {
+          "type": "spritetext",
+          "slot": 0,
+          "text": "GO",
+          "x": 32,
+          "y": 24,
+          "color": "#ffffff",
+          "blinkFrames": 0,
+          "visible": true
+        },
+        {
+          "type": "cache",
+          "action": "load",
+          "scope": "adpcm",
+          "assetId": "voice",
+          "slot": 0,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "type": "label",
+          "name": "skip"
+        },
+        {
+          "type": "choice",
+          "variableName": "route",
+          "choices": [
+            {
+              "label": "A",
+              "value": 1,
+              "targetSceneId": ""
+            },
+            {
+              "label": "B",
+              "value": 2,
+              "targetSceneId": ""
+            }
+          ],
+          "defaultIndex": 0
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}

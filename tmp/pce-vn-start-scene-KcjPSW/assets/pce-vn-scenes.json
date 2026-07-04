@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "Start_Scene",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [],
+      "nextSceneId": ""
+    },
+    {
+      "id": "Start_Scene",
+      "fullScreenBg": false,
+      "commands": [],
+      "nextSceneId": ""
+    }
+  ]
+}

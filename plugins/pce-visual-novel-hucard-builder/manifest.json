@@ -1,0 +1,13 @@
+{
+  "id": "pce-visual-novel-hucard-builder",
+  "name": "HuCARD VN Builder",
+  "description": "Builds PC Engine HuCARD visual novel ROMs from the shared Novel scene format. ADPCM and CD-DA commands are ignored.",
+  "version": "0.1.0",
+  "icon": "build",
+  "types": ["build"],
+  "generator": false,
+  "supportedCores": ["pc-engine"],
+  "permissions": ["project.read", "project.write", "build.configure"],
+  "roles": [{ "id": "builder", "label": "Build", "exclusive": true, "order": 12 }],
+  "hooks": ["onBuildStart", "onBuildLog", "onBuildEnd", "onBuildError"]
+}

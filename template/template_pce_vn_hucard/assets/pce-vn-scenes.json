@@ -1,0 +1,105 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "variable",
+          "op": "define",
+          "name": "route",
+          "value": 0
+        },
+        {
+          "type": "message",
+          "speaker": "PCE",
+          "text": "HuCARD VN sample\nI: next  RUN: branch",
+          "textColor": "#ffffff",
+          "voiceAssetId": ""
+        },
+        {
+          "type": "inputcheck",
+          "buttons": [
+            "run"
+          ],
+          "mode": "async",
+          "targetLabel": "branch"
+        },
+        {
+          "type": "wait",
+          "frames": 30
+        },
+        {
+          "type": "message",
+          "speaker": "PCE",
+          "text": "ADPCM and CD-DA are\nsilent no-op here.",
+          "textColor": "#ffdb92",
+          "voiceAssetId": "unused_voice"
+        },
+        {
+          "type": "label",
+          "name": "branch"
+        },
+        {
+          "type": "inputcheck",
+          "buttons": [],
+          "mode": "cancel",
+          "targetLabel": ""
+        },
+        {
+          "type": "spritetext",
+          "slot": 0,
+          "text": "HuCARD",
+          "x": 72,
+          "y": 24,
+          "color": "#ffdb00",
+          "blinkFrames": 30,
+          "visible": true
+        },
+        {
+          "type": "choice",
+          "variableName": "route",
+          "options": [
+            {
+              "label": "Keep going",
+              "value": 1,
+              "targetSceneId": "ending"
+            },
+            {
+              "label": "Replay",
+              "value": 0,
+              "targetSceneId": "opening"
+            }
+          ],
+          "defaultIndex": 0
+        }
+      ],
+      "nextSceneId": "ending"
+    },
+    {
+      "id": "ending",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "message",
+          "speaker": "PCE",
+          "text": "The same Novel script\nruns from ROM banks.",
+          "textColor": "#ffffff",
+          "voiceAssetId": ""
+        },
+        {
+          "type": "jump",
+          "sceneId": "opening"
+        }
+      ],
+      "nextSceneId": "opening"
+    }
+  ]
+}

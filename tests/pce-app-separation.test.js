@@ -70,13 +70,16 @@ test('PCE core manager exposes only PC Engine and creates PCE projects', async (
   assert.deepEqual(coreManager.listCores().map((core) => core.id), ['pc-engine']);
   const listed = coreManager.listProjects();
   const templates = Object.fromEntries(listed.templates.map((template) => [template.templateId, template]));
-  assert.deepEqual(Object.keys(templates).sort(), ['template_pce_sample', 'template_pce_vn_cd']);
+  assert.deepEqual(Object.keys(templates).sort(), ['template_pce_sample', 'template_pce_vn_cd', 'template_pce_vn_hucard']);
   assert.equal(templates.template_pce_sample.coreId, 'pc-engine');
   assert.equal(templates.template_pce_sample.targetMedia, 'hucard');
   assert.equal(templates.template_pce_sample.builderPlugin, 'pce-slideshow-builder');
   assert.equal(templates.template_pce_vn_cd.coreId, 'pc-engine');
   assert.equal(templates.template_pce_vn_cd.targetMedia, 'cd');
   assert.equal(templates.template_pce_vn_cd.builderPlugin, 'pce-visual-novel-builder');
+  assert.equal(templates.template_pce_vn_hucard.coreId, 'pc-engine');
+  assert.equal(templates.template_pce_vn_hucard.targetMedia, 'hucard');
+  assert.equal(templates.template_pce_vn_hucard.builderPlugin, 'pce-visual-novel-hucard-builder');
 
   const created = coreManager.createProjectInParent('', 'demo_pce', {
     coreId: 'pc-engine',

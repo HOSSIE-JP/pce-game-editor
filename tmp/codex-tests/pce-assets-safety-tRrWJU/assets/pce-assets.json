@@ -1,0 +1,59 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "b",
+      "type": "sprite",
+      "name": "b",
+      "source": "assets/images/title.png",
+      "options": {
+        "kind": "sprite",
+        "paletteBank": 0,
+        "tileBase": 704,
+        "mapBase": 0,
+        "x": 144,
+        "y": 104,
+        "width": 0,
+        "height": 0,
+        "cellWidth": 16,
+        "cellHeight": 16,
+        "transparentIndex": 0,
+        "animations": [
+          {
+            "id": "default",
+            "name": "Default",
+            "frameWidth": 16,
+            "frameHeight": 16,
+            "firstCell": 0,
+            "frameCount": 1,
+            "frameDelay": 8,
+            "frameDelays": [
+              8
+            ],
+            "frameStrideCells": 1,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "a",
+      "type": "image",
+      "name": "a",
+      "source": "assets/images/title.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,2434 @@
+[
+  {
+    "label": "t00",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t00.png",
+    "cpu_pc": "E4B6",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t01",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t01.png",
+    "cpu_pc": "87CC",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 5,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 186,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t02",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t02.png",
+    "cpu_pc": "E4BF",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 21,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 180,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t03",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t03.png",
+    "cpu_pc": "8766",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 453,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 3047,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t04",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t04.png",
+    "cpu_pc": "8782",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t05",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t05.png",
+    "cpu_pc": "E1C0",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 2283,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t06",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t06.png",
+    "cpu_pc": "834E",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 4,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t07",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t07.png",
+    "cpu_pc": "E4B9",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 2,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 453,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 2283,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t08",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t08.png",
+    "cpu_pc": "871F",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 8,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 1524,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 453,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t09",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t09.png",
+    "cpu_pc": "E153",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": false,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 2283,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 453,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t10",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t10.png",
+    "cpu_pc": "851B",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 16,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 3047,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t11",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t11.png",
+    "cpu_pc": "E28B",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 5,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 1524,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t12",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t12.png",
+    "cpu_pc": "8796",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 2283,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 453,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t13",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t13.png",
+    "cpu_pc": "E26A",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "09"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": false,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 3047,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 00 00 00 00 00 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 F2 00 00 C3 F2 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t14",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t14.png",
+    "cpu_pc": "6E5D",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "2A"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": false,
+      "vram_dma_end": false,
+      "x": 4,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 143,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 1524,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 10 0F 00 00 FF 00 00 00 DB 62 00 00 00 FF 00 00 9F 20 00 00 FF 00 00 00 FF 00 00 00 7F 80 00 00 07 04 00 00 FF 00 00 00 C7 20 00 00 FF 00 00 00 C0 20 00 00 00 00 00 00 00 00 00 00 00 80 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t15",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t15.png",
+    "cpu_pc": "E2E9",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "19"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": false,
+      "vram_dma_end": false,
+      "x": 4,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 2283,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 10 0F 00 00 FF 00 00 00 DB 62 00 00 00 FF 00 00 9F 20 00 00 FF 00 00 00 FF 00 00 00 7F 80 00 00 07 04 00 00 FF 00 00 00 C7 20 00 00 FF 00 00 00 C0 20 00 00 00 00 00 00 00 00 00 00 00 80 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t16",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t16.png",
+    "cpu_pc": "6756",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": false,
+      "vram_dma_end": false,
+      "x": 6,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 170,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 2283,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 10 0F 00 00 FF 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 00 00 00 00 80 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t17",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t17.png",
+    "cpu_pc": "676B",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": false,
+      "vram_dma_end": false,
+      "x": 2,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 0,
+        "f": 1,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 1524,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 10 0F 00 00 FF 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 00 00 00 00 80 00",
+      "offset": "0280"
+    }
+  },
+  {
+    "label": "t18",
+    "img": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\geargrafx-ishi-no-ura-after\\t18.png",
+    "cpu_pc": "8794",
+    "mpr": [
+      {
+        "index": 0,
+        "value": "FF"
+      },
+      {
+        "index": 1,
+        "value": "F8"
+      },
+      {
+        "index": 2,
+        "value": "01"
+      },
+      {
+        "index": 3,
+        "value": "02"
+      },
+      {
+        "index": 4,
+        "value": "03"
+      },
+      {
+        "index": 5,
+        "value": "04"
+      },
+      {
+        "index": 6,
+        "value": "21"
+      },
+      {
+        "index": 7,
+        "value": "00"
+      }
+    ],
+    "vdc": {
+      "background_enabled": true,
+      "busy": false,
+      "collision_detected": false,
+      "display_output": "DISP",
+      "h_state": "HSW",
+      "int_collision": false,
+      "int_overflow": false,
+      "int_scanline": false,
+      "int_vblank": true,
+      "overflow_detected": false,
+      "rw_increment": "01",
+      "sat_dma_end": false,
+      "scanline_interrupt": false,
+      "speed": "5.36 MHz",
+      "sprites_enabled": true,
+      "v_state": "VDS",
+      "vblank_active": true,
+      "vram_dma_end": false,
+      "x": 3,
+      "y": 0
+    },
+    "psg": [
+      {
+        "i": 0,
+        "en": 1,
+        "f": 381,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 1,
+        "en": 1,
+        "f": 285,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 2,
+        "en": 1,
+        "f": 190,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 3,
+        "en": 1,
+        "f": 2283,
+        "amp": "FF",
+        "l": "0F",
+        "r": "0F",
+        "noise": 0
+      },
+      {
+        "i": 4,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      },
+      {
+        "i": 5,
+        "en": 0,
+        "f": 0,
+        "amp": "00",
+        "l": "00",
+        "r": "00",
+        "noise": 0
+      }
+    ],
+    "enabledSprites": [],
+    "sat": {
+      "area": 6,
+      "data": "F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00 F0 00 00 00 00 00 00 00",
+      "offset": "0000"
+    },
+    "batLeft": {
+      "area": 4,
+      "data": "00 10 0F 00 00 FF 1C F2 1D F2 1E F2 1F F2 20 F2 21 F2 22 F2 23 F2 24 F2 25 F2 26 F2 27 F2 28 F2 29 F2 2A F2 2B F2 2C F2 2D F2 2E F2 2F F2 30 F2 31 F2 32 F2 33 F2 34 F2 35 F2 00 00 00 00 80 00",
+      "offset": "0280"
+    }
+  }
+]

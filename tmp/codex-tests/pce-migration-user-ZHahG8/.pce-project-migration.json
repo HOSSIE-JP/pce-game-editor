@@ -1,0 +1,10 @@
+{
+  "migratedAt": "2026-07-04T01:33:35.016Z",
+  "copied": [
+    {
+      "source": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\codex-tests\\pce-migration-source-4z9V1P\\old_pce",
+      "target": "D:\\homebrew\\SGDK\\projects\\pce-game-editor\\tmp\\codex-tests\\pce-migration-user-ZHahG8\\projects\\old_pce"
+    }
+  ],
+  "skippedProjects": []
+}

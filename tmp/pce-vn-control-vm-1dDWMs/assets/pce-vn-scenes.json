@@ -1,0 +1,110 @@
+{
+  "version": 2,
+  "settings": {
+    "messageSpeedFrames": 10,
+    "messageAdvanceMode": "button",
+    "messageAutoWaitFrames": 60
+  },
+  "startScene": "opening",
+  "scenes": [
+    {
+      "id": "opening",
+      "fullScreenBg": false,
+      "commands": [
+        {
+          "type": "variable",
+          "variableName": "score",
+          "operation": "define",
+          "value": 2,
+          "min": 0,
+          "max": 9
+        },
+        {
+          "type": "choice",
+          "variableName": "choice_result",
+          "choices": [
+            {
+              "label": "左",
+              "value": 7,
+              "targetSceneId": ""
+            },
+            {
+              "label": "右",
+              "value": 8,
+              "targetSceneId": ""
+            }
+          ],
+          "defaultIndex": 0
+        },
+        {
+          "type": "label",
+          "name": "check"
+        },
+        {
+          "type": "if",
+          "variableName": "score",
+          "operator": "gte",
+          "value": 2,
+          "targetLabel": "has_score",
+          "elseLabel": "no_score"
+        },
+        {
+          "type": "label",
+          "name": "has_score"
+        },
+        {
+          "type": "variable",
+          "variableName": "score",
+          "operation": "add",
+          "value": 3,
+          "min": 0,
+          "max": 9
+        },
+        {
+          "type": "switch",
+          "variableName": "score",
+          "cases": [
+            {
+              "value": 5,
+              "targetLabel": "route_a"
+            },
+            {
+              "value": 8,
+              "targetLabel": "no_score"
+            }
+          ],
+          "defaultLabel": "no_score"
+        },
+        {
+          "type": "label",
+          "name": "route_a"
+        },
+        {
+          "type": "goto",
+          "targetLabel": "end"
+        },
+        {
+          "type": "label",
+          "name": "no_score"
+        },
+        {
+          "type": "variable",
+          "variableName": "roll",
+          "operation": "random",
+          "value": 0,
+          "min": 1,
+          "max": 6
+        },
+        {
+          "type": "label",
+          "name": "end"
+        },
+        {
+          "type": "wait",
+          "frames": 1
+        }
+      ],
+      "nextSceneId": ""
+    }
+  ]
+}
