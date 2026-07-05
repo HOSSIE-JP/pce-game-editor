@@ -57,7 +57,7 @@ npm run mcp     # 起動中エディターの REST bridge につなぐ MCP sidec
 - **ファイルシステム IPC はプロジェクトルート内に限定**し、パストラバーサルを拒否してください。
 - 画像アセットは内蔵 PCE 変換を使い、Superfamiconv には依存しません。
 - CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を前提に扱います。
-- System Card external IRQ は CD data read / CD-DA pause/play / ADPCM load/stop/reset など BIOS helper の直前だけ有効化し、helper 後は真の ADPCM stream 中を除いて必ず切ってください。通常 message/typewriter 中に external IRQ を残すと、BIOS 側 IRQ が VDC timing/control を非同期に触り、BG が 1 フレームだけ水平にずれることがあります。
+- System Card external IRQ は CD data read / CD-DA pause/play / ADPCM load/stop/reset など BIOS helper の直前だけ有効化し、helper 後は必ず切ってください。通常 message/typewriter 中に external IRQ を残すと、BIOS 側 IRQ が VDC timing/control を非同期に触り、BG が 1 フレームだけ水平にずれることがあります。
 - CD-ROM2 VN runtime は System Card の VBlank handler を使いません。`delay_frame()` / `vn_wait_next_vblank()` は `IO_VDC_STATUS` の VBlank bit を直接 poll するため、`VN_VDC_CONTROL_BASE` には `VDC_CONTROL_IRQ_VBLANK` を入れますが、HuC6280 側の `IRQ_VDC` は `pce_irq_disable(IRQ_VDC)` で mask してください。`PCE_CDB_MASK_VBLANK_NO_BIOS` だけでは Geargrafx で System Card handler (`$E870`) が R5/R7/R8 を書くことがあるため、message 中のランダムな BG 水平ずれの原因になります。
 
 ## PCE 固有のノウハウ（変更時に壊しやすい点）
@@ -77,7 +77,7 @@ npm run mcp     # 起動中エディターの REST bridge につなぐ MCP sidec
 - VN runtime の短い one-shot / buffered 再生では、再生開始後に毎フレーム `pce_cdb_adpcm_status()` で自然終了監視しないでください（標準 WASM core で joypad edge が戻らなくなることがある）。
 - 自然終了後に追加の `pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()` を投げないでください（明示的 AUDIO stop 時のみ stop/reset する）。
 - ADPCM 1 asset の安全上限は `min(65535, 65536 - adpcmAddress)` bytes。再生時間概算 `bytes * 2 / sampleRate` 秒。
-- **`stream: true` でも ADPCM RAM に収まる音声は buffered 経路（`read_from_cd`→`play`）で再生する**（`play_adpcm_voice` が `adpcm_voice_fits_buffer()` を先に判定）。`pce_cdb_adpcm_stream()` の真の CD streaming は RAM 超過 asset 専用。真の streaming は非同期 BIOS external IRQ で CD→ADPCM ring buffer を供給し続ける方式で、VBlank/VDC を IRQ なしの直接 poll で自前所有するこの runtime と衝突し、**再生中のノイズ・隣接セクタを読み込んで「全く別の音声」混入・CD/CPU ハング**を起こす。短尺音声を streaming へ戻さないこと。
+- ADPCM は VN runtime / editor とも buffered direct playback 専用です。`pce_cdb_adpcm_stream()` の true CD streaming は非同期 BIOS external IRQ で CD→ADPCM ring buffer を供給し続ける方式で、VBlank/VDC を IRQ なしの直接 poll で自前所有するこの runtime と衝突し、**再生中のノイズ・隣接セクタを読み込んで「全く別の音声」混入・CD/CPU ハング**を起こすため機能削除済みです。短尺音声を streaming へ戻さないこと。
 
 ### VN sprite / VDC
 - VN sprite 表示は generated `pce_editor_sprite_draw_meta[]` の compact metadata を使い、単一 frame/default animation は sheet 全体表示として扱います。

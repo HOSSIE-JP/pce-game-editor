@@ -124,9 +124,9 @@ const pce_editor_psg_asset_t pce_editor_psg_assets[] = {
 const unsigned char pce_editor_psg_asset_count = 2;
 
 const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] = {
-  { (const unsigned char *)0, 2400ul, 16000u, 0u, 14u, 0u, 0u, &pce_editor_adpcm_akari_voice_data_cd },
-  { (const unsigned char *)0, 5280ul, 16000u, 0u, 14u, 0u, 0u, &pce_editor_adpcm_mika_voice_data_cd },
-  { (const unsigned char *)0, 3840ul, 16000u, 0u, 14u, 0u, 0u, &pce_editor_adpcm_guide_voice_data_cd }
+  { (const unsigned char *)0, 2400ul, 16000u, 0u, 14u, 0u, 18u, &pce_editor_adpcm_akari_voice_data_cd },
+  { (const unsigned char *)0, 5280ul, 16000u, 0u, 14u, 0u, 40u, &pce_editor_adpcm_mika_voice_data_cd },
+  { (const unsigned char *)0, 3840ul, 16000u, 0u, 14u, 0u, 29u, &pce_editor_adpcm_guide_voice_data_cd }
 };
 const unsigned char pce_editor_adpcm_asset_count = 3;
 

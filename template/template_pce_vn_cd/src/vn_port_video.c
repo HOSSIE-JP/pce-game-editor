@@ -107,6 +107,7 @@ static void VN_BANKED_CODE restore_video_after_cdb_call(uint8_t restore_display)
 {
 #if defined(__PCE_CD__)
     uint8_t irq;
+    uint8_t slot4_bank = vn_slot4_current_bank();
     if (restore_display)
     {
         vn_wait_next_vblank();
@@ -120,10 +121,9 @@ static void VN_BANKED_CODE restore_video_after_cdb_call(uint8_t restore_display)
     pce_vdc_sprite_set_table_start(VN_SATB_ADDR);
     VN_MAP_BANK130_FOR_CODE();
     apply_screen_offset();
-    if (adpcm_stream_active) adpcm_stream_irq_open = 1u;
+    vn_slot4_map_bank(slot4_bank);
     set_vdc_control(restore_display ? VN_VDC_DISPLAY_CONTROL : VN_VDC_BLANK_CONTROL);
-    if (adpcm_stream_active) pce_irq_enable(IRQ_VDC);
-    else pce_irq_disable(IRQ_VDC);
+    pce_irq_disable(IRQ_VDC);
     vn_vdc_irq_unlock(irq);
 #else
     (void)restore_display;

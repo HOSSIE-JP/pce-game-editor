@@ -96,7 +96,7 @@ typedef struct {
   unsigned int adpcm_address;
   unsigned char divider;
   unsigned char loop;
-  unsigned char stream;
+  unsigned int play_frames;
   const pce_editor_cd_data_ref_t *cd;
 } pce_editor_adpcm_asset_t;
 

@@ -8,7 +8,7 @@
    load_runtime_cache dispatches into PSG/ADPCM loaders that now live in
    later-included module files; clear_runtime_cache touches their cache keys. */
 static uint8_t VN_BANKED_CODE2 load_psg_cache_asset(signed int asset_index);
-static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t allow_stream_asset, uint8_t chunk_sectors);
+static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t chunk_sectors);
 static uint8_t VN_RESIDENT_CODE adpcm_playback_active(void);
 static uint16_t loaded_psg_pattern_key;
 #if defined(__PCE_CD__)
@@ -439,9 +439,9 @@ static uint8_t VN_VISUAL_CACHE_ENTRY_CODE visual_cache_entry(uint8_t op)
         flash_screen_color_impl(vn_visual_cache_arg_dest, vn_visual_cache_arg_x);
         return 0u;
     }
-    if (visual_op == VN_VISUAL_CACHE_OP_SERVICE_CDDA)
+    if (visual_op == VN_VISUAL_CACHE_OP_CDDA_COMMAND)
     {
-        service_cdda_playback_impl();
+        cdda_command_impl((signed int)(int16_t)vn_visual_cache_arg_asset);
         return 0u;
     }
     return 0u;
@@ -870,7 +870,6 @@ static const pce_editor_adpcm_asset_t *VN_RESIDENT_CODE vn_get_adpcm_asset(uint1
         | ((unsigned int)p[PCE_EDITOR_META_ADPCM_ADDRESS + 1u] << 8);
     g_adpcm_cache.divider = p[PCE_EDITOR_META_ADPCM_DIVIDER];
     g_adpcm_cache.loop = p[PCE_EDITOR_META_ADPCM_LOOP];
-    g_adpcm_cache.stream = p[PCE_EDITOR_META_ADPCM_STREAM];
     g_adpcm_cache.play_frames = (unsigned int)p[PCE_EDITOR_META_ADPCM_PLAY_FRAMES]
         | ((unsigned int)p[PCE_EDITOR_META_ADPCM_PLAY_FRAMES + 1u] << 8);
     g_adpcm_cd.sector.lo = p[PCE_EDITOR_META_ADPCM_CD];
@@ -940,7 +939,7 @@ static void VN_BANKED_CODE2 load_adpcm_cache_asset(signed int voice_index)
     if ((unsigned int)voice_index >= pce_editor_adpcm_asset_count) return;
     if (loaded_adpcm_valid && loaded_adpcm_index == (uint16_t)voice_index) return;
     if (adpcm_playback_active()) return;
-    (void)load_adpcm_voice(voice_index, 1u, 0u, VN_ADPCM_PRELOAD_READ_CHUNK_SECTORS);
+    (void)load_adpcm_voice(voice_index, 1u, VN_ADPCM_PRELOAD_READ_CHUNK_SECTORS);
 #else
     (void)voice_index;
 #endif

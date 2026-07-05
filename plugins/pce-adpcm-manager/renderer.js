@@ -1,6 +1,6 @@
 const AUDIO_EXTS = ['.wav', '.mp3'];
-const ADPCM_MIN_SAMPLE_RATE = 4000;
-const ADPCM_MAX_SAMPLE_RATE = 32000;
+const ADPCM_DEFAULT_SAMPLE_RATE = 8000;
+const ADPCM_SAMPLE_RATES = Object.freeze([4000, 4571, 5333, 6400, 8000, 10666, 16000, 32000]);
 const ADPCM_SAFE_BYTES = 65535;
 
 function esc(value) {
@@ -23,10 +23,20 @@ function asNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function clampInt(value, min, max, fallback) {
+function supportedAdpcmSampleRate(value, fallback = ADPCM_DEFAULT_SAMPLE_RATE) {
+  const safeFallback = ADPCM_SAMPLE_RATES.includes(fallback) ? fallback : ADPCM_DEFAULT_SAMPLE_RATE;
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+  if (!Number.isFinite(parsed) || parsed <= 0) return safeFallback;
+  return ADPCM_SAMPLE_RATES.reduce((best, rate) => (
+    Math.abs(rate - parsed) < Math.abs(best - parsed) ? rate : best
+  ), safeFallback);
+}
+
+function adpcmSampleRateOptions(selectedValue = ADPCM_DEFAULT_SAMPLE_RATE) {
+  const selected = supportedAdpcmSampleRate(selectedValue);
+  return ADPCM_SAMPLE_RATES.map((rate) => (
+    `<option value="${rate}" ${rate === selected ? 'selected' : ''}>${rate} Hz${rate === ADPCM_DEFAULT_SAMPLE_RATE ? ' (default)' : ''}</option>`
+  )).join('');
 }
 
 function safeId(value, fallback = 'adpcm_sample') {
@@ -154,7 +164,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             </label>
             <label class="form-group">
               <span class="form-label">Sample rate</span>
-              <input class="form-input" name="sampleRate" type="number" min="4000" max="32000" />
+              <select class="form-select" name="sampleRate">${adpcmSampleRateOptions()}</select>
             </label>
             <label class="form-group pce-adpcm-wide">
               <span class="form-label">Name</span>
@@ -163,10 +173,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             <label class="form-group">
               <span class="form-label">Loop</span>
               <label class="pce-adpcm-check"><input name="loop" type="checkbox" /><span>loop</span></label>
-            </label>
-            <label class="form-group">
-              <span class="form-label">Streaming</span>
-              <label class="pce-adpcm-check"><input name="stream" type="checkbox" /><span>CDから直接再生</span></label>
             </label>
           </div>
           <audio controls data-role="preview" hidden></audio>
@@ -314,7 +320,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
 
   function adpcmListMetrics(asset = {}) {
     const generated = generatedInfo(asset);
-    const sampleRate = generated.sampleRate || asset.options?.sampleRate || 16000;
+    const sampleRate = generated.sampleRate || asset.options?.sampleRate || ADPCM_DEFAULT_SAMPLE_RATE;
     const byteLength = generated.byteLength || 0;
     const estimatedSeconds = byteLength ? byteLength * 2 / Math.max(1, sampleRate) : generated.durationSeconds;
     return { generated, sampleRate, byteLength, estimatedSeconds };
@@ -466,7 +472,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
 
   function renderStats(asset) {
     const generated = generatedInfo(asset);
-    const sampleRate = generated.sampleRate || asset.options?.sampleRate || 16000;
+    const sampleRate = generated.sampleRate || asset.options?.sampleRate || ADPCM_DEFAULT_SAMPLE_RATE;
     const byteLength = generated.byteLength || 0;
     const estimatedSeconds = byteLength ? byteLength * 2 / Math.max(1, sampleRate) : generated.durationSeconds;
     statsEl.innerHTML = `
@@ -503,9 +509,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     sourceEl.textContent = asset.source || '';
     formEl.elements.id.value = asset.id || '';
     formEl.elements.name.value = asset.name || asset.id || '';
-    formEl.elements.sampleRate.value = asset.options?.sampleRate ?? generatedInfo(asset).sampleRate ?? 16000;
+    formEl.elements.sampleRate.value = supportedAdpcmSampleRate(asset.options?.sampleRate ?? generatedInfo(asset).sampleRate ?? ADPCM_DEFAULT_SAMPLE_RATE);
     formEl.elements.loop.checked = Boolean(asset.options?.loop);
-    formEl.elements.stream.checked = Boolean(asset.options?.stream ?? asset.options?.streaming);
     renderStats(asset);
     void loadPreview(asset, options);
   }
@@ -610,10 +615,11 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     const asset = selectedAsset();
     if (!asset) return null;
     const id = safeId(formEl.elements.id.value, asset.id);
-    const sampleRate = clampInt(formEl.elements.sampleRate.value, ADPCM_MIN_SAMPLE_RATE, ADPCM_MAX_SAMPLE_RATE, 16000);
+    const sampleRate = supportedAdpcmSampleRate(formEl.elements.sampleRate.value);
     const options = { ...(asset.options || {}) };
     delete options.adpcmAddress;
     delete options.divider;
+    delete options.stream;
     delete options.streaming;
     return {
       ...asset,
@@ -624,7 +630,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         ...options,
         sampleRate,
         loop: Boolean(formEl.elements.loop.checked),
-        stream: Boolean(formEl.elements.stream.checked),
       },
     };
   }
@@ -742,7 +747,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
               </label>
               <label class="form-group">
                 <span class="form-label">Sample rate</span>
-                <input class="form-input" name="sampleRate" type="number" min="4000" max="32000" value="16000" />
+                <select class="form-select" name="sampleRate">${adpcmSampleRateOptions()}</select>
               </label>
               <label class="form-group pce-adpcm-wide">
                 <span class="form-label">Name</span>
@@ -751,10 +756,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
               <label class="form-group">
                 <span class="form-label">Loop</span>
                 <label class="pce-adpcm-check"><input name="loop" type="checkbox" /><span>loop</span></label>
-              </label>
-              <label class="form-group">
-                <span class="form-label">Streaming</span>
-                <label class="pce-adpcm-check"><input name="stream" type="checkbox" checked /><span>CDから直接再生</span></label>
               </label>
               <label class="form-group pce-adpcm-wide">
                 <span class="form-label">Split</span>
@@ -771,12 +772,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       });
       const form = modal.panel.querySelector('form');
       const error = modal.panel.querySelector('[data-import-error]');
-      const syncStreaming = () => {
-        const stream = Boolean(form.elements.stream.checked);
-        form.elements.splitPolicy.disabled = stream;
-        if (stream) form.elements.splitPolicy.checked = false;
-      };
-      form.elements.stream.addEventListener('change', syncStreaming);
       modal.panel.querySelectorAll('[data-import-cancel]').forEach((button) => {
         button.addEventListener('click', () => {
           modal.close();
@@ -791,8 +786,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           error.textContent = '同じ ID のアセットが既にあります';
           return;
         }
-        const sampleRate = clampInt(form.elements.sampleRate.value, ADPCM_MIN_SAMPLE_RATE, ADPCM_MAX_SAMPLE_RATE, 16000);
-        const stream = Boolean(form.elements.stream.checked);
+        const sampleRate = supportedAdpcmSampleRate(form.elements.sampleRate.value);
         modal.close();
         modal.destroy?.();
         resolve({
@@ -800,11 +794,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           name: String(form.elements.name.value || id).trim(),
           sampleRate,
           loop: Boolean(form.elements.loop.checked),
-          stream,
-          splitPolicy: !stream && Boolean(form.elements.splitPolicy.checked),
+          splitPolicy: Boolean(form.elements.splitPolicy.checked),
         });
       });
-      syncStreaming();
       modal.open();
     });
   }
@@ -836,7 +828,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       if (!converted?.ok || !converted.dataUrl) return null;
       const processedSampleRate = Number(converted.processing?.sampleRate);
       const sampleRate = Number.isFinite(processedSampleRate) && processedSampleRate > 0
-        ? clampInt(processedSampleRate, ADPCM_MIN_SAMPLE_RATE, ADPCM_MAX_SAMPLE_RATE, details.sampleRate)
+        ? supportedAdpcmSampleRate(processedSampleRate, details.sampleRate)
         : details.sampleRate;
       const result = await importPceAudio({
         dataUrl: converted.dataUrl,
@@ -847,9 +839,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         name: details.name,
         sampleRate,
         loop: details.loop,
-        stream: details.stream,
         processing: converted.processing || {},
-        splitPolicy: details.stream ? '' : (details.splitPolicy ? 'auto' : ''),
+        splitPolicy: details.splitPolicy ? 'auto' : '',
       });
       if (!result?.ok) throw new Error(result?.error || '取り込みに失敗しました');
       selectedId = result.asset?.id || details.id;
@@ -868,10 +859,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   }
 
   formEl.addEventListener('submit', saveSelected);
-  formEl.elements.sampleRate.addEventListener('input', () => {
+  formEl.elements.sampleRate.addEventListener('change', () => {
     updateDraftFromForm();
   });
-  ['id', 'name', 'loop', 'stream'].forEach((name) => {
+  ['id', 'name', 'loop'].forEach((name) => {
     formEl.elements[name]?.addEventListener('input', updateDraftFromForm);
   });
   root.querySelectorAll('[data-sort-key]').forEach((button) => {

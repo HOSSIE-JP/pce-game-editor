@@ -1,6 +1,6 @@
-/* PHASE_A_SPLIT:BEGIN vn_adpcm_core.c — buffered/streamed ADPCM voice
+/* PHASE_A_SPLIT:BEGIN vn_adpcm_core.c — buffered ADPCM voice
    playback: the direct ADPCM latch/start/stop helpers, voice snapshot copy,
-   load/stream/play/stop and the per-frame service. Moved verbatim from
+   load/play/stop and the per-frame service. Moved verbatim from
    pce_vn_runtime.c (Phase A module split). PHASE_A_SPLIT:END */
 #if defined(__PCE_CD__) /* PHASE_A_SPLIT: re-opened (was inside the file-spanning conditional) */
 static void VN_BANKED_CODE adpcm_latch_word_direct(uint16_t value, uint8_t latch)
@@ -100,7 +100,6 @@ static uint8_t VN_OVERLAY_CODE copy_adpcm_voice_impl(signed int voice_index)
     unsigned int voice_cd_byte_size = 0u;
     unsigned char voice_divider;
     unsigned char voice_loop;
-    unsigned char voice_stream;
     if (voice_index < 0) return 0u;
     map_resident_data();
     if ((unsigned int)voice_index >= pce_editor_adpcm_asset_count) return 0u;
@@ -112,7 +111,6 @@ static uint8_t VN_OVERLAY_CODE copy_adpcm_voice_impl(signed int voice_index)
     voice_play_frames = voice->play_frames;
     voice_divider = voice->divider;
     voice_loop = voice->loop;
-    voice_stream = voice->stream;
     adpcm_voice_snapshot.data = voice_data;
     adpcm_voice_snapshot.data_size = voice_data_size;
     adpcm_voice_snapshot.sample_rate = voice_sample_rate;
@@ -120,7 +118,6 @@ static uint8_t VN_OVERLAY_CODE copy_adpcm_voice_impl(signed int voice_index)
     adpcm_voice_snapshot.play_frames = voice_play_frames;
     adpcm_voice_snapshot.divider = voice_divider;
     adpcm_voice_snapshot.loop = voice_loop;
-    adpcm_voice_snapshot.stream = voice_stream;
     map_vn_data();
     adpcm_voice_snapshot.has_cd = (uint8_t)(voice->cd && voice->cd->sector_count);
     if (adpcm_voice_snapshot.has_cd)
@@ -169,7 +166,7 @@ static uint8_t VN_BANKED_CODE2 wait_adpcm_transfer_ready(void)
 {
 #if defined(__PCE_CD__)
     uint16_t guard = 65535u;
-    uint8_t poll_sub = 0u;
+    uint8_t poll_sub = VN_ADPCM_BUSY_PSG_POLL_INTERVAL;
     while (guard && (pce_cdb_adpcm_status() & ADPCM_BUSY))
     {
         guard--;
@@ -180,10 +177,16 @@ static uint8_t VN_BANKED_CODE2 wait_adpcm_transfer_ready(void)
            stop/reset paths while ADPCM bookkeeping is intentionally being
            torn down. An 8-bit sub-counter (rather than masking the 16-bit
            guard) keeps this poll-rate check a single decrement+branch. */
-        poll_sub--;
-        if (!poll_sub)
+        if (--poll_sub == 0u)
         {
-            time_blocked_poll_psg_only(1u);
+            uint8_t frames = time_blocked_poll_psg_only(VN_ADPCM_BUSY_PSG_POLL_ITERATIONS);
+#if VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES
+            if (!frames)
+            {
+                engine_apply_psg_credit((uint8_t)VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES, 1u);
+            }
+#endif
+            poll_sub = VN_ADPCM_BUSY_PSG_POLL_INTERVAL;
         }
     }
     return guard ? 1u : 0u;
@@ -195,12 +198,17 @@ static uint8_t VN_BANKED_CODE2 wait_adpcm_transfer_ready(void)
 static uint8_t VN_BANKED_CODE2 wait_adpcm_cd_transfer_ready(uint8_t sectors)
 {
 #if defined(__PCE_CD__)
-    if (!sectors) sectors = 1u;
-    while (sectors--)
+    uint8_t sector_count = sectors ? sectors : 1u;
+    uint8_t wait_count = sector_count;
+    while (wait_count--)
     {
         cd_transfer_wait();
     }
-    return wait_adpcm_transfer_ready();
+    if (!wait_adpcm_transfer_ready()) return 0u;
+#if VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES
+    engine_apply_psg_credit((uint8_t)(sector_count * VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES), 1u);
+#endif
+    return 1u;
 #else
     (void)sectors;
     return 0u;
@@ -217,7 +225,7 @@ static void VN_BANKED_CODE2 restore_display_after_adpcm(uint8_t restore_display)
 #endif
 }
 
-static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t allow_stream_asset, uint8_t chunk_sectors)
+static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t chunk_sectors)
 {
 #if defined(__PCE_CD__)
     uint8_t loaded = 0u;
@@ -227,25 +235,15 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
     if (voice_index < 0) return 0u;
     if (!copy_adpcm_voice(voice_index)) return 0u;
-    if (adpcm_voice_snapshot.stream && !allow_stream_asset && !adpcm_voice_fits_buffer()) return 0u;
+    if (!adpcm_voice_fits_buffer()) return 0u;
     same_loaded = (uint8_t)(loaded_adpcm_valid && loaded_adpcm_index == (uint16_t)voice_index);
     if (adpcm_playback_active())
     {
         if (!allow_stop_playback) return same_loaded ? 1u : 0u;
-        if (adpcm_stream_active)
-        {
-            vn_cd_bios_irq_open();
-            pce_cdb_adpcm_stop();
-            (void)wait_adpcm_transfer_ready();
-        }
-        else
-        {
-            stop_buffered_adpcm_playback_direct();
-        }
+        stop_buffered_adpcm_playback_direct();
         adpcm_play_active = 0u;
         adpcm_play_frames_remaining = 0u;
-        adpcm_stream_active = 0u;
-        adpcm_stream_looping = 0u;
+        adpcm_play_looping = 0u;
         stopped_playback = 1u;
     }
     if (same_loaded)
@@ -346,93 +344,19 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
 #else
     (void)voice_index;
     (void)allow_stop_playback;
-    (void)allow_stream_asset;
     (void)chunk_sectors;
     return 0u;
 #endif
 }
 
-static uint8_t VN_BANKED_CODE2 stream_adpcm_voice(signed int voice_index)
-{
-#if defined(__PCE_CD__)
-    pce_sector_t sector = {0};
-    pce_sector_t length = {0};
-    uint8_t divider;
-    const uint8_t restore_display = (uint8_t)!pending_display_enable;
-    if (!copy_adpcm_voice(voice_index)) return 0u;
-    if (!adpcm_voice_snapshot.stream || !adpcm_voice_snapshot.has_cd || !adpcm_voice_snapshot.cd_sector_count || !adpcm_voice_snapshot.data_size) return 0u;
-    if (adpcm_playback_active())
-    {
-        if (adpcm_stream_active)
-        {
-            vn_cd_bios_irq_open();
-            pce_cdb_adpcm_stop();
-            (void)wait_adpcm_transfer_ready();
-        }
-        else
-        {
-            stop_buffered_adpcm_playback_direct();
-        }
-        adpcm_play_active = 0u;
-        adpcm_play_frames_remaining = 0u;
-    }
-    adpcm_stream_active = 0u;
-    adpcm_stream_looping = 0u;
-    loaded_adpcm_valid = 0u;
-    prepare_cd_data_access();
-    pce_cdb_adpcm_reset();
-    if (!wait_adpcm_transfer_ready())
-    {
-        map_resident_data();
-        resume_cdda_after_cd_data_access();
-        sync_cd_external_irq_after_bios_call();
-        restore_display_after_adpcm(restore_display);
-        return 0u;
-    }
-    cd_sector_from_ref(&sector, &adpcm_voice_snapshot.cd_sector);
-    cd_sector_end_from_count(&length, &sector, adpcm_voice_snapshot.cd_sector_count);
-    divider = VN_ADPCM_SNAPSHOT_DIVIDER();
-    adpcm_stream_active = 1u;
-    adpcm_stream_irq_open = 1u;
-    set_vdc_control(vdc_control_current);
-    vn_map_io_page();
-    (void)*IO_VDC_STATUS;
-    pce_irq_enable(IRQ_VDC);
-    if (pce_cdb_adpcm_stream(sector, length, divider))
-    {
-        adpcm_stream_active = 0u;
-        map_resident_data();
-        resume_cdda_after_cd_data_access();
-        sync_cd_external_irq_after_bios_call();
-        restore_display_after_adpcm(restore_display);
-        return 0u;
-    }
-    map_resident_data();
-    cancel_cdda_after_cd_data_conflict();
-    adpcm_play_active = 1u;
-    adpcm_play_frames_remaining = VN_ADPCM_SNAPSHOT_PLAY_FRAMES();
-    adpcm_stream_active = 1u;
-    adpcm_stream_looping = adpcm_voice_snapshot.loop ? 1u : 0u;
-    adpcm_stream_index = (uint16_t)voice_index;
-    pad_edge_reset_pending = 1u;
-    sync_cd_external_irq_after_bios_call();
-    restore_display_after_adpcm(restore_display);
-    return 1u;
-#else
-    (void)voice_index;
-    return 0u;
-#endif
-}
-
-static uint8_t VN_BANKED_CODE2 play_adpcm_buffered_voice(signed int voice_index, uint8_t restore_display, uint8_t allow_stream_asset, uint8_t chunk_sectors)
+static uint8_t VN_BANKED_CODE2 play_adpcm_buffered_voice(signed int voice_index, uint8_t restore_display, uint8_t chunk_sectors)
 {
 #if defined(__PCE_CD__)
     uint8_t divider;
     if (!copy_adpcm_voice(voice_index)) return 0u;
     if (!adpcm_voice_fits_buffer()) return 0u;
-    adpcm_stream_active = 0u;
-    adpcm_stream_looping = 0u;
-    if (!load_adpcm_voice(voice_index, 1u, allow_stream_asset, chunk_sectors))
+    adpcm_play_looping = 0u;
+    if (!load_adpcm_voice(voice_index, 1u, chunk_sectors))
     {
         restore_display_after_adpcm(restore_display);
         return 0u;
@@ -447,9 +371,7 @@ static uint8_t VN_BANKED_CODE2 play_adpcm_buffered_voice(signed int voice_index,
      */
     adpcm_play_active = 1u;
     adpcm_play_frames_remaining = VN_ADPCM_BUFFERED_PLAY_FRAMES();
-    adpcm_stream_active = 0u;
-    adpcm_stream_looping = adpcm_voice_snapshot.loop ? 1u : 0u;
-    adpcm_stream_index = (uint16_t)voice_index;
+    adpcm_play_looping = adpcm_voice_snapshot.loop ? 1u : 0u;
     /*
      * Buffered playback does not need the System Card external IRQ after the
      * play command has been accepted. Leaving it enabled lets the BIOS run
@@ -464,7 +386,6 @@ static uint8_t VN_BANKED_CODE2 play_adpcm_buffered_voice(signed int voice_index,
 #else
     (void)voice_index;
     (void)restore_display;
-    (void)allow_stream_asset;
     (void)chunk_sectors;
     return 0u;
 #endif
@@ -478,7 +399,7 @@ static uint8_t VN_BANKED_CODE2 play_adpcm_message_voice(signed int voice_index)
     if (!copy_adpcm_voice(voice_index)) return 0u;
     if (!adpcm_voice_fits_buffer()) return 0u;
     VN_MAP_BANK130_FOR_CODE();
-    return play_adpcm_buffered_voice(voice_index, restore_display, 0u, VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS);
+    return play_adpcm_buffered_voice(voice_index, restore_display, VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS);
 #else
     (void)voice_index;
     return 0u;
@@ -491,43 +412,7 @@ static void VN_BANKED_CODE play_adpcm_voice(signed int voice_index)
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
     if (!copy_adpcm_voice(voice_index)) return;
     VN_MAP_BANK130_FOR_CODE();
-    if (adpcm_voice_snapshot.stream)
-    {
-        /* A stream:true asset is streamed from CD ONLY when it is too large to fit
-           the ADPCM RAM buffer. True CD streaming (pce_cdb_adpcm_stream / AD_STRM)
-           relies on the asynchronous BIOS external IRQ to keep feeding the ADPCM
-           ring buffer from CD, which conflicts with this runtime owning VBlank/VDC
-           directly via status polling and no VBlank IRQ. The resulting buffer underruns
-           produce noise, the drive reads on into the next asset's sectors (a
-           "different voice" starting mid-playback), and the CD engine eventually
-           hangs. Voices that fit the buffer use the hardened buffered path, which
-           loads once and plays from ADPCM RAM with no ongoing CD IRQ. */
-        if (adpcm_voice_fits_buffer())
-        {
-            (void)play_adpcm_buffered_voice(voice_index, restore_display, 1u, VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS);
-            return;
-        }
-        /*
-         * True CD ADPCM streaming leaves the System Card external IRQ open for
-         * the whole voice. Starting that path while the VN display is live, or
-         * while the cooperative PSG sequencer is playing, lets the BIOS IRQ path
-         * rewrite VDC R5 (blanking BG/sprites) and starves PSG ticks. Long
-         * voiced-message assets must be split/lowered until they fit the buffered
-         * ADPCM RAM path instead of risking display/audio corruption.
-         */
-        if (!pending_display_enable || psg_active)
-        {
-            if (adpcm_playback_active()) stop_adpcm_voice();
-            return;
-        }
-        if (adpcm_voice_snapshot.has_cd && adpcm_voice_snapshot.cd_sector_count)
-        {
-            (void)stream_adpcm_voice(voice_index);
-            return;
-        }
-        return;
-    }
-    (void)play_adpcm_buffered_voice(voice_index, restore_display, 1u, VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS);
+    (void)play_adpcm_buffered_voice(voice_index, restore_display, VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS);
 #else
     (void)voice_index;
 #endif
@@ -537,23 +422,11 @@ static void VN_BANKED_CODE stop_adpcm_voice(void)
 {
 #if defined(__PCE_CD__)
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
-    if (adpcm_stream_active)
-    {
-        vn_cd_bios_irq_open();
-        pce_cdb_adpcm_stop();
-        (void)wait_adpcm_transfer_ready();
-        pce_cdb_adpcm_reset();
-        (void)wait_adpcm_transfer_ready();
-    }
-    else
-    {
-        stop_buffered_adpcm_playback_direct();
-    }
+    stop_buffered_adpcm_playback_direct();
     loaded_adpcm_valid = 0u;
     adpcm_play_active = 0u;
     adpcm_play_frames_remaining = 0u;
-    adpcm_stream_active = 0u;
-    adpcm_stream_looping = 0u;
+    adpcm_play_looping = 0u;
     sync_cd_external_irq_after_bios_call();
     restore_display_after_adpcm(restore_display);
 #endif
@@ -564,22 +437,14 @@ static void VN_BANKED_CODE2 service_adpcm_playback(void)
 #if defined(__PCE_CD__)
     if (!adpcm_play_active) return;
     if (!adpcm_play_frames_remaining) return;
-    if (!adpcm_stream_active)
+    vn_map_io_page();
+    if (*IO_PCD_STATUS & VN_PCD_IRQ_STATUS_ADPCM_END)
     {
-        vn_map_io_page();
-        if (*IO_PCD_STATUS & VN_PCD_IRQ_STATUS_ADPCM_END)
-        {
-            adpcm_play_frames_remaining = 1u;
-        }
+        adpcm_play_frames_remaining = 1u;
     }
     adpcm_play_frames_remaining--;
     if (adpcm_play_frames_remaining) return;
-    if (adpcm_stream_active && adpcm_stream_looping)
-    {
-        (void)stream_adpcm_voice((signed int)adpcm_stream_index);
-        return;
-    }
-    if (!adpcm_stream_active && adpcm_stream_looping)
+    if (adpcm_play_looping)
     {
         start_buffered_adpcm_playback_direct(adpcm_voice_snapshot.adpcm_address, VN_ADPCM_BUFFERED_HARDWARE_LENGTH, VN_ADPCM_SNAPSHOT_DIVIDER());
         adpcm_play_frames_remaining = VN_ADPCM_BUFFERED_PLAY_FRAMES();
@@ -591,16 +456,12 @@ static void VN_BANKED_CODE2 service_adpcm_playback(void)
      * Do not poll ADPCM status or call the BIOS stop/reset path at natural
      * message completion. Buffered direct playback uses a long hardware repeat
      * counter, so its runtime end is a direct PLAY clear before ADPCM half/end
-     * IRQs; true streams either loop above or close the runtime bookkeeping here.
+     * IRQs.
      */
     adpcm_play_active = 0u;
     adpcm_play_frames_remaining = 0u;
-    if (!adpcm_stream_active)
-    {
-        stop_buffered_adpcm_playback_direct();
-    }
-    adpcm_stream_active = 0u;
-    adpcm_stream_looping = 0u;
+    adpcm_play_looping = 0u;
+    stop_buffered_adpcm_playback_direct();
     sync_cd_external_irq_after_bios_call();
 #endif
 }

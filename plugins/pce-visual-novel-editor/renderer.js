@@ -543,7 +543,7 @@ function audioDurationSeconds(asset = {}) {
   const generated = asset?.data?.generated || {};
   if (asset?.type === 'adpcm') {
     const byteLength = Number(generated.byteLength) || 0;
-    const sampleRate = Number(asset?.options?.sampleRate || generated.sampleRate) || 16000;
+    const sampleRate = Number(asset?.options?.sampleRate || generated.sampleRate) || 8000;
     if (byteLength > 0 && sampleRate > 0) return (byteLength * 2 / sampleRate) + ADPCM_END_PAD_SECONDS;
   }
   const duration = Number(generated.durationSeconds);

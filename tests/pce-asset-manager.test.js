@@ -341,6 +341,7 @@ test('PCE asset schema supports BG image, sprite, generated metadata, and legacy
     data: { generated: { vramBytes: 16384, warnings: ['Sprite patterns overlap the SATB VRAM area; lower tileBase or reduce sprite sheet size'] } },
   });
   const psg = assetManager.normalizeAsset({ id: 'old-beep', type: 'psg-sequence', options: { period: 384 } });
+  const defaultAdpcm = assetManager.normalizeAsset({ id: 'default-voice', type: 'adpcm', source: 'assets/adpcm/default.wav' });
   const adpcm = assetManager.normalizeAsset({ id: 'voice', type: 'adpcm', source: 'assets/adpcm/voice.wav', options: { sampleRate: 12000 } });
   const explicitLowDividerAdpcm = assetManager.normalizeAsset({ id: 'low-divider-voice', type: 'adpcm', source: 'assets/adpcm/low.wav', options: { sampleRate: 16000, divider: 1 } });
   const explicitZeroDividerAdpcm = assetManager.normalizeAsset({ id: 'zero-divider-voice', type: 'adpcm', source: 'assets/adpcm/zero.wav', options: { sampleRate: 8000, divider: 0 } });
@@ -358,6 +359,8 @@ test('PCE asset schema supports BG image, sprite, generated metadata, and legacy
   assert.match(satbOverlapSprite.data.generated.warnings.join('\n'), /Sprite patterns overlap the SATB VRAM area/);
   assert.equal(psg.type, 'psg-sfx');
   assert.equal(psg.options.period, 384);
+  assert.equal(defaultAdpcm.options.sampleRate, 8000);
+  assert.equal(defaultAdpcm.options.divider, 12);
   assert.equal(adpcm.options.sampleRate, 12000);
   assert.equal(adpcm.options.divider, 13);
   assert.equal(explicitLowDividerAdpcm.options.divider, 1);
@@ -517,7 +520,7 @@ test('PCE ADPCM import auto-splits assets that exceed runtime-safe size', () => 
   assert.deepEqual(assetManager.collectCdDataFiles(projectDir), parts.map((part) => part.data.generated.outputFile));
 });
 
-test('PCE ADPCM non-stream auto-split uses the direct-buffered safe ceiling', () => {
+test('PCE ADPCM auto-split uses the direct-buffered safe ceiling', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-audio-direct-safe-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
@@ -541,9 +544,9 @@ test('PCE ADPCM non-stream auto-split uses the direct-buffered safe ceiling', ()
   }
 });
 
-test('PCE ADPCM streaming import keeps long samples as one CD data file', () => {
+test('PCE ADPCM import ignores legacy stream flag and still auto-splits', () => {
   const assetManager = loadAssetManager();
-  const projectDir = makeTempDir('pce-assets-audio-stream-');
+  const projectDir = makeTempDir('pce-assets-audio-no-stream-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
   writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({ scenes: [{ id: 's0', commands: [] }] }, null, 2));
 
@@ -557,32 +560,36 @@ test('PCE ADPCM streaming import keeps long samples as one CD data file', () => 
     stream: true,
     splitPolicy: 'auto',
   });
-  const generatedPath = path.join(projectDir, result.asset.data.generated.outputFile);
+  const parts = result.assets.filter((asset) => asset.data?.import?.groupId === 'long_stream');
 
-  assert.equal(result.asset.id, 'long_stream');
-  assert.equal(result.asset.options.stream, true);
-  assert.equal(result.conversion.partCount, 1);
-  assert.equal(fs.statSync(generatedPath).size > 6, true);
-  assert.deepEqual(assetManager.collectCdDataFiles(projectDir), ['assets/generated/long_stream/adpcm.bin']);
+  assert.equal(result.asset.id, 'long_stream_part01');
+  assert.equal(result.asset.options.stream, undefined);
+  assert.equal(result.conversion.partCount > 1, true);
+  assert.equal(parts.length, result.conversion.partCount);
+  for (const part of parts) {
+    assert.equal(part.options.stream, undefined);
+    assert.equal(fs.statSync(path.join(projectDir, part.data.generated.outputFile)).size <= 6, true);
+  }
+  assert.deepEqual(assetManager.collectCdDataFiles(projectDir), parts.map((part) => part.data.generated.outputFile));
 
   const generated = assetManager.generateAssetSources(projectDir);
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
   assert.match(header, /unsigned long data_size;/);
   // ADPCM descriptors are CD on-demand now: a constant region directory + the
-  // record bytes in ASSET_META_FILE (adpcm.bin@64, meta@65 -> adpcm region@65).
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 65u, 0u, 0u \}, 1u \};/);
-  assert.match(source, /const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 1;/);
+  // record bytes in ASSET_META_FILE.
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ \d+u, 0u, 0u \}, \d+u \};/);
+  assert.match(source, new RegExp(`const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = ${parts.length};`));
   assert.doesNotMatch(source, /pce_editor_adpcm_long_stream_data_cd PCE_EDITOR_CD_REF_SECTION/);
   const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
   assert.equal(meta.readUInt16LE(6), 8000); // sample_rate
   assert.equal(meta.readUInt16LE(8), 65530); // adpcm_address
   assert.equal(meta[10], 12); // divider (8000Hz quantized code)
-  assert.equal(meta[12], 1); // stream
-  assert.equal(meta[15], 64); // adpcm cd sector lo
+  assert.equal(meta.readUInt16LE(12) > 0, true); // ADPCM runtime play_frames
+  assert.equal(meta[14], 64); // adpcm cd sector lo
 });
 
-test('PCE ADPCM playback flags edited after import update CD catalog metadata', () => {
+test('PCE ADPCM loop flag edited after import updates CD catalog metadata', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-adpcm-edit-flags-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
@@ -595,7 +602,6 @@ test('PCE ADPCM playback flags edited after import update CD catalog metadata', 
     id: 'voice',
     sampleRate: 16000,
     loop: false,
-    stream: true,
   });
 
   const edited = {
@@ -603,12 +609,12 @@ test('PCE ADPCM playback flags edited after import update CD catalog metadata', 
     options: {
       ...imported.asset.options,
       loop: true,
-      stream: false,
+      stream: true,
     },
   };
   const saved = assetManager.upsertAsset(projectDir, edited);
   assert.equal(saved.assets[0].options.loop, true);
-  assert.equal(saved.assets[0].options.stream, false);
+  assert.equal(saved.assets[0].options.stream, undefined);
 
   const generated = assetManager.generateAssetSources(projectDir);
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
@@ -616,7 +622,30 @@ test('PCE ADPCM playback flags edited after import update CD catalog metadata', 
 
   const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
   assert.equal(meta[11], 1); // loop
-  assert.equal(meta[12], 0); // stream
+  assert.equal(meta.readUInt16LE(12) > 0, true); // ADPCM runtime play_frames
+});
+
+test('PCE ADPCM source generation rejects assets that no longer fit buffered playback', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-adpcm-oversize-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({ scenes: [{ id: 's0', commands: [] }] }, null, 2));
+  writeFile(projectDir, 'assets/generated/voice/adpcm.bin', Buffer.alloc(8, 0x44));
+  writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
+    version: 2,
+    assets: [{
+      id: 'voice',
+      type: 'adpcm',
+      source: 'assets/audio/voice.wav',
+      options: { sampleRate: 16000, adpcmAddress: 65530, splitPolicy: '' },
+      data: { generated: { outputFile: 'assets/generated/voice/adpcm.bin' } },
+    }],
+  }, null, 2));
+
+  assert.throws(
+    () => assetManager.generateAssetSources(projectDir, { targetsCd: true }),
+    /ADPCM asset "voice" is 8 bytes, exceeding buffered ADPCM limit 6/
+  );
 });
 
 test('PCE CD-DA loop flag edited after import updates CD catalog metadata', () => {
@@ -1007,7 +1036,7 @@ test('PCE generated assets emit BG and sprite C arrays for resident templates', 
   assert.match(header, /pce_editor_psg_asset_t/);
   assert.match(header, /pce_editor_adpcm_asset_t/);
   assert.match(header, /unsigned long data_size;/);
-  assert.match(header, /unsigned char stream;/);
+  assert.doesNotMatch(header, /unsigned char stream;/);
   assert.match(header, /unsigned int play_frames;/);
   assert.match(header, /pce_editor_cdda_asset_t/);
   assert.doesNotMatch(header, /const char \*id;/);
@@ -1018,12 +1047,12 @@ test('PCE generated assets emit BG and sprite C arrays for resident templates', 
   assert.match(header, /typedef struct __attribute__\(\(packed\)\) \{[\s\S]*unsigned int step;[\s\S]*unsigned char noise;[\s\S]*unsigned char reserved;\n\} pce_editor_psg_step_t;/);
   assert.match(source, /\{ 3u, 4u, 5u, 16u, 1u, 0u \}/);
   // PSG asset carries a CD-ref pointer; small patterns stay resident (cd = null),
-  // while large imported songs stream from CD (see the streaming test below).
+  // while large imported PSG songs keep their pattern data on CD.
   assert.match(header, /const pce_editor_cd_data_ref_t \*pattern_cd;\n\} pce_editor_psg_asset_t;/);
   assert.match(source, /pce_editor_psg_beep_pattern, 3u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
   assert.match(source, /static const unsigned char pce_editor_adpcm_voice_data\[\] PCE_EDITOR_RODATA_SECTION/);
   assert.match(source, /\{ pce_editor_image_bg_palette, 32u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_tiles, 64u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, \{ pce_editor_image_bg_map, 8u, \(const pce_editor_data_chunk_t \*\)0, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}, 2u, 2u, 64u, 0u, 0u \}/);
-  assert.match(source, /\{ pce_editor_adpcm_voice_data, 4ul, 16000u, 0u, 14u, 0u, 0u, 3u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
+  assert.match(source, /\{ pce_editor_adpcm_voice_data, 4ul, 16000u, 0u, 14u, 0u, 3u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
   assert.match(source, /const unsigned int pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
   assert.match(source, /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] PCE_EDITOR_RODATA_SECTION = \{\n  \{ 16u, 16u, 1u, 1u, 384u, 0u \}\n\};/);
   assert.match(source, /const unsigned int pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = 1/);
@@ -1076,7 +1105,7 @@ test('PCE CD VN asset source generation streams large payloads through cd.dataFi
         id: 'voice',
         type: 'adpcm',
         source: 'assets/adpcm/voice.wav',
-        options: { stream: true },
+        options: {},
         data: { generated: { outputFile: 'assets/generated/voice/adpcm.bin' } },
       },
       {
@@ -1124,9 +1153,9 @@ test('PCE CD VN asset source generation streams large payloads through cd.dataFi
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_ADDRESS 8u/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_DIVIDER 10u/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_LOOP 11u/);
-  assert.match(header, /#define PCE_EDITOR_META_ADPCM_STREAM 12u/);
-  assert.match(header, /#define PCE_EDITOR_META_ADPCM_PLAY_FRAMES 13u/);
-  assert.match(header, /#define PCE_EDITOR_META_ADPCM_CD 15u/);
+  assert.doesNotMatch(header, /PCE_EDITOR_META_ADPCM_STREAM/);
+  assert.match(header, /#define PCE_EDITOR_META_ADPCM_PLAY_FRAMES 12u/);
+  assert.match(header, /#define PCE_EDITOR_META_ADPCM_CD 14u/);
   assert.match(header, /#define PCE_EDITOR_META_PSG_SLOT 32u/);
   assert.match(header, /#define PCE_EDITOR_META_CDDA_SLOT 32u/);
   // Resident directory: payloads occupy sectors 64..69, so the meta file lands at
@@ -1169,9 +1198,10 @@ test('PCE CD VN asset source generation streams large payloads through cd.dataFi
   // ADPCM record (region at sector 72 -> byte offset 2*2048).
   const adBase = 2 * 2048;
   assert.equal(meta.readUInt32LE(adBase + 2), 4096); // data_size
-  assert.equal(meta[adBase + 12], 1); // stream flag
-  assert.equal(meta.readUInt16LE(adBase + 13), 33); // ADPCM runtime play_frames
-  assert.equal(meta[adBase + 15], 68); // adpcm cd sector lo
+  assert.equal(meta.readUInt16LE(adBase + 6), 8000); // default sample_rate
+  assert.equal(meta[adBase + 10], 12); // divider (8000Hz quantized code)
+  assert.equal(meta.readUInt16LE(adBase + 12), 64); // ADPCM runtime play_frames
+  assert.equal(meta[adBase + 14], 68); // adpcm cd sector lo
   // CDDA records (region at sector 73 -> byte offset 3*2048).
   const cddaBase = 3 * 2048;
   assert.equal(meta[cddaBase + 0], 3); // ending track

@@ -113,9 +113,8 @@ const PCE_PSG_MAX_STEPS = 4096;
 const PCE_PSG_MAX_PATTERN_ENTRIES = 2048;
 const PCE_PSG_SERIALIZED_STEP_BYTES = 8;
 const DEFAULT_ADPCM_OPTIONS = Object.freeze({
-  sampleRate: 16000,
+  sampleRate: 8000,
   loop: false,
-  stream: false,
   adpcmAddress: 0,
   divider: 0,
 });
@@ -426,15 +425,17 @@ function normalizeAdpcmOptions(asset = {}) {
     || rawDivider === ''
     ? autoDivider
     : normalizedDivider;
-  return {
+  const normalized = {
     ...DEFAULT_ADPCM_OPTIONS,
     ...rawOptions,
     sampleRate,
     loop: Boolean(rawOptions.loop),
-    stream: Boolean(rawOptions.stream ?? rawOptions.streaming),
     adpcmAddress: clampInt(rawOptions.adpcmAddress, 0, 65535, DEFAULT_ADPCM_OPTIONS.adpcmAddress),
     divider,
   };
+  delete normalized.stream;
+  delete normalized.streaming;
+  return normalized;
 }
 
 function normalizeCddaOptions(asset = {}) {
@@ -1629,15 +1630,12 @@ function importAudio(projectDir, payload = {}, options = {}) {
         ...payload.options,
         sampleRate: payload.sampleRate ?? payload.options?.sampleRate,
         loop: payload.loop ?? payload.options?.loop,
-        stream: payload.stream ?? payload.streaming ?? payload.options?.stream ?? payload.options?.streaming,
         adpcmAddress: payload.adpcmAddress ?? payload.options?.adpcmAddress,
         divider: payload.divider ?? payload.options?.divider,
       },
     });
-    const maxAdpcmBytes = baseOptions.stream
-      ? 0x7ffffff
-      : Math.max(1, Math.min(PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES, 65536 - baseOptions.adpcmAddress));
-    const splitPolicy = payload.splitPolicy === 'auto' && !baseOptions.stream ? 'auto' : '';
+    const maxAdpcmBytes = Math.max(1, Math.min(PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES, 65536 - baseOptions.adpcmAddress));
+    const splitPolicy = payload.splitPolicy === 'auto' ? 'auto' : '';
     const converted = splitPolicy === 'auto'
       ? audioConverter.convertWavForAdpcmParts(input, { sampleRate: baseOptions.sampleRate, maxBytes: maxAdpcmBytes })
       : audioConverter.convertWavForAdpcm(input, { sampleRate: baseOptions.sampleRate });
@@ -1662,7 +1660,7 @@ function importAudio(projectDir, payload = {}, options = {}) {
       const { absPath: previewAbs } = resolveUnderRoot(projectDir, previewFile, 'project');
       const warnings = [
         ...(converted.warnings || []),
-        ...(!baseOptions.stream && part.output.length > maxAdpcmBytes ? [`ADPCM: ${part.output.length} bytes exceeds runtime-safe limit ${maxAdpcmBytes}`] : []),
+        ...(part.output.length > maxAdpcmBytes ? [`ADPCM: ${part.output.length} bytes exceeds runtime-safe limit ${maxAdpcmBytes}`] : []),
       ];
       ensureDirSync(path.dirname(outputAbs));
       fs.writeFileSync(outputAbs, part.output);
@@ -2686,14 +2684,15 @@ function generateAdpcmMetadata(projectDir, assets, generationOptions = {}) {
     const ident = toCIdentifier(`pce_editor_adpcm_${asset.id}`);
     const generated = asset.data?.generated || {};
     const data = readGeneratedBuffer(projectDir, generated.outputFile);
+    const options = normalizeAdpcmOptions(asset);
+    assertAdpcmFitsDirectBuffer(asset, data.length, options);
     const dataRef = generationOptions.targetsCd
       ? emitCdFileRef(`${ident}_data`, data, generated.outputFile, { cdLayout: generationOptions.cdLayout })
       : emitDataRef(`${ident}_data`, data, null, { allowBanking: false });
     arrayLines.push(...dataRef.lines);
     if (arrayLines[arrayLines.length - 1] !== '') arrayLines.push('');
-    const options = normalizeAdpcmOptions(asset);
     const playFrames = adpcmRuntimePlayFrames(data.length, options);
-    metaLines.push(`  { ${dataRef.pointer}, ${data.length}ul, ${options.sampleRate}u, ${options.adpcmAddress}u, ${options.divider}u, ${options.loop ? '1u' : '0u'}, ${options.stream ? '1u' : '0u'}, ${playFrames}u, ${dataRef.cd} }${index + 1 < adpcmAssets.length ? ',' : ''}`);
+    metaLines.push(`  { ${dataRef.pointer}, ${data.length}ul, ${options.sampleRate}u, ${options.adpcmAddress}u, ${options.divider}u, ${options.loop ? '1u' : '0u'}, ${playFrames}u, ${dataRef.cd} }${index + 1 < adpcmAssets.length ? ',' : ''}`);
   });
   return { adpcmAssets, arrayLines, metaLines };
 }
@@ -2856,9 +2855,8 @@ const META_ADPCM_SAMPLE_RATE = 6;
 const META_ADPCM_ADDRESS = 8;
 const META_ADPCM_DIVIDER = 10;
 const META_ADPCM_LOOP = 11;
-const META_ADPCM_STREAM = 12;
-const META_ADPCM_PLAY_FRAMES = 13;
-const META_ADPCM_CD = 15;
+const META_ADPCM_PLAY_FRAMES = 12;
+const META_ADPCM_CD = 14;
 const META_PSG_IS_SONG = 0;
 const META_PSG_PERIOD = 1;
 const META_PSG_BPM = 3;
@@ -3040,6 +3038,18 @@ function adpcmRuntimePlayFrames(byteLength, options = {}) {
   return Math.max(1, Math.min(65535, frames));
 }
 
+function adpcmDirectBufferedMaxBytes(options = {}) {
+  const address = clampInt(options.adpcmAddress, 0, 65535, DEFAULT_ADPCM_OPTIONS.adpcmAddress);
+  return Math.max(1, Math.min(PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES, 65536 - address));
+}
+
+function assertAdpcmFitsDirectBuffer(asset, byteLength, options = {}) {
+  const maxBytes = adpcmDirectBufferedMaxBytes(options);
+  if (byteLength > maxBytes) {
+    throw new Error(`ADPCM asset "${asset.id}" is ${byteLength} bytes, exceeding buffered ADPCM limit ${maxBytes}. Re-import with splitPolicy: "auto", reduce the sample rate, or use CD-DA.`);
+  }
+}
+
 function metaCdRefForFile(cdLayout, relativePath, byteSize, compression) {
   const norm = normalizeRelativePath(relativePath || '');
   const entry = norm ? cdLayout?.get(norm) : null;
@@ -3122,12 +3132,12 @@ function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout) {
     const generated = asset.data.generated || {};
     const options = normalizeAdpcmOptions(asset);
     const data = readGeneratedBuffer(projectDir, generated.outputFile);
+    assertAdpcmFitsDirectBuffer(asset, data.length, options);
     buf.writeUInt32LE(data.length >>> 0, base + META_ADPCM_DATA_SIZE);
     buf.writeUInt16LE(numeric(options.sampleRate, 0, 65535, 0) & 0xffff, base + META_ADPCM_SAMPLE_RATE);
     buf.writeUInt16LE(numeric(options.adpcmAddress, 0, 65535, 0) & 0xffff, base + META_ADPCM_ADDRESS);
     buf[base + META_ADPCM_DIVIDER] = numeric(options.divider, 0, 15, 0) & 0xff;
     buf[base + META_ADPCM_LOOP] = options.loop ? 1 : 0;
-    buf[base + META_ADPCM_STREAM] = options.stream ? 1 : 0;
     buf.writeUInt16LE(adpcmRuntimePlayFrames(data.length, options) & 0xffff, base + META_ADPCM_PLAY_FRAMES);
     writeMetaCdRef(buf, base + META_ADPCM_CD, metaCdRefForFile(cdLayout, generated.outputFile, data.length, PCE_VISUAL_COMPRESSION_NONE));
   });
@@ -3332,7 +3342,7 @@ function updateAdpcmGeneratedAsset(projectDir, asset, part, shared = {}) {
   const { absPath: previewAbs } = resolveUnderRoot(projectDir, previewFile, 'project');
   const warnings = [
     ...(shared.warnings || []),
-    ...(!shared.stream && part.output.length > shared.maxAdpcmBytes ? [`ADPCM: ${part.output.length} bytes exceeds runtime-safe limit ${shared.maxAdpcmBytes}`] : []),
+    ...(part.output.length > shared.maxAdpcmBytes ? [`ADPCM: ${part.output.length} bytes exceeds runtime-safe limit ${shared.maxAdpcmBytes}`] : []),
   ];
   ensureDirSync(path.dirname(outputAbs));
   fs.writeFileSync(outputAbs, part.output);
@@ -3408,10 +3418,8 @@ function ensureAdpcmGeneratedAssets(projectDir, doc) {
     }
     const input = fs.readFileSync(sourceAbs);
     const options = normalizeAdpcmOptions(first);
-    const maxAdpcmBytes = options.stream
-      ? 0x7ffffff
-      : Math.max(1, Math.min(PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES, clampInt(first.data?.import?.maxAdpcmBytes, 1, PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES, 65536 - options.adpcmAddress)));
-    const splitPolicy = !options.stream && (first.data?.import?.splitPolicy === 'auto' || group.length > 1) ? 'auto' : '';
+    const maxAdpcmBytes = Math.max(1, Math.min(PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES, clampInt(first.data?.import?.maxAdpcmBytes, 1, PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES, 65536 - options.adpcmAddress)));
+    const splitPolicy = first.data?.import?.splitPolicy === 'auto' || group.length > 1 ? 'auto' : '';
     const converted = splitPolicy === 'auto'
       ? audioConverter.convertWavForAdpcmParts(input, { sampleRate: options.sampleRate, maxBytes: maxAdpcmBytes })
       : audioConverter.convertWavForAdpcm(input, { sampleRate: options.sampleRate });
@@ -3440,7 +3448,6 @@ function ensureAdpcmGeneratedAssets(projectDir, doc) {
         partCount: group.length,
         splitPolicy,
         maxAdpcmBytes,
-        stream: options.stream,
       });
       changed = true;
     });
@@ -3666,7 +3673,6 @@ function generateAssetSources(projectDir, options = {}) {
     '  unsigned int adpcm_address;',
     '  unsigned char divider;',
     '  unsigned char loop;',
-    '  unsigned char stream;',
     '  unsigned int play_frames;',
     '  const pce_editor_cd_data_ref_t *cd;',
     '} pce_editor_adpcm_asset_t;',
@@ -3710,9 +3716,8 @@ function generateAssetSources(projectDir, options = {}) {
     '#define PCE_EDITOR_META_ADPCM_ADDRESS 8u',
     '#define PCE_EDITOR_META_ADPCM_DIVIDER 10u',
     '#define PCE_EDITOR_META_ADPCM_LOOP 11u',
-    '#define PCE_EDITOR_META_ADPCM_STREAM 12u',
-    '#define PCE_EDITOR_META_ADPCM_PLAY_FRAMES 13u',
-    '#define PCE_EDITOR_META_ADPCM_CD 15u',
+    '#define PCE_EDITOR_META_ADPCM_PLAY_FRAMES 12u',
+    '#define PCE_EDITOR_META_ADPCM_CD 14u',
     '#define PCE_EDITOR_META_PSG_SLOT 32u',
     '#define PCE_EDITOR_META_PSG_IS_SONG 0u',
     '#define PCE_EDITOR_META_PSG_PERIOD 1u',

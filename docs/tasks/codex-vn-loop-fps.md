@@ -10,7 +10,7 @@ CD-ROM2 VN runtime で **ADPCM 音声再生中にメインループが 60fps を
 
 ## 確定事実（証拠）
 - メインループ: `template/template_pce_vn_cd/src/pce_vn_runtime.c` の `while (1)`（約 L3824）。1 反復で `tick_active_message()`(L3885) / `tick_psg()` / `tick_sprite_animations()`(L3899) / `tick_spritetext()` / `if (pending_sprite_refresh) refresh_scene_sprites()`(L3901) / `delay_frame()`(L3903)。
-- `delay_frame()`（約 L448）は `service_adpcm_playback()`（counter `adpcm_play_frames_remaining` を 1 減算）→ VDC status の VBlank フラグを guard 付きで待つ → `service_cdda_playback()`。`IO_VDC_STATUS` を読むのはここだけ。
+- `delay_frame()` は VDC status の VBlank フラグを guard 付きで待つ → `engine_service()`。旧 `service_cdda_playback()` は軽量CD-DA command化で廃止済み。
 - 過去の Geargrafx 実測: 音声(AMVL1009: 20240B@16kHz=152フレーム)がハードウェア完了した時点で `adpcm_play_frames_remaining` 由来の進捗も文字も約 50% → **ループが約 30fps**（1 反復≈2 フレーム）に落ちている。
 - 対象シーン `data/projects/Kitahe`（startScene=opening, msg index1 が音声付き）。スプライト `AMf_054_001-sheet` は 320x256 / cell16x16、animation `default`(frameCount5, frameDelay8, frame64x128=4x8=**32 cell**) と `row_1`(frameCount5, frameDelay4)。**音声付き message 中、この 32 セルスプライトが frameDelay 4〜8 ごとにアニメする**。
 - ビルド: `data/projects/Kitahe/out/Kitahe.elf` と **`Kitahe-link.map`**（シンボルアドレスあり）。BIOS: `data/projects/[BIOS] Super CD-ROM System (Japan) (v3.0).pce`。Geargrafx MCP 利用可。

@@ -22,8 +22,6 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_choice_impl(const vn_scene_pack_c
 static uint8_t VN_OVERLAY_CODE scene_pack_read_choice_option_impl(const vn_scene_pack_cache_t *cache, const vn_choice_ref_t *choice, uint8_t option_index, pce_vn_choice_option_t *option);
 static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_impl(const vn_scene_pack_cache_t *cache, uint8_t switch_index, vn_switch_ref_t *branch);
 static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_case_impl(const vn_scene_pack_cache_t *cache, const vn_switch_ref_t *branch, uint8_t case_index, pce_vn_switch_case_t *branch_case);
-static void VN_OVERLAY_CODE cdda_sector_from_remaining_impl(const pce_editor_cdda_asset_t *cdda);
-static void VN_BANKED_CODE cdda_sector_from_remaining(const pce_editor_cdda_asset_t *cdda);
 static void VN_OVERLAY_CODE set_variable_value_impl(signed int variable_index, signed int value);
 static void VN_OVERLAY_CODE psg_apply_step_row_impl(uint16_t step_no);
 static uint8_t VN_OVERLAY_CODE copy_adpcm_voice_impl(signed int voice_index);
@@ -70,11 +68,6 @@ static inline void vn_cdb_adpcm_reset_guarded(void)
     vn_psg_timer_release();
     pce_cdb_adpcm_reset();
 }
-static inline uint8_t vn_cdb_adpcm_stream_guarded(pce_sector_t sector, pce_sector_t length, uint8_t divider)
-{
-    vn_psg_timer_release();
-    return pce_cdb_adpcm_stream(sector, length, divider);
-}
 static inline uint16_t vn_cdb_adpcm_status_guarded(void)
 {
     vn_psg_timer_release();
@@ -96,7 +89,6 @@ static inline uint8_t vn_cdb_cdda_pause_guarded(void)
 #define pce_cdb_adpcm_play(...) vn_cdb_adpcm_play_guarded(__VA_ARGS__)
 #define pce_cdb_adpcm_stop() vn_cdb_adpcm_stop_guarded()
 #define pce_cdb_adpcm_reset() vn_cdb_adpcm_reset_guarded()
-#define pce_cdb_adpcm_stream(...) vn_cdb_adpcm_stream_guarded(__VA_ARGS__)
 #define pce_cdb_adpcm_status() vn_cdb_adpcm_status_guarded()
 #define pce_cdb_cdda_play(...) vn_cdb_cdda_play_guarded(__VA_ARGS__)
 #define pce_cdb_cdda_pause() vn_cdb_cdda_pause_guarded()
@@ -314,32 +306,17 @@ static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call(void)
        untrustworthy here -- the single common point every CD/ADPCM/CD-DA BIOS
        helper call site routes through on completion -- so the next
        psg_commit() does a full resync instead of trusting a possibly-stale
-       diff. Cheap (just clears a flag) and safe to call unconditionally,
-       including on the true-ADPCM-streaming branch below where the System
-       Card external IRQ stays open. */
+       diff. Cheap (just clears a flag) and safe to call unconditionally. */
     psg_mark_hw_dirty();
-    if (!adpcm_stream_active)
-    {
-        pce_cdb_irq_set(PCE_CDB_ID_IRQ_VDC, vn_cd_irq1_quiet_handler);
+    pce_cdb_irq_set(PCE_CDB_ID_IRQ_VDC, vn_cd_irq1_quiet_handler);
 #if VN_TIME_SOURCE_TIMER
-        /* The QUIET disable clears the $20F5 TIMER dispatch bit; mask TIQ
-           first (release) so no unackable TIQ can land in the window. The
-           trailing quiet_cd_unit_irqs() re-owns the timer. */
-        vn_psg_timer_release();
+    /* The QUIET disable clears the $20F5 TIMER dispatch bit; mask TIQ
+       first (release) so no unackable TIQ can land in the window. The
+       trailing quiet_cd_unit_irqs() re-owns the timer. */
+    vn_psg_timer_release();
 #endif
-        pce_cdb_irq_disable(VN_CDB_IRQ_MASK_RUNTIME_QUIET);
-        quiet_cd_unit_irqs();
-        if (adpcm_stream_irq_open)
-        {
-            adpcm_stream_irq_open = 0u;
-            set_vdc_control(vdc_control_current);
-        }
-    }
-    else
-    {
-        adpcm_stream_irq_open = 1u;
-        pce_irq_enable(IRQ_VDC);
-    }
+    pce_cdb_irq_disable(VN_CDB_IRQ_MASK_RUNTIME_QUIET);
+    quiet_cd_unit_irqs();
 #endif
 }
 
@@ -358,13 +335,17 @@ static void VN_RESIDENT_CODE mask_buffered_adpcm_completion_irq(void)
 #if defined(__PCE_CD__) /* PHASE_A_SPLIT: re-opened (was inside the file-spanning conditional) */
 static void VN_BANKED_CODE begin_cdda_deferred_resume(void)
 {
+#if VN_CDDA_RESUME_AFTER_DATA_READ
     if (cdda_resume_defer_depth != 255u) cdda_resume_defer_depth++;
+#endif
 }
 
 static void VN_BANKED_CODE end_cdda_deferred_resume(void)
 {
+#if VN_CDDA_RESUME_AFTER_DATA_READ
     if (cdda_resume_defer_depth) cdda_resume_defer_depth--;
     if (!cdda_resume_defer_depth) resume_cdda_after_cd_data_access();
+#endif
     VN_MAP_BANK130_FOR_CODE();
 }
 
@@ -374,51 +355,45 @@ static void VN_RESIDENT_CODE prepare_cd_data_access(void)
 #if defined(__PCE_CD__)
     vn_cd_bios_irq_open();
 #endif
-    if (!cdda_active) return;
+    if (!(cdda_state & VN_CDDA_STATE_ACTIVE)) return;
     (void)pce_cdb_cdda_pause();
-    cdda_active = 0u;
-    cdda_resume_pending = 1u;
+#if VN_CDDA_RESUME_AFTER_DATA_READ
+    cdda_state = (uint8_t)((cdda_state & (uint8_t)~VN_CDDA_STATE_ACTIVE) | VN_CDDA_STATE_RESUME_PENDING);
+#else
+    cdda_state = 0u;
+#endif
+    sync_cd_external_irq_after_bios_call();
     restore_video_after_cdb_call(restore_display_after_pause);
 }
 
 static void VN_BANKED_CODE resume_cdda_after_cd_data_access(void)
 {
+#if VN_CDDA_RESUME_AFTER_DATA_READ
     const uint8_t restore_display_after_cdda = (uint8_t)!pending_display_enable;
-    if (!cdda_resume_pending) return;
+    if (!(cdda_state & VN_CDDA_STATE_RESUME_PENDING)) return;
     if (cdda_resume_defer_depth) return;
-    if (!cdda_current || !cdda_track)
-    {
-        cancel_cdda_after_cd_data_conflict();
-        return;
-    }
-    cdda_resume_end.lo = 0u;
-    cdda_resume_end.md = 0u;
-    cdda_resume_end.hi = 0u;
-    cdda_sector_from_remaining(cdda_current);
+    pce_sector_t end = {0};
+    map_vn_data();
     vn_cd_bios_irq_open();
-    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, cdda_resume_end, PCE_CDB_CDDA_PLAY_ONE_SHOT);
-    cdda_active = 1u;
-    cdda_resume_pending = 0u;
+    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, end, VN_CDDA_PLAY_MODE());
+    cdda_state = (uint8_t)((cdda_state | VN_CDDA_STATE_ACTIVE) & (uint8_t)~VN_CDDA_STATE_RESUME_PENDING);
     sync_cd_external_irq_after_bios_call();
     restore_video_after_cdb_call(restore_display_after_cdda);
+#endif
 }
 
 static void VN_BANKED_CODE finish_cd_data_read_before_vram_copy(void)
 {
     sync_cd_external_irq_after_bios_call();
+#if VN_CDDA_RESUME_AFTER_DATA_READ
     resume_cdda_after_cd_data_access();
+#endif
     map_vn_data();
 }
 
 static void VN_BANKED_CODE cancel_cdda_after_cd_data_conflict(void)
 {
-    cdda_active = 0u;
-    cdda_resume_pending = 0u;
-    cdda_has_frame_limit = 0u;
-    cdda_looping = 0u;
-    cdda_track = 0u;
-    cdda_frames_remaining = 0u;
-    cdda_current = (const pce_editor_cdda_asset_t *)0;
+    cdda_state = 0u;
 }
 
 #endif /* PHASE_A_SPLIT */
@@ -442,13 +417,12 @@ static uint8_t VN_BANKED_CODE vn_overlay_dispatch(uint8_t op, uint16_t a0, uint1
 
 /* Same as vn_overlay_dispatch but with the IRQ lock held across the slot4 swap.
    This is shared by overlay work that touches the non-reentrant VDC interface and
-   by PSG step application, which temporarily maps MPR6 to bank134/135. True ADPCM
-   streaming leaves the System Card external IRQ enabled; letting it fire while
-   those mappings/register sequences are transient can corrupt the restored video
-   state. Restore the caller's slot4 bank rather than forcing bank130: this helper
-   can be reached while bank121/133 code is on the stack through cooperative
-   blocking-work service. Factoring the lock+swap here keeps each named dispatcher
-   tiny instead of inlining the full sequence at every call site. */
+   by PSG step application, which temporarily maps MPR6 to bank134/135. Keep IRQs
+   masked while those mappings/register sequences are transient, then restore the
+   caller's slot4 bank rather than forcing bank130: this helper can be reached
+   while bank121/133 code is on the stack through cooperative blocking-work
+   service. Factoring the lock+swap here keeps each named dispatcher tiny instead
+   of inlining the full sequence at every call site. */
 static uint8_t VN_BANKED_CODE vn_overlay_dispatch_locked(uint8_t op, uint16_t a0, uint16_t a1, uint8_t a2)
 {
 #if defined(__PCE_CD__)
@@ -487,7 +461,6 @@ static uint8_t VN_OVERLAY_ENTRY_CODE vn_overlay_entry(uint8_t op, uint16_t a0, u
     if (o == VN_OVERLAY_OP_READ_SWITCH) return scene_pack_read_switch_impl(&active_scene_pack, a2, (vn_switch_ref_t *)(uintptr_t)a0);
     if (o == VN_OVERLAY_OP_READ_SWITCH_CASE) return scene_pack_read_switch_case_impl(&active_scene_pack, (const vn_switch_ref_t *)(uintptr_t)a1, a2, (pce_vn_switch_case_t *)(uintptr_t)a0);
     if (o == VN_OVERLAY_OP_CACHE_SPRITE_ANIM) { cache_sprite_animation_impl(a2); return 0u; }
-    if (o == VN_OVERLAY_OP_CDDA_SECTOR) { cdda_sector_from_remaining_impl((const pce_editor_cdda_asset_t *)(uintptr_t)a0); return 0u; }
     if (o == VN_OVERLAY_OP_MAP_WAIT_CELL) { map_message_wait_indicator_cell_impl((uint8_t)a2); return 0u; }
     if (o == VN_OVERLAY_OP_SET_VARIABLE) { set_variable_value_impl((signed int)(int16_t)a0, (signed int)(int16_t)a1); return 0u; }
     if (o == VN_OVERLAY_OP_APPLY_PSG_STEP) { psg_apply_step_row_impl(a0); return 0u; }

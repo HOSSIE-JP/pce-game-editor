@@ -10,7 +10,6 @@ PCE_CDB_USE_GRAPHICS_DRIVER(1);
 #define PAD_I 0x01u
 #define PAD_II 0x02u
 #define PAD_SELECT 0x04u
-#define PAD_RUN 0x08u
 
 #define DIAG_DISPLAY_CONTROL (VDC_CONTROL_DRAM_REFRESH | VDC_CONTROL_HSYNC_OUTPUT | VDC_CONTROL_VSYNC_OUTPUT | VDC_CONTROL_ENABLE_BG)
 #define DIAG_MEMORY_CONTROL (VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_64_32)
@@ -79,26 +78,6 @@ static void play_buffered(unsigned long sector_value, uint16_t color)
     set_status_color(color);
 }
 
-static void play_stream(unsigned long sector_value)
-{
-    const pce_sector_t sector = sector_from_ulong(sector_value);
-    const pce_sector_t length = sector_from_ulong(PCE_ADPCM_DIAG_SECTOR_COUNT);
-    pce_cdb_adpcm_stop();
-    (void)wait_adpcm_ready();
-    pce_cdb_adpcm_reset();
-    if (!wait_adpcm_ready())
-    {
-        show_error();
-        return;
-    }
-    if (pce_cdb_adpcm_stream(sector, length, PCE_ADPCM_DIAG_DIVIDER))
-    {
-        show_error();
-        return;
-    }
-    set_status_color(VCE_COLOR(0, 7, 7));
-}
-
 static void init_video(void)
 {
     pce_cdb_irq_enable((uint8_t)(PCE_CDB_MASK_IRQ_EXTERNAL | PCE_CDB_MASK_VBLANK));
@@ -130,11 +109,6 @@ int main(void)
         {
             auto_played = 1u;
             play_buffered(PCE_ADPCM_DIAG_LSN_SECTOR, VCE_COLOR(7, 0, 0));
-        }
-        else if (pressed & PAD_RUN)
-        {
-            auto_played = 1u;
-            play_stream(PCE_ADPCM_DIAG_MSN_SECTOR);
         }
         else if (pressed & PAD_SELECT)
         {

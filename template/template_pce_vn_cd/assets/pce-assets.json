@@ -386,7 +386,6 @@
       "options": {
         "sampleRate": 16000,
         "loop": false,
-        "stream": false,
         "adpcmAddress": 0,
         "divider": 14
       },
@@ -814,7 +813,6 @@
       "options": {
         "sampleRate": 16000,
         "loop": false,
-        "stream": false,
         "adpcmAddress": 0,
         "divider": 14
       },
@@ -946,7 +944,6 @@
       "options": {
         "sampleRate": 16000,
         "loop": false,
-        "stream": false,
         "adpcmAddress": 0,
         "divider": 14
       },

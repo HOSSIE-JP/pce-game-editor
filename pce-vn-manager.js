@@ -3020,6 +3020,28 @@ function generateVnSources(projectDir, options = {}) {
         choiceIndex: -1,
       });
     };
+    const firstHoistableAdpcmPreloadAssetId = () => {
+      if (hucardMode) return '';
+      for (const command of compiledCommands) {
+        if (command.type === 'message') {
+          return command.voiceAssetId || '';
+        }
+        if (command.type === 'cache') {
+          const scope = normalizeCacheScope(command.scope);
+          if (scope === 'adpcm' || scope === 'all') return '';
+        }
+        if (command.type === 'audio' && command.kind === 'adpcm') return '';
+        if (command.type === 'choice' || command.type === 'inputcheck' || command.type === 'if' || command.type === 'switch' || command.type === 'goto') return '';
+      }
+      return '';
+    };
+    let knownAdpcmPreloadAssetId = '';
+    const hoistedAdpcmPreloadAssetId = firstHoistableAdpcmPreloadAssetId();
+    if (hoistedAdpcmPreloadAssetId) {
+      assertBufferedMessageVoice(assetDoc, hoistedAdpcmPreloadAssetId, projectDir, sceneBuild.sceneId);
+      pushInternalAdpcmPreload(hoistedAdpcmPreloadAssetId);
+      knownAdpcmPreloadAssetId = hoistedAdpcmPreloadAssetId;
+    }
     compiledCommands.forEach((command) => {
       if (command.type === 'background') {
         previousExplicitAdpcmPreloadAssetId = '';
@@ -3075,8 +3097,10 @@ function generateVnSources(projectDir, options = {}) {
         // preload command shifts every following command index).
         if (!hucardMode && command.voiceAssetId) {
           assertBufferedMessageVoice(assetDoc, command.voiceAssetId, projectDir, sceneBuild.sceneId);
-          if (previousExplicitAdpcmPreloadAssetId !== command.voiceAssetId) {
+          if (previousExplicitAdpcmPreloadAssetId !== command.voiceAssetId
+            && knownAdpcmPreloadAssetId !== command.voiceAssetId) {
             pushInternalAdpcmPreload(command.voiceAssetId);
+            knownAdpcmPreloadAssetId = command.voiceAssetId;
           }
         }
         previousExplicitAdpcmPreloadAssetId = '';
@@ -3144,6 +3168,7 @@ function generateVnSources(projectDir, options = {}) {
       }
       if (command.type === 'audio') {
         previousExplicitAdpcmPreloadAssetId = '';
+        knownAdpcmPreloadAssetId = command.kind === 'adpcm' && command.action === 'play' ? command.assetId : knownAdpcmPreloadAssetId;
         const kindCode = command.kind === 'adpcm'
           ? VN_AUDIO_KIND_ADPCM
           : (command.kind === 'psg' ? VN_AUDIO_KIND_PSG : VN_AUDIO_KIND_CDDA);
@@ -3176,6 +3201,7 @@ function generateVnSources(projectDir, options = {}) {
       }
       if (command.type === 'inputcheck') {
         previousExplicitAdpcmPreloadAssetId = '';
+        knownAdpcmPreloadAssetId = '';
         const mode = command.mode === 'async'
           ? VN_INPUT_MODE_ASYNC
           : (command.mode === 'cancel' ? VN_INPUT_MODE_CANCEL : VN_INPUT_MODE_SYNC);
@@ -3234,10 +3260,17 @@ function generateVnSources(projectDir, options = {}) {
           && command.assetId
           ? command.assetId
           : '';
+        if (cacheAction === VN_CACHE_ACTION_LOAD && command.scope === 'adpcm' && command.assetId) {
+          knownAdpcmPreloadAssetId = command.assetId;
+        } else if (cacheAction === VN_CACHE_ACTION_CLEAR) {
+          const scope = normalizeCacheScope(command.scope);
+          if (scope === 'adpcm' || scope === 'all') knownAdpcmPreloadAssetId = '';
+        }
         return;
       }
       if (command.type === 'choice') {
         previousExplicitAdpcmPreloadAssetId = '';
+        knownAdpcmPreloadAssetId = '';
         if (sceneBuild.choices.length >= VN_MAX_U8_COUNT) {
           throw new Error('PCE VN supports up to 255 choices per scene');
         }
@@ -3311,6 +3344,7 @@ function generateVnSources(projectDir, options = {}) {
       }
       if (command.type === 'if') {
         previousExplicitAdpcmPreloadAssetId = '';
+        knownAdpcmPreloadAssetId = '';
         const varIndex = command.variableName && variableIndex.has(command.variableName) ? variableIndex.get(command.variableName) : -1;
         const [arg0, arg1] = int16ArgBytes(command.value);
         pushCommand({
@@ -3331,6 +3365,7 @@ function generateVnSources(projectDir, options = {}) {
       }
       if (command.type === 'switch') {
         previousExplicitAdpcmPreloadAssetId = '';
+        knownAdpcmPreloadAssetId = '';
         if (sceneBuild.switches.length >= VN_MAX_U8_COUNT) {
           throw new Error('PCE VN supports up to 255 switch commands per scene');
         }
@@ -3382,6 +3417,7 @@ function generateVnSources(projectDir, options = {}) {
       }
       if (command.type === 'goto') {
         previousExplicitAdpcmPreloadAssetId = '';
+        knownAdpcmPreloadAssetId = '';
         pushCommand({
           type: VN_COMMAND_GOTO,
           assetIndex: -1,
@@ -3400,6 +3436,7 @@ function generateVnSources(projectDir, options = {}) {
       }
       if (command.type === 'jump') {
         previousExplicitAdpcmPreloadAssetId = '';
+        knownAdpcmPreloadAssetId = '';
         const target = command.sceneId && sceneIndex.has(command.sceneId) ? sceneIndex.get(command.sceneId) : -1;
         pushCommand({
           type: VN_COMMAND_JUMP,

@@ -474,12 +474,8 @@ static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset
     }
     else
     {
-        if (action == PCE_VN_AUDIO_ACTION_STOP) stop_cdda_track();
-        else if (asset_index >= 0 && (unsigned int)asset_index < pce_editor_cdda_asset_count)
-        {
-            const pce_editor_cdda_asset_t *cdda = vn_get_cdda_asset((uint16_t)asset_index);
-            play_cdda_track(cdda);
-        }
+        if (action == PCE_VN_AUDIO_ACTION_STOP) cdda_audio_command(-1);
+        else if (asset_index >= 0) cdda_audio_command(asset_index);
     }
 #else
     if (kind == PCE_VN_AUDIO_KIND_PSG)
@@ -588,9 +584,10 @@ static void show_scene(uint8_t scene_index)
     VN_MAP_BANK130_FOR_CODE();
     REQUEST_SPRITE_REFRESH_FULL();
     /* Assets load on demand as run_commands_until_wait() processes each command
-       (set_background / sprite show / play_adpcm_voice all stream from CD at the
-       command). The old scene-entry preload pass was a redundant pre-scan and is
-       gone; set_background still self-caches the current BG to skip re-uploads. */
+       (set_background / sprite show read CD data; play_adpcm_voice first fills
+       ADPCM RAM, then starts buffered playback). The old scene-entry preload pass
+       was a redundant pre-scan and is gone; set_background still self-caches the
+       current BG to skip re-uploads. */
     preloaded_scene_visual_valid = 0u;
     end_cdda_deferred_resume();
 }

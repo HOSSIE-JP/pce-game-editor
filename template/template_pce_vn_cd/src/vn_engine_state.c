@@ -249,22 +249,14 @@ static vdc_sprite_t sprite_shadow[64];
    cell_maps, scene-pack directory) so large CD-streamed projects scale. */
 static uint8_t cd_transfer_scratch[VN_CD_SECTOR_BYTES] __attribute__((section(".ram_bank132_tail")));
 static uint8_t vn_active_scene_pack_data[PCE_VN_SCENE_PACK_CACHE_BYTES];
-static uint8_t cdda_active = 0;
-static uint8_t cdda_has_frame_limit = 0;
-static uint8_t cdda_looping = 0;
-static uint8_t cdda_track = 0;
-static uint16_t cdda_frames_remaining = 0;
-static const pce_editor_cdda_asset_t *cdda_current = (const pce_editor_cdda_asset_t *)0;
-static pce_sector_t cdda_resume_start __attribute__((section(".bss")));
-static pce_sector_t cdda_resume_end __attribute__((section(".bss")));
-static uint8_t cdda_resume_pending = 0;
+static uint8_t cdda_state = 0;
+#if VN_CDDA_RESUME_AFTER_DATA_READ
+static pce_sector_t cdda_resume_start __attribute__((section(".ram_bank132_tail")));
 static uint8_t cdda_resume_defer_depth = 0;
+#endif
 static uint8_t adpcm_play_active = 0;
 static uint16_t adpcm_play_frames_remaining = 0;
-static uint8_t adpcm_stream_active = 0;
-static uint8_t adpcm_stream_looping = 0;
-static uint8_t adpcm_stream_irq_open = 0;
-static uint16_t adpcm_stream_index = 0;
+static uint8_t adpcm_play_looping = 0;
 static uint16_t vdc_control_current = VN_VDC_BLANK_CONTROL;
 /* EmulatorJS mednafen_pce can lose the next joypad edge after ADPCM BIOS calls.
    Re-baseline to the current pad state; do not synthesize a fresh edge from a
@@ -283,7 +275,6 @@ typedef struct
     pce_editor_cd_sector_t cd_sector;
     uint8_t divider;
     uint8_t loop;
-    uint8_t stream;
     uint8_t has_cd;
 } vn_adpcm_voice_t;
 #if defined(__PCE_CD__)
@@ -332,8 +323,7 @@ static void VN_BANKED_CODE refresh_scene_sprites(void);
 static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache);
 static uint8_t scene_pack_command_count(const vn_scene_pack_cache_t *cache);
 #if defined(__PCE_CD__)
-static void VN_BANKED_CODE service_cdda_playback(void);
-static void VN_VISUAL_CACHE_CODE service_cdda_playback_impl(void);
+static void VN_VISUAL_CACHE_CODE cdda_command_impl(signed int asset_index);
 static void VN_BANKED_CODE2 service_adpcm_playback(void);
 static void VN_BANKED_CODE stop_adpcm_voice(void);
 static void VN_BANKED_CODE quiet_cd_unit_irqs(void);
@@ -364,7 +354,7 @@ static void VN_RESIDENT_CODE engine_service(void);
 static void VN_RESIDENT_CODE engine_service_blocking(uint16_t iterations);
 #if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
 static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(void);
-static void VN_VISUAL_CACHE_CODE service_cdda_playback_impl(void);
+static void VN_VISUAL_CACHE_CODE cdda_command_impl(signed int asset_index);
 static uint8_t VN_VISUAL_CACHE_CODE draw_spritetext_slots_impl(uint8_t satb_index);
 static void VN_VISUAL_CACHE_CODE clear_runtime_cache_impl(uint8_t scope);
 static void VN_VISUAL_CACHE_CODE tick_sprite_animations_impl(void);

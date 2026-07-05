@@ -18,7 +18,7 @@
    once-per-frame re-own cannot reset the counter phase (a reload rewrite each
    VBlank would starve TIQ forever); the $20F5/IDR bits are re-asserted on
    every own() because quiet paths and the System Card clear them behind the
-   flag's back. True ADPCM streaming leaves all CD IRQ timing to the BIOS.
+   flag's back.
    Callable ONLY from bus_bios_close() (engine_bus, after a BIOS helper
    returns) and engine_frame_end() (vn_main.c, once per frame) -- see the
    design doc engine_time §5.3 own/release protocol. */
@@ -32,7 +32,6 @@
    bank over 8192 bytes). */
 static void VN_RESIDENT_CODE vn_psg_timer_own(void)
 {
-    if (adpcm_stream_active) return;
     if (!vn_timer_owned)
     {
         pce_timer_set(PCE_FREQ_TO_TIMER(VN_PSG_TIMER_HZ));
@@ -237,13 +236,17 @@ static void VN_RESIDENT_CODE engine_apply_psg_credit(uint8_t frames, uint8_t blo
    service_adpcm_playback()). Factored into its own (bank128-resident) call so
    the bank130 call site stays a single JSR instead of inlining the poll +
    consume + tick sequence at every caller. */
-static void VN_RESIDENT_CODE time_blocked_poll_psg_only(uint16_t iterations)
+static uint8_t VN_RESIDENT_CODE time_blocked_poll_psg_only(uint16_t iterations)
 {
 #if defined(__PCE_CD__)
+    uint8_t frames;
     time_blocked_poll(iterations);
-    engine_apply_psg_credit(vn_consume_vblank_credit(), 1u);
+    frames = vn_consume_vblank_credit();
+    engine_apply_psg_credit(frames, 1u);
+    return frames;
 #else
     (void)iterations;
+    return 0u;
 #endif
 }
 

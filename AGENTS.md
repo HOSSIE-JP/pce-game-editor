@@ -27,7 +27,7 @@
 - ADPCM generated metadata の `codec`、`nibbleOrder`、`encoderVersion` が現行値と違う場合は source WAV から再生成してください。同じ `oki-msm5205/msn-first` 表記でも、古い `encoderVersion` のバイナリは先頭ノイズが出る可能性があります。
 - ADPCM preload は ADPCM RAM への先読みだけです。`loaded_adpcm_valid` が立っていても、実際の再生時には必ず `pce_cdb_adpcm_play()` を呼んでください。
 - VN runtime の短い ADPCM one-shot / buffered 再生は、再生開始後に毎フレーム `pce_cdb_adpcm_status()` で自然終了監視しないでください。標準 EmulatorJS/WASM core では、ADPCM 終了まで status polling した後に joypad edge が戻らないことがあります。
-- VN runtime の ADPCM 自然終了後処理では、再生済みの one-shot / stream に追加で `pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()` を投げないでください。明示的な AUDIO stop は stop/reset しますが、自然終了後の余分な reset は標準 EmulatorJS/WASM core で joypad edge が戻らない原因になり得ます。
+- VN runtime の ADPCM 自然終了後処理では、再生済みの one-shot に追加で `pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()` を投げないでください。明示的な AUDIO stop は stop/reset しますが、自然終了後の余分な reset は標準 EmulatorJS/WASM core で joypad edge が戻らない原因になり得ます。
 - ADPCM 再生開始後の joypad edge 初期化では、現在押されている button を `last_pad` の baseline にしてください。`last_pad = 0` に戻すと、押しっぱなしの I/RUN が新規 edge として扱われ、`message.voiceAssetId` 付き message の typewriter が即 `finish_active_message()` でスキップされます。
 - ADPCM 1 asset の安全上限は `min(65535, 65536 - adpcmAddress)` bytes です。4-bit ADPCM なので再生時間は概算で `bytes * 2 / sampleRate` 秒です。
 - VN sprite 表示では generated `pce_editor_sprite_draw_meta[]` の compact metadata を使い、単一 frame/default animation は sheet 全体表示として扱います。VDC memory control は `VN_VDC_MEMORY_CONTROL` を使い、sprite cycle bit を落とさないでください。

@@ -10,6 +10,8 @@ const AUDIO_EXTS = ['.wav', '.mp3'];
 const SPRITE_CELL_SIZES = ['16x16', '16x32', '16x64', '32x16', '32x32', '32x64'];
 const PCE_BG_AUTO_TILE_BASE = 128;
 const PCE_BG_AUTO_MAP_BASE = 0;
+const PCE_ADPCM_DEFAULT_SAMPLE_RATE = 8000;
+const PCE_ADPCM_SAMPLE_RATES = Object.freeze([4000, 4571, 5333, 6400, 8000, 10666, 16000, 32000]);
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -79,6 +81,22 @@ function compareText(left, right) {
 function asNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function supportedAdpcmSampleRate(value, fallback = PCE_ADPCM_DEFAULT_SAMPLE_RATE) {
+  const safeFallback = PCE_ADPCM_SAMPLE_RATES.includes(fallback) ? fallback : PCE_ADPCM_DEFAULT_SAMPLE_RATE;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return safeFallback;
+  return PCE_ADPCM_SAMPLE_RATES.reduce((best, rate) => (
+    Math.abs(rate - parsed) < Math.abs(best - parsed) ? rate : best
+  ), safeFallback);
+}
+
+function adpcmSampleRateOptions(selectedValue = PCE_ADPCM_DEFAULT_SAMPLE_RATE) {
+  const selected = supportedAdpcmSampleRate(selectedValue);
+  return PCE_ADPCM_SAMPLE_RATES.map((rate) => (
+    `<option value="${rate}" ${rate === selected ? 'selected' : ''}>${rate} Hz${rate === PCE_ADPCM_DEFAULT_SAMPLE_RATE ? ' (default)' : ''}</option>`
+  )).join('');
 }
 
 function safeId(value, fallback = 'asset') {
@@ -294,18 +312,13 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
                     <input class="form-input" data-field="steps" type="number" min="1" max="4096" />
                   </div>
                   <label class="form-label">Sample rate</label>
-                  <input class="form-input" data-field="sampleRate" type="number" min="4000" max="44100" />
+                  <select class="form-select" data-field="sampleRate">${adpcmSampleRateOptions()}</select>
                   <label class="form-label">Track</label>
                   <input class="form-input" data-field="track" type="number" min="2" max="99" />
                   <label class="form-label">Loop</label>
                   <label class="pce-assets-check">
                     <input data-field="loop" type="checkbox" />
                     <span>繰り返し再生</span>
-                  </label>
-                  <label class="form-label">Streaming</label>
-                  <label class="pce-assets-check">
-                    <input data-field="stream" type="checkbox" />
-                    <span>CDから直接再生</span>
                   </label>
                 </div>
                 <div class="pce-assets-animation-editor" data-role="animation-editor" hidden></div>
@@ -405,7 +418,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     sampleRate: root.querySelector('[data-field="sampleRate"]'),
     track: root.querySelector('[data-field="track"]'),
     loop: root.querySelector('[data-field="loop"]'),
-    stream: root.querySelector('[data-field="stream"]'),
   };
 
   let assets = [];
@@ -796,10 +808,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     fields.period.value = options.period ?? 512;
     fields.bpm.value = options.bpm ?? 150;
     fields.steps.value = options.steps ?? 32;
-    fields.sampleRate.value = options.sampleRate ?? 16000;
+    fields.sampleRate.value = supportedAdpcmSampleRate(options.sampleRate ?? PCE_ADPCM_DEFAULT_SAMPLE_RATE);
     fields.track.value = options.track ?? 2;
     fields.loop.checked = Boolean(options.loop);
-    fields.stream.checked = Boolean(options.stream ?? options.streaming);
     setFieldVisibility(asset);
     renderAnimationEditor(asset);
     renderGenerated(asset);
@@ -822,9 +833,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       : type === 'adpcm'
         ? {
             ...(current.options || {}),
-            sampleRate: asNumber(fields.sampleRate.value, 16000),
+            sampleRate: supportedAdpcmSampleRate(fields.sampleRate.value),
             loop: fields.loop.checked,
-            stream: fields.stream.checked,
           }
         : type === 'cdda-track'
           ? {
@@ -853,6 +863,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           transparentIndex: asNumber(fields.transparentIndex.value, 0),
           animations: type === 'sprite' ? collectAnimationRows() : [],
         };
+    if (type === 'adpcm') {
+      delete options.stream;
+      delete options.streaming;
+    }
     return {
       ...current,
       id: fields.id.value.trim(),
@@ -1432,7 +1446,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
               </label>
               <label class="form-group" data-adpcm-only>
                 <span class="form-label">ADPCM sample rate</span>
-                <input class="form-input" name="sampleRate" type="number" min="4000" max="32000" value="16000" />
+                <select class="form-select" name="sampleRate">${adpcmSampleRateOptions()}</select>
               </label>
               <label class="form-group" data-cdda-only>
                 <span class="form-label">CD-DA track</span>
@@ -1441,10 +1455,6 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
               <label class="form-group">
                 <span class="form-label">Loop</span>
                 <label class="pce-assets-check"><input name="loop" type="checkbox" /><span>loop</span></label>
-              </label>
-              <label class="form-group" data-adpcm-only>
-                <span class="form-label">Streaming</span>
-                <label class="pce-assets-check"><input name="stream" type="checkbox" checked /><span>CDから直接再生</span></label>
               </label>
             </div>
             <div class="pce-assets-import-source">
@@ -1521,8 +1531,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           }
           const kind = form.elements.kind.value;
           const id = safeId(form.elements.id.value, kind === 'cdda-track' ? 'cdda_track' : 'adpcm_sample');
-          const sampleRate = asNumber(form.elements.sampleRate?.value, 16000);
-          const stream = kind === 'adpcm' && Boolean(form.elements.stream?.checked);
+          const sampleRate = supportedAdpcmSampleRate(form.elements.sampleRate?.value);
           modal.close();
           modal.destroy?.();
           const converted = await audioCapability.openAudioConvertModal({
@@ -1551,12 +1560,13 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             kind,
             id,
             name: form.elements.name.value,
-            sampleRate: asNumber(converted.processing?.sampleRate, sampleRate),
+            sampleRate: kind === 'adpcm'
+              ? supportedAdpcmSampleRate(converted.processing?.sampleRate, sampleRate)
+              : asNumber(converted.processing?.sampleRate, sampleRate),
             track: asNumber(form.elements.track?.value, 2),
             loop: Boolean(form.elements.loop?.checked),
-            stream,
             processing: converted.processing || {},
-            splitPolicy: kind === 'adpcm' && !stream ? 'auto' : '',
+            splitPolicy: kind === 'adpcm' ? 'auto' : '',
           });
           if (!result?.ok) throw new Error(result?.error || '取り込みに失敗しました');
           logger.info(`PCE audio imported: ${result.asset?.id || id}`);

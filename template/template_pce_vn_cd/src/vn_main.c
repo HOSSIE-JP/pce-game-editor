@@ -26,20 +26,13 @@ static void init_runtime_state(void)
     loaded_adpcm_valid = 0u;
     loaded_adpcm_index = 0u;
 #if defined(__PCE_CD__)
-    cdda_active = 0u;
-    cdda_has_frame_limit = 0u;
-    cdda_looping = 0u;
-    cdda_track = 0u;
-    cdda_frames_remaining = 0u;
-    cdda_current = (const pce_editor_cdda_asset_t *)0;
-    cdda_resume_pending = 0u;
+    cdda_state = 0u;
+#if VN_CDDA_RESUME_AFTER_DATA_READ
     cdda_resume_defer_depth = 0u;
+#endif
     adpcm_play_active = 0u;
     adpcm_play_frames_remaining = 0u;
-    adpcm_stream_active = 0u;
-    adpcm_stream_looping = 0u;
-    adpcm_stream_irq_open = 0u;
-    adpcm_stream_index = 0u;
+    adpcm_play_looping = 0u;
     pad_edge_reset_pending = 0u;
     active_scene_pack.data = vn_active_scene_pack_data;
     active_scene_pack.size = 0u;
@@ -119,7 +112,7 @@ static void VN_BANKED_CODE vn_wait_next_vblank(void)
 {
 #if defined(__PCE__) || defined(__PCE_CD__)
 #if defined(__PCE_CD__)
-    if (!adpcm_stream_active) quiet_cd_unit_irqs();
+    quiet_cd_unit_irqs();
 #endif
     __asm__ volatile(
         "lda #$ff\n"
@@ -159,7 +152,6 @@ static void VN_BANKED_CODE delay_frame(void)
 #if defined(__PCE_CD__)
     pce_ram_bank130_map();
     vn_wait_next_vblank();
-    service_cdda_playback();
     engine_service();
 #else
     volatile uint16_t delay;

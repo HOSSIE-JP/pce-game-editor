@@ -80,8 +80,25 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_ADPCM_BUFFERED_PLAY_FRAMES() (adpcm_voice_snapshot.play_frames > VN_ADPCM_BUFFERED_END_GUARD_FRAMES ? (uint16_t)(adpcm_voice_snapshot.play_frames - VN_ADPCM_BUFFERED_END_GUARD_FRAMES) : 1u)
 #define VN_ADPCM_BUFFERED_SAFE_BYTES 32767u
 #define VN_ADPCM_BUFFERED_HARDWARE_LENGTH 0xffffu
-#define VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS 0u
-#define VN_ADPCM_PRELOAD_READ_CHUNK_SECTORS 4u
+#define VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS 1u
+#define VN_ADPCM_PRELOAD_READ_CHUNK_SECTORS 1u
+#ifndef VN_ADPCM_BUSY_PSG_POLL_INTERVAL
+#define VN_ADPCM_BUSY_PSG_POLL_INTERVAL 16u
+#endif
+#ifndef VN_ADPCM_BUSY_PSG_POLL_ITERATIONS
+#define VN_ADPCM_BUSY_PSG_POLL_ITERATIONS 192u
+#endif
+/* ADPCM_BUSY status polling can spend time in BIOS calls between our short
+   VBlank samples. If a sample sees no real VBlank edge, optionally drip a
+   tiny PSG-only estimate so note changes still reach hardware during the
+   wait. Lowering POLL_INTERVAL makes this more aggressive; raising
+   FALLBACK_FRAMES can make PSG run ahead during long ADPCM loads. */
+#ifndef VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES
+#define VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES 1u
+#endif
+#ifndef VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES
+#define VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES 2u
+#endif
 #define VN_PCD_IRQ_STATUS_ADPCM_END 0x08u
 #define VN_SATB_ADDR 0x7f00u
 #define VN_SPRITE_PATTERN_END_BASE (VN_SATB_ADDR / 32u)
@@ -136,10 +153,9 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_CD_SECTOR_BYTES 2048u
 /* VBlank is polled from IO_VDC_STATUS. The VDC VBlank bit remains enabled so
    the status latch fires, while the HuC6280 IRQ_VDC line is normally masked to
-   keep the System Card VBlank handler out of VN frames. True ADPCM streaming is
-   the exception: the System Card needs the shared IRQ1 line for CD buffer
-   refills, so runtime VDC/PSG/MMIO paths remap MPR0 to the I/O page and keep
-   short non-reentrant VDC/MPR windows IRQ-locked while the stream IRQ is open. */
+   keep the System Card VBlank handler out of VN frames. CD/ADPCM BIOS helpers
+   briefly open the shared IRQ1 line, then the runtime closes it before resuming
+   its own VDC/PSG work. */
 #define VN_VDC_CONTROL_BASE (VDC_CONTROL_IRQ_VBLANK | VDC_CONTROL_DRAM_REFRESH | VDC_CONTROL_VRAM_ADD_1)
 #define VN_VDC_DISPLAY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG | VDC_CONTROL_ENABLE_SPRITE)
 #define VN_VDC_BG_ONLY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG)
@@ -170,7 +186,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 /* CD data reads whose destination is a mapped RAM bank can be grouped. VRAM
    uploads still use the 1-sector scratch buffer. */
 #ifndef VN_CD_RAM_READ_CHUNK_SECTORS
-#define VN_CD_RAM_READ_CHUNK_SECTORS 4u
+#define VN_CD_RAM_READ_CHUNK_SECTORS 2u
 #endif
 #define VN_CD_RAM_READ_CHUNK_BYTES ((uint16_t)(VN_CD_SECTOR_BYTES * VN_CD_RAM_READ_CHUNK_SECTORS))
 #define VN_CD_CHUNK_SECTOR_COUNT(bytes) ((uint8_t)(((uint16_t)(bytes) + 2047u) >> 11))
@@ -179,7 +195,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
    tempo does not stall during BG/sprite/voice loads. This is deliberately not
    fed into ADPCM/message timing. */
 #ifndef VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES
-#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 8u
+#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 10u
 #endif
 /* Diagnostic switch for PSG/CD-load stutter investigation. The current test
    default drips blocking-work PSG credit one frame at a time while leaving
@@ -204,7 +220,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
    Gate (G-B1: TIQ delivery during BIOS CD_READ). */
 #define VN_TIME_SOURCE_TIMER 1
 #define VN_PSG_TIMER_HZ 60u
-#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 32u
+#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 16u
 #define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES
 #define VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES() ((psg_active && psg_current) ? VN_VISUAL_VRAM_COPY_SLICE_BYTES : VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES)
 #define VN_VISUAL_CODE_RESERVED_SECTORS 4u
@@ -240,7 +256,14 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_VISUAL_CACHE_OP_FADE_SCREEN 16u
 #define VN_VISUAL_CACHE_OP_RESTORE_SCREEN_PALETTE 17u
 #define VN_VISUAL_CACHE_OP_FLASH_SCREEN 18u
-#define VN_VISUAL_CACHE_OP_SERVICE_CDDA 19u
+#define VN_VISUAL_CACHE_OP_CDDA_COMMAND 19u
+#define VN_CDDA_STATE_ACTIVE 0x01u
+#define VN_CDDA_STATE_RESUME_PENDING 0x02u
+#define VN_CDDA_STATE_REPEAT 0x04u
+#define VN_CDDA_PLAY_MODE() ((cdda_state & VN_CDDA_STATE_REPEAT) ? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT)
+#ifndef VN_CDDA_RESUME_AFTER_DATA_READ
+#define VN_CDDA_RESUME_AFTER_DATA_READ 0
+#endif
 #define REQUEST_SPRITE_REFRESH_FULL() (pending_sprite_refresh = VN_SPRITE_REFRESH_FULL)
 #define REQUEST_SPRITE_REFRESH_PATTERNS() do { \
     if (pending_sprite_refresh != VN_SPRITE_REFRESH_FULL) pending_sprite_refresh = VN_SPRITE_REFRESH_PATTERNS; \

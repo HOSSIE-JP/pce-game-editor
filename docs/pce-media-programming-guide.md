@@ -1,4 +1,4 @@
-﻿# PCE 画像・スプライト・ADPCM・CD-DA プログラミングガイド
+# PCE 画像・スプライト・ADPCM・CD-DA プログラミングガイド
 
 このガイドは、PCE Game Editor の現行実装における背景画像、スプライト表示、ADPCM 再生、CD-DA 再生の API を、開発者が実装に使える形でまとめたものです。
 
@@ -36,7 +36,7 @@ flowchart LR
 | 背景画像を表示する | `importAssetImage({ kind: "background" })` | `image` | `background` | `pce_editor_bg_asset_t` | `set_background()` / `upload_bg_graphics()` |
 | スプライトを表示する | `importAssetImage({ kind: "sprite" })` | `sprite` | `sprite` | `pce_editor_sprite_asset_t`, `pce_vn_sprite_anim_t` | `refresh_scene_sprites()` / `show_character_sprite_frame()` |
 | ADPCM を鳴らす | `importAssetAudio({ kind: "adpcm" })` | `adpcm` | `audio` または `message.voiceAssetId` | `pce_editor_adpcm_asset_t` | `play_adpcm_voice()` / `stop_adpcm_voice()` |
-| CD-DA を鳴らす | `importAssetAudio({ kind: "cdda-track" })` | `cdda-track` | `audio` | `pce_editor_cdda_asset_t` | `play_cdda_track()` / `stop_cdda_track()` |
+| CD-DA を鳴らす | `importAssetAudio({ kind: "cdda-track" })` | `cdda-track` | `audio` | `pce_editor_cdda_asset_t` | `cdda_audio_command()` / `cdda_command_impl()` |
 | PSG を鳴らす | PSG asset を登録 | `psg-song` / `psg-sfx` | `audio` (`kind: "psg"`) | `pce_editor_psg_asset_t` | `play_psg_asset()` / `tick_psg()` / `stop_psg()` |
 | 入力で分岐する | — | — | `inputcheck` | `pce_vn_command_t` | メインループの sync/async 入力ウォッチャ + `jump_to_command()` |
 | 短い文字をスプライトで重ねる | — | — | `spritetext` | `pce_vn_command_t` + `pce_vn_font_sprite_data` | `draw_spritetext_slots()` / `upload_font_sprite_patterns()` / `tick_spritetext()` |
@@ -68,7 +68,7 @@ const voice = await window.electronAPI.importAssetAudio({
   sourcePath: "/absolute/path/voice.wav",
   kind: "adpcm",
   id: "voice_01",
-  sampleRate: 16000,
+  sampleRate: 8000,
   loop: false
 });
 
@@ -78,7 +78,7 @@ const processedVoice = await audioConvertUi.openAudioConvertModal({
   kind: "adpcm",
   picked: { sourcePath: "/absolute/path/voice.mp3", fileName: "voice.mp3", ext: ".mp3" },
   targetFileName: "voice_01.wav",
-  defaults: { sampleRate: 16000, mono: true }
+  defaults: { sampleRate: 8000, mono: true }
 });
 
 await window.electronAPI.importAssetAudio({
@@ -272,22 +272,20 @@ ADPCM は WAV から `assets/generated/<id>/adpcm.bin` へ変換されます。C
   "type": "adpcm",
   "source": "assets/adpcm/voice_01.wav",
   "options": {
-    "sampleRate": 16000,
+    "sampleRate": 8000,
     "loop": false,
-    "stream": false,
     "adpcmAddress": 0,
-    "divider": 14
+    "divider": 12
   }
 }
 ```
 
 | option | 範囲/既定 | 説明 |
 |---|---:|---|
-| `sampleRate` | `4000..32000`, 既定 `16000` | ADPCM 変換時の目標 sample rate |
-| `loop` | `false` | buffered 再生では repeat mode のまま runtime が停止 frame を管理し、true streaming では loop 再発行に使う |
-| `stream` | `false` | `true` の場合は preload を行わない。**ただし ADPCM RAM に収まる音声は安定した buffered 経路で再生し**、`pce_cdb_adpcm_stream()` による真の CD streaming は ADPCM RAM に収まらない大きい asset のときだけ使う |
+| `sampleRate` | `4000..32000`, 既定 `8000` | ADPCM 変換時の目標 sample rate。標準はCD読み込み量を抑えるため 8000Hz |
+| `loop` | `false` | buffered 再生では repeat mode のまま runtime が停止 frame を管理し、loop 有効時は frame counter で再発行する |
 | `adpcmAddress` | `0..65535` | ADPCM RAM 上の読み込み先 address |
-| `divider` | `0..15`, 通常は自動 | ADPCM hardware / `pce_cdb_adpcm_stream()` に渡す ADPCM 再生 rate code。未指定時だけ `sampleRate` から自動計算する |
+| `divider` | `0..15`, 通常は自動 | ADPCM hardware に渡す ADPCM 再生 rate code。未指定時だけ `sampleRate` から自動計算する |
 
 ADPCM の `divider` は音量ではなく再生速度です。PCE Game Editor は `divider` 未指定時に、`32000 / (16 - code)` が `sampleRate` に最も近い `0..15` の code を自動計算します。代表値は `32000Hz -> 15`, `16000Hz -> 14`, `8000Hz -> 12`, `4000Hz -> 8` です。`divider` を明示した場合は保存値をそのまま使い、runtime 側でも旧式値としての補正は行いません。
 
@@ -295,11 +293,9 @@ ADPCM の `divider` は音量ではなく再生速度です。PCE Game Editor �
 
 1 asset あたりの安定再生時間は、おおよそ `maxBytes * 2 / sampleRate` 秒です。`adpcmAddress: 0` の direct-buffered 上限 32767 bytes なら、16000Hz で約 4.09 秒、8000Hz で約 8.19 秒です。`adpcmAddress` を 32769 以上にすると `65536 - adpcmAddress` が先に効くため、その分だけ短くなります。
 
-`stream: true` の ADPCM は scene 入場時の内部 preload を行いません。**ただし direct-buffered 安全上限（`min(32767, 65536 - adpcmAddress)` bytes）に収まる音声は、`stream: true` でも安定した buffered 経路（`pce_cdb_adpcm_read_from_cd()` → direct ADPCM playback）で再生します。** buffered playback は System Card BIOS の `pce_cdb_adpcm_play()` を使わず、ADPCM read address / `0xffff` length / divider を直接 latch して repeat mode で開始します。通常は generated `play_frames` より数 frame 早く runtime が direct stop / loop restart します。CD unit IRQ と System Card pending latch は runtime 側で消し、BIOS の完了 IRQ path に戻さないことで、終端後の repeat wrap と PSG/VDC 停止を抑えます。ADPCM RAM への CD load は既定4 sector単位に分け、チャンクごとの settle wait と ADPCM busy 解除を終えてから次のチャンクへ進みます。`pce_cdb_adpcm_stream()` による真の CD streaming は、direct-buffered 安全上限を超える大きい asset のときだけ使います。これは真の streaming が System Card BIOS の非同期 external IRQ で CD から ADPCM ring buffer を供給し続ける方式で、VBlank/VDC を IRQ なしの VDC status polling で自前所有するこの runtime と衝突し、buffer underrun によるノイズ・隣接 asset セクタの読み込み（再生中に「別の音声」が混入）・CD エンジンのハングを起こすためです。真の streaming を使う大きい asset では、streaming 中に CD data read を同時に使えないため、BG/sprite の表示データや別 ADPCM 読み込みは streaming 開始前に済ませてください。streaming asset の loop は generated catalog の `play_frames` で再発行します。
+ADPCM は VN runtime / editor ともに buffered direct playback 専用です。buffered playback は System Card BIOS の `pce_cdb_adpcm_play()` を使わず、ADPCM read address / `0xffff` length / divider を直接 latch して repeat mode で開始します。通常は generated `play_frames` より数 frame 早く runtime が direct stop / loop restart します。CD unit IRQ と System Card pending latch は runtime 側で消し、BIOS の完了 IRQ path に戻さないことで、終端後の repeat wrap と PSG/VDC 停止を抑えます。ADPCM RAM への CD load は既定1 sector単位に分け、チャンクごとの settle wait と ADPCM busy 解除を終えてから次のチャンクへ進みます。`pce_cdb_adpcm_stream()` による true CD streaming は VN runtime 機能から削除済みです。長い message voice は `splitPolicy: "auto"` で direct-buffered 安全上限（既定 address では 32767 bytes）以下の part へ分けるか sample rate を下げ、buffered playback で再生してください。
 
-通常表示中または PSG 再生中は、runtime が真の CD streaming を開始しません。長い message voice は `splitPolicy: "auto"` で direct-buffered 安全上限（既定 address では 32767 bytes）以下の part へ分けるか sample rate を下げ、buffered playback で再生してください。
-
-ADPCM のノイズ原因を切り分ける場合は `samples/pce-adpcm-diagnostic` を使います。`node scripts/pce-adpcm-diagnostic.js analyze <source.wav> <adpcm.bin> <sampleRate>` は generated ADPCM を OKI/MSM5205 と旧実験形式、`lsn-first` / `msn-first` の各組み合わせで decode し、元 WAV との RMS error、SNR、correlation を表示します。`node scripts/pce-adpcm-diagnostic.js build` は VN runtime を通らず、System Card BIOS の `pce_cdb_adpcm_reset()` / `pce_cdb_adpcm_read_from_cd()` / `pce_cdb_adpcm_play()` / `pce_cdb_adpcm_stream()` だけを呼ぶ最小 CD-ROM2 ISO を生成します。
+ADPCM のノイズ原因を切り分ける場合は `samples/pce-adpcm-diagnostic` を使います。`node scripts/pce-adpcm-diagnostic.js analyze <source.wav> <adpcm.bin> <sampleRate>` は generated ADPCM を OKI/MSM5205 と旧実験形式、`lsn-first` / `msn-first` の各組み合わせで decode し、元 WAV との RMS error、SNR、correlation を表示します。`node scripts/pce-adpcm-diagnostic.js build` は VN runtime を通らず、System Card BIOS の `pce_cdb_adpcm_reset()` / `pce_cdb_adpcm_read_from_cd()` / `pce_cdb_adpcm_play()` だけを呼ぶ最小 CD-ROM2 ISO を生成します。
 
 ADPCM 再生後の VN 進行確認は、標準 EmulatorJS/WASM だけで判断しないでください。Geargrafx / 外部エミュレーターで正常に message advance できる一方、標準 WASM の `mednafen_pce-wasm.data` だけ ADPCM 後に入力待ちから進まないケースがあります。この場合は、ADPCM command を抜いた比較 build、frame counter、`simulateInput()` 直接注入で入力経路を切り分け、Geargrafx で正常な runtime を標準 WASM 向けに壊す変更を入れないでください。特に「ADPCM 再生中に次 command へ進んだ」だけでは合格にせず、voice の自然終了後に次 message へ到達するかを ADPCMあり/なしの最小 scene で確認します。運用手順と再発防止チェックリストは `docs/pce-testplay-debugging.md` にまとめています。
 
@@ -490,7 +486,7 @@ VN runtime は PSG asset の step パターンをフレーム駆動シーケン�
 
 PSG asset には全体音量 `options.volume`（0〜100%、既定 100）があり、build 時に `normalizePsgPatternEntries()` が各 step の `volume`(0..31) を `round(volume * volume% / 100)` でスケールしてから serialize / C 生成します。エディタの WebAudio プレビュー（`normalizePsgPreviewPattern()`）も同じ式で同じ値を鳴らすため、プレビューと実機の音量が一致します。runtime のデータ構造・再生コードは非変更です。
 
-CD ロードと PSG の同時再生について: CD 転送待ち（`cd_transfer_wait()`）では `engine_service_blocking()` が待ち中に見えた実 VBlank credit を PSG/ADPCM へ渡し、さらに `VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES`（既定 `1u`）を **PSG 専用**に加えます。BIOS helper 自体の中で進んだ時間は cooperative sampler から見えないことがあるため、この小さい補償で BG load / sprite load / ADPCM RAM load 中の PSG テンポ落ちを抑えます。補償は `engine_apply_psg_credit()` だけに入り、ADPCM の残フレームや message timing は進めません。`VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS`（既定 `4096u`）は BIOS helper 後の短い settle poll 上限で、旧 `65535u` のように各転送へ大きい人工待ちを足さないためのものです。bank133 overlay、scene pack cache、bank134/135 PSG pattern のように RAM bank へ直接読む payload は `VN_CD_RAM_READ_CHUNK_SECTORS`（既定 `4u`）までまとめて CD read します。VRAM 転送は 1 sector scratch 経由なので従来どおり 1 sector 単位です。PSG 再生中の VRAM 転送は約32 byte sliceごとに区切り、slice 後に `engine_service()` を呼んで実 credit だけを消費します。sprite SATB 全転送と pattern/attr 差分更新では、非再入の VDC 書き込み中には触らず、VDC ロック直前/直後で同じ service を呼びます。通常フレームは main loop 先頭ではなく `delay_frame()` 内で VBlank 待ち直後に進めます。PSG が鳴っていない場合は最大 1 sector までまとめて転送します。
+CD ロードと PSG の同時再生について: CD 転送待ち（`cd_transfer_wait()`）では `engine_service_blocking()` が待ち中に見えた実 VBlank credit を PSG/ADPCM へ渡し、さらに `VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES`（既定 `10u`）を **PSG 専用**に加えます。BIOS helper 自体の中で進んだ時間は cooperative sampler から見えないことがあるため、この補償で BG load / sprite load / ADPCM RAM load 中の PSG テンポ落ちを抑えます。補償は `engine_apply_psg_credit()` だけに入り、ADPCM の残フレームや message timing は進めません。`VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS`（既定 `4096u`）は BIOS helper 後の短い settle poll 上限で、旧 `65535u` のように各転送へ大きい人工待ちを足さないためのものです。bank133 overlay、scene pack cache、bank134/135 PSG pattern のように RAM bank へ直接読む payload は `VN_CD_RAM_READ_CHUNK_SECTORS`（既定 `2u`）までまとめて CD read します。VRAM 転送は 1 sector scratch 経由なので従来どおり 1 sector 単位です。PSG 再生中の VRAM 転送は約16 byte sliceごとに区切り、slice 後に `engine_service()` を呼んで実 credit だけを消費します。sprite SATB 全転送と pattern/attr 差分更新では、非再入の VDC 書き込み中には触らず、VDC ロック直前/直後で同じ service を呼びます。通常フレームは main loop 先頭ではなく `delay_frame()` 内で VBlank 待ち直後に進めます。PSG が鳴っていない場合は最大 1 sector までまとめて転送します。
 
 ### CD-DA 再生 command
 
@@ -511,7 +507,7 @@ CD ロードと PSG の同時再生について: CD 転送待ち（`cd_transfer_
 
 明示的な `preload` command は廃止済みです。scene 入場時の runtime は、scene pack を active cache (`4096` bytes) へ読み込んでから、最初の `message` / `choice` / `wait` / `jump` までに必要な asset だけを先読みします。scene 後半の背景・sprite・ADPCM は必要になった時点で読み込むため、起動直後や scene 切替直後の長い同期ロードを避けやすくなります。BG/Sprite は各 `background` / `sprite` command で初めて固定 VRAM 領域へ反映され、VRAM/BAT/SATB 転送、必要な fade、表示 layer の再有効化まで同期完了してから次 command へ進みます。scene 末尾の表示 command がメッセージ待ちを飛び越えて先に見えることはありません。script pack 読み込みも CD data read なので、CD-DA と同時には行えません。raw visual payload は CD read 中だけ CD-DA を pause し、sector が `cd_transfer_scratch` に入った後の VRAM/BAT copy では CD-DA を再開します。CD-DA の中断をさらに短くしたい scene では、BG/Sprite 表示 command 自体を CD-DA 開始前に寄せてください。
 
-現行 runtime は ADPCM の cache 状態を `loaded_adpcm_valid` / `loaded_adpcm_index` で管理します。scene 入場時の内部 preload や実際の `audio` / `message.voiceAssetId` 再生時に必要な ADPCM を読み込み、すでに同じ ADPCM が読み込まれている場合は controller を reset/load しません。音声の確実な再生制御は `audio` command または `message.voiceAssetId` を主 API にしてください。
+現行 runtime は ADPCM の cache 状態を `loaded_adpcm_valid` / `loaded_adpcm_index` で管理します。build は `message.voiceAssetId` に必要な内部 `Cache Load ADPCM` を挿入し、分岐やADPCM cache操作より前にある最初の message voice については scene 先頭へ hoist します。同じscene内で別ADPCMの message voice が続く場合は、そのmessage直前でADPCM RAMを読み替えます。実際の `audio` / `message.voiceAssetId` 再生時に必要な ADPCM を読み込み、すでに同じ ADPCM が読み込まれている場合は controller を reset/load しません。音声の確実な再生制御は `audio` command または `message.voiceAssetId` を主 API にしてください。
 
 `cache` command は runtime cache の invalidation と、明示 asset load を扱います。`action: "clear"` は読み込み済み判定だけを落とします。
 
@@ -623,7 +619,6 @@ classDiagram
     adpcm_address
     divider
     loop
-    stream
     play_frames
     cd
   }
@@ -725,14 +720,12 @@ sequenceDiagram
   RT->>AD: direct latch address/length/divider, PLAY|REPEAT
 ```
 
-buffered playback の停止は ADPCM hardware の PLAY bit を直接落とします。true streaming だけは System Card BIOS の `pce_cdb_adpcm_stream()` / `pce_cdb_adpcm_stop()` 経路を使います。
+buffered playback の停止は ADPCM hardware の PLAY bit を直接落とします。VN runtime は true CD streaming 経路を使いません。
 
-CD-ROM2 runtime は ADPCM RAM への読み込みに llvm-mos SDK の `pce_cdb_adpcm_read_from_cd()` / `pce_cdb_adpcm_read_from_ram()` を使います。direct-buffered 安全上限に収まる buffered asset は、その後の再生開始と停止を ADPCM hardware への direct latch / direct stop で行います。`adpcm.options.stream` が `true` の asset は scene 入場時の内部 preload をスキップしますが、安全上限に収まる場合は play 時に同じ buffered 経路（read_from_cd → direct playback）で再生し、`ad_stream_start` 相当の `pce_cdb_adpcm_stream()` による真の streaming は安全上限を超える大きい asset のときだけ使います。
+CD-ROM2 runtime は ADPCM RAM への読み込みに llvm-mos SDK の `pce_cdb_adpcm_read_from_cd()` / `pce_cdb_adpcm_read_from_ram()` を使います。direct-buffered 安全上限に収まる buffered asset は、その後の再生開始と停止を ADPCM hardware への direct latch / direct stop で行います。安全上限を超える voice は `splitPolicy: "auto"` や sample rate 低下で分割し、runtime で true streaming へ fallback しません。
 
-ただし通常表示中または PSG 再生中の真の streaming 開始は拒否します。Geargrafx では System Card external IRQ が実 VDC R5 を blank 側へ戻し、PSG の cooperative service も止めるため、buffered playback に収まらない voice は安全のため鳴らしません。
-
-ADPCM RAM への読み込みが成功した場合、RAM source は ADPCM controller の busy bit が落ちるまで待ち、CD source は既定4 sector単位で `pce_cdb_adpcm_read_from_cd()` を分割し、チャンクごとの `cd_transfer_wait()` と同じ busy bit 解除を確認します。CD 側の sector 転送が残ったまま external IRQ を閉じると、Geargrafx では SCSI phase が `COMMAND`、`sectors_left` が残った状態で止まることがあるためです。buffered playback では direct latch で再生を開始します。再生開始時には直前の buffered ADPCM を direct stop してから再生し、true streaming のときだけ BIOS stop/reset 経路を使います。ADPCM の data size、address、divider、loop、stream、play_frames、CD sector は BIOS 呼び出し前に runtime-owned snapshot へ直接コピーし、CD / ADPCM BIOS helper のあとに MPR が変わっても bank128 の asset metadata を読み間違えないようにします。さらに再生中は scene 入場時の内部 preload が ADPCM controller を reset しないため、音声 command の直後に背景や sprite の読み込みが入っても再生中サンプルを破壊しません。真の ADPCM streaming（`pce_cdb_adpcm_stream()`）は direct-buffered 安全上限を超える `stream: true` asset だけが対象で、収まる音声は buffered 経路で再生します。非loop の buffered / streaming 再生は、再生開始後に `pce_cdb_adpcm_status()` の stopped bit を毎 frame 監視せず、generated catalog の `play_frames` で自然終了を管理します。buffered direct playback は hardware repeat mode の wrap より数 frame 早く PLAY を落とし、自然終了後に追加の `pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()` は発行しません。標準 EmulatorJS/WASM core では buffered ADPCM one-shot の完了IRQで CPU が止まることがあるため、runtime は ADPCM load / CD data read / true stream stop など BIOS 操作時だけ external IRQ を有効にし、非loop buffered 再生中は完了IRQをマスクします。streaming loop も同じ frame counter で再発行します。ADPCM BIOS call 直後の message advance edge が落ちることもあるため、ADPCM 再生開始後は次の joypad edge 判定を一度だけ初期化します。このとき現在押されている button を baseline にし、押しっぱなしの I/RUN を新規 edge として扱いません。ADPCM BIOS helper は表示状態や VDC timing register を変えることがあるため、runtime は ADPCM load/stream 後に VBlank へ寄せてから 256x224 の解像度、BG size、SATB start、scroll、R5 shadow を再適用します。表示中なら display を戻し、暗転中の内部 preload では意図した暗転を維持します。VN の audio command は buffered direct playback / `pce_cdb_adpcm_stream()` を開始したら待ち状態を返さず次の command へ進みます。ただし未読み込みの通常 ADPCM は、再生開始前の ADPCM RAM 読み込みだけ同期的に完了待ちします。CD-DA 再生中に ADPCM や画像/sprite の CD data file を読む場合は、CD drive を data read に戻すため runtime が CD-DA を pause します。
-Generated C の `data_size` は `unsigned long` field として出力し、長尺 ADPCM でも llvm-mos の16bit `unsigned int` literal に丸められないようにします。ここが丸まると、streaming の再生長や CD sector count を誤り、音声の途中切れや過走につながります。
+ADPCM RAM への読み込みが成功した場合、RAM source は ADPCM controller の busy bit が落ちるまで待ち、CD source は既定1 sector単位で `pce_cdb_adpcm_read_from_cd()` を分割し、チャンクごとの `cd_transfer_wait()` と同じ busy bit 解除を確認します。busy 解除待ち中は `VN_ADPCM_BUSY_PSG_POLL_INTERVAL`（既定 `16u`）ごとに `VN_ADPCM_BUSY_PSG_POLL_ITERATIONS`（既定 `192u`）ぶんの PSG 専用 VBlank sampler を挟み、CD helper から戻った後の停止感を減らします。sampler が実 VBlank を拾えなかった短い窓だけ `VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES`（既定 `1u`）を PSG 専用に滴下します。さらに ADPCM CD read chunk 後は `VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES`（既定 `2u`）を PSG 専用に足し、BIOS helper 内で見えない時間を補います。buffered playback では direct latch で再生を開始します。再生開始時には直前の buffered ADPCM を direct stop してから再生します。ADPCM の data size、address、divider、loop、play_frames、CD sector は BIOS 呼び出し前に runtime-owned snapshot へ直接コピーし、CD / ADPCM BIOS helper のあとに MPR が変わっても bank128 の asset metadata を読み間違えないようにします。さらに再生中は scene 入場時の内部 preload が ADPCM controller を reset しないため、音声 command の直後に背景や sprite の読み込みが入っても再生中サンプルを破壊しません。非loop の buffered 再生は、System Card BIOS の stopped bit を毎 frame 監視せず、generated catalog の `play_frames` で自然終了を管理します。buffered direct playback は hardware repeat mode の wrap より数 frame 早く PLAY を落とし、自然終了後に追加の `pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()` は発行しません。標準 EmulatorJS/WASM core では buffered ADPCM one-shot の完了IRQで CPU が止まることがあるため、runtime は ADPCM load / CD data read / CD-DA 操作など BIOS 操作時だけ external IRQ を有効にし、非loop buffered 再生中は完了IRQをマスクします。ADPCM BIOS call 直後の message advance edge が落ちることもあるため、ADPCM 再生開始後は次の joypad edge 判定を一度だけ初期化します。このとき現在押されている button を baseline にし、押しっぱなしの I/RUN を新規 edge として扱いません。ADPCM BIOS helper は表示状態や VDC timing register を変えることがあるため、runtime は ADPCM load 後に VBlank へ寄せてから 256x224 の解像度、BG size、SATB start、scroll、R5 shadow を再適用します。表示中なら display を戻し、暗転中の内部 preload では意図した暗転を維持します。VN の audio command は buffered direct playback を開始したら待ち状態を返さず次の command へ進みます。ただし未読み込みの通常 ADPCM は、再生開始前の ADPCM RAM 読み込みだけ同期的に完了待ちします。CD-DA 再生中に ADPCM や画像/sprite の CD data file を読む場合は、CD drive を data read に戻すため runtime が CD-DA を pause します。
+Generated C の `data_size` は `unsigned long` field として出力し、長尺 ADPCM でも llvm-mos の16bit `unsigned int` literal に丸められないようにします。
 
 ADPCM 後の進行停止を直す場合は、`docs/pce-testplay-debugging.md` の「標準 WASM だけ ADPCM 後に進まない場合」を先に確認してください。command scheduler、joypad edge、ADPCM 完了IRQによる CPU 停止は見た目が似ているため、入力なしで完了後の next message へ進む最小 scene と、`voiceAssetId` を外した対照 build の両方を標準 WASM core で確認してから runtime を変更します。
 
@@ -744,20 +737,20 @@ sequenceDiagram
   participant RT as pce_vn_runtime.c
   participant CDB as CD block
   Scene->>RT: kind=cdda, action=play, asset_index
-  RT->>CDB: pce_cdb_cdda_play(start_sector, UNTIL_END, ONE_SHOT)
-  RT->>RT: service_cdda_playback() decrements generated play_frames
+  RT->>RT: visual_code cdda_command_impl decodes catalog record
+  RT->>CDB: pce_cdb_cdda_play(start_sector, UNTIL_END, ONE_SHOT or REPEAT)
   alt loop
-    RT->>CDB: reissue pce_cdb_cdda_play(start_sector, UNTIL_END, ONE_SHOT)
-  else one-shot end
-    RT->>CDB: pce_cdb_cdda_pause()
+    CDB->>CDB: System Card repeat mode restarts track range
+  else CD data read starts
+    CDB->>CDB: CD-DA cannot continue while drive reads data sectors
   end
   Scene->>RT: kind=cdda, action=stop
   RT->>CDB: pce_cdb_cdda_pause()
 ```
 
-CD-DA は `cdda-track.options.track` 順で CUE に並べられ、asset 生成時に各 track の開始 sector が `pce_editor_cdda_asset_t.start_sector` へ保存されます。現行 runtime では track が 2 未満なら再生しません。再生開始時に古い CD-DA があれば `pce_cdb_cdda_pause()` で止め、`PCE_CDB_LOCATION_TYPE_SECTOR` と `PCE_CDB_LOCATION_TYPE_UNTIL_END` を指定して `pce_cdb_cdda_play()` を呼びます。BIOS へ track 番号や sector/time 終端を渡す形は、track 3 指定時に track 2 から流れたり GearGrafx 上で PLAYING へ遷移しなかったりするケースがあったため使っていません。また SubQ polling は再生を IRQ stop させることがあったため、runtime の loop/stop 判定にも使いません。
+CD-DA は `cdda-track.options.track` 順で CUE に並べられ、asset 生成時に各 track の開始 sector が catalog record へ保存されます。現行 runtime では track が 2 未満なら再生しません。再生開始時に古い CD-DA があれば `pce_cdb_cdda_pause()` で止め、`PCE_CDB_LOCATION_TYPE_SECTOR` と `PCE_CDB_LOCATION_TYPE_UNTIL_END` を指定して `pce_cdb_cdda_play()` を呼びます。BIOS へ track 番号や sector/time 終端を渡す形は、track 3 指定時に track 2 から流れたり GearGrafx 上で PLAYING へ遷移しなかったりするケースがあったため使っていません。また SubQ polling は再生を IRQ stop させることがあったため使いません。
 
-track 境界と loop は、asset 生成時に WAV の sample count から算出した `play_frames` で管理します。`play_frames` はトラック境界へ食い込まないように短い guard frame を差し引いた値です。CD-DA は BIOS repeat に任せず `PCE_CDB_CDDA_PLAY_ONE_SHOT` で開始し、loop 有効時はこのカウンターが 0 になった時点で同じ asset の開始 sector へ `pce_cdb_cdda_play()` を再発行します。loop 無効時は `pce_cdb_cdda_pause()` で止めます。
+CD-DA の play/stop 本体は bank121 の visual-code command (`VN_VISUAL_CACHE_OP_CDDA_COMMAND`) に置き、bank130 には小さい dispatch wrapper だけを残します。loop は System Card の `PCE_CDB_CDDA_PLAY_REPEAT` に任せます。CD-DA は data read と同じ CD drive を使うため、BG / sprite / ADPCM / scene pack などの CD data file 読み込み中に継続再生はできません。現行既定では `VN_CDDA_RESUME_AFTER_DATA_READ 0` として、CD data read 前にCD-DAをpauseして停止扱いにしますが、自動resume管理は常駐 bank へ載せません。ロード中にも音楽を維持したい場合は PSG BGM を使います。
 
 ## 音量とフェード
 
@@ -791,7 +784,7 @@ ADPCM の `divider` は再生周波数/速度側の値で、音量ではあり�
 
 ### ADPCM ボイスを message に付ける
 
-1. `importAssetAudio({ kind: "adpcm", id: "voice_01", sampleRate: 16000 })` で登録する。
+1. `importAssetAudio({ kind: "adpcm", id: "voice_01", sampleRate: 8000 })` で登録する。
 2. message command に `"voiceAssetId": "voice_01"` を指定する。
 3. 通常経路では、message 開始時に runtime が ADPCM を読み込み、buffered direct playback を開始する。
 
@@ -819,7 +812,7 @@ ADPCM の `divider` は再生周波数/速度側の値で、音量ではあり�
 | ADPCM loop | `adpcm.options.loop` は runtime 再生に反映される |
 | ADPCM split | `splitPolicy: "auto"` では 16-bit size/address 制約に合わせて複数 asset に分割する。自動連続再生はしない |
 | ADPCM format | generated `adpcm.bin` は OKI/MSM5205 互換 4-bit adaptive data の高位 nibble 先 (`msn-first`)。旧 `pce-cd-adpcm-experimental`、`lsn-first`、未記録/古い `encoderVersion` など古い generated file は source WAV があれば build/source 生成時に再生成する |
-| ADPCM streaming | `adpcm.options.stream: true` は preload をスキップするが、direct-buffered 安全上限に収まる音声は buffered 経路で再生する。`pce_cdb_adpcm_stream()` による真の CD streaming は安全上限を超える大きい asset のときだけ使う |
+| ADPCM playback | VN runtime / editor は buffered direct playback 専用。true CD streaming オプションはない |
 | ADPCM preload | scene 入場時の内部 preload、`cache load`、実再生時の読み込みが ADPCM cache を管理する。再生制御は `audio` command または `message.voiceAssetId` を主 API にする |
 | CD-DA loop | `cdda-track.options.loop` は generated `play_frames` 到達時の再発行 / pause に反映される |
 | CD-DA and data read | CD-DA 再生中に ADPCM/BG/sprite などの CD data file を読む場合、runtime は data read の間だけ CD-DA を pause する。raw BG/sprite は sector read 後の VRAM/BAT copy では再開済み。標準 runtime では BG/Sprite visual RAM cache は無効 |
