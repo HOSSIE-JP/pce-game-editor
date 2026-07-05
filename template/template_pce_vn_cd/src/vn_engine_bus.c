@@ -265,15 +265,17 @@ static void VN_RESIDENT_CODE vn_cd_bios_irq_open(void)
 #endif
 }
 
-/* Settle wait paired with one CD chunk read/write. This used to be a bare
-   65535-iteration busy loop followed by a blind per-sector PSG credit
-   estimate; engine_time §5.1 replaces the estimate with time_blocked_poll(),
-   which spins the same bound while measuring real VBlank edges, then
-   engine_service_blocking() folds that measured credit into PSG/ADPCM. No
-   synthetic credit is added here. */
+/* Settle wait paired with one CD BIOS read/write. engine_service_blocking()
+   records any VBlank edges visible during the wait and feeds that real credit
+   to PSG/ADPCM. The BIOS helper itself can still consume time before this
+   sampler runs, so add a tiny PSG-only estimate per chunk; it intentionally
+   does not advance ADPCM/message timing. */
 static void cd_transfer_wait(void)
 {
-    engine_service_blocking(65535u);
+    engine_service_blocking(VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS);
+#if VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES
+    engine_apply_psg_credit((uint8_t)VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES, 1u);
+#endif
 }
 
 static void VN_BANKED_CODE quiet_cd_unit_irqs(void);
@@ -443,16 +445,19 @@ static uint8_t VN_BANKED_CODE vn_overlay_dispatch(uint8_t op, uint16_t a0, uint1
    by PSG step application, which temporarily maps MPR6 to bank134/135. True ADPCM
    streaming leaves the System Card external IRQ enabled; letting it fire while
    those mappings/register sequences are transient can corrupt the restored video
-   state. Factoring the lock+swap here keeps each named dispatcher tiny instead of
-   inlining the full sequence at every call site. */
+   state. Restore the caller's slot4 bank rather than forcing bank130: this helper
+   can be reached while bank121/133 code is on the stack through cooperative
+   blocking-work service. Factoring the lock+swap here keeps each named dispatcher
+   tiny instead of inlining the full sequence at every call site. */
 static uint8_t VN_BANKED_CODE vn_overlay_dispatch_locked(uint8_t op, uint16_t a0, uint16_t a1, uint8_t a2)
 {
 #if defined(__PCE_CD__)
     uint8_t r;
+    uint8_t slot4_bank = vn_slot4_current_bank();
     uint8_t irq = vn_vdc_irq_lock();
     pce_ram_bank133_map();
     r = (uint8_t)VN_OVERLAY_CALL(op, a0, a1, a2);
-    pce_ram_bank130_map();
+    vn_slot4_map_bank(slot4_bank);
     vn_vdc_irq_unlock(irq);
     return r;
 #else
@@ -487,6 +492,7 @@ static uint8_t VN_OVERLAY_ENTRY_CODE vn_overlay_entry(uint8_t op, uint16_t a0, u
     if (o == VN_OVERLAY_OP_SET_VARIABLE) { set_variable_value_impl((signed int)(int16_t)a0, (signed int)(int16_t)a1); return 0u; }
     if (o == VN_OVERLAY_OP_APPLY_PSG_STEP) { psg_apply_step_row_impl(a0); return 0u; }
     if (o == VN_OVERLAY_OP_COPY_ADPCM_VOICE) return copy_adpcm_voice_impl((signed int)(int16_t)a0);
+    if (o == VN_OVERLAY_OP_APPLY_PSG_CREDIT) { engine_apply_psg_credit_impl((uint8_t)a0, (uint8_t)a1); return 0u; }
     return 0u;
 }
 #endif
@@ -514,12 +520,13 @@ static void load_overlay_code(void)
     pce_ram_bank133_map();
     while (remaining)
     {
-        const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
+        const uint16_t chunk = remaining > VN_CD_RAM_READ_CHUNK_BYTES ? VN_CD_RAM_READ_CHUNK_BYTES : remaining;
+        uint8_t sectors = VN_CD_CHUNK_SECTOR_COUNT(chunk);
         (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, dest, chunk);
         cd_transfer_wait();
         dest = (uint16_t)(dest + chunk);
         remaining = (uint16_t)(remaining - chunk);
-        cd_sector_advance(&sector);
+        while (sectors--) cd_sector_advance(&sector);
     }
     sync_cd_external_irq_after_bios_call();
     pce_ram_bank130_map();

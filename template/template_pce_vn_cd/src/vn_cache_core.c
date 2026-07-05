@@ -153,8 +153,12 @@ static void VN_VISUAL_CACHE_CODE visual_cache_invalidate_impl(uint8_t scope)
 static void VN_VISUAL_CACHE_CODE cd_transfer_wait_visual_cache_impl(void)
 {
     /* Same settle-wait contract as cd_transfer_wait() (vn_engine_bus.c): the
-       measured-credit path replaces the old blind per-sector PSG estimate. */
-    engine_service_blocking(65535u);
+       measured-credit path feeds ADPCM/PSG, then a PSG-only estimate covers
+       time spent inside the BIOS helper before the sampler regains control. */
+    engine_service_blocking(VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS);
+#if VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES
+    engine_apply_psg_credit((uint8_t)VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES, 1u);
+#endif
 }
 
 static void VN_VISUAL_CACHE_CODE vram_copy_sliced_from_visual_code_impl(uint16_t dest, const uint8_t *source, uint16_t length)

@@ -1660,6 +1660,7 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   assert.match(runtime, /pce_ram_bank135_map\(\);[\s\S]*\(const pce_editor_psg_step_t \*\)psg_pattern_ram/);
   assert.match(runtime, /static void VN_BANKED_CODE2 psg_reset_pattern_cursors\(void\)/);
   assert.match(runtime, /#define VN_OVERLAY_OP_APPLY_PSG_STEP 18u/);
+  assert.match(runtime, /#define VN_OVERLAY_OP_APPLY_PSG_CREDIT 20u/);
   assert.match(runtime, /static uint16_t VN_OVERLAY_CODE psg_apply_step_span\([\s\S]*while \(cursor < count && pattern\[cursor\]\.step == step_no\)/);
   assert.match(runtime, /if \(cursor < first_count\)[\s\S]*pce_ram_bank134_map\(\);[\s\S]*cursor = psg_apply_step_span\(pattern, first_count, cursor, step_no\);/);
   assert.match(runtime, /if \(cursor >= first_count && psg_current->pattern_count > VN_PSG_PATTERN_BANK_ENTRIES\)[\s\S]*pce_ram_bank135_map\(\);[\s\S]*second_cursor = psg_apply_step_span\(pattern, second_count, second_cursor, step_no\);/);
@@ -1668,6 +1669,12 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   assert.match(runtime, /psg_step = 0u;\r?\n\s+psg_reset_pattern_cursors\(\);/);
   assert.match(runtime, /#define VN_VBLANK_CREDIT_MAX 8u/);
   assert.match(runtime, /#define VN_VBLANK_CREDIT_SERVICE_LIMIT 4u/);
+  assert.match(runtime, /#ifndef VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS\r?\n#define VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS 4096u\r?\n#endif/);
+  assert.match(runtime, /#ifndef VN_CD_RAM_READ_CHUNK_SECTORS\r?\n#define VN_CD_RAM_READ_CHUNK_SECTORS 4u\r?\n#endif/);
+  assert.match(runtime, /#define VN_CD_RAM_READ_CHUNK_BYTES \(\(uint16_t\)\(VN_CD_SECTOR_BYTES \* VN_CD_RAM_READ_CHUNK_SECTORS\)\)/);
+  assert.match(runtime, /#define VN_CD_CHUNK_SECTOR_COUNT\(bytes\) \(\(uint8_t\)\(\(\(uint16_t\)\(bytes\) \+ 2047u\) >> 11\)\)/);
+  assert.match(runtime, /#ifndef VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES\r?\n#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 1u\r?\n#endif/);
+  assert.match(runtime, /#ifndef VN_PSG_COMMIT_EACH_CREDIT_DURING_BLOCKING\r?\n#define VN_PSG_COMMIT_EACH_CREDIT_DURING_BLOCKING [01]\r?\n#endif/);
   assert.match(runtime, /#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 32u/);
   assert.match(runtime, /#define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES/);
   assert.match(runtime, /#define VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES\(\) \(\(psg_active && psg_current\) \? VN_VISUAL_VRAM_COPY_SLICE_BYTES : VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES\)/);
@@ -1678,7 +1685,12 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   // blocking(iterations) is used from inside blocking CD/ADPCM/BG work.
   assert.match(runtime, /static void VN_RESIDENT_CODE engine_service\(void\);/);
   assert.match(runtime, /static void VN_RESIDENT_CODE engine_service_blocking\(uint16_t iterations\);/);
-  assert.doesNotMatch(runtime, /service_psg_during_blocking_work|service_psg_during_blocking_frames|service_psg_during_visual_cache_work|service_psg_during_visual_cache_frames|service_psg_compensation_ticks|vn_consume_psg_synthetic_credit|vn_psg_synthetic_credit|VN_ADD_ESTIMATED_FRAME|VN_CD_CHUNK_ESTIMATED_FRAMES|VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES/);
+  assert.doesNotMatch(runtime, /service_psg_during_blocking_work|service_psg_during_blocking_frames|service_psg_during_visual_cache_work|service_psg_during_visual_cache_frames|service_psg_compensation_ticks|vn_consume_psg_synthetic_credit|vn_psg_synthetic_credit|VN_ADD_ESTIMATED_FRAME|VN_CD_CHUNK_ESTIMATED_FRAMES/);
+  assert.match(runtime, /static void cd_transfer_wait\(void\)[\s\S]*engine_service_blocking\(VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS\);[\s\S]*engine_apply_psg_credit\(\(uint8_t\)VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES, 1u\);/);
+  assert.match(runtime, /static void VN_VISUAL_CACHE_CODE cd_transfer_wait_visual_cache_impl\(void\)[\s\S]*engine_service_blocking\(VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS\);[\s\S]*engine_apply_psg_credit\(\(uint8_t\)VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES, 1u\);/);
+  assert.match(runtime, /static void load_overlay_code\(void\)[\s\S]*chunk = remaining > VN_CD_RAM_READ_CHUNK_BYTES \? VN_CD_RAM_READ_CHUNK_BYTES : remaining;[\s\S]*sectors = VN_CD_CHUNK_SECTOR_COUNT\(chunk\);[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, dest, chunk\);[\s\S]*while \(sectors--\) cd_sector_advance\(&sector\);/);
+  assert.match(runtime, /static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl\(void\)[\s\S]*chunk = bank_remaining > VN_CD_RAM_READ_CHUNK_BYTES \? VN_CD_RAM_READ_CHUNK_BYTES : bank_remaining;[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)&psg_pattern_ram\[offset\], chunk\);[\s\S]*while \(sectors--\) cd_sector_advance\(&sector\);/);
+  assert.match(runtime, /static void VN_BANKED_CODE load_visual_cache_code\(void\)[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, dest, VN_CD_SECTOR_BYTES\);[\s\S]*remaining--;[\s\S]*cd_sector_advance\(&sector\);/);
   assert.match(runtime, /volatile uint8_t vn_vblank_credit = 0;/);
   // Slot4 (MPR4) is time-shared by bank130 / bank133 overlay / bank121 visual
   // cache. Audio services must restore the CALLER's slot4 bank, not force
@@ -1686,6 +1698,7 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   // -> upload_sprite_pattern_words -> engine_service*) crashed into the I/O page
   // when PSG/ADPCM was active because its RTS landed in bank130 bytes.
   assert.match(runtime, /static void VN_RESIDENT_CODE service_adpcm_during_blocking_frames\(uint8_t frames, uint8_t restore_visual_cache\)[\s\S]*slot4_bank = vn_slot4_current_bank\(\);[\s\S]*while \(frames--\)[\s\S]*service_adpcm_playback\(\);[\s\S]*vn_slot4_map_bank\(slot4_bank\);/);
+  assert.match(runtime, /static uint8_t VN_BANKED_CODE vn_overlay_dispatch_locked\(uint8_t op, uint16_t a0, uint16_t a1, uint8_t a2\)[\s\S]*slot4_bank = vn_slot4_current_bank\(\);[\s\S]*pce_ram_bank133_map\(\);[\s\S]*VN_OVERLAY_CALL\(op, a0, a1, a2\);[\s\S]*vn_slot4_map_bank\(slot4_bank\);[\s\S]*vn_vdc_irq_unlock\(irq\);/);
   // TIMER IRQ credit is now the primary tempo source (Phase B). The ISR must
   // stay credit-only regardless: it acks the timer IRQ and bumps
   // vn_vblank_credit, nothing else.
@@ -1715,6 +1728,12 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   // unchanged (psg_advance may still reach the bank133 overlay through
   // psg_apply_step_row when a step boundary is crossed).
   assert.match(runtime, /static void VN_RESIDENT_CODE service_psg_advance\(uint8_t frames, uint8_t restore_visual_cache\)[\s\S]*slot4_bank = vn_slot4_current_bank\(\);[\s\S]*pce_ram_bank130_map\(\);[\s\S]*psg_advance\(frames\);[\s\S]*map_vn_data\(\);[\s\S]*vn_slot4_map_bank\(slot4_bank\);/);
+  assert.match(runtime, /static void VN_RESIDENT_CODE engine_apply_psg_credit\(uint8_t frames, uint8_t blocking_work\)[\s\S]*if \(!psg_active\) return;[\s\S]*vn_overlay_dispatch_locked\(VN_OVERLAY_OP_APPLY_PSG_CREDIT, frames, blocking_work, 0u\);/);
+  assert.match(runtime, /static void VN_OVERLAY_CODE engine_apply_psg_credit_impl\(uint8_t frames, uint8_t blocking_work\)[\s\S]*if \(!frames\) return;[\s\S]*if \(!psg_current\) return;[\s\S]*#if VN_PSG_COMMIT_EACH_CREDIT_DURING_BLOCKING[\s\S]*if \(blocking_work\)[\s\S]*while \(frames--\)[\s\S]*service_psg_advance\(1u, 0u\);[\s\S]*psg_commit\(\);[\s\S]*service_psg_advance\(frames, 0u\);[\s\S]*psg_commit\(\);/);
+  assert.match(runtime, /if \(o == VN_OVERLAY_OP_APPLY_PSG_CREDIT\) \{ engine_apply_psg_credit_impl\(\(uint8_t\)a0, \(uint8_t\)a1\); return 0u; \}/);
+  assert.match(runtime, /static void VN_RESIDENT_CODE engine_apply_credit\(uint8_t frames\)[\s\S]*service_adpcm_during_blocking_frames\(frames, 0u\);[\s\S]*engine_apply_psg_credit\(frames, 0u\);/);
+  assert.match(runtime, /static void VN_RESIDENT_CODE engine_service_blocking\(uint16_t iterations\)[\s\S]*const uint8_t frames = vn_consume_vblank_credit\(\);[\s\S]*service_adpcm_during_blocking_frames\(frames, 0u\);[\s\S]*engine_apply_psg_credit\(frames, 1u\);/);
+  assert.match(runtime, /static void VN_RESIDENT_CODE time_blocked_poll_psg_only\(uint16_t iterations\)[\s\S]*time_blocked_poll\(iterations\);[\s\S]*engine_apply_psg_credit\(vn_consume_vblank_credit\(\), 1u\);/);
   // service_psg_ticks/tick_psg (the old edge-driven MMIO-per-tick functions)
   // no longer exist as callable definitions -- only explanatory comments
   // mentioning their old names for context are allowed to remain.
@@ -1727,25 +1746,24 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   // counts real VBlank 0->1 edges during the settle busy-wait instead of the
   // old per-sector estimate.
   assert.match(runtime, /static void VN_RESIDENT_CODE time_blocked_poll\(uint16_t iterations\)[\s\S]*vn_map_io_page\(\);[\s\S]*for \(i = 0u; i < iterations; i\+\+\)[\s\S]*\*IO_VDC_STATUS & VDC_FLAG_VBLANK[\s\S]*vn_record_vblank_frames\(1u\);/);
-  // engine_service()/engine_service_blocking() share their credit-consumption
-  // tail through engine_apply_credit() (advance ADPCM then psg_core by the
-  // given real credit) so the dispatch sequence is not duplicated in each
-  // entry point. Phase C: psg_core is now psg_advance(frames) (logical state
-  // only) followed by a single psg_commit() (write only the channels dirtied
-  // since the last commit) instead of the old per-tick MMIO loop.
-  assert.match(runtime, /static void VN_RESIDENT_CODE engine_apply_credit\(uint8_t frames\)[\s\S]*service_adpcm_during_blocking_frames\(frames, 0u\);[\s\S]*service_psg_advance\(frames, 0u\);[\s\S]*psg_commit\(\);/);
+  // engine_service() keeps the production path: advance ADPCM, then advance
+  // PSG logical state and commit once through engine_apply_psg_credit().
+  // engine_service_blocking() passes a blocking flag so diagnostic builds can
+  // drip only PSG credit one frame at a time without changing ADPCM countdown
+  // catch-up.
+  assert.match(runtime, /static void VN_RESIDENT_CODE engine_apply_credit\(uint8_t frames\)[\s\S]*service_adpcm_during_blocking_frames\(frames, 0u\);[\s\S]*engine_apply_psg_credit\(frames, 0u\);/);
   assert.match(runtime, /static void VN_RESIDENT_CODE engine_service\(void\)[\s\S]*engine_apply_credit\(vn_consume_vblank_credit\(\)\);/);
-  assert.match(runtime, /static void VN_RESIDENT_CODE engine_service_blocking\(uint16_t iterations\)[\s\S]*time_blocked_poll\(iterations\);[\s\S]*engine_apply_credit\(vn_consume_vblank_credit\(\)\);/);
+  assert.match(runtime, /static void VN_RESIDENT_CODE engine_service_blocking\(uint16_t iterations\)[\s\S]*time_blocked_poll\(iterations\);[\s\S]*const uint8_t frames = vn_consume_vblank_credit\(\);[\s\S]*service_adpcm_during_blocking_frames\(frames, 0u\);[\s\S]*engine_apply_psg_credit\(frames, 1u\);/);
   assert.doesNotMatch(runtime, /psg_mark_frame_serviced/);
   assert.match(runtime, /static void VN_BANKED_CODE2 init_psg_service\(void\)[\s\S]*psg_vblank_seen = 0u;[\s\S]*vn_vblank_credit = 0u;/);
   assert.match(runtime, /static void VN_BANKED_CODE delay_frame\(void\)[\s\S]*vn_wait_next_vblank\(\);[\s\S]*service_cdda_playback\(\);[\s\S]*engine_service\(\);/);
   assert.match(runtime, /static void VN_BANKED_CODE delay_frame\(void\)[\s\S]*pce_ram_bank130_map\(\);\r?\n    vn_wait_next_vblank\(\);/);
   assert.match(runtime, /static void VN_BANKED_CODE2 display_disable\(void\)[\s\S]*vn_wait_next_vblank\(\);[\s\S]*engine_service\(\);[\s\S]*set_vdc_control\(VN_VDC_BLANK_CONTROL\);/);
-  assert.match(runtime, /static void cd_transfer_wait\(void\)[\s\S]*engine_service_blocking\(65535u\);/);
+  assert.match(runtime, /static void cd_transfer_wait\(void\)[\s\S]*engine_service_blocking\(VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS\);/);
   // This teardown busy-wait must NOT feed ADPCM bookkeeping (it runs while
   // ADPCM state is being reset/stopped), so it ticks PSG through the
   // dedicated time_blocked_poll_psg_only() helper rather than engine_service*.
-  assert.match(runtime, /static void VN_RESIDENT_CODE time_blocked_poll_psg_only\(uint16_t iterations\)[\s\S]*time_blocked_poll\(iterations\);[\s\S]*service_psg_advance\(vn_consume_vblank_credit\(\), 0u\);[\s\S]*psg_commit\(\);/);
+  assert.match(runtime, /static void VN_RESIDENT_CODE time_blocked_poll_psg_only\(uint16_t iterations\)[\s\S]*time_blocked_poll\(iterations\);[\s\S]*engine_apply_psg_credit\(vn_consume_vblank_credit\(\), 1u\);/);
   // Phase C (design doc §4): psg_core state-driven sequencer, RAM-budget
   // variant. console_ram measured only ~22 bytes free before this change, and
   // the design sketch's literal psg_logical[6]+psg_shadow[6] value-shadow
@@ -1794,7 +1812,7 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   // may still mention the old names for context; only the #define is gone.)
   assert.doesNotMatch(runtime, /#define VN_PSG_MAX_TICKS_PER_FRAME_DURING_ADPCM|#define VN_PSG_MAX_CATCHUP_TICKS_PER_FRAME/);
   assert.match(runtime, /wait_adpcm_transfer_ready\(void\)[\s\S]*while \(guard && \(pce_cdb_adpcm_status\(\) & ADPCM_BUSY\)\)[\s\S]*poll_sub--;[\s\S]*if \(!poll_sub\)[\s\S]*time_blocked_poll_psg_only\(1u\);/);
-  assert.match(runtime, /cd_transfer_wait_visual_cache_impl\(void\)[\s\S]*engine_service_blocking\(65535u\);/);
+  assert.match(runtime, /cd_transfer_wait_visual_cache_impl\(void\)[\s\S]*engine_service_blocking\(VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS\);/);
   assert.match(runtime, /cd_transfer_wait_visual_cache_impl\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);\r?\n        VN_MAP_VISUAL_CACHE_CODE\(\);\r?\n        vram_copy_sliced_from_visual_code_impl\(vram_dest, cd_transfer_scratch, chunk\);/);
   assert.match(runtime, /vram_copy_sliced_from_vn_data\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES\(\);[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*engine_service\(\);/);
   assert.match(runtime, /vram_copy_sliced_from_visual_code_impl\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES\(\);[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*engine_service\(\);[\s\S]*VN_MAP_VISUAL_CACHE_CODE\(\);/);
@@ -2342,10 +2360,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.doesNotMatch(source, /fill_window_rect/);
   // Per-glyph message drawing lives in the bank133 overlay; the
   // resident wrappers reach them through the shared vn_overlay_dispatch_locked helper,
-  // which masks IRQs across the bank133 map, overlay VDC work, and bank130 restore.
+  // which masks IRQs across the bank133 map, overlay VDC work, and caller slot4 restore.
   assert.match(source, /static uint8_t VN_OVERLAY_CODE draw_message_next_glyph/);
   assert.match(source, /static uint8_t VN_OVERLAY_CODE draw_message_prefix_glyphs/);
-  assert.match(source, /uint8_t irq = vn_vdc_irq_lock\(\);\n    pce_ram_bank133_map\(\);\n    r = \(uint8_t\)VN_OVERLAY_CALL\(op, a0, a1, a2\);\n    pce_ram_bank130_map\(\);\n    vn_vdc_irq_unlock\(irq\);/);
+  assert.match(source, /slot4_bank = vn_slot4_current_bank\(\);\n    uint8_t irq = vn_vdc_irq_lock\(\);\n    pce_ram_bank133_map\(\);\n    r = \(uint8_t\)VN_OVERLAY_CALL\(op, a0, a1, a2\);\n    vn_slot4_map_bank\(slot4_bank\);\n    vn_vdc_irq_unlock\(irq\);/);
   assert.match(source, /return vn_overlay_dispatch_locked\(VN_OVERLAY_OP_NEXT_GLYPH,/);
   assert.match(source, /return vn_overlay_dispatch_locked\(VN_OVERLAY_OP_PREFIX_GLYPHS,/);
   assert.doesNotMatch(source, /VN_OVERLAY_OP_DRAW_TEXT|draw_message_text_locked|draw_message_text\(message\)/);
@@ -2605,7 +2623,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static void cd_sector_from_uint\(pce_sector_t \*dest, unsigned long value\)/);
   assert.match(source, /static void cd_sector_advance\(pce_sector_t \*sector\)/);
   assert.match(source, /static void cd_sector_end_from_count\(pce_sector_t \*dest, const pce_sector_t \*start, unsigned int count\)[\s\S]*while \(count--\) cd_sector_advance\(dest\);/);
-  assert.match(source, /static void cd_transfer_wait\(void\)[\s\S]*engine_service_blocking\(65535u\);/);
+  assert.match(source, /static void cd_transfer_wait\(void\)[\s\S]*engine_service_blocking\(VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS\);/);
   assert.match(source, /static void VN_BANKED_CODE quiet_cd_unit_irqs\(void\)[\s\S]*vn_cdb_quiet_idle\(\);[\s\S]*pce_irq_disable\(IRQ_VDC\);/);
   assert.match(source, /static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call\(void\)/);
   assert.doesNotMatch(source, /control = \(uint16_t\)\(control & \(uint16_t\)~VDC_CONTROL_IRQ_VBLANK\)/);

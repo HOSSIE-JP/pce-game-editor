@@ -8,9 +8,9 @@
 
 設計に入る前に、現行実装が `refactor-instructions-psg-adpcm.md` に記載された初期状態からすでに前進している点を明記する。実装担当は「ゼロからの改修」ではなく「現行の到達点からの置き換え」であることを認識すること。
 
-- `VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES` は現在 `1u`、`VN_CD_CHUNK_ESTIMATED_FRAMES` も `1u`。旧ドキュメントに記載された `24u` の一律バーストはすでに解消済み（`refactor-instructions-psg-adpcm.md` の Phase 1/2 相当が反映済み）。
-- `vn_vblank_credit` による実フレーム credit と `vn_psg_synthetic_credit` による PSG 専用推定 credit の分離もすでに実装済み（`VN_PSG_TIMER_IRQ_DRIVER 0` の既定パス）。
-- `VN_PSG_TIMER_IRQ_DRIVER` は実験用 fallback として**既に実装が存在する**（`vn_psg_timer_irq_handler` の naked asm ISR、`vn_psg_timer_own()`/`vn_psg_timer_release()`、release-first guarded wrapper 群、`vn_timer_owned` ゲート）。ただし既定は `0`（無効）であり、`tests/pce-vn-manager.test.js:1647` が `#define VN_PSG_TIMER_IRQ_DRIVER 0` を固定 pin している。本設計は、この実験実装を**土台にしつつ TIMER 経路を一次昇格させ、協調ポーリング経路を廃止**するものである。
+- `VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES` は現在 `1u`。旧ドキュメントに記載された `24u` の一律バーストや `VN_CD_CHUNK_ESTIMATED_FRAMES` は解消済みで、補償は PSG 専用に即時適用する。CD helper 後の settle poll は `VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS`（既定 `4096u`）へ短縮し、RAM 直読み payload は `VN_CD_RAM_READ_CHUNK_SECTORS`（既定 `4u`）までまとめる。
+- `vn_vblank_credit` による実フレーム credit は `VN_TIME_SOURCE_TIMER 1` の TIMER IRQ が一次ソースになった。CD/ADPCM BIOS helper 中は TIMER を System Card へ返すため、`time_blocked_poll()` の実測に加えて、helper 内で見えない時間だけ `VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES` で PSG 専用に補う。
+- `VN_TIME_SOURCE_TIMER` は既定 `1`。`vn_psg_timer_irq_handler` の naked asm ISR、`vn_psg_timer_own()`/`vn_psg_timer_release()`、release-first guarded wrapper 群、`vn_timer_owned` ゲートを標準 path として使う。
 - PSG ステップ適用（`psg_apply_step_row` → `psg_apply_step_row_impl`）はすでに bank133 overlay（`VN_OVERLAY_CODE`、`vn_overlay_dispatch_locked` 経由）に退避済みで、bank134/135 の PSG パターンバッファも稼働中である。「PSG ドライバをゼロから overlay 化する」のではなく、「overlay 化された edge-driven ドライバを state-driven へ置き換える」のが本設計のスコープである。
 
 以上を踏まえ、以降の章では現行実装を出発点として差分を記述する。
@@ -25,7 +25,7 @@ PSG(SONG/SFX) 再生中に buffered ADPCM 再生や CD からの cache load が�
 
 ### 1.2 乖離問題の構造的原因（現行ソースの該当箇所）
 
-現行実装で PSG とハードウェアが乖離しうる原因は次の4点に整理できる。いずれも個別パッチ（`refactor-instructions-psg-adpcm.md` の F1〜F6）では対症療法にしかならず、構造自体の書き直しが必要という結論に至った。
+再設計前の実装で PSG とハードウェアが乖離しうる原因は次の4点に整理できる。いずれも個別パッチ（`refactor-instructions-psg-adpcm.md` の F1〜F6）では対症療法にしかならず、構造自体の書き直しが必要という結論に至った。
 
 **(1) PSG ドライバが edge-driven である**
 
@@ -33,11 +33,11 @@ PSG(SONG/SFX) 再生中に buffered ADPCM 再生や CD からの cache load が�
 
 **(2) BIOS 呼び出し後の再同期手段がない**
 
-System Card の CD/ADPCM BIOS helper（`pce_cdb_cd_read` / `pce_cdb_adpcm_*` / `pce_cdb_cdda_*`。現行は `#define pce_cdb_*(...) vn_cdb_*_guarded(...)` マクロで `VN_PSG_TIMER_IRQ_DRIVER 1` 時のみ release-first ラッパへ横取りされる）は、PSG レジスタの SELECT ラッチや、System Card 自身の TIMER/IRQ 関連レジスタを触ることがある。しかし PSG 側には**ハードウェアの現在値を読み戻す手段も、ソフトウェア shadow と突き合わせて差分修復する手段もない**。BIOS helper が PSG SELECT latch を書き替えた場合、次に `psg_apply_step_entry()` が実行するまでその汚染は残る。
+System Card の CD/ADPCM BIOS helper（`pce_cdb_cd_read` / `pce_cdb_adpcm_*` / `pce_cdb_cdda_*`。再設計前は `#define pce_cdb_*(...) vn_cdb_*_guarded(...)` マクロで TIMER 実験時だけ release-first ラッパへ横取りされる）は、PSG レジスタの SELECT ラッチや、System Card 自身の TIMER/IRQ 関連レジスタを触ることがある。しかし PSG 側には**ハードウェアの現在値を読み戻す手段も、ソフトウェア shadow と突き合わせて差分修復する手段もない**。BIOS helper が PSG SELECT latch を書き替えた場合、次に `psg_apply_step_entry()` が実行するまでその汚染は残る。
 
 **(3) タイミングが二重系統のパッチワークになっている**
 
-現行は実フレーム credit (`vn_vblank_credit`、`vn_record_vblank_frames()` で加算、`vn_consume_vblank_credit()` で消費) と、PSG 専用の合成 credit (`vn_psg_synthetic_credit`、`VN_ADD_ESTIMATED_FRAME()` で加算、`vn_consume_psg_synthetic_credit()` で消費、`VN_PSG_TIMER_IRQ_DRIVER 1` 時のみ有効) の**2系統**が並存する。サービス入口も `service_psg_ticks()` / `service_psg_compensation_ticks()` / `service_psg_during_blocking_work()` / `service_psg_during_blocking_frames()` / `service_psg_during_visual_cache_work()` / `service_psg_during_visual_cache_frames()` の**5系統6関数**が重複して存在し、それぞれ微妙に異なる credit 消費・clamp ロジックを持つ。BIOS ブロック中は `cd_transfer_wait()` が `VN_CD_CHUNK_ESTIMATED_FRAMES` による**推測**でしか経過フレームを補えない。二重系統であること自体が「どの credit がどのサブシステムを進めているか」の見通しを悪くしている。
+再設計前は実フレーム credit (`vn_vblank_credit`、`vn_record_vblank_frames()` で加算、`vn_consume_vblank_credit()` で消費) と、PSG 専用の合成 credit (`vn_psg_synthetic_credit`、`VN_ADD_ESTIMATED_FRAME()` で加算、`vn_consume_psg_synthetic_credit()` で消費) の**2系統**が並存していた。サービス入口も `service_psg_ticks()` / `service_psg_compensation_ticks()` / `service_psg_during_blocking_work()` / `service_psg_during_blocking_frames()` / `service_psg_during_visual_cache_work()` / `service_psg_during_visual_cache_frames()` の**5系統6関数**が重複して存在し、それぞれ微妙に異なる credit 消費・clamp ロジックを持っていた。BIOS ブロック中は `cd_transfer_wait()` が `VN_CD_CHUNK_ESTIMATED_FRAMES` による**推測**でしか経過フレームを補えない。二重系統であること自体が「どの credit がどのサブシステムを進めているか」の見通しを悪くしている。
 
 **(4) 横断的不変条件が呼び出し規律頼みである**
 
@@ -150,11 +150,11 @@ void psg_mark_hw_dirty(void);
 新設計は credit ソースを2つに整理する。
 
 1. **runtime が timer を own している間**: TIQ ISR（naked asm）が唯一の credit 源。契約は現行の `vn_psg_timer_irq_handler` を維持する: A/X/Y と MPR0（`tma #$01` で保存。`tma`/`tam` のオペランドはビットマスクで `#$01` = MPR0）を退避し、MPR0 を `$ff` I/O page にしてから `$1403` へ ack、`vn_vblank_credit` を `VN_VBLANK_CREDIT_MAX` で clamp して inc、MPR0 復元、RTI。**PSG レジスタ・MPR2-7・VDC・BIOS 呼び出し・C 関数呼び出しは ISR 内で一切禁止**（前回の IRQ 駆動 PSG 実装がスプライト/BG破壊で撤回された経緯を踏まえた制約。この契約が守れない設計に傾いた場合は Stop And Ask）。
-2. **BIOS ブロック窓内**: `time_blocked_poll()` が推測ではなく**実測**で credit 化する。settle busy-wait 中（現行 `cd_transfer_wait()` 相当の待ち）に `IO_VDC_STATUS` の VBlank ビットの 0→1 エッジを数え、経過フレームとして credit へ加算する。現行の `VN_CD_CHUNK_ESTIMATED_FRAMES` のような「セクタ数から一律で見積もる」合成 credit は使わない。
+2. **BIOS ブロック窓内**: `time_blocked_poll()` が settle busy-wait 中（現行 `cd_transfer_wait()` 相当の待ち）に `IO_VDC_STATUS` の VBlank ビットの 0→1 エッジを数え、経過フレームとして credit へ加算する。実機/エミュレーター検証では BIOS helper 自体の中で進む時間がこの sampler から見えないため、`VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES` の小さい PSG 専用補償を併用する。この補償は ADPCM/message timing へ混ぜない。
 
 ### 5.2 廃止するもの
 
-- `vn_psg_synthetic_credit` / `VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES` / `VN_CD_CHUNK_ESTIMATED_FRAMES` は全廃する。
+- `vn_psg_synthetic_credit` / `VN_CD_CHUNK_ESTIMATED_FRAMES` は全廃する。`VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES` だけは BIOS helper 内で観測できない時間への PSG 専用補償として残し、`vn_vblank_credit` へ混ぜない。
 - `service_psg_ticks` / `service_psg_compensation_ticks` / `service_psg_during_blocking_work` / `service_psg_during_blocking_frames` / `service_psg_during_visual_cache_work` / `service_psg_during_visual_cache_frames` の**5系統6関数**は、`engine_service()`（通常フレーム経路）と `engine_service_blocking()`（BIOS/CD ブロック経路）の**2本に集約**する。
 - 実測 credit は実時間そのものなので、ADPCM 停止カウントダウン・message pacing（typewriter）も同じ credit で駆動してよい。「real credit」と「synthetic credit」という分離自体が設計から消える。
 
@@ -221,7 +221,7 @@ void bus_cd_end(void);                   /* quiet/sync + time_bios_end + psg_mar
 - `pce_ram_bank1` （MPR remap の直接呼び出し。`bank128`〜`bank135` すべて含む）
 - `vn_vdc_irq_` （IRQ guard の直接呼び出し）
 
-これは現行 `tests/pce-vn-manager.test.js` が個別関数のソース断片を正規表現で固定する方式（例: `VN_PSG_TIMER_IRQ_DRIVER 0` の pin）に加えて、**構造的な違反検出**を追加するものである。
+これは設計当時の `tests/pce-vn-manager.test.js` が個別関数のソース断片を正規表現で固定する方式（例: `VN_PSG_TIMER_IRQ_DRIVER 0` の pin）に加えて、**構造的な違反検出**を追加するものである。
 
 ## 7. 3シナリオの制御フロー
 
@@ -279,7 +279,7 @@ DMA/settle 完了
 2. **bank128 が 99.0% で余裕がない**: 8章に記載の通り、resident への追加ゼロ方針を維持し、各 Phase 末で `--print-memory-usage` diff を確認する。>99.2% でブロック。
 3. **RAM 予算 +約80B**: console_ram の空き（上限 `< 0x19B7`）を実装前に map で確認する。
 4. **TIMER 60.0Hz vs VBlank 59.94Hz のドリフト**: 約1 credit / 16秒のドリフトが発生するが、credit の上限（cap）で有界化される。テンポ精度に対しては reload 量子化誤差（約±0.43%）の方が支配的であり、全体として ±1% の Gate 基準内に収まる見込み。
-5. **テスト書き換え規模**: `tests/pce-vn-manager.test.js` には現在 `VN_PSG_TIMER_IRQ_DRIVER 0` の pin（1647行付近）、`vn_psg_timer_own`/`vn_psg_timer_release` の実装断片 pin（1652-1653行付近）、`VN_CDB_IRQ_MASK_RUNTIME_QUIET` / `quiet_cd_unit_irqs` / `vn_cd_irq1_quiet_handler` の実装断片 pin（2424-2429行付近）など、約150箇所規模の正規表現 pin が存在する。Phase A ではパスの付け替えのみ、Phase B/C/E では契約 pin を新設計版へ全面的に書き換える。
+5. **テスト書き換え規模**: 設計当時の `tests/pce-vn-manager.test.js` には `VN_PSG_TIMER_IRQ_DRIVER 0` の pin（1647行付近）、`vn_psg_timer_own`/`vn_psg_timer_release` の実装断片 pin（1652-1653行付近）、`VN_CDB_IRQ_MASK_RUNTIME_QUIET` / `quiet_cd_unit_irqs` / `vn_cd_irq1_quiet_handler` の実装断片 pin（2424-2429行付近）など、約150箇所規模の正規表現 pin が存在した。Phase A ではパスの付け替えのみ、Phase B/C/E では契約 pin を新設計版へ全面的に書き換える。
 6. **不変条件**: `main.c` の内容（`#include "pce_vn_runtime.c"` の1行）と umbrella ファイル名 `pce_vn_runtime.c` は、`pce-build-system.js` の `isThinVisualNovelMain()` と `collectSourceFiles()`、および対応するテストが byte 単位で固定しているため**変更不可**。
 
 波形 RAM の resync 除外（4.3節）も open question として扱う。BIOS が波形 RAM を書き換える証拠が今後の検証で見つかった場合、`psg_mark_hw_dirty()` に波形 RAM の再アップロードを含める設計変更が必要になる。
@@ -309,7 +309,7 @@ DMA/settle 完了
 
 ### 完了状況
 - **Phase A（モジュール分割）**: 完了。umbrella `#include` 方式で 13 module へ分割。関数欠落・重複ゼロを機械照合、bank 使用量ベースライン同等を確認。
-- **Phase B（TIMER credit 一次昇格）**: 完了。`VN_TIME_SOURCE_TIMER`（既定1）へ。synthetic credit 全廃、service 2本化、blocked-poll 実測。Gate G-B1 実機合格（TIQ 配送・テンポ±1%・破壊なし）。
+- **Phase B（TIMER credit 一次昇格）**: 完了。`VN_TIME_SOURCE_TIMER`（既定1）へ。service 2本化、blocked-poll 実測。CD/ADPCM BIOS helper 内で観測できない時間だけ `VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES` の PSG 専用補償を残す。
 - **Phase C（state-driven PSG）**: 完了。`psg_logical`/`psg_dirty_mask`/`psg_advance`/`psg_commit`/`psg_mark_hw_dirty`。**これが「再生中の cache load / ADPCM start による PSG 論理状態と HW レジスタの乖離」という本再設計の主目的を解決する**。Gate C 実機合格（logical が実 note を時系列変化、note-off 機能、cache load 跨ぎで乖離なし）。
 - **Phase D（bus_cd_* 集約）**: **構造的集約は見送り（deferred）**。理由は §12「Phase D 見送り」参照。機能要件は Phase B/C で達成済み。
 - **Phase E（最終化）**: msg_core credit 化と死コード削除は見送り（下記）、本節と関連 docs の as-built 更新のみ実施。

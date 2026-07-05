@@ -352,13 +352,14 @@ static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl(void)
         }
         while (bank_remaining)
         {
-            const uint16_t chunk = bank_remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : bank_remaining;
+            const uint16_t chunk = bank_remaining > VN_CD_RAM_READ_CHUNK_BYTES ? VN_CD_RAM_READ_CHUNK_BYTES : bank_remaining;
+            uint8_t sectors = VN_CD_CHUNK_SECTOR_COUNT(chunk);
             (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)&psg_pattern_ram[offset], chunk);
             cd_transfer_wait();
             remaining = (uint16_t)(remaining - chunk);
             bank_remaining = (uint16_t)(bank_remaining - chunk);
             offset = (uint16_t)(offset + chunk);
-            cd_sector_advance(&sector);
+            while (sectors--) cd_sector_advance(&sector);
         }
         bank++;
     }

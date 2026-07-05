@@ -228,6 +228,9 @@ static void VN_RESIDENT_CODE time_blocked_poll(uint16_t iterations)
 #endif
 }
 
+static void VN_OVERLAY_CODE engine_apply_psg_credit_impl(uint8_t frames, uint8_t blocking_work);
+static void VN_RESIDENT_CODE engine_apply_psg_credit(uint8_t frames, uint8_t blocking_work);
+
 /* PSG-only sparse tick for busy waits that must NOT feed ADPCM bookkeeping
    (wait_adpcm_transfer_ready's ADPCM reset/stop teardown spin -- that same
    wait runs while adpcm_play_active is being torn down, so it must not call
@@ -238,10 +241,54 @@ static void VN_RESIDENT_CODE time_blocked_poll_psg_only(uint16_t iterations)
 {
 #if defined(__PCE_CD__)
     time_blocked_poll(iterations);
-    service_psg_advance(vn_consume_vblank_credit(), 0u);
-    psg_commit();
+    engine_apply_psg_credit(vn_consume_vblank_credit(), 1u);
 #else
     (void)iterations;
+#endif
+}
+
+/* Thin resident entry to the overlay PSG credit helper. The diagnostic
+   one-frame drip loop is cold blocking-work code, so keep its body out of
+   bank128/129/130; ishi_no_ura with the switch enabled otherwise overflows
+   bank129 by a few dozen bytes. */
+static void VN_RESIDENT_CODE engine_apply_psg_credit(uint8_t frames, uint8_t blocking_work)
+{
+#if defined(__PCE_CD__)
+    if (!psg_active) return;
+    (void)vn_overlay_dispatch_locked(VN_OVERLAY_OP_APPLY_PSG_CREDIT, frames, blocking_work, 0u);
+#else
+    engine_apply_psg_credit_impl(frames, blocking_work);
+#endif
+}
+
+/* Apply PSG credit separately from ADPCM so diagnostic builds can change only
+   PSG catch-up policy during blocking work. The default path is unchanged:
+   advance all credited frames logically, then commit once. */
+static void VN_OVERLAY_CODE engine_apply_psg_credit_impl(uint8_t frames, uint8_t blocking_work)
+{
+#if defined(__PCE_CD__)
+    if (!frames) return;
+    if (!psg_current) return;
+#if VN_PSG_COMMIT_EACH_CREDIT_DURING_BLOCKING
+    if (blocking_work)
+    {
+        while (frames--)
+        {
+            service_psg_advance(1u, 0u);
+            psg_commit();
+        }
+        return;
+    }
+#else
+    (void)blocking_work;
+#endif
+    service_psg_advance(frames, 0u);
+    psg_commit();
+#else
+    (void)frames;
+    (void)blocking_work;
+    service_psg_advance(1u, 0u);
+    psg_commit();
 #endif
 }
 
@@ -256,14 +303,11 @@ static void VN_RESIDENT_CODE engine_apply_credit(uint8_t frames)
 {
 #if defined(__PCE_CD__)
     service_adpcm_during_blocking_frames(frames, 0u);
-    if (!psg_active || !psg_current) return;
-    service_psg_advance(frames, 0u);
-    psg_commit();
+    engine_apply_psg_credit(frames, 0u);
 #else
     (void)frames;
     service_adpcm_during_blocking_frames(1u, 0u);
-    service_psg_advance(1u, 0u);
-    psg_commit();
+    engine_apply_psg_credit(1u, 0u);
 #endif
 }
 
@@ -297,7 +341,11 @@ static void VN_RESIDENT_CODE engine_service_blocking(uint16_t iterations)
 {
 #if defined(__PCE_CD__)
     time_blocked_poll(iterations);
-    engine_apply_credit(vn_consume_vblank_credit());
+    {
+        const uint8_t frames = vn_consume_vblank_credit();
+        service_adpcm_during_blocking_frames(frames, 0u);
+        engine_apply_psg_credit(frames, 1u);
+    }
 #else
     (void)iterations;
     engine_apply_credit(1u);

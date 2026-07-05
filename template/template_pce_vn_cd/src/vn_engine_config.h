@@ -159,6 +159,36 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_PSG_STEPS_PER_BEAT 4u
 #define VN_VBLANK_CREDIT_MAX 8u
 #define VN_VBLANK_CREDIT_SERVICE_LIMIT 4u
+/* Post-BIOS settle sampler bound for one CD transfer chunk. The CD BIOS helper
+   already waits for the command/data phase; this loop is only a short
+   cooperative settle window. 65535 made every sector add a large artificial
+   pause, which dominated boot/BG/sprite/ADPCM loads and made PSG compensation
+   need unrealistically large values. */
+#ifndef VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS
+#define VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS 4096u
+#endif
+/* CD data reads whose destination is a mapped RAM bank can be grouped. VRAM
+   uploads still use the 1-sector scratch buffer. */
+#ifndef VN_CD_RAM_READ_CHUNK_SECTORS
+#define VN_CD_RAM_READ_CHUNK_SECTORS 4u
+#endif
+#define VN_CD_RAM_READ_CHUNK_BYTES ((uint16_t)(VN_CD_SECTOR_BYTES * VN_CD_RAM_READ_CHUNK_SECTORS))
+#define VN_CD_CHUNK_SECTOR_COUNT(bytes) ((uint8_t)(((uint16_t)(bytes) + 2047u) >> 11))
+/* CD/ADPCM BIOS helpers can spend time before the cooperative VBlank sampler
+   regains control. Add a tiny PSG-only estimate per CD transfer chunk so music
+   tempo does not stall during BG/sprite/voice loads. This is deliberately not
+   fed into ADPCM/message timing. */
+#ifndef VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES
+#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 8u
+#endif
+/* Diagnostic switch for PSG/CD-load stutter investigation. The current test
+   default drips blocking-work PSG credit one frame at a time while leaving
+   ADPCM countdown catch-up unchanged. Set to 0 to return to the batched
+   production path: one logical fast-forward and one hardware commit for a
+   multi-frame PSG credit. */
+#ifndef VN_PSG_COMMIT_EACH_CREDIT_DURING_BLOCKING
+#define VN_PSG_COMMIT_EACH_CREDIT_DURING_BLOCKING 1
+#endif
 /* PHASE_C: the old per-frame tick clamps (VN_PSG_MAX_TICKS_PER_FRAME_DURING_ADPCM /
    VN_PSG_MAX_CATCHUP_TICKS_PER_FRAME) are removed. psg_core is now state-driven
    (psg_advance/psg_commit, see vn_psg_core.c): advancing several ticks in one
@@ -315,6 +345,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_OVERLAY_OP_APPLY_PSG_STEP 18u
 /* a0 = ADPCM asset index. Snapshot copy only; no bank130 calls. */
 #define VN_OVERLAY_OP_COPY_ADPCM_VOICE 19u
+/* a0 = frame credit, a1 = blocking-work flag. PSG catch-up policy only. */
+#define VN_OVERLAY_OP_APPLY_PSG_CREDIT 20u
 #if defined(__PCE_CD__)
 typedef uint8_t (*vn_overlay_entry_fn_t)(uint8_t, uint16_t, uint16_t, uint8_t);
 #define VN_OVERLAY_CALL(op, a0, a1, a2) \
@@ -327,6 +359,7 @@ static void VN_OVERLAY_CODE cache_sprite_animation_impl(uint8_t slot_index);
 /* Forward decl: the CD-DA resume helper's dispatcher precedes vn_overlay_dispatch's
    definition (the resume path lives early in the file). */
 static uint8_t VN_BANKED_CODE vn_overlay_dispatch(uint8_t op, uint16_t a0, uint16_t a1, uint8_t a2);
+static uint8_t VN_BANKED_CODE vn_overlay_dispatch_locked(uint8_t op, uint16_t a0, uint16_t a1, uint8_t a2);
 
 #ifndef PCE_EDITOR_CD_COMPRESSION_NONE
 #define PCE_EDITOR_CD_COMPRESSION_NONE 0u

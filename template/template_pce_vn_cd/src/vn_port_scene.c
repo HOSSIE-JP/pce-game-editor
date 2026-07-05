@@ -162,12 +162,13 @@ static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, v
         remaining = pack.byte_size;
         while (remaining)
         {
-            const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
+            const uint16_t chunk = remaining > VN_CD_RAM_READ_CHUNK_BYTES ? VN_CD_RAM_READ_CHUNK_BYTES : remaining;
+            uint8_t sectors = VN_CD_CHUNK_SECTOR_COUNT(chunk);
             (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)&cache->data[offset], chunk);
             cd_transfer_wait();
             remaining = (uint16_t)(remaining - chunk);
             offset = (uint16_t)(offset + chunk);
-            cd_sector_advance(&sector);
+            while (sectors--) cd_sector_advance(&sector);
         }
         cache->size = pack.byte_size;
         cache->scene_index = scene_index;
