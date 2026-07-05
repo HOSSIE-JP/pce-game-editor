@@ -71,8 +71,9 @@ const VN_CACHE_SCOPE_VISUAL = 0;
 const VN_CACHE_SCOPE_BG = 1;
 const VN_CACHE_SCOPE_SPRITE = 2;
 const VN_CACHE_SCOPE_ADPCM = 3;
-const VN_CACHE_SCOPE_ALL = 4;
-const VN_CACHE_SCOPES = ['visual', 'bg', 'sprite', 'adpcm', 'all'];
+const VN_CACHE_SCOPE_PSG = 4;
+const VN_CACHE_SCOPE_ALL = 5;
+const VN_CACHE_SCOPES = ['visual', 'bg', 'sprite', 'adpcm', 'psg', 'all'];
 const VN_ENABLE_VISUAL_PAYLOAD_CACHE = true;
 const VN_BG_TRANSITION_CUT = 0;
 const VN_BG_TRANSITION_FADE = 1;
@@ -249,6 +250,7 @@ const VN_SCENE_PACK_MAGIC = Buffer.from('PVNS');
 const VN_CD_SECTOR_BYTES = 2048;
 const VN_ADPCM_FRAME_RATE = 60;
 const VN_ADPCM_END_PAD_FRAMES = 2;
+const VN_ADPCM_BUFFERED_SAFE_BYTES = 32767;
 // Mirror the runtime ADPCM rate quantization (pce_vn_runtime.c adpcm_code_sample_rate /
 // adpcm_rate_code): the PCE ADPCM hardware can only play at 32000/(16-code) Hz for a
 // 4-bit rate code 0..15, so the nominal asset sample rate is snapped to the nearest
@@ -387,7 +389,14 @@ function vnRuntimeSignature(config = {}) {
   return {
     targetMedia,
     manager: readTextHash(__filename),
-    runtime: readTextHash(path.join(templateDir, 'pce_vn_runtime.c')),
+    // Phase A module split: the umbrella (pce_vn_runtime.c) alone no longer
+    // changes when a module does, so hash every synced runtime source
+    // (umbrella + vn_* modules). main.c keeps its own field for stamp
+    // compatibility.
+    runtime: sha1Text(vnRuntimeSourceFileNames()
+      .filter((fileName) => fileName !== 'main.c')
+      .map((fileName) => `${fileName}:${readTextHash(path.join(templateDir, fileName))}`)
+      .join('\n')),
     main: readTextHash(path.join(templateDir, 'main.c')),
   };
 }
@@ -435,6 +444,23 @@ function vnGeneratedOutputsReady(projectDir, generated = {}) {
 
 function templateRuntimeDir() {
   return path.join(__dirname, 'template', 'template_pce_vn_cd', 'src');
+}
+
+// Runtime source file names synced from the template into <project>/src and
+// hashed into the VN build signature: the thin main.c, the umbrella
+// pce_vn_runtime.c and every vn_*.c / vn_*.h module the umbrella #includes
+// (Phase A module split). Top-level files only — generated/ stays excluded.
+function vnRuntimeSourceFileNames() {
+  const sourceDir = templateRuntimeDir();
+  const modules = [];
+  try {
+    for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      if (/^vn_.*\.(c|h)$/.test(entry.name)) modules.push(entry.name);
+    }
+  } catch (_) { /* fall through to the fixed core list */ }
+  modules.sort();
+  return ['main.c', 'pce_vn_runtime.c', ...modules];
 }
 
 function copyIfChanged(sourcePath, targetPath) {
@@ -744,6 +770,30 @@ function adpcmVoiceFrameCount(asset = {}, projectDir = '') {
   }
   if (!frames) return 0;
   return Math.min(65535, frames);
+}
+
+function adpcmGeneratedByteLength(asset = {}, projectDir = '') {
+  const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
+  return (Number(generated.byteLength) || 0) || generatedFileByteLength(projectDir, generated.outputFile);
+}
+
+function adpcmBufferedSafeBytes(asset = {}) {
+  const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
+  const rawAddress = Number(asset.options?.adpcmAddress ?? generated.adpcmAddress ?? 0) || 0;
+  const address = Math.max(0, Math.min(65535, Math.trunc(rawAddress)));
+  return Math.max(1, Math.min(VN_ADPCM_BUFFERED_SAFE_BYTES, 65536 - address));
+}
+
+function assertBufferedMessageVoice(assetDoc = { assets: [] }, assetId = '', projectDir = '', sceneId = '') {
+  if (!assetId) return;
+  const asset = findAsset(assetDoc, assetId);
+  if (!asset || asset.type !== 'adpcm') return;
+  const byteLength = adpcmGeneratedByteLength(asset, projectDir);
+  const safeBytes = adpcmBufferedSafeBytes(asset);
+  const label = sceneId ? `scene "${sceneId}"` : 'VN scene';
+  if (byteLength > safeBytes) {
+    throw new Error(`PCE VN message voice "${assetId}" in ${label} is ${byteLength} bytes, exceeding buffered ADPCM limit ${safeBytes} bytes. Split the voice, lower the sample rate, or use CD-DA.`);
+  }
 }
 
 function voiceSyncedTextSpeedFrames(command = {}, glyphCount = 0, assetDoc = { assets: [] }, projectDir = '', fallbackSpeedFrames = VN_DEFAULT_MESSAGE_SPEED_FRAMES) {
@@ -1140,6 +1190,7 @@ function cacheScopeCode(scope = '') {
   if (normalized === 'bg') return VN_CACHE_SCOPE_BG;
   if (normalized === 'sprite') return VN_CACHE_SCOPE_SPRITE;
   if (normalized === 'adpcm') return VN_CACHE_SCOPE_ADPCM;
+  if (normalized === 'psg') return VN_CACHE_SCOPE_PSG;
   if (normalized === 'all') return VN_CACHE_SCOPE_ALL;
   return VN_CACHE_SCOPE_VISUAL;
 }
@@ -1212,10 +1263,12 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
       if (scope === 'visual') {
         if (actualType === 'image') scope = 'bg';
         else if (actualType === 'sprite') scope = 'sprite';
+        else if (actualType === 'psg-song' || actualType === 'psg-sfx') scope = 'psg';
       }
       const validAsset = (scope === 'bg' && valid.image?.has(assetId))
         || (scope === 'sprite' && valid.sprite?.has(assetId))
-        || (scope === 'adpcm' && valid.adpcm?.has(assetId));
+        || (scope === 'adpcm' && valid.adpcm?.has(assetId))
+        || (scope === 'psg' && (valid['psg-song']?.has(assetId) || valid['psg-sfx']?.has(assetId)));
       return {
         type: 'cache',
         action: 'load',
@@ -2948,8 +3001,28 @@ function generateVnSources(projectDir, options = {}) {
       sceneBuild.commands.push(entry);
       commandCount += 1;
     };
+    let previousExplicitAdpcmPreloadAssetId = '';
+    const pushInternalAdpcmPreload = (assetId) => {
+      const assetIndex = adpcmIndex.get(assetId) ?? -1;
+      if (assetIndex < 0) return;
+      pushCommand({
+        type: VN_COMMAND_CACHE,
+        assetIndex,
+        slot: 0,
+        flags: VN_CACHE_ACTION_LOAD,
+        arg0: VN_CACHE_SCOPE_ADPCM,
+        arg1: 0,
+        x: 0,
+        y: 0,
+        messageIndex: -1,
+        animationIndex: -1,
+        sceneIndex: -1,
+        choiceIndex: -1,
+      });
+    };
     compiledCommands.forEach((command) => {
       if (command.type === 'background') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const bgIndex = imageIndex.has(command.assetId) ? imageIndex.get(command.assetId) : -1;
         pushCommand({
           type: VN_COMMAND_BACKGROUND,
@@ -2967,6 +3040,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'sprite') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const slot = clampInt(command.slot, 0, 3, 0);
         const spriteAssetId = command.assetId || '';
         const spriteAssetIndex = command.visible && spriteIndex.has(spriteAssetId) ? spriteIndex.get(spriteAssetId) : -1;
@@ -2994,6 +3068,18 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'message') {
+        // HuCARD strips ADPCM/CD audio, so a voiced message carries no ADPCM on
+        // that target (voiceIndex resolves to -1 below). Skip the buffered-voice
+        // validation and the internal ADPCM preload injection there so the
+        // command stream matches the stripped output (otherwise an extra CACHE
+        // preload command shifts every following command index).
+        if (!hucardMode && command.voiceAssetId) {
+          assertBufferedMessageVoice(assetDoc, command.voiceAssetId, projectDir, sceneBuild.sceneId);
+          if (previousExplicitAdpcmPreloadAssetId !== command.voiceAssetId) {
+            pushInternalAdpcmPreload(command.voiceAssetId);
+          }
+        }
+        previousExplicitAdpcmPreloadAssetId = '';
         if (sceneBuild.messages.length >= VN_MAX_U8_COUNT) {
           throw new Error('PCE VN supports up to 255 messages per scene');
         }
@@ -3057,6 +3143,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'audio') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const kindCode = command.kind === 'adpcm'
           ? VN_AUDIO_KIND_ADPCM
           : (command.kind === 'psg' ? VN_AUDIO_KIND_PSG : VN_AUDIO_KIND_CDDA);
@@ -3088,6 +3175,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'inputcheck') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const mode = command.mode === 'async'
           ? VN_INPUT_MODE_ASYNC
           : (command.mode === 'cancel' ? VN_INPUT_MODE_CANCEL : VN_INPUT_MODE_SYNC);
@@ -3123,6 +3211,8 @@ function generateVnSources(projectDir, options = {}) {
             slot = command.slot;
           } else if (command.scope === 'adpcm' && !hucardMode) {
             assetIndex = adpcmIndex.get(command.assetId) ?? -1;
+          } else if (command.scope === 'psg') {
+            assetIndex = psgIndex.get(command.assetId) ?? -1;
           }
         }
         pushCommand({
@@ -3139,9 +3229,15 @@ function generateVnSources(projectDir, options = {}) {
           sceneIndex: -1,
           choiceIndex: -1,
         });
+        previousExplicitAdpcmPreloadAssetId = cacheAction === VN_CACHE_ACTION_LOAD
+          && command.scope === 'adpcm'
+          && command.assetId
+          ? command.assetId
+          : '';
         return;
       }
       if (command.type === 'choice') {
+        previousExplicitAdpcmPreloadAssetId = '';
         if (sceneBuild.choices.length >= VN_MAX_U8_COUNT) {
           throw new Error('PCE VN supports up to 255 choices per scene');
         }
@@ -3194,6 +3290,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'variable') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const varIndex = command.variableName && variableIndex.has(command.variableName) ? variableIndex.get(command.variableName) : -1;
         const [arg0, arg1] = int16ArgBytes(command.value);
         pushCommand({
@@ -3213,6 +3310,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'if') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const varIndex = command.variableName && variableIndex.has(command.variableName) ? variableIndex.get(command.variableName) : -1;
         const [arg0, arg1] = int16ArgBytes(command.value);
         pushCommand({
@@ -3232,6 +3330,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'switch') {
+        previousExplicitAdpcmPreloadAssetId = '';
         if (sceneBuild.switches.length >= VN_MAX_U8_COUNT) {
           throw new Error('PCE VN supports up to 255 switch commands per scene');
         }
@@ -3264,6 +3363,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'label') {
+        previousExplicitAdpcmPreloadAssetId = '';
         pushCommand({
           type: VN_COMMAND_LABEL,
           assetIndex: -1,
@@ -3281,6 +3381,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'goto') {
+        previousExplicitAdpcmPreloadAssetId = '';
         pushCommand({
           type: VN_COMMAND_GOTO,
           assetIndex: -1,
@@ -3298,6 +3399,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'jump') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const target = command.sceneId && sceneIndex.has(command.sceneId) ? sceneIndex.get(command.sceneId) : -1;
         pushCommand({
           type: VN_COMMAND_JUMP,
@@ -3316,6 +3418,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'wait') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const frames = clampInt(command.frames, 0, 65535, 30);
         pushCommand({
           type: VN_COMMAND_WAIT,
@@ -3334,6 +3437,7 @@ function generateVnSources(projectDir, options = {}) {
         return;
       }
       if (command.type === 'effect') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const effect = command.effect === 'fadeIn'
           ? VN_EFFECT_FADE_IN
           : (command.effect === 'blank'
@@ -3358,6 +3462,7 @@ function generateVnSources(projectDir, options = {}) {
         });
       }
       if (command.type === 'spritetext') {
+        previousExplicitAdpcmPreloadAssetId = '';
         const glyphBytes = [];
         for (const char of String(command.text || '')) {
           if (glyphBytes.length >= VN_SPRITETEXT_MAX_GLYPHS) break;
@@ -3486,6 +3591,7 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_CACHE_SCOPE_BG ${VN_CACHE_SCOPE_BG}u`,
     `#define PCE_VN_CACHE_SCOPE_SPRITE ${VN_CACHE_SCOPE_SPRITE}u`,
     `#define PCE_VN_CACHE_SCOPE_ADPCM ${VN_CACHE_SCOPE_ADPCM}u`,
+    `#define PCE_VN_CACHE_SCOPE_PSG ${VN_CACHE_SCOPE_PSG}u`,
     `#define PCE_VN_CACHE_SCOPE_ALL ${VN_CACHE_SCOPE_ALL}u`,
     `#define PCE_VN_BG_TRANSITION_CUT ${VN_BG_TRANSITION_CUT}u`,
     `#define PCE_VN_BG_TRANSITION_FADE ${VN_BG_TRANSITION_FADE}u`,
@@ -3985,10 +4091,11 @@ function collectCdDataFiles(projectDir) {
 
 function syncVisualNovelRuntime(projectDir, logger) {
   const sourceDir = templateRuntimeDir();
-  const targets = [
-    ['main.c', path.join(projectDir, 'src', 'main.c')],
-    ['pce_vn_runtime.c', path.join(projectDir, 'src', 'pce_vn_runtime.c')],
-  ];
+  // Phase A module split: the runtime is the umbrella pce_vn_runtime.c plus the
+  // vn_*.c / vn_*.h modules it #includes. Enumerate the template dir (top level
+  // only, so generated/ is never picked up) so new modules sync automatically.
+  const targets = vnRuntimeSourceFileNames()
+    .map((fileName) => [fileName, path.join(projectDir, 'src', fileName)]);
   const changed = targets
     .map(([fileName, targetPath]) => copyIfChanged(path.join(sourceDir, fileName), targetPath))
     .some(Boolean);
@@ -4480,6 +4587,7 @@ module.exports = {
   VN_CACHE_SCOPE_BG,
   VN_CACHE_SCOPE_SPRITE,
   VN_CACHE_SCOPE_ADPCM,
+  VN_CACHE_SCOPE_PSG,
   VN_CACHE_SCOPE_ALL,
   VN_BG_TRANSITION_CUT,
   VN_BG_TRANSITION_FADE,

@@ -47,9 +47,9 @@ Visual Novel CD テンプレートには、`BG` / `Sprite` / `Message` / `Audio`
 
 `システム設定` タブでは、ノベルエンジン全体のメッセージ速度と Advance を設定します。メッセージ速度は `速度1(速い)：0`、`速度2：10`、`速度3：20`、`速度4：30`、`速度5：40`、`速度6(遅い)：50` から選びます。Advance は既定が `button` で、`auto` にすると Auto wait のフレーム数経過後に次へ進みます。これらは全 `Message` command 共通で、Message のプロパティには表示されません。
 
-BG / Sprite / ADPCM などの読み込みは runtime が scene 入場時と各表示・再生命令で管理します。シナリオ側で明示的な先読み command は必須ではありません。BG / Sprite の CD ロード位置を前倒ししたい場合は、`Cache Load` で低位 System Card RAM の visual cache へ先読みできます。実際の VRAM / BAT / SATB 反映は `background` / `sprite` command 実行時だけです。
+BG / Sprite / ADPCM / PSG などの読み込みは runtime が scene 入場時と各表示・再生命令で管理します。シナリオ側で明示的な先読み command は必須ではありません。ボイス付き `Message` は build 時に内部 `Cache Load ADPCM` が直前へ自動挿入され、可視文字を描く前に ADPCM RAM へ読み込んでから再生を開始します。手動で同じ ADPCM の `Cache Load` を直前に置いた場合は重複挿入されません。BG / Sprite の CD ロード位置を前倒ししたい場合は、`Cache Load` で低位 System Card RAM の visual cache へ先読みできます。banked PSG song の開始前ロードを暗転中や待ち中へ寄せたい場合は `Cache Load PSG` で pattern を bank134/135 へ先読みできます。実際の VRAM / BAT / SATB 反映は `background` / `sprite` command 実行時だけです。
 
-`Cache` コマンドは、runtime cache をシナリオ側から制御します。Action は `Clear` / `Load` を選べます。`Clear` は読み込み済み判定だけを明示的にクリアし、Scope は `Visual`（BG + Sprite）/ `BG` / `Sprite` / `ADPCM` / `All` から選べます。現在表示中の VRAM、SATB、再生中の ADPCM、CD-DA、PSG、変数、scene pack は破壊しません。次に該当 asset 種別を使う `background` / `sprite` / `audio` / `message.voiceAssetId` が来た時点で再ロードさせたい場合に使ってください。`All` は Visual と ADPCM に加えて message glyph cache も無効化します。
+`Cache` コマンドは、runtime cache をシナリオ側から制御します。Action は `Clear` / `Load` を選べます。`Clear` は読み込み済み判定だけを明示的にクリアし、Scope は `Visual`（BG + Sprite）/ `BG` / `Sprite` / `ADPCM` / `PSG` / `All` から選べます。現在表示中の VRAM、SATB、再生中の ADPCM、CD-DA、PSG、変数、scene pack は破壊しません。次に該当 asset 種別を使う `background` / `sprite` / `audio` / `message.voiceAssetId` が来た時点で再ロードさせたい場合に使ってください。`Load PSG` は再生予定の banked PSG pattern を先に bank134/135 へ読み込みますが、現在再生中の PSG が同じ bank134/135 を使う banked pattern の場合は現曲保護のため何もせず skip します。`All` は Visual、ADPCM、PSG に加えて message glyph cache も無効化します。
 
 `Load` は `ADPCM`、`BG`、`Sprite` の asset を明示して先読みできます。ADPCM load は再生中のADPCMがある場合は何もせず、停止中だけADPCM RAMへ読み込みます。BG load は BG tiles と map を、Sprite load は sprite pattern payload を visual RAM cache へ読み込みます。どちらも VRAM / BAT / SATB / 現在の表示を変更しません。
 
@@ -81,7 +81,11 @@ CD-ROM2 VN build では、scene から参照される BG / Sprite / ADPCM / PSG 
 - **ADPCM 同期の文字送り**: `ADPCM` ボイスをセットすると、文字送り速度はボイスの再生時間に合わせて自動計算され、本文を出し終わるタイミングと音声の終わりがほぼ揃います（このとき手動の **Speed** は無視されます）。話者行は同期計算に含めず、本文部分の文字数だけを使います。
 - **ボタンでのウェイトスキップ**: `Advance` が `button` のとき、表示途中にボタンを押すと、表示済みの文字は消さずに残りの本文だけを追加描画してページ送り待ちにできます。ページ送り待ち中は 4 行目末尾の `▼` が点滅します。さらにボタンを押して次ページへ送ると、まだ鳴っている ADPCM ボイスは停止します。
 
-`Audio` コマンドの **Kind** には `CD-DA` / `ADPCM` に加えて **`PSG`** を選べます。`PSG` を選ぶと PSG 音源アセット（song / SFX）を再生でき、**基準 ch**（0〜5）で再生を始めるチャンネルを指定できます（song はループ、SFX は一度だけ）。`stop` で停止します。PSG song の大きい pattern は再生開始時に RAM bank134/135 へ読み込まれるため、背景・スプライトなどの CD ロード中も PSG 自体はドライブを占有しません。runtime は CD 転送待ち、CD→VRAM 転送、BAT 行クリア、メッセージ窓クリア、fade などの同期処理中にも補償 tick で PSG シーケンサを進めます。**常駐の効果音（デザイナー製や小さい psg-sfx）は補償 tick を CD 待ち時間に分散させる**ため、スプライト／背景の CD ロードと同時に鳴らしても、効果音が一瞬で早送りされて消えることなく、ほぼ実時間で滑らかに鳴り続けます（以前は一括補償だったため、ロード中に短い効果音が無音化することがありました）。CD ストリーミングする大きな PSG song は従来どおりロード完了後にまとめて進めます（完全な割り込み駆動ではないため、非常に長い同期処理ではタイミングが粗くなる場合があります）。CD-DA 再生中にシーン変更や背景・スプライトの CD ロードが入る場合、ロード中は短く一時停止し、ロード後に同じトラックを再開します。Loop 有効の CD-DA は generated `play_frames` の guard に到達した時点で同じ開始 sector へ再生命令を出し直し、Loop 無効ならそこで停止します。これにより、物理 track 境界を越えて次の CD-DA track へ流れることを防ぎます。ただし CD から直接ストリーミングする ADPCM はドライブを使い続けるため、CD-DA とは同時継続できません。
+`Audio` コマンドの **Kind** には `CD-DA` / `ADPCM` に加えて **`PSG`** を選べます。`PSG` を選ぶと PSG 音源アセット（song / SFX）を再生でき、**基準 ch**（0〜5）で再生を始めるチャンネルを指定できます（song はループ、SFX は一度だけ）。`stop` で停止します。PSG song の大きい pattern は再生開始時に RAM bank134/135 へ読み込まれるため、背景・スプライトなどの CD ロード中も PSG 自体はドライブを占有しません。開始直前の無音を避けたい大きい PSG song は、暗転・fade・ユーザー待ちなど音開始前の余裕がある位置へ `Cache Load PSG` を置いてください。
+
+現行の CD-ROM2 runtime は `VN_PSG_TIMER_IRQ_DRIVER` を既定で無効にし、main thread の VBlank polling を実フレームの時間源にします。CD settle など main loop が観測できない短い待ちは PSG 専用の補償 credit として扱い、ADPCM 残り時間・message 同期・入力待ちは実 VBlank credit だけで進めます。PSG catch-up は 1 frame あたりの tick 数を制限し、Geargrafx の PSG buffer overflow につながる一括 register write を避けます。`VN_PSG_TIMER_IRQ_DRIVER 1` は実験用 fallback として残していますが、PSG song + ADPCM voice の標準契約では使いません。
+
+Message voice は buffered ADPCM 専用です。`stream:true` の ADPCM でも direct-buffered 安全上限（既定 address では 32767 bytes、または `65536 - adpcmAddress` の小さい方）以内なら、runtime は真の CD streaming へ落とさず ADPCM RAM へ読み込んで再生します。安全上限を超える ADPCM を `message.voiceAssetId` に指定すると build error になります。長い音声は分割、sample rate 低下、または CD-DA を使ってください。ADPCM 再生中に次の BG / Sprite / cache / scene などの CD data read へ進む場合、runtime は残っている voice を先に明示停止してから CD access を開始します。CD-DA 再生中にシーン変更や背景・スプライトの CD ロードが入る場合、ロード中は短く一時停止し、ロード後に同じトラックを再開します。Loop 有効の CD-DA は generated `play_frames` の guard に到達した時点で同じ開始 sector へ再生命令を出し直し、Loop 無効ならそこで停止します。
 
 `Effect` コマンドでは `fadeOut` / `fadeIn` / `blank` / `shake` / `flash` を選べます。`fadeOut` と `flash` は **色** をカラーピッカーまたは `#rrggbb` で指定でき、入力した色は PCE 表示可能色へ自動的に丸められます。`fadeOut` は指定色へ画面をフェードアウトし、`flash` は指定色で一瞬画面をフラッシュして元のパレットへ戻します。未指定時は `fadeOut` が黒、`flash` が白です。
 
@@ -130,7 +134,7 @@ CD-ROM2 VN build では、scene から参照される BG / Sprite / ADPCM / PSG 
 
 **`Comment`（コメント）コマンド**は、スクリプトに**エディタ専用のメモ**を残すためのコマンドです。ビルドやプレビュー実行には一切含まれず（シーンメモリも消費しません）、プロジェクトファイルには保存されて次回も残ります。コメントには**メッセージ文**を設定でき、スクリプトコマンド一覧では「メモ」分類の**固定色**（文字色は自動で読みやすい黒/白を選択）で表示されるので、章の区切りや作業メモを視覚的に目立たせられます。以前は任意の背景色を指定できましたが、分類ごとの色分けに統一したため、背景色は固定になりました。
 
-シーン編集画面右上の **▶ プレビュー** ボタンで、表示中のシーンを起点に疑似ゲーム画面を別ウィンドウで再生できます。プレビュー画面にはメニューバーがなく、クリック / Enter でメッセージ送り、選択肢は上下キーまたはクリックで決定、Esc で閉じます。メッセージは実機と同じ 17 文字 × 4 行レイアウト（画面 `y=152px`、4 行目末尾はボタン送り待ちの `▼` 用に予約、改行・折り返し対応）で表示し、Message の **Text color** もプレビューに反映します。背景・立ち絵・メッセージ・選択肢・変数・分岐（IF / Switch / GOTO / Label / Jump）・Wait・音声・演出・スプライト文字（SpriteText、位置確認用にテキストで近似表示）を簡易再生します。Skip チェック済みコマンドはこの再生からも除外されます。立ち絵は `Sprite` コマンドで指定した **Animation** を実機同様にコマ送り再生します（口パク用の **Mouth animation** も同様）。Debug 表示は既定で ON になっており、下部バーの **Debug** チェックで表示 / 非表示を切り替えられます。Debug の Cache 欄はプレビュー内の簡易シミュレーションで、`Cache Load` / `Cache Clear` / `BG` / `Sprite` / ADPCM 再生命令の順序から visual RAM cache の使用ページ、空き容量、evict 数、表示 command の RAM cache hit / CD fallback を推定します。実機 RAM を読み返すものではありませんが、CD load タイミングを寄せるシーン設計の確認に使えます。
+シーン編集画面右上の **▶ プレビュー** ボタンで、表示中のシーンを起点に疑似ゲーム画面を別ウィンドウで再生できます。プレビュー画面にはメニューバーがなく、クリック / Enter でメッセージ送り、選択肢は上下キーまたはクリックで決定、Esc で閉じます。メッセージは実機と同じ 17 文字 × 4 行レイアウト（画面 `y=152px`、4 行目末尾はボタン送り待ちの `▼` 用に予約、改行・折り返し対応）で表示し、Message の **Text color** もプレビューに反映します。背景・立ち絵・メッセージ・選択肢・変数・分岐（IF / Switch / GOTO / Label / Jump）・Wait・音声・演出・スプライト文字（SpriteText、位置確認用にテキストで近似表示）を簡易再生します。Skip チェック済みコマンドはこの再生からも除外されます。立ち絵は `Sprite` コマンドで指定した **Animation** を実機同様にコマ送り再生します（口パク用の **Mouth animation** も同様）。Debug 表示は既定で ON になっており、下部バーの **Debug** チェックで表示 / 非表示を切り替えられます。Debug の Cache 欄はプレビュー内の簡易シミュレーションで、`Cache Load` / `Cache Clear` / `BG` / `Sprite` / ADPCM / PSG 再生命令の順序から visual RAM cache、ADPCM RAM、PSG pattern buffer の状態や、表示 command の RAM cache hit / CD fallback を推定します。実機 RAM を読み返すものではありませんが、CD load タイミングを寄せるシーン設計の確認に使えます。
 
 ## Build
 
@@ -184,7 +188,7 @@ Super CD-ROM2 / ADPCM を含む project では、Geargrafx などの外部エミ
 
 ## アセットの登録と整理
 
-- **ADPCM の登録時は「CD から直接再生（Streaming）」が既定でオン**になりました。長尺のボイス／BGM をそのまま登録でき、ADPCM RAM の容量制限（1 アセット約 64KB）に縛られません。RAM へ読み込んで再生したい短い効果音などは、登録ダイアログで Streaming のチェックを外してください（外すと 16-bit 制約に合わせた自動分割が有効になります）。ADPCM address と divider は通常編集する必要がないため Sound > ADPCM には表示せず、address は既定値、divider は sample rate からの自動値を使います。大量の音声素材は ADPCM asset として管理し、CD-DA は曲や長尺 BGM など少数の物理 track 用に残すのが安全です。
+- **ADPCM の登録時は「CD から直接再生（Streaming）」が既定でオン**になりました。長尺のボイス／BGM をそのまま登録できますが、VN の `Message` voice として使う音声は buffered-only です。`message.voiceAssetId` に指定する ADPCM は Streaming を無効にし、direct-buffered 安全上限（既定 address では 32767 bytes）以下に収めてください。長いボイスは `splitPolicy: "auto"`、sample rate 低下、または CD-DA 化を検討してください。ADPCM address と divider は通常編集する必要がないため Sound > ADPCM には表示せず、address は既定値、divider は sample rate からの自動値を使います。大量の音声素材は ADPCM asset として管理し、CD-DA は曲や長尺 BGM など少数の物理 track 用に残すのが安全です。
 - **アセットの Name に `/` を含めると、アセット一覧がフォルダーのようにグループ化されて表示**されます。例えば `voice/akari` `voice/mika` は「voice」グループにまとまり、`voice/chapter1/intro` のように複数の `/` を使えば入れ子のグループになります。グループ見出しをクリックすると開閉でき（親を閉じると配下のサブグループも畳まれます）、統合アセット一覧では検索中に一致が隠れないよう自動的に全展開します。`/` を含まない Name はそのまま一覧の最上位に並びます（グループ化は表示上の整理で、保存される Name やビルド結果は変わりません）。このグループ化と開閉は、統合アセット一覧だけでなく **背景（BG）/ スプライト / ADPCM / CD-DA の型別エディタの一覧でも同様**に使えます。
 - **統合アセット一覧は Type と Name の列見出しをクリックしてソート**できます。クリックするたびに 昇順 → 降順 → 手動（ドラッグ並び）の順で切り替わります。ソート中もグループ化は維持され、フォルダー内のアセットが選んだキーで並びます。型別エディタの一覧も各列見出しでソートできます。
 - **BG / Sprite の visual payload は raw で扱われます**。旧プロジェクトに残る圧縮メタは読み込み時に互換情報として扱われますが、現在の CD-ROM2 build は `tiles.bin` / `map_vram.bin` / `patterns.bin` を生成します。`Cache Load` の BG / Sprite は低位 System Card RAM の visual cache へ先読みし、表示 command 実行時に cache hit すれば CD read なしで VRAM / BAT へ転送します。cache miss または evict 済みの場合は、従来どおり CD から scratch buffer へ読みながら VRAM へ転送します。
@@ -200,3 +204,5 @@ ADPCM の音質や再生後の進行確認では、次の順で切り分ける�
 1. Build し直して generated ADPCM が最新か確認します。
 2. 標準エミュレーターと外部エミュレーターの両方で確認します。
 3. 外部エミュレーターで正常、標準エミュレーターだけ停止する場合は、標準 WASM core 側の制約として扱い、外部エミュレーターでの動作を優先して確認します。
+
+`Streaming` が有効な ADPCM でも、direct-buffered 安全上限内なら VN の `Message` voice として使えます。この場合も runtime は真の CD streaming を開始せず、ADPCM RAM へ読み込んで buffered direct playback します。build は `message.voiceAssetId` に指定された ADPCM が direct-buffered 安全上限を超える場合だけ失敗します。メッセージボイスは runtime が自動挿入した `Cache Load ADPCM` で事前に ADPCM RAM へ読み込み、可視 glyph を描く前に buffered direct playback を開始します。buffered playback は完了 IRQ に頼らず、runtime が再生時間を実 VBlank frame counter で管理して停止するため、PSG song、message advance、BG / sprite 更新と干渉しにくくなっています。

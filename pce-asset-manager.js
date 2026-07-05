@@ -52,6 +52,7 @@ const PCE_ADPCM_ENCODER_VERSION = audioConverter.PCE_ADPCM_ENCODER_VERSION || 2;
 const PCE_ADPCM_NIBBLE_ORDER = audioConverter.PCE_ADPCM_NIBBLE_ORDER || 'msn-first';
 const PCE_ADPCM_MIN_SAMPLE_RATE = audioConverter.PCE_ADPCM_MIN_SAMPLE_RATE || 4000;
 const PCE_ADPCM_MAX_SAMPLE_RATE = audioConverter.PCE_ADPCM_MAX_SAMPLE_RATE || 32000;
+const PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES = 32767;
 const DEFAULT_BG_OPTIONS = Object.freeze({
   kind: 'background',
   paletteBank: 0,
@@ -1635,7 +1636,7 @@ function importAudio(projectDir, payload = {}, options = {}) {
     });
     const maxAdpcmBytes = baseOptions.stream
       ? 0x7ffffff
-      : Math.max(1, Math.min(65535, 65536 - baseOptions.adpcmAddress));
+      : Math.max(1, Math.min(PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES, 65536 - baseOptions.adpcmAddress));
     const splitPolicy = payload.splitPolicy === 'auto' && !baseOptions.stream ? 'auto' : '';
     const converted = splitPolicy === 'auto'
       ? audioConverter.convertWavForAdpcmParts(input, { sampleRate: baseOptions.sampleRate, maxBytes: maxAdpcmBytes })
@@ -2563,11 +2564,24 @@ function normalizePsgPatternEntries(asset, options) {
     const raw = entry && typeof entry === 'object' ? entry : {};
     const baseVolume = clampInt(raw.volume, 0, 31, 16);
     return {
+      sourceIndex: index,
       step: clampInt(raw.step ?? index, 0, PCE_PSG_MAX_STEPS - 1, index),
       channel: clampInt(raw.channel, 0, 5, 0),
       period: clampInt(raw.period, 1, 4095, options.period),
       volume: clampInt(Math.round((baseVolume * volumeScale) / 100), 0, 31, baseVolume),
       noise: clampInt(raw.noise, 0, 1, 0),
+    };
+  }).sort((a, b) => {
+    if (a.step !== b.step) return a.step - b.step;
+    if (a.channel !== b.channel) return a.channel - b.channel;
+    return a.sourceIndex - b.sourceIndex;
+  }).map((entry) => {
+    return {
+      step: entry.step,
+      channel: entry.channel,
+      period: entry.period,
+      volume: entry.volume,
+      noise: entry.noise,
     };
   });
 }
@@ -3396,7 +3410,7 @@ function ensureAdpcmGeneratedAssets(projectDir, doc) {
     const options = normalizeAdpcmOptions(first);
     const maxAdpcmBytes = options.stream
       ? 0x7ffffff
-      : Math.max(1, Math.min(65535, clampInt(first.data?.import?.maxAdpcmBytes, 1, 65535, 65536 - options.adpcmAddress)));
+      : Math.max(1, Math.min(PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES, clampInt(first.data?.import?.maxAdpcmBytes, 1, PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES, 65536 - options.adpcmAddress)));
     const splitPolicy = !options.stream && (first.data?.import?.splitPolicy === 'auto' || group.length > 1) ? 'auto' : '';
     const converted = splitPolicy === 'auto'
       ? audioConverter.convertWavForAdpcmParts(input, { sampleRate: options.sampleRate, maxBytes: maxAdpcmBytes })

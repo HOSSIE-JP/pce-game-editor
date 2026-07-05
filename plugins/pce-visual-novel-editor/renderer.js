@@ -63,6 +63,7 @@ const CACHE_SCOPE_OPTIONS = [
   { value: 'bg', label: 'BG' },
   { value: 'sprite', label: 'Sprite' },
   { value: 'adpcm', label: 'ADPCM' },
+  { value: 'psg', label: 'PSG' },
   { value: 'all', label: 'All' },
 ];
 const CACHE_ACTION_OPTIONS = [
@@ -616,6 +617,11 @@ function adpcmRamPayloadBytes(asset = {}) {
   return positiveBytes(generated.byteLength || generated.dataSize || generated.size);
 }
 
+function psgPatternPreviewBytes(asset = {}) {
+  const stats = psgPreviewStats(asset);
+  return Math.max(0, Number(stats.entries) || 0) * 8;
+}
+
 // スプライトシート画像から、指定アニメーションの各フレーム切り出し矩形を計算する。
 // runtime の show_character_sprite_frame と同じ firstCell / frameStrideCells 規則で、
 // 1 フレームはシート上の連続した frameW×frameH 矩形になる（行ストライド = シート幅）。
@@ -917,10 +923,12 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       if (scope === 'visual') {
         if (asset?.type === 'image') scope = 'bg';
         else if (asset?.type === 'sprite') scope = 'sprite';
+        else if (asset?.type === 'psg-song' || asset?.type === 'psg-sfx') scope = 'psg';
       }
       const valid = (scope === 'bg' && asset?.type === 'image')
         || (scope === 'sprite' && asset?.type === 'sprite')
-        || (scope === 'adpcm' && asset?.type === 'adpcm');
+        || (scope === 'adpcm' && asset?.type === 'adpcm')
+        || (scope === 'psg' && (asset?.type === 'psg-song' || asset?.type === 'psg-sfx'));
       return {
         type: 'cache',
         action: 'load',
@@ -1487,6 +1495,7 @@ function previewRuntime() {
       visualClock: 0,
       visualEvictions: 0,
       adpcm: null,
+      psg: null,
       glyphInvalidated: false,
       lastEvent: 'Cache simulator ready',
     };
@@ -1517,11 +1526,12 @@ function previewRuntime() {
     if (scope === 'bg') return 'BG';
     if (scope === 'sprite') return 'Sprite';
     if (scope === 'adpcm') return 'ADPCM';
+    if (scope === 'psg') return 'PSG';
     if (scope === 'all') return 'All';
     return 'Visual';
   }
   function normalizedCacheScope(scope) {
-    return ['visual', 'bg', 'sprite', 'adpcm', 'all'].includes(scope) ? scope : 'visual';
+    return ['visual', 'bg', 'sprite', 'adpcm', 'psg', 'all'].includes(scope) ? scope : 'visual';
   }
   function cacheEntryMatchesScope(entry, scope) {
     const kind = entry && entry.kind;
@@ -1642,6 +1652,26 @@ function previewRuntime() {
     cacheState.lastEvent = labelPrefix + ' ADPCM ' + label + ': ' + formatPreviewBytes(bytes);
     updateCacheDebug();
   }
+  function psgPatternPreviewStats(assetId) {
+    const meta = data.meta[assetId] || {};
+    const entries = normalizePsgPattern(assetId).length;
+    const bytes = Math.max(0, Number(meta.psgPatternBytes) || (entries * 8));
+    return { entries, bytes };
+  }
+  function loadPsgCacheAsset(assetId, labelPrefix) {
+    const meta = data.meta[assetId] || {};
+    const label = cacheAssetLabel(assetId);
+    if (meta.type !== 'psg-song' && meta.type !== 'psg-sfx') {
+      cacheState.lastEvent = labelPrefix + ' PSG ' + label + ': no pattern metadata';
+      updateCacheDebug();
+      return;
+    }
+    const stats = psgPatternPreviewStats(assetId);
+    cacheState.psg = { assetId, bytes: stats.bytes, label, entries: stats.entries };
+    cacheState.lastEvent = labelPrefix + ' PSG ' + label + ': '
+      + stats.entries + ' event(s), ' + formatPreviewBytes(stats.bytes);
+    updateCacheDebug();
+  }
   function recordAdpcmUse(assetId, labelPrefix) {
     if (!assetId) return;
     const label = cacheAssetLabel(assetId);
@@ -1667,6 +1697,7 @@ function previewRuntime() {
       cacheState.visualEntries = cacheState.visualEntries.filter((entry) => !cacheEntryMatchesScope(entry, normalizedScope));
     }
     if (normalizedScope === 'adpcm' || normalizedScope === 'all') cacheState.adpcm = null;
+    if (normalizedScope === 'psg' || normalizedScope === 'all') cacheState.psg = null;
     if (normalizedScope === 'all') cacheState.glyphInvalidated = true;
     cacheState.lastEvent = 'Clear ' + cacheScopeName(normalizedScope) + ' cache';
     updateCacheDebug();
@@ -1682,6 +1713,8 @@ function previewRuntime() {
       loadVisualCacheAsset(c.assetId, scope);
     } else if (scope === 'adpcm') {
       loadAdpcmCacheAsset(c.assetId, 'Load');
+    } else if (scope === 'psg') {
+      loadPsgCacheAsset(c.assetId, 'Load');
     } else {
       cacheState.lastEvent = 'Load ' + cacheScopeName(scope) + ': no preview action';
       updateCacheDebug();
@@ -1705,6 +1738,10 @@ function previewRuntime() {
     const visualPageBytesUsed = visualPages * visualCachePageBytes;
     const visualFreeBytes = Math.max(0, visualCacheTotalBytes - visualPageBytesUsed);
     const adpcmUsed = cacheState.adpcm ? cacheState.adpcm.bytes : 0;
+    const psgUsed = cacheState.psg ? cacheState.psg.bytes : 0;
+    const psgDetail = cacheState.psg
+      ? cacheState.psg.label + ', ' + cacheState.psg.entries + ' event(s)'
+      : 'empty';
     const sceneBytesMap = data.scenePackBytesById || {};
     const scenePackUsed = Math.max(0, Number(sceneBytesMap[scene?.id]) || 0);
     const rows = [
@@ -1714,6 +1751,9 @@ function previewRuntime() {
       meterRow('ADPCM RAM', adpcmUsed, adpcmRamBytes,
         'free ' + formatPreviewBytes(Math.max(0, adpcmRamBytes - adpcmUsed)) + (cacheState.adpcm ? ', ' + cacheState.adpcm.label : ''),
         adpcmUsed),
+      meterRow('PSG pattern', psgUsed, 16 * 1024,
+        psgDetail,
+        psgUsed),
       meterRow('Scene pack', scenePackUsed, scenePackLimitBytes,
         'free ' + formatPreviewBytes(Math.max(0, scenePackLimitBytes - scenePackUsed)),
         scenePackUsed),
@@ -2982,9 +3022,9 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (command.type === 'cache') {
       if (command.action === 'load') {
         const label = assetById(command.assetId)?.name || command.assetId || cacheScopeLabel(command.scope);
-        return command.scope === 'adpcm'
-          ? `Load ${label} ADPCM cache`
-          : `Load ${label} visual RAM cache`;
+        if (command.scope === 'adpcm') return `Load ${label} ADPCM cache`;
+        if (command.scope === 'psg') return `Load ${label} PSG cache`;
+        return `Load ${label} visual RAM cache`;
       }
       return `Clear ${cacheScopeLabel(command.scope)} cache`;
     }
@@ -3641,7 +3681,9 @@ export function activatePlugin({ root, api, registerCapability }) {
       const scope = normalizeCacheScope(command.scope);
       const assetTypes = scope === 'sprite'
         ? ['sprite']
-        : (scope === 'adpcm' ? ['adpcm'] : ['image']);
+        : (scope === 'adpcm'
+          ? ['adpcm']
+          : (scope === 'psg' ? ['psg-song', 'psg-sfx'] : ['image']));
       const loadFields = action === 'load'
         ? `
           <label class="form-group"><span class="form-label">Asset</span><select class="form-select" name="assetId">${optionsFor(byType(assetTypes), command.assetId, 'なし')}</select></label>
@@ -4160,6 +4202,7 @@ export function activatePlugin({ root, api, registerCapability }) {
           meta[id].animations = anim.animations;
         } else if (isPsg) {
           meta[id].psgOptions = asset.options || {};
+          meta[id].psgPatternBytes = psgPatternPreviewBytes(asset);
         }
       }));
       const payload = {

@@ -76,7 +76,7 @@ scene pack / font / overlay の制約と catalog metadata 制約を混同しな�
 - CD-DA track が重複する。
 - Sprite `cell_map` が 256 cell を超える。
 - PSG pattern が 2048 event を超える。
-- ADPCM 1 asset が `min(65535, 65536 - adpcmAddress)` bytes を超える。
+- ADPCM 1 asset が direct-buffered 安全上限 `min(32767, 65536 - adpcmAddress)` bytes を超える。
 
 ## 変更時の確認
 
