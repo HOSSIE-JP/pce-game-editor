@@ -9,6 +9,8 @@
 - `llvm-mos-sdk`: HuCard / CD-ROM2 のビルドに使います。
 - IPL / System Card: Super CD-ROM2 のビルドや Test Play に使います。ユーザー所有ファイルとして扱い、リポジトリには同梱しません。
 - EmulatorJS runtime: 標準エミュレーターで Test Play する場合に使います。
+
+Windows で `llvm-mos linker を起動できません` または `Application Control policy has blocked this file` が出る場合は、プロジェクトや C ソースではなく Windows Application Control / Smart App Control / WDAC が `llvm-mos-sdk` の `ld.lld.exe` を拒否しています。`data/tools/llvm-mos-sdk/llvm-mos/bin/ld.lld.exe --version` が単体で起動できる状態にする必要があります。Windows 側でこのファイルを許可するか、SetUp で実行可能な `llvm-mos-sdk` を指定してください。
 PC Engine Core の SetUp には、ツールカードのほかに環境診断が表示されます。ZIP 展開、EmulatorJS CDN の `.7z` 展開、VN フォント描画 renderer（Windows System.Drawing / Python+Pillow / PATH 上の `ffmpeg`）の検出結果を確認できます。各ツールカードの手動パス欄には、既に別の場所へ入れてある `mos-pce-clang` や EmulatorJS runtime フォルダを指定できます。
 
 ## 新規プロジェクト
@@ -20,6 +22,10 @@ Mega Drive ROM ヘッダー向けだったタイトル、作者名、シリア�
 Settings の `プロジェクト表示名` は、アプリ内表示とエクスポート候補名のための project metadata です。PCE ROM ヘッダー情報ではないため、作者名やシリアルの編集欄は表示しません。
 
 標準の HuCard サンプルは `llvm-mos-sdk` の `mos-pce-clang` でビルドするスライドショーテンプレートです。builder は `pce-slideshow-builder` で、CD-ROM2 VN 用の `pce-visual-novel-builder` とは分離されています。`Image` に登録した BG 画像のうち、ID が `slide_001` または `slide_001_title` の形式に一致するものだけを番号順に表示し、最後の画像の後は先頭へ戻ります。番号は `001` から連番にしてください。スライド画像は PNG として保存され、8px 単位かつ 256x224px 以下である必要があります。ビルド時に形式、サイズ、生成済みデータ、HuCard の ROM bank 使用量を検査し、容量を超える場合は何枚目で超えたかを示すエラーで停止します。コントローラーの `←` は前の画像、`→` またはその他のボタンは次の画像へ進みます。入力がない場合も一定時間で次の画像へ自動遷移します。テンプレートには `slideshow_bgm` の PSG song が含まれ、HuCard 上でループ再生されます。スライドショーテンプレートから作成したプロジェクトでは、既定で `Sound` と `Novel` の sidebar plugin は無効です。
+
+HuCARD ノベルテンプレートは `template_pce_vn_hucard` / builder `pce-visual-novel-hucard-builder` を使います。Novel のシーン編集 UI と script command は CD-ROM2 VN と同じですが、ビルド結果は `.pce` のみで、IPL / System Card / `pce-mkcd` / CD data file は使いません。BG、Sprite、Message、Choice、Variable、IF/Switch/GOTO、InputCheck、Effect、SpriteText、PSG は HuCARD runtime で処理します。ADPCM、CD-DA、`message.voiceAssetId`、ADPCM cache load は HuCARD では無音の no-op になり、ADPCM / CD-DA asset metadata も ROM に出力されません。PSG song / SFX は HuCARD 用の ROM bank data として入り、song はループ、SFX はワンショットで再生されます。font mask、scene pack、spritetext font、PSG pattern、画像/sprite payload は同じ HuCARD ROM bank allocator を共有するため、127 ROM bank を超える場合はビルドエラーになります。Test Play は通常の HuCARD ROM と同じく標準エミュレーターまたは外部エミュレーターへ `.pce` を渡します。
+
+HuCARD ノベルの ROM 配置は固定です。runtime code は `rom_bank1..4` を予約し、font mask / scene pack / spritetext font / PSG pattern / 画像 payload は `rom_bank5..127` の data bank に置かれます。BG / Sprite の generated visual payload は、小さい palette / map も含めて data bank に置かれ、bank0 `.rodata` には置きません。message font は 12x12 mask、1 glyph = 24 bytes なので、使用グリフ数が増えても bank0 ではなく data bank と VRAM の制約として扱われます。scene pack は 4096 bytes cache 上限を維持し、超過時は scene 分割を促す build error になります。詳細は [HuCARD VN bank layout](pce-vn-hucard-bank-layout.md) を参照してください。
 
 ## Image / Sprites
 
@@ -136,7 +142,7 @@ Message voice は buffered ADPCM 専用です。`stream:true` の ADPCM でも d
 
 Build Log には `VN generation`、`asset source generation`、`compile/link ELF`、`VN overlay extraction`、`PCE-CD padding update`、`PCE-CD ISO assembly` の各段階の所要時間が表示されます。ビルドが長い場合は、この timing 行で VN スクリプト生成、画像/音声アセット生成、llvm-mos link、ISO 作成のどこが重いかを切り分けてください。
 
-Test Play は直前の出力を残したままビルドします。VN シーン、アセット定義、フォント、runtime template、CD data file のサイズが前回から変わっていない場合は `assets/generated/vn/build-stamp.json` を使って VN スクリプト生成をスキップし、Build Log に `VN generation skipped: inputs unchanged` と表示します。通常の Build や入力変更後の Test Play は、スタンプを更新するためフル生成します。
+Test Play は直前の出力を残したままビルドします。VN シーン、アセット定義、フォント、runtime template、CD data file のサイズが前回から変わっていない場合は `assets/generated/vn/build-stamp.json` を使って VN スクリプト生成をスキップし、Build Log に `VN generation skipped: inputs unchanged` と表示します。さらに生成後の `src/`、CD data、ツール設定、ビルド引数、出力 ROM/CUE/ISO が `out/build-stamp.json` と一致する場合は clang/link/mkcd も起動せず、`Build skipped: inputs unchanged` と表示して既存出力をそのまま Test Play に渡します。通常の Build や入力変更後の Test Play は、スタンプを更新するためフル生成します。
 
 ## Export
 

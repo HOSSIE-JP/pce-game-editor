@@ -1,0 +1,29 @@
+{
+  "source": "assets/images/slides/slide_04_festival.png",
+  "kind": "background",
+  "width": 256,
+  "height": 224,
+  "tileCount": 896,
+  "paletteCount": 1,
+  "vramBytes": 30464,
+  "compression": {
+    "policy": "none",
+    "tiles": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 28672,
+      "byteLength": 0,
+      "savedBytes": 0
+    },
+    "map": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 1792,
+      "byteLength": 0,
+      "savedBytes": 0
+    }
+  },
+  "warnings": [
+    "BG tiles overlap the sample UI/font VRAM area at tile 704"
+  ]
+}

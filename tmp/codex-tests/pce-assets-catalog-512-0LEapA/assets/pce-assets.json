@@ -1,0 +1,8213 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "psg_0",
+      "type": "psg-sfx",
+      "name": "psg_0",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_1",
+      "type": "psg-sfx",
+      "name": "psg_1",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_2",
+      "type": "psg-sfx",
+      "name": "psg_2",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_3",
+      "type": "psg-sfx",
+      "name": "psg_3",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_4",
+      "type": "psg-sfx",
+      "name": "psg_4",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_5",
+      "type": "psg-sfx",
+      "name": "psg_5",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_6",
+      "type": "psg-sfx",
+      "name": "psg_6",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_7",
+      "type": "psg-sfx",
+      "name": "psg_7",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_8",
+      "type": "psg-sfx",
+      "name": "psg_8",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_9",
+      "type": "psg-sfx",
+      "name": "psg_9",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_10",
+      "type": "psg-sfx",
+      "name": "psg_10",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_11",
+      "type": "psg-sfx",
+      "name": "psg_11",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_12",
+      "type": "psg-sfx",
+      "name": "psg_12",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_13",
+      "type": "psg-sfx",
+      "name": "psg_13",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_14",
+      "type": "psg-sfx",
+      "name": "psg_14",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_15",
+      "type": "psg-sfx",
+      "name": "psg_15",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_16",
+      "type": "psg-sfx",
+      "name": "psg_16",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_17",
+      "type": "psg-sfx",
+      "name": "psg_17",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_18",
+      "type": "psg-sfx",
+      "name": "psg_18",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_19",
+      "type": "psg-sfx",
+      "name": "psg_19",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_20",
+      "type": "psg-sfx",
+      "name": "psg_20",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_21",
+      "type": "psg-sfx",
+      "name": "psg_21",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_22",
+      "type": "psg-sfx",
+      "name": "psg_22",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_23",
+      "type": "psg-sfx",
+      "name": "psg_23",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_24",
+      "type": "psg-sfx",
+      "name": "psg_24",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_25",
+      "type": "psg-sfx",
+      "name": "psg_25",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_26",
+      "type": "psg-sfx",
+      "name": "psg_26",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_27",
+      "type": "psg-sfx",
+      "name": "psg_27",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_28",
+      "type": "psg-sfx",
+      "name": "psg_28",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_29",
+      "type": "psg-sfx",
+      "name": "psg_29",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_30",
+      "type": "psg-sfx",
+      "name": "psg_30",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_31",
+      "type": "psg-sfx",
+      "name": "psg_31",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_32",
+      "type": "psg-sfx",
+      "name": "psg_32",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_33",
+      "type": "psg-sfx",
+      "name": "psg_33",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_34",
+      "type": "psg-sfx",
+      "name": "psg_34",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_35",
+      "type": "psg-sfx",
+      "name": "psg_35",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_36",
+      "type": "psg-sfx",
+      "name": "psg_36",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_37",
+      "type": "psg-sfx",
+      "name": "psg_37",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_38",
+      "type": "psg-sfx",
+      "name": "psg_38",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_39",
+      "type": "psg-sfx",
+      "name": "psg_39",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_40",
+      "type": "psg-sfx",
+      "name": "psg_40",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_41",
+      "type": "psg-sfx",
+      "name": "psg_41",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_42",
+      "type": "psg-sfx",
+      "name": "psg_42",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_43",
+      "type": "psg-sfx",
+      "name": "psg_43",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_44",
+      "type": "psg-sfx",
+      "name": "psg_44",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_45",
+      "type": "psg-sfx",
+      "name": "psg_45",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_46",
+      "type": "psg-sfx",
+      "name": "psg_46",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_47",
+      "type": "psg-sfx",
+      "name": "psg_47",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_48",
+      "type": "psg-sfx",
+      "name": "psg_48",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_49",
+      "type": "psg-sfx",
+      "name": "psg_49",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_50",
+      "type": "psg-sfx",
+      "name": "psg_50",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_51",
+      "type": "psg-sfx",
+      "name": "psg_51",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_52",
+      "type": "psg-sfx",
+      "name": "psg_52",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_53",
+      "type": "psg-sfx",
+      "name": "psg_53",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_54",
+      "type": "psg-sfx",
+      "name": "psg_54",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_55",
+      "type": "psg-sfx",
+      "name": "psg_55",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_56",
+      "type": "psg-sfx",
+      "name": "psg_56",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_57",
+      "type": "psg-sfx",
+      "name": "psg_57",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_58",
+      "type": "psg-sfx",
+      "name": "psg_58",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_59",
+      "type": "psg-sfx",
+      "name": "psg_59",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_60",
+      "type": "psg-sfx",
+      "name": "psg_60",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_61",
+      "type": "psg-sfx",
+      "name": "psg_61",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_62",
+      "type": "psg-sfx",
+      "name": "psg_62",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_63",
+      "type": "psg-sfx",
+      "name": "psg_63",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_64",
+      "type": "psg-sfx",
+      "name": "psg_64",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_65",
+      "type": "psg-sfx",
+      "name": "psg_65",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_66",
+      "type": "psg-sfx",
+      "name": "psg_66",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_67",
+      "type": "psg-sfx",
+      "name": "psg_67",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_68",
+      "type": "psg-sfx",
+      "name": "psg_68",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_69",
+      "type": "psg-sfx",
+      "name": "psg_69",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_70",
+      "type": "psg-sfx",
+      "name": "psg_70",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_71",
+      "type": "psg-sfx",
+      "name": "psg_71",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_72",
+      "type": "psg-sfx",
+      "name": "psg_72",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_73",
+      "type": "psg-sfx",
+      "name": "psg_73",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_74",
+      "type": "psg-sfx",
+      "name": "psg_74",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_75",
+      "type": "psg-sfx",
+      "name": "psg_75",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_76",
+      "type": "psg-sfx",
+      "name": "psg_76",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_77",
+      "type": "psg-sfx",
+      "name": "psg_77",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_78",
+      "type": "psg-sfx",
+      "name": "psg_78",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_79",
+      "type": "psg-sfx",
+      "name": "psg_79",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_80",
+      "type": "psg-sfx",
+      "name": "psg_80",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_81",
+      "type": "psg-sfx",
+      "name": "psg_81",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_82",
+      "type": "psg-sfx",
+      "name": "psg_82",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_83",
+      "type": "psg-sfx",
+      "name": "psg_83",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_84",
+      "type": "psg-sfx",
+      "name": "psg_84",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_85",
+      "type": "psg-sfx",
+      "name": "psg_85",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_86",
+      "type": "psg-sfx",
+      "name": "psg_86",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_87",
+      "type": "psg-sfx",
+      "name": "psg_87",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_88",
+      "type": "psg-sfx",
+      "name": "psg_88",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_89",
+      "type": "psg-sfx",
+      "name": "psg_89",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_90",
+      "type": "psg-sfx",
+      "name": "psg_90",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_91",
+      "type": "psg-sfx",
+      "name": "psg_91",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_92",
+      "type": "psg-sfx",
+      "name": "psg_92",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_93",
+      "type": "psg-sfx",
+      "name": "psg_93",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_94",
+      "type": "psg-sfx",
+      "name": "psg_94",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_95",
+      "type": "psg-sfx",
+      "name": "psg_95",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_96",
+      "type": "psg-sfx",
+      "name": "psg_96",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_97",
+      "type": "psg-sfx",
+      "name": "psg_97",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_98",
+      "type": "psg-sfx",
+      "name": "psg_98",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_99",
+      "type": "psg-sfx",
+      "name": "psg_99",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_100",
+      "type": "psg-sfx",
+      "name": "psg_100",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_101",
+      "type": "psg-sfx",
+      "name": "psg_101",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_102",
+      "type": "psg-sfx",
+      "name": "psg_102",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_103",
+      "type": "psg-sfx",
+      "name": "psg_103",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_104",
+      "type": "psg-sfx",
+      "name": "psg_104",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_105",
+      "type": "psg-sfx",
+      "name": "psg_105",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_106",
+      "type": "psg-sfx",
+      "name": "psg_106",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_107",
+      "type": "psg-sfx",
+      "name": "psg_107",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_108",
+      "type": "psg-sfx",
+      "name": "psg_108",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_109",
+      "type": "psg-sfx",
+      "name": "psg_109",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_110",
+      "type": "psg-sfx",
+      "name": "psg_110",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_111",
+      "type": "psg-sfx",
+      "name": "psg_111",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_112",
+      "type": "psg-sfx",
+      "name": "psg_112",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_113",
+      "type": "psg-sfx",
+      "name": "psg_113",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_114",
+      "type": "psg-sfx",
+      "name": "psg_114",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_115",
+      "type": "psg-sfx",
+      "name": "psg_115",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_116",
+      "type": "psg-sfx",
+      "name": "psg_116",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_117",
+      "type": "psg-sfx",
+      "name": "psg_117",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_118",
+      "type": "psg-sfx",
+      "name": "psg_118",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_119",
+      "type": "psg-sfx",
+      "name": "psg_119",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_120",
+      "type": "psg-sfx",
+      "name": "psg_120",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_121",
+      "type": "psg-sfx",
+      "name": "psg_121",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_122",
+      "type": "psg-sfx",
+      "name": "psg_122",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_123",
+      "type": "psg-sfx",
+      "name": "psg_123",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_124",
+      "type": "psg-sfx",
+      "name": "psg_124",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_125",
+      "type": "psg-sfx",
+      "name": "psg_125",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_126",
+      "type": "psg-sfx",
+      "name": "psg_126",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_127",
+      "type": "psg-sfx",
+      "name": "psg_127",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_128",
+      "type": "psg-sfx",
+      "name": "psg_128",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_129",
+      "type": "psg-sfx",
+      "name": "psg_129",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_130",
+      "type": "psg-sfx",
+      "name": "psg_130",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_131",
+      "type": "psg-sfx",
+      "name": "psg_131",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_132",
+      "type": "psg-sfx",
+      "name": "psg_132",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_133",
+      "type": "psg-sfx",
+      "name": "psg_133",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_134",
+      "type": "psg-sfx",
+      "name": "psg_134",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_135",
+      "type": "psg-sfx",
+      "name": "psg_135",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_136",
+      "type": "psg-sfx",
+      "name": "psg_136",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_137",
+      "type": "psg-sfx",
+      "name": "psg_137",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_138",
+      "type": "psg-sfx",
+      "name": "psg_138",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_139",
+      "type": "psg-sfx",
+      "name": "psg_139",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_140",
+      "type": "psg-sfx",
+      "name": "psg_140",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_141",
+      "type": "psg-sfx",
+      "name": "psg_141",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_142",
+      "type": "psg-sfx",
+      "name": "psg_142",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_143",
+      "type": "psg-sfx",
+      "name": "psg_143",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_144",
+      "type": "psg-sfx",
+      "name": "psg_144",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_145",
+      "type": "psg-sfx",
+      "name": "psg_145",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_146",
+      "type": "psg-sfx",
+      "name": "psg_146",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_147",
+      "type": "psg-sfx",
+      "name": "psg_147",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_148",
+      "type": "psg-sfx",
+      "name": "psg_148",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_149",
+      "type": "psg-sfx",
+      "name": "psg_149",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_150",
+      "type": "psg-sfx",
+      "name": "psg_150",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_151",
+      "type": "psg-sfx",
+      "name": "psg_151",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_152",
+      "type": "psg-sfx",
+      "name": "psg_152",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_153",
+      "type": "psg-sfx",
+      "name": "psg_153",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_154",
+      "type": "psg-sfx",
+      "name": "psg_154",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_155",
+      "type": "psg-sfx",
+      "name": "psg_155",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_156",
+      "type": "psg-sfx",
+      "name": "psg_156",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_157",
+      "type": "psg-sfx",
+      "name": "psg_157",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_158",
+      "type": "psg-sfx",
+      "name": "psg_158",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_159",
+      "type": "psg-sfx",
+      "name": "psg_159",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_160",
+      "type": "psg-sfx",
+      "name": "psg_160",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_161",
+      "type": "psg-sfx",
+      "name": "psg_161",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_162",
+      "type": "psg-sfx",
+      "name": "psg_162",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_163",
+      "type": "psg-sfx",
+      "name": "psg_163",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_164",
+      "type": "psg-sfx",
+      "name": "psg_164",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_165",
+      "type": "psg-sfx",
+      "name": "psg_165",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_166",
+      "type": "psg-sfx",
+      "name": "psg_166",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_167",
+      "type": "psg-sfx",
+      "name": "psg_167",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_168",
+      "type": "psg-sfx",
+      "name": "psg_168",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_169",
+      "type": "psg-sfx",
+      "name": "psg_169",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_170",
+      "type": "psg-sfx",
+      "name": "psg_170",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_171",
+      "type": "psg-sfx",
+      "name": "psg_171",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_172",
+      "type": "psg-sfx",
+      "name": "psg_172",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_173",
+      "type": "psg-sfx",
+      "name": "psg_173",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_174",
+      "type": "psg-sfx",
+      "name": "psg_174",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_175",
+      "type": "psg-sfx",
+      "name": "psg_175",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_176",
+      "type": "psg-sfx",
+      "name": "psg_176",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_177",
+      "type": "psg-sfx",
+      "name": "psg_177",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_178",
+      "type": "psg-sfx",
+      "name": "psg_178",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_179",
+      "type": "psg-sfx",
+      "name": "psg_179",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_180",
+      "type": "psg-sfx",
+      "name": "psg_180",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_181",
+      "type": "psg-sfx",
+      "name": "psg_181",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_182",
+      "type": "psg-sfx",
+      "name": "psg_182",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_183",
+      "type": "psg-sfx",
+      "name": "psg_183",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_184",
+      "type": "psg-sfx",
+      "name": "psg_184",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_185",
+      "type": "psg-sfx",
+      "name": "psg_185",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_186",
+      "type": "psg-sfx",
+      "name": "psg_186",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_187",
+      "type": "psg-sfx",
+      "name": "psg_187",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_188",
+      "type": "psg-sfx",
+      "name": "psg_188",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_189",
+      "type": "psg-sfx",
+      "name": "psg_189",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_190",
+      "type": "psg-sfx",
+      "name": "psg_190",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_191",
+      "type": "psg-sfx",
+      "name": "psg_191",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_192",
+      "type": "psg-sfx",
+      "name": "psg_192",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_193",
+      "type": "psg-sfx",
+      "name": "psg_193",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_194",
+      "type": "psg-sfx",
+      "name": "psg_194",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_195",
+      "type": "psg-sfx",
+      "name": "psg_195",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_196",
+      "type": "psg-sfx",
+      "name": "psg_196",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_197",
+      "type": "psg-sfx",
+      "name": "psg_197",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_198",
+      "type": "psg-sfx",
+      "name": "psg_198",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_199",
+      "type": "psg-sfx",
+      "name": "psg_199",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_200",
+      "type": "psg-sfx",
+      "name": "psg_200",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_201",
+      "type": "psg-sfx",
+      "name": "psg_201",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_202",
+      "type": "psg-sfx",
+      "name": "psg_202",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_203",
+      "type": "psg-sfx",
+      "name": "psg_203",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_204",
+      "type": "psg-sfx",
+      "name": "psg_204",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_205",
+      "type": "psg-sfx",
+      "name": "psg_205",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_206",
+      "type": "psg-sfx",
+      "name": "psg_206",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_207",
+      "type": "psg-sfx",
+      "name": "psg_207",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_208",
+      "type": "psg-sfx",
+      "name": "psg_208",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_209",
+      "type": "psg-sfx",
+      "name": "psg_209",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_210",
+      "type": "psg-sfx",
+      "name": "psg_210",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_211",
+      "type": "psg-sfx",
+      "name": "psg_211",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_212",
+      "type": "psg-sfx",
+      "name": "psg_212",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_213",
+      "type": "psg-sfx",
+      "name": "psg_213",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_214",
+      "type": "psg-sfx",
+      "name": "psg_214",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_215",
+      "type": "psg-sfx",
+      "name": "psg_215",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_216",
+      "type": "psg-sfx",
+      "name": "psg_216",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_217",
+      "type": "psg-sfx",
+      "name": "psg_217",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_218",
+      "type": "psg-sfx",
+      "name": "psg_218",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_219",
+      "type": "psg-sfx",
+      "name": "psg_219",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_220",
+      "type": "psg-sfx",
+      "name": "psg_220",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_221",
+      "type": "psg-sfx",
+      "name": "psg_221",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_222",
+      "type": "psg-sfx",
+      "name": "psg_222",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_223",
+      "type": "psg-sfx",
+      "name": "psg_223",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_224",
+      "type": "psg-sfx",
+      "name": "psg_224",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_225",
+      "type": "psg-sfx",
+      "name": "psg_225",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_226",
+      "type": "psg-sfx",
+      "name": "psg_226",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_227",
+      "type": "psg-sfx",
+      "name": "psg_227",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_228",
+      "type": "psg-sfx",
+      "name": "psg_228",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_229",
+      "type": "psg-sfx",
+      "name": "psg_229",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_230",
+      "type": "psg-sfx",
+      "name": "psg_230",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_231",
+      "type": "psg-sfx",
+      "name": "psg_231",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_232",
+      "type": "psg-sfx",
+      "name": "psg_232",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_233",
+      "type": "psg-sfx",
+      "name": "psg_233",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_234",
+      "type": "psg-sfx",
+      "name": "psg_234",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_235",
+      "type": "psg-sfx",
+      "name": "psg_235",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_236",
+      "type": "psg-sfx",
+      "name": "psg_236",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_237",
+      "type": "psg-sfx",
+      "name": "psg_237",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_238",
+      "type": "psg-sfx",
+      "name": "psg_238",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_239",
+      "type": "psg-sfx",
+      "name": "psg_239",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_240",
+      "type": "psg-sfx",
+      "name": "psg_240",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_241",
+      "type": "psg-sfx",
+      "name": "psg_241",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_242",
+      "type": "psg-sfx",
+      "name": "psg_242",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_243",
+      "type": "psg-sfx",
+      "name": "psg_243",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_244",
+      "type": "psg-sfx",
+      "name": "psg_244",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_245",
+      "type": "psg-sfx",
+      "name": "psg_245",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_246",
+      "type": "psg-sfx",
+      "name": "psg_246",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_247",
+      "type": "psg-sfx",
+      "name": "psg_247",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_248",
+      "type": "psg-sfx",
+      "name": "psg_248",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_249",
+      "type": "psg-sfx",
+      "name": "psg_249",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_250",
+      "type": "psg-sfx",
+      "name": "psg_250",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_251",
+      "type": "psg-sfx",
+      "name": "psg_251",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_252",
+      "type": "psg-sfx",
+      "name": "psg_252",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_253",
+      "type": "psg-sfx",
+      "name": "psg_253",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_254",
+      "type": "psg-sfx",
+      "name": "psg_254",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_255",
+      "type": "psg-sfx",
+      "name": "psg_255",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_256",
+      "type": "psg-sfx",
+      "name": "psg_256",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_257",
+      "type": "psg-sfx",
+      "name": "psg_257",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_258",
+      "type": "psg-sfx",
+      "name": "psg_258",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_259",
+      "type": "psg-sfx",
+      "name": "psg_259",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_260",
+      "type": "psg-sfx",
+      "name": "psg_260",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_261",
+      "type": "psg-sfx",
+      "name": "psg_261",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_262",
+      "type": "psg-sfx",
+      "name": "psg_262",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_263",
+      "type": "psg-sfx",
+      "name": "psg_263",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_264",
+      "type": "psg-sfx",
+      "name": "psg_264",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_265",
+      "type": "psg-sfx",
+      "name": "psg_265",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_266",
+      "type": "psg-sfx",
+      "name": "psg_266",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_267",
+      "type": "psg-sfx",
+      "name": "psg_267",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_268",
+      "type": "psg-sfx",
+      "name": "psg_268",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_269",
+      "type": "psg-sfx",
+      "name": "psg_269",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_270",
+      "type": "psg-sfx",
+      "name": "psg_270",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_271",
+      "type": "psg-sfx",
+      "name": "psg_271",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_272",
+      "type": "psg-sfx",
+      "name": "psg_272",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_273",
+      "type": "psg-sfx",
+      "name": "psg_273",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_274",
+      "type": "psg-sfx",
+      "name": "psg_274",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_275",
+      "type": "psg-sfx",
+      "name": "psg_275",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_276",
+      "type": "psg-sfx",
+      "name": "psg_276",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_277",
+      "type": "psg-sfx",
+      "name": "psg_277",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_278",
+      "type": "psg-sfx",
+      "name": "psg_278",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_279",
+      "type": "psg-sfx",
+      "name": "psg_279",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_280",
+      "type": "psg-sfx",
+      "name": "psg_280",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_281",
+      "type": "psg-sfx",
+      "name": "psg_281",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_282",
+      "type": "psg-sfx",
+      "name": "psg_282",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_283",
+      "type": "psg-sfx",
+      "name": "psg_283",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_284",
+      "type": "psg-sfx",
+      "name": "psg_284",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_285",
+      "type": "psg-sfx",
+      "name": "psg_285",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_286",
+      "type": "psg-sfx",
+      "name": "psg_286",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_287",
+      "type": "psg-sfx",
+      "name": "psg_287",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_288",
+      "type": "psg-sfx",
+      "name": "psg_288",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_289",
+      "type": "psg-sfx",
+      "name": "psg_289",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_290",
+      "type": "psg-sfx",
+      "name": "psg_290",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_291",
+      "type": "psg-sfx",
+      "name": "psg_291",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_292",
+      "type": "psg-sfx",
+      "name": "psg_292",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_293",
+      "type": "psg-sfx",
+      "name": "psg_293",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_294",
+      "type": "psg-sfx",
+      "name": "psg_294",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_295",
+      "type": "psg-sfx",
+      "name": "psg_295",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_296",
+      "type": "psg-sfx",
+      "name": "psg_296",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_297",
+      "type": "psg-sfx",
+      "name": "psg_297",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_298",
+      "type": "psg-sfx",
+      "name": "psg_298",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_299",
+      "type": "psg-sfx",
+      "name": "psg_299",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_300",
+      "type": "psg-sfx",
+      "name": "psg_300",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_301",
+      "type": "psg-sfx",
+      "name": "psg_301",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_302",
+      "type": "psg-sfx",
+      "name": "psg_302",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_303",
+      "type": "psg-sfx",
+      "name": "psg_303",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_304",
+      "type": "psg-sfx",
+      "name": "psg_304",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_305",
+      "type": "psg-sfx",
+      "name": "psg_305",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_306",
+      "type": "psg-sfx",
+      "name": "psg_306",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_307",
+      "type": "psg-sfx",
+      "name": "psg_307",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_308",
+      "type": "psg-sfx",
+      "name": "psg_308",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_309",
+      "type": "psg-sfx",
+      "name": "psg_309",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_310",
+      "type": "psg-sfx",
+      "name": "psg_310",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_311",
+      "type": "psg-sfx",
+      "name": "psg_311",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_312",
+      "type": "psg-sfx",
+      "name": "psg_312",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_313",
+      "type": "psg-sfx",
+      "name": "psg_313",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_314",
+      "type": "psg-sfx",
+      "name": "psg_314",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_315",
+      "type": "psg-sfx",
+      "name": "psg_315",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_316",
+      "type": "psg-sfx",
+      "name": "psg_316",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_317",
+      "type": "psg-sfx",
+      "name": "psg_317",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_318",
+      "type": "psg-sfx",
+      "name": "psg_318",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_319",
+      "type": "psg-sfx",
+      "name": "psg_319",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_320",
+      "type": "psg-sfx",
+      "name": "psg_320",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_321",
+      "type": "psg-sfx",
+      "name": "psg_321",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_322",
+      "type": "psg-sfx",
+      "name": "psg_322",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_323",
+      "type": "psg-sfx",
+      "name": "psg_323",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_324",
+      "type": "psg-sfx",
+      "name": "psg_324",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_325",
+      "type": "psg-sfx",
+      "name": "psg_325",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_326",
+      "type": "psg-sfx",
+      "name": "psg_326",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_327",
+      "type": "psg-sfx",
+      "name": "psg_327",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_328",
+      "type": "psg-sfx",
+      "name": "psg_328",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_329",
+      "type": "psg-sfx",
+      "name": "psg_329",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_330",
+      "type": "psg-sfx",
+      "name": "psg_330",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_331",
+      "type": "psg-sfx",
+      "name": "psg_331",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_332",
+      "type": "psg-sfx",
+      "name": "psg_332",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_333",
+      "type": "psg-sfx",
+      "name": "psg_333",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_334",
+      "type": "psg-sfx",
+      "name": "psg_334",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_335",
+      "type": "psg-sfx",
+      "name": "psg_335",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_336",
+      "type": "psg-sfx",
+      "name": "psg_336",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_337",
+      "type": "psg-sfx",
+      "name": "psg_337",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_338",
+      "type": "psg-sfx",
+      "name": "psg_338",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_339",
+      "type": "psg-sfx",
+      "name": "psg_339",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_340",
+      "type": "psg-sfx",
+      "name": "psg_340",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_341",
+      "type": "psg-sfx",
+      "name": "psg_341",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_342",
+      "type": "psg-sfx",
+      "name": "psg_342",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_343",
+      "type": "psg-sfx",
+      "name": "psg_343",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_344",
+      "type": "psg-sfx",
+      "name": "psg_344",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_345",
+      "type": "psg-sfx",
+      "name": "psg_345",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_346",
+      "type": "psg-sfx",
+      "name": "psg_346",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_347",
+      "type": "psg-sfx",
+      "name": "psg_347",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_348",
+      "type": "psg-sfx",
+      "name": "psg_348",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_349",
+      "type": "psg-sfx",
+      "name": "psg_349",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_350",
+      "type": "psg-sfx",
+      "name": "psg_350",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_351",
+      "type": "psg-sfx",
+      "name": "psg_351",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_352",
+      "type": "psg-sfx",
+      "name": "psg_352",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_353",
+      "type": "psg-sfx",
+      "name": "psg_353",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_354",
+      "type": "psg-sfx",
+      "name": "psg_354",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_355",
+      "type": "psg-sfx",
+      "name": "psg_355",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_356",
+      "type": "psg-sfx",
+      "name": "psg_356",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_357",
+      "type": "psg-sfx",
+      "name": "psg_357",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_358",
+      "type": "psg-sfx",
+      "name": "psg_358",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_359",
+      "type": "psg-sfx",
+      "name": "psg_359",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_360",
+      "type": "psg-sfx",
+      "name": "psg_360",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_361",
+      "type": "psg-sfx",
+      "name": "psg_361",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_362",
+      "type": "psg-sfx",
+      "name": "psg_362",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_363",
+      "type": "psg-sfx",
+      "name": "psg_363",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_364",
+      "type": "psg-sfx",
+      "name": "psg_364",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_365",
+      "type": "psg-sfx",
+      "name": "psg_365",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_366",
+      "type": "psg-sfx",
+      "name": "psg_366",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_367",
+      "type": "psg-sfx",
+      "name": "psg_367",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_368",
+      "type": "psg-sfx",
+      "name": "psg_368",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_369",
+      "type": "psg-sfx",
+      "name": "psg_369",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_370",
+      "type": "psg-sfx",
+      "name": "psg_370",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_371",
+      "type": "psg-sfx",
+      "name": "psg_371",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_372",
+      "type": "psg-sfx",
+      "name": "psg_372",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_373",
+      "type": "psg-sfx",
+      "name": "psg_373",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_374",
+      "type": "psg-sfx",
+      "name": "psg_374",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_375",
+      "type": "psg-sfx",
+      "name": "psg_375",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_376",
+      "type": "psg-sfx",
+      "name": "psg_376",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_377",
+      "type": "psg-sfx",
+      "name": "psg_377",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_378",
+      "type": "psg-sfx",
+      "name": "psg_378",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_379",
+      "type": "psg-sfx",
+      "name": "psg_379",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_380",
+      "type": "psg-sfx",
+      "name": "psg_380",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_381",
+      "type": "psg-sfx",
+      "name": "psg_381",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_382",
+      "type": "psg-sfx",
+      "name": "psg_382",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_383",
+      "type": "psg-sfx",
+      "name": "psg_383",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_384",
+      "type": "psg-sfx",
+      "name": "psg_384",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_385",
+      "type": "psg-sfx",
+      "name": "psg_385",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_386",
+      "type": "psg-sfx",
+      "name": "psg_386",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_387",
+      "type": "psg-sfx",
+      "name": "psg_387",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_388",
+      "type": "psg-sfx",
+      "name": "psg_388",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_389",
+      "type": "psg-sfx",
+      "name": "psg_389",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_390",
+      "type": "psg-sfx",
+      "name": "psg_390",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_391",
+      "type": "psg-sfx",
+      "name": "psg_391",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_392",
+      "type": "psg-sfx",
+      "name": "psg_392",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_393",
+      "type": "psg-sfx",
+      "name": "psg_393",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_394",
+      "type": "psg-sfx",
+      "name": "psg_394",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_395",
+      "type": "psg-sfx",
+      "name": "psg_395",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_396",
+      "type": "psg-sfx",
+      "name": "psg_396",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_397",
+      "type": "psg-sfx",
+      "name": "psg_397",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_398",
+      "type": "psg-sfx",
+      "name": "psg_398",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_399",
+      "type": "psg-sfx",
+      "name": "psg_399",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_400",
+      "type": "psg-sfx",
+      "name": "psg_400",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_401",
+      "type": "psg-sfx",
+      "name": "psg_401",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_402",
+      "type": "psg-sfx",
+      "name": "psg_402",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_403",
+      "type": "psg-sfx",
+      "name": "psg_403",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_404",
+      "type": "psg-sfx",
+      "name": "psg_404",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_405",
+      "type": "psg-sfx",
+      "name": "psg_405",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_406",
+      "type": "psg-sfx",
+      "name": "psg_406",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_407",
+      "type": "psg-sfx",
+      "name": "psg_407",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_408",
+      "type": "psg-sfx",
+      "name": "psg_408",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_409",
+      "type": "psg-sfx",
+      "name": "psg_409",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_410",
+      "type": "psg-sfx",
+      "name": "psg_410",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_411",
+      "type": "psg-sfx",
+      "name": "psg_411",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_412",
+      "type": "psg-sfx",
+      "name": "psg_412",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_413",
+      "type": "psg-sfx",
+      "name": "psg_413",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_414",
+      "type": "psg-sfx",
+      "name": "psg_414",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_415",
+      "type": "psg-sfx",
+      "name": "psg_415",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_416",
+      "type": "psg-sfx",
+      "name": "psg_416",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_417",
+      "type": "psg-sfx",
+      "name": "psg_417",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_418",
+      "type": "psg-sfx",
+      "name": "psg_418",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_419",
+      "type": "psg-sfx",
+      "name": "psg_419",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_420",
+      "type": "psg-sfx",
+      "name": "psg_420",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_421",
+      "type": "psg-sfx",
+      "name": "psg_421",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_422",
+      "type": "psg-sfx",
+      "name": "psg_422",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_423",
+      "type": "psg-sfx",
+      "name": "psg_423",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_424",
+      "type": "psg-sfx",
+      "name": "psg_424",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_425",
+      "type": "psg-sfx",
+      "name": "psg_425",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_426",
+      "type": "psg-sfx",
+      "name": "psg_426",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_427",
+      "type": "psg-sfx",
+      "name": "psg_427",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_428",
+      "type": "psg-sfx",
+      "name": "psg_428",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_429",
+      "type": "psg-sfx",
+      "name": "psg_429",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_430",
+      "type": "psg-sfx",
+      "name": "psg_430",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_431",
+      "type": "psg-sfx",
+      "name": "psg_431",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_432",
+      "type": "psg-sfx",
+      "name": "psg_432",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_433",
+      "type": "psg-sfx",
+      "name": "psg_433",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_434",
+      "type": "psg-sfx",
+      "name": "psg_434",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_435",
+      "type": "psg-sfx",
+      "name": "psg_435",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_436",
+      "type": "psg-sfx",
+      "name": "psg_436",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_437",
+      "type": "psg-sfx",
+      "name": "psg_437",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_438",
+      "type": "psg-sfx",
+      "name": "psg_438",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_439",
+      "type": "psg-sfx",
+      "name": "psg_439",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_440",
+      "type": "psg-sfx",
+      "name": "psg_440",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_441",
+      "type": "psg-sfx",
+      "name": "psg_441",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_442",
+      "type": "psg-sfx",
+      "name": "psg_442",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_443",
+      "type": "psg-sfx",
+      "name": "psg_443",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_444",
+      "type": "psg-sfx",
+      "name": "psg_444",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_445",
+      "type": "psg-sfx",
+      "name": "psg_445",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_446",
+      "type": "psg-sfx",
+      "name": "psg_446",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_447",
+      "type": "psg-sfx",
+      "name": "psg_447",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_448",
+      "type": "psg-sfx",
+      "name": "psg_448",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_449",
+      "type": "psg-sfx",
+      "name": "psg_449",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_450",
+      "type": "psg-sfx",
+      "name": "psg_450",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_451",
+      "type": "psg-sfx",
+      "name": "psg_451",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_452",
+      "type": "psg-sfx",
+      "name": "psg_452",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_453",
+      "type": "psg-sfx",
+      "name": "psg_453",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_454",
+      "type": "psg-sfx",
+      "name": "psg_454",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_455",
+      "type": "psg-sfx",
+      "name": "psg_455",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_456",
+      "type": "psg-sfx",
+      "name": "psg_456",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_457",
+      "type": "psg-sfx",
+      "name": "psg_457",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_458",
+      "type": "psg-sfx",
+      "name": "psg_458",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_459",
+      "type": "psg-sfx",
+      "name": "psg_459",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_460",
+      "type": "psg-sfx",
+      "name": "psg_460",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_461",
+      "type": "psg-sfx",
+      "name": "psg_461",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_462",
+      "type": "psg-sfx",
+      "name": "psg_462",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_463",
+      "type": "psg-sfx",
+      "name": "psg_463",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_464",
+      "type": "psg-sfx",
+      "name": "psg_464",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_465",
+      "type": "psg-sfx",
+      "name": "psg_465",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_466",
+      "type": "psg-sfx",
+      "name": "psg_466",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_467",
+      "type": "psg-sfx",
+      "name": "psg_467",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_468",
+      "type": "psg-sfx",
+      "name": "psg_468",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_469",
+      "type": "psg-sfx",
+      "name": "psg_469",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_470",
+      "type": "psg-sfx",
+      "name": "psg_470",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_471",
+      "type": "psg-sfx",
+      "name": "psg_471",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_472",
+      "type": "psg-sfx",
+      "name": "psg_472",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_473",
+      "type": "psg-sfx",
+      "name": "psg_473",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_474",
+      "type": "psg-sfx",
+      "name": "psg_474",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_475",
+      "type": "psg-sfx",
+      "name": "psg_475",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_476",
+      "type": "psg-sfx",
+      "name": "psg_476",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_477",
+      "type": "psg-sfx",
+      "name": "psg_477",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_478",
+      "type": "psg-sfx",
+      "name": "psg_478",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_479",
+      "type": "psg-sfx",
+      "name": "psg_479",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_480",
+      "type": "psg-sfx",
+      "name": "psg_480",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_481",
+      "type": "psg-sfx",
+      "name": "psg_481",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_482",
+      "type": "psg-sfx",
+      "name": "psg_482",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_483",
+      "type": "psg-sfx",
+      "name": "psg_483",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_484",
+      "type": "psg-sfx",
+      "name": "psg_484",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_485",
+      "type": "psg-sfx",
+      "name": "psg_485",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_486",
+      "type": "psg-sfx",
+      "name": "psg_486",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_487",
+      "type": "psg-sfx",
+      "name": "psg_487",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_488",
+      "type": "psg-sfx",
+      "name": "psg_488",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_489",
+      "type": "psg-sfx",
+      "name": "psg_489",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_490",
+      "type": "psg-sfx",
+      "name": "psg_490",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_491",
+      "type": "psg-sfx",
+      "name": "psg_491",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_492",
+      "type": "psg-sfx",
+      "name": "psg_492",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_493",
+      "type": "psg-sfx",
+      "name": "psg_493",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_494",
+      "type": "psg-sfx",
+      "name": "psg_494",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_495",
+      "type": "psg-sfx",
+      "name": "psg_495",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_496",
+      "type": "psg-sfx",
+      "name": "psg_496",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_497",
+      "type": "psg-sfx",
+      "name": "psg_497",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_498",
+      "type": "psg-sfx",
+      "name": "psg_498",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_499",
+      "type": "psg-sfx",
+      "name": "psg_499",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_500",
+      "type": "psg-sfx",
+      "name": "psg_500",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_501",
+      "type": "psg-sfx",
+      "name": "psg_501",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_502",
+      "type": "psg-sfx",
+      "name": "psg_502",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_503",
+      "type": "psg-sfx",
+      "name": "psg_503",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_504",
+      "type": "psg-sfx",
+      "name": "psg_504",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_505",
+      "type": "psg-sfx",
+      "name": "psg_505",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_506",
+      "type": "psg-sfx",
+      "name": "psg_506",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_507",
+      "type": "psg-sfx",
+      "name": "psg_507",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_508",
+      "type": "psg-sfx",
+      "name": "psg_508",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_509",
+      "type": "psg-sfx",
+      "name": "psg_509",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_510",
+      "type": "psg-sfx",
+      "name": "psg_510",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_511",
+      "type": "psg-sfx",
+      "name": "psg_511",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    },
+    {
+      "id": "psg_512",
+      "type": "psg-sfx",
+      "name": "psg_512",
+      "source": "",
+      "options": {
+        "kind": "sfx",
+        "bpm": 150,
+        "speed": 6,
+        "period": 512,
+        "channels": 6,
+        "steps": 32,
+        "volume": 100,
+        "pattern": []
+      }
+    }
+  ]
+}

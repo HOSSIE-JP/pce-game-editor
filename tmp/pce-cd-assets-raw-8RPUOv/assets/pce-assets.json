@@ -1,0 +1,53 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "bg",
+      "type": "image",
+      "source": "assets/images/bg.png",
+      "options": {
+        "width": 288,
+        "height": 128
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/bg/palette.bin",
+          "tilesFile": "assets/generated/bg/tiles.bin",
+          "mapVramFile": "assets/generated/bg/map_vram.bin",
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none"
+            },
+            "map": {
+              "codec": "none"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "hero",
+      "type": "sprite",
+      "source": "assets/sprites/hero.png",
+      "options": {
+        "width": 64,
+        "height": 128,
+        "cellWidth": 16,
+        "cellHeight": 16
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/hero/palette.bin",
+          "tilesFile": "assets/generated/hero/patterns.bin",
+          "compression": {
+            "policy": "none",
+            "tiles": {
+              "codec": "none"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

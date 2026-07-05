@@ -1,0 +1,4 @@
+{
+  "targetMedia": "cd",
+  "toolchain": "llvm-mos"
+}

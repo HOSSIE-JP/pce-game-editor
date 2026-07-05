@@ -11,6 +11,12 @@ function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
+function makeWorkspaceTempDir(prefix) {
+  const root = path.join(__dirname, '..', 'node_modules', '.pce-vn-test-tmp');
+  fs.mkdirSync(root, { recursive: true });
+  return fs.mkdtempSync(path.join(root, prefix));
+}
+
 function loadVnManager(userData = makeTempDir('pce-vn-user-data-')) {
   delete require.cache[require.resolve('../pce-asset-manager')];
   delete require.cache[require.resolve('../pce-vn-manager')];
@@ -24,6 +30,7 @@ function loadPceBuildSystem(userData = makeTempDir('pce-vn-build-user-data-')) {
   delete require.cache[require.resolve('../pce-build-system')];
   delete require.cache[require.resolve('../pce-asset-manager')];
   delete require.cache[require.resolve('../pce-vn-manager')];
+  delete require.cache[require.resolve('../pce-vn-hucard-manager')];
   delete require.cache[require.resolve('../pce-setup-manager')];
   return loadWithMockedElectron(path.join(__dirname, '..', 'pce-build-system.js'), {
     userData,
@@ -689,6 +696,36 @@ test('PCE VN manager escape-encodes glyph indices past 252', () => {
   assert.match(runtime, /b == PCE_VN_GLYPH_ESCAPE/);
   assert.match(runtime, /return PCE_VN_GLYPH_NEWLINE;/);
   assert.match(runtime, /return PCE_VN_GLYPH_END;/);
+
+  const hucardRuntime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_hucard', 'src', 'pce_vn_hucard_runtime.c'),
+    'utf-8',
+  );
+  assert.match(hucardRuntime, /glyphs\[pos\] == PCE_VN_GLYPH_ESCAPE \? 3u : 1u/);
+  assert.match(hucardRuntime, /const uint8_t b = glyphs\[pos\];[\s\S]*if \(b == PCE_VN_GLYPH_ESCAPE\)[\s\S]*return \(uint16_t\)\(\(uint16_t\)glyphs\[\(uint16_t\)\(pos \+ 1u\)\]/);
+  assert.match(hucardRuntime, /data_ref_u16_at\(&pce_vn_font_data_ref/);
+  assert.match(hucardRuntime, /data_ref_byte_at\(ref, offset\) \| \(\(uint16_t\)data_ref_byte_at\(ref, \(uint16_t\)\(offset \+ 1u\)\) << 8\)/);
+  assert.match(hucardRuntime, /if \(offset < \(uint16_t\)\(base \+ chunk->size\)\)[\s\S]*pce_editor_map_asset_bank\(chunk->bank\);/);
+  assert.match(hucardRuntime, /static uint8_t scene_pack_storage\[PCE_VN_SCENE_PACK_CACHE_BYTES\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static uint16_t variable_values\[PCE_VN_VARIABLE_STORAGE_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static vdc_sprite_t sprite_shadow\[64\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static vn_sprite_slot_t sprite_slots\[VN_SPRITE_SLOT_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static uint16_t sprite_slot_pattern_base\[VN_SPRITE_SLOT_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static uint8_t sprite_slot_palette_bank\[VN_SPRITE_SLOT_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static uint8_t sprite_slot_pattern_valid\[VN_SPRITE_SLOT_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static uint16_t blank_bat_row\[VN_MAP_WIDTH\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static uint16_t msg_bat_row\[VN_MSG_TILE_COLS\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static uint8_t msg_tile\[32\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static vn_scene_pack_cache_t active_scene_pack __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static pce_vn_message_t active_message_state __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static uint16_t msg_gmask\[VN_GLYPH_MASK_WORDS\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static uint16_t composer_prev_mask\[VN_GLYPH_MASK_WORDS\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static vn_psg_player_t psg_song __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(hucardRuntime, /static uint16_t VN_HUCARD_CODE_VIDEO bg_blank_tile_index\(const pce_editor_bg_asset_t \*bg\)[\s\S]*return VN_UI_BLANK_TILE;/);
+  assert.match(hucardRuntime, /static void VN_HUCARD_CODE_VIDEO draw_sprite_slot\(uint8_t slot, uint8_t upload_patterns\)[\s\S]*vn_sprite_slot_t \*state;/);
+  assert.match(hucardRuntime, /source_row = \(state->flags & PCE_VN_SPRITE_FLIP_Y\)/);
+  assert.match(hucardRuntime, /source_cell >= total_cells/);
+  assert.match(hucardRuntime, /active_scene_pack\.data = scene_pack_storage;/);
 });
 
 test('PCE VN font budget raises the glyph cap well past the old 254 limit', () => {
@@ -1782,6 +1819,90 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   const loopStart = runtime.indexOf('while (1)');
   const loopEnd = runtime.indexOf('return 0;', loopStart);
   assert.equal((runtime.slice(loopStart, loopEnd).match(/engine_service\(\);/g) || []).length, 0);
+});
+
+test('PCE HuCARD VN generation keeps scene-pack commands and strips CD audio output', () => {
+  const projectDir = makeTempDir('pce-vn-hucard-gen-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [
+      { id: 'voice', type: 'adpcm' },
+      { id: 'track', type: 'cdda-track', options: { track: 2 } },
+      {
+        id: 'theme',
+        type: 'psg-song',
+        options: {
+          period: 384,
+          bpm: 120,
+          steps: 4,
+          pattern: [
+            { step: 0, channel: 0, period: 384, volume: 20 },
+            { step: 2, channel: 4, period: 8, volume: 12, noise: 1 },
+          ],
+        },
+      },
+    ],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    settings: { messageSpeedFrames: 50 },
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'variable', operation: 'define', variableName: 'route', value: 0 },
+        { type: 'audio', kind: 'psg', action: 'play', assetId: 'theme', channel: 2 },
+        { type: 'audio', kind: 'adpcm', action: 'play', assetId: 'voice' },
+        { type: 'audio', kind: 'cdda', action: 'play', assetId: 'track' },
+        { type: 'message', text: 'AB', voiceAssetId: 'voice', textSpeedFrames: 0 },
+        { type: 'inputcheck', mode: 'async', buttons: ['run'], targetLabel: 'skip' },
+        { type: 'spritetext', text: 'GO', x: 32, y: 24, visible: true },
+        { type: 'cache', action: 'load', scope: 'adpcm', assetId: 'voice' },
+        { type: 'label', name: 'skip' },
+        { type: 'choice', variableName: 'route', choices: [{ label: 'A', value: 1 }, { label: 'B', value: 2 }] },
+      ],
+    }],
+  });
+
+  const generated = vnManager.generateVnSources(projectDir, { targetMedia: 'hucard' });
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+
+  assert.equal(generated.targetMedia, 'hucard');
+  assert.deepEqual(generated.visualAssetIds, []);
+  assert.deepEqual(generated.psgAssetIds, ['theme']);
+  assert.ok(generated.extraDataFiles.some((entry) => entry.symbol === 'pce_vn_font_data_ref'));
+  assert.ok(generated.extraDataFiles.some((entry) => entry.symbol === 'pce_vn_scene_pack_ref_0'));
+  assert.ok(generated.extraDataFiles.some((entry) => entry.symbol === 'pce_vn_font_sprite_data_ref'));
+  assert.ok(generated.extraDataFiles.some((entry) => entry.symbol === 'pce_vn_psg_pattern_ref_0'));
+  assert.ok(generated.extraDataFiles.every((entry) => entry.forceBanked === true));
+  assert.equal(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'psg', 'theme.bin')), true);
+
+  assert.match(header, /#include "assets\.h"/);
+  assert.match(header, /const pce_editor_data_ref_t \*data;/);
+  assert.match(header, /typedef struct \{[\s\S]*const pce_editor_data_ref_t \*pattern;[\s\S]*\} pce_vn_psg_asset_t;/);
+  assert.doesNotMatch(header, /pce_vn_cd_data_ref_t/);
+  assert.doesNotMatch(source, /PCE_VN_DATA_SECTION|pce_vn_font_tiles\[\]|pce_vn_cd_data_ref_t/);
+  assert.match(source, /const pce_vn_scene_pack_t pce_vn_scene_packs\[\] = \{\r?\n  \{ &pce_vn_scene_pack_ref_0,/);
+  assert.match(source, /const pce_vn_psg_asset_t pce_vn_psg_assets\[\] = \{\r?\n  \{ 1u, 384u, 120u, 4u, &pce_vn_psg_pattern_ref_0, 2u \}/);
+
+  const psg = commandRecord(pack, 1);
+  assert.equal(psg.type, vnManager.VN_COMMAND_AUDIO);
+  assert.equal(psg.assetIndex, 0);
+  assert.equal(psg.slot, 2);
+  assert.equal(psg.flags, vnManager.VN_AUDIO_KIND_PSG | 0x10);
+  assert.equal(commandRecord(pack, 2).assetIndex, -1);
+  assert.equal(commandRecord(pack, 3).assetIndex, -1);
+  const message = messageRecord(pack, 0);
+  assert.equal(message.voiceIndex, -1);
+  assert.equal(message.textSpeedFrames, 50);
+  assert.equal(commandRecord(pack, 5).type, vnManager.VN_COMMAND_INPUTCHECK);
+  assert.equal(commandRecord(pack, 6).type, vnManager.VN_COMMAND_SPRITETEXT);
+  assert.equal(commandRecord(pack, 7).type, vnManager.VN_COMMAND_CACHE);
+  assert.equal(commandRecord(pack, 7).assetIndex, -1);
+  assert.equal(commandRecord(pack, 9).type, vnManager.VN_COMMAND_CHOICE);
 });
 
 test('PCE VN manager encodes the input check command with button mask and modes', () => {
@@ -3042,6 +3163,185 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.ok(changedLogs.some((line) => /VN timing: generate pass 1 done in /.test(line)));
 });
 
+test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', async () => {
+  const projectDir = path.join(makeWorkspaceTempDir('pce-vn-hucard-build-project-'), 'project');
+  fs.cpSync(path.join(__dirname, '..', 'template', 'template_pce_vn_hucard'), projectDir, { recursive: true });
+  const configPath = path.join(projectDir, 'project.json');
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  writeJson(configPath, {
+    ...config,
+    targetMedia: 'cd',
+    cd: {
+      dataFiles: ['assets/generated/vn/font.bin'],
+      cddaTracks: ['assets/generated/opening/cdda.wav'],
+    },
+  });
+  fs.writeFileSync(path.join(projectDir, 'src', 'pce_vn_hucard_runtime.c'), 'stale runtime\n', 'utf-8');
+  const buildSystem = loadPceBuildSystem();
+  buildSystem.openProject(projectDir);
+  const logs = [];
+
+  const result = await buildSystem.buildProject((line) => logs.push(line), {
+    dryRun: true,
+    allowMissingToolchain: true,
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.commandInfo.targetMedia, 'hucard');
+  assert.equal(path.extname(result.commandInfo.romPath), '.pce');
+  assert.equal(path.extname(result.commandInfo.mapPath), '.map');
+  assert.equal(result.commandInfo.mkcdArgs, undefined);
+  assert.equal(result.commandInfo.args.includes('-DPCE_EDITOR_TARGET_CD=1'), false);
+  assert.ok(result.commandInfo.args.some((arg) => /-Wl,-Map=.*\.map$/.test(arg)));
+  assert.equal(result.commandInfo.args.some((arg) => /overlay_insert\.ld$/.test(arg)), false);
+  assert.deepEqual(
+    buildSystem.collectSourceFiles(projectDir, result.generated.visualNovel ? buildSystem.loadProjectConfigFromDir(projectDir) : {}).map((file) => path.relative(projectDir, file).replace(/\\/g, '/')),
+    ['src/main.c', 'src/generated/assets.c', 'src/generated/vn.c'],
+  );
+  assert.equal(result.generated.visualNovel.targetMedia, 'hucard');
+  assert.equal(result.generated.visualNovel.hucardPsgAssetCount, 0);
+  assert.equal(result.generated.extraDataCount, result.generated.visualNovel.extraDataFiles.length);
+  assert.equal(fs.existsSync(path.join(projectDir, 'src', 'pce_vn_hucard_runtime.c')), true);
+  assert.equal(fs.existsSync(path.join(projectDir, 'src', 'pce_vn_hucard_banks.h')), true);
+  assert.equal(fs.existsSync(path.join(projectDir, 'src', 'pce_vn_runtime.c')), false);
+  const runtime = fs.readFileSync(path.join(projectDir, 'src', 'pce_vn_hucard_runtime.c'), 'utf-8');
+  const bankHeader = fs.readFileSync(path.join(projectDir, 'src', 'pce_vn_hucard_banks.h'), 'utf-8');
+  const generatedAssets = fs.readFileSync(path.join(projectDir, 'src', 'generated', 'assets.c'), 'utf-8');
+  assert.doesNotMatch(runtime, /pce-cd\.h|pce_cdb_/);
+  assert.match(runtime, /#include "pce_vn_hucard_banks\.h"/);
+  assert.match(runtime, /VN_HUCARD_CODE_SCRIPT __attribute__\(\(noinline, section\("\.rom_bank1"\)\)\)/);
+  assert.match(runtime, /VN_HUCARD_CODE_PSG __attribute__\(\(noinline, section\("\.rom_bank4"\)\)\)/);
+  assert.match(runtime, /pce_vn_hucard_map_runtime_banks\(\);/);
+  assert.match(bankHeader, /PCE_ROM_BANK_AT\(1, 2\);/);
+  assert.match(bankHeader, /PCE_ROM_BANK_AT\(4, 5\);/);
+  assert.match(generatedAssets, /PCE_ROM_BANK_AT\(1, 2\);/);
+  assert.match(generatedAssets, /PCE_ROM_BANK_AT\(4, 5\);/);
+  assert.match(generatedAssets, /PCE_EDITOR_ROM_DATA_BANK_AT\(5, 6\);/);
+  assert.doesNotMatch(generatedAssets, /PCE_ROM_BANK_AT\(5, 6\);/);
+  assert.doesNotMatch(generatedAssets, /PCE_RAM_BANK_AT\(130/);
+  assert.doesNotMatch(generatedAssets, /pce_ram_bank130_map/);
+  assert.match(generatedAssets, /const pce_editor_data_ref_t pce_vn_font_data_ref PCE_EDITOR_RODATA_SECTION = \{ \(const unsigned char \*\)0,/);
+  assert.match(runtime, /VDC_CONTROL_ENABLE_SPRITE/);
+  assert.doesNotMatch(runtime, /VDC_CONTROL_ENABLE_SPRITES/);
+  assert.match(runtime, /VN_VDC_MEMORY_CONTROL \(VDC_CYCLE_4_SLOTS \| VDC_BG_SIZE_32_32\)/);
+  assert.match(runtime, /pce_vdc_poke\(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL\);/);
+  assert.match(runtime, /pce_vdc_sprite_set_table_start\(VN_SATB_ADDR\);/);
+  assert.match(runtime, /static uint16_t bg_scroll_x_shadow;/);
+  assert.match(runtime, /static void restore_bg_scroll\(void\)[\s\S]*pce_vdc_poke\(VDC_REG_BG_SCROLL_X, bg_scroll_x_shadow\);[\s\S]*pce_vdc_poke\(VDC_REG_BG_SCROLL_Y, bg_scroll_y_shadow\);/);
+  assert.match(runtime, /static void vn_vram_copy\(uint16_t dest, const void \*source, uint16_t byte_count\)[\s\S]*pce_vdc_copy_to_vram\(dest, source, byte_count\);/);
+  assert.doesNotMatch(runtime, /static void vn_vram_copy\(uint16_t dest, const void \*source, uint16_t byte_count\)[\s\S]*pce_vdc_copy_to_vram\(dest, source, byte_count\);\r?\n    restore_bg_scroll\(\);/);
+  assert.match(runtime, /static void service_psg_during_blocking_work\(void\)[\s\S]*wait_vblank\(\);[\s\S]*restore_bg_scroll\(\);[\s\S]*tick_psg\(\);/);
+  assert.doesNotMatch(runtime, /static void service_psg_during_blocking_work\(void\)\s*\{\s*restore_bg_scroll\(\);\s*wait_vblank\(\);/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_TEXT flush_msg_tile_batch\(void\)[\s\S]*wait_vblank\(\);[\s\S]*restore_bg_scroll\(\);[\s\S]*vn_vram_copy\(msg_tile_batch_addr\[i\], msg_tile_batch\[i\], 32u\);/);
+  assert.match(runtime, /bg_scroll_x_shadow = 0u;[\s\S]*bg_scroll_y_shadow = 0u;[\s\S]*restore_bg_scroll\(\);/);
+  assert.match(runtime, /vn_hu_wait_vblank_start_outer/);
+  assert.match(runtime, /copy_data_ref_to_vram_guarded/);
+  assert.match(runtime, /service_psg_during_blocking_work/);
+  assert.match(runtime, /#define VN_WAIT_CURSOR_BLINK_FRAMES 24u/);
+  assert.match(runtime, /#define VN_CHOICE_TEXT_COL 2u/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_TEXT tick_message_wait_indicator\(void\)/);
+  assert.match(runtime, /static uint8_t VN_HUCARD_CODE_TEXT begin_message_window_vram_update\(void\)/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_TEXT map_message_window_cells\(uint8_t blank\)[\s\S]*wait_vblank\(\);[\s\S]*restore_bg_scroll\(\);[\s\S]*vn_vram_copy\(\(uint16_t\)\(\(\(VN_TEXT_Y \+ tr\) \* VN_MAP_WIDTH\) \+ VN_TEXT_X\), msg_bat_row, \(uint16_t\)\(VN_MSG_TILE_COLS \* 2u\)\);[\s\S]*tick_psg\(\);/);
+  assert.match(runtime, /#define VN_MSG_CLEAR_TILES_PER_VBLANK 16u/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_TEXT clear_window_tile_pixels\(void\)[\s\S]*if \(\(tile & \(VN_MSG_CLEAR_TILES_PER_VBLANK - 1u\)\) == 0u\) service_psg_during_blocking_work\(\);[\s\S]*vn_vram_copy\(\(uint16_t\)\(\(VN_MSG_STRIP_TILE_BASE \+ tile\) \* 16u\), msg_tile, 32u\);/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_TEXT hide_message_window_map\(void\)[\s\S]*map_message_window_cells\(1u\);[\s\S]*tick_psg\(\);/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_TEXT update_choice_cursor\(uint8_t old_index, uint8_t new_index\)/);
+  assert.match(runtime, /tick_message_wait_indicator\(\);/);
+  const hucardFinishMessageStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT finish_active_message(void)');
+  const hucardTickMessageStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT tick_active_message(void)', hucardFinishMessageStart);
+  assert.notEqual(hucardFinishMessageStart, -1);
+  assert.notEqual(hucardTickMessageStart, -1);
+  const hucardFinishMessageSource = runtime.slice(hucardFinishMessageStart, hucardTickMessageStart);
+  assert.match(hucardFinishMessageSource, /while \(!message_complete\)[\s\S]*message_complete = draw_message_next_entry\(&active_message_state\);/);
+  assert.doesNotMatch(hucardFinishMessageSource, /begin_message_window_vram_update|end_message_window_vram_update|clear_window_tile_pixels|map_message_window_cells/);
+  const hucardCopyStart = runtime.indexOf('static void VN_HUCARD_CODE_VIDEO copy_data_ref_to_vram_guarded');
+  const hucardCopyEnd = runtime.indexOf('static void VN_HUCARD_CODE_VIDEO upload_palette', hucardCopyStart);
+  assert.notEqual(hucardCopyStart, -1);
+  assert.notEqual(hucardCopyEnd, -1);
+  const hucardCopySource = runtime.slice(hucardCopyStart, hucardCopyEnd);
+  assert.match(hucardCopySource, /while \(copied < chunk->size\)[\s\S]*pce_editor_map_asset_bank\(chunk->bank\);[\s\S]*vn_vram_copy/);
+  assert.doesNotMatch(hucardCopySource, /pce_editor_map_asset_bank\(chunk->bank\);\s*while \(copied < chunk->size\)/);
+  const hucardGlyphStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT draw_message_glyph_at');
+  const hucardGlyphEnd = runtime.indexOf('static void VN_HUCARD_CODE_TEXT clear_message_glyph_area', hucardGlyphStart);
+  assert.notEqual(hucardGlyphStart, -1);
+  assert.notEqual(hucardGlyphEnd, -1);
+  const hucardGlyphSource = runtime.slice(hucardGlyphStart, hucardGlyphEnd);
+  assert.match(hucardGlyphSource, /reset_msg_tile_batch\(\);[\s\S]*queue_msg_tile\(tile, msg_tile\);[\s\S]*flush_msg_tile_batch\(\);/);
+  const hucardChoiceDrawStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT draw_choice_options');
+  const hucardChoiceDrawEnd = runtime.indexOf('static void VN_HUCARD_CODE_TEXT draw_choice_cursor_row', hucardChoiceDrawStart);
+  assert.notEqual(hucardChoiceDrawStart, -1);
+  assert.notEqual(hucardChoiceDrawEnd, -1);
+  const hucardChoiceDrawSource = runtime.slice(hucardChoiceDrawStart, hucardChoiceDrawEnd);
+  assert.match(hucardChoiceDrawSource, /col \+ VN_CHOICE_TEXT_COL/);
+  assert.match(hucardChoiceDrawSource, /draw_message_glyph_at\(glyph, \(uint8_t\)\(col \+ VN_CHOICE_TEXT_COL\), row\);/);
+  const hucardChoiceInputStart = runtime.indexOf('static uint8_t VN_HUCARD_CODE_TEXT handle_choice_input');
+  const hucardChoiceInputEnd = runtime.indexOf('static void VN_HUCARD_CODE_SCRIPT show_scene', hucardChoiceInputStart);
+  assert.notEqual(hucardChoiceInputStart, -1);
+  assert.notEqual(hucardChoiceInputEnd, -1);
+  const hucardChoiceInputSource = runtime.slice(hucardChoiceInputStart, hucardChoiceInputEnd);
+  assert.match(hucardChoiceInputSource, /update_choice_cursor\(old_index, choice_selected_index\);/);
+  assert.match(hucardChoiceInputSource, /hide_message_window_map\(\);/);
+  assert.doesNotMatch(hucardChoiceInputSource, /draw_choice_options\(\);/);
+  assert.ok(logs.some((line) => /HuCARD visual novel runtime files were synchronized/.test(line)));
+
+  const incrementalLogs = [];
+  const incremental = await buildSystem.buildProject((line) => incrementalLogs.push(line), {
+    dryRun: true,
+    allowMissingToolchain: true,
+    skipClean: true,
+  });
+  assert.equal(incremental.success, true);
+  assert.equal(incremental.generated.visualNovel.incrementalSkipped, true);
+  assert.ok(incrementalLogs.some((line) => /VN generation skipped: inputs unchanged/.test(line)));
+  assert.equal(incrementalLogs.some((line) => /HuCARD visual novel runtime files were synchronized/.test(line)), false);
+});
+
+test('PCE build system skips HuCARD VN compile when Test Play inputs are unchanged', async () => {
+  const projectDir = path.join(makeWorkspaceTempDir('pce-vn-hucard-output-cache-'), 'project');
+  fs.cpSync(path.join(__dirname, '..', 'template', 'template_pce_vn_hucard'), projectDir, { recursive: true });
+  const buildSystem = loadPceBuildSystem();
+  buildSystem.openProject(projectDir);
+
+  const firstLogs = [];
+  const first = await buildSystem.buildProject((line) => firstLogs.push(line), {
+    dryRun: true,
+    allowMissingToolchain: true,
+  });
+  assert.equal(first.success, true);
+  assert.equal(first.commandInfo.targetMedia, 'hucard');
+  fs.mkdirSync(path.dirname(first.commandInfo.romPath), { recursive: true });
+  fs.writeFileSync(first.commandInfo.romPath, Buffer.from([0x48, 0x75]));
+  buildSystem.writeBuildOutputStamp(projectDir, buildSystem.loadProjectConfigFromDir(projectDir), first.commandInfo);
+
+  const skippedLogs = [];
+  const skipped = await buildSystem.buildProject((line) => skippedLogs.push(line), {
+    dryRun: true,
+    allowMissingToolchain: true,
+    skipClean: true,
+  });
+  assert.equal(skipped.success, true);
+  assert.equal(skipped.buildSkipped, true);
+  assert.equal(skipped.generated.visualNovel.incrementalSkipped, true);
+  assert.ok(skippedLogs.some((line) => /Build skipped: inputs unchanged/.test(line)));
+  assert.equal(skippedLogs.some((line) => /Build timing: compile ROM start/.test(line)), false);
+
+  const scenePath = path.join(projectDir, 'assets', 'pce-vn-scenes.json');
+  const sceneDoc = JSON.parse(fs.readFileSync(scenePath, 'utf-8'));
+  sceneDoc.scenes[0].commands.push({ type: 'message', text: 'changed' });
+  writeJson(scenePath, sceneDoc);
+
+  const changedLogs = [];
+  const changed = await buildSystem.buildProject((line) => changedLogs.push(line), {
+    dryRun: true,
+    allowMissingToolchain: true,
+    skipClean: true,
+  });
+  assert.equal(changed.success, true);
+  assert.equal(changed.buildSkipped, undefined);
+  assert.equal(changed.generated.visualNovel.incrementalSkipped, undefined);
+  assert.equal(changedLogs.some((line) => /Build skipped: inputs unchanged/.test(line)), false);
+});
+
 test('PCE visual novel builder start hook leaves VN generation to the build system', () => {
   const projectDir = makeTempDir('pce-vn-builder-hook-');
   writeJson(path.join(projectDir, 'project.json'), {
@@ -3067,6 +3367,34 @@ test('PCE visual novel builder start hook leaves VN generation to the build syst
   assert.deepEqual(result, { ok: true });
   assert.deepEqual(logs, [`PCE CD-ROM2 visual novel build start: ${projectDir}`]);
   assert.equal(fs.existsSync(path.join(projectDir, 'src', 'pce_vn_runtime.c')), false);
+  assert.equal(fs.existsSync(path.join(projectDir, 'src', 'generated', 'vn.c')), false);
+});
+
+test('PCE HuCARD visual novel builder hook leaves VN generation to the build system', () => {
+  const projectDir = makeTempDir('pce-vn-hucard-builder-hook-');
+  writeJson(path.join(projectDir, 'project.json'), {
+    targetMedia: 'hucard',
+    toolchain: 'llvm-mos',
+    pluginRoles: { builder: 'pce-visual-novel-hucard-builder' },
+    pluginSettings: { 'pce-visual-novel-hucard-builder': { template: 'visual-novel-hucard' } },
+  });
+  writeJson(path.join(projectDir, 'assets', 'pce-vn-scenes.json'), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{ id: 'opening', commands: [{ type: 'message', text: 'A' }] }],
+  });
+  delete require.cache[require.resolve('../plugins/pce-visual-novel-hucard-builder')];
+  const builder = require('../plugins/pce-visual-novel-hucard-builder');
+  const logs = [];
+
+  const result = builder.onBuildStart({ projectDir }, {
+    projectDir,
+    logger: { info: (line) => logs.push(line) },
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(logs, [`PCE HuCARD visual novel build start: ${projectDir}`]);
+  assert.equal(fs.existsSync(path.join(projectDir, 'src', 'pce_vn_hucard_runtime.c')), false);
   assert.equal(fs.existsSync(path.join(projectDir, 'src', 'generated', 'vn.c')), false);
 });
 
@@ -3143,6 +3471,29 @@ test('PCE build system expands llvm-mos Windows clang wrappers to clang --config
   assert.equal(huCardInfo.args[0], '--config');
   assert.equal(path.basename(huCardInfo.args[1]).toLowerCase(), 'mos-pce.cfg');
   assert.ok(huCardInfo.args.includes('-Os'));
+});
+
+test('PCE build system reports blocked llvm-mos LLD before compile', () => {
+  const buildSystem = loadPceBuildSystem();
+  const projectDir = makeWorkspaceTempDir('pce-lld-preflight-project-');
+  const binDir = path.join(projectDir, 'toolchain', 'bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  const clangPath = path.join(binDir, process.platform === 'win32' ? 'clang.exe' : 'clang');
+  const linkerPath = path.join(binDir, process.platform === 'win32' ? 'ld.lld.exe' : 'ld.lld');
+  fs.writeFileSync(clangPath, Buffer.alloc(0));
+  fs.writeFileSync(linkerPath, Buffer.alloc(0));
+
+  const commandInfo = { toolchain: 'llvm-mos', command: clangPath };
+  assert.equal(buildSystem.findLlvmMosLinkerPath(commandInfo), linkerPath);
+  const message = buildSystem.formatLlvmMosLinkerPreflightFailure(linkerPath, {
+    error: Object.assign(new Error(`spawnSync ${linkerPath} UNKNOWN`), { code: 'UNKNOWN' }),
+    status: null,
+  });
+  assert.match(message, /llvm-mos linker/);
+  assert.match(message, /ld\.lld/);
+  if (process.platform === 'win32') {
+    assert.match(message, /Windows Application Control/);
+  }
 });
 
 test('PCE HuCard slideshow build ignores stale VN files and restores the slideshow main', () => {

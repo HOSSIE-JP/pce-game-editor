@@ -1,0 +1,1969 @@
+#include <stdint.h>
+
+#if !defined(__PCE__)
+#error "The HuCARD VN template requires llvm-mos-sdk and mos-pce-clang."
+#endif
+
+#include <pce.h>
+
+#include "pce_vn_hucard_banks.h"
+#include "generated/assets.h"
+#include "generated/vn.h"
+
+#define VN_MAP_WIDTH 32u
+#define VN_MAP_HEIGHT 32u
+#define VN_VISIBLE_HEIGHT 28u
+#define VN_BG_TILE_BYTES 32u
+#define VN_BG_PALETTE_COLORS 16u
+#define VN_TEXT_X 3u
+#define VN_TEXT_Y 20u
+#define VN_TEXT_COLS 17u
+#define VN_TEXT_ROWS 4u
+#define VN_WAIT_CURSOR_ROW 3u
+#define VN_WAIT_CURSOR_COL 16u
+#define VN_CHOICE_CURSOR_COL 0u
+#define VN_CHOICE_TEXT_COL 2u
+#define VN_GLYPH_W 12u
+#define VN_GLYPH_H 12u
+#define VN_GLYPH_Y_OFFSET 2u
+#define VN_GLYPH_MASK_WORDS 12u
+#define VN_MSG_GLYPH_MAX_TILES 4u
+#define VN_MSG_CLEAR_TILES_PER_VBLANK 16u
+#define VN_MSG_TILE_COLS 26u
+#define VN_MSG_TILE_ROWS 8u
+#define VN_MSG_TILE_COUNT (VN_MSG_TILE_COLS * VN_MSG_TILE_ROWS)
+#define VN_MSG_STRIP_TILE_BASE PCE_VN_FONT_TILE_BASE
+#define VN_UI_BLANK_TILE (PCE_VN_FONT_TILE_BASE + VN_MSG_TILE_COUNT)
+#define VN_UI_PALETTE 15u
+#define VN_WAIT_CURSOR_BLINK_FRAMES 24u
+#define VN_SATB_ADDR 0x7f00u
+#define VN_SPRITE_SLOT_COUNT 4u
+#define VN_SPRITE_SATB_PER_SLOT 12u
+#define VN_SPRITETEXT_SATB_BASE 48u
+#define VN_SPRITETEXT_MAX_GLYPHS 32u
+#define VN_SPRITE_HIDDEN_Y 240u
+#define VN_VRAM_SLICE_BYTES 512u
+#define VN_PSG_STEP_ACCUM_UNIT 3600u
+#define VN_PSG_PATTERN_ROW_BYTES 8u
+#define VN_PSG_STEPS_PER_BEAT 4u
+#define VN_SPRITE_PATTERN_END_BASE (VN_SATB_ADDR / 32u)
+#define VN_VDC_CONTROL_BASE (VDC_CONTROL_IRQ_VBLANK | VDC_CONTROL_DRAM_REFRESH | VDC_CONTROL_VRAM_ADD_1)
+#define VN_VDC_DISPLAY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG | VDC_CONTROL_ENABLE_SPRITE)
+#define VN_VDC_MEMORY_CONTROL (VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_32_32)
+#define VN_HUCARD_CODE_SCRIPT __attribute__((noinline, section(".rom_bank1")))
+#define VN_HUCARD_CODE_VIDEO __attribute__((noinline, section(".rom_bank2")))
+#define VN_HUCARD_CODE_TEXT __attribute__((noinline, section(".rom_bank3")))
+#define VN_HUCARD_CODE_PSG __attribute__((noinline, section(".rom_bank4")))
+
+#define PAD_I KEY_1
+#define PAD_II KEY_2
+#define PAD_SELECT KEY_SELECT
+#define PAD_RUN KEY_RUN
+#define PAD_UP KEY_UP
+#define PAD_RIGHT KEY_RIGHT
+#define PAD_DOWN KEY_DOWN
+#define PAD_LEFT KEY_LEFT
+
+#define PCE_PSG_SELECT (*(volatile uint8_t *)0x0800)
+#define PCE_PSG_GLOBAL (*(volatile uint8_t *)0x0801)
+#define PCE_PSG_FREQ_LO (*(volatile uint8_t *)0x0802)
+#define PCE_PSG_FREQ_HI (*(volatile uint8_t *)0x0803)
+#define PCE_PSG_CONTROL (*(volatile uint8_t *)0x0804)
+#define PCE_PSG_BALANCE (*(volatile uint8_t *)0x0805)
+#define PCE_PSG_WAVE (*(volatile uint8_t *)0x0806)
+#define PCE_PSG_NOISE (*(volatile uint8_t *)0x0807)
+
+#define VN_SCENE_PACK_OFFSET_VERSION 4u
+#define VN_SCENE_PACK_OFFSET_COMMAND_COUNT 5u
+#define VN_SCENE_PACK_OFFSET_MESSAGE_COUNT 6u
+#define VN_SCENE_PACK_OFFSET_CHOICE_COUNT 7u
+#define VN_SCENE_PACK_OFFSET_SWITCH_COUNT 8u
+#define VN_SCENE_PACK_OFFSET_FLAGS 9u
+#define VN_SCENE_PACK_OFFSET_COMMAND_TABLE 10u
+#define VN_SCENE_PACK_OFFSET_MESSAGE_TABLE 12u
+#define VN_SCENE_PACK_OFFSET_CHOICE_TABLE 14u
+#define VN_SCENE_PACK_OFFSET_SWITCH_TABLE 16u
+
+typedef struct
+{
+    uint16_t options_offset;
+    uint8_t option_count;
+    uint8_t default_index;
+    int16_t variable_index;
+} vn_choice_ref_t;
+
+typedef struct
+{
+    uint16_t cases_offset;
+    uint8_t case_count;
+    uint16_t default_command;
+} vn_switch_ref_t;
+
+typedef struct
+{
+    uint8_t *data;
+    uint16_t size;
+    uint8_t scene_index;
+    uint8_t valid;
+} vn_scene_pack_cache_t;
+
+typedef struct
+{
+    const pce_vn_psg_asset_t *asset;
+    uint8_t active;
+    uint8_t base_channel;
+    uint8_t used_mask;
+    uint8_t loop;
+    uint16_t step;
+    uint16_t accum;
+    uint16_t cursor;
+} vn_psg_player_t;
+
+typedef struct
+{
+    int16_t asset_index;
+    int16_t animation_index;
+    uint16_t x;
+    uint16_t y;
+    uint8_t flags;
+    uint8_t frame;
+    uint8_t timer;
+    uint8_t satb_count;
+    uint8_t visible;
+} vn_sprite_slot_t;
+
+static uint8_t scene_pack_storage[PCE_VN_SCENE_PACK_CACHE_BYTES] __attribute__((section(".bss")));
+static vn_scene_pack_cache_t active_scene_pack __attribute__((section(".bss")));
+static uint16_t variable_values[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
+static vdc_sprite_t sprite_shadow[64] __attribute__((section(".bss")));
+static vn_sprite_slot_t sprite_slots[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint16_t sprite_slot_pattern_base[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint8_t sprite_slot_palette_bank[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint8_t sprite_slot_pattern_valid[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint16_t blank_bat_row[VN_MAP_WIDTH] __attribute__((section(".bss")));
+/* Keep pointer-addressed scratch outside .zp.bss. llvm-mos can use direct-page
+ * addresses for tiny objects, but memcpy/TIA/generic pointer writes need real
+ * CPU RAM addresses at $2000+. */
+static uint16_t msg_bat_row[VN_MSG_TILE_COLS] __attribute__((section(".bss")));
+static uint8_t msg_tile[32] __attribute__((section(".bss")));
+static uint8_t msg_tile_batch[VN_MSG_GLYPH_MAX_TILES][32] __attribute__((section(".bss")));
+static uint16_t msg_tile_batch_addr[VN_MSG_GLYPH_MAX_TILES] __attribute__((section(".bss")));
+static uint8_t msg_mask8[8] __attribute__((section(".bss")));
+static uint16_t msg_gmask[VN_GLYPH_MASK_WORDS] __attribute__((section(".bss")));
+static uint16_t composer_prev_mask[VN_GLYPH_MASK_WORDS] __attribute__((section(".bss")));
+static uint8_t msg_tile_batch_count;
+static uint8_t composer_prev_col;
+static uint8_t composer_prev_valid;
+static uint8_t composer_row;
+static uint8_t current_scene;
+static uint16_t current_command;
+static int16_t current_bg_index = -1;
+static uint8_t current_bg_palette_bank;
+static uint8_t last_pad;
+static int16_t active_message_index = -1;
+static pce_vn_message_t active_message_state __attribute__((section(".bss")));
+static uint8_t message_glyph_pos;
+static uint16_t message_glyph_byte;
+static uint8_t message_frame_timer;
+static uint8_t message_col;
+static uint8_t message_row;
+static uint8_t message_complete = 1u;
+static uint8_t message_auto_wait;
+static uint8_t message_wait_indicator_state;
+static uint8_t message_text_speed;
+static int16_t active_choice_index = -1;
+static uint8_t choice_selected_index;
+static uint16_t wait_frames_remaining;
+static uint8_t async_input_mask;
+static uint16_t async_input_target = PCE_VN_NO_COMMAND;
+static uint16_t vdc_control_shadow = VN_VDC_CONTROL_BASE;
+static uint16_t bg_scroll_x_shadow;
+static uint16_t bg_scroll_y_shadow;
+static vn_psg_player_t psg_song __attribute__((section(".bss")));
+static vn_psg_player_t psg_sfx __attribute__((section(".bss")));
+
+static void VN_HUCARD_CODE_PSG tick_psg(void);
+static void VN_HUCARD_CODE_SCRIPT advance_story(void);
+static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index);
+
+static void wait_vblank(void)
+{
+    __asm__ volatile(
+        "ldy #$80\n"
+        "vn_hu_wait_vblank_end_outer%=:\n"
+        "ldx #$ff\n"
+        "vn_hu_wait_vblank_end_inner%=:\n"
+        "lda $0000\n"
+        "and #$20\n"
+        "beq vn_hu_wait_vblank_start%=\n"
+        "dex\n"
+        "bne vn_hu_wait_vblank_end_inner%=\n"
+        "dey\n"
+        "bne vn_hu_wait_vblank_end_outer%=\n"
+        "vn_hu_wait_vblank_start%=:\n"
+        "ldy #$80\n"
+        "vn_hu_wait_vblank_start_outer%=:\n"
+        "ldx #$ff\n"
+        "vn_hu_wait_vblank_start_inner%=:\n"
+        "lda $0000\n"
+        "and #$20\n"
+        "bne vn_hu_wait_vblank_done%=\n"
+        "dex\n"
+        "bne vn_hu_wait_vblank_start_inner%=\n"
+        "dey\n"
+        "bne vn_hu_wait_vblank_start_outer%=\n"
+        "vn_hu_wait_vblank_done%=:\n"
+        :
+        :
+        : "a", "x", "y", "memory");
+}
+
+static void set_vdc_control(uint16_t control)
+{
+    vdc_control_shadow = control;
+    pce_vdc_poke(VDC_REG_CONTROL, control);
+}
+
+static void vn_vdc_set_copy_word(void)
+{
+    pce_vdc_poke(VDC_REG_CONTROL, vdc_control_shadow);
+}
+
+static void restore_bg_scroll(void)
+{
+    pce_vdc_poke(VDC_REG_BG_SCROLL_X, bg_scroll_x_shadow);
+    pce_vdc_poke(VDC_REG_BG_SCROLL_Y, bg_scroll_y_shadow);
+}
+
+static void vn_vram_copy(uint16_t dest, const void *source, uint16_t byte_count)
+{
+    vn_vdc_set_copy_word();
+    pce_vdc_copy_to_vram(dest, source, byte_count);
+}
+
+static void service_psg_during_blocking_work(void)
+{
+    wait_vblank();
+    restore_bg_scroll();
+    tick_psg();
+}
+
+static uint16_t VN_HUCARD_CODE_VIDEO scale_vce_color(uint16_t color, uint8_t level)
+{
+    uint16_t r = color & 0x0007u;
+    uint16_t g = (color >> 3) & 0x0007u;
+    uint16_t b = (color >> 6) & 0x0007u;
+    r = (uint16_t)((r * level) / 16u);
+    g = (uint16_t)((g * level) / 16u);
+    b = (uint16_t)((b * level) / 16u);
+    return (uint16_t)(r | (g << 3) | (b << 6));
+}
+
+static uint16_t VN_HUCARD_CODE_TEXT ui_text_color_word(uint16_t color)
+{
+    return color == PCE_VN_MESSAGE_COLOR_NONE ? 0x01ffu : color;
+}
+
+static void VN_HUCARD_CODE_TEXT write_ui_text_palette(uint16_t color)
+{
+    uint8_t i;
+    const uint16_t base = (uint16_t)(VN_UI_PALETTE * 16u);
+    pce_vce_set_color(base, 0x0000u);
+    for (i = 1u; i < 16u; i++)
+    {
+        pce_vce_set_color((uint16_t)(base + i), color);
+    }
+}
+
+static uint16_t data_ref_size(const pce_editor_data_ref_t *ref)
+{
+    return ref ? ref->size : 0u;
+}
+
+static uint8_t data_ref_byte_at(const pce_editor_data_ref_t *ref, uint16_t offset)
+{
+    uint8_t i;
+    uint16_t base = 0u;
+    if (!ref || offset >= ref->size) return 0u;
+    if (ref->chunk_count && ref->chunks)
+    {
+        for (i = 0u; i < ref->chunk_count; i++)
+        {
+            const pce_editor_data_chunk_t *chunk = &ref->chunks[i];
+            if (offset < (uint16_t)(base + chunk->size))
+            {
+                pce_editor_map_asset_bank(chunk->bank);
+                return chunk->data[(uint16_t)(offset - base)];
+            }
+            base = (uint16_t)(base + chunk->size);
+        }
+        return 0u;
+    }
+    return ref->data ? ref->data[offset] : 0u;
+}
+
+static uint16_t data_ref_u16_at(const pce_editor_data_ref_t *ref, uint16_t offset)
+{
+    return (uint16_t)(data_ref_byte_at(ref, offset) | ((uint16_t)data_ref_byte_at(ref, (uint16_t)(offset + 1u)) << 8));
+}
+
+static void data_ref_copy_to_ram(const pce_editor_data_ref_t *ref, uint16_t offset, uint8_t *dest, uint16_t byte_count)
+{
+    uint16_t i;
+    for (i = 0u; i < byte_count; i++)
+    {
+        dest[i] = data_ref_byte_at(ref, (uint16_t)(offset + i));
+    }
+}
+
+static void VN_HUCARD_CODE_VIDEO copy_data_ref_to_vram_guarded(uint16_t dest, const pce_editor_data_ref_t *ref)
+{
+    uint8_t i;
+    uint16_t word_offset = 0u;
+    if (!ref || !ref->size) return;
+    if (ref->chunk_count && ref->chunks)
+    {
+        for (i = 0u; i < ref->chunk_count; i++)
+        {
+            const pce_editor_data_chunk_t *chunk = &ref->chunks[i];
+            uint16_t copied = 0u;
+            if (!chunk->data || !chunk->size) continue;
+            while (copied < chunk->size)
+            {
+                uint16_t slice = (uint16_t)(chunk->size - copied);
+                if (slice > VN_VRAM_SLICE_BYTES) slice = VN_VRAM_SLICE_BYTES;
+                service_psg_during_blocking_work();
+                pce_editor_map_asset_bank(chunk->bank);
+                vn_vram_copy((uint16_t)(dest + word_offset), chunk->data + copied, slice);
+                copied = (uint16_t)(copied + slice);
+                word_offset = (uint16_t)(word_offset + ((slice + 1u) / 2u));
+            }
+        }
+        return;
+    }
+    if (ref->data)
+    {
+        uint16_t copied = 0u;
+        while (copied < ref->size)
+        {
+            uint16_t slice = (uint16_t)(ref->size - copied);
+            if (slice > VN_VRAM_SLICE_BYTES) slice = VN_VRAM_SLICE_BYTES;
+            service_psg_during_blocking_work();
+            vn_vram_copy((uint16_t)(dest + word_offset), ref->data + copied, slice);
+            copied = (uint16_t)(copied + slice);
+            word_offset = (uint16_t)(word_offset + ((slice + 1u) / 2u));
+        }
+    }
+}
+
+static void VN_HUCARD_CODE_VIDEO upload_palette(const pce_editor_data_ref_t *palette, uint16_t base, uint8_t level)
+{
+    uint8_t i;
+    uint16_t color_count;
+    if (!palette) return;
+    color_count = (uint16_t)(data_ref_size(palette) / 2u);
+    if (color_count > VN_BG_PALETTE_COLORS) color_count = VN_BG_PALETTE_COLORS;
+    for (i = 0u; i < color_count; i++)
+    {
+        const uint16_t raw = data_ref_u16_at(palette, (uint16_t)(i * 2u));
+        pce_vce_set_color((uint16_t)(base + i), scale_vce_color(raw, level));
+    }
+    for (; i < VN_BG_PALETTE_COLORS; i++)
+    {
+        pce_vce_set_color((uint16_t)(base + i), 0u);
+    }
+}
+
+static void VN_HUCARD_CODE_VIDEO fade_palette(const pce_editor_data_ref_t *palette, uint16_t base, uint8_t frames, uint8_t fade_in)
+{
+    uint8_t step;
+    if (!frames)
+    {
+        upload_palette(palette, base, fade_in ? 16u : 0u);
+        return;
+    }
+    for (step = 0u; step <= frames; step++)
+    {
+        const uint8_t level = fade_in
+            ? (uint8_t)(((uint16_t)step * 16u) / frames)
+            : (uint8_t)(16u - (((uint16_t)step * 16u) / frames));
+        upload_palette(palette, base, level);
+        wait_vblank();
+        restore_bg_scroll();
+        tick_psg();
+    }
+}
+
+static uint16_t VN_HUCARD_CODE_VIDEO bg_blank_tile_index(const pce_editor_bg_asset_t *bg)
+{
+    (void)bg;
+    return VN_UI_BLANK_TILE;
+}
+
+static void VN_HUCARD_CODE_VIDEO clear_screen_map_with_tile(uint16_t blank_word)
+{
+    uint8_t row;
+    uint8_t col;
+    for (col = 0u; col < VN_MAP_WIDTH; col++)
+    {
+        blank_bat_row[col] = blank_word;
+    }
+    for (row = 0u; row < VN_MAP_HEIGHT; row++)
+    {
+        if ((row & 3u) == 0u) service_psg_during_blocking_work();
+        vn_vram_copy((uint16_t)((uint16_t)row * VN_MAP_WIDTH), blank_bat_row, (uint16_t)sizeof(blank_bat_row));
+    }
+}
+
+static void VN_HUCARD_CODE_VIDEO clear_screen_map(const pce_editor_bg_asset_t *bg)
+{
+    uint8_t blank_tile[VN_BG_TILE_BYTES];
+    uint8_t i;
+    const uint16_t tile = bg_blank_tile_index(bg);
+    const uint16_t word = (uint16_t)(((uint16_t)(bg ? bg->palette_bank : 0u) << 12) | tile);
+    for (i = 0u; i < VN_BG_TILE_BYTES; i++) blank_tile[i] = 0u;
+    service_psg_during_blocking_work();
+    vn_vram_copy((uint16_t)(tile * 16u), blank_tile, VN_BG_TILE_BYTES);
+    clear_screen_map_with_tile(word);
+}
+
+static void VN_HUCARD_CODE_VIDEO upload_bg_graphics(const pce_editor_bg_asset_t *bg, uint8_t tile_x, uint8_t tile_y)
+{
+    uint8_t row;
+    uint8_t map_row[64];
+    uint16_t row_bytes;
+    uint16_t source_width;
+    if (!bg) return;
+    clear_screen_map(bg);
+    upload_palette(&bg->palette, (uint16_t)(bg->palette_bank * 16u), 16u);
+    copy_data_ref_to_vram_guarded((uint16_t)(bg->tile_base * 16u), &bg->tiles);
+    row_bytes = (uint16_t)(bg->width_tiles * 2u);
+    if (row_bytes > sizeof(map_row)) row_bytes = sizeof(map_row);
+    source_width = (uint16_t)(row_bytes / 2u);
+    for (row = 0u; row < bg->height_tiles; row++)
+    {
+        if ((uint16_t)tile_y + row >= VN_VISIBLE_HEIGHT) break;
+        if ((row & 3u) == 0u) service_psg_during_blocking_work();
+        data_ref_copy_to_ram(&bg->map, (uint16_t)((uint16_t)row * (uint16_t)(bg->width_tiles * 2u)), map_row, row_bytes);
+        vn_vram_copy((uint16_t)(((uint16_t)(tile_y + row) * VN_MAP_WIDTH) + tile_x), map_row, (uint16_t)(source_width * 2u));
+    }
+}
+
+static void VN_HUCARD_CODE_VIDEO set_background(int16_t bg_index, uint8_t transition, uint8_t fade_out_frames, uint8_t fade_in_frames, uint16_t tile_x, uint16_t tile_y)
+{
+    const pce_editor_bg_asset_t *bg;
+    if (bg_index < 0 || (uint16_t)bg_index >= pce_editor_bg_asset_count) return;
+    bg = &pce_editor_bg_assets[bg_index];
+    if (current_bg_index >= 0 && transition == PCE_VN_BG_TRANSITION_FADE)
+    {
+        const pce_editor_bg_asset_t *old_bg = &pce_editor_bg_assets[current_bg_index];
+        fade_palette(&old_bg->palette, (uint16_t)(current_bg_palette_bank * 16u), fade_out_frames, 0u);
+    }
+    current_bg_index = bg_index;
+    current_bg_palette_bank = bg->palette_bank;
+    upload_bg_graphics(bg, tile_x < VN_MAP_WIDTH ? (uint8_t)tile_x : 0u, tile_y < VN_VISIBLE_HEIGHT ? (uint8_t)tile_y : 0u);
+    if (transition == PCE_VN_BG_TRANSITION_FADE)
+    {
+        fade_palette(&bg->palette, (uint16_t)(bg->palette_bank * 16u), fade_in_frames, 1u);
+    }
+}
+
+static uint16_t VN_HUCARD_CODE_TEXT ui_tile(uint16_t tile)
+{
+    return (uint16_t)(((uint16_t)VN_UI_PALETTE << 12) | tile);
+}
+
+static void VN_HUCARD_CODE_TEXT map_message_window_cells(uint8_t blank)
+{
+    uint8_t tr;
+    uint8_t tc;
+    for (tr = 0u; tr < VN_MSG_TILE_ROWS; tr++)
+    {
+        const uint16_t row_tile = (uint16_t)(VN_MSG_STRIP_TILE_BASE + ((uint16_t)tr * VN_MSG_TILE_COLS));
+        for (tc = 0u; tc < VN_MSG_TILE_COLS; tc++)
+        {
+            msg_bat_row[tc] = ui_tile(blank ? VN_UI_BLANK_TILE : (uint16_t)(row_tile + tc));
+        }
+        wait_vblank();
+        restore_bg_scroll();
+        vn_vram_copy((uint16_t)(((VN_TEXT_Y + tr) * VN_MAP_WIDTH) + VN_TEXT_X), msg_bat_row, (uint16_t)(VN_MSG_TILE_COLS * 2u));
+        tick_psg();
+    }
+}
+
+static void VN_HUCARD_CODE_TEXT clear_window_tile_pixels(void)
+{
+    uint16_t tile;
+    uint8_t i;
+    for (i = 0u; i < 32u; i++) msg_tile[i] = 0u;
+    for (tile = 0u; tile < VN_MSG_TILE_COUNT; tile++)
+    {
+        if ((tile & (VN_MSG_CLEAR_TILES_PER_VBLANK - 1u)) == 0u) service_psg_during_blocking_work();
+        vn_vram_copy((uint16_t)((VN_MSG_STRIP_TILE_BASE + tile) * 16u), msg_tile, 32u);
+    }
+    composer_prev_valid = 0u;
+    composer_row = 0xffu;
+}
+
+static void VN_HUCARD_CODE_VIDEO upload_blank_tile(void)
+{
+    uint8_t i;
+    for (i = 0u; i < 32u; i++) msg_tile[i] = 0u;
+    service_psg_during_blocking_work();
+    vn_vram_copy((uint16_t)(VN_UI_BLANK_TILE * 16u), msg_tile, 32u);
+}
+
+static uint16_t VN_HUCARD_CODE_TEXT vn_glyph_decode(const uint8_t *glyphs, uint16_t pos)
+{
+    const uint8_t b = glyphs[pos];
+    if (b == PCE_VN_GLYPH_ESCAPE)
+    {
+        return (uint16_t)((uint16_t)glyphs[(uint16_t)(pos + 1u)] | ((uint16_t)glyphs[(uint16_t)(pos + 2u)] << 8));
+    }
+    if (b == 0xfeu) return PCE_VN_GLYPH_NEWLINE;
+    if (b == 0xffu) return PCE_VN_GLYPH_END;
+    return b;
+}
+
+static uint16_t VN_HUCARD_CODE_TEXT vn_glyph_stride(const uint8_t *glyphs, uint16_t pos)
+{
+    return glyphs[pos] == PCE_VN_GLYPH_ESCAPE ? 3u : 1u;
+}
+
+static void VN_HUCARD_CODE_TEXT load_glyph_mask(uint16_t glyph, uint16_t *mask)
+{
+    uint8_t row;
+    const uint16_t offset = (uint16_t)(glyph * (VN_GLYPH_MASK_WORDS * 2u));
+    for (row = 0u; row < VN_GLYPH_MASK_WORDS; row++)
+    {
+        mask[row] = data_ref_u16_at(&pce_vn_font_data_ref, (uint16_t)(offset + ((uint16_t)row * 2u)));
+    }
+}
+
+static void VN_HUCARD_CODE_TEXT encode_msg_tile(const uint8_t *mask8, uint8_t *out32)
+{
+    uint8_t sy;
+    for (sy = 0u; sy < 8u; sy++)
+    {
+        const uint8_t m = mask8[sy];
+        out32[(uint16_t)sy * 2u] = m;
+        out32[((uint16_t)sy * 2u) + 1u] = m;
+        out32[16u + ((uint16_t)sy * 2u)] = m;
+        out32[16u + ((uint16_t)sy * 2u) + 1u] = m;
+    }
+}
+
+static void VN_HUCARD_CODE_TEXT reset_msg_tile_batch(void)
+{
+    msg_tile_batch_count = 0u;
+}
+
+static void VN_HUCARD_CODE_TEXT queue_msg_tile(uint16_t tile, const uint8_t *tile_data)
+{
+    uint8_t i;
+    uint8_t *dest;
+    if (msg_tile_batch_count >= VN_MSG_GLYPH_MAX_TILES) return;
+    msg_tile_batch_addr[msg_tile_batch_count] = (uint16_t)(tile * 16u);
+    dest = msg_tile_batch[msg_tile_batch_count];
+    for (i = 0u; i < 32u; i++) dest[i] = tile_data[i];
+    msg_tile_batch_count++;
+}
+
+static void VN_HUCARD_CODE_TEXT flush_msg_tile_batch(void)
+{
+    uint8_t i;
+    if (!msg_tile_batch_count) return;
+    wait_vblank();
+    restore_bg_scroll();
+    for (i = 0u; i < msg_tile_batch_count; i++)
+    {
+        vn_vram_copy(msg_tile_batch_addr[i], msg_tile_batch[i], 32u);
+    }
+    msg_tile_batch_count = 0u;
+}
+
+static void VN_HUCARD_CODE_TEXT add_glyph_tile(const uint16_t *gmask, uint16_t gpx0, uint8_t tile_x0, uint8_t sub, uint8_t *mask8)
+{
+    const uint16_t gpx1 = (uint16_t)(gpx0 + VN_GLYPH_W);
+    const uint16_t tile_x1 = (uint16_t)(tile_x0 + 8u);
+    uint8_t px_start = 0u;
+    uint8_t px_end = 8u;
+    uint8_t sy;
+    if (gpx1 <= tile_x0 || gpx0 >= tile_x1) return;
+    if (gpx0 > tile_x0) px_start = (uint8_t)(gpx0 - tile_x0);
+    if (gpx1 < tile_x1) px_end = (uint8_t)(gpx1 - tile_x0);
+    for (sy = 0u; sy < 8u; sy++)
+    {
+        const uint8_t band_y = (uint8_t)((sub * 8u) + sy);
+        uint8_t gy;
+        uint16_t mrow;
+        uint8_t px;
+        if (band_y < VN_GLYPH_Y_OFFSET) continue;
+        gy = (uint8_t)(band_y - VN_GLYPH_Y_OFFSET);
+        if (gy >= VN_GLYPH_H) continue;
+        mrow = gmask[gy];
+        for (px = px_start; px < px_end; px++)
+        {
+            const uint8_t gx = (uint8_t)(((uint16_t)tile_x0 + px) - gpx0);
+            if (mrow & (uint16_t)(0x8000u >> gx))
+            {
+                mask8[sy] |= (uint8_t)(0x80u >> px);
+            }
+        }
+    }
+}
+
+static void VN_HUCARD_CODE_TEXT draw_message_glyph_at(uint16_t glyph, uint8_t col, uint8_t row)
+{
+    const uint16_t px0 = (uint16_t)col * VN_GLYPH_W;
+    const uint8_t tc0 = (uint8_t)(px0 >> 3);
+    const uint8_t tc1 = (uint8_t)((px0 + VN_GLYPH_W - 1u) >> 3);
+    const uint16_t prev_px0 = (uint16_t)composer_prev_col * VN_GLYPH_W;
+    uint8_t use_prev;
+    uint8_t tc;
+    uint8_t k;
+    if (glyph == 0u || glyph == PCE_VN_GLYPH_NEWLINE || glyph == PCE_VN_GLYPH_END)
+    {
+        composer_prev_valid = 0u;
+        return;
+    }
+    if (row != composer_row) composer_prev_valid = 0u;
+    use_prev = composer_prev_valid;
+    load_glyph_mask(glyph, msg_gmask);
+    reset_msg_tile_batch();
+    for (tc = tc0; tc <= tc1 && tc < VN_MSG_TILE_COLS; tc++)
+    {
+        const uint8_t tile_x0 = (uint8_t)(tc * 8u);
+        uint8_t sub;
+        for (sub = 0u; sub < 2u; sub++)
+        {
+            const uint16_t tile = (uint16_t)(VN_MSG_STRIP_TILE_BASE + ((uint16_t)((row * 2u) + sub) * VN_MSG_TILE_COLS) + tc);
+            for (k = 0u; k < 8u; k++) msg_mask8[k] = 0u;
+            add_glyph_tile(msg_gmask, px0, tile_x0, sub, msg_mask8);
+            if (use_prev) add_glyph_tile(composer_prev_mask, prev_px0, tile_x0, sub, msg_mask8);
+            encode_msg_tile(msg_mask8, msg_tile);
+            queue_msg_tile(tile, msg_tile);
+        }
+    }
+    flush_msg_tile_batch();
+    for (k = 0u; k < VN_GLYPH_MASK_WORDS; k++) composer_prev_mask[k] = msg_gmask[k];
+    composer_prev_col = col;
+    composer_prev_valid = 1u;
+    composer_row = row;
+}
+
+static void VN_HUCARD_CODE_TEXT clear_message_glyph_area(uint8_t col, uint8_t row)
+{
+    const uint16_t px0 = (uint16_t)col * VN_GLYPH_W;
+    const uint8_t tc0 = (uint8_t)(px0 >> 3);
+    const uint8_t tc1 = (uint8_t)((px0 + VN_GLYPH_W - 1u) >> 3);
+    uint8_t tc;
+    uint8_t sub;
+    uint8_t k;
+    composer_prev_valid = 0u;
+    for (k = 0u; k < 32u; k++) msg_tile[k] = 0u;
+    reset_msg_tile_batch();
+    for (tc = tc0; tc <= tc1 && tc < VN_MSG_TILE_COLS; tc++)
+    {
+        for (sub = 0u; sub < 2u; sub++)
+        {
+            const uint16_t tile = (uint16_t)(VN_MSG_STRIP_TILE_BASE + ((uint16_t)((row * 2u) + sub) * VN_MSG_TILE_COLS) + tc);
+            queue_msg_tile(tile, msg_tile);
+        }
+    }
+    flush_msg_tile_batch();
+}
+
+static uint8_t VN_HUCARD_CODE_TEXT draw_message_next_entry(const pce_vn_message_t *message)
+{
+    uint16_t glyph;
+    if (!message || !message->glyphs) return 1u;
+    if (message_glyph_pos >= message->glyph_count) return 1u;
+    glyph = vn_glyph_decode(message->glyphs, message_glyph_byte);
+    message_glyph_byte = (uint16_t)(message_glyph_byte + vn_glyph_stride(message->glyphs, message_glyph_byte));
+    message_glyph_pos++;
+    if (glyph == PCE_VN_GLYPH_END) return 1u;
+    if (glyph == PCE_VN_GLYPH_NEWLINE)
+    {
+        message_col = 0u;
+        message_row++;
+        composer_prev_valid = 0u;
+        return message_row >= VN_TEXT_ROWS ? 1u : 0u;
+    }
+    draw_message_glyph_at(glyph, message_col, message_row);
+    message_col++;
+    if (message_col >= (message_row == VN_WAIT_CURSOR_ROW ? VN_WAIT_CURSOR_COL : VN_TEXT_COLS))
+    {
+        message_col = 0u;
+        message_row++;
+        composer_prev_valid = 0u;
+        if (message_row >= VN_TEXT_ROWS) return 1u;
+    }
+    return message_glyph_pos >= message->glyph_count ? 1u : 0u;
+}
+
+static void VN_HUCARD_CODE_TEXT draw_message_text(const pce_vn_message_t *message)
+{
+    while (!draw_message_next_entry(message)) {}
+    message_complete = 1u;
+}
+
+static void VN_HUCARD_CODE_TEXT blank_message_wait_indicator(void)
+{
+    clear_message_glyph_area(VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
+}
+
+static void VN_HUCARD_CODE_TEXT show_message_wait_indicator(void)
+{
+    message_wait_indicator_state = 1u;
+    message_frame_timer = 0u;
+    composer_prev_valid = 0u;
+    draw_message_glyph_at(PCE_VN_MESSAGE_WAIT_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
+}
+
+static void VN_HUCARD_CODE_TEXT hide_message_wait_indicator(void)
+{
+    if (message_wait_indicator_state)
+    {
+        blank_message_wait_indicator();
+    }
+    message_wait_indicator_state = 0u;
+    message_frame_timer = 0u;
+}
+
+static void VN_HUCARD_CODE_TEXT reset_message_wait_indicator_state(void)
+{
+    message_wait_indicator_state = 0u;
+    message_frame_timer = 0u;
+}
+
+static void VN_HUCARD_CODE_TEXT refresh_message_wait_indicator(void)
+{
+    if (active_message_index < 0
+        || !message_complete
+        || active_message_state.advance_mode != PCE_VN_ADVANCE_BUTTON)
+    {
+        hide_message_wait_indicator();
+        return;
+    }
+    if (!message_wait_indicator_state) show_message_wait_indicator();
+}
+
+static void VN_HUCARD_CODE_TEXT tick_message_wait_indicator(void)
+{
+    if (active_message_index < 0
+        || !message_complete
+        || active_message_state.advance_mode != PCE_VN_ADVANCE_BUTTON)
+    {
+        hide_message_wait_indicator();
+        return;
+    }
+    if (!message_wait_indicator_state)
+    {
+        show_message_wait_indicator();
+        return;
+    }
+    message_frame_timer++;
+    if (message_frame_timer < VN_WAIT_CURSOR_BLINK_FRAMES) return;
+    message_frame_timer = 0u;
+    if (message_wait_indicator_state == 2u)
+    {
+        show_message_wait_indicator();
+    }
+    else
+    {
+        message_wait_indicator_state = 2u;
+        blank_message_wait_indicator();
+    }
+}
+
+static uint8_t VN_HUCARD_CODE_TEXT begin_message_window_vram_update(void)
+{
+    wait_vblank();
+    map_message_window_cells(1u);
+    tick_psg();
+    return 1u;
+}
+
+static void VN_HUCARD_CODE_TEXT end_message_window_vram_update(uint8_t restore_display)
+{
+    if (!restore_display) return;
+    wait_vblank();
+    map_message_window_cells(0u);
+    tick_psg();
+}
+
+static void VN_HUCARD_CODE_TEXT hide_message_window_map(void)
+{
+    wait_vblank();
+    map_message_window_cells(1u);
+    tick_psg();
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_has_range(const vn_scene_pack_cache_t *cache, uint16_t offset, uint16_t length)
+{
+    return (uint8_t)(cache && cache->valid && offset <= cache->size && length <= (uint16_t)(cache->size - offset));
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_u8(const vn_scene_pack_cache_t *cache, uint16_t offset)
+{
+    if (!scene_pack_has_range(cache, offset, 1u)) return 0u;
+    return cache->data[offset];
+}
+
+static uint16_t VN_HUCARD_CODE_SCRIPT scene_pack_u16(const vn_scene_pack_cache_t *cache, uint16_t offset)
+{
+    if (!scene_pack_has_range(cache, offset, 2u)) return 0u;
+    return (uint16_t)(cache->data[offset] | ((uint16_t)cache->data[(uint16_t)(offset + 1u)] << 8));
+}
+
+static int16_t VN_HUCARD_CODE_SCRIPT scene_pack_s16(const vn_scene_pack_cache_t *cache, uint16_t offset)
+{
+    return (int16_t)scene_pack_u16(cache, offset);
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_is_valid(const vn_scene_pack_cache_t *cache)
+{
+    if (!cache || !cache->data || cache->size < PCE_VN_SCENE_PACK_HEADER_SIZE) return 0u;
+    if (cache->data[0] != 'P' || cache->data[1] != 'V' || cache->data[2] != 'N' || cache->data[3] != 'S') return 0u;
+    return (uint8_t)(cache->data[VN_SCENE_PACK_OFFSET_VERSION] == PCE_VN_SCENE_PACK_VERSION);
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache)
+{
+    const pce_vn_scene_pack_t *pack;
+    if (!cache || scene_index >= pce_vn_scene_count) return 0u;
+    pack = &pce_vn_scene_packs[scene_index];
+    if (!pack->data || !pack->byte_size || pack->byte_size > PCE_VN_SCENE_PACK_CACHE_BYTES) return 0u;
+    data_ref_copy_to_ram(pack->data, 0u, cache->data, pack->byte_size);
+    cache->size = pack->byte_size;
+    cache->scene_index = scene_index;
+    cache->valid = scene_pack_is_valid(cache);
+    return cache->valid;
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_command_count(const vn_scene_pack_cache_t *cache)
+{
+    return scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_COMMAND_COUNT);
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_read_command(const vn_scene_pack_cache_t *cache, uint8_t command_index, pce_vn_command_t *command)
+{
+    uint16_t offset;
+    if (!command || command_index >= scene_pack_command_count(cache)) return 0u;
+    offset = (uint16_t)(scene_pack_u16(cache, VN_SCENE_PACK_OFFSET_COMMAND_TABLE) + ((uint16_t)command_index * PCE_VN_SCENE_PACK_COMMAND_SIZE));
+    if (!scene_pack_has_range(cache, offset, PCE_VN_SCENE_PACK_COMMAND_SIZE)) return 0u;
+    command->type = scene_pack_u8(cache, offset);
+    command->asset_index = scene_pack_s16(cache, (uint16_t)(offset + 1u));
+    command->slot = scene_pack_u8(cache, (uint16_t)(offset + 3u));
+    command->flags = scene_pack_u8(cache, (uint16_t)(offset + 4u));
+    command->arg0 = scene_pack_u8(cache, (uint16_t)(offset + 5u));
+    command->arg1 = scene_pack_u8(cache, (uint16_t)(offset + 6u));
+    command->x = scene_pack_u16(cache, (uint16_t)(offset + 7u));
+    command->y = scene_pack_u16(cache, (uint16_t)(offset + 9u));
+    command->message_index = scene_pack_s16(cache, (uint16_t)(offset + 11u));
+    command->animation_index = scene_pack_s16(cache, (uint16_t)(offset + 13u));
+    command->scene_index = scene_pack_s16(cache, (uint16_t)(offset + 15u));
+    command->choice_index = scene_pack_s16(cache, (uint16_t)(offset + 17u));
+    return 1u;
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_read_message(const vn_scene_pack_cache_t *cache, uint8_t message_index, pce_vn_message_t *message)
+{
+    uint16_t offset;
+    uint16_t glyph_offset;
+    if (!message || message_index >= scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_MESSAGE_COUNT)) return 0u;
+    offset = (uint16_t)(scene_pack_u16(cache, VN_SCENE_PACK_OFFSET_MESSAGE_TABLE) + ((uint16_t)message_index * PCE_VN_SCENE_PACK_MESSAGE_SIZE));
+    if (!scene_pack_has_range(cache, offset, PCE_VN_SCENE_PACK_MESSAGE_SIZE)) return 0u;
+    glyph_offset = scene_pack_u16(cache, offset);
+    if (!scene_pack_has_range(cache, glyph_offset, 1u)) return 0u;
+    message->glyphs = &cache->data[glyph_offset];
+    message->glyph_count = scene_pack_u8(cache, (uint16_t)(offset + 2u));
+    message->voice_index = scene_pack_s16(cache, (uint16_t)(offset + 3u));
+    message->text_speed_frames = scene_pack_u8(cache, (uint16_t)(offset + 5u));
+    message->advance_mode = scene_pack_u8(cache, (uint16_t)(offset + 6u));
+    message->auto_wait_frames = scene_pack_u8(cache, (uint16_t)(offset + 7u));
+    message->mouth_animation_index = scene_pack_s16(cache, (uint16_t)(offset + 8u));
+    message->mouth_slot = scene_pack_u8(cache, (uint16_t)(offset + 10u)) & 0x0fu;
+    message->text_color = scene_pack_u16(cache, (uint16_t)(offset + 11u));
+    return 1u;
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_read_choice(const vn_scene_pack_cache_t *cache, uint8_t choice_index, vn_choice_ref_t *choice)
+{
+    uint16_t offset;
+    if (!choice || choice_index >= scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_CHOICE_COUNT)) return 0u;
+    offset = (uint16_t)(scene_pack_u16(cache, VN_SCENE_PACK_OFFSET_CHOICE_TABLE) + ((uint16_t)choice_index * PCE_VN_SCENE_PACK_CHOICE_SIZE));
+    if (!scene_pack_has_range(cache, offset, PCE_VN_SCENE_PACK_CHOICE_SIZE)) return 0u;
+    choice->options_offset = scene_pack_u16(cache, offset);
+    choice->option_count = scene_pack_u8(cache, (uint16_t)(offset + 2u));
+    choice->default_index = scene_pack_u8(cache, (uint16_t)(offset + 3u));
+    choice->variable_index = scene_pack_s16(cache, (uint16_t)(offset + 4u));
+    return 1u;
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_read_choice_option(const vn_scene_pack_cache_t *cache, const vn_choice_ref_t *choice, uint8_t option_index, pce_vn_choice_option_t *option)
+{
+    uint16_t offset;
+    uint16_t glyph_offset;
+    if (!choice || !option || option_index >= choice->option_count) return 0u;
+    offset = (uint16_t)(choice->options_offset + ((uint16_t)option_index * PCE_VN_SCENE_PACK_OPTION_SIZE));
+    if (!scene_pack_has_range(cache, offset, PCE_VN_SCENE_PACK_OPTION_SIZE)) return 0u;
+    glyph_offset = scene_pack_u16(cache, offset);
+    if (!scene_pack_has_range(cache, glyph_offset, 1u)) return 0u;
+    option->glyphs = &cache->data[glyph_offset];
+    option->glyph_count = scene_pack_u8(cache, (uint16_t)(offset + 2u));
+    option->value = scene_pack_s16(cache, (uint16_t)(offset + 3u));
+    option->target_scene = scene_pack_s16(cache, (uint16_t)(offset + 5u));
+    return 1u;
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_read_switch(const vn_scene_pack_cache_t *cache, uint8_t switch_index, vn_switch_ref_t *branch)
+{
+    uint16_t offset;
+    if (!branch || switch_index >= scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_SWITCH_COUNT)) return 0u;
+    offset = (uint16_t)(scene_pack_u16(cache, VN_SCENE_PACK_OFFSET_SWITCH_TABLE) + ((uint16_t)switch_index * PCE_VN_SCENE_PACK_SWITCH_SIZE));
+    if (!scene_pack_has_range(cache, offset, PCE_VN_SCENE_PACK_SWITCH_SIZE)) return 0u;
+    branch->cases_offset = scene_pack_u16(cache, offset);
+    branch->case_count = scene_pack_u8(cache, (uint16_t)(offset + 2u));
+    branch->default_command = scene_pack_u16(cache, (uint16_t)(offset + 3u));
+    return 1u;
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_read_switch_case(const vn_scene_pack_cache_t *cache, const vn_switch_ref_t *branch, uint8_t case_index, pce_vn_switch_case_t *branch_case)
+{
+    uint16_t offset;
+    if (!branch || !branch_case || case_index >= branch->case_count) return 0u;
+    offset = (uint16_t)(branch->cases_offset + ((uint16_t)case_index * PCE_VN_SCENE_PACK_SWITCH_CASE_SIZE));
+    if (!scene_pack_has_range(cache, offset, PCE_VN_SCENE_PACK_SWITCH_CASE_SIZE)) return 0u;
+    branch_case->value = scene_pack_s16(cache, offset);
+    branch_case->command = scene_pack_u16(cache, (uint16_t)(offset + 2u));
+    return 1u;
+}
+
+static uint16_t VN_HUCARD_CODE_PSG psg_player_step_delta(const vn_psg_player_t *player)
+{
+    uint16_t bpm = player && player->asset && player->asset->bpm ? player->asset->bpm : 150u;
+    if (bpm < 30u) bpm = 30u;
+    if (bpm > 300u) bpm = 300u;
+    return (uint16_t)(bpm * VN_PSG_STEPS_PER_BEAT);
+}
+
+static void VN_HUCARD_CODE_PSG psg_load_basic_wave(uint8_t channel)
+{
+    uint8_t i;
+    PCE_PSG_SELECT = (uint8_t)(channel & 0x07u);
+    PCE_PSG_CONTROL = 0u;
+    if (channel >= 4u) PCE_PSG_NOISE = 0u;
+    for (i = 0u; i < 32u; i++)
+    {
+        PCE_PSG_WAVE = (uint8_t)((i < 16u) ? 31u : 0u);
+    }
+}
+
+static void VN_HUCARD_CODE_PSG psg_stop_channel(uint8_t channel)
+{
+    PCE_PSG_SELECT = (uint8_t)(channel & 0x07u);
+    PCE_PSG_CONTROL = 0u;
+    if (channel >= 4u) PCE_PSG_NOISE = 0u;
+}
+
+static void VN_HUCARD_CODE_PSG psg_stop_mask(uint8_t mask)
+{
+    uint8_t ch;
+    for (ch = 0u; ch < 6u; ch++)
+    {
+        if (mask & (uint8_t)(1u << ch)) psg_stop_channel(ch);
+    }
+}
+
+static void VN_HUCARD_CODE_PSG psg_stop_player(vn_psg_player_t *player)
+{
+    if (!player) return;
+    psg_stop_mask(player->used_mask);
+    player->active = 0u;
+    player->asset = (const pce_vn_psg_asset_t *)0;
+    player->used_mask = 0u;
+    player->cursor = 0u;
+}
+
+static void VN_HUCARD_CODE_PSG psg_set_tone(uint8_t channel, uint16_t period, uint8_t volume)
+{
+    PCE_PSG_SELECT = (uint8_t)(channel & 0x07u);
+    if (channel >= 4u) PCE_PSG_NOISE = 0u;
+    PCE_PSG_FREQ_LO = (uint8_t)(period & 0xffu);
+    PCE_PSG_FREQ_HI = (uint8_t)((period >> 8) & 0x0fu);
+    PCE_PSG_BALANCE = 0xffu;
+    PCE_PSG_CONTROL = volume ? (uint8_t)(0x80u | (volume & 0x1fu)) : 0u;
+}
+
+static void VN_HUCARD_CODE_PSG psg_set_noise(uint8_t channel, uint8_t noise, uint8_t volume)
+{
+    PCE_PSG_SELECT = (uint8_t)(channel & 0x07u);
+    PCE_PSG_BALANCE = 0xffu;
+    PCE_PSG_NOISE = volume ? (uint8_t)(0x80u | (noise & 0x1fu)) : 0u;
+    PCE_PSG_CONTROL = volume ? (uint8_t)(0x80u | (volume & 0x1fu)) : 0u;
+}
+
+static void VN_HUCARD_CODE_PSG psg_apply_step_row(vn_psg_player_t *player, uint16_t step_no)
+{
+    uint16_t i;
+    const pce_vn_psg_asset_t *asset;
+    if (!player || !player->active || !player->asset) return;
+    asset = player->asset;
+    if (step_no == 0u && player->cursor >= asset->pattern_count) player->cursor = 0u;
+    for (i = player->cursor; i < asset->pattern_count; i++)
+    {
+        const uint16_t base = (uint16_t)(i * VN_PSG_PATTERN_ROW_BYTES);
+        const uint16_t step = data_ref_u16_at(asset->pattern, base);
+        if (step < step_no)
+        {
+            player->cursor = (uint16_t)(i + 1u);
+            continue;
+        }
+        if (step > step_no) break;
+        if (step == step_no)
+        {
+            uint8_t channel = data_ref_byte_at(asset->pattern, (uint16_t)(base + 2u));
+            const uint16_t period = data_ref_u16_at(asset->pattern, (uint16_t)(base + 3u));
+            const uint8_t volume = data_ref_byte_at(asset->pattern, (uint16_t)(base + 5u));
+            const uint8_t noise = data_ref_byte_at(asset->pattern, (uint16_t)(base + 6u));
+            channel = (uint8_t)(player->base_channel + channel);
+            if (channel > 5u) channel = 5u;
+            player->used_mask |= (uint8_t)(1u << channel);
+            if (noise && channel >= 4u) psg_set_noise(channel, (uint8_t)(period & 0x1fu), volume);
+            else psg_set_tone(channel, period, volume);
+            player->cursor = (uint16_t)(i + 1u);
+        }
+    }
+}
+
+static void VN_HUCARD_CODE_PSG psg_start_asset(int16_t asset_index, uint8_t base_channel)
+{
+    vn_psg_player_t *player;
+    uint8_t ch;
+    if (asset_index < 0 || (uint16_t)asset_index >= pce_vn_psg_asset_count) return;
+    PCE_PSG_GLOBAL = 0xffu;
+    for (ch = 0u; ch < 6u; ch++) psg_load_basic_wave(ch);
+    if (pce_vn_psg_assets[asset_index].is_song)
+    {
+        psg_stop_player(&psg_song);
+        player = &psg_song;
+        player->loop = 1u;
+    }
+    else
+    {
+        psg_stop_player(&psg_sfx);
+        player = &psg_sfx;
+        player->loop = 0u;
+    }
+    player->asset = &pce_vn_psg_assets[asset_index];
+    player->active = 1u;
+    player->base_channel = base_channel > 5u ? 5u : base_channel;
+    player->used_mask = 0u;
+    player->step = 0u;
+    player->accum = 0u;
+    player->cursor = 0u;
+    psg_apply_step_row(player, 0u);
+}
+
+static void VN_HUCARD_CODE_PSG tick_psg_player(vn_psg_player_t *player)
+{
+    uint16_t next_accum;
+    if (!player || !player->active || !player->asset) return;
+    next_accum = (uint16_t)(player->accum + psg_player_step_delta(player));
+    if (next_accum < VN_PSG_STEP_ACCUM_UNIT)
+    {
+        player->accum = next_accum;
+        return;
+    }
+    player->accum = (uint16_t)(next_accum - VN_PSG_STEP_ACCUM_UNIT);
+    player->step++;
+    if (player->step >= player->asset->steps)
+    {
+        if (player->loop)
+        {
+            player->step = 0u;
+            player->cursor = 0u;
+        }
+        else
+        {
+            psg_stop_player(player);
+            return;
+        }
+    }
+    psg_apply_step_row(player, player->step);
+}
+
+static void VN_HUCARD_CODE_PSG tick_psg(void)
+{
+    tick_psg_player(&psg_song);
+    tick_psg_player(&psg_sfx);
+}
+
+static uint16_t VN_HUCARD_CODE_VIDEO sprite_attr_for_size(const pce_editor_sprite_draw_meta_t *draw_meta, uint8_t flags, uint8_t palette_bank)
+{
+    uint16_t attr = (uint16_t)(VDC_SPRITE_FG | VDC_SPRITE_COLOR(palette_bank));
+    if (draw_meta->cell_width >= 32u) attr |= VDC_SPRITE_WIDTH_32;
+    if (draw_meta->cell_height >= 64u) attr |= VDC_SPRITE_HEIGHT_64;
+    else if (draw_meta->cell_height >= 32u) attr |= VDC_SPRITE_HEIGHT_32;
+    if (flags & PCE_VN_SPRITE_FLIP_X) attr |= VDC_SPRITE_FLIP_X;
+    if (flags & PCE_VN_SPRITE_FLIP_Y) attr |= VDC_SPRITE_FLIP_Y;
+    return attr;
+}
+
+static uint8_t VN_HUCARD_CODE_VIDEO sprite_pattern_slots_for_size(uint8_t cell_width, uint8_t cell_height)
+{
+    uint8_t pattern_cols = (uint8_t)((cell_width + 15u) / 16u);
+    uint8_t pattern_rows = (uint8_t)((cell_height + 15u) / 16u);
+    uint8_t row_pattern_slots;
+    if (!pattern_cols) pattern_cols = 1u;
+    if (!pattern_rows) pattern_rows = 1u;
+    row_pattern_slots = pattern_cols;
+    if (pattern_rows > 1u && row_pattern_slots < 2u) row_pattern_slots = 2u;
+    return (uint8_t)(row_pattern_slots * pattern_rows);
+}
+
+static uint16_t VN_HUCARD_CODE_VIDEO sprite_pattern_units_for_ref(const pce_editor_data_ref_t *patterns)
+{
+    if (!patterns || !patterns->size) return 0u;
+    return (uint16_t)((patterns->size + 63u) / 64u);
+}
+
+static uint16_t VN_HUCARD_CODE_VIDEO align_sprite_pattern_base(uint16_t pattern_base, uint8_t cell_width, uint8_t cell_height)
+{
+    uint16_t alignment = 2u;
+    if (cell_width >= 32u) alignment = 4u;
+    if (cell_height >= 64u) alignment = 16u;
+    else if (cell_height >= 32u && alignment < 8u) alignment = 8u;
+    return (uint16_t)(((pattern_base + alignment - 1u) / alignment) * alignment);
+}
+
+static void VN_HUCARD_CODE_VIDEO clear_sprites(void)
+{
+    uint8_t i;
+    for (i = 0u; i < 64u; i++)
+    {
+        sprite_shadow[i].y = VN_SPRITE_HIDDEN_Y;
+        sprite_shadow[i].x = 0u;
+        sprite_shadow[i].pattern = 0u;
+        sprite_shadow[i].attr = 0u;
+    }
+}
+
+static void VN_HUCARD_CODE_VIDEO clear_character_sprite_shadow(void)
+{
+    uint8_t i;
+    for (i = 0u; i < VN_SPRITETEXT_SATB_BASE; i++)
+    {
+        sprite_shadow[i].y = VN_SPRITE_HIDDEN_Y;
+        sprite_shadow[i].x = 0u;
+        sprite_shadow[i].pattern = 0u;
+        sprite_shadow[i].attr = 0u;
+    }
+}
+
+static void VN_HUCARD_CODE_VIDEO clear_sprite_slot_shadow(uint8_t slot)
+{
+    uint8_t i;
+    uint8_t base;
+    if (slot >= VN_SPRITE_SLOT_COUNT) return;
+    base = (uint8_t)(slot * VN_SPRITE_SATB_PER_SLOT);
+    for (i = 0u; i < VN_SPRITE_SATB_PER_SLOT; i++)
+    {
+        sprite_shadow[(uint8_t)(base + i)].y = VN_SPRITE_HIDDEN_Y;
+        sprite_shadow[(uint8_t)(base + i)].x = 0u;
+        sprite_shadow[(uint8_t)(base + i)].pattern = 0u;
+        sprite_shadow[(uint8_t)(base + i)].attr = 0u;
+    }
+}
+
+static void VN_HUCARD_CODE_VIDEO upload_sprite_table(void)
+{
+    wait_vblank();
+    restore_bg_scroll();
+    vn_vram_copy(VN_SATB_ADDR, (const uint8_t *)sprite_shadow, (uint16_t)(64u * sizeof(vdc_sprite_t)));
+    pce_vdc_poke(VDC_REG_DMA_CONTROL, VDC_DMA_SRC_INC);
+    pce_vdc_poke(VDC_REG_SATB_START, VN_SATB_ADDR);
+}
+
+static void VN_HUCARD_CODE_VIDEO hide_sprite_slot(uint8_t slot)
+{
+    if (slot >= VN_SPRITE_SLOT_COUNT) return;
+    clear_sprite_slot_shadow(slot);
+    sprite_slots[slot].visible = 0u;
+    sprite_slots[slot].satb_count = 0u;
+    sprite_slot_pattern_valid[slot] = 0u;
+}
+
+static void VN_HUCARD_CODE_VIDEO plan_sprite_layout(void)
+{
+    uint8_t slot;
+    uint8_t next_palette_bank = 0u;
+    uint8_t palette_valid = 0u;
+    uint16_t next_pattern_base = PCE_VN_SPRITE_PATTERN_BASE;
+    for (slot = 0u; slot < VN_SPRITE_SLOT_COUNT; slot++)
+    {
+        const vn_sprite_slot_t *state = &sprite_slots[slot];
+        const pce_editor_sprite_asset_t *sprite;
+        uint16_t pattern_units;
+        uint16_t pattern_base;
+        sprite_slot_pattern_base[slot] = 0u;
+        sprite_slot_palette_bank[slot] = 0u;
+        sprite_slot_pattern_valid[slot] = 0u;
+        if (!state->visible || state->asset_index < 0 || (uint16_t)state->asset_index >= pce_editor_sprite_asset_count) continue;
+        sprite = &pce_editor_sprite_assets[state->asset_index];
+        pattern_units = sprite_pattern_units_for_ref(&sprite->patterns);
+        if (!pattern_units) continue;
+        if (!palette_valid)
+        {
+            next_palette_bank = sprite->palette_bank;
+            palette_valid = 1u;
+        }
+        if (next_palette_bank >= PCE_VN_FONT_SPRITE_PALETTE_BANK) continue;
+        pattern_base = align_sprite_pattern_base(next_pattern_base, sprite->cell_width, sprite->cell_height);
+        if ((uint16_t)(pattern_base + pattern_units) > VN_SPRITE_PATTERN_END_BASE) continue;
+        sprite_slot_pattern_base[slot] = pattern_base;
+        sprite_slot_palette_bank[slot] = next_palette_bank;
+        sprite_slot_pattern_valid[slot] = 1u;
+        next_pattern_base = (uint16_t)(pattern_base + pattern_units);
+        next_palette_bank++;
+    }
+}
+
+static void VN_HUCARD_CODE_VIDEO draw_sprite_slot(uint8_t slot, uint8_t upload_patterns)
+{
+    vn_sprite_slot_t *state;
+    const pce_editor_sprite_asset_t *sprite;
+    const pce_editor_sprite_draw_meta_t *draw_meta;
+    uint8_t row;
+    uint8_t col;
+    uint8_t written = 0u;
+    uint8_t cell_columns;
+    uint8_t cell_rows;
+    uint8_t frame_columns;
+    uint8_t frame_rows;
+    uint16_t first_cell = 0u;
+    uint16_t attr;
+    uint16_t pattern_base;
+    uint8_t palette_bank;
+    uint8_t pattern_step;
+    uint8_t use_animation_frame;
+    uint16_t total_cells;
+    const pce_vn_sprite_anim_t *animation = (const pce_vn_sprite_anim_t *)0;
+    if (slot >= VN_SPRITE_SLOT_COUNT) return;
+    state = &sprite_slots[slot];
+    clear_sprite_slot_shadow(slot);
+    if (!state->visible || state->asset_index < 0 || (uint16_t)state->asset_index >= pce_editor_sprite_asset_count) return;
+    if (!sprite_slot_pattern_valid[slot]) return;
+    sprite = &pce_editor_sprite_assets[state->asset_index];
+    draw_meta = &pce_editor_sprite_draw_meta[state->asset_index];
+    pattern_base = sprite_slot_pattern_base[slot];
+    palette_bank = sprite_slot_palette_bank[slot];
+    if (state->animation_index >= 0 && (uint16_t)state->animation_index < pce_vn_sprite_animation_count)
+    {
+        animation = &pce_vn_sprite_animations[state->animation_index];
+    }
+    if (upload_patterns)
+    {
+        upload_palette(&sprite->palette, (uint16_t)(256u + ((uint16_t)palette_bank * 16u)), 16u);
+        copy_data_ref_to_vram_guarded((uint16_t)(pattern_base * 32u), &sprite->patterns);
+    }
+    cell_columns = draw_meta->cell_columns ? draw_meta->cell_columns : 1u;
+    cell_rows = draw_meta->cell_rows ? draw_meta->cell_rows : 1u;
+    total_cells = (uint16_t)(cell_columns * cell_rows);
+    use_animation_frame = (uint8_t)(
+        animation &&
+        animation->frame_count >= 1u &&
+        animation->frame_width_cells &&
+        animation->frame_height_cells &&
+        animation->frame_width_cells <= cell_columns &&
+        animation->frame_height_cells <= cell_rows &&
+        animation->frame_stride_cells &&
+        animation->first_cell < total_cells
+    );
+    frame_columns = use_animation_frame ? animation->frame_width_cells : cell_columns;
+    frame_rows = use_animation_frame ? animation->frame_height_cells : cell_rows;
+    first_cell = use_animation_frame
+        ? (uint16_t)(animation->first_cell + ((uint16_t)state->frame * animation->frame_stride_cells))
+        : 0u;
+    attr = sprite_attr_for_size(draw_meta, state->flags, palette_bank);
+    pattern_step = (uint8_t)(sprite_pattern_slots_for_size(draw_meta->cell_width, draw_meta->cell_height) * 2u);
+    for (row = 0u; row < frame_rows; row++)
+    {
+        for (col = 0u; col < frame_columns; col++)
+        {
+            const uint8_t source_row = (state->flags & PCE_VN_SPRITE_FLIP_Y) ? (uint8_t)(frame_rows - 1u - row) : row;
+            const uint8_t source_col = (state->flags & PCE_VN_SPRITE_FLIP_X) ? (uint8_t)(frame_columns - 1u - col) : col;
+            uint16_t source_cell;
+            uint16_t mapped_cell;
+            vdc_sprite_t *entry;
+            if (written >= VN_SPRITE_SATB_PER_SLOT)
+            {
+                state->satb_count = written;
+                return;
+            }
+            source_cell = (uint16_t)(first_cell + ((uint16_t)source_row * cell_columns) + source_col);
+            if (source_cell >= total_cells) continue;
+            mapped_cell = sprite->cell_map ? sprite->cell_map[source_cell] : source_cell;
+            entry = &sprite_shadow[(uint8_t)((slot * VN_SPRITE_SATB_PER_SLOT) + written)];
+            entry->y = (uint16_t)(state->y + ((uint16_t)row * draw_meta->cell_height) + 64u);
+            entry->x = (uint16_t)(state->x + ((uint16_t)col * draw_meta->cell_width) + 32u);
+            entry->pattern = (uint16_t)(pattern_base + (mapped_cell * pattern_step));
+            entry->attr = attr;
+            written++;
+        }
+    }
+    state->satb_count = written;
+}
+
+static void VN_HUCARD_CODE_VIDEO refresh_scene_sprites(uint8_t upload_patterns)
+{
+    uint8_t slot;
+    plan_sprite_layout();
+    clear_character_sprite_shadow();
+    for (slot = 0u; slot < VN_SPRITE_SLOT_COUNT; slot++)
+    {
+        draw_sprite_slot(slot, upload_patterns);
+    }
+    upload_sprite_table();
+}
+
+static void VN_HUCARD_CODE_VIDEO set_sprite(const pce_vn_command_t *command)
+{
+    uint8_t slot;
+    if (!command) return;
+    slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
+    if (!(command->flags & PCE_VN_SPRITE_VISIBLE) || command->asset_index < 0)
+    {
+        hide_sprite_slot(slot);
+        refresh_scene_sprites(0u);
+        return;
+    }
+    sprite_slots[slot].asset_index = command->asset_index;
+    sprite_slots[slot].animation_index = command->animation_index;
+    sprite_slots[slot].x = command->x;
+    sprite_slots[slot].y = command->y;
+    sprite_slots[slot].flags = command->flags;
+    sprite_slots[slot].frame = 0u;
+    sprite_slots[slot].timer = 0u;
+    sprite_slots[slot].visible = 1u;
+    refresh_scene_sprites(1u);
+}
+
+static void VN_HUCARD_CODE_VIDEO tick_sprites(void)
+{
+    uint8_t slot;
+    uint8_t dirty = 0u;
+    for (slot = 0u; slot < VN_SPRITE_SLOT_COUNT; slot++)
+    {
+        vn_sprite_slot_t *state = &sprite_slots[slot];
+        const pce_vn_sprite_anim_t *anim;
+        uint8_t delay;
+        if (!state->visible || state->animation_index < 0 || (uint16_t)state->animation_index >= pce_vn_sprite_animation_count) continue;
+        anim = &pce_vn_sprite_animations[state->animation_index];
+        delay = anim->frame_delays ? anim->frame_delays[state->frame] : anim->frame_delay;
+        if (!delay) delay = 1u;
+        state->timer++;
+        if (state->timer < delay) continue;
+        state->timer = 0u;
+        state->frame++;
+        if (state->frame >= anim->frame_count)
+        {
+            state->frame = anim->loop ? 0u : (uint8_t)(anim->frame_count - 1u);
+        }
+        draw_sprite_slot(slot, 0u);
+        dirty = 1u;
+    }
+    if (dirty) upload_sprite_table();
+}
+
+static void VN_HUCARD_CODE_TEXT upload_font_sprite_patterns(void)
+{
+#if PCE_VN_HAS_SPRITETEXT
+    copy_data_ref_to_vram_guarded((uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE * 32u), &pce_vn_font_sprite_data_ref);
+#endif
+}
+
+static void VN_HUCARD_CODE_TEXT clear_spritetext(void)
+{
+    uint8_t i;
+    for (i = VN_SPRITETEXT_SATB_BASE; i < 64u; i++)
+    {
+        sprite_shadow[i].y = VN_SPRITE_HIDDEN_Y;
+        sprite_shadow[i].attr = 0u;
+    }
+}
+
+static void VN_HUCARD_CODE_TEXT set_spritetext_color(uint16_t color)
+{
+    pce_vce_set_color((uint16_t)(256u + (PCE_VN_FONT_SPRITE_PALETTE_BANK * 16u) + 15u), ui_text_color_word(color));
+}
+
+static void VN_HUCARD_CODE_TEXT draw_spritetext(const pce_vn_command_t *command)
+{
+#if PCE_VN_HAS_SPRITETEXT
+    uint8_t i;
+    uint8_t written = 0u;
+    uint8_t col = 0u;
+    uint8_t row = 0u;
+    uint16_t offset;
+    if (!command) return;
+    clear_spritetext();
+    if (!(command->flags & PCE_VN_SPRITE_VISIBLE) || command->asset_index <= 0 || !command->arg1)
+    {
+        upload_sprite_table();
+        return;
+    }
+    set_spritetext_color((uint16_t)command->message_index);
+    offset = (uint16_t)command->asset_index;
+    for (i = 0u; i < command->arg1 && written < VN_SPRITETEXT_MAX_GLYPHS; i++)
+    {
+        const uint8_t glyph = scene_pack_u8(&active_scene_pack, (uint16_t)(offset + i));
+        vdc_sprite_t *entry;
+        if (glyph == 0xfeu)
+        {
+            col = 0u;
+            row++;
+            continue;
+        }
+        entry = &sprite_shadow[(uint8_t)(VN_SPRITETEXT_SATB_BASE + written)];
+        entry->y = (uint16_t)(command->y + ((uint16_t)row * 16u) + 64u);
+        entry->x = (uint16_t)(command->x + ((uint16_t)col * 12u) + 32u);
+        entry->pattern = (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE + ((uint16_t)glyph * 2u));
+        entry->attr = (uint16_t)(VDC_SPRITE_FG | VDC_SPRITE_COLOR(PCE_VN_FONT_SPRITE_PALETTE_BANK));
+        col++;
+        written++;
+    }
+    upload_sprite_table();
+#else
+    (void)command;
+#endif
+}
+
+static void VN_HUCARD_CODE_SCRIPT set_variable_value(int16_t index, int16_t value)
+{
+    if (index < 0 || (uint16_t)index >= PCE_VN_VARIABLE_STORAGE_COUNT) return;
+    variable_values[index] = (uint16_t)value;
+}
+
+static int16_t VN_HUCARD_CODE_SCRIPT get_variable_value(int16_t index)
+{
+    if (index < 0 || (uint16_t)index >= PCE_VN_VARIABLE_STORAGE_COUNT) return 0;
+    return (int16_t)variable_values[index];
+}
+
+static int16_t VN_HUCARD_CODE_SCRIPT command_s16_value(const pce_vn_command_t *command)
+{
+    return (int16_t)((uint16_t)command->arg0 | ((uint16_t)command->arg1 << 8));
+}
+
+static void VN_HUCARD_CODE_SCRIPT apply_variable_command(const pce_vn_command_t *command)
+{
+    int16_t value;
+    if (!command || command->asset_index < 0) return;
+    value = command_s16_value(command);
+    if (command->flags == PCE_VN_VAR_OP_ADD)
+        value = (int16_t)(get_variable_value(command->asset_index) + value);
+    else if (command->flags == PCE_VN_VAR_OP_SUB)
+        value = (int16_t)(get_variable_value(command->asset_index) - value);
+    else if (command->flags == PCE_VN_VAR_OP_RANDOM)
+    {
+        const int16_t minv = (int16_t)command->x;
+        const int16_t maxv = (int16_t)command->y;
+        const uint16_t range = maxv > minv ? (uint16_t)(maxv - minv + 1) : 1u;
+        value = (int16_t)(minv + ((uint16_t)(pce_joypad_read() + current_command + current_scene) % range));
+    }
+    set_variable_value(command->asset_index, value);
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT compare_values(int16_t left, int16_t right, uint8_t op)
+{
+    if (op == PCE_VN_COMPARE_NE) return (uint8_t)(left != right);
+    if (op == PCE_VN_COMPARE_LT) return (uint8_t)(left < right);
+    if (op == PCE_VN_COMPARE_LTE) return (uint8_t)(left <= right);
+    if (op == PCE_VN_COMPARE_GT) return (uint8_t)(left > right);
+    if (op == PCE_VN_COMPARE_GTE) return (uint8_t)(left >= right);
+    return (uint8_t)(left == right);
+}
+
+static void VN_HUCARD_CODE_SCRIPT handle_audio_command(const pce_vn_command_t *command)
+{
+    const uint8_t kind = (uint8_t)(command->flags & 0x0fu);
+    const uint8_t action = (uint8_t)(command->flags & 0xf0u);
+    if (kind != PCE_VN_AUDIO_KIND_PSG) return;
+    if (action == PCE_VN_AUDIO_ACTION_STOP)
+    {
+        psg_stop_player(&psg_song);
+        psg_stop_player(&psg_sfx);
+        return;
+    }
+    psg_start_asset(command->asset_index, command->slot);
+}
+
+static void VN_HUCARD_CODE_SCRIPT apply_effect(const pce_vn_command_t *command)
+{
+    uint8_t i;
+    if (!command) return;
+    if (command->flags == PCE_VN_EFFECT_BLANK)
+    {
+        clear_screen_map(0);
+        return;
+    }
+    if (command->flags == PCE_VN_EFFECT_FLASH)
+    {
+        pce_vce_set_color(0u, command->x);
+        for (i = 0u; i < command->arg0; i++)
+        {
+            wait_vblank();
+            tick_psg();
+        }
+        pce_vce_set_color(0u, 0u);
+        return;
+    }
+    for (i = 0u; i < command->arg0; i++)
+    {
+        wait_vblank();
+        tick_psg();
+    }
+}
+
+static void VN_HUCARD_CODE_TEXT start_message(uint8_t message_index)
+{
+    pce_vn_message_t message;
+    uint8_t restore_window_display;
+    if (!scene_pack_read_message(&active_scene_pack, message_index, &message)) return;
+    active_message_state = message;
+    active_message_index = message_index;
+    active_choice_index = -1;
+    wait_frames_remaining = 0u;
+    message_glyph_pos = 0u;
+    message_glyph_byte = 0u;
+    message_frame_timer = 0u;
+    message_col = 0u;
+    message_row = 0u;
+    message_complete = 0u;
+    message_auto_wait = message.auto_wait_frames;
+    message_wait_indicator_state = 0u;
+    message_text_speed = message.text_speed_frames;
+    write_ui_text_palette(ui_text_color_word(message.text_color));
+    restore_window_display = begin_message_window_vram_update();
+    clear_window_tile_pixels();
+    if (!message_text_speed)
+    {
+        draw_message_text(&active_message_state);
+    }
+    else
+    {
+        message_complete = draw_message_next_entry(&active_message_state);
+    }
+    end_message_window_vram_update(restore_window_display);
+    if (message_complete) refresh_message_wait_indicator();
+}
+
+static void VN_HUCARD_CODE_TEXT finish_active_message(void)
+{
+    if (active_message_index < 0) return;
+    hide_message_wait_indicator();
+    while (!message_complete)
+    {
+        message_complete = draw_message_next_entry(&active_message_state);
+    }
+    refresh_message_wait_indicator();
+}
+
+static void VN_HUCARD_CODE_TEXT tick_active_message(void)
+{
+    if (active_message_index < 0 || message_complete) return;
+    if (!message_text_speed)
+    {
+        finish_active_message();
+        return;
+    }
+    message_frame_timer++;
+    if (message_frame_timer < message_text_speed) return;
+    message_frame_timer = 0u;
+    message_complete = draw_message_next_entry(&active_message_state);
+    if (message_complete) refresh_message_wait_indicator();
+}
+
+static void VN_HUCARD_CODE_TEXT draw_choice_options(void)
+{
+    uint8_t row;
+    uint8_t restore_window_display;
+    vn_choice_ref_t choice;
+    if (active_choice_index < 0) return;
+    if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, &choice)) return;
+    write_ui_text_palette(ui_text_color_word(PCE_VN_MESSAGE_COLOR_NONE));
+    restore_window_display = begin_message_window_vram_update();
+    clear_window_tile_pixels();
+    for (row = 0u; row < choice.option_count && row < VN_TEXT_ROWS; row++)
+    {
+        uint8_t col;
+        uint16_t pos = 0u;
+        pce_vn_choice_option_t option;
+        if (!scene_pack_read_choice_option(&active_scene_pack, &choice, row, &option)) continue;
+        draw_message_glyph_at(row == choice_selected_index ? PCE_VN_CHOICE_CURSOR_GLYPH : 0u, VN_CHOICE_CURSOR_COL, row);
+        for (col = 0u; col < option.glyph_count && (uint8_t)(col + VN_CHOICE_TEXT_COL) < VN_TEXT_COLS; col++)
+        {
+            const uint16_t glyph = vn_glyph_decode(option.glyphs, pos);
+            pos = (uint16_t)(pos + vn_glyph_stride(option.glyphs, pos));
+            if (glyph == PCE_VN_GLYPH_END) break;
+            draw_message_glyph_at(glyph, (uint8_t)(col + VN_CHOICE_TEXT_COL), row);
+        }
+        composer_prev_valid = 0u;
+    }
+    end_message_window_vram_update(restore_window_display);
+}
+
+static void VN_HUCARD_CODE_TEXT draw_choice_cursor_row(const vn_choice_ref_t *choice, uint8_t row, uint8_t selected)
+{
+    uint16_t pos = 0u;
+    uint16_t glyph = PCE_VN_GLYPH_END;
+    pce_vn_choice_option_t option;
+    if (!choice || row >= choice->option_count || row >= VN_TEXT_ROWS) return;
+    if (!scene_pack_read_choice_option(&active_scene_pack, choice, row, &option)) return;
+    composer_prev_valid = 0u;
+    clear_message_glyph_area(VN_CHOICE_CURSOR_COL, row);
+    clear_message_glyph_area((uint8_t)(VN_CHOICE_CURSOR_COL + 1u), row);
+    if (selected)
+    {
+        draw_message_glyph_at(PCE_VN_CHOICE_CURSOR_GLYPH, VN_CHOICE_CURSOR_COL, row);
+    }
+    if (option.glyph_count)
+    {
+        glyph = vn_glyph_decode(option.glyphs, pos);
+    }
+    if (glyph != PCE_VN_GLYPH_END && glyph != PCE_VN_GLYPH_NEWLINE)
+    {
+        draw_message_glyph_at(glyph, VN_CHOICE_TEXT_COL, row);
+    }
+    composer_prev_valid = 0u;
+}
+
+static void VN_HUCARD_CODE_TEXT update_choice_cursor(uint8_t old_index, uint8_t new_index)
+{
+    vn_choice_ref_t choice;
+    if (active_choice_index < 0 || old_index == new_index) return;
+    if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, &choice)) return;
+    if (old_index < choice.option_count) draw_choice_cursor_row(&choice, old_index, 0u);
+    if (new_index < choice.option_count) draw_choice_cursor_row(&choice, new_index, 1u);
+    tick_psg();
+}
+
+static void VN_HUCARD_CODE_TEXT start_choice(uint8_t choice_index)
+{
+    vn_choice_ref_t choice;
+    if (!scene_pack_read_choice(&active_scene_pack, choice_index, &choice)) return;
+    if (!choice.option_count) return;
+    active_message_index = -1;
+    message_complete = 1u;
+    wait_frames_remaining = 0u;
+    active_choice_index = choice_index;
+    choice_selected_index = choice.default_index < choice.option_count ? choice.default_index : 0u;
+    draw_choice_options();
+}
+
+static uint8_t VN_HUCARD_CODE_TEXT handle_choice_input(uint8_t pressed)
+{
+    vn_choice_ref_t choice;
+    if (active_choice_index < 0) return 0u;
+    if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, &choice)) return 0u;
+    if (pressed & PAD_UP)
+    {
+        const uint8_t old_index = choice_selected_index;
+        if (choice_selected_index) choice_selected_index--;
+        else choice_selected_index = (uint8_t)(choice.option_count - 1u);
+        update_choice_cursor(old_index, choice_selected_index);
+        return 1u;
+    }
+    if (pressed & PAD_DOWN)
+    {
+        const uint8_t old_index = choice_selected_index;
+        choice_selected_index++;
+        if (choice_selected_index >= choice.option_count) choice_selected_index = 0u;
+        update_choice_cursor(old_index, choice_selected_index);
+        return 1u;
+    }
+    if (pressed & (PAD_I | PAD_II | PAD_RUN))
+    {
+        pce_vn_choice_option_t option;
+        if (!scene_pack_read_choice_option(&active_scene_pack, &choice, choice_selected_index, &option)) return 0u;
+        active_choice_index = -1;
+        hide_message_window_map();
+        if (choice.variable_index >= 0) set_variable_value(choice.variable_index, option.value);
+        if (option.target_scene >= 0) show_scene((uint8_t)option.target_scene);
+        advance_story();
+        return 1u;
+    }
+    return 0u;
+}
+
+static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index)
+{
+    if (scene_index >= pce_vn_scene_count) scene_index = 0u;
+    if (!load_scene_pack_into_cache(scene_index, &active_scene_pack)) return;
+    current_scene = scene_index;
+    current_command = 0u;
+    active_message_index = -1;
+    active_choice_index = -1;
+    wait_frames_remaining = 0u;
+    async_input_mask = 0u;
+    async_input_target = PCE_VN_NO_COMMAND;
+}
+
+static void VN_HUCARD_CODE_SCRIPT advance_story(void)
+{
+    pce_vn_command_t command;
+    while (current_command < scene_pack_command_count(&active_scene_pack))
+    {
+        if (!scene_pack_read_command(&active_scene_pack, (uint8_t)current_command, &command)) return;
+        current_command++;
+        if (command.type == PCE_VN_COMMAND_BACKGROUND)
+        {
+            set_background(command.asset_index, command.flags, command.arg0, command.arg1, command.x, command.y);
+        }
+        else if (command.type == PCE_VN_COMMAND_SPRITE)
+        {
+            set_sprite(&command);
+        }
+        else if (command.type == PCE_VN_COMMAND_MESSAGE)
+        {
+            if (command.message_index >= 0) start_message((uint8_t)command.message_index);
+            return;
+        }
+        else if (command.type == PCE_VN_COMMAND_AUDIO)
+        {
+            handle_audio_command(&command);
+        }
+        else if (command.type == PCE_VN_COMMAND_CHOICE)
+        {
+            if (command.choice_index >= 0) start_choice((uint8_t)command.choice_index);
+            return;
+        }
+        else if (command.type == PCE_VN_COMMAND_JUMP)
+        {
+            if (command.scene_index >= 0) show_scene((uint8_t)command.scene_index);
+            return;
+        }
+        else if (command.type == PCE_VN_COMMAND_WAIT)
+        {
+            wait_frames_remaining = (uint16_t)command.arg0 | ((uint16_t)command.arg1 << 8);
+            return;
+        }
+        else if (command.type == PCE_VN_COMMAND_EFFECT)
+        {
+            apply_effect(&command);
+        }
+        else if (command.type == PCE_VN_COMMAND_VARIABLE)
+        {
+            apply_variable_command(&command);
+        }
+        else if (command.type == PCE_VN_COMMAND_IF)
+        {
+            const int16_t left = get_variable_value(command.asset_index);
+            const int16_t right = command_s16_value(&command);
+            const uint16_t target = compare_values(left, right, command.flags) ? command.x : command.y;
+            if (target != PCE_VN_NO_COMMAND) current_command = target;
+        }
+        else if (command.type == PCE_VN_COMMAND_SWITCH)
+        {
+            vn_switch_ref_t branch;
+            uint8_t i;
+            uint16_t target = PCE_VN_NO_COMMAND;
+            if (command.choice_index >= 0 && scene_pack_read_switch(&active_scene_pack, (uint8_t)command.choice_index, &branch))
+            {
+                for (i = 0u; i < branch.case_count; i++)
+                {
+                    pce_vn_switch_case_t branch_case;
+                    if (scene_pack_read_switch_case(&active_scene_pack, &branch, i, &branch_case)
+                        && branch_case.value == get_variable_value(command.asset_index))
+                    {
+                        target = branch_case.command;
+                        break;
+                    }
+                }
+                if (target == PCE_VN_NO_COMMAND) target = branch.default_command;
+                if (target != PCE_VN_NO_COMMAND) current_command = target;
+            }
+        }
+        else if (command.type == PCE_VN_COMMAND_GOTO)
+        {
+            if (command.x != PCE_VN_NO_COMMAND) current_command = command.x;
+        }
+        else if (command.type == PCE_VN_COMMAND_INPUTCHECK)
+        {
+            if (command.flags == PCE_VN_INPUT_MODE_CANCEL)
+            {
+                async_input_mask = 0u;
+                async_input_target = PCE_VN_NO_COMMAND;
+            }
+            else if (command.flags == PCE_VN_INPUT_MODE_ASYNC)
+            {
+                async_input_mask = command.arg0;
+                async_input_target = command.x;
+            }
+            else
+            {
+                async_input_mask = command.arg0;
+                async_input_target = command.x;
+                return;
+            }
+        }
+        else if (command.type == PCE_VN_COMMAND_SPRITETEXT)
+        {
+            draw_spritetext(&command);
+        }
+        else if (command.type == PCE_VN_COMMAND_CACHE)
+        {
+            /* HuCARD VN has no CD/ADPCM cache path. */
+        }
+    }
+    if (current_scene < pce_vn_scene_count)
+    {
+        const pce_vn_scene_pack_t *pack = &pce_vn_scene_packs[current_scene];
+        if (pack->next_scene >= 0) show_scene((uint8_t)pack->next_scene);
+    }
+}
+
+static void VN_HUCARD_CODE_SCRIPT init_variables(void)
+{
+    uint8_t i;
+    for (i = 0u; i < PCE_VN_VARIABLE_STORAGE_COUNT; i++)
+    {
+        variable_values[i] = (uint16_t)pce_vn_variable_initial_values[i];
+    }
+}
+
+static void VN_HUCARD_CODE_SCRIPT init_scene_cache(void)
+{
+    active_scene_pack.data = scene_pack_storage;
+    active_scene_pack.size = 0u;
+    active_scene_pack.scene_index = 0xffu;
+    active_scene_pack.valid = 0u;
+}
+
+static void VN_HUCARD_CODE_VIDEO init_video(void)
+{
+    pce_cpu_irq_disable();
+    pce_irq_disable(IRQ_VDC);
+    bg_scroll_x_shadow = 0u;
+    bg_scroll_y_shadow = 0u;
+    pce_vdc_set_resolution(256u, 224u, VCE_COLORBURST_ON);
+    pce_vdc_bg_set_size(VDC_BG_SIZE_32_32);
+    pce_vdc_poke(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL);
+    vn_vdc_set_copy_word();
+    restore_bg_scroll();
+    set_vdc_control(VN_VDC_CONTROL_BASE);
+    pce_vdc_sprite_set_table_start(VN_SATB_ADDR);
+    clear_sprites();
+    clear_screen_map(0);
+    upload_blank_tile();
+    map_message_window_cells(0u);
+    clear_window_tile_pixels();
+    write_ui_text_palette(0x01ffu);
+    upload_font_sprite_patterns();
+    upload_sprite_table();
+    set_vdc_control(VN_VDC_DISPLAY_CONTROL);
+}
+
+int main(void)
+{
+    pce_vn_hucard_map_runtime_banks();
+    init_scene_cache();
+    init_variables();
+    init_video();
+    last_pad = pce_joypad_read();
+    show_scene(pce_vn_start_scene);
+    advance_story();
+
+    while (1)
+    {
+        uint8_t pad;
+        uint8_t pressed;
+        uint8_t message_ticked = 0u;
+        wait_vblank();
+        if (active_message_index >= 0)
+        {
+            if (!message_complete)
+            {
+                tick_active_message();
+                message_ticked = 1u;
+            }
+            else
+            {
+                tick_message_wait_indicator();
+            }
+        }
+        tick_psg();
+        tick_sprites();
+        pad = pce_joypad_read();
+        pressed = (uint8_t)(pad & (uint8_t)~last_pad);
+        last_pad = pad;
+        if (async_input_mask && (pressed & async_input_mask) && async_input_target != PCE_VN_NO_COMMAND)
+        {
+            current_command = async_input_target;
+            async_input_mask = 0u;
+            async_input_target = PCE_VN_NO_COMMAND;
+            reset_message_wait_indicator_state();
+            active_message_index = -1;
+            active_choice_index = -1;
+            wait_frames_remaining = 0u;
+            hide_message_window_map();
+            advance_story();
+            continue;
+        }
+        if (active_choice_index >= 0)
+        {
+            handle_choice_input(pressed);
+            continue;
+        }
+        if (active_message_index >= 0)
+        {
+            if (!message_ticked && !message_complete) tick_active_message();
+            if (message_complete && active_message_state.advance_mode == PCE_VN_ADVANCE_AUTO)
+            {
+                if (message_auto_wait) message_auto_wait--;
+                else
+                {
+                    reset_message_wait_indicator_state();
+                    active_message_index = -1;
+                    hide_message_window_map();
+                    advance_story();
+                }
+            }
+            else if (pressed & (PAD_I | PAD_II | PAD_RUN))
+            {
+                if (!message_complete) finish_active_message();
+                else
+                {
+                    reset_message_wait_indicator_state();
+                    active_message_index = -1;
+                    hide_message_window_map();
+                    advance_story();
+                }
+            }
+            continue;
+        }
+        if (wait_frames_remaining)
+        {
+            wait_frames_remaining--;
+            if (!wait_frames_remaining) advance_story();
+            continue;
+        }
+        if (async_input_mask)
+        {
+            if (pressed & async_input_mask)
+            {
+                current_command = async_input_target;
+                async_input_mask = 0u;
+                async_input_target = PCE_VN_NO_COMMAND;
+                advance_story();
+            }
+            continue;
+        }
+        advance_story();
+    }
+
+    return 0;
+}

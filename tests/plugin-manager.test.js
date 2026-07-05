@@ -153,6 +153,7 @@ test('listPlugins marks hasGenerator only when generateSource is exported or dec
   assert.equal(plugins.get('manifest-builder').hasGenerator, true);
   assert.equal(plugins.get('pce-slideshow-builder').hasGenerator, false);
   assert.equal(plugins.get('pce-visual-novel-builder').hasGenerator, false);
+  assert.equal(plugins.get('pce-visual-novel-hucard-builder').hasGenerator, false);
 });
 
 test('built-in PCE asset editor suite is scoped to the PC Engine core', () => {
@@ -164,7 +165,7 @@ test('built-in PCE asset editor suite is scoped to the PC Engine core', () => {
     assert.equal(pcePlugins.has(id), true, `${id} should be available for PC Engine`);
     assert.deepEqual(pcePlugins.get(id).supportedCores, ['pc-engine']);
   });
-  ['pce-slideshow-builder', 'pce-visual-novel-builder'].forEach((id) => {
+  ['pce-slideshow-builder', 'pce-visual-novel-builder', 'pce-visual-novel-hucard-builder'].forEach((id) => {
     assert.equal(pcePlugins.has(id), true, `${id} should be available for PC Engine`);
     assert.ok(pcePlugins.get(id).roles.some((role) => role.id === 'builder'));
   });

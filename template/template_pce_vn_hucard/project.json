@@ -1,0 +1,34 @@
+{
+  "coreId": "pc-engine",
+  "platform": "pce",
+  "title": "PCE HuCARD VN Sample",
+  "author": "PCE Game Editor",
+  "serial": "PCEVNHU00001",
+  "region": "JUE",
+  "romName": "pce_hucard_vn",
+  "toolchain": "llvm-mos",
+  "targetMedia": "hucard",
+  "cd": {
+    "iplPath": "",
+    "systemCardPath": "",
+    "isoName": "",
+    "dataFiles": [],
+    "cddaTracks": []
+  },
+  "pluginRoles": {
+    "builder": "pce-visual-novel-hucard-builder",
+    "testplay": "pce-standard-emulator"
+  },
+  "pluginSettings": {
+    "pce-visual-novel-hucard-builder": {
+      "template": "visual-novel-hucard"
+    },
+    "sidebarOrder": [
+      "novel-editor",
+      "pce-asset-manager",
+      "image-editor",
+      "sound-editor",
+      "code-editor"
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "source": "assets/images/cover_webp.png",
+  "kind": "background",
+  "width": 16,
+  "height": 16,
+  "tileCount": 4,
+  "paletteCount": 1,
+  "vramBytes": 256,
+  "compression": {
+    "policy": "none",
+    "tiles": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 128,
+      "byteLength": 0,
+      "savedBytes": 0
+    },
+    "map": {
+      "codec": "none",
+      "file": "",
+      "rawBytes": 128,
+      "byteLength": 0,
+      "savedBytes": 0
+    }
+  },
+  "warnings": []
+}

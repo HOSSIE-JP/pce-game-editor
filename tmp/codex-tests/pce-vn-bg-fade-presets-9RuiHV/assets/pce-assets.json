@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "bg_a",
+      "type": "image",
+      "source": "assets/images/bg-a.png"
+    },
+    {
+      "id": "bg_b",
+      "type": "image",
+      "source": "assets/images/bg-b.png"
+    }
+  ]
+}

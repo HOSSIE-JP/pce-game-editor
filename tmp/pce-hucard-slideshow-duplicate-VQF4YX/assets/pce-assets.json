@@ -1,0 +1,123 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "slide_001_first",
+      "type": "image",
+      "name": "slide_001_first",
+      "source": "assets/images/slide_001_first.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 16,
+        "height": 16,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_001_first/palette.bin",
+          "tilesFile": "assets/generated/slide_001_first/tiles.bin",
+          "mapFile": "assets/generated/slide_001_first/map.bin",
+          "mapVramFile": "assets/generated/slide_001_first/map_vram.bin",
+          "tileCount": 4,
+          "paletteCount": 1,
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapVramCompressedFile": "",
+          "outputFile": "",
+          "previewFile": "",
+          "vramBytes": 0,
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "warnings": [],
+          "paletteColors": [],
+          "waveform": [],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "slide_001_duplicate",
+      "type": "image",
+      "name": "slide_001_duplicate",
+      "source": "assets/images/slide_001_duplicate.png",
+      "options": {
+        "kind": "background",
+        "paletteBank": 0,
+        "tileBase": 64,
+        "mapBase": 0,
+        "x": 0,
+        "y": 0,
+        "width": 16,
+        "height": 16,
+        "cellWidth": 8,
+        "cellHeight": 8,
+        "transparentIndex": 0
+      },
+      "data": {
+        "generated": {
+          "paletteFile": "assets/generated/slide_001_duplicate/palette.bin",
+          "tilesFile": "assets/generated/slide_001_duplicate/tiles.bin",
+          "mapFile": "assets/generated/slide_001_duplicate/map.bin",
+          "mapVramFile": "assets/generated/slide_001_duplicate/map_vram.bin",
+          "tileCount": 4,
+          "paletteCount": 1,
+          "tilesCompressedFile": "",
+          "cellMapFile": "",
+          "mapVramCompressedFile": "",
+          "outputFile": "",
+          "previewFile": "",
+          "vramBytes": 0,
+          "byteLength": 0,
+          "sampleRate": 0,
+          "channels": 0,
+          "durationSeconds": 0,
+          "warnings": [],
+          "paletteColors": [],
+          "waveform": [],
+          "compression": {
+            "policy": "auto",
+            "tiles": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            },
+            "map": {
+              "codec": "none",
+              "file": "",
+              "rawBytes": 0,
+              "byteLength": 0,
+              "savedBytes": 0
+            }
+          }
+        }
+      }
+    }
+  ]
+}

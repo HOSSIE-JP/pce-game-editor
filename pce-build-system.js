@@ -2,10 +2,12 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn, spawnSync } = require('child_process');
 const { app } = require('electron');
 const assetManager = require('./pce-asset-manager');
 const vnManager = require('./pce-vn-manager');
+const hucardVnManager = require('./pce-vn-hucard-manager');
 const setupManager = require('./pce-setup-manager');
 
 const DEFAULT_PROJECT_NAME = 'sample_pce_game';
@@ -17,8 +19,11 @@ const DEFAULT_EXTERNAL_EMULATOR_PATH = process.platform === 'darwin'
 const PCE_CD_SECTOR_BYTES = 2048;
 const PCE_CD_IPL_PROGRAM_SECTORS = 20;
 const PCE_CD_DATA_BASE_SECTOR = 64;
+const PCE_INCREMENTAL_BUILD_STAMP_VERSION = 1;
+const PCE_INCREMENTAL_BUILD_STAMP_FILE = path.join('out', 'build-stamp.json');
 const PCE_SLIDESHOW_BUILDER_ID = 'pce-slideshow-builder';
 const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
+const PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID = 'pce-visual-novel-hucard-builder';
 
 function formatBuildDuration(ms) {
   if (!Number.isFinite(ms) || ms < 0) return '0 ms';
@@ -77,6 +82,53 @@ function expandLlvmMosClangWrapper(command, args = []) {
     command: clangPath,
     args: ['--config', cfgPath, ...args],
   };
+}
+
+function findLlvmMosLinkerPath(commandInfo = {}) {
+  if (commandInfo.toolchain !== 'llvm-mos') return null;
+  const command = String(commandInfo.command || '');
+  const commandDir = command ? path.dirname(command) : '';
+  if (!commandDir || commandDir === '.') return null;
+  const names = process.platform === 'win32'
+    ? ['ld.lld.exe', 'lld.exe']
+    : ['ld.lld', 'lld'];
+  for (const name of names) {
+    const candidate = path.join(commandDir, name);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function formatLlvmMosLinkerPreflightFailure(linkerPath, result = {}) {
+  const error = result.error || null;
+  const status = result.status;
+  const stderr = String(result.stderr || '').trim();
+  const stdout = String(result.stdout || '').trim();
+  const detail = [
+    error?.message,
+    stderr,
+    stdout,
+    status !== null && status !== undefined ? `exit ${status}` : '',
+  ].filter(Boolean).join('\n');
+  const appControlHint = process.platform === 'win32'
+    ? ' Windows Application Control / Smart App Control / WDAC が llvm-mos SDK の LLD を拒否している可能性があります。Windows 側でこの ld.lld.exe を許可するか、SetUp で実行可能な llvm-mos-sdk を指定してください。'
+    : '';
+  return [
+    `llvm-mos linker を起動できません: ${linkerPath}`,
+    appControlHint.trim(),
+    detail ? `詳細: ${detail}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function preflightLlvmMosLinker(commandInfo = {}) {
+  const linkerPath = findLlvmMosLinkerPath(commandInfo);
+  if (!linkerPath) return null;
+  const result = spawnSync(linkerPath, ['--version'], {
+    encoding: 'utf-8',
+    windowsHide: true,
+  });
+  if (!result.error && result.status === 0) return null;
+  return formatLlvmMosLinkerPreflightFailure(linkerPath, result);
 }
 
 function attachProcessLineLogger(stream, level, log) {
@@ -552,11 +604,27 @@ function getBuilderTemplateKind(config = {}) {
   const builder = String(config.pluginRoles?.builder || '').trim();
   if (builder === PCE_SLIDESHOW_BUILDER_ID) return 'slideshow-hucard';
   if (builder === PCE_VISUAL_NOVEL_BUILDER_ID) return 'visual-novel-cd';
+  if (builder === PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID) return 'visual-novel-hucard';
   return '';
 }
 
 function isHuCardSlideshowProject(config = {}) {
   return getBuilderTemplateKind(config) === 'slideshow-hucard';
+}
+
+function isHuCardVisualNovelProject(projectDir, config = {}) {
+  void projectDir;
+  return getBuilderTemplateKind(config) === 'visual-novel-hucard';
+}
+
+function isCdVisualNovelProject(projectDir, config = {}) {
+  const sample = getBuilderTemplateKind(config);
+  if (sample === 'visual-novel-cd') return true;
+  if (sample === 'visual-novel-hucard' || isHuCardSlideshowProject(config)) return false;
+  return normalizeTargetMedia(config.targetMedia) === 'cd' && (
+    fs.existsSync(vnManager.getSceneFilePath(projectDir)) ||
+    fs.existsSync(path.join(projectDir, 'src', 'generated', 'vn.c'))
+  );
 }
 
 function resolveHuCardSlideshowTemplateMainPath() {
@@ -591,12 +659,218 @@ function collectSourceFiles(projectDir, config = {}) {
   return sourceFiles.filter((filePath) => fs.existsSync(filePath));
 }
 
+function sha1Buffer(buffer) {
+  return crypto.createHash('sha1').update(buffer).digest('hex');
+}
+
+function normalizeStampPath(projectDir, filePath) {
+  const projectRoot = path.resolve(projectDir);
+  const resolved = path.resolve(filePath);
+  const rel = path.relative(projectRoot, resolved);
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+    return rel.replace(/\\/g, '/');
+  }
+  return resolved.replace(/\\/g, '/');
+}
+
+function contentSignatureForFile(projectDir, filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return null;
+    return {
+      path: normalizeStampPath(projectDir, filePath),
+      size: stat.size,
+      sha1: sha1Buffer(fs.readFileSync(filePath)),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function statSignatureForFile(projectDir, filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return null;
+    return {
+      path: normalizeStampPath(projectDir, filePath),
+      size: stat.size,
+      mtimeMs: Math.round(stat.mtimeMs),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function collectFilesRecursive(rootDir, predicate) {
+  if (!fs.existsSync(rootDir)) return [];
+  const out = [];
+  const visit = (dir) => {
+    fs.readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
+      const absPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(absPath);
+      } else if (entry.isFile() && predicate(absPath)) {
+        out.push(absPath);
+      }
+    });
+  };
+  visit(rootDir);
+  return out.sort((a, b) => normalizeStampPath(rootDir, a).localeCompare(normalizeStampPath(rootDir, b), 'en'));
+}
+
+function compileSourceInputFiles(projectDir) {
+  const sourceExts = new Set(['.c', '.h', '.s', '.asm', '.inc', '.ld']);
+  const files = collectFilesRecursive(path.join(projectDir, 'src'), (filePath) => sourceExts.has(path.extname(filePath).toLowerCase()));
+  [
+    'project.json',
+    assetManager.ASSET_FILE || path.join('assets', 'pce-assets.json'),
+    vnManager.VN_SCENE_FILE || path.join('assets', 'pce-vn-scenes.json'),
+    vnManager.VN_FONT_FILE || path.join('assets', 'pce-font.json'),
+  ].forEach((relativePath) => {
+    const absPath = path.join(projectDir, relativePath);
+    if (fs.existsSync(absPath)) files.push(absPath);
+  });
+  const fontDir = path.join(projectDir, 'assets', 'fonts');
+  files.push(...collectFilesRecursive(fontDir, () => true));
+  return Array.from(new Set(files.map((filePath) => path.resolve(filePath))))
+    .sort((a, b) => normalizeStampPath(projectDir, a).localeCompare(normalizeStampPath(projectDir, b), 'en'));
+}
+
+function compileBinaryInputFiles(projectDir, config = {}, commandInfo = {}) {
+  const files = [];
+  if (commandInfo.targetMedia === 'cd') {
+    (config.cd?.dataFiles || []).forEach((entry) => {
+      const resolved = resolveProjectRelativeFile(projectDir, entry);
+      if (resolved) files.push(path.join(projectDir, resolved));
+    });
+    (commandInfo.cddaTracks || []).forEach((track) => {
+      if (track?.sourcePath && fs.existsSync(track.sourcePath)) files.push(track.sourcePath);
+    });
+    if (commandInfo.iplPath && fs.existsSync(commandInfo.iplPath)) files.push(commandInfo.iplPath);
+  }
+  return Array.from(new Set(files.map((filePath) => path.resolve(filePath))))
+    .sort((a, b) => normalizeStampPath(projectDir, a).localeCompare(normalizeStampPath(projectDir, b), 'en'));
+}
+
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((out, key) => {
+      out[key] = stableValue(value[key]);
+      return out;
+    }, {});
+  }
+  return value;
+}
+
+function sha1Json(value) {
+  return crypto.createHash('sha1').update(JSON.stringify(stableValue(value))).digest('hex');
+}
+
+function stampRelevantConfig(config = {}) {
+  const { generatedAt, testPlay, ...rest } = config || {};
+  return rest;
+}
+
+function normalizeArgForStamp(projectDir, arg) {
+  const normalizedProject = path.resolve(projectDir).replace(/\\/g, '/');
+  return String(arg || '').replace(/\\/g, '/').split(normalizedProject).join('<project>');
+}
+
+function buildOutputStampPath(projectDir) {
+  return path.join(projectDir, PCE_INCREMENTAL_BUILD_STAMP_FILE);
+}
+
+function readBuildOutputStamp(projectDir) {
+  try {
+    const stamp = JSON.parse(fs.readFileSync(buildOutputStampPath(projectDir), 'utf-8'));
+    return stamp && stamp.version === PCE_INCREMENTAL_BUILD_STAMP_VERSION ? stamp : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function computeBuildOutputSignature(projectDir, config = {}, commandInfo = {}) {
+  const sourceInputs = compileSourceInputFiles(projectDir)
+    .map((filePath) => contentSignatureForFile(projectDir, filePath))
+    .filter(Boolean);
+  const binaryInputs = compileBinaryInputFiles(projectDir, config, commandInfo)
+    .map((filePath) => statSignatureForFile(projectDir, filePath))
+    .filter(Boolean);
+  const toolInputs = [
+    commandInfo.command,
+    findLlvmMosLinkerPath(commandInfo),
+    ...(Array.isArray(commandInfo.args) ? commandInfo.args : [])
+      .filter((arg, index, args) => args[index - 1] === '--config'),
+    commandInfo.mkcdCommand,
+  ]
+    .filter((entry) => entry && fs.existsSync(entry))
+    .map((entry) => statSignatureForFile(projectDir, entry))
+    .filter(Boolean);
+  return sha1Json({
+    version: PCE_INCREMENTAL_BUILD_STAMP_VERSION,
+    targetMedia: commandInfo.targetMedia,
+    toolchain: commandInfo.toolchain,
+    command: normalizeArgForStamp(projectDir, commandInfo.command),
+    args: (commandInfo.args || []).map((arg) => normalizeArgForStamp(projectDir, arg)),
+    mkcdCommand: normalizeArgForStamp(projectDir, commandInfo.mkcdCommand || ''),
+    mkcdArgs: (commandInfo.mkcdArgs || []).map((arg) => normalizeArgForStamp(projectDir, arg)),
+    config: stampRelevantConfig(config),
+    sourceInputs,
+    binaryInputs,
+    toolInputs,
+  });
+}
+
+function buildOutputsReady(commandInfo = {}) {
+  const isFile = (filePath) => Boolean(filePath && fs.existsSync(filePath) && fs.statSync(filePath).isFile() && fs.statSync(filePath).size > 0);
+  if (commandInfo.targetMedia === 'cd') {
+    return isFile(commandInfo.cuePath)
+      && isFile(commandInfo.isoPath)
+      && (commandInfo.cddaTracks || []).every((track) => !track?.outputPath || isFile(track.outputPath));
+  }
+  return isFile(commandInfo.romPath);
+}
+
+function writeBuildOutputStamp(projectDir, config = {}, commandInfo = {}) {
+  const stamp = {
+    version: PCE_INCREMENTAL_BUILD_STAMP_VERSION,
+    signature: computeBuildOutputSignature(projectDir, config, commandInfo),
+    targetMedia: commandInfo.targetMedia,
+    romPath: normalizeStampPath(projectDir, commandInfo.romPath || ''),
+    isoPath: commandInfo.isoPath ? normalizeStampPath(projectDir, commandInfo.isoPath) : '',
+    cuePath: commandInfo.cuePath ? normalizeStampPath(projectDir, commandInfo.cuePath) : '',
+    updatedAt: new Date().toISOString(),
+  };
+  ensureDirSync(path.dirname(buildOutputStampPath(projectDir)));
+  fs.writeFileSync(buildOutputStampPath(projectDir), JSON.stringify(stamp, null, 2), 'utf-8');
+  return stamp;
+}
+
+function buildOutputStampMatches(projectDir, config = {}, commandInfo = {}) {
+  if (!buildOutputsReady(commandInfo)) return false;
+  const stamp = readBuildOutputStamp(projectDir);
+  if (!stamp?.signature) return false;
+  return computeBuildOutputSignature(projectDir, config, commandInfo) === stamp.signature;
+}
+
+function buildSuccessResult(commandInfo = {}, generated = {}, extra = {}) {
+  const romSize = fs.existsSync(commandInfo.isoPath || '') && commandInfo.targetMedia === 'cd'
+    ? fs.statSync(commandInfo.isoPath).size
+    : (fs.existsSync(commandInfo.romPath || '') ? fs.statSync(commandInfo.romPath).size : 0);
+  return {
+    success: true,
+    romPath: commandInfo.romPath,
+    ...(commandInfo.targetMedia === 'cd' ? { isoPath: commandInfo.isoPath, cuePath: commandInfo.cuePath } : {}),
+    romSize,
+    commandInfo,
+    generated,
+    ...extra,
+  };
+}
+
 function isVisualNovelProject(projectDir, config = {}) {
-  const sample = getBuilderTemplateKind(config);
-  if (isHuCardSlideshowProject(config)) return false;
-  return sample === 'visual-novel-cd' ||
-    fs.existsSync(vnManager.getSceneFilePath(projectDir)) ||
-    fs.existsSync(path.join(projectDir, 'src', 'generated', 'vn.c'));
+  return isCdVisualNovelProject(projectDir, config) || isHuCardVisualNovelProject(projectDir, config);
 }
 
 function mergeVisualNovelConfig(config, patch = {}) {
@@ -830,7 +1104,9 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
   if (toolchain === 'llvm-mos') {
     const rawCommand = toolPath || 'mos-pce-clang';
     const romPath = path.join(outDir, `${romBase}.pce`);
-    const expandedCommand = expandLlvmMosClangWrapper(rawCommand, ['-Os', '-o', romPath, ...sources]);
+    const mapPath = isHuCardVisualNovelProject(projectDir, config) ? path.join(outDir, `${romBase}.map`) : null;
+    const linkerArgs = mapPath ? [`-Wl,-Map=${mapPath}`] : [];
+    const expandedCommand = expandLlvmMosClangWrapper(rawCommand, ['-Os', ...linkerArgs, '-o', romPath, ...sources]);
     return {
       toolchain,
       targetMedia,
@@ -838,6 +1114,7 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
       args: expandedCommand.args,
       cwd: projectDir,
       env: buildSpawnEnv(expandedCommand.command, toolchain),
+      mapPath,
       romPath,
     };
   }
@@ -854,6 +1131,39 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
     binPath,
     romPath,
   };
+}
+
+function summarizeHuCardVnMapBanks(mapPath) {
+  if (!mapPath || !fs.existsSync(mapPath)) return null;
+  const text = fs.readFileSync(mapPath, 'utf-8');
+  const sections = new Map();
+  text.split(/\r?\n/).forEach((line) => {
+    if (!line.trim() || line.includes(':(')) return;
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5) return;
+    const size = parseInt(parts[2], 16);
+    const section = parts[4];
+    if (!Number.isFinite(size) || !section?.startsWith('.')) return;
+    sections.set(section, (sections.get(section) || 0) + size);
+  });
+  const bank0Sections = ['.text', '.rodata', '.data', '.zp.data'];
+  const bank0 = bank0Sections.reduce((sum, section) => sum + (sections.get(section) || 0), 0);
+  const runtimeBanks = hucardVnManager.HUCARD_VN_RUNTIME_ROM_BANKS.map(({ bank, role }) => ({
+    bank,
+    role,
+    size: sections.get(`.rom_bank${bank}`) || 0,
+  }));
+  const dataBanks = [];
+  for (let bank = hucardVnManager.HUCARD_VN_DATA_ROM_BANK_START; bank <= hucardVnManager.HUCARD_VN_DATA_ROM_BANK_MAX; bank++) {
+    const size = sections.get(`.rom_bank${bank}`) || 0;
+    if (size > 0) dataBanks.push({ bank, size });
+  }
+  const formatBank = (entry) => `bank${entry.bank}${entry.role ? ` ${entry.role}` : ''} ${entry.size}/8192`;
+  return [
+    `bank0 payload ${bank0}/8192`,
+    `runtime ${runtimeBanks.map(formatBank).join(', ')}`,
+    `data ${dataBanks.length ? dataBanks.map(formatBank).join(', ') : 'none'}`,
+  ].join('; ');
 }
 
 function buildProject(onLog, options = {}) {
@@ -882,10 +1192,13 @@ function buildProject(onLog, options = {}) {
     if (isVisualNovelProject(projectDir, config)) {
       const stage = stageStart('VN generation');
       try {
-        // VN projects are always CD; the overlay blob is built with the CD clang.
-        const prepared = vnManager.prepareVisualNovelBuild(projectDir, config, setupManager.getLlvmMosPceCdPath(), { info: (m) => log(m, 'info') }, {
-          incremental: Boolean(options.skipClean),
-        });
+        const prepared = isHuCardVisualNovelProject(projectDir, config)
+          ? hucardVnManager.prepareHuCardVisualNovelBuild(projectDir, config, { info: (m) => log(m, 'info') }, {
+            incremental: Boolean(options.skipClean),
+          })
+          : vnManager.prepareVisualNovelBuild(projectDir, config, setupManager.getLlvmMosPceCdPath(), { info: (m) => log(m, 'info') }, {
+            incremental: Boolean(options.skipClean),
+          });
         visualNovelStampInfo = prepared?.stampInfo || null;
         if (prepared?.generated) {
           generated.visualNovel = prepared.generated;
@@ -912,10 +1225,25 @@ function buildProject(onLog, options = {}) {
       const assetSourceOptions = Array.isArray(config.cd?.dataFiles) && config.cd.dataFiles.length
         ? { cdDataFiles: config.cd.dataFiles }
         : {};
+      assetSourceOptions.targetMedia = config.targetMedia;
       if (isHuCardSlideshowProject(config)) {
         assetSourceOptions.hucardSlideshow = true;
       }
-      if (Array.isArray(generated.visualNovel?.assetIds)) {
+      if (isHuCardVisualNovelProject(projectDir, config)) {
+        assetSourceOptions.assetIds = Array.isArray(generated.visualNovel?.visualAssetIds)
+          ? generated.visualNovel.visualAssetIds
+          : [];
+        assetSourceOptions.fixedRomBanks = hucardVnManager.HUCARD_VN_RUNTIME_ROM_BANKS;
+        assetSourceOptions.reservedRomBanks = hucardVnManager.HUCARD_VN_RUNTIME_ROM_BANKS;
+        assetSourceOptions.romBankStart = hucardVnManager.HUCARD_VN_DATA_ROM_BANK_START;
+        assetSourceOptions.romBankMax = hucardVnManager.HUCARD_VN_DATA_ROM_BANK_MAX;
+        assetSourceOptions.romBankDataOffset = hucardVnManager.HUCARD_VN_DATA_ROM_BANK_OFFSET;
+        assetSourceOptions.romBankReservedLabel = 'HuCARD VN runtime code banks 1-4 reserve ROM banks 1-4; data banks use 5-127';
+        assetSourceOptions.forceBankedAssets = true;
+        if (Array.isArray(generated.visualNovel?.extraDataFiles)) {
+          assetSourceOptions.extraDataFiles = generated.visualNovel.extraDataFiles;
+        }
+      } else if (Array.isArray(generated.visualNovel?.assetIds)) {
         assetSourceOptions.assetIds = generated.visualNovel.assetIds;
       }
       generated = {
@@ -977,8 +1305,32 @@ function buildProject(onLog, options = {}) {
       log(`PCE-CD image command: ${commandInfo.mkcdCommand} ${commandInfo.mkcdArgs.join(' ')}`);
     }
 
+    if (options.skipClean) {
+      try {
+        if (buildOutputStampMatches(projectDir, config, commandInfo)) {
+          log(`Build skipped: inputs unchanged (${path.basename(commandInfo.romPath)})`);
+          totalDone();
+          resolve(buildSuccessResult(commandInfo, generated, {
+            dryRun: Boolean(options.dryRun),
+            buildSkipped: true,
+            incrementalSkipped: true,
+          }));
+          return;
+        }
+      } catch (err) {
+        log(`Build cache check ignored: ${err.message || err}`, 'warn');
+      }
+    }
+
     if (options.dryRun) {
       resolve({ success: true, dryRun: true, commandInfo, generated });
+      return;
+    }
+
+    const linkerPreflightError = preflightLlvmMosLinker(commandInfo);
+    if (linkerPreflightError) {
+      log(linkerPreflightError, 'error');
+      resolve({ success: false, error: linkerPreflightError, commandInfo });
       return;
     }
 
@@ -998,6 +1350,10 @@ function buildProject(onLog, options = {}) {
       flushBuildStdout();
       flushBuildStderr();
       stageDone(commandInfo.targetMedia === 'cd' ? 'compile/link ELF' : 'compile ROM', compileStage, `exit ${code}`);
+      const hucardVnMapSummary = summarizeHuCardVnMapBanks(commandInfo.mapPath);
+      if (hucardVnMapSummary) {
+        log(`HuCARD VN bank usage: ${hucardVnMapSummary}`);
+      }
       if (code !== 0) {
         resolve({ success: false, error: `build failed (exit code: ${code})`, commandInfo });
         return;
@@ -1057,6 +1413,11 @@ function buildProject(onLog, options = {}) {
             }
             try {
               writeCueFile(commandInfo);
+              try {
+                writeBuildOutputStamp(projectDir, config, commandInfo);
+              } catch (stampErr) {
+                log(`Build cache stamp update failed: ${stampErr.message || stampErr}`, 'warn');
+              }
               const romSize = fs.existsSync(commandInfo.isoPath) ? fs.statSync(commandInfo.isoPath).size : 0;
               totalDone();
               resolve({ success: true, romPath: commandInfo.romPath, isoPath: commandInfo.isoPath, cuePath: commandInfo.cuePath, romSize, commandInfo, romInfo });
@@ -1067,6 +1428,11 @@ function buildProject(onLog, options = {}) {
           return;
         }
         const romSize = fs.existsSync(commandInfo.romPath) ? fs.statSync(commandInfo.romPath).size : 0;
+        try {
+          writeBuildOutputStamp(projectDir, config, commandInfo);
+        } catch (stampErr) {
+          log(`Build cache stamp update failed: ${stampErr.message || stampErr}`, 'warn');
+        }
         totalDone();
         resolve({ success: true, romPath: commandInfo.romPath, romSize, commandInfo, romInfo });
       } catch (err) {
@@ -1096,10 +1462,18 @@ module.exports = {
   DEFAULT_TOOLCHAIN,
   PCE_SLIDESHOW_BUILDER_ID,
   PCE_VISUAL_NOVEL_BUILDER_ID,
+  PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID,
   PCE_CD_DATA_BASE_SECTOR,
   parseMkcdFirstDataSector,
+  findLlvmMosLinkerPath,
+  formatLlvmMosLinkerPreflightFailure,
+  preflightLlvmMosLinker,
   buildCommandForProject,
   collectSourceFiles,
+  buildOutputStampMatches,
+  computeBuildOutputSignature,
+  readBuildOutputStamp,
+  writeBuildOutputStamp,
   collectCddaTracks,
   buildProject,
   createProjectFromTemplate,
