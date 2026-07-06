@@ -10,12 +10,18 @@ HuCARD VN は CD-ROM2 VN runtime/template とは独立した HuCARD 専用 runti
 | `rom_bank1` | slot2 (`0x4000-0x5fff`) | scene pack reader、command dispatch、variables/branch/effect command |
 | `rom_bank2` | slot3 (`0x6000-0x7fff`) | BG/VRAM copy、palette/fade、sprite/SATB worker |
 | `rom_bank3` | slot4 (`0x8000-0x9fff`) | message compositor、choice、glyph decode、spritetext |
-| `rom_bank4` | slot5 (`0xa000-0xbfff`) | PSG song/SFX sequencer |
+| `rom_bank4` | slot5 (`0xa000-0xbfff`) | PSG song/SFX sequencer、小型 support helper |
 | `rom_bank5..127` | slot6 (`0xc000-0xdfff`) | image/sprite payload、VN font mask、scene pack、spritetext font、PSG pattern data |
 
 `pce_vn_hucard_banks.h` が banks 1..4 を `PCE_ROM_BANK_AT()` で宣言し、runtime 起動直後に slot2..5 へ常駐 map します。asset/VN data は slot6 だけを使うため、visual data を読んでも runtime code bank は外れません。
 
 `assets.c` では runtime code banks だけ full `PCE_ROM_BANK_AT()` を使います。data banks は `PCE_EDITOR_ROM_DATA_BANK_AT()` の map-only declaration で、不要な `pce_rom_bankN_call()` trampoline を bank0 `.text` に増やしません。
+
+## PSG timing
+
+HuCARD VN の PSG BGM/SFX は HuC6280 TIMER IRQ ではなく、runtime の `wait_vblank()` を通過した安全地点を時間源にします。main loop、palette fade、BG map clear、message window、sprite/SATB 更新などの cooperative service point が VBlank を待った直後に `psg_advance(1)` を呼び、PSG register を main thread だけで更新します。
+
+TIMER IRQ は HuCARD 側では使いません。過去の TIMER credit 実験では main thread の VBlank service と独立した credit が積まれ、通常時の高速再生や不安定な catch-up を起こしやすかったためです。`IRQ_VDC` は引き続き mask し、VDC の VBlank status latch は polling 用として使います。割り込み内で PSG を直接鳴らす実装も、VDC/SATB/ROM bank 操作と再入して表示破壊を起こしやすいため採用しません。
 
 ## VN data の扱い
 

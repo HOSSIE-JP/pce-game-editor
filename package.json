@@ -8,12 +8,13 @@
     "inject-build-meta": "node scripts/inject-build-meta.js",
     "mcp": "node scripts/pce-game-editor-mcp.js",
     "prepare:dist": "node scripts/prepare-dist.js",
+    "prepare:wincache": "node scripts/prepare-wincodesign-cache.js",
     "test": "node tests/run-tests.js",
     "start": "node scripts/start-electron.js",
     "dev": "npm run start",
     "build:mac": "npm run prepare:dist && electron-builder --mac",
-    "build:win": "npm run prepare:dist && electron-builder --win zip",
-    "build:win:installer": "npm run prepare:dist && electron-builder --win nsis"
+    "build:win": "npm run prepare:wincache && npm run prepare:dist && electron-builder --win zip",
+    "build:win:installer": "npm run prepare:wincache && npm run prepare:dist && electron-builder --win nsis"
   },
   "devDependencies": {
     "electron": "41.3.0",

@@ -38,6 +38,8 @@ npm run mcp     # 起動中エディターの REST bridge につなぐ MCP sidec
 
 ビルド: `npm run build:mac` / `npm run build:win` / `npm run build:win:installer`
 
+Windows ビルド（exe/zip/installer）と winCodeSign(rcedit/signtool) の symbolic link 権限問題・回避策は [docs/pce-windows-build.md](docs/pce-windows-build.md) を参照。`build:win*` は前段で `prepare:wincache`（`scripts/prepare-wincodesign-cache.js`）を自動実行してキャッシュを整える。
+
 ## 回帰テスト
 
 - コードを変更したら、**編集範囲に対応する最小限のテスト**を実行してください。

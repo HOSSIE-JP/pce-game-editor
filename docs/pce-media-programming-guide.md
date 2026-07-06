@@ -521,6 +521,8 @@ CD ロードと PSG の同時再生について: CD 転送待ち（`cd_transfer_
 
 PSG の途切れを調査する場合は、BGM 開始直前の CD-backed pattern load と、CD/VRAM blocking 中に複数 frame credit をまとめて `psg_advance()` してから 1 回だけ `psg_commit()` する catch-up の両方を分けて確認します。runtime には検証用スイッチ `VN_PSG_COMMIT_EACH_CREDIT_DURING_BLOCKING` があり、現在の検証既定 `1` では blocking work 中の PSG credit だけを 1 frame ごとに `advance + commit` し、ADPCM countdown の catch-up は従来どおりまとめて進めます。`0` に戻すと複数 PSG credit をまとめて進める production path になります。`VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES` を大きくするとリズムだけは見えやすくなりますが、CD read 後の人工待ちや過細分化を隠すだけの場合があります。まず `VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS`、RAM 直読みの chunk、visual cache hit、ADPCM preload の有無を確認してください。恒久対応として採る前に、Geargrafx で PSG register write、MPR6 の bank132 復帰、ADPCM/CD-DA との同時動作を確認してください。
 
+HuCARD VN では HuC6280 TIMER IRQ を PSG の時間源にしません。TIMER credit 実験では main thread の VBlank service と独立した credit が積まれ、通常時の高速再生や不安定な catch-up を起こしやすかったため、HuCARD 側は `wait_vblank()` 直後の cooperative service point で `psg_advance(1)` する方式を標準にします。PSG register / VDC / bank 切替は main thread の安全地点でのみ行います。HuCARD 側で PSG slowdown を調査する場合は、PSG register write の間隔、`IRQ_VDC` が mask のままか、長い `copy_data_ref_to_vram_guarded()` の slice 間で VBlank service が挟まっているかを確認してください。
+
 ### 変数と分岐 command
 
 ```jsonc

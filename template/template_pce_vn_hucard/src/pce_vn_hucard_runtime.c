@@ -46,6 +46,7 @@
 #define VN_PSG_STEP_ACCUM_UNIT 3600u
 #define VN_PSG_PATTERN_ROW_BYTES 8u
 #define VN_PSG_STEPS_PER_BEAT 4u
+#define VN_PSG_VBLANK_FRAMES_PER_SERVICE 1u
 #define VN_SPRITE_PATTERN_END_BASE (VN_SATB_ADDR / 32u)
 #define VN_VDC_CONTROL_BASE (VDC_CONTROL_IRQ_VBLANK | VDC_CONTROL_DRAM_REFRESH | VDC_CONTROL_VRAM_ADD_1)
 #define VN_VDC_DISPLAY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG | VDC_CONTROL_ENABLE_SPRITE)
@@ -56,6 +57,7 @@
 #define VN_HUCARD_CODE_VIDEO __attribute__((noinline, section(".rom_bank2")))
 #define VN_HUCARD_CODE_TEXT __attribute__((noinline, section(".rom_bank3")))
 #define VN_HUCARD_CODE_PSG __attribute__((noinline, section(".rom_bank4")))
+#define VN_HUCARD_CODE_SUPPORT __attribute__((noinline, section(".rom_bank4")))
 
 #define PAD_I KEY_1
 #define PAD_II KEY_2
@@ -184,7 +186,7 @@ static uint16_t bg_scroll_y_shadow;
 static vn_psg_player_t psg_song __attribute__((section(".bss")));
 static vn_psg_player_t psg_sfx __attribute__((section(".bss")));
 
-static void VN_HUCARD_CODE_PSG tick_psg(void);
+static void VN_HUCARD_CODE_PSG psg_advance(uint8_t frames);
 static void VN_HUCARD_CODE_SCRIPT advance_story(void);
 static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index);
 
@@ -253,14 +255,19 @@ static void vn_vram_copy(uint16_t dest, const void *source, uint16_t byte_count)
     pce_vdc_copy_to_vram(dest, source, byte_count);
 }
 
+static void service_psg(void)
+{
+    psg_advance(VN_PSG_VBLANK_FRAMES_PER_SERVICE);
+}
+
 static void service_psg_during_blocking_work(void)
 {
     wait_vblank();
     restore_bg_scroll();
-    tick_psg();
+    service_psg();
 }
 
-static uint16_t VN_HUCARD_CODE_VIDEO scale_vce_color(uint16_t color, uint8_t level)
+static uint16_t VN_HUCARD_CODE_SUPPORT scale_vce_color(uint16_t color, uint8_t level)
 {
     uint16_t r = color & 0x0007u;
     uint16_t g = (color >> 3) & 0x0007u;
@@ -400,9 +407,7 @@ static void VN_HUCARD_CODE_VIDEO fade_palette(const pce_editor_data_ref_t *palet
             ? (uint8_t)(((uint16_t)step * 16u) / frames)
             : (uint8_t)(16u - (((uint16_t)step * 16u) / frames));
         upload_palette(palette, base, level);
-        wait_vblank();
-        restore_bg_scroll();
-        tick_psg();
+        service_psg_during_blocking_work();
     }
 }
 
@@ -505,7 +510,7 @@ static void VN_HUCARD_CODE_TEXT map_message_window_cells(uint8_t blank)
         wait_vblank();
         restore_bg_scroll();
         vn_vram_copy((uint16_t)(((VN_TEXT_Y + tr) * VN_MAP_WIDTH) + VN_TEXT_X), msg_bat_row, (uint16_t)(VN_MSG_TILE_COLS * 2u));
-        tick_psg();
+        service_psg();
     }
 }
 
@@ -812,7 +817,7 @@ static uint8_t VN_HUCARD_CODE_TEXT begin_message_window_vram_update(void)
 {
     wait_vblank();
     map_message_window_cells(1u);
-    tick_psg();
+    service_psg();
     return 1u;
 }
 
@@ -821,14 +826,14 @@ static void VN_HUCARD_CODE_TEXT end_message_window_vram_update(uint8_t restore_d
     if (!restore_display) return;
     wait_vblank();
     map_message_window_cells(0u);
-    tick_psg();
+    service_psg();
 }
 
 static void VN_HUCARD_CODE_TEXT hide_message_window_map(void)
 {
     wait_vblank();
     map_message_window_cells(1u);
-    tick_psg();
+    service_psg();
 }
 
 static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_has_range(const vn_scene_pack_cache_t *cache, uint16_t offset, uint16_t length)
@@ -1098,7 +1103,7 @@ static void VN_HUCARD_CODE_PSG psg_start_asset(int16_t asset_index, uint8_t base
     psg_apply_step_row(player, 0u);
 }
 
-static void VN_HUCARD_CODE_PSG tick_psg_player(vn_psg_player_t *player)
+static void VN_HUCARD_CODE_PSG psg_advance_player(vn_psg_player_t *player)
 {
     uint16_t next_accum;
     if (!player || !player->active || !player->asset) return;
@@ -1126,10 +1131,13 @@ static void VN_HUCARD_CODE_PSG tick_psg_player(vn_psg_player_t *player)
     psg_apply_step_row(player, player->step);
 }
 
-static void VN_HUCARD_CODE_PSG tick_psg(void)
+static void VN_HUCARD_CODE_PSG psg_advance(uint8_t frames)
 {
-    tick_psg_player(&psg_song);
-    tick_psg_player(&psg_sfx);
+    while (frames--)
+    {
+        psg_advance_player(&psg_song);
+        psg_advance_player(&psg_sfx);
+    }
 }
 
 static uint16_t VN_HUCARD_CODE_VIDEO sprite_attr_for_size(const pce_editor_sprite_draw_meta_t *draw_meta, uint8_t flags, uint8_t palette_bank)
@@ -1559,7 +1567,7 @@ static void VN_HUCARD_CODE_SCRIPT apply_effect(const pce_vn_command_t *command)
         for (i = 0u; i < command->arg0; i++)
         {
             wait_vblank();
-            tick_psg();
+            service_psg();
         }
         pce_vce_set_color(0u, 0u);
         return;
@@ -1567,7 +1575,7 @@ static void VN_HUCARD_CODE_SCRIPT apply_effect(const pce_vn_command_t *command)
     for (i = 0u; i < command->arg0; i++)
     {
         wait_vblank();
-        tick_psg();
+        service_psg();
     }
 }
 
@@ -1697,7 +1705,7 @@ static void VN_HUCARD_CODE_TEXT update_choice_cursor(uint8_t old_index, uint8_t 
     if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, &choice)) return;
     if (old_index < choice.option_count) draw_choice_cursor_row(&choice, old_index, 0u);
     if (new_index < choice.option_count) draw_choice_cursor_row(&choice, new_index, 1u);
-    tick_psg();
+    service_psg();
 }
 
 static void VN_HUCARD_CODE_TEXT start_choice(uint8_t choice_index)
@@ -1944,7 +1952,7 @@ int main(void)
                 tick_message_wait_indicator();
             }
         }
-        tick_psg();
+        service_psg();
         tick_sprites();
         pad = pce_joypad_read();
         pressed = (uint8_t)(pad & (uint8_t)~last_pad);

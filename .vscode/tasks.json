@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Windows EXE をビルドして zip 作成",
+      "detail": "electron-builder で Windows 版 exe をビルドし、dist/ に zip を出力します（npm run build:win）",
+      "type": "npm",
+      "script": "build:win",
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "開発モードで起動",
+      "detail": "Electron を開発モードで起動します（npm start）",
+      "type": "npm",
+      "script": "start",
+      "group": "none",
+      "problemMatcher": [],
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    }
+  ]
+}
