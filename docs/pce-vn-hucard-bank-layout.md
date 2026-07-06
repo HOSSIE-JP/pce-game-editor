@@ -21,6 +21,10 @@ HuCARD VN は CD-ROM2 VN runtime/template とは独立した HuCARD 専用 runti
 
 HuCARD VN の PSG BGM/SFX は HuC6280 TIMER IRQ ではなく、runtime の `wait_vblank()` を通過した安全地点を時間源にします。main loop、palette fade、BG map clear、message window、sprite/SATB 更新などの cooperative service point が VBlank を待った直後に `psg_advance(1)` を呼び、PSG register を main thread だけで更新します。
 
+テンポの不変条件は **「`wait_vblank()` 1 回 = 1 フレーム経過 = `service_psg()`（=`psg_advance(1)`）1 回」** です（`wait_vblank()` は VBlank の「終了 → 開始」を待つため、連続呼び出しでも 1 回につき必ず 1 フレーム消費する）。したがって **`wait_vblank()` を呼ぶすべてのヘルパーは、その直後に必ず `service_psg()` を 1 回ペアで呼ぶ**必要があります。`service_psg_during_blocking_work()` / `map_message_window_cells()` / `begin_message_window_vram_update()` / `end_message_window_vram_update()` / `hide_message_window_map()` / `flush_msg_tile_batch()`（グリフ描画）/ `upload_sprite_table()`（SATB/口パク更新）/ `apply_effect()` がこれに該当します。ペアを欠くと、そのヘルパーが走る頻度に比例して PSG が 1 tick ずつ取りこぼし、BGM が遅く・もたついて聞こえます（例: typewriter 中は 1 グリフごと、キャラアニメ中は 1 口パクごと）。映像は 60fps を維持する（VBlank ごとに 1 表示フレーム）ため、この症状は FPS カウンタには現れません。
+
+ただし、**画面に見える 1 枚の面（メッセージウィンドウ BAT など）を複数の `wait_vblank()` に分割して転送しないでください**。`map_message_window_cells()` は `VN_MSG_TILE_ROWS`(=8) 行 × `VN_MSG_TILE_COLS`(=26) word の BAT を **1 回の `wait_vblank()` 内でまとめて**書きます（合計 208 word は 1 VBlank に十分収まる）。以前は行ごとに `wait_vblank()` していたため、ウィンドウの表示/消去が 8 フレームかけて上から下へ「ワイプ」して見えました。CD runtime の同関数も行ごとには待ちません。1 VBlank に収まらない大きい転送（tile ピクセル本体など）だけを `service_psg_during_blocking_work()` で分割し、BAT のような小さい面は 1 VBlank で一括更新します。
+
 TIMER IRQ は HuCARD 側では使いません。過去の TIMER credit 実験では main thread の VBlank service と独立した credit が積まれ、通常時の高速再生や不安定な catch-up を起こしやすかったためです。`IRQ_VDC` は引き続き mask し、VDC の VBlank status latch は polling 用として使います。割り込み内で PSG を直接鳴らす実装も、VDC/SATB/ROM bank 操作と再入して表示破壊を起こしやすいため採用しません。
 
 ## VN data の扱い

@@ -500,6 +500,14 @@ static void VN_HUCARD_CODE_TEXT map_message_window_cells(uint8_t blank)
 {
     uint8_t tr;
     uint8_t tc;
+    /* Map the whole window BAT inside a single VBlank. A per-row wait_vblank
+       spread this 8-row strip over 8 frames, which read as a top-to-bottom wipe
+       when the message window is shown or hidden. All VN_MSG_TILE_ROWS *
+       VN_MSG_TILE_COLS (=208) BAT words fit comfortably in one VBlank, so write
+       them in one pass for an instant show/clear (matches the CD runtime, which
+       never waits per row). */
+    wait_vblank();
+    restore_bg_scroll();
     for (tr = 0u; tr < VN_MSG_TILE_ROWS; tr++)
     {
         const uint16_t row_tile = (uint16_t)(VN_MSG_STRIP_TILE_BASE + ((uint16_t)tr * VN_MSG_TILE_COLS));
@@ -507,11 +515,9 @@ static void VN_HUCARD_CODE_TEXT map_message_window_cells(uint8_t blank)
         {
             msg_bat_row[tc] = ui_tile(blank ? VN_UI_BLANK_TILE : (uint16_t)(row_tile + tc));
         }
-        wait_vblank();
-        restore_bg_scroll();
         vn_vram_copy((uint16_t)(((VN_TEXT_Y + tr) * VN_MAP_WIDTH) + VN_TEXT_X), msg_bat_row, (uint16_t)(VN_MSG_TILE_COLS * 2u));
-        service_psg();
     }
+    service_psg();
 }
 
 static void VN_HUCARD_CODE_TEXT clear_window_tile_pixels(void)
@@ -603,6 +609,10 @@ static void VN_HUCARD_CODE_TEXT flush_msg_tile_batch(void)
         vn_vram_copy(msg_tile_batch_addr[i], msg_tile_batch[i], 32u);
     }
     msg_tile_batch_count = 0u;
+    /* This flush spends one whole VBlank (the wait_vblank above). PSG tempo is
+       driven by "one service per elapsed frame", so account for that frame here
+       or the BGM drags by one tick on every glyph reveal during typewriter. */
+    service_psg();
 }
 
 static void VN_HUCARD_CODE_TEXT add_glyph_tile(const uint16_t *gmask, uint16_t gpx0, uint8_t tile_x0, uint8_t sub, uint8_t *mask8)
@@ -1224,6 +1234,9 @@ static void VN_HUCARD_CODE_VIDEO upload_sprite_table(void)
     vn_vram_copy(VN_SATB_ADDR, (const uint8_t *)sprite_shadow, (uint16_t)(64u * sizeof(vdc_sprite_t)));
     pce_vdc_poke(VDC_REG_DMA_CONTROL, VDC_DMA_SRC_INC);
     pce_vdc_poke(VDC_REG_SATB_START, VN_SATB_ADDR);
+    /* Consumes one VBlank (wait_vblank above); service PSG for that frame so the
+       BGM does not drag one tick per sprite-animation update (mouth flap). */
+    service_psg();
 }
 
 static void VN_HUCARD_CODE_VIDEO hide_sprite_slot(uint8_t slot)
