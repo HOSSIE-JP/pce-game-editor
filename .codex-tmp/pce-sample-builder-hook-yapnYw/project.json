@@ -1,9 +1,0 @@
-{
-  "targetMedia": "cd",
-  "toolchain": "llvm-mos",
-  "pluginSettings": {
-    "pce-sample-builder": {
-      "sample": "visual-novel-cd"
-    }
-  }
-}

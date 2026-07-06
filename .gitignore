@@ -2,6 +2,7 @@
 .codex-tmp-read/
 .tmp/
 .tmp-codex-build-user-data/
+tmp/
 node_modules/
 dist/
 data/
@@ -9,6 +10,7 @@ out/
 samples/*/out/
 tools/generated/
 *.log
+a.out
 build-meta.json
 pkg/md_wasm.js
 pkg/md_wasm_bg.wasm
