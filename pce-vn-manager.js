@@ -1975,15 +1975,19 @@ function computeVnVramLayoutPacked(assetDoc, fontBudget, fontSpritePatternBase, 
     for (const layout of spriteSlotLayouts) {
       if (!Array.isArray(layout)) continue;
       let nextPatternBase = spritePatternBase;
+      const assignedSprites = new Set();
       for (const assetId of layout) {
-        const asset = assetById.get(String(assetId));
+        const key = String(assetId);
+        const asset = assetById.get(key);
         if (!asset || asset.type !== 'sprite' || !isReferencedAsset(asset, spriteAssetIds)) continue;
+        if (assignedSprites.has(key)) continue;
         const gen = (asset.data && asset.data.generated) || {};
         const units = spritePatternUnits(gen);
         if (!units) continue;
         const slotPatternBase = alignSpritePatternBase(nextPatternBase, asset);
         addRegion('sprite patterns', slotPatternBase * 32, (slotPatternBase + units) * 32);
         nextPatternBase = slotPatternBase + units;
+        assignedSprites.add(key);
       }
     }
   } else {
@@ -2046,19 +2050,23 @@ function validateVnSpritePaletteLayout(assetDoc, fontSpritePaletteBank = DEFAULT
     let nextBank = 0;
     let started = false;
     const used = [];
+    const assignedSprites = new Set();
     for (const assetId of layout) {
-      const asset = assetById.get(String(assetId));
+      const key = String(assetId);
+      const asset = assetById.get(key);
       if (!asset || asset.type !== 'sprite' || !isReferencedAsset(asset, spriteAssetIds)) continue;
+      if (assignedSprites.has(key)) continue;
       if (!started) {
         const rawBank = Number(asset.options && asset.options.paletteBank);
         nextBank = Number.isFinite(rawBank) ? rawBank : 0;
         started = true;
       }
       if (nextBank >= fontSpritePaletteBank) {
-        errors.push(`sprite palette bank ${nextBank} is reserved/out of range for visible slots [${used.concat(String(assetId)).join(', ')}]. Lower sprite paletteBank or reduce simultaneous sprite slots.`);
+        errors.push(`sprite palette bank ${nextBank} is reserved/out of range for visible slots [${used.concat(key).join(', ')}]. Lower sprite paletteBank or reduce simultaneous sprite slots.`);
         break;
       }
-      used.push(String(assetId));
+      used.push(key);
+      assignedSprites.add(key);
       nextBank += 1;
     }
   }
@@ -2532,12 +2540,13 @@ function buildSpriteAnimationIndex(assetDoc = { assets: [] }, spriteIndex = new 
         // uniform frame_delay for the whole animation.
         const rawFrameDelays = Array.isArray(animation.frameDelays) ? animation.frameDelays : [];
         const frameDelays = Array.from({ length: frameCount }, (_, frameIndex) => clampInt(rawFrameDelays[frameIndex], 1, 60, frameDelay));
+        const customFrameDelays = frameDelays.some((delay) => delay !== frameDelay) ? frameDelays : [];
         meta.push({
           spriteIndex: spriteIndex.get(asset.id),
           firstCell: clampInt(animation.firstCell, 0, 255, 0),
           frameCount,
           frameDelay,
-          frameDelays,
+          frameDelays: customFrameDelays,
           frameWidthCells: clampInt(frameWidthCells, 1, 16, 1),
           frameHeightCells: clampInt(frameHeightCells, 1, 16, 1),
           frameStrideCells: clampPositiveInt(animation.frameStrideCells, 1, 255, frameWidthCells * frameHeightCells),
@@ -3534,10 +3543,12 @@ function generateVnSources(projectDir, options = {}) {
   // animation records in bank132 reference them by pointer, so the runtime can
   // read each frame's delay regardless of which RAM bank is currently mapped.
   const animationDelayTables = spriteAnimations.meta.map((animation, index) => (
-    `static const unsigned char pce_vn_sprite_anim_delays_${index}[] = { ${(animation.frameDelays && animation.frameDelays.length ? animation.frameDelays : [animation.frameDelay]).map((delay) => `${clampInt(delay, 1, 60, animation.frameDelay)}u`).join(', ')} };`
-  ));
+    animation.frameDelays && animation.frameDelays.length
+      ? `static const unsigned char pce_vn_sprite_anim_delays_${index}[] = { ${animation.frameDelays.map((delay) => `${clampInt(delay, 1, 60, animation.frameDelay)}u`).join(', ')} };`
+      : ''
+  )).filter(Boolean);
   const animationMeta = spriteAnimations.meta.map((animation, index) => (
-    `  { ${animation.spriteIndex}u, ${animation.firstCell}u, ${animation.frameCount}u, ${animation.frameDelay}u, ${animation.frameWidthCells}u, ${animation.frameHeightCells}u, ${animation.frameStrideCells}u, ${animation.loop ? '1u' : '0u'}, pce_vn_sprite_anim_delays_${index} }${index + 1 < spriteAnimations.meta.length ? ',' : ''}`
+    `  { ${animation.spriteIndex}u, ${animation.firstCell}u, ${animation.frameCount}u, ${animation.frameDelay}u, ${animation.frameWidthCells}u, ${animation.frameHeightCells}u, ${animation.frameStrideCells}u, ${animation.loop ? '1u' : '0u'}, ${animation.frameDelays && animation.frameDelays.length ? `pce_vn_sprite_anim_delays_${index}` : '(const unsigned char *)0'} }${index + 1 < spriteAnimations.meta.length ? ',' : ''}`
   ));
   const hucardPsgAssets = hucardMode
     ? (runtimeAssetDoc.assets || []).filter((asset) => asset.type === 'psg-song' || asset.type === 'psg-sfx')

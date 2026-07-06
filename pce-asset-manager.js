@@ -3834,7 +3834,7 @@ function generateAssetSources(projectDir, options = {}) {
       `const unsigned int pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = ${spriteGenerated.converted.length};`,
       '',
       'const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[] PCE_EDITOR_RODATA_SECTION = {',
-      ...(adpcmGenerated.metaLines.length ? adpcmGenerated.metaLines : ['  { (const unsigned char *)0, 0u, 0u, 0u, 0u, 0u, 0u, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
+      ...(adpcmGenerated.metaLines.length ? adpcmGenerated.metaLines : ['  { (const unsigned char *)0, 0u, 0u, 0u, 0u, 0u, 0u, (const pce_editor_cd_data_ref_t *)0 }']),
       '};',
       `const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = ${adpcmGenerated.adpcmAssets.length};`,
       '',

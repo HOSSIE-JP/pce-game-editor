@@ -436,6 +436,20 @@ static uint8_t VN_BANKED_CODE plan_scene_sprite_layout(void)
         {
             continue;
         }
+        for (j = 0u; j < i; j++)
+        {
+            const vn_sprite_slot_t *previous_slot = &sprite_slots[j];
+            if (!sprite_slot_pattern_valid[j]) continue;
+            if (!previous_slot->visible || previous_slot->sprite_index != slot->sprite_index) continue;
+            sprite_slot_pattern_base[i] = sprite_slot_pattern_base[j];
+            sprite_slot_palette_bank[i] = sprite_slot_palette_bank[j];
+            sprite_slot_pattern_valid[i] = 1u;
+            break;
+        }
+        if (sprite_slot_pattern_valid[i])
+        {
+            continue;
+        }
         if (!next_palette_bank_valid)
         {
             next_palette_bank = sprite->palette_bank;

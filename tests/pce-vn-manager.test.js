@@ -810,6 +810,21 @@ test('PCE VN VRAM layout reserves BG/message/sprite exclusively and rejects over
     spriteAssetIds: new Set(['slot0', 'slot1']),
     spriteSlotLayouts: [['slot0', 'slot1']],
   }), /VRAM/);
+  const duplicateSpriteSlots = {
+    assets: [
+      { id: 'hero', type: 'sprite', options: { tileBase: 704 }, data: { generated: { tileCount: 160 } } },
+    ],
+  };
+  const duplicateSlotRegions = vnManager.computeVnVramLayout(duplicateSpriteSlots, fontBudget, fontSpritePatternBase, 0, {
+    spriteAssetIds: new Set(['hero']),
+    spriteSlotLayouts: [['hero', 'hero', 'hero']],
+  }).filter((region) => region.name === 'sprite patterns');
+  assert.equal(duplicateSlotRegions.length, 1);
+  assert.equal(duplicateSlotRegions[0].end - duplicateSlotRegions[0].start, 160 * 64);
+  assert.doesNotThrow(() => vnManager.validateVnVramLayout(duplicateSpriteSlots, fontBudget, fontSpritePatternBase, 0, {
+    spriteAssetIds: new Set(['hero']),
+    spriteSlotLayouts: [['hero', 'hero', 'hero']],
+  }));
   const packedSprites = {
     assets: [
       { id: 'bg', type: 'image', options: { tileBase: 64 }, data: { generated: { tileCount: 476 } } },
@@ -844,6 +859,14 @@ test('PCE VN VRAM layout reserves BG/message/sprite exclusively and rejects over
   }, 15, {
     spriteAssetIds: new Set(['slot0', 'slot1']),
     spriteSlotLayouts: [['slot0', 'slot1']],
+  }));
+  assert.doesNotThrow(() => vnManager.validateVnSpritePaletteLayout({
+    assets: [
+      { id: 'hero', type: 'sprite', options: { paletteBank: 14 } },
+    ],
+  }, 15, {
+    spriteAssetIds: new Set(['hero']),
+    spriteSlotLayouts: [['hero', 'hero', 'hero']],
   }));
   assert.throws(() => vnManager.validateVnSpritePaletteLayout({
     assets: [
@@ -1952,7 +1975,7 @@ test('PCE HuCARD VN generation keeps scene-pack commands and strips CD audio out
         { type: 'audio', kind: 'psg', action: 'play', assetId: 'theme', channel: 2 },
         { type: 'audio', kind: 'adpcm', action: 'play', assetId: 'voice' },
         { type: 'audio', kind: 'cdda', action: 'play', assetId: 'track' },
-        { type: 'message', text: 'AB', voiceAssetId: 'voice', textSpeedFrames: 0 },
+        { type: 'message', speaker: 'PCE', text: 'AB', voiceAssetId: 'voice', textSpeedFrames: 0 },
         { type: 'inputcheck', mode: 'async', buttons: ['run'], targetLabel: 'skip' },
         { type: 'spritetext', text: 'GO', x: 32, y: 24, visible: true },
         { type: 'cache', action: 'load', scope: 'adpcm', assetId: 'voice' },
@@ -1995,6 +2018,9 @@ test('PCE HuCARD VN generation keeps scene-pack commands and strips CD audio out
   const message = messageRecord(pack, 0);
   assert.equal(message.voiceIndex, -1);
   assert.equal(message.textSpeedFrames, 50);
+  assert.equal(message.mouthSlot, 0);
+  assert.equal(message.instantGlyphCount, 5);
+  assert.equal(message.glyphCount, 7);
   assert.equal(commandRecord(pack, 5).type, vnManager.VN_COMMAND_INPUTCHECK);
   assert.equal(commandRecord(pack, 6).type, vnManager.VN_COMMAND_SPRITETEXT);
   assert.equal(commandRecord(pack, 7).type, vnManager.VN_COMMAND_CACHE);
@@ -2330,9 +2356,11 @@ test('PCE VN manager emits per-frame sprite delays and the runtime honors them',
   const generated = vnManager.generateVnSources(projectDir);
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
   // Per-frame times are migrated from spriteEditor.time into a resident table the
-  // animation record points at.
+  // animation record points at. Uniform rows use frame_delay directly and do not
+  // spend resident rodata on a redundant table.
   assert.match(source, /pce_vn_sprite_anim_delays_0\[\] = \{ 10u, 20u, 30u, 40u \}/);
-  assert.match(source, /pce_vn_sprite_anim_delays_1\[\] = \{ 6u, 6u, 6u, 6u \}/);
+  assert.doesNotMatch(source, /pce_vn_sprite_anim_delays_1/);
+  assert.match(source, /\{ \d+u, 4u, 4u, 6u, 4u, 1u, 1u, 1u, \(const unsigned char \*\)0 \}/);
 
   const runtime = readRuntimeSource();
   // The animation tick must index the per-frame table by the current frame.
@@ -2590,6 +2618,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /#define VN_SPRITE_PATTERN_END_BASE \(VN_SATB_ADDR \/ 32u\)/);
   assert.match(source, /pattern_units = sprite_pattern_units_for_ref\(&sprite->patterns\);/);
   assert.match(source, /PCE_VN_SPRITE_PATTERN_BASE/);
+  assert.match(source, /const vn_sprite_slot_t \*previous_slot = &sprite_slots\[j\];[\s\S]*previous_slot->sprite_index != slot->sprite_index[\s\S]*sprite_slot_pattern_base\[i\] = sprite_slot_pattern_base\[j\];[\s\S]*sprite_slot_palette_bank\[i\] = sprite_slot_palette_bank\[j\];/);
   assert.match(source, /sprite_slot_pattern_base\[i\] = slot_pattern_base;[\s\S]*sprite_slot_palette_bank\[i\] = palette_bank;[\s\S]*sprite_slot_pattern_valid\[i\] = 1u;/);
   assert.match(source, /sprite_pattern_ranges_overlap\(slot_pattern_base, pattern_units, loaded_sprite_pattern_base\[j\], loaded_sprite_pattern_units\[j\]\)[\s\S]*requires_safe_hide = 1u;/);
   assert.match(source, /loaded_sprite_palette_bank\[j\] != palette_bank[\s\S]*requires_safe_hide = 1u;/);
@@ -3319,6 +3348,18 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.match(runtime, /static void VN_HUCARD_CODE_TEXT hide_message_window_map\(void\)[\s\S]*map_message_window_cells\(1u\);[\s\S]*tick_psg\(\);/);
   assert.match(runtime, /static void VN_HUCARD_CODE_TEXT update_choice_cursor\(uint8_t old_index, uint8_t new_index\)/);
   assert.match(runtime, /tick_message_wait_indicator\(\);/);
+  assert.match(runtime, /#define VN_MESSAGE_INSTANT_GLYPH_COUNT\(info\) \(\(uint8_t\)\(\(info\) >> 2u\)\)/);
+  assert.match(runtime, /message->mouth_slot = scene_pack_u8\(cache, \(uint16_t\)\(offset \+ 10u\)\);/);
+  assert.match(runtime, /static uint8_t VN_HUCARD_CODE_TEXT draw_message_prefix_glyphs\(const pce_vn_message_t \*message\)[\s\S]*instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT\(message->mouth_slot\);[\s\S]*if \(draw_message_next_entry\(message\)\) return 1u;/);
+  assert.match(runtime, /instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT\(message\.mouth_slot\);[\s\S]*if \(instant_glyph_count\)[\s\S]*message_complete = draw_message_prefix_glyphs\(&active_message_state\);[\s\S]*if \(!message_complete && !message_text_speed\)/);
+  const hucardSetBgStart = runtime.indexOf('static void VN_HUCARD_CODE_VIDEO set_background');
+  const hucardSetBgEnd = runtime.indexOf('static uint16_t VN_HUCARD_CODE_TEXT ui_tile', hucardSetBgStart);
+  assert.notEqual(hucardSetBgStart, -1);
+  assert.notEqual(hucardSetBgEnd, -1);
+  const hucardSetBgSource = runtime.slice(hucardSetBgStart, hucardSetBgEnd);
+  assert.match(hucardSetBgSource, /if \(fade_transition\) display_disable\(\);/);
+  assert.match(hucardSetBgSource, /fade_transition \? 0u : 16u/);
+  assert.match(hucardSetBgSource, /display_enable\(\);[\s\S]*fade_palette\(&bg->palette, \(uint16_t\)\(bg->palette_bank \* 16u\), fade_in_frames, 1u\);/);
   const hucardFinishMessageStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT finish_active_message(void)');
   const hucardTickMessageStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT tick_active_message(void)', hucardFinishMessageStart);
   assert.notEqual(hucardFinishMessageStart, -1);

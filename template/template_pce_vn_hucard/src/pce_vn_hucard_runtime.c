@@ -50,6 +50,8 @@
 #define VN_VDC_CONTROL_BASE (VDC_CONTROL_IRQ_VBLANK | VDC_CONTROL_DRAM_REFRESH | VDC_CONTROL_VRAM_ADD_1)
 #define VN_VDC_DISPLAY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG | VDC_CONTROL_ENABLE_SPRITE)
 #define VN_VDC_MEMORY_CONTROL (VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_32_32)
+#define VN_MESSAGE_MOUTH_SLOT(info) ((uint8_t)((info) & 0x03u))
+#define VN_MESSAGE_INSTANT_GLYPH_COUNT(info) ((uint8_t)((info) >> 2u))
 #define VN_HUCARD_CODE_SCRIPT __attribute__((noinline, section(".rom_bank1")))
 #define VN_HUCARD_CODE_VIDEO __attribute__((noinline, section(".rom_bank2")))
 #define VN_HUCARD_CODE_TEXT __attribute__((noinline, section(".rom_bank3")))
@@ -222,6 +224,16 @@ static void set_vdc_control(uint16_t control)
 {
     vdc_control_shadow = control;
     pce_vdc_poke(VDC_REG_CONTROL, control);
+}
+
+static void VN_HUCARD_CODE_VIDEO display_disable(void)
+{
+    set_vdc_control(VN_VDC_CONTROL_BASE);
+}
+
+static void VN_HUCARD_CODE_VIDEO display_enable(void)
+{
+    set_vdc_control(VN_VDC_DISPLAY_CONTROL);
 }
 
 static void vn_vdc_set_copy_word(void)
@@ -427,7 +439,7 @@ static void VN_HUCARD_CODE_VIDEO clear_screen_map(const pce_editor_bg_asset_t *b
     clear_screen_map_with_tile(word);
 }
 
-static void VN_HUCARD_CODE_VIDEO upload_bg_graphics(const pce_editor_bg_asset_t *bg, uint8_t tile_x, uint8_t tile_y)
+static void VN_HUCARD_CODE_VIDEO upload_bg_graphics(const pce_editor_bg_asset_t *bg, uint8_t tile_x, uint8_t tile_y, uint8_t palette_level)
 {
     uint8_t row;
     uint8_t map_row[64];
@@ -435,7 +447,7 @@ static void VN_HUCARD_CODE_VIDEO upload_bg_graphics(const pce_editor_bg_asset_t 
     uint16_t source_width;
     if (!bg) return;
     clear_screen_map(bg);
-    upload_palette(&bg->palette, (uint16_t)(bg->palette_bank * 16u), 16u);
+    upload_palette(&bg->palette, (uint16_t)(bg->palette_bank * 16u), palette_level);
     copy_data_ref_to_vram_guarded((uint16_t)(bg->tile_base * 16u), &bg->tiles);
     row_bytes = (uint16_t)(bg->width_tiles * 2u);
     if (row_bytes > sizeof(map_row)) row_bytes = sizeof(map_row);
@@ -452,18 +464,24 @@ static void VN_HUCARD_CODE_VIDEO upload_bg_graphics(const pce_editor_bg_asset_t 
 static void VN_HUCARD_CODE_VIDEO set_background(int16_t bg_index, uint8_t transition, uint8_t fade_out_frames, uint8_t fade_in_frames, uint16_t tile_x, uint16_t tile_y)
 {
     const pce_editor_bg_asset_t *bg;
+    const uint8_t fade_transition = (uint8_t)(transition == PCE_VN_BG_TRANSITION_FADE);
     if (bg_index < 0 || (uint16_t)bg_index >= pce_editor_bg_asset_count) return;
     bg = &pce_editor_bg_assets[bg_index];
-    if (current_bg_index >= 0 && transition == PCE_VN_BG_TRANSITION_FADE)
+    if (current_bg_index >= 0 && fade_transition)
     {
         const pce_editor_bg_asset_t *old_bg = &pce_editor_bg_assets[current_bg_index];
         fade_palette(&old_bg->palette, (uint16_t)(current_bg_palette_bank * 16u), fade_out_frames, 0u);
     }
+    if (fade_transition) display_disable();
     current_bg_index = bg_index;
     current_bg_palette_bank = bg->palette_bank;
-    upload_bg_graphics(bg, tile_x < VN_MAP_WIDTH ? (uint8_t)tile_x : 0u, tile_y < VN_VISIBLE_HEIGHT ? (uint8_t)tile_y : 0u);
-    if (transition == PCE_VN_BG_TRANSITION_FADE)
+    upload_bg_graphics(bg,
+        tile_x < VN_MAP_WIDTH ? (uint8_t)tile_x : 0u,
+        tile_y < VN_VISIBLE_HEIGHT ? (uint8_t)tile_y : 0u,
+        fade_transition ? 0u : 16u);
+    if (fade_transition)
     {
+        display_enable();
         fade_palette(&bg->palette, (uint16_t)(bg->palette_bank * 16u), fade_in_frames, 1u);
     }
 }
@@ -702,6 +720,19 @@ static uint8_t VN_HUCARD_CODE_TEXT draw_message_next_entry(const pce_vn_message_
     return message_glyph_pos >= message->glyph_count ? 1u : 0u;
 }
 
+static uint8_t VN_HUCARD_CODE_TEXT draw_message_prefix_glyphs(const pce_vn_message_t *message)
+{
+    uint8_t instant_glyph_count;
+    uint8_t i;
+    if (!message || !message->glyphs) return 1u;
+    instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT(message->mouth_slot);
+    for (i = 0u; i < instant_glyph_count; i++)
+    {
+        if (draw_message_next_entry(message)) return 1u;
+    }
+    return message_glyph_pos >= message->glyph_count ? 1u : 0u;
+}
+
 static void VN_HUCARD_CODE_TEXT draw_message_text(const pce_vn_message_t *message)
 {
     while (!draw_message_next_entry(message)) {}
@@ -884,7 +915,7 @@ static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_read_message(const vn_scene_pack
     message->advance_mode = scene_pack_u8(cache, (uint16_t)(offset + 6u));
     message->auto_wait_frames = scene_pack_u8(cache, (uint16_t)(offset + 7u));
     message->mouth_animation_index = scene_pack_s16(cache, (uint16_t)(offset + 8u));
-    message->mouth_slot = scene_pack_u8(cache, (uint16_t)(offset + 10u)) & 0x0fu;
+    message->mouth_slot = scene_pack_u8(cache, (uint16_t)(offset + 10u));
     message->text_color = scene_pack_u16(cache, (uint16_t)(offset + 11u));
     return 1u;
 }
@@ -1208,6 +1239,7 @@ static void VN_HUCARD_CODE_VIDEO plan_sprite_layout(void)
         const pce_editor_sprite_asset_t *sprite;
         uint16_t pattern_units;
         uint16_t pattern_base;
+        uint8_t previous;
         sprite_slot_pattern_base[slot] = 0u;
         sprite_slot_palette_bank[slot] = 0u;
         sprite_slot_pattern_valid[slot] = 0u;
@@ -1215,6 +1247,17 @@ static void VN_HUCARD_CODE_VIDEO plan_sprite_layout(void)
         sprite = &pce_editor_sprite_assets[state->asset_index];
         pattern_units = sprite_pattern_units_for_ref(&sprite->patterns);
         if (!pattern_units) continue;
+        for (previous = 0u; previous < slot; previous++)
+        {
+            const vn_sprite_slot_t *previous_state = &sprite_slots[previous];
+            if (!sprite_slot_pattern_valid[previous]) continue;
+            if (!previous_state->visible || previous_state->asset_index != state->asset_index) continue;
+            sprite_slot_pattern_base[slot] = sprite_slot_pattern_base[previous];
+            sprite_slot_palette_bank[slot] = sprite_slot_palette_bank[previous];
+            sprite_slot_pattern_valid[slot] = 1u;
+            break;
+        }
+        if (sprite_slot_pattern_valid[slot]) continue;
         if (!palette_valid)
         {
             next_palette_bank = sprite->palette_bank;
@@ -1532,6 +1575,7 @@ static void VN_HUCARD_CODE_TEXT start_message(uint8_t message_index)
 {
     pce_vn_message_t message;
     uint8_t restore_window_display;
+    uint8_t instant_glyph_count;
     if (!scene_pack_read_message(&active_scene_pack, message_index, &message)) return;
     active_message_state = message;
     active_message_index = message_index;
@@ -1546,14 +1590,19 @@ static void VN_HUCARD_CODE_TEXT start_message(uint8_t message_index)
     message_auto_wait = message.auto_wait_frames;
     message_wait_indicator_state = 0u;
     message_text_speed = message.text_speed_frames;
+    instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT(message.mouth_slot);
     write_ui_text_palette(ui_text_color_word(message.text_color));
     restore_window_display = begin_message_window_vram_update();
     clear_window_tile_pixels();
-    if (!message_text_speed)
+    if (instant_glyph_count)
+    {
+        message_complete = draw_message_prefix_glyphs(&active_message_state);
+    }
+    if (!message_complete && !message_text_speed)
     {
         draw_message_text(&active_message_state);
     }
-    else
+    else if (!message_complete)
     {
         message_complete = draw_message_next_entry(&active_message_state);
     }

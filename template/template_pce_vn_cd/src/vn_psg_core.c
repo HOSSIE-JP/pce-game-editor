@@ -37,7 +37,7 @@ static pce_editor_cd_data_ref_t g_psg_pattern_load_cd;
 static uint16_t g_psg_cache_key;
 static uint16_t loaded_psg_pattern_key = 0u;
 
-static const pce_editor_psg_asset_t *VN_BANKED_CODE vn_get_psg_asset(uint16_t idx)
+static const pce_editor_psg_asset_t *VN_BANKED_CODE2 vn_get_psg_asset(uint16_t idx)
 {
     const uint8_t *p;
     const uint16_t key = (uint16_t)(idx + 1u);

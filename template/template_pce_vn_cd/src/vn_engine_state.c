@@ -173,7 +173,7 @@ static int16_t vn_visual_cache_arg_sprite_x __attribute__((section(".bss")));
 static const pce_editor_data_ref_t *vn_visual_cache_arg_ref __attribute__((section(".bss")));
 #endif
 #endif
-static uint16_t vn_rng_state = 0xace1u;
+static uint16_t vn_rng_state;
 static uint8_t vn_variable_lo[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
 static uint8_t vn_variable_hi[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
 typedef struct

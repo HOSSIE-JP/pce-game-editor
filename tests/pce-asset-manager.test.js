@@ -1062,6 +1062,22 @@ test('PCE generated assets emit BG and sprite C arrays for resident templates', 
   assert.match(source, /pce_editor_image_rows/);
 });
 
+test('PCE resident asset generation emits a valid empty ADPCM descriptor', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-empty-adpcm-');
+  assetManager.writeAssetDocument(projectDir, {
+    version: 1,
+    assets: [],
+  });
+
+  const result = assetManager.generateAssetSources(projectDir);
+  const source = fs.readFileSync(result.sourcePath, 'utf-8');
+
+  assert.match(source, /const pce_editor_adpcm_asset_t pce_editor_adpcm_assets\[\] PCE_EDITOR_RODATA_SECTION = \{\r?\n  \{ \(const unsigned char \*\)0, 0u, 0u, 0u, 0u, 0u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}\r?\n\};/);
+  assert.doesNotMatch(source, /\{ \(const unsigned char \*\)0, 0u, 0u, 0u, 0u, 0u, 0u, 0u, \(const pce_editor_cd_data_ref_t \*\)0 \}/);
+  assert.match(source, /const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 0;/);
+});
+
 test('PCE CD VN asset source generation streams large payloads through cd.dataFiles', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-cd-assets-');
