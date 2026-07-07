@@ -192,7 +192,7 @@ static void VN_BANKED_CODE map_message_wait_indicator_cell(uint8_t blank)
    sentinels PCE_VN_GLYPH_NEWLINE / _END so that escaped indices (bounded well below
    0xfffe) can never collide with them. Callers advance their own cursor by
    vn_glyph_stride() — kept by-value (no pointer mutation) for the HuC6280 backend. */
-static uint16_t VN_RESIDENT_CODE vn_glyph_decode(const uint8_t *glyphs, uint16_t pos)
+static uint16_t VN_BANKED_CODE vn_glyph_decode(const uint8_t *glyphs, uint16_t pos)
 {
     const uint8_t b = glyphs[pos];
     if (b == PCE_VN_GLYPH_ESCAPE)
@@ -203,7 +203,7 @@ static uint16_t VN_RESIDENT_CODE vn_glyph_decode(const uint8_t *glyphs, uint16_t
 }
 
 /* Bytes consumed by the glyph entry at `pos` (3 for an escape entry, else 1). */
-static uint16_t VN_RESIDENT_CODE vn_glyph_stride(const uint8_t *glyphs, uint16_t pos)
+static uint16_t VN_BANKED_CODE vn_glyph_stride(const uint8_t *glyphs, uint16_t pos)
 {
     return (glyphs[pos] == PCE_VN_GLYPH_ESCAPE) ? 3u : 1u;
 }

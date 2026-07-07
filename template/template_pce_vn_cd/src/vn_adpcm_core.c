@@ -199,11 +199,15 @@ static uint8_t VN_BANKED_CODE2 wait_adpcm_cd_transfer_ready(uint8_t sectors)
 {
 #if defined(__PCE_CD__)
     uint8_t sector_count = sectors ? sectors : 1u;
-    uint8_t wait_count = sector_count;
-    while (wait_count--)
-    {
-        cd_transfer_wait();
-    }
+    /* One settle + one seek-latency compensation per BIOS read COMMAND, not per
+       sector. pce_cdb_adpcm_read_from_cd reads the whole `sectors`-sector chunk
+       in a single seek-dominated command whose latency (~10 frames on Geargrafx,
+       measured 2026-07) is nearly independent of the sector count. Settling and
+       applying VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES once per sector over-counted
+       the PSG advance by the chunk factor (chunk=8 -> ~8x), so a chunked voice
+       load fast-forwarded the PSG sequencer and made the BGM audibly jump. The
+       small per-sector transfer time is still credited below, scaled by chunk. */
+    cd_transfer_wait();
     if (!wait_adpcm_transfer_ready()) return 0u;
 #if VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES
     engine_apply_psg_credit((uint8_t)(sector_count * VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES), 1u);

@@ -2832,18 +2832,29 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /adpcm_voice_snapshot\.cd_byte_size = voice_cd_byte_size;/);
   assert.match(source, /static uint8_t VN_RESIDENT_CODE adpcm_playback_active\(void\)/);
   assert.match(source, /return adpcm_play_active;/);
-  assert.match(source, /#define VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS 1u/);
-  assert.match(source, /#define VN_ADPCM_PRELOAD_READ_CHUNK_SECTORS 1u/);
+  assert.match(source, /#define VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS 8u/);
+  assert.match(source, /#define VN_ADPCM_PRELOAD_READ_CHUNK_SECTORS 8u/);
   assert.match(source, /#ifndef VN_ADPCM_BUSY_PSG_POLL_INTERVAL\r?\n#define VN_ADPCM_BUSY_PSG_POLL_INTERVAL 16u\r?\n#endif/);
   assert.match(source, /#ifndef VN_ADPCM_BUSY_PSG_POLL_ITERATIONS\r?\n#define VN_ADPCM_BUSY_PSG_POLL_ITERATIONS 192u\r?\n#endif/);
   assert.match(source, /#ifndef VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES\r?\n#define VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES 1u\r?\n#endif/);
-  assert.match(source, /#ifndef VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES\r?\n#define VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES 2u\r?\n#endif/);
+  assert.match(source, /#ifndef VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES\r?\n#define VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES 1u\r?\n#endif/);
   assert.match(source, /static uint8_t VN_BANKED_CODE2 wait_adpcm_transfer_ready\(void\)/);
   assert.match(source, /uint8_t poll_sub = VN_ADPCM_BUSY_PSG_POLL_INTERVAL;/);
   assert.match(source, /while \(guard && \(pce_cdb_adpcm_status\(\) & ADPCM_BUSY\)\)/);
   assert.match(source, /if \(--poll_sub == 0u\)\n        \{\n            uint8_t frames = time_blocked_poll_psg_only\(VN_ADPCM_BUSY_PSG_POLL_ITERATIONS\);\n#if VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES\n            if \(!frames\)\n            \{\n                engine_apply_psg_credit\(\(uint8_t\)VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES, 1u\);\n            \}\n#endif\n            poll_sub = VN_ADPCM_BUSY_PSG_POLL_INTERVAL;\n        \}/);
   assert.match(source, /return guard \? 1u : 0u;/);
-  assert.match(source, /static uint8_t VN_BANKED_CODE2 wait_adpcm_cd_transfer_ready\(uint8_t sectors\)[\s\S]*uint8_t sector_count = sectors \? sectors : 1u;[\s\S]*uint8_t wait_count = sector_count;[\s\S]*while \(wait_count--\)[\s\S]*cd_transfer_wait\(\);[\s\S]*if \(!wait_adpcm_transfer_ready\(\)\) return 0u;[\s\S]*engine_apply_psg_credit\(\(uint8_t\)\(sector_count \* VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES\), 1u\);[\s\S]*return 1u;/);
+  // wait_adpcm_cd_transfer_ready must settle + seek-compensate ONCE per BIOS read
+  // command (a whole `sectors`-sector chunk), NOT once per sector: a per-sector
+  // cd_transfer_wait loop over-counts the PSG seek compensation by the chunk
+  // factor and makes the BGM jump forward during a chunked voice load.
+  const waitAdpcmCdStart = source.indexOf('static uint8_t VN_BANKED_CODE2 wait_adpcm_cd_transfer_ready(uint8_t sectors)');
+  const waitAdpcmCdEnd = source.indexOf('static void VN_BANKED_CODE2 restore_display_after_adpcm', waitAdpcmCdStart);
+  assert.notEqual(waitAdpcmCdStart, -1);
+  assert.notEqual(waitAdpcmCdEnd, -1);
+  const waitAdpcmCdSource = source.slice(waitAdpcmCdStart, waitAdpcmCdEnd);
+  assert.doesNotMatch(waitAdpcmCdSource, /while \(wait_count--\)/);
+  assert.equal((waitAdpcmCdSource.match(/cd_transfer_wait\(\)/g) || []).length, 1);
+  assert.match(waitAdpcmCdSource, /uint8_t sector_count = sectors \? sectors : 1u;[\s\S]*cd_transfer_wait\(\);[\s\S]*if \(!wait_adpcm_transfer_ready\(\)\) return 0u;[\s\S]*engine_apply_psg_credit\(\(uint8_t\)\(sector_count \* VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES\), 1u\);[\s\S]*return 1u;/);
   assert.match(source, /static void VN_BANKED_CODE2 restore_display_after_adpcm\(uint8_t restore_display\)/);
   assert.match(source, /restore_video_after_cdb_call\(restore_display\);/);
   assert.match(source, /static void VN_RESIDENT_CODE mask_buffered_adpcm_completion_irq\(void\)[\s\S]*pce_cdb_irq_disable\(VN_CDB_IRQ_MASK_RUNTIME_QUIET\);[\s\S]*quiet_cd_unit_irqs\(\);/);
