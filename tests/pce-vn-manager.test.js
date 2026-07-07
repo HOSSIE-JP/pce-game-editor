@@ -2704,7 +2704,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   const scenePackLoadSource = source.slice(source.indexOf('static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache'), source.indexOf('static uint8_t scene_pack_command_count'));
   assert.doesNotMatch(scenePackLoadSource, /pce_cdb_cd_read|pce_cdb_adpcm_read_from_cd|quiet_cd_unit_irqs\(\)/);
   assert.match(source, /#define VN_CD_ASYNC_DEST_ADPCM_RAM 3u/);
-  assert.match(source, /#define VN_CD_ASYNC_ADPCM_BYTES_PER_FRAME 512u/);
+  assert.match(source, /#define VN_CD_ASYNC_ADPCM_BYTES_PER_FRAME 1024u/);
   assert.match(source, /#define VN_CD_ASYNC_MAX_BYTES VN_ADPCM_BUFFERED_SAFE_BYTES/);
   assert.match(source, /#define VN_CD_ASYNC_MAX_SECTORS VN_CD_CHUNK_SECTOR_COUNT\(VN_CD_ASYNC_MAX_BYTES\)/);
   assert.match(source, /if \(vn_cd_async_dest_kind == VN_CD_ASYNC_DEST_ADPCM_RAM\)\n    \{\n        \*IO_PCD_ADPCM_DATA = value;/);
