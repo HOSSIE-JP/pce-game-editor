@@ -1915,7 +1915,7 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   assert.doesNotMatch(runtime, /#define VN_PSG_MAX_TICKS_PER_FRAME_DURING_ADPCM|#define VN_PSG_MAX_CATCHUP_TICKS_PER_FRAME/);
   assert.match(runtime, /wait_adpcm_transfer_ready\(void\)[\s\S]*uint8_t poll_sub = VN_ADPCM_BUSY_PSG_POLL_INTERVAL;[\s\S]*while \(guard && \(pce_cdb_adpcm_status\(\) & ADPCM_BUSY\)\)[\s\S]*if \(--poll_sub == 0u\)[\s\S]*uint8_t frames = time_blocked_poll_psg_only\(VN_ADPCM_BUSY_PSG_POLL_ITERATIONS\);[\s\S]*if \(!frames\)[\s\S]*engine_apply_psg_credit\(\(uint8_t\)VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES, 1u\);[\s\S]*poll_sub = VN_ADPCM_BUSY_PSG_POLL_INTERVAL;/);
   assert.match(runtime, /cd_transfer_wait_visual_cache_impl\(void\)[\s\S]*engine_service_blocking\(VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS\);/);
-  assert.match(runtime, /cd_transfer_wait_visual_cache_impl\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);\r?\n        VN_MAP_VISUAL_CACHE_CODE\(\);\r?\n        vram_copy_sliced_from_visual_code_impl\(vram_dest, cd_transfer_scratch, chunk\);/);
+  assert.match(runtime, /cd_transfer_wait_visual_cache_impl\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);\r?\n        VN_MAP_VISUAL_CACHE_CODE\(\);\r?\n        visual_cache_page_to_vram_impl\(vram_dest, scratch_page, 0u, chunk\);/);
   assert.match(runtime, /vram_copy_sliced_from_vn_data\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES\(\);[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*engine_service\(\);/);
   assert.match(runtime, /vram_copy_sliced_from_visual_code_impl\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES\(\);[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*engine_service\(\);[\s\S]*VN_MAP_VISUAL_CACHE_CODE\(\);/);
   assert.match(runtime, /cd_transfer_wait\(\);\r?\n        finish_cd_data_read_before_vram_copy\(\);/);
@@ -2987,7 +2987,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /pce_cdb_adpcm_stop\(\)/);
   assert.match(source, /static uint8_t VN_BANKED_CODE2 execute_control_command\(const pce_vn_command_t \*command\)/);
   assert.match(source, /return execute_control_command\(command\);/);
-  const audioCommandMatch = executeCommandSource.match(/else if \(command->type == PCE_VN_COMMAND_AUDIO\)[\s\S]*?\n    \}\n    else if \(command->type == PCE_VN_COMMAND_MESSAGE\)/);
+  const audioCommandMatch = executeCommandSource.match(/else if \(command->type == PCE_VN_COMMAND_AUDIO\)[\s\S]*?\n    \}\n    else if \(command->type == PCE_VN_COMMAND_CACHE\)/);
   assert.ok(audioCommandMatch);
   assert.match(audioCommandMatch[0], /VN_MAP_BANK130_FOR_CODE\(\);\s+handle_audio_command\(command->flags, command->asset_index, command->slot\);/);
   assert.match(source, /static void VN_BANKED_CODE2 handle_audio_command\(uint8_t flags, signed int asset_index, uint8_t slot\)[\s\S]*else play_adpcm_voice\(asset_index\);[\s\S]*else play_psg_asset\(asset_index, slot\);[\s\S]*if \(action == PCE_VN_AUDIO_ACTION_STOP\) cdda_audio_command\(-1\);[\s\S]*else if \(asset_index >= 0\) cdda_audio_command\(asset_index\);/);
@@ -3118,12 +3118,15 @@ test('PCE VN runtime cache clear only invalidates non-destructive cache flags', 
 
   assert.match(source, /#define VN_ENABLE_VISUAL_PAYLOAD_CACHE 1/);
   assert.match(source, /#if VN_ENABLE_VISUAL_PAYLOAD_CACHE[\s\S]*PCE_RAM_BANK_AT\(121, 4\);[\s\S]*#define VN_VISUAL_CACHE_PAGE_COUNT 16u[\s\S]*#define VN_VISUAL_CACHE_FIRST_BANK 104u/);
+  assert.match(source, /#define VN_VISUAL_CACHE_CD_READ_CHUNK_SECTORS 4u/);
+  assert.match(source, /#define VN_VISUAL_CACHE_CD_READ_CHUNK_BYTES \(\(uint16_t\)\(VN_CD_SECTOR_BYTES \* VN_VISUAL_CACHE_CD_READ_CHUNK_SECTORS\)\)/);
+  assert.doesNotMatch(source, /vn_visual_cache_copy_buffer|VN_VISUAL_CACHE_COPY_CHUNK|visual_cache_copy_scratch_to_page_impl/);
   assert.match(source, /#define VN_MAP_VISUAL_CACHE_CODE\(\) pce_ram_bank121_map\(\)/);
   assert.match(source, /#define VN_VISUAL_VRAM_COPY_SLICE_BYTES 16u/);
   assert.match(source, /#define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES/);
   assert.match(source, /static void VN_BANKED_CODE vram_copy_sliced_from_vn_data\(uint16_t dest, const uint8_t \*source, uint16_t length\)[\s\S]*const uint16_t slice_bytes = VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES\(\);[\s\S]*pce_editor_vram_copy\(vram_dest, &source\[offset\], chunk\);[\s\S]*engine_service\(\);[\s\S]*map_vn_data\(\);[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);/);
   assert.match(source, /static uint8_t VN_VISUAL_CACHE_CODE visual_cache_ref_to_vram_impl\(uint16_t dest, uint8_t kind, uint16_t asset_index, const pce_editor_data_ref_t \*ref\)[\s\S]*visual_cache_find_impl\(kind, asset_index, part\)[\s\S]*visual_cache_page_to_vram_impl\(vram_dest, slot, page_offset, chunk\)[\s\S]*return 1u;/);
-  assert.match(source, /static uint8_t VN_VISUAL_CACHE_CODE visual_cache_bg_map_to_vram_impl\(uint16_t dest, uint16_t asset_index, const pce_editor_data_ref_t \*ref, uint8_t width_tiles, uint8_t height_tiles\)[\s\S]*visual_cache_copy_span_to_vram_impl[\s\S]*VN_VISUAL_CACHE_KIND_BG_MAP[\s\S]*return 1u;/);
+  assert.match(source, /static uint8_t VN_VISUAL_CACHE_CODE visual_cache_bg_map_to_vram_impl\(uint16_t dest, uint16_t asset_index, const pce_editor_data_ref_t \*ref, uint8_t width_tiles, uint8_t height_tiles\)[\s\S]*if \(width_tiles == VN_MAP_WIDTH\) return cd_data_ref_to_vram_visual_impl\(dest, ref\);[\s\S]*visual_cache_copy_span_to_vram_impl[\s\S]*VN_VISUAL_CACHE_KIND_BG_MAP[\s\S]*return 1u;/);
   assert.match(source, /static uint8_t VN_RESIDENT_CODE visual_cache_bg_map_to_vram\(uint16_t dest, uint16_t asset_index, const pce_editor_data_ref_t \*ref, uint8_t width_tiles, uint8_t height_tiles\)[\s\S]*if \(!vn_visual_cache_code_loaded\) return 0u;[\s\S]*visual_cache_call\(VN_VISUAL_CACHE_OP_BG_MAP_TO_VRAM\)/);
   assert.match(source, /#define VN_VISUAL_CACHE_OP_PRELOAD_REF 3u/);
   assert.match(source, /#define VN_VISUAL_CACHE_OP_COPY_REF_TO_VRAM 5u/);
@@ -3159,8 +3162,11 @@ test('PCE VN runtime cache clear only invalidates non-destructive cache flags', 
   assert.doesNotMatch(bgWrapperSource, /load_overlay_code\(\)|upload_bg_graphics|ensure_sprite_patterns_loaded/);
   assert.doesNotMatch(spriteWrapperSource, /load_overlay_code\(\)|upload_bg_graphics|ensure_sprite_patterns_loaded|sprite_slots\[/);
   assert.match(source, /static void VN_BANKED_CODE2 load_runtime_cache\(uint8_t scope, signed int asset_index, uint8_t slot, uint8_t x, uint8_t y\)/);
+  assert.match(source, /static void VN_BANKED_CODE2 begin_runtime_cache_load\(uint8_t scope, signed int asset_index, uint8_t slot, uint8_t x, uint8_t y\)[\s\S]*runtime_cache_load_scope = scope;[\s\S]*runtime_cache_load_step = 0u;[\s\S]*runtime_cache_load_pending = 1u;/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE2 service_runtime_cache_load\(void\)[\s\S]*if \(!runtime_cache_load_pending\) return 0u;[\s\S]*scope == PCE_VN_CACHE_SCOPE_BG[\s\S]*runtime_cache_load_step == 0u[\s\S]*visual_cache_preload_ref\(VN_VISUAL_CACHE_KIND_BG_TILES[\s\S]*runtime_cache_load_step = 1u;[\s\S]*visual_cache_preload_ref\(VN_VISUAL_CACHE_KIND_BG_MAP[\s\S]*runtime_cache_load_pending = 0u;/);
   assert.match(source, /static inline uint8_t VN_BANKED_CODE_INLINE ensure_sprite_patterns_loaded/);
-  assert.match(source, /static uint8_t VN_VISUAL_CACHE_CODE cd_data_ref_to_vram_visual_impl[\s\S]*vram_copy_sliced_from_visual_code_impl\(vram_dest, cd_transfer_scratch, chunk\);/);
+  assert.match(source, /static uint8_t VN_VISUAL_CACHE_CODE cd_data_ref_to_vram_visual_impl[\s\S]*scratch_page = visual_cache_borrow_scratch_page_impl\(\);[\s\S]*chunk = visual_cache_cd_read_chunk_impl\(remaining\);[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)page_data, chunk\);[\s\S]*visual_cache_page_to_vram_impl\(vram_dest, scratch_page, 0u, chunk\);[\s\S]*sectors = VN_CD_CHUNK_SECTOR_COUNT\(chunk\);/);
+  assert.match(source, /static uint8_t VN_VISUAL_CACHE_CODE visual_cache_load_cd_part_impl[\s\S]*chunk = visual_cache_cd_read_chunk_impl\(remaining\);[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)&page_data\[page_offset\], chunk\);[\s\S]*sectors = VN_CD_CHUNK_SECTOR_COUNT\(chunk\);/);
   assert.match(source, /static uint8_t VN_BANKED_CODE cd_data_ref_to_vram[\s\S]*vram_copy_sliced_from_vn_data\(vram_dest, cd_transfer_scratch, chunk\);/);
   assert.match(source, /upload_bg_graphics\(next_bg, bg_map_dest_from_tile\(next_bg, next_x, next_y\), \(uint16_t\)bg_index\);/);
   assert.match(source, /copy_data_ref_to_vram\(\(uint16_t\)\(bg->tile_base \* 16u\), &bg->tiles, 16u, VN_VISUAL_CACHE_KIND_BG_TILES, bg_index\);/);
@@ -3191,7 +3197,8 @@ test('PCE VN runtime cache clear only invalidates non-destructive cache flags', 
   assert.doesNotMatch(clearHelperSource, /load_visual_cache_code\(\)|VN_VISUAL_CACHE_OP_CLEAR_RUNTIME_CACHE|pce_cdb_cd_read/);
   assert.doesNotMatch(clearImplSource + clearHelperSource, /pce_cdb_adpcm_stop|pce_cdb_adpcm_reset|stop_adpcm_voice|display_disable|clear_screen_map|clear_sprites|sprite_slots\[|pce_editor_vram_copy|upload_sprite_table/);
   assert.match(executeCommandSource, /command->type == PCE_VN_COMMAND_CACHE[\s\S]*command->flags == PCE_VN_CACHE_ACTION_CLEAR[\s\S]*clear_runtime_cache\(command->arg0\);/);
-  assert.match(executeCommandSource, /command->flags == PCE_VN_CACHE_ACTION_LOAD[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);[\s\S]*load_runtime_cache\(command->arg0, command->asset_index, command->slot, command->x, command->y\);/);
+  assert.match(executeCommandSource, /command->flags == PCE_VN_CACHE_ACTION_LOAD[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);[\s\S]*begin_runtime_cache_load\(command->arg0, command->asset_index, command->slot, command->x, command->y\);[\s\S]*wait_frames_remaining = 1u;[\s\S]*return VN_EXEC_WAIT;/);
+  assert.match(source, /static uint8_t VN_BANKED_CODE run_commands_until_wait\(void\)[\s\S]*if \(service_runtime_cache_load\(\)\)[\s\S]*wait_frames_remaining = 1u;[\s\S]*return 1u;/);
   assert.doesNotMatch(executeCommandSource, /PCE_VN_COMMAND_PRELOAD/);
 });
 

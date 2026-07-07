@@ -204,6 +204,10 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_CD_RAM_READ_CHUNK_SECTORS 2u
 #endif
 #define VN_CD_RAM_READ_CHUNK_BYTES ((uint16_t)(VN_CD_SECTOR_BYTES * VN_CD_RAM_READ_CHUNK_SECTORS))
+#ifndef VN_VISUAL_CACHE_CD_READ_CHUNK_SECTORS
+#define VN_VISUAL_CACHE_CD_READ_CHUNK_SECTORS 4u
+#endif
+#define VN_VISUAL_CACHE_CD_READ_CHUNK_BYTES ((uint16_t)(VN_CD_SECTOR_BYTES * VN_VISUAL_CACHE_CD_READ_CHUNK_SECTORS))
 #define VN_CD_CHUNK_SECTOR_COUNT(bytes) ((uint8_t)(((uint16_t)(bytes) + 2047u) >> 11))
 /* CD/ADPCM BIOS helpers can spend time before the cooperative VBlank sampler
    regains control. Add a tiny PSG-only estimate per CD transfer chunk so music

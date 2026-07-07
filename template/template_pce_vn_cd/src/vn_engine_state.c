@@ -152,8 +152,6 @@ static uint8_t psg_pattern_ram_bank135_reserved[VN_PSG_PATTERN_BANK_BYTES] __att
 #define VN_VISUAL_CACHE_PAGE_BYTES 8192u
 #define VN_VISUAL_CACHE_FIRST_BANK 104u
 #define VN_VISUAL_CACHE_PAGE_ADDR ((uint8_t *)0xc000)
-#define VN_VISUAL_CACHE_COPY_CHUNK 128u
-static uint8_t vn_visual_cache_copy_buffer[VN_VISUAL_CACHE_COPY_CHUNK] __attribute__((section(".bss")));
 static uint8_t vn_visual_cache_valid[VN_VISUAL_CACHE_PAGE_COUNT] __attribute__((section(".bss")));
 static uint8_t vn_visual_cache_kind[VN_VISUAL_CACHE_PAGE_COUNT] __attribute__((section(".bss")));
 static uint16_t vn_visual_cache_asset[VN_VISUAL_CACHE_PAGE_COUNT] __attribute__((section(".bss")));

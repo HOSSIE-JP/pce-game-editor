@@ -96,6 +96,9 @@ static uint8_t VN_BANKED_CODE2 jump_to_command(uint16_t command_offset)
     if (command_offset == PCE_VN_NO_COMMAND) return 0u;
     if (!load_scene_pack_into_cache(current_scene, &active_scene_pack)) return 0u;
     if (command_offset >= scene_pack_command_count(&active_scene_pack)) return 0u;
+#if defined(__PCE_CD__)
+    cancel_runtime_cache_load();
+#endif
     current_command = (uint8_t)command_offset;
     return 1u;
 }
@@ -500,6 +503,9 @@ static void show_scene(uint8_t scene_index)
 #endif
     uint8_t keep_display_for_transition;
     uint8_t use_preloaded_scene_visual;
+#if defined(__PCE_CD__)
+    cancel_runtime_cache_load();
+#endif
     map_vn_data();
     if (!pce_vn_scene_count) return;
     if (scene_index >= pce_vn_scene_count) scene_index = runtime_start_scene;
@@ -912,7 +918,9 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
         else if (command->flags == PCE_VN_CACHE_ACTION_LOAD)
         {
             VN_MAP_BANK130_FOR_CODE();
-            load_runtime_cache(command->arg0, command->asset_index, command->slot, command->x, command->y);
+            begin_runtime_cache_load(command->arg0, command->asset_index, command->slot, command->x, command->y);
+            wait_frames_remaining = 1u;
+            return VN_EXEC_WAIT;
         }
     }
     else if (command->type == PCE_VN_COMMAND_MESSAGE)
@@ -1041,6 +1049,13 @@ static uint8_t VN_BANKED_CODE run_commands_until_wait(void)
     message_complete = 1u;
     message_wait_indicator_state = 0u;
     active_choice_index = -1;
+#if defined(__PCE_CD__)
+    if (service_runtime_cache_load())
+    {
+        wait_frames_remaining = 1u;
+        return 1u;
+    }
+#endif
     for (;;)
     {
         uint8_t restart = 0u;
