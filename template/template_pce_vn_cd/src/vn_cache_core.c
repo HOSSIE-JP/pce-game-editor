@@ -1198,7 +1198,6 @@ static void VN_BANKED_CODE load_visual_cache_code(void)
     sync_cd_external_irq_after_bios_call();
     pce_ram_bank130_map();
     resume_cdda_after_cd_data_access();
-    VN_MAP_BANK130_FOR_CODE();
     vn_visual_cache_code_loaded = 1u;
 }
 #endif

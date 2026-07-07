@@ -38,6 +38,10 @@ PCE_RAM_BANK_AT(135, 6);
 #if VN_ENABLE_VISUAL_PAYLOAD_CACHE
 PCE_RAM_BANK_AT(121, 4);
 #endif
+/* bank122 = experimental direct CD/SCSI helper code, time-shared with bank130,
+   bank121, and bank133 in MPR slot 4. Keeping it separate prevents the async
+   loader from consuming the already-tight visual helper and overlay banks. */
+PCE_RAM_BANK_AT(122, 4);
 PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #endif
 
@@ -216,6 +220,24 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #ifndef VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES
 #define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 10u
 #endif
+#define VN_CD_BUS_IDLE 0u
+#define VN_CD_BUS_BIOS_HELPER 1u
+#define VN_CD_BUS_ASYNC_DATA 2u
+#define VN_CD_ASYNC_DEST_BANK132 1u
+#define VN_CD_ASYNC_DEST_SCENE_PACK_CACHE 2u
+#define VN_CD_ASYNC_STATUS_IDLE 0u
+#define VN_CD_ASYNC_STATUS_ACTIVE 1u
+#define VN_CD_ASYNC_STATUS_DONE 2u
+#define VN_CD_ASYNC_STATUS_ERROR 3u
+#define VN_CD_ASYNC_OP_BEGIN 1u
+#define VN_CD_ASYNC_OP_SERVICE 2u
+#define VN_CD_ASYNC_OP_CANCEL 3u
+#ifndef VN_CD_ASYNC_BYTES_PER_FRAME
+#define VN_CD_ASYNC_BYTES_PER_FRAME 256u
+#endif
+#ifndef VN_CD_ASYNC_MAX_BYTES
+#define VN_CD_ASYNC_MAX_BYTES 4096u
+#endif
 /* Diagnostic switch for PSG/CD-load stutter investigation. The current test
    default drips blocking-work PSG credit one frame at a time while leaving
    ADPCM countdown catch-up unchanged. Set to 0 to return to the batched
@@ -243,6 +265,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES
 #define VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES() ((psg_active && psg_current) ? VN_VISUAL_VRAM_COPY_SLICE_BYTES : VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES)
 #define VN_VISUAL_CODE_RESERVED_SECTORS 4u
+#define VN_CD_ASYNC_CODE_RESERVED_SECTORS 4u
 /* The System Card uses the HuC6280 TIMER internally while its CD/ADPCM BIOS
    helpers run (it reprograms the reload and relies on its own TIQ handling;
    leaving the $20F5 TIMER dispatch bit set during CD_READ hangs the read).
@@ -315,6 +338,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_VISUAL_CACHE_ENTRY_CODE
 #define VN_VISUAL_CACHE_CODE
 #endif
+#define VN_CD_ASYNC_ENTRY_CODE __attribute__((used, retain, noinline, section(".vn_cd_async_code.entry")))
+#define VN_CD_ASYNC_CODE __attribute__((used, retain, noinline, section(".vn_cd_async_code.impl")))
 #define VN_RESIDENT_CODE __attribute__((noinline, section(".text")))
 /* Overlay code (Path B Phase B1). Linked in the SAME compilation as the rest of
    the runtime (so zp imaginary registers and resident symbols resolve), but
@@ -337,6 +362,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
    from CD (mirrors VN_VISUAL_CACHE_ENTRY_CODE). */
 #define VN_OVERLAY_ENTRY_CODE __attribute__((used, retain, noinline, section(".vn_overlay.entry")))
 #define VN_MAP_BANK130_FOR_CODE() pce_ram_bank130_map()
+#define VN_MAP_CD_ASYNC_CODE() pce_ram_bank122_map()
 #if VN_ENABLE_VISUAL_PAYLOAD_CACHE
 #define VN_MAP_VISUAL_CACHE_CODE() pce_ram_bank121_map()
 #else
@@ -349,10 +375,13 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_BANKED_CODE2_INLINE
 #define VN_VISUAL_CACHE_ENTRY_CODE
 #define VN_VISUAL_CACHE_CODE
+#define VN_CD_ASYNC_ENTRY_CODE
+#define VN_CD_ASYNC_CODE
 #define VN_RESIDENT_CODE
 #define VN_OVERLAY_CODE
 #define VN_OVERLAY_ENTRY_CODE
 #define VN_MAP_BANK130_FOR_CODE() ((void)0)
+#define VN_MAP_CD_ASYNC_CODE() ((void)0)
 #define VN_MAP_VISUAL_CACHE_CODE() ((void)0)
 #endif
 
@@ -393,6 +422,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 typedef uint8_t (*vn_overlay_entry_fn_t)(uint8_t, uint16_t, uint16_t, uint8_t);
 #define VN_OVERLAY_CALL(op, a0, a1, a2) \
     (((vn_overlay_entry_fn_t)PCE_VN_OVERLAY_LOAD_ADDR)((uint8_t)(op), (uint16_t)(a0), (uint16_t)(a1), (uint8_t)(a2)))
+typedef uint8_t (*vn_cd_async_entry_fn_t)(uint8_t);
+#define VN_CD_ASYNC_CALL(op) (((vn_cd_async_entry_fn_t)PCE_VN_CD_ASYNC_CODE_LOAD_ADDR)((uint8_t)(op)))
 #endif
 /* Defined after the slot arrays/sprite frame fn; forward-declared so the non-CD
    dispatcher (which calls it directly) compiles before the definition. */

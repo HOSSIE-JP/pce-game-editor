@@ -250,6 +250,7 @@ static void cd_sector_end_from_count(pce_sector_t *dest, const pce_sector_t *sta
 static void VN_RESIDENT_CODE vn_cd_bios_irq_open(void)
 {
 #if defined(__PCE_CD__)
+    vn_cd_bus_state = VN_CD_BUS_BIOS_HELPER;
 #if VN_TIME_SOURCE_TIMER
     vn_psg_timer_release();
 #endif
@@ -288,6 +289,7 @@ static void VN_BANKED_CODE cancel_cdda_after_cd_data_conflict(void);
 static void VN_BANKED_CODE quiet_cd_unit_irqs(void)
 {
 #if defined(__PCE_CD__)
+    if (vn_cd_bus_state == VN_CD_BUS_ASYNC_DATA) return;
     vn_cdb_quiet_idle();
     pce_irq_disable(IRQ_VDC);
 #if VN_TIME_SOURCE_TIMER
@@ -315,6 +317,7 @@ static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call(void)
        trailing quiet_cd_unit_irqs() re-owns the timer. */
     vn_psg_timer_release();
 #endif
+    vn_cd_bus_state = VN_CD_BUS_IDLE;
     pce_cdb_irq_disable(VN_CDB_IRQ_MASK_RUNTIME_QUIET);
     quiet_cd_unit_irqs();
 #endif
@@ -471,6 +474,120 @@ static uint8_t VN_OVERLAY_ENTRY_CODE vn_overlay_entry(uint8_t op, uint16_t a0, u
 #endif
 
 #if defined(__PCE_CD__)
+#define VN_PCD_SCSI_STATUS (*(volatile uint8_t *)0x1800)
+#define VN_PCD_SCSI_DATA (*(volatile uint8_t *)0x1801)
+#define VN_PCD_SCSI_PHASE_MASK 0xf8u
+#define VN_PCD_SCSI_REQ 0x40u
+#define VN_PCD_SCSI_BSY 0x80u
+#define VN_PCD_SCSI_ACK 0x80u
+#define VN_PCD_SCSI_PHASE_COMMAND 0xd0u
+#define VN_PCD_SCSI_PHASE_DATA_IN 0xc8u
+#define VN_PCD_SCSI_PHASE_STATUS 0xd8u
+#define VN_PCD_SCSI_PHASE_MESSAGE_IN 0xf8u
+
+static uint8_t VN_CD_ASYNC_CODE vn_cd_async_wait_req_phase(uint8_t phase, uint16_t polls)
+{
+    while (polls--)
+    {
+        const uint8_t status = VN_PCD_SCSI_STATUS;
+        if ((status & VN_PCD_SCSI_REQ) && ((status & VN_PCD_SCSI_PHASE_MASK) == phase)) return 1u;
+    }
+    return 0u;
+}
+
+static void VN_CD_ASYNC_CODE vn_cd_async_ack_byte(void)
+{
+    *IO_PCD_CONTROL = (uint8_t)(*IO_PCD_CONTROL | VN_PCD_SCSI_ACK);
+    while (VN_PCD_SCSI_STATUS & VN_PCD_SCSI_REQ) {}
+    *IO_PCD_CONTROL = (uint8_t)(*IO_PCD_CONTROL & (uint8_t)~VN_PCD_SCSI_ACK);
+}
+
+static uint8_t VN_CD_ASYNC_CODE vn_cd_async_send_command_byte(uint8_t value)
+{
+    if (!vn_cd_async_wait_req_phase(VN_PCD_SCSI_PHASE_COMMAND, 0xffffu)) return 0u;
+    VN_PCD_SCSI_DATA = value;
+    vn_cd_async_ack_byte();
+    return 1u;
+}
+
+static void VN_CD_ASYNC_CODE vn_cd_async_store_byte(uint8_t value)
+{
+    if (!vn_cd_async_store_remaining) return;
+    if (vn_cd_async_dest_kind == VN_CD_ASYNC_DEST_BANK132)
+    {
+        (void)vn_cd_async_dest_bank;
+        __asm__ volatile("lda #132\n\ttam #$40" ::: "a");
+        ((uint8_t *)(uintptr_t)vn_cd_async_dest_addr)[0] = value;
+        vn_cd_async_dest_addr = (uint16_t)(vn_cd_async_dest_addr + 1u);
+        vn_cd_async_store_remaining--;
+        return;
+    }
+    if (vn_cd_async_dest_kind == VN_CD_ASYNC_DEST_SCENE_PACK_CACHE)
+    {
+        ((uint8_t *)(uintptr_t)vn_cd_async_dest_addr)[0] = value;
+        vn_cd_async_dest_addr = (uint16_t)(vn_cd_async_dest_addr + 1u);
+        vn_cd_async_store_remaining--;
+    }
+}
+
+static uint8_t VN_CD_ASYNC_CODE vn_cd_async_begin_impl(void)
+{
+    uint8_t count;
+    VN_PCD_SCSI_DATA = 0x81u;
+    if (!(VN_PCD_SCSI_STATUS & VN_PCD_SCSI_BSY)) VN_PCD_SCSI_STATUS = 0x81u;
+    count = vn_cd_async_sector_count;
+    if (!vn_cd_async_send_command_byte(0x08u)) return 0u;
+    if (!vn_cd_async_send_command_byte((uint8_t)(vn_cd_async_sector.hi & 0x1fu))) return 0u;
+    if (!vn_cd_async_send_command_byte(vn_cd_async_sector.md)) return 0u;
+    if (!vn_cd_async_send_command_byte(vn_cd_async_sector.lo)) return 0u;
+    if (!vn_cd_async_send_command_byte(count)) return 0u;
+    if (!vn_cd_async_send_command_byte(0x00u)) return 0u;
+    vn_cd_async_status = VN_CD_ASYNC_STATUS_ACTIVE;
+    return 1u;
+}
+
+static uint8_t VN_CD_ASYNC_CODE vn_cd_async_service_impl(void)
+{
+    uint16_t budget = VN_CD_ASYNC_BYTES_PER_FRAME;
+    if (vn_cd_async_status != VN_CD_ASYNC_STATUS_ACTIVE) return vn_cd_async_status;
+    while (budget && vn_cd_async_wire_remaining)
+    {
+        uint8_t value;
+        if (!vn_cd_async_wait_req_phase(VN_PCD_SCSI_PHASE_DATA_IN, 256u)) return vn_cd_async_status;
+        value = VN_PCD_SCSI_DATA;
+        vn_cd_async_store_byte(value);
+        vn_cd_async_ack_byte();
+        vn_cd_async_wire_remaining--;
+        budget--;
+    }
+    if (vn_cd_async_wire_remaining) return vn_cd_async_status;
+    if (!vn_cd_async_wait_req_phase(VN_PCD_SCSI_PHASE_STATUS, 256u)) return vn_cd_async_status;
+    vn_cd_async_status_byte = VN_PCD_SCSI_DATA;
+    vn_cd_async_ack_byte();
+    if (!vn_cd_async_wait_req_phase(VN_PCD_SCSI_PHASE_MESSAGE_IN, 256u)) return vn_cd_async_status;
+    vn_cd_async_message_byte = VN_PCD_SCSI_DATA;
+    vn_cd_async_ack_byte();
+    if (vn_cd_async_status_byte || vn_cd_async_message_byte)
+    {
+        vn_cd_async_status = VN_CD_ASYNC_STATUS_ERROR;
+        return vn_cd_async_status;
+    }
+    vn_cd_async_status = VN_CD_ASYNC_STATUS_DONE;
+    return vn_cd_async_status;
+}
+
+static uint8_t VN_CD_ASYNC_ENTRY_CODE vn_cd_async_entry(uint8_t op)
+{
+    if (op == VN_CD_ASYNC_OP_BEGIN) return vn_cd_async_begin_impl();
+    if (op == VN_CD_ASYNC_OP_SERVICE) return vn_cd_async_service_impl();
+    if (op == VN_CD_ASYNC_OP_CANCEL)
+    {
+        vn_cd_async_status = VN_CD_ASYNC_STATUS_ERROR;
+        return vn_cd_async_status;
+    }
+    return vn_cd_async_status;
+}
+
 /* Stream the overlay code blob (pce_vn_overlay_data) from CD into bank133 RAM.
    bank133 is mapped into slot 4 (0x8000) as the read destination, then bank130
    (play code) is restored. Mirrors upload_font_tiles' CD-read loop but writes the
@@ -503,6 +620,119 @@ static void load_overlay_code(void)
     }
     sync_cd_external_irq_after_bios_call();
     pce_ram_bank130_map();
+    resume_cdda_after_cd_data_access();
+}
+
+static void VN_BANKED_CODE load_cd_async_code(void)
+{
+    pce_vn_cd_data_ref_t ref;
+    pce_sector_t sector = {0};
+    uint16_t dest = (uint16_t)PCE_VN_CD_ASYNC_CODE_LOAD_ADDR;
+    if (vn_cd_async_code_loaded) return;
+    map_vn_data();
+    ref = pce_vn_cd_async_code_data;
+    prepare_cd_data_access();
+    sector.lo = ref.sector.lo;
+    sector.md = ref.sector.md;
+    sector.hi = ref.sector.hi;
+    pce_ram_bank122_map();
+    (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, dest, (uint16_t)(VN_CD_ASYNC_CODE_RESERVED_SECTORS * VN_CD_SECTOR_BYTES));
+    cd_transfer_wait();
+    sync_cd_external_irq_after_bios_call();
+    pce_ram_bank130_map();
+    resume_cdda_after_cd_data_access();
+    vn_cd_async_code_loaded = 1u;
+}
+
+static uint8_t VN_BANKED_CODE vn_cd_async_call_bank122(uint8_t op)
+{
+    uint8_t result;
+    pce_ram_bank122_map();
+    result = VN_CD_ASYNC_CALL(op);
+    pce_ram_bank130_map();
+    return result;
+}
+
+static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_data_read(pce_sector_t sector, uint8_t dest_kind, uint8_t dest_bank, uint16_t dest_addr, uint16_t byte_count)
+{
+    uint8_t sectors;
+    if (!byte_count || byte_count > VN_CD_ASYNC_MAX_BYTES) return 0u;
+    if (vn_cd_async_status == VN_CD_ASYNC_STATUS_ACTIVE) return 0u;
+    if (dest_kind != VN_CD_ASYNC_DEST_BANK132 && dest_kind != VN_CD_ASYNC_DEST_SCENE_PACK_CACHE) return 0u;
+    if (!vn_cd_async_code_loaded) load_cd_async_code();
+    if (!vn_cd_async_code_loaded) return 0u;
+    sectors = VN_CD_CHUNK_SECTOR_COUNT(byte_count);
+    if (!sectors || sectors > (VN_CD_ASYNC_MAX_BYTES >> 11)) return 0u;
+    vn_cd_async_sector = sector;
+    vn_cd_async_dest_kind = dest_kind;
+    vn_cd_async_dest_bank = dest_bank;
+    vn_cd_async_dest_addr = dest_addr;
+    vn_cd_async_sector_count = sectors;
+    vn_cd_async_store_remaining = byte_count;
+    vn_cd_async_wire_remaining = (uint16_t)((uint16_t)sectors << 11);
+    vn_cd_async_status_byte = 0xffu;
+    vn_cd_async_message_byte = 0xffu;
+    prepare_cd_data_access();
+    sync_cd_external_irq_after_bios_call();
+    vn_cd_bus_state = VN_CD_BUS_ASYNC_DATA;
+    if (!vn_cd_async_call_bank122(VN_CD_ASYNC_OP_BEGIN))
+    {
+        vn_cd_async_status = VN_CD_ASYNC_STATUS_ERROR;
+        vn_cd_bus_state = VN_CD_BUS_IDLE;
+        resume_cdda_after_cd_data_access();
+        return 0u;
+    }
+    return 1u;
+}
+
+static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_scene_pack_read(pce_sector_t sector, uint16_t dest_addr, uint16_t byte_count)
+{
+    uint8_t sectors;
+    if (!vn_cd_async_code_loaded) load_cd_async_code();
+    sectors = VN_CD_CHUNK_SECTOR_COUNT(byte_count);
+    vn_cd_async_sector = sector;
+    vn_cd_async_dest_kind = VN_CD_ASYNC_DEST_SCENE_PACK_CACHE;
+    vn_cd_async_dest_addr = dest_addr;
+    vn_cd_async_sector_count = sectors;
+    vn_cd_async_store_remaining = byte_count;
+    vn_cd_async_wire_remaining = (uint16_t)((uint16_t)sectors << 11);
+    prepare_cd_data_access();
+    sync_cd_external_irq_after_bios_call();
+    vn_cd_bus_state = VN_CD_BUS_ASYNC_DATA;
+    if (!vn_cd_async_call_bank122(VN_CD_ASYNC_OP_BEGIN))
+    {
+        vn_cd_async_status = VN_CD_ASYNC_STATUS_ERROR;
+        vn_cd_bus_state = VN_CD_BUS_IDLE;
+        resume_cdda_after_cd_data_access();
+        return 0u;
+    }
+    return 1u;
+}
+
+static void VN_BANKED_CODE2 vn_cd_async_service_frame(void)
+{
+    if (vn_cd_async_status != VN_CD_ASYNC_STATUS_ACTIVE) return;
+    (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_SERVICE);
+    if (vn_cd_async_status == VN_CD_ASYNC_STATUS_DONE || vn_cd_async_status == VN_CD_ASYNC_STATUS_ERROR)
+    {
+        vn_cd_bus_state = VN_CD_BUS_IDLE;
+        resume_cdda_after_cd_data_access();
+    }
+}
+
+static uint8_t VN_BANKED_CODE2 vn_cd_async_done(void)
+{
+    return (uint8_t)(vn_cd_async_status == VN_CD_ASYNC_STATUS_DONE || vn_cd_async_status == VN_CD_ASYNC_STATUS_ERROR);
+}
+
+static void VN_BANKED_CODE2 vn_cd_async_cancel(void)
+{
+    if (vn_cd_async_status == VN_CD_ASYNC_STATUS_ACTIVE)
+    {
+        (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_CANCEL);
+    }
+    vn_cd_async_status = VN_CD_ASYNC_STATUS_ERROR;
+    vn_cd_bus_state = VN_CD_BUS_IDLE;
     resume_cdda_after_cd_data_access();
     VN_MAP_BANK130_FOR_CODE();
 }

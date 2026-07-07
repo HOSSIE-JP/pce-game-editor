@@ -4,7 +4,7 @@ CD-ROM2 VN runtime の **コードオーバーレイ機構**（未使用物理 b
 
 > **このファイルを読むタイミング**: VN runtime のコードが 3 常駐バンク（128/129/130）に収まらず溢れたとき、またはオーバーレイ（bank133）に関数を追加・変更するとき。
 
-> **関連するが別物**: `cache load bg/sprite` 用の visual payload RAM cache は bank133 Path B overlay ではありません。現行の実験版では helper code を `assets/generated/vn/visual_code.bin` として bank121/slot4 へ読み込み、payload page は bank104-119/slot6 に保持します。bank133 overlay を上書きせず、BG/Sprite の VRAM/BAT/SATB 反映は引き続き `background` / `sprite` command 側で行います。
+> **関連するが別物**: `cache load bg/sprite` 用の visual payload RAM cache は bank133 Path B overlay ではありません。現行の実験版では helper code を `assets/generated/vn/visual_code.bin` として bank121/slot4 へ読み込み、payload page は bank104-119/slot6 に保持します。direct CD/SCSI async helper も bank133 overlay ではなく、`assets/generated/vn/cd_async_code.bin` として bank122/slot4 へ読み込みます。いずれも bank133 overlay を上書きせず、slot4 時分割と fixed entry 経由の呼び出し制約だけを共有します。
 
 ## 1. 背景と現状
 
@@ -15,7 +15,7 @@ CD-ROM2 VN runtime の **コードオーバーレイ機構**（未使用物理 b
   - **Phase B1（完了・当時の実測）**: 実コード（CD RLE 展開 `cd_rle_ref_to_vram` / `cd_rle_bg_map_ref_to_vram`）をオーバーレイへ退避し、**bank130 を 95% → 55%（7782 → 4494 bytes、約3.3KB）緩和**。Geargrafx で BG/sprite/入力の正常動作を実証済み。
   - **Phase 2（完了）**: RLE 撤去後に空いた overlay へ message グリフコンポジタを退避。VBlank/VDC/SATB/message-window hardening 後の Kitahe build 実測で bank130 は 7686B/8192B、`.vn_overlay` は 2260B/4096B。
   - **Phase 3（完了・全コマンド搭載対応）**: overlay を **op-dispatch 化して物理 bank133 を full 8KB へ解放**（残課題(A)を解消）。`call_overlay_*` の直接呼びを単一固定エントリ `vn_overlay_entry` への間接呼び（literal 0x8000）へ置換し、resident→overlay の reloc を消去。これで `.vn_overlay` を visual-code と同様に **ELF から完全除去＋PT_LOAD 無効化** でき、bank132 末尾の良性 LMA 窓（約4KB上限）を撤廃。予約は 4 sector(8KB)。さらに **scene_pack reader 群 / cache_sprite_animation / cdda_sector_from_remaining / message_glyph_cache_find** を overlay へ退避し、`ishi_no_ura`（全スクリプトコマンド搭載）が bank128=99.84% / bank129=99.61% / bank130=99.77% / `.vn_overlay`=7552B/8192B で **正常リンク**。
-- **重要な認識**: Phase 3 で overlay 予約が 4KB→8KB になり、slot4 退避リザーバが約2倍になった（durable headroom）。常駐コード総枠（128/129/130 ＝約24KB）は依然不変なので、機能追加で常駐が溢れたら **純粋関数（delay_frame/bank130/visual_cache を呼ばない自己完結関数）を overlay/bank121 へ退避** するのが基本。追加退避時は `-Wl,--print-memory-usage` で全 bank を、`llvm-objdump -dr --section=.vn_overlay` で overlay→bank130 の reloc が無いことを必ず確認する。
+- **重要な認識**: Phase 3 で overlay 予約が 4KB→8KB になり、slot4 退避リザーバが約2倍になった（durable headroom）。常駐コード総枠（128/129/130 ＝約24KB）は依然不変なので、機能追加で常駐が溢れたら **純粋関数（delay_frame/bank130/visual_cache を呼ばない自己完結関数）を overlay/bank121 へ退避** するのが基本。direct CD/SCSI helper のように CD bus 契約が異なる処理は bank122 の `.vn_cd_async_code` に分離する。追加退避時は `-Wl,--print-memory-usage` で全 bank を、`llvm-objdump -dr --section=.vn_overlay`（または該当 section）で slot4 別バンクへの reloc が無いことを必ず確認する。
 
 ## 2. アーキテクチャ全体像
 
@@ -72,6 +72,7 @@ VDC を触る overlay（message compositor / sprite frame）は `vn_overlay_disp
 | link 後の抽出フック | `pce-build-system.js`: `buildProject` の CD 分岐（`finalizePceCdDataPadding` の直前で `vnManager.finalizeOverlayBlob`）|
 | 生成される CD ref / load addr | `src/generated/vn.{c,h}`（`pce_vn_overlay_data`、`PCE_VN_OVERLAY_LOAD_ADDR`）|
 | visual helper の CD ref / load addr | `src/generated/vn.{c,h}` に `pce_vn_visual_code_data`、`PCE_VN_VISUAL_CODE_LOAD_ADDR` を出す。`visual_code.bin` は bank121/slot4 用で、bank133 overlay とは別に予約・抽出する |
+| CD async helper の CD ref / load addr | `src/generated/vn.{c,h}` に `pce_vn_cd_async_code_data`、`PCE_VN_CD_ASYNC_CODE_LOAD_ADDR` を出す。`cd_async_code.bin` は bank122/slot4 用で、direct SCSI READ(6) / DATA IN service を担当する。bank133 overlay とは別に予約・抽出する |
 | 生成されるリンカ fragment | `src/generated/overlay_insert.ld` |
 
 ### 現在の定数（`pce-vn-manager.js`）— Phase 3
@@ -82,6 +83,7 @@ VDC を触る overlay（message compositor / sprite frame）は `vn_overlay_disp
 - `VN_BANK132_TAIL_VMA = 0xd078`：`.ram_bank132_tail`(NOLOAD) の CPU アドレス。固定 write-before-read バッファ（`cd_transfer_scratch` 2KB ＋ `message_glyph_cache_masks` 1632B ＋ BG descriptor cache palette storage 256B）を bank132 末尾に置く。**overlay はもう bank132 末尾に良性コピーを置かない**（bank133 に load 領域を持つ）ので、tail は素の bank132 RAM。メタデータ予算 [0xc000, 0xd078) は不変。
 - 旧 `VN_OVERLAY_LMA` / `VN_BANK132_LMA_END` は撤去（良性 LMA 窓が不要になったため）。
 - `VN_VISUAL_CODE_LINK_ADDR` / `VN_VISUAL_CODE_RESERVED_SECTORS = 4` / `VN_VISUAL_CODE_SECTION = '.vn_visual_code'` は visual cache helper code 用。overlay と**同じ** 抽出方式（`.entry` 先頭固定 → `--remove-section` → `neutralizeElfLoadSegments()` で bank121 `PT_LOAD` を `PT_NULL` 化）。`pce-mkcd` は section table でなく program header も参照するため、ここを残すと初期ロードヘッダが `$8000` 側へ引っ張られ System Card の `JUST A MOMENT...` で停止しうる。実コードが予約 sector を超えると build error。
+- `VN_CD_ASYNC_CODE_LINK_ADDR` / `VN_CD_ASYNC_CODE_RESERVED_SECTORS = 4` / `VN_CD_ASYNC_CODE_SECTION = '.vn_cd_async_code'` は direct CD/SCSI async helper code 用。bank122/slot4 に読み込み、scene pack cache の CPU RAM read は System Card BIOS の `pce_cdb_cd_read()` ではなくこの fixed entry を毎 loading frame で service する。DATA IN 中は `quiet_cd_unit_irqs()` を呼ばず、TIMER は runtime 所有のままにする。
 
 ## 4. オーバーレイに関数を追加する手順
 
@@ -142,6 +144,7 @@ message typewriter / skip / choice glyph が正常描画されれば、オーバ
 
 ### (B) 複数オーバーレイ（追加バンク）
 - bank134/135 は PSG pattern の CD ストリーム再生バッファとして使用中です。追加 overlay を作る場合は、PSG バッファと同じ物理 bank を共有しない未使用 bank を選んでください。
+- bank122 は direct CD/SCSI async helper として使用中です。追加 overlay 用に流用しないでください。
 - **制約**: slot4 を時分割する以上、**同時に map できるオーバーレイは 1 枚**。別オーバーレイ間の直接相互呼び出しは不可（co-residency）。常駐 dispatcher 経由でのみ切替える。あるいは別 slot（ただし空き slot は実質ない）。
 - 実装は load_overlay_code / dispatcher / 予約・抽出を bank ごとに複製する形になる。
 

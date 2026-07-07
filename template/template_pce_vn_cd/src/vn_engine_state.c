@@ -170,6 +170,18 @@ static uint8_t vn_visual_cache_arg_y __attribute__((section(".bss")));
 static int16_t vn_visual_cache_arg_sprite_x __attribute__((section(".bss")));
 static const pce_editor_data_ref_t *vn_visual_cache_arg_ref __attribute__((section(".bss")));
 #endif
+static uint8_t vn_cd_async_code_loaded = 0;
+static uint8_t vn_cd_bus_state = VN_CD_BUS_IDLE;
+static uint8_t vn_cd_async_status = VN_CD_ASYNC_STATUS_IDLE;
+static uint8_t vn_cd_async_dest_kind = 0;
+static uint8_t vn_cd_async_dest_bank = 0;
+static uint8_t vn_cd_async_sector_count = 0;
+static uint8_t vn_cd_async_status_byte = 0xffu;
+static uint8_t vn_cd_async_message_byte = 0xffu;
+static pce_sector_t vn_cd_async_sector = {0};
+static uint16_t vn_cd_async_dest_addr = 0u;
+static uint16_t vn_cd_async_store_remaining = 0u;
+static uint16_t vn_cd_async_wire_remaining = 0u;
 #endif
 static uint16_t vn_rng_state;
 static uint8_t vn_variable_lo[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
@@ -361,6 +373,12 @@ static void VN_VISUAL_CACHE_CODE restore_current_screen_palette_impl(void);
 static void VN_VISUAL_CACHE_CODE flash_screen_color_impl(uint16_t color, uint8_t frames);
 static void load_overlay_code(void);
 static void VN_BANKED_CODE load_visual_cache_code(void);
+static void VN_BANKED_CODE load_cd_async_code(void);
+static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_data_read(pce_sector_t sector, uint8_t dest_kind, uint8_t dest_bank, uint16_t dest_addr, uint16_t byte_count);
+static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_scene_pack_read(pce_sector_t sector, uint16_t dest_addr, uint16_t byte_count);
+static void VN_BANKED_CODE2 vn_cd_async_service_frame(void);
+static uint8_t VN_BANKED_CODE2 vn_cd_async_done(void);
+static void VN_BANKED_CODE2 vn_cd_async_cancel(void);
 #endif
 
 static inline uint8_t vn_vdc_irq_lock(void);
@@ -370,6 +388,8 @@ static void VN_BANKED_CODE vn_vdc_set_copy_word(void);
 
 /* PHASE_A_SPLIT:BEGIN forward declarations added by the Phase A module split.
    The definitions live in later-included module files; no logic change. */
+static void VN_BANKED_CODE vn_wait_next_vblank_raw(void);
+static void VN_BANKED_CODE vn_wait_next_vblank_idle(void);
 static void VN_BANKED_CODE vn_wait_next_vblank(void);
 static void VN_BANKED_CODE delay_frame(void);
 static inline uint8_t vn_slot4_current_bank(void);

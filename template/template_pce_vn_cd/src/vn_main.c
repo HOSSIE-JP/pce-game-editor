@@ -108,12 +108,9 @@ static void init_runtime_state(void)
     clear_spritetext_slots();
 }
 
-static void VN_BANKED_CODE vn_wait_next_vblank(void)
+static void VN_BANKED_CODE vn_wait_next_vblank_raw(void)
 {
 #if defined(__PCE__) || defined(__PCE_CD__)
-#if defined(__PCE_CD__)
-    quiet_cd_unit_irqs();
-#endif
     __asm__ volatile(
         "lda #$ff\n"
         "tam #$01\n"
@@ -145,6 +142,21 @@ static void VN_BANKED_CODE vn_wait_next_vblank(void)
         :
         : "a", "x", "y", "memory");
 #endif
+}
+
+static void VN_BANKED_CODE vn_wait_next_vblank_idle(void)
+{
+#if defined(__PCE__) || defined(__PCE_CD__)
+#if defined(__PCE_CD__)
+    quiet_cd_unit_irqs();
+#endif
+    vn_wait_next_vblank_raw();
+#endif
+}
+
+static void VN_BANKED_CODE vn_wait_next_vblank(void)
+{
+    vn_wait_next_vblank_idle();
 }
 
 static void VN_BANKED_CODE delay_frame(void)
@@ -211,6 +223,7 @@ static void init_video(void)
 #if VN_ENABLE_VISUAL_PAYLOAD_CACHE
     load_visual_cache_code();
 #endif
+    load_cd_async_code();
 #endif
 }
 

@@ -152,32 +152,26 @@ static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, v
     {
         pce_vn_scene_pack_t pack;
         pce_sector_t sector = {0};
-        uint16_t remaining;
-        uint16_t offset = 0u;
         map_vn_data();
         if (scene_index >= pce_vn_scene_count) return 0u;
         pack = pce_vn_scene_packs[scene_index];
         if (!pack.byte_size || pack.byte_size > PCE_VN_SCENE_PACK_CACHE_BYTES || !pack.sector_count) return 0u;
-        prepare_cd_data_access();
         sector.lo = pack.sector.lo;
         sector.md = pack.sector.md;
         sector.hi = pack.sector.hi;
-        remaining = pack.byte_size;
-        while (remaining)
+        if (!vn_cd_async_begin_scene_pack_read(sector, (uint16_t)(uintptr_t)cache->data, pack.byte_size))
         {
-            const uint16_t chunk = remaining > VN_CD_RAM_READ_CHUNK_BYTES ? VN_CD_RAM_READ_CHUNK_BYTES : remaining;
-            uint8_t sectors = VN_CD_CHUNK_SECTOR_COUNT(chunk);
-            (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)&cache->data[offset], chunk);
-            cd_transfer_wait();
-            remaining = (uint16_t)(remaining - chunk);
-            offset = (uint16_t)(offset + chunk);
-            while (sectors--) cd_sector_advance(&sector);
+            return 0u;
+        }
+        while (vn_cd_async_status == VN_CD_ASYNC_STATUS_ACTIVE)
+        {
+            vn_wait_next_vblank_raw();
+            engine_service();
+            vn_cd_async_service_frame();
         }
         cache->size = pack.byte_size;
         cache->scene_index = scene_index;
-        cache->valid = scene_pack_is_valid(cache);
-        sync_cd_external_irq_after_bios_call();
-        resume_cdda_after_cd_data_access();
+        cache->valid = (uint8_t)(vn_cd_async_status == VN_CD_ASYNC_STATUS_DONE && scene_pack_is_valid(cache));
         VN_MAP_BANK130_FOR_CODE();
         return cache->valid;
     }

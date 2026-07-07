@@ -183,6 +183,16 @@ const VN_VISUAL_CODE_VRAM_LOAD_ADDR = 0x8000;
 const VN_VISUAL_CODE_LINK_ADDR = 0x01798000;
 const VN_VISUAL_CODE_RESERVED_SECTORS = 4;
 const VN_VISUAL_CODE_RESERVED_BYTES = VN_VISUAL_CODE_RESERVED_SECTORS * 2048;
+// Experimental low-level CD data reader helper code. This is kept out of the
+// crowded resident banks and out of the bank121 visual helper/cache design: the
+// blob is streamed into bank122 and mapped into slot 4 only while direct SCSI
+// service code runs.
+const VN_CD_ASYNC_CODE_DATA_FILE = path.join('assets', 'generated', 'vn', 'cd_async_code.bin');
+const VN_CD_ASYNC_CODE_SECTION = '.vn_cd_async_code';
+const VN_CD_ASYNC_CODE_VRAM_LOAD_ADDR = 0x8000;
+const VN_CD_ASYNC_CODE_LINK_ADDR = 0x017a8000;
+const VN_CD_ASYNC_CODE_RESERVED_SECTORS = 4;
+const VN_CD_ASYNC_CODE_RESERVED_BYTES = VN_CD_ASYNC_CODE_RESERVED_SECTORS * 2048;
 // CPU run-address (MPR slot 6) of the .ram_bank132_tail NOLOAD buffers. bank132
 // (8 KB) holds GROWING resident metadata (cd_data_refs, sprite cell_maps, the
 // scene-pack directory) climbing up from 0xc000, while the large write-before-read
@@ -3591,6 +3601,15 @@ function generateVnSources(projectDir, options = {}) {
     ? (visualCodeLayout.sectorCount || Math.max(1, Math.ceil(visualCodeByteSize / VN_CD_SECTOR_BYTES)))
     : 0;
   const visualCodeDataInitializer = `{ ${cdSectorInitializer(visualCodeLayout)}, ${visualCodeSectorCount}u, ${visualCodeByteSize}u }`;
+  const cdAsyncCodeDataPath = normalizeRelativePath(VN_CD_ASYNC_CODE_DATA_FILE);
+  const cdAsyncCodeAbsPath = path.join(projectDir, cdAsyncCodeDataPath);
+  const cdAsyncCodeExists = fs.existsSync(cdAsyncCodeAbsPath);
+  const cdAsyncCodeLayout = cdAsyncCodeExists ? (cdLayout.get(cdAsyncCodeDataPath) || {}) : {};
+  const cdAsyncCodeByteSize = cdAsyncCodeExists ? fs.statSync(cdAsyncCodeAbsPath).size : 0;
+  const cdAsyncCodeSectorCount = cdAsyncCodeExists
+    ? (cdAsyncCodeLayout.sectorCount || Math.max(1, Math.ceil(cdAsyncCodeByteSize / VN_CD_SECTOR_BYTES)))
+    : 0;
+  const cdAsyncCodeDataInitializer = `{ ${cdSectorInitializer(cdAsyncCodeLayout)}, ${cdAsyncCodeSectorCount}u, ${cdAsyncCodeByteSize}u }`;
   const scenePackMeta = sceneBuilds.map((sceneBuild, index) => {
     if (hucardMode) {
       return `  { &${hucardScenePackRefSymbol(index)}, ${sceneBuild.packBuffer.length}u, ${sceneBuild.nextScene} }${index + 1 < sceneBuilds.length ? ',' : ''}`;
@@ -3817,6 +3836,8 @@ function generateVnSources(projectDir, options = {}) {
             'extern const pce_vn_cd_data_ref_t pce_vn_visual_code_data;',
           ]
           : []),
+        `#define PCE_VN_CD_ASYNC_CODE_LOAD_ADDR ${VN_CD_ASYNC_CODE_VRAM_LOAD_ADDR}u`,
+        'extern const pce_vn_cd_data_ref_t pce_vn_cd_async_code_data;',
         '#else',
         'extern const unsigned char pce_vn_font_tiles[];',
         '#endif',
@@ -3910,6 +3931,7 @@ function generateVnSources(projectDir, options = {}) {
     ...(VN_ENABLE_VISUAL_PAYLOAD_CACHE
       ? [`const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_visual_code_data = ${visualCodeDataInitializer};`]
       : []),
+    `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_cd_async_code_data = ${cdAsyncCodeDataInitializer};`,
     '#else',
     ...bytesToCArray('PCE_VN_FONT_SECTION pce_vn_font_tiles', fontTiles, 'const unsigned char'),
     '#endif',
@@ -4119,6 +4141,9 @@ function collectCdDataFiles(projectDir) {
     // Visual cache helper code, streamed into bank121 at boot.
     addExistingCdDataFile(projectDir, files, seen, VN_VISUAL_CODE_DATA_FILE);
   }
+  // Direct SCSI async helper code, streamed into bank122 at boot. It is placed
+  // after the visual helper so existing overlay/visual sectors stay stable.
+  addExistingCdDataFile(projectDir, files, seen, VN_CD_ASYNC_CODE_DATA_FILE);
   // The sprite-format font is only generated when spritetext is used; include it
   // only when the file actually exists so we never reserve a sector for nothing.
   addExistingCdDataFile(projectDir, files, seen, VN_FONT_SPRITE_DATA_FILE);
@@ -4183,6 +4208,7 @@ function writeOverlayFragment(projectDir) {
   // bank133); it just keeps these buffers out of the GROWING metadata region.
   const tailVma = `0x${VN_BANK132_TAIL_VMA.toString(16)}`;
   const visualCodeAddr = `0x${VN_VISUAL_CODE_LINK_ADDR.toString(16)}`;
+  const cdAsyncCodeAddr = `0x${VN_CD_ASYNC_CODE_LINK_ADDR.toString(16)}`;
   const visualCodeSection = VN_ENABLE_VISUAL_PAYLOAD_CACHE
     ? [
       `  ${VN_VISUAL_CODE_SECTION} ${visualCodeAddr} : {`,
@@ -4196,6 +4222,12 @@ function writeOverlayFragment(projectDir) {
   const body = [
     'SECTIONS {',
     ...visualCodeSection,
+    `  ${VN_CD_ASYNC_CODE_SECTION} ${cdAsyncCodeAddr} : {`,
+    '    __vn_cd_async_code_start = .;',
+    `    KEEP(*(${VN_CD_ASYNC_CODE_SECTION}.entry ${VN_CD_ASYNC_CODE_SECTION}.entry.*))`,
+    `    KEEP(*(${VN_CD_ASYNC_CODE_SECTION}.impl ${VN_CD_ASYNC_CODE_SECTION}.impl.*))`,
+    '    __vn_cd_async_code_end = .;',
+    '  } >ram_bank122',
     `  ${VN_OVERLAY_SECTION} ${overlayAddr} : {`,
     '    __vn_overlay_start = .;',
     `    KEEP(*(${VN_OVERLAY_SECTION}.entry ${VN_OVERLAY_SECTION}.entry.*))`,
@@ -4238,6 +4270,14 @@ function ensureVisualCodeReservation(projectDir) {
   const ok = fs.existsSync(visualCodeBin) && fs.statSync(visualCodeBin).size === VN_VISUAL_CODE_RESERVED_BYTES;
   if (!ok) fs.writeFileSync(visualCodeBin, Buffer.alloc(VN_VISUAL_CODE_RESERVED_BYTES));
   return { byteSize: VN_VISUAL_CODE_RESERVED_BYTES, sectorCount: VN_VISUAL_CODE_RESERVED_SECTORS };
+}
+
+function ensureCdAsyncCodeReservation(projectDir) {
+  const cdAsyncCodeBin = path.join(projectDir, VN_CD_ASYNC_CODE_DATA_FILE);
+  ensureDirSync(path.dirname(cdAsyncCodeBin));
+  const ok = fs.existsSync(cdAsyncCodeBin) && fs.statSync(cdAsyncCodeBin).size === VN_CD_ASYNC_CODE_RESERVED_BYTES;
+  if (!ok) fs.writeFileSync(cdAsyncCodeBin, Buffer.alloc(VN_CD_ASYNC_CODE_RESERVED_BYTES));
+  return { byteSize: VN_CD_ASYNC_CODE_RESERVED_BYTES, sectorCount: VN_CD_ASYNC_CODE_RESERVED_SECTORS };
 }
 
 function neutralizeElfLoadSegments(elfPath, startAddress, byteLength) {
@@ -4347,23 +4387,39 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
   let visualRealSize = 0;
   let visualCodeInfo = null;
   if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) {
-  const visualCodeBin = path.join(projectDir, VN_VISUAL_CODE_DATA_FILE);
-  ensureDirSync(path.dirname(visualCodeBin));
-  run(['-O', 'binary', `--only-section=${VN_VISUAL_CODE_SECTION}`, elfPath, visualCodeBin], 'visual code objcopy extract');
-  visualRealSize = fs.existsSync(visualCodeBin) ? fs.statSync(visualCodeBin).size : 0;
-  if (visualRealSize === 0) {
-    throw new Error(`visual cache code section ${VN_VISUAL_CODE_SECTION} was empty in ${path.basename(elfPath)} — visual cache code not linked`);
+    const visualCodeBin = path.join(projectDir, VN_VISUAL_CODE_DATA_FILE);
+    ensureDirSync(path.dirname(visualCodeBin));
+    run(['-O', 'binary', `--only-section=${VN_VISUAL_CODE_SECTION}`, elfPath, visualCodeBin], 'visual code objcopy extract');
+    visualRealSize = fs.existsSync(visualCodeBin) ? fs.statSync(visualCodeBin).size : 0;
+    if (visualRealSize === 0) {
+      throw new Error(`visual cache code section ${VN_VISUAL_CODE_SECTION} was empty in ${path.basename(elfPath)} — visual cache code not linked`);
+    }
+    if (visualRealSize > VN_VISUAL_CODE_RESERVED_BYTES) {
+      throw new Error(`visual cache code ${visualRealSize} bytes exceeds reserved ${VN_VISUAL_CODE_RESERVED_BYTES} bytes (${VN_VISUAL_CODE_RESERVED_SECTORS} sectors). Move fewer functions into VN_VISUAL_CACHE_CODE or raise VN_VISUAL_CODE_RESERVED_SECTORS.`);
+    }
+    if (visualRealSize < VN_VISUAL_CODE_RESERVED_BYTES) {
+      const buf = Buffer.alloc(VN_VISUAL_CODE_RESERVED_BYTES);
+      fs.readFileSync(visualCodeBin).copy(buf);
+      fs.writeFileSync(visualCodeBin, buf);
+    }
+    visualCodeInfo = { realSize: visualRealSize, byteSize: VN_VISUAL_CODE_RESERVED_BYTES };
   }
-  if (visualRealSize > VN_VISUAL_CODE_RESERVED_BYTES) {
-    throw new Error(`visual cache code ${visualRealSize} bytes exceeds reserved ${VN_VISUAL_CODE_RESERVED_BYTES} bytes (${VN_VISUAL_CODE_RESERVED_SECTORS} sectors). Move fewer functions into VN_VISUAL_CACHE_CODE or raise VN_VISUAL_CODE_RESERVED_SECTORS.`);
+  const cdAsyncCodeBin = path.join(projectDir, VN_CD_ASYNC_CODE_DATA_FILE);
+  ensureDirSync(path.dirname(cdAsyncCodeBin));
+  run(['-O', 'binary', `--only-section=${VN_CD_ASYNC_CODE_SECTION}`, elfPath, cdAsyncCodeBin], 'CD async code objcopy extract');
+  const cdAsyncCodeRealSize = fs.existsSync(cdAsyncCodeBin) ? fs.statSync(cdAsyncCodeBin).size : 0;
+  if (cdAsyncCodeRealSize === 0) {
+    throw new Error(`CD async code section ${VN_CD_ASYNC_CODE_SECTION} was empty in ${path.basename(elfPath)} — direct SCSI helper code not linked`);
   }
-  if (visualRealSize < VN_VISUAL_CODE_RESERVED_BYTES) {
-    const buf = Buffer.alloc(VN_VISUAL_CODE_RESERVED_BYTES);
-    fs.readFileSync(visualCodeBin).copy(buf);
-    fs.writeFileSync(visualCodeBin, buf);
+  if (cdAsyncCodeRealSize > VN_CD_ASYNC_CODE_RESERVED_BYTES) {
+    throw new Error(`CD async code ${cdAsyncCodeRealSize} bytes exceeds reserved ${VN_CD_ASYNC_CODE_RESERVED_BYTES} bytes (${VN_CD_ASYNC_CODE_RESERVED_SECTORS} sectors). Move fewer functions into VN_CD_ASYNC_CODE or raise VN_CD_ASYNC_CODE_RESERVED_SECTORS.`);
   }
-  visualCodeInfo = { realSize: visualRealSize, byteSize: VN_VISUAL_CODE_RESERVED_BYTES };
+  if (cdAsyncCodeRealSize < VN_CD_ASYNC_CODE_RESERVED_BYTES) {
+    const buf = Buffer.alloc(VN_CD_ASYNC_CODE_RESERVED_BYTES);
+    fs.readFileSync(cdAsyncCodeBin).copy(buf);
+    fs.writeFileSync(cdAsyncCodeBin, buf);
   }
+  const cdAsyncCodeInfo = { realSize: cdAsyncCodeRealSize, byteSize: VN_CD_ASYNC_CODE_RESERVED_BYTES };
   // Strip BOTH runtime code blobs out of the program image: they are loaded from
   // CD into bank133 (.vn_overlay) and bank121 (.vn_visual_code) at boot, not part
   // of the main program. Remove each section AND its relocation table — mkcd
@@ -4387,6 +4443,8 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
     stripArgs.push('--remove-section', `.rela${VN_VISUAL_CODE_SECTION}`);
     stripArgs.push('--remove-section', VN_VISUAL_CODE_SECTION);
   }
+  stripArgs.push('--remove-section', `.rela${VN_CD_ASYNC_CODE_SECTION}`);
+  stripArgs.push('--remove-section', VN_CD_ASYNC_CODE_SECTION);
   stripArgs.push(elfPath, strippedElf);
   run(stripArgs, 'objcopy strip runtime blobs');
   const strippedSize = fs.existsSync(strippedElf) ? fs.statSync(strippedElf).size : 0;
@@ -4404,14 +4462,18 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
   if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) {
     visualLoadSegmentsRemoved = neutralizeElfLoadSegments(elfPath, VN_VISUAL_CODE_LINK_ADDR, VN_VISUAL_CODE_RESERVED_BYTES);
   }
+  const cdAsyncLoadSegmentsRemoved = neutralizeElfLoadSegments(elfPath, VN_CD_ASYNC_CODE_LINK_ADDR, VN_CD_ASYNC_CODE_RESERVED_BYTES);
   logger?.info?.(`PCE VN overlay blob: ${realSize} bytes (reserved ${VN_OVERLAY_RESERVED_BYTES}, full bank133) を main.elf から ${VN_OVERLAY_DATA_FILE} に抽出 (${VN_OVERLAY_SECTION} 除去)`);
   if (overlayLoadSegmentsRemoved) logger?.info?.(`PCE VN overlay PT_LOAD ${overlayLoadSegmentsRemoved} 件を main.elf から無効化`);
   if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) logger?.info?.(`PCE VN visual cache code blob: ${visualRealSize} bytes (reserved ${VN_VISUAL_CODE_RESERVED_BYTES}) を main.elf から ${VN_VISUAL_CODE_DATA_FILE} に抽出 (${VN_VISUAL_CODE_SECTION} 除去)`);
   if (visualLoadSegmentsRemoved) logger?.info?.(`PCE VN visual cache code PT_LOAD ${visualLoadSegmentsRemoved} 件を main.elf から無効化`);
+  logger?.info?.(`PCE VN CD async code blob: ${cdAsyncCodeRealSize} bytes (reserved ${VN_CD_ASYNC_CODE_RESERVED_BYTES}) を main.elf から ${VN_CD_ASYNC_CODE_DATA_FILE} に抽出 (${VN_CD_ASYNC_CODE_SECTION} 除去)`);
+  if (cdAsyncLoadSegmentsRemoved) logger?.info?.(`PCE VN CD async code PT_LOAD ${cdAsyncLoadSegmentsRemoved} 件を main.elf から無効化`);
   return {
     realSize,
     byteSize: VN_OVERLAY_RESERVED_BYTES,
     visualCode: visualCodeInfo,
+    cdAsyncCode: cdAsyncCodeInfo,
   };
 }
 
@@ -4434,6 +4496,7 @@ function collectManagedGeneratedCdDataFiles(projectDir) {
   addManagedGeneratedPath(managed, VN_FONT_DATA_FILE);
   addManagedGeneratedPath(managed, VN_OVERLAY_DATA_FILE);
   addManagedGeneratedPath(managed, VN_VISUAL_CODE_DATA_FILE);
+  addManagedGeneratedPath(managed, VN_CD_ASYNC_CODE_DATA_FILE);
   addManagedGeneratedPath(managed, VN_FONT_SPRITE_DATA_FILE);
   const scenePackDir = normalizeRelativePath(VN_SCENE_PACK_DIR);
   try {
@@ -4513,6 +4576,7 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
   // in the build system post-link.)
   ensureOverlayReservation(projectDir);
   ensureVisualCodeReservation(projectDir);
+  ensureCdAsyncCodeReservation(projectDir);
   writeOverlayFragment(projectDir);
   logBuildTiming(logger, 'reserve CD layout placeholders', stage);
   if (options.incremental) {

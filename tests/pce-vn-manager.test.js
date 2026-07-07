@@ -312,6 +312,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
     'assets/generated/vn/font.bin',
     'assets/generated/vn/overlay.bin',
     'assets/generated/vn/visual_code.bin',
+    'assets/generated/vn/cd_async_code.bin',
     'assets/generated/vn/scenes/000_opening.bin',
     'assets/generated/voice/adpcm.bin',
   ]);
@@ -349,13 +350,21 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.match(header, /#define PCE_VN_VISUAL_CODE_LOAD_ADDR 32768u/);
   assert.match(header, /extern const pce_vn_cd_data_ref_t pce_vn_visual_code_data;/);
   assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_visual_code_data = \{ \{ 69u, 0u, 0u \}, 4u, 8192u \};/);
+  assert.match(header, /#define PCE_VN_CD_ASYNC_CODE_LOAD_ADDR 32768u/);
+  assert.match(header, /extern const pce_vn_cd_data_ref_t pce_vn_cd_async_code_data;/);
+  assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_cd_async_code_data = \{ \{ 73u, 0u, 0u \}, 4u, 8192u \};/);
   // The reserved overlay blob exists on disk at exactly its reserved size, and
-  // the linker fragment that places .vn_overlay / .vn_visual_code was written.
+  // the linker fragment that places .vn_overlay / .vn_visual_code /
+  // .vn_cd_async_code was written.
   assert.equal(fs.statSync(path.join(projectDir, 'assets', 'generated', 'vn', 'overlay.bin')).size, 8192);
   assert.equal(fs.statSync(path.join(projectDir, 'assets', 'generated', 'vn', 'visual_code.bin')).size, 8192);
+  assert.equal(fs.statSync(path.join(projectDir, 'assets', 'generated', 'vn', 'cd_async_code.bin')).size, 8192);
   const overlayFragment = fs.readFileSync(path.join(projectDir, 'src', 'generated', 'overlay_insert.ld'), 'utf-8');
   assert.match(overlayFragment, /\.vn_visual_code 0x1798000 : \{/);
   assert.match(overlayFragment, /\.vn_visual_code[\s\S]*>ram_bank121/);
+  assert.match(overlayFragment, /\.vn_cd_async_code 0x17a8000 : \{/);
+  assert.match(overlayFragment, /KEEP\(\*\(\.vn_cd_async_code\.entry \.vn_cd_async_code\.entry\.\*\)\)/);
+  assert.match(overlayFragment, /\.vn_cd_async_code[\s\S]*>ram_bank122/);
   // The overlay now has its OWN load region (ram_bank133, link addr 0x1858000 whose
   // low 16 bits = CPU 0x8000 / MPR slot 4). It is removed from the ELF after
   // extraction (no resident->overlay relocation thanks to the .entry op-dispatch,
@@ -1207,6 +1216,7 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
     'assets/generated/vn/font.bin',
     'assets/generated/vn/overlay.bin',
     'assets/generated/vn/visual_code.bin',
+    'assets/generated/vn/cd_async_code.bin',
     ...expectedCdDataFiles.slice(1),
     'assets/custom/extra.bin',
   ]);
@@ -1223,12 +1233,12 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   assert.match(header, /PCE_VN_EFFECT_FADE_OUT 0u/);
   assert.match(header, /PCE_VN_EFFECT_SHAKE 3u/);
   assert.match(header, /PCE_VN_EFFECT_FLASH 4u/);
-  // Font data holds sector 64; overlay reserves sectors 65-66 and visual helper
-  // code reserves sectors 67-70. Scene packs follow after those and their raw
-  // assets. opening@71, then bg_a tiles (18432B=9 sectors) + map (1) + hero
-  // patterns (2) push next@84.
-  assert.match(source, /\{ \{ 73u, 0u, 0u \}, 1u, \d+u, -1 \}/);
-  assert.match(source, /\{ \{ 86u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  // Font data holds sector 64; overlay reserves 65-68, visual helper reserves
+  // 69-72, and direct CD async helper reserves 73-76. Scene packs follow after
+  // those and their raw assets. opening@77, then bg_a tiles (18432B=9 sectors)
+  // + map (1) + hero patterns (2) push next@90.
+  assert.match(source, /\{ \{ 77u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  assert.match(source, /\{ \{ 90u, 0u, 0u \}, 1u, \d+u, -1 \}/);
   assert.equal(openingPack[5], 3);
   assert.equal(openingPack[7], 1);
   assert.deepEqual(commandRecord(openingPack, 0), {
@@ -1791,6 +1801,15 @@ test('PCE VN manager encodes PSG audio playback with a base channel', () => {
   assert.match(runtime, /static void load_overlay_code\(void\)[\s\S]*chunk = remaining > VN_CD_RAM_READ_CHUNK_BYTES \? VN_CD_RAM_READ_CHUNK_BYTES : remaining;[\s\S]*sectors = VN_CD_CHUNK_SECTOR_COUNT\(chunk\);[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, dest, chunk\);[\s\S]*while \(sectors--\) cd_sector_advance\(&sector\);/);
   assert.match(runtime, /static uint8_t VN_VISUAL_CACHE_CODE load_psg_pattern_cd_impl\(void\)[\s\S]*chunk = bank_remaining > VN_CD_RAM_READ_CHUNK_BYTES \? VN_CD_RAM_READ_CHUNK_BYTES : bank_remaining;[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)&psg_pattern_ram\[offset\], chunk\);[\s\S]*while \(sectors--\) cd_sector_advance\(&sector\);/);
   assert.match(runtime, /static void VN_BANKED_CODE load_visual_cache_code\(void\)[\s\S]*pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, dest, VN_CD_SECTOR_BYTES\);[\s\S]*remaining--;[\s\S]*cd_sector_advance\(&sector\);/);
+  assert.match(runtime, /#define VN_CD_BUS_IDLE 0u/);
+  assert.match(runtime, /#define VN_CD_BUS_BIOS_HELPER 1u/);
+  assert.match(runtime, /#define VN_CD_BUS_ASYNC_DATA 2u/);
+  assert.match(runtime, /static uint8_t VN_BANKED_CODE vn_cd_async_call_bank122\(uint8_t op\)[\s\S]*pce_ram_bank122_map\(\);[\s\S]*VN_CD_ASYNC_CALL\(op\);[\s\S]*pce_ram_bank130_map\(\);/);
+  assert.match(runtime, /static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_data_read\(pce_sector_t sector, uint8_t dest_kind, uint8_t dest_bank, uint16_t dest_addr, uint16_t byte_count\)/);
+  assert.match(runtime, /static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_scene_pack_read\(pce_sector_t sector, uint16_t dest_addr, uint16_t byte_count\)/);
+  assert.match(runtime, /static void VN_BANKED_CODE2 vn_cd_async_service_frame\(void\)/);
+  assert.match(runtime, /static uint8_t VN_CD_ASYNC_ENTRY_CODE vn_cd_async_entry\(uint8_t op\)/);
+  assert.match(runtime, /vn_cd_async_begin_impl\(void\)[\s\S]*vn_cd_async_send_command_byte\(0x08u\)[\s\S]*vn_cd_async_send_command_byte\(\(uint8_t\)\(vn_cd_async_sector\.hi & 0x1fu\)\)[\s\S]*vn_cd_async_send_command_byte\(vn_cd_async_sector\.md\)[\s\S]*vn_cd_async_send_command_byte\(vn_cd_async_sector\.lo\)[\s\S]*vn_cd_async_send_command_byte\(count\)/);
   assert.match(runtime, /volatile uint8_t vn_vblank_credit = 0;/);
   // Slot4 (MPR4) is time-shared by bank130 / bank133 overlay / bank121 visual
   // cache. Audio services must restore the CALLER's slot4 bank, not force
@@ -2417,7 +2436,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /#define VN_MESSAGE_GLYPH_CACHE_COUNT 68u/);
   assert.match(source, /static uint16_t message_glyph_cache_masks\[VN_MESSAGE_GLYPH_CACHE_COUNT\]\[VN_GLYPH_MASK_WORDS\] __attribute__\(\(section\("\.ram_bank132_tail"\)\)\);/);
   assert.match(source, /static pce_vn_message_t active_message_state __attribute__\(\(section\("\.bss"\)\)\);/);
-  assert.match(source, /static void VN_BANKED_CODE vn_wait_next_vblank\(void\)[\s\S]*ldy #\$80\\n"[\s\S]*lda \$0000\\n"[\s\S]*and #\$20\\n"[\s\S]*bne vn_wait_vblank_done%=/);
+  assert.match(source, /static void VN_BANKED_CODE vn_wait_next_vblank_raw\(void\)[\s\S]*ldy #\$80\\n"[\s\S]*lda \$0000\\n"[\s\S]*and #\$20\\n"[\s\S]*bne vn_wait_vblank_done%=/);
   assert.doesNotMatch(source, /volatile uint16_t guard;/);
   // All shared VRAM copy paths are resident/noinline and IRQ-guarded; this covers
   // message window clears and raw BG/map/font/sprite pattern blits, not only glyph draw.
@@ -2680,7 +2699,10 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /pce_vn_scene_pack_t pack;/);
   assert.match(source, /pack = pce_vn_scene_packs\[scene_index\];/);
   assert.match(source, /pack\.byte_size > PCE_VN_SCENE_PACK_CACHE_BYTES/);
-  assert.match(source, /pce_cdb_cd_read\(sector, PCE_CDB_ADDRESS_BYTES, \(uint16_t\)\(uintptr_t\)&cache->data\[offset\], chunk\);/);
+  assert.match(source, /vn_cd_async_begin_scene_pack_read\(sector, \(uint16_t\)\(uintptr_t\)cache->data, pack\.byte_size\)/);
+  assert.match(source, /while \(vn_cd_async_status == VN_CD_ASYNC_STATUS_ACTIVE\)[\s\S]*vn_wait_next_vblank_raw\(\);[\s\S]*engine_service\(\);[\s\S]*vn_cd_async_service_frame\(\);/);
+  const scenePackLoadSource = source.slice(source.indexOf('static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache'), source.indexOf('static uint8_t scene_pack_command_count'));
+  assert.doesNotMatch(scenePackLoadSource, /pce_cdb_cd_read|pce_cdb_adpcm_read_from_cd|quiet_cd_unit_irqs\(\)/);
   // The scene-pack decoders are pure (they only read the always-mapped active pack
   // cache + resident helpers), so they are offloaded to the bank133 overlay as
   // *_impl and reached through resident VN_BANKED_CODE dispatchers (named like the
@@ -2730,12 +2752,16 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   assert.match(source, /static void cd_sector_advance\(pce_sector_t \*sector\)/);
   assert.match(source, /static void cd_sector_end_from_count\(pce_sector_t \*dest, const pce_sector_t \*start, unsigned int count\)[\s\S]*while \(count--\) cd_sector_advance\(dest\);/);
   assert.match(source, /static void cd_transfer_wait\(void\)[\s\S]*engine_service_blocking\(VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS\);/);
-  assert.match(source, /static void VN_BANKED_CODE quiet_cd_unit_irqs\(void\)[\s\S]*vn_cdb_quiet_idle\(\);[\s\S]*pce_irq_disable\(IRQ_VDC\);/);
+  assert.match(source, /static void VN_BANKED_CODE quiet_cd_unit_irqs\(void\)[\s\S]*if \(vn_cd_bus_state == VN_CD_BUS_ASYNC_DATA\) return;[\s\S]*vn_cdb_quiet_idle\(\);[\s\S]*pce_irq_disable\(IRQ_VDC\);/);
   assert.match(source, /static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call\(void\)/);
   assert.doesNotMatch(source, /control = \(uint16_t\)\(control & \(uint16_t\)~VDC_CONTROL_IRQ_VBLANK\)/);
   assert.match(source, /static inline uint8_t vn_vdc_irq_lock\(void\)[\s\S]*"lda #\$ff\\n\\t"[\s\S]*"tam #\$01\\n\\t"/);
-  assert.match(source, /vn_wait_next_vblank\(void\)[\s\S]*"lda #\$ff\\n"\s*"tam #\$01\\n"/);
-  assert.match(source, /vn_wait_next_vblank\(void\)[\s\S]*quiet_cd_unit_irqs\(\);[\s\S]*"lda #\$ff\\n"/);
+  assert.match(source, /vn_wait_next_vblank_raw\(void\)[\s\S]*"lda #\$ff\\n"\s*"tam #\$01\\n"/);
+  const rawVblankWait = source.match(/static void VN_BANKED_CODE vn_wait_next_vblank_raw\(void\)\r?\n\{[\s\S]*?\r?\n\}/);
+  assert.ok(rawVblankWait);
+  assert.doesNotMatch(rawVblankWait[0], /quiet_cd_unit_irqs\(\);/);
+  assert.match(source, /vn_wait_next_vblank_idle\(void\)[\s\S]*quiet_cd_unit_irqs\(\);[\s\S]*vn_wait_next_vblank_raw\(\);/);
+  assert.match(source, /vn_wait_next_vblank\(void\)[\s\S]*vn_wait_next_vblank_idle\(\);/);
   assert.match(source, /#define VN_CDB_IRQ_MASK_RUNTIME_QUIET \(\(uint8_t\)\(PCE_CDB_MASK_IRQ_EXTERNAL \| PCE_CDB_MASK_IRQ_VDC \| PCE_CDB_MASK_IRQ_TIMER \| PCE_CDB_MASK_NMI \| PCE_CDB_MASK_HBLANK \| PCE_CDB_MASK_HBLANK_NO_BIOS \| PCE_CDB_MASK_VBLANK \| PCE_CDB_MASK_VBLANK_NO_BIOS\)\)/);
   assert.match(source, /#define VN_PCD_IRQ_STATUS_ALL 0x0fu/);
   assert.match(source, /#define VN_CDB_IRQ_PENDING_FLAGS \(\(volatile uint8_t \*\)0x20f2\)/);
@@ -2744,7 +2770,7 @@ test('PCE VN runtime keeps VDC DRAM refresh enabled while toggling display layer
   // vn_cdb_quiet_idle() prefix (see the pins above); this pin confirms the
   // ternary itself still lives inside that shared helper, not duplicated.
   assert.match(source, /static void VN_BANKED_CODE vn_cdb_quiet_idle\(void\)[\s\S]*\*IO_PCD_STATUS = VN_PCD_IRQ_STATUS_ALL;[\s\S]*\*VN_CDB_IRQ_PENDING_FLAGS = 0u;[\s\S]*\*VN_CDB_BIOS_IRQ_MASK = \(uint8_t\)\(vn_timer_owned \? \(VN_CDB_BIOS_IRQ_MASK_IDLE \| PCE_CDB_MASK_IRQ_TIMER\) : VN_CDB_BIOS_IRQ_MASK_IDLE\);/);
-  assert.match(source, /static void VN_BANKED_CODE quiet_cd_unit_irqs\(void\)[\s\S]*vn_cdb_quiet_idle\(\);[\s\S]*pce_irq_disable\(IRQ_VDC\);[\s\S]*vn_psg_timer_own\(\);/);
+  assert.match(source, /static void VN_BANKED_CODE quiet_cd_unit_irqs\(void\)[\s\S]*if \(vn_cd_bus_state == VN_CD_BUS_ASYNC_DATA\) return;[\s\S]*vn_cdb_quiet_idle\(\);[\s\S]*pce_irq_disable\(IRQ_VDC\);[\s\S]*vn_psg_timer_own\(\);/);
   assert.match(source, /static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call\(void\)[\s\S]*pce_cdb_irq_set\(PCE_CDB_ID_IRQ_VDC, vn_cd_irq1_quiet_handler\);[\s\S]*vn_psg_timer_release\(\);[\s\S]*pce_cdb_irq_disable\(VN_CDB_IRQ_MASK_RUNTIME_QUIET\);[\s\S]*quiet_cd_unit_irqs\(\);/);
   assert.match(source, /set_vdc_control\(restore_display \? VN_VDC_DISPLAY_CONTROL : VN_VDC_BLANK_CONTROL\);\n    pce_irq_disable\(IRQ_VDC\);/);
   assert.match(source, /static void VN_BANKED_CODE begin_cdda_deferred_resume\(void\)/);
@@ -3236,13 +3262,16 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.deepEqual(result.generated.visualNovel.scenePackPaths, ['assets/generated/vn/scenes/000_opening.bin']);
   const source = fs.readFileSync(path.join(projectDir, 'src', 'generated', 'vn.c'), 'utf-8');
   assert.match(source, /const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs\[\]/);
-  // Font data occupies CD sector 64; overlay reserves sectors 65-66, visual
-  // helper code reserves sectors 67-70, and the scene pack follows at sector 71.
+  // Font data occupies CD sector 64; overlay reserves 65-68, visual helper
+  // reserves 69-72, direct CD async helper reserves 73-76, and the scene pack
+  // follows at sector 77.
   assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_data = \{ \{ 64u, 0u, 0u \}, \d+u, \d+u \};/);
   assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_visual_code_data = \{ \{ 69u, 0u, 0u \}, 4u, 8192u \};/);
-  assert.match(source, /\{ \{ 73u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_cd_async_code_data = \{ \{ 73u, 0u, 0u \}, 4u, 8192u \};/);
+  assert.match(source, /\{ \{ 77u, 0u, 0u \}, 1u, \d+u, -1 \}/);
   assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'font.bin')));
   assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'visual_code.bin')));
+  assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'cd_async_code.bin')));
   assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'scenes', '000_opening.bin')));
   const syncedRuntime = fs.readFileSync(runtimePath, 'utf-8');
   assert.match(syncedRuntime, /adpcm_play_looping = 0u;/);
