@@ -378,6 +378,7 @@ static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_data_read(pce_sector_t sector, 
 static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_scene_pack_read(pce_sector_t sector, uint16_t dest_addr, uint16_t byte_count);
 static void VN_BANKED_CODE2 vn_cd_async_service_frame(void);
 static uint8_t VN_BANKED_CODE2 vn_cd_async_done(void);
+static uint8_t VN_BANKED_CODE2 vn_cd_async_succeeded(void);
 static void VN_BANKED_CODE2 vn_cd_async_cancel(void);
 #endif
 

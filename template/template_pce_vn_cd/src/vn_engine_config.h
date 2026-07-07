@@ -84,15 +84,9 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_ADPCM_BUFFERED_PLAY_FRAMES() (adpcm_voice_snapshot.play_frames > VN_ADPCM_BUFFERED_END_GUARD_FRAMES ? (uint16_t)(adpcm_voice_snapshot.play_frames - VN_ADPCM_BUFFERED_END_GUARD_FRAMES) : 1u)
 #define VN_ADPCM_BUFFERED_SAFE_BYTES 32767u
 #define VN_ADPCM_BUFFERED_HARDWARE_LENGTH 0xffffu
-/* Sectors per BIOS CD read command when loading a voice into ADPCM RAM.
-   Geargrafx measurement (2026-07): each pce_cdb_adpcm_read_from_cd command pays
-   a seek-dominated ~10-frame (~150ms) latency that is essentially independent of
-   the sector count, so reading 1 sector per command made an N-sector voice cost
-   ~N separate seeks (a 30-sector voice ~= 4.5s of load, freezing PSG the whole
-   time). Reading several sectors per command amortizes that seek across the run
-   (ceil(N/chunk) seeks) and noticeably reduces the PSG stall during a voice load
-   (perceptual A/B confirmed). The trade-off is a longer single freeze per read,
-   so keep this moderate rather than reading the whole voice in one command. */
+/* Compatibility knobs retained for call-site shape. CD-backed voices now use the
+   direct SCSI async ADPCM_RAM destination, so these no longer size BIOS CD read
+   commands; local RAM fallback still uses the ADPCM busy wait below. */
 #define VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS 8u
 #define VN_ADPCM_PRELOAD_READ_CHUNK_SECTORS 8u
 #ifndef VN_ADPCM_BUSY_PSG_POLL_INTERVAL
@@ -108,15 +102,6 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
    FALLBACK_FRAMES can make PSG run ahead during long ADPCM loads. */
 #ifndef VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES
 #define VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES 1u
-#endif
-/* Extra PSG-only compensation for the per-sector CD->ADPCM transfer time inside
-   a read command, scaled by the chunk's sector count. The seek latency itself is
-   now credited once per command by wait_adpcm_cd_transfer_ready() (not per
-   sector), so this only needs to cover the ~0.8 frame/sector transfer; 1u keeps
-   the total close to the measured per-chunk read time instead of over-advancing
-   the PSG (which caused the BGM to jump during chunked voice loads). */
-#ifndef VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES
-#define VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES 1u
 #endif
 #define VN_PCD_IRQ_STATUS_ADPCM_END 0x08u
 #define VN_SATB_ADDR 0x7f00u
@@ -225,6 +210,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_CD_BUS_ASYNC_DATA 2u
 #define VN_CD_ASYNC_DEST_BANK132 1u
 #define VN_CD_ASYNC_DEST_SCENE_PACK_CACHE 2u
+#define VN_CD_ASYNC_DEST_ADPCM_RAM 3u
 #define VN_CD_ASYNC_STATUS_IDLE 0u
 #define VN_CD_ASYNC_STATUS_ACTIVE 1u
 #define VN_CD_ASYNC_STATUS_DONE 2u
@@ -235,9 +221,13 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #ifndef VN_CD_ASYNC_BYTES_PER_FRAME
 #define VN_CD_ASYNC_BYTES_PER_FRAME 256u
 #endif
-#ifndef VN_CD_ASYNC_MAX_BYTES
-#define VN_CD_ASYNC_MAX_BYTES 4096u
+#ifndef VN_CD_ASYNC_ADPCM_BYTES_PER_FRAME
+#define VN_CD_ASYNC_ADPCM_BYTES_PER_FRAME 512u
 #endif
+#ifndef VN_CD_ASYNC_MAX_BYTES
+#define VN_CD_ASYNC_MAX_BYTES VN_ADPCM_BUFFERED_SAFE_BYTES
+#endif
+#define VN_CD_ASYNC_MAX_SECTORS VN_CD_CHUNK_SECTOR_COUNT(VN_CD_ASYNC_MAX_BYTES)
 /* Diagnostic switch for PSG/CD-load stutter investigation. The current test
    default drips blocking-work PSG credit one frame at a time while leaving
    ADPCM countdown catch-up unchanged. Set to 0 to return to the batched

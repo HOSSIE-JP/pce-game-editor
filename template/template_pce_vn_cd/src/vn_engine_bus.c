@@ -513,6 +513,12 @@ static uint8_t VN_CD_ASYNC_CODE vn_cd_async_send_command_byte(uint8_t value)
 static void VN_CD_ASYNC_CODE vn_cd_async_store_byte(uint8_t value)
 {
     if (!vn_cd_async_store_remaining) return;
+    if (vn_cd_async_dest_kind == VN_CD_ASYNC_DEST_ADPCM_RAM)
+    {
+        *IO_PCD_ADPCM_DATA = value;
+        vn_cd_async_store_remaining--;
+        return;
+    }
     if (vn_cd_async_dest_kind == VN_CD_ASYNC_DEST_BANK132)
     {
         (void)vn_cd_async_dest_bank;
@@ -530,9 +536,21 @@ static void VN_CD_ASYNC_CODE vn_cd_async_store_byte(uint8_t value)
     }
 }
 
+static void VN_CD_ASYNC_CODE vn_cd_async_prepare_adpcm_write(void)
+{
+    uint8_t guard = 8u;
+    *IO_PCD_ADPCM_CONTROL = 0u;
+    *IO_PCD_ADPCM_ADDR_LO = (uint8_t)(vn_cd_async_dest_addr & 0xffu);
+    *IO_PCD_ADPCM_ADDR_HI = (uint8_t)(vn_cd_async_dest_addr >> 8);
+    *IO_PCD_ADPCM_CONTROL = (uint8_t)(*IO_PCD_ADPCM_CONTROL | PCD_ADPCM_WRITE_LATCH);
+    while (guard--) {}
+    *IO_PCD_ADPCM_CONTROL = (uint8_t)(*IO_PCD_ADPCM_CONTROL & (uint8_t)~PCD_ADPCM_WRITE_LATCH);
+}
+
 static uint8_t VN_CD_ASYNC_CODE vn_cd_async_begin_impl(void)
 {
     uint8_t count;
+    if (vn_cd_async_dest_kind == VN_CD_ASYNC_DEST_ADPCM_RAM) vn_cd_async_prepare_adpcm_write();
     VN_PCD_SCSI_DATA = 0x81u;
     if (!(VN_PCD_SCSI_STATUS & VN_PCD_SCSI_BSY)) VN_PCD_SCSI_STATUS = 0x81u;
     count = vn_cd_async_sector_count;
@@ -548,7 +566,7 @@ static uint8_t VN_CD_ASYNC_CODE vn_cd_async_begin_impl(void)
 
 static uint8_t VN_CD_ASYNC_CODE vn_cd_async_service_impl(void)
 {
-    uint16_t budget = VN_CD_ASYNC_BYTES_PER_FRAME;
+    uint16_t budget = vn_cd_async_dest_kind == VN_CD_ASYNC_DEST_ADPCM_RAM ? VN_CD_ASYNC_ADPCM_BYTES_PER_FRAME : VN_CD_ASYNC_BYTES_PER_FRAME;
     if (vn_cd_async_status != VN_CD_ASYNC_STATUS_ACTIVE) return vn_cd_async_status;
     while (budget && vn_cd_async_wire_remaining)
     {
@@ -658,11 +676,11 @@ static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_data_read(pce_sector_t sector, 
     uint8_t sectors;
     if (!byte_count || byte_count > VN_CD_ASYNC_MAX_BYTES) return 0u;
     if (vn_cd_async_status == VN_CD_ASYNC_STATUS_ACTIVE) return 0u;
-    if (dest_kind != VN_CD_ASYNC_DEST_BANK132 && dest_kind != VN_CD_ASYNC_DEST_SCENE_PACK_CACHE) return 0u;
+    if (dest_kind != VN_CD_ASYNC_DEST_BANK132 && dest_kind != VN_CD_ASYNC_DEST_SCENE_PACK_CACHE && dest_kind != VN_CD_ASYNC_DEST_ADPCM_RAM) return 0u;
     if (!vn_cd_async_code_loaded) load_cd_async_code();
     if (!vn_cd_async_code_loaded) return 0u;
     sectors = VN_CD_CHUNK_SECTOR_COUNT(byte_count);
-    if (!sectors || sectors > (VN_CD_ASYNC_MAX_BYTES >> 11)) return 0u;
+    if (!sectors || sectors > VN_CD_ASYNC_MAX_SECTORS) return 0u;
     vn_cd_async_sector = sector;
     vn_cd_async_dest_kind = dest_kind;
     vn_cd_async_dest_bank = dest_bank;
@@ -723,6 +741,11 @@ static void VN_BANKED_CODE2 vn_cd_async_service_frame(void)
 static uint8_t VN_BANKED_CODE2 vn_cd_async_done(void)
 {
     return (uint8_t)(vn_cd_async_status == VN_CD_ASYNC_STATUS_DONE || vn_cd_async_status == VN_CD_ASYNC_STATUS_ERROR);
+}
+
+static uint8_t VN_BANKED_CODE2 vn_cd_async_succeeded(void)
+{
+    return (uint8_t)(vn_cd_async_status == VN_CD_ASYNC_STATUS_DONE);
 }
 
 static void VN_BANKED_CODE2 vn_cd_async_cancel(void)

@@ -61,8 +61,8 @@ static void VN_RESIDENT_CODE stop_buffered_adpcm_playback_direct(void)
 static unsigned int VN_BANKED_CODE adpcm_voice_buffer_size(void)
 {
 #if defined(__PCE_CD__)
-    unsigned int size = adpcm_voice_snapshot.cd_byte_size;
-    if (!size && adpcm_voice_snapshot.data_size && adpcm_voice_snapshot.data_size <= 65535ul)
+    unsigned int size = 0u;
+    if (adpcm_voice_snapshot.data_size && adpcm_voice_snapshot.data_size <= 65535ul)
     {
         size = (unsigned int)adpcm_voice_snapshot.data_size;
     }
@@ -195,30 +195,6 @@ static uint8_t VN_BANKED_CODE2 wait_adpcm_transfer_ready(void)
 #endif
 }
 
-static uint8_t VN_BANKED_CODE2 wait_adpcm_cd_transfer_ready(uint8_t sectors)
-{
-#if defined(__PCE_CD__)
-    uint8_t sector_count = sectors ? sectors : 1u;
-    /* One settle + one seek-latency compensation per BIOS read COMMAND, not per
-       sector. pce_cdb_adpcm_read_from_cd reads the whole `sectors`-sector chunk
-       in a single seek-dominated command whose latency (~10 frames on Geargrafx,
-       measured 2026-07) is nearly independent of the sector count. Settling and
-       applying VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES once per sector over-counted
-       the PSG advance by the chunk factor (chunk=8 -> ~8x), so a chunked voice
-       load fast-forwarded the PSG sequencer and made the BGM audibly jump. The
-       small per-sector transfer time is still credited below, scaled by chunk. */
-    cd_transfer_wait();
-    if (!wait_adpcm_transfer_ready()) return 0u;
-#if VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES
-    engine_apply_psg_credit((uint8_t)(sector_count * VN_ADPCM_CD_READ_PSG_COMPENSATION_FRAMES), 1u);
-#endif
-    return 1u;
-#else
-    (void)sectors;
-    return 0u;
-#endif
-}
-
 static void VN_BANKED_CODE2 restore_display_after_adpcm(uint8_t restore_display)
 {
 #if defined(__PCE_CD__)
@@ -229,14 +205,34 @@ static void VN_BANKED_CODE2 restore_display_after_adpcm(uint8_t restore_display)
 #endif
 }
 
+static inline uint8_t VN_BANKED_CODE2_INLINE load_adpcm_voice_async_cd(void)
+{
+#if defined(__PCE_CD__)
+    pce_sector_t sector = {0};
+    uint16_t byte_count = (uint16_t)adpcm_voice_snapshot.data_size;
+    cd_sector_from_ref(&sector, &adpcm_voice_snapshot.cd_sector);
+    if (!byte_count) return 0u;
+    if (!vn_cd_async_begin_data_read(sector, VN_CD_ASYNC_DEST_ADPCM_RAM, 0u, (uint16_t)adpcm_voice_snapshot.adpcm_address, byte_count)) return 0u;
+    while (!vn_cd_async_done())
+    {
+        vn_wait_next_vblank_raw();
+        engine_service();
+        vn_cd_async_service_frame();
+    }
+    return vn_cd_async_succeeded();
+#else
+    return 0u;
+#endif
+}
+
 static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t chunk_sectors)
 {
 #if defined(__PCE_CD__)
     uint8_t loaded = 0u;
     uint8_t same_loaded;
     uint8_t stopped_playback = 0u;
-    uint8_t cd_read_count = 0u;
     const uint8_t restore_display = (uint8_t)!pending_display_enable;
+    (void)chunk_sectors;
     if (voice_index < 0) return 0u;
     if (!copy_adpcm_voice(voice_index)) return 0u;
     if (!adpcm_voice_fits_buffer()) return 0u;
@@ -263,51 +259,13 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
     loaded_adpcm_valid = 0u;
     adpcm_play_active = 0u;
     adpcm_play_frames_remaining = 0u;
-    vn_cd_bios_irq_open();
-    pce_cdb_adpcm_reset();
-    if (!wait_adpcm_transfer_ready())
-    {
-        map_resident_data();
-        sync_cd_external_irq_after_bios_call();
-        restore_display_after_adpcm(restore_display);
-        return 0u;
-    }
     if (adpcm_voice_snapshot.has_cd)
     {
-        pce_sector_t sector = {0};
-        const uint16_t sector_count = adpcm_voice_snapshot.cd_sector_count;
-        const uint8_t read_count = sector_count > 255u ? 255u : (uint8_t)sector_count;
-        uint8_t remaining = read_count;
-        unsigned int adpcm_address = adpcm_voice_snapshot.adpcm_address;
-        prepare_cd_data_access();
-        cd_sector_from_ref(&sector, &adpcm_voice_snapshot.cd_sector);
-        if (chunk_sectors)
-        {
-            loaded = 1u;
-            while (remaining)
-            {
-                uint8_t chunk = remaining;
-                if (chunk > chunk_sectors) chunk = chunk_sectors;
-                loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, chunk, adpcm_address));
-                if (!loaded) break;
-                if (!wait_adpcm_cd_transfer_ready(chunk))
-                {
-                    loaded = 0u;
-                    break;
-                }
-                remaining = (uint8_t)(remaining - chunk);
-                adpcm_address = (unsigned int)(adpcm_address + ((unsigned int)chunk << 11));
-                while (chunk--) cd_sector_advance(&sector);
-            }
-        }
-        else
-        {
-            cd_read_count = read_count;
-            loaded = (uint8_t)(!pce_cdb_adpcm_read_from_cd(sector, read_count, adpcm_voice_snapshot.adpcm_address));
-        }
+        loaded = load_adpcm_voice_async_cd();
     }
     else
     {
+        vn_cd_bios_irq_open();
         map_resident_data();
         loaded = (uint8_t)(!pce_cdb_adpcm_read_from_ram(PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)adpcm_voice_snapshot.data, adpcm_voice_snapshot.adpcm_address, (uint16_t)adpcm_voice_snapshot.data_size));
     }
@@ -319,18 +277,7 @@ static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t 
         restore_display_after_adpcm(restore_display);
         return 0u;
     }
-    if (adpcm_voice_snapshot.has_cd)
-    {
-        if (!chunk_sectors && !wait_adpcm_cd_transfer_ready(cd_read_count))
-        {
-            map_resident_data();
-            resume_cdda_after_cd_data_access();
-            sync_cd_external_irq_after_bios_call();
-            restore_display_after_adpcm(restore_display);
-            return 0u;
-        }
-    }
-    else if (!wait_adpcm_transfer_ready())
+    if (!adpcm_voice_snapshot.has_cd && !wait_adpcm_transfer_ready())
     {
         map_resident_data();
         resume_cdda_after_cd_data_access();
