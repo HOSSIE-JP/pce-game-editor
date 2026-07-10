@@ -14,7 +14,7 @@ function makeService() {
   const calls = [];
   const service = createEditorControlService({
     editor_status: async () => ({ ready: true }),
-    asset_list: async () => ({ files: [] }),
+    asset_list: async () => ({ file: 'assets/pce-assets.json', assets: [] }),
     project_config_get: async () => ({ title: 'PCE Test' }),
     code_write: async (args) => {
       calls.push(['code_write', args]);
@@ -43,7 +43,7 @@ test('editor control lists tools and requires confirm for mutating commands', as
 
   assert.ok(tools.some((tool) => tool.name === 'editor_status' && !tool.mutates));
   assert.ok(tools.some((tool) => tool.name === 'code_write' && tool.mutates));
-  assert.ok(tools.some((tool) => tool.name === 'asset_write_file' && tool.mutates));
+  assert.ok(tools.some((tool) => tool.name === 'asset_upsert' && tool.mutates));
 
   const rejected = await service.callTool('code_write', { path: 'src/main.c', content: 'x' });
   assert.equal(rejected.ok, false);
@@ -109,7 +109,7 @@ test('editor control REST server enforces token and localhost origin', async () 
       body: { name: 'asset_list', arguments: {} },
     });
     assert.equal(call.status, 200);
-    assert.deepEqual(call.data.result, { files: [] });
+    assert.deepEqual(call.data.result, { file: 'assets/pce-assets.json', assets: [] });
 
     const logs = await requestJson(`${baseUrl}/v1/logs`, {
       headers: { Authorization: 'Bearer test-token' },
@@ -119,7 +119,10 @@ test('editor control REST server enforces token and localhost origin', async () 
     assert.equal(toolLog.protocol, 'rest');
     assert.equal(typeof toolLog.durationMs, 'number');
     assert.deepEqual(toolLog.arguments, {});
-    assert.deepEqual(toolLog.result, { files: { type: 'array', length: 0 } });
+    assert.deepEqual(toolLog.result, {
+      file: 'assets/pce-assets.json',
+      assets: { type: 'array', length: 0 },
+    });
   } finally {
     await server.stop();
   }
@@ -140,11 +143,10 @@ test('editor control operation logs redact large write payloads', async () => {
         'Content-Type': 'application/json',
       },
       body: {
-        name: 'asset_write_file',
+        name: 'asset_upsert',
         dryRun: true,
         arguments: {
-          targetPath: 'gfx/demo.png',
-          dataBase64: payload,
+          asset: { id: 'demo', type: 'image', dataUrl: payload },
         },
       },
     });
@@ -153,9 +155,9 @@ test('editor control operation logs redact large write payloads', async () => {
     const logs = await requestJson(`${baseUrl}/v1/logs`, {
       headers: { Authorization: 'Bearer test-token' },
     });
-    const writeLog = logs.data.result.logs.find((entry) => entry.kind === 'tool' && entry.tool === 'asset_write_file');
-    assert.equal(writeLog.arguments.targetPath, 'gfx/demo.png');
-    assert.deepEqual(writeLog.arguments.dataBase64, { redacted: true, length: payload.length });
+    const writeLog = logs.data.result.logs.find((entry) => entry.kind === 'tool' && entry.tool === 'asset_upsert');
+    assert.equal(writeLog.arguments.asset.id, 'demo');
+    assert.deepEqual(writeLog.arguments.asset.dataUrl, { redacted: true, length: payload.length });
     assert.notEqual(JSON.stringify(writeLog), payload);
   } finally {
     await server.stop();
@@ -183,7 +185,7 @@ test('editor control MCP HTTP calls are captured in operation logs', async () =>
       },
     });
     assert.equal(call.status, 200);
-    assert.equal(call.data.result.structuredContent.files.length, 0);
+    assert.equal(call.data.result.structuredContent.assets.length, 0);
 
     const logs = await requestJson(`${baseUrl}/v1/logs`, {
       headers: { Authorization: 'Bearer mcp-token' },

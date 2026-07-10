@@ -1,5 +1,7 @@
 # refactor-instructions-cd-load-chunking.md — CD-ROM2 VN: 重いロード時の PSG 詰まり解消（Phase 0〜2）実装指示書
 
+> **文書区分: タスク時点の実装指示。** 現行仕様の入口ではありません。2026-07-10 の全体監査は [docs/implementation-audit-2026-07-10.md](docs/implementation-audit-2026-07-10.md) を参照し、CD/ADPCM の最終挙動は現行コードと `docs/pce-memory-bank-strategy.md` を優先してください。
+
 このファイルは実装担当モデル（Codex）向けの作業指示書である。
 作業前に必ず `CLAUDE.md` / `AGENTS.md` を読むこと。優先順位は次のとおり:
 

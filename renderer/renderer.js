@@ -4,14 +4,6 @@
  */
 
 import {
-  AUDIO_EXTS,
-  IMAGE_EXTS,
-  allowedTypesForExtension as getAllowedAssetTypesForExtension,
-  defaultSubDirForType,
-  inferTypeFromExtension,
-  normalizeSymbolName,
-} from './asset-utils.mjs';
-import {
   clearPluginRuntime as clearRuntimeState,
   createPluginRuntime,
   getRuntimeCapabilities,
@@ -28,8 +20,16 @@ import {
   renderLogEntries,
   renderLogSourceFilters as renderSharedLogSourceFilters,
 } from './log-viewer-core.mjs';
-
-const DEFAULT_EXTERNAL_EMULATOR_PATH = '/Applications/Geargrafx.app/Contents/MacOS/geargrafx';
+import {
+  normalizePluginDiagnostics,
+  pluginDiagnosticHtml,
+  pluginTrustPrompt,
+} from './plugin-diagnostics.mjs';
+import {
+  DEFAULT_EXTERNAL_EMULATOR_PATH,
+  buildPceProjectSettings,
+  normalizeExternalEmulatorSettings,
+} from './project-settings.mjs';
 
 // ------------------------------------------------------------------ state --
 const state = {
@@ -42,9 +42,6 @@ const state = {
   projectConfig: {
     coreId: 'pc-engine',
     title: 'MY GAME',
-    author: 'AUTHOR',
-    serial: 'GM 00000000-00',
-    region: 'JUE',
     testPlay: {
       externalEmulator: {
         executablePath: DEFAULT_EXTERNAL_EMULATOR_PATH,
@@ -61,35 +58,6 @@ const state = {
     templates: [],
     cores: [],
     newProjectParentDir: '',
-  },
-  preview: {
-    audio: null,
-    audioEntryId: '',
-    vgmEntryId: '',
-    vgmDurationSec: 0,
-    imageEntryId: '',
-    spriteTimer: 0,
-    spriteEntryId: '',
-    spriteRow: 0,
-    spriteFrame: 0,
-    spriteImage: null,
-    spritePlaying: false,
-    imageZoom: 'fit',
-    imageNaturalWidth: 0,
-    imageNaturalHeight: 0,
-    paramsOpen: true,
-    previewOpen: true,
-    panelOpen: true,
-    panelWidth: 380,
-  },
-  rescomp: {
-    resRoot: '',
-    files: [],
-    selectedFile: '',
-    selectedEntryLine: null,
-    searchText: '',
-    pendingImageSource: null,
-    pendingAssetPick: null,
   },
   code: {
     tree: [],
@@ -122,7 +90,6 @@ const state = {
   pluginFilters: {
     searchText: '',
     type: 'all',
-    showAllCores: false,
   },
   pluginUi: {
     roleAccordionOpen: false,
@@ -132,98 +99,6 @@ const state = {
     projectSelectionRequired: false,
     projectSelected: false,
   },
-};
-
-const TYPE_OPTIONS = ['PALETTE', 'IMAGE', 'BITMAP', 'SPRITE', 'XGM', 'XGM2', 'WAV', 'MAP', 'TILEMAP', 'TILESET'];
-const COMPRESSION_OPTIONS = ['AUTO', 'NONE', 'APLIB', 'LZ4W'];
-const MAP_OPT_OPTIONS = ['NONE', 'ALL', 'DUPLICATE'];
-const ORDERING_OPTIONS = ['ROW', 'COLUMN'];
-const COLLISION_OPTIONS = ['NONE', 'CIRCLE', 'BOX'];
-const SPRITE_OPT_TYPE_OPTIONS = ['BALANCED', 'SPRITE', 'TILE', 'NONE'];
-const SPRITE_OPT_LEVEL_OPTIONS = ['FAST', 'MEDIUM', 'SLOW', 'MAX'];
-const BOOLEAN_WORD_OPTIONS = ['TRUE', 'FALSE'];
-const XGM_TIMING_OPTIONS = ['AUTO', 'NTSC', 'PAL'];
-const WAV_DRIVER_OPTIONS = ['DEFAULT', 'PCM', 'DPCM2', 'PCM4', 'XGM', 'XGM2'];
-const WAV_OUT_RATE_OPTIONS_BY_DRIVER = {
-  PCM: ['8000', '11025', '13400', '16000', '22050', '32000'],
-  XGM2: ['6650', '13300'],
-};
-const WAV_OUT_RATE_DEFAULT_BY_DRIVER = {
-  PCM: '16000',
-  XGM2: '13300',
-};
-const FORM_FIELDS_BY_TYPE = {
-  PALETTE: [
-    { key: 'name', label: 'シンボル名', type: 'text' },
-    { key: 'sourcePath', label: '入力ファイル', type: 'text' },
-  ],
-  IMAGE: [
-    { key: 'name', label: 'シンボル名', type: 'text' },
-    { key: 'sourcePath', label: '入力画像', type: 'text' },
-    { key: 'compression', label: '圧縮', type: 'select', options: COMPRESSION_OPTIONS },
-    { key: 'mapOpt', label: 'map_opt', type: 'select', options: MAP_OPT_OPTIONS },
-    { key: 'mapBase', label: 'map_base', type: 'text' },
-  ],
-  BITMAP: [
-    { key: 'name', label: 'シンボル名', type: 'text' },
-    { key: 'sourcePath', label: '入力画像', type: 'text' },
-    { key: 'compression', label: '圧縮', type: 'select', options: COMPRESSION_OPTIONS },
-  ],
-  SPRITE: [
-    { key: 'name', label: 'シンボル名', type: 'text' },
-    { key: 'sourcePath', label: '入力画像', type: 'text' },
-    { key: 'width', label: 'フレーム幅', type: 'text' },
-    { key: 'height', label: 'フレーム高', type: 'text' },
-    { key: 'compression', label: '圧縮', type: 'select', options: COMPRESSION_OPTIONS },
-    { key: 'time', label: 'time', type: 'text' },
-    { key: 'collision', label: 'collision', type: 'select', options: COLLISION_OPTIONS },
-    { key: 'optType', label: 'opt_type', type: 'select', options: SPRITE_OPT_TYPE_OPTIONS },
-    { key: 'optLevel', label: 'opt_level', type: 'select', options: SPRITE_OPT_LEVEL_OPTIONS },
-    { key: 'optDuplicate', label: 'opt_duplicate', type: 'select', options: BOOLEAN_WORD_OPTIONS },
-  ],
-  XGM: [
-    { key: 'name', label: 'シンボル名', type: 'text' },
-    { key: 'sourcePath', label: '入力音源', type: 'text' },
-    { key: 'timing', label: 'timing', type: 'select', options: XGM_TIMING_OPTIONS },
-    { key: 'options', label: 'options', type: 'text' },
-  ],
-  XGM2: [
-    { key: 'name', label: 'シンボル名', type: 'text' },
-    { key: 'sourcePath', label: '入力音源(1つ目)', type: 'text' },
-    { key: 'options', label: 'options', type: 'text' },
-  ],
-  WAV: [
-    { key: 'name', label: 'シンボル名', type: 'text' },
-    { key: 'sourcePath', label: '入力wav', type: 'text' },
-    { key: 'driver', label: 'driver', type: 'select', options: WAV_DRIVER_OPTIONS },
-    { key: 'outRate', label: 'out_rate', type: 'select', options: [] },
-    { key: 'far', label: 'far', type: 'select', options: BOOLEAN_WORD_OPTIONS },
-  ],
-  MAP: [
-    { key: 'name', label: 'シンボル名', type: 'text' },
-    { key: 'sourcePath', label: '入力画像/TMX', type: 'text' },
-    { key: 'tileset', label: 'tileset_id', type: 'text' },
-    { key: 'compression', label: '圧縮', type: 'select', options: COMPRESSION_OPTIONS },
-    { key: 'mapBase', label: 'map_base', type: 'text' },
-    { key: 'ordering', label: 'ordering', type: 'select', options: ORDERING_OPTIONS },
-  ],
-  TILEMAP: [
-    { key: 'name', label: 'シンボル名', type: 'text' },
-    { key: 'sourcePath', label: '入力画像/TMX', type: 'text' },
-    { key: 'tileset', label: 'tileset_id', type: 'text' },
-    { key: 'compression', label: '圧縮', type: 'select', options: COMPRESSION_OPTIONS },
-    { key: 'mapOpt', label: 'map_opt', type: 'select', options: MAP_OPT_OPTIONS },
-    { key: 'mapBase', label: 'map_base', type: 'text' },
-    { key: 'ordering', label: 'ordering', type: 'select', options: ORDERING_OPTIONS },
-  ],
-  TILESET: [
-    { key: 'name', label: 'シンボル名', type: 'text' },
-    { key: 'sourcePath', label: '入力画像/TSX', type: 'text' },
-    { key: 'compression', label: '圧縮', type: 'select', options: COMPRESSION_OPTIONS },
-    { key: 'opt', label: 'opt', type: 'select', options: MAP_OPT_OPTIONS },
-    { key: 'ordering', label: 'ordering', type: 'select', options: ORDERING_OPTIONS },
-    { key: 'export', label: 'export', type: 'select', options: BOOLEAN_WORD_OPTIONS },
-  ],
 };
 
 const DITHER_PATTERNS = {
@@ -326,7 +201,6 @@ const el = {
   sidebar: document.querySelector('.sidebar'),
   sidebarPluginTabs: $('sidebarPluginTabs'),
   mainLayout: document.querySelector('.main-layout'),
-  pageAssets: $('page-assets'),
   pageCode: $('page-code'),
   codeArea: $('codeArea'),
   codeEditor: $('codeEditor'),
@@ -362,11 +236,7 @@ const el = {
   btnCodeTreeCollapseAll: $('btnCodeTreeCollapseAll'),
   btnSaveCode: $('btnSaveCode'),
   settingTitle: $('settingTitle'),
-  settingAuthor: $('settingAuthor'),
-  settingSerial: $('settingSerial'),
   settingTitleError: $('settingTitleError'),
-  settingAuthorError: $('settingAuthorError'),
-  settingSerialError: $('settingSerialError'),
   settingOutputPath: $('settingOutputPath'),
   externalEmulatorSettings: $('externalEmulatorSettings'),
   externalEmulatorPath: $('externalEmulatorPath'),
@@ -386,7 +256,6 @@ const el = {
   pluginEmulatorSelect: $('pluginEmulatorSelect'),
   pluginSearchInput: $('pluginSearchInput'),
   pluginTypeFilter: $('pluginTypeFilter'),
-  pluginCoreFilterToggle: $('pluginCoreFilterToggle'),
   pluginRoleStatus: $('pluginRoleStatus'),
   btnPluginRoleAccordion: $('btnPluginRoleAccordion'),
   pluginRoleBody: $('pluginRoleBody'),
@@ -405,24 +274,6 @@ const el = {
   aboutPlatform: $('aboutPlatform'),
   aboutArch: $('aboutArch'),
   aboutAppPath: $('aboutAppPath'),
-  btnOpenResDir: $('btnOpenResDir'),
-  btnCreateResFile: $('btnCreateResFile'),
-  btnAddAsset: $('btnAddAsset'),
-  resFileModal: $('resFileModal'),
-  btnResFileModalClose: $('btnResFileModalClose'),
-  btnResFileCancel: $('btnResFileCancel'),
-  btnResFileCreate: $('btnResFileCreate'),
-  resFileNameInput: $('resFileNameInput'),
-  assetModal: $('assetModal'),
-  btnAssetModalClose: $('btnAssetModalClose'),
-  btnAssetModalCancel: $('btnAssetModalCancel'),
-  btnAssetModalCreate: $('btnAssetModalCreate'),
-  assetSourcePathInput: $('assetSourcePathInput'),
-  assetTypeInput: $('assetTypeInput'),
-  assetResFileInput: $('assetResFileInput'),
-  assetTargetSubdirInput: $('assetTargetSubdirInput'),
-  assetTargetFileNameInput: $('assetTargetFileNameInput'),
-  assetSymbolNameInput: $('assetSymbolNameInput'),
   projectModal: $('projectModal'),
   btnProjectModalClose: $('btnProjectModalClose'),
   btnProjectModalCancel: $('btnProjectModalCancel'),
@@ -444,40 +295,6 @@ const el = {
   btnExportModalCancel: $('btnExportModalCancel'),
   btnExportRom: $('btnExportRom'),
   btnExportHtml: $('btnExportHtml'),
-  resFileSelect: $('resFileSelect'),
-  assetSearchInput: $('assetSearchInput'),
-  assetTableBody: $('assetTableBody'),
-  assetTableHint: $('assetTableHint'),
-  assetEditForm: $('assetEditForm'),
-  assetNoSelectionHint: $('assetNoSelectionHint'),
-  assetEditorPanel: $('assetEditorPanel'),
-  assetEditorActions: $('assetEditorActions'),
-  btnDeleteAssetEntry: $('btnDeleteAssetEntry'),
-  btnTogglePreviewPanel: $('btnTogglePreviewPanel'),
-  assetsLayout: $('assetsLayout'),
-  assetPreviewResizer: $('assetPreviewResizer'),
-  assetPreviewPanel: $('assetPreviewPanel'),
-  btnAccordionParams: $('btnAccordionParams'),
-  accordionParamsBody: $('accordionParamsBody'),
-  btnAccordionPreview: $('btnAccordionPreview'),
-  accordionPreviewBody: $('accordionPreviewBody'),
-  inlineImagePreview: $('inlineImagePreview'),
-  inlinePreviewInfo: $('inlinePreviewInfo'),
-  inlineImageZoom: $('inlineImageZoom'),
-  inlineImageFrame: $('inlineImageFrame'),
-  inlinePreviewImage: $('inlinePreviewImage'),
-  inlinePalette: $('inlinePalette'),
-  inlineAudioPreview: $('inlineAudioPreview'),
-  audioPreviewMeta: $('audioPreviewMeta'),
-  audioPlayer: $('audioPlayer'),
-  btnAudioPlay: $('btnAudioPlay'),
-  audioPlayIcon: $('audioPlayIcon'),
-  audioSeek: $('audioSeek'),
-  audioTime: $('audioTime'),
-  inlineNoPreview: $('inlineNoPreview'),
-  assetCommentInput: $('assetCommentInput'),
-  assetResizeTargetWidth: $('assetResizeTargetWidth'),
-  assetResizeTargetHeight: $('assetResizeTargetHeight'),
   audioConvertModal: $('audioConvertModal'),
   audioConvertBackdrop: $('audioConvertBackdrop'),
   btnAudioConvertClose: $('btnAudioConvertClose'),
@@ -562,12 +379,6 @@ const el = {
   quantizeResultPalette: $('quantizeResultPalette'),
   quantizeStats: $('quantizeStats'),
 };
-
-const TITLE_MAX = 48;
-const AUTHOR_MAX = 16;
-const SERIAL_MAX = 14;
-const PRINTABLE_ASCII_RE = /^[\x20-\x7E]+$/;
-const SERIAL_RE = /^[A-Z]{2}\s[0-9A-Z]{8}-[0-9A-Z]{2}$/;
 
 // ============================================================ BUILD LOG ===
 
@@ -739,12 +550,13 @@ function setLogOpenHeight(height, options = {}) {
 
 const pluginState = {
   plugins: [],
+  diagnostics: [],
   generating: {},
   /** 現在ビルダーとして使用中のプラグイン ID (null = コードエディタ使用) */
   activeBuilderPlugin: null,
   /** 現在 Test Play 用に使用中のエミュレータープラグイン ID */
   activeEmulatorPlugin: null,
-  /** Plugin Runtime v2.5 role selections. */
+  /** Project plugin role selections. */
   activeRoles: {},
   /** サイドバー内プラグインアイコン順 (plugin.id の配列) */
   sidebarOrder: [],
@@ -759,9 +571,8 @@ const pceAssetState = {
   assets: [],
 };
 
-const SIDEBAR_PLUGIN_ORDER_KEY_PREFIX = 'md-editor.sidebarPluginOrder.v1';
-const LOG_VIEWER_STATE_KEY = 'md-editor.logViewerState.v1';
-const ASSET_PREVIEW_WIDTH_KEY = 'md-editor.assetPreviewWidth.v1';
+const SIDEBAR_PLUGIN_ORDER_KEY_PREFIX = 'pce-editor.sidebarPluginOrder.v1';
+const LOG_VIEWER_STATE_KEY = 'pce-editor.logViewerState.v1';
 const ASSET_PREVIEW_MIN_WIDTH = 280;
 const ASSET_PREVIEW_MAX_WIDTH = 760;
 const PROJECT_PLUGIN_STATE_EXCLUDED_ROLES = ['builder', 'testplay'];
@@ -841,17 +652,12 @@ function getActiveCoreId() {
 
 function pluginSupportsActiveCore(plugin) {
   const coreId = getActiveCoreId();
-  const cores = Array.isArray(plugin?.supportedCores) ? plugin.supportedCores : ['mega-drive'];
+  const cores = Array.isArray(plugin?.supportedCores) ? plugin.supportedCores : [];
   return cores.includes('*') || cores.includes(coreId);
 }
 
 function isStaticPageAvailableForActiveCore(pageId) {
-  if (pageId === 'assets') return getActiveCoreId() === 'mega-drive';
   return true;
-}
-
-function isLegacyRescompAvailable() {
-  return isStaticPageAvailableForActiveCore('assets');
 }
 
 function getRoleDefinitions() {
@@ -1069,33 +875,6 @@ function createPceAssetApi() {
   };
 }
 
-function getAssetTypeInfo(file = {}) {
-  const providers = getPluginCapabilities('asset-type-provider');
-  for (const provider of providers) {
-    if (typeof provider?.getTypeInfo !== 'function') continue;
-    try {
-      const info = provider.getTypeInfo(file);
-      if (info && typeof info === 'object') return info;
-    } catch (err) {
-      appendLog('app', `asset-type-provider エラー: ${String(err?.message || err)}`, 'warn');
-    }
-  }
-  const initialType = inferTypeFromExtension(file.ext);
-  const isAudioInput = AUDIO_EXTS.includes(String(file.ext || '').toLowerCase());
-  const fileName = String(file.fileName || '');
-  return {
-    initialType,
-    allowedTypes: getAllowedAssetTypesForExtension(file.ext, TYPE_OPTIONS),
-    defaultSubdir: defaultSubDirForType(initialType),
-    defaultSymbol: normalizeSymbolName(fileName),
-    suggestedFileName: initialType === 'WAV' && isAudioInput
-      ? `${fileName.replace(/\.[^.]+$/, '')}.wav`
-      : fileName,
-    isImageInput: IMAGE_EXTS.includes(String(file.ext || '').toLowerCase()),
-    isAudioInput,
-  };
-}
-
 function waitForPluginCapability(name, timeoutMs = 3000) {
   return waitForRuntimeCapability(pluginRuntime, name, timeoutMs, getPluginCapability);
 }
@@ -1218,16 +997,10 @@ function createPluginHostApi(plugin, roots = {}) {
     },
     assets: {
       ...createPceAssetApi(),
-      reloadResources: async (options = {}) => {
-        if (isLegacyRescompAvailable()) {
-          await loadResDefinitions({ keepSelection: options.keepSelection !== false });
-        }
+      reloadResources: async () => {
+        resetPceAssetCache();
+        await listPceAssets({ force: true });
         await refreshProjectList();
-        if (el.assetTableHint) {
-          el.assetTableHint.textContent = isLegacyRescompAvailable()
-            ? 'リソースを再読み込みしました'
-            : 'PCE アセットはプラグイン側で管理しています';
-        }
         return { ok: true };
       },
     },
@@ -1860,15 +1633,16 @@ async function restoreProjectPluginRoleState() {
       if (result?.ok && Array.isArray(result.changedIds) && result.changedIds.length > 0) {
         changed = true;
       }
-    } catch (_) {
-      // プロジェクト設定の復元に失敗しても、既存の検証処理で未対応 role は解除する。
+    } catch (err) {
+      appendLog('plugin', `role ${roleId} (${pluginId}) の復元に失敗: ${String(err?.message || err)}`, 'warn');
     }
   }
 
   if (changed) {
     try {
       pluginState.plugins = await window.electronAPI.listPlugins({ includeIncompatible: true });
-    } catch (_) {
+    } catch (err) {
+      appendLog('plugin', `復元後のプラグイン再読み込みに失敗: ${String(err?.message || err)}`, 'error');
       pluginState.plugins = [];
     }
   }
@@ -1897,15 +1671,16 @@ async function restoreProjectPluginEnabledState(options = {}) {
       if (result?.ok && Array.isArray(result.changedIds) && result.changedIds.length > 0) {
         changed = true;
       }
-    } catch (_) {
-      // プロジェクト別の復元に失敗しても、残りのプラグイン復元を継続する。
+    } catch (err) {
+      appendLog('plugin', `${pluginId} の有効状態復元に失敗: ${String(err?.message || err)}`, 'warn');
     }
   }
 
   if (changed) {
     try {
       pluginState.plugins = await window.electronAPI.listPlugins({ includeIncompatible: true });
-    } catch (_) {
+    } catch (err) {
+      appendLog('plugin', `復元後のプラグイン再読み込みに失敗: ${String(err?.message || err)}`, 'error');
       pluginState.plugins = [];
     }
   }
@@ -1920,8 +1695,17 @@ async function loadPlugins(options = {}) {
   setPluginRoleStatus('');
   try {
     pluginState.plugins = await window.electronAPI.listPlugins({ includeIncompatible: true });
-  } catch (_) {
+  } catch (err) {
+    appendLog('plugin', `プラグイン一覧の読み込みに失敗: ${String(err?.message || err)}`, 'error');
     pluginState.plugins = [];
+  }
+  try {
+    pluginState.diagnostics = normalizePluginDiagnostics(
+      await window.electronAPI.listPluginDiagnostics?.({ includeIncompatible: true }),
+    );
+  } catch (err) {
+    appendLog('plugin', `プラグイン診断の読み込みに失敗: ${String(err?.message || err)}`, 'warn');
+    pluginState.diagnostics = [];
   }
 
   if (!options.skipProjectPluginStateRestore) {
@@ -1933,7 +1717,8 @@ async function loadPlugins(options = {}) {
   try {
     const savedRoles = await window.electronAPI.getPluginRoles?.();
     pluginState.activeRoles = (savedRoles?.roles && typeof savedRoles.roles === 'object') ? savedRoles.roles : {};
-  } catch (_) {
+  } catch (err) {
+    appendLog('plugin', `plugin role設定の読み込みに失敗: ${String(err?.message || err)}`, 'error');
     pluginState.activeRoles = {};
   }
 
@@ -1950,7 +1735,11 @@ async function loadPlugins(options = {}) {
     if (defaultBuild) {
       pluginState.activeBuilderPlugin = defaultBuild.id;
       pluginState.activeRoles.builder = defaultBuild.id;
-      try { await window.electronAPI.setPluginRole('builder', defaultBuild.id); } catch (_) {}
+      try {
+        await window.electronAPI.setPluginRole('builder', defaultBuild.id);
+      } catch (err) {
+        appendLog('plugin', `既定builder roleの保存に失敗: ${String(err?.message || err)}`, 'warn');
+      }
     }
   }
 
@@ -1962,7 +1751,11 @@ async function loadPlugins(options = {}) {
     if (defaultEmulator) {
       pluginState.activeEmulatorPlugin = defaultEmulator.id;
       pluginState.activeRoles.testplay = defaultEmulator.id;
-      try { await window.electronAPI.setPluginRole('testplay', defaultEmulator.id); } catch (_) {}
+      try {
+        await window.electronAPI.setPluginRole('testplay', defaultEmulator.id);
+      } catch (err) {
+        appendLog('plugin', `既定Test Play roleの保存に失敗: ${String(err?.message || err)}`, 'warn');
+      }
     }
   }
 
@@ -1973,12 +1766,20 @@ async function loadPlugins(options = {}) {
   if (pluginState.activeBuilderPlugin && !buildIds.has(pluginState.activeBuilderPlugin)) {
     pluginState.activeBuilderPlugin = null;
     pluginState.activeRoles.builder = null;
-    try { await window.electronAPI.setPluginRole('builder', null); } catch (_) {}
+    try {
+      await window.electronAPI.setPluginRole('builder', null);
+    } catch (err) {
+      appendLog('plugin', `無効なbuilder roleの解除に失敗: ${String(err?.message || err)}`, 'warn');
+    }
   }
   if (pluginState.activeEmulatorPlugin && !emulatorIds.has(pluginState.activeEmulatorPlugin)) {
     pluginState.activeEmulatorPlugin = null;
     pluginState.activeRoles.testplay = null;
-    try { await window.electronAPI.setPluginRole('testplay', null); } catch (_) {}
+    try {
+      await window.electronAPI.setPluginRole('testplay', null);
+    } catch (err) {
+      appendLog('plugin', `無効なTest Play roleの解除に失敗: ${String(err?.message || err)}`, 'warn');
+    }
   }
 
   await activatePluginRenderers();
@@ -2059,7 +1860,29 @@ function renderPluginRoleSettings() {
 }
 
 async function setPluginEnabledFromUi(plugin, desired, control = null) {
-  const syncResult = await window.electronAPI.setPluginEnabled(plugin.id, desired);
+  let syncResult = await window.electronAPI.setPluginEnabled(plugin.id, desired);
+  if (desired && syncResult?.requiresTrust) {
+    const untrustedIds = Array.isArray(syncResult.untrustedPluginIds) && syncResult.untrustedPluginIds.length > 0
+      ? syncResult.untrustedPluginIds
+      : [plugin.id];
+    const accepted = window.confirm(pluginTrustPrompt(plugin, untrustedIds));
+    if (!accepted) {
+      if (control && 'checked' in control) control.checked = false;
+      if (control) control.disabled = false;
+      appendLog('plugin', `ユーザープラグイン "${plugin.name}" の信頼確認をキャンセルしました`, 'warn');
+      return syncResult;
+    }
+    for (const pluginId of untrustedIds) {
+      const trustResult = await window.electronAPI.setPluginTrusted(pluginId, true);
+      if (!trustResult?.ok) {
+        syncResult = trustResult;
+        break;
+      }
+    }
+    if (syncResult?.requiresTrust) {
+      syncResult = await window.electronAPI.setPluginEnabled(plugin.id, true);
+    }
+  }
   if (!syncResult?.ok) {
     if (control && 'checked' in control) {
       control.checked = !desired;
@@ -2088,7 +1911,9 @@ async function setPluginEnabledFromUi(plugin, desired, control = null) {
   Object.entries(pluginState.activeRoles || {}).forEach(([roleId, activeId]) => {
     if (!desired && activeId === plugin.id) {
       pluginState.activeRoles[roleId] = null;
-      try { window.electronAPI.setPluginRole(roleId, null); } catch (_) {}
+      window.electronAPI.setPluginRole(roleId, null).catch((err) => {
+        appendLog('plugin', `無効化したpluginのrole ${roleId} 解除に失敗: ${String(err?.message || err)}`, 'warn');
+      });
     }
   });
 
@@ -2105,16 +1930,17 @@ async function setPluginEnabledFromUi(plugin, desired, control = null) {
 function renderPluginList() {
   if (!el.pluginList) return;
   const visiblePlugins = getFilteredPlugins();
+  const diagnosticMarkup = pluginDiagnosticHtml(pluginState.diagnostics, escHtml);
   if (pluginState.plugins.length === 0) {
-    el.pluginList.innerHTML = '<p class="hint-text">pce-game-editor/plugins/ フォルダにプラグインが見つかりません。</p>';
+    el.pluginList.innerHTML = `${diagnosticMarkup}<p class="hint-text">有効なプラグインが見つかりません。</p>`;
     return;
   }
   if (visiblePlugins.length === 0) {
-    el.pluginList.innerHTML = '<p class="hint-text">現在の検索条件に一致するプラグインがありません。</p>';
+    el.pluginList.innerHTML = `${diagnosticMarkup}<p class="hint-text">現在の検索条件に一致するプラグインがありません。</p>`;
     return;
   }
 
-  el.pluginList.innerHTML = '';
+  el.pluginList.innerHTML = diagnosticMarkup;
   visiblePlugins.forEach((plugin) => {
     const compatible = pluginSupportsActiveCore(plugin);
     const isActiveBuilder = (getActiveRolePlugin('builder') || pluginState.activeBuilderPlugin) === plugin.id;
@@ -2127,12 +1953,14 @@ function renderPluginList() {
     const depText = dependencies.length > 0 ? `依存: ${dependencies.join(', ')}` : '';
     const permissions = Array.isArray(plugin.permissions) ? plugin.permissions : [];
     const permText = permissions.length > 0 ? `権限: ${permissions.join(', ')}` : '';
+    const missingDependencies = Array.isArray(plugin.missingDependencies) ? plugin.missingDependencies : [];
+    const missingDepText = missingDependencies.length > 0 ? `不足: ${missingDependencies.join(', ')}` : '';
     const roleText = (Array.isArray(plugin.roles) && plugin.roles.length > 0)
       ? `Role: ${plugin.roles.map((role) => role.label || role.id).join(', ')}`
       : '';
     const coreText = compatible
       ? ''
-      : `Core: ${(plugin.supportedCores || ['mega-drive']).join(', ')} / 現在の ${getActiveCoreId()} では非対応`;
+      : `Core: ${(plugin.supportedCores || []).join(', ')} / 現在の ${getActiveCoreId()} では非対応`;
 
     card.innerHTML = `
       <div class="plugin-card-header">
@@ -2140,7 +1968,8 @@ function renderPluginList() {
           <span class="plugin-card-name">${escHtml(plugin.name)}</span>
           <span class="plugin-card-version">v${escHtml(plugin.version)}</span>
           <span class="plugin-card-types">${escHtml((plugin.pluginTypes || []).join(', ') || 'unknown')}</span>
-          <span class="plugin-card-types">${escHtml((plugin.supportedCores || ['mega-drive']).join(', '))}</span>
+          <span class="plugin-card-types">${escHtml((plugin.supportedCores || []).join(', '))}</span>
+          ${plugin.isUserPlugin ? `<span class="plugin-builder-badge">${plugin.trusted ? '✓ 信頼済み' : '⚠ 未信頼'}</span>` : ''}
           ${isActiveBuilder ? '<span class="plugin-builder-badge">🔨 ビルダー</span>' : ''}
           ${isActiveEmulator ? '<span class="plugin-builder-badge">🕹 Emulator</span>' : ''}
         </div>
@@ -2152,10 +1981,12 @@ function renderPluginList() {
       </div>
       ${plugin.description ? `<p class="plugin-card-desc">${escHtml(plugin.description)}</p>` : ''}
       ${depText ? `<p class="plugin-card-deps">${escHtml(depText)}</p>` : ''}
+      ${missingDepText ? `<p class="plugin-card-deps plugin-card-deps-warning">${escHtml(missingDepText)}</p>` : ''}
       ${coreText ? `<p class="plugin-card-deps plugin-card-deps-warning">${escHtml(coreText)}</p>` : ''}
       ${permText ? `<p class="plugin-card-deps">${escHtml(permText)}</p>` : ''}
       ${roleText ? `<p class="plugin-card-deps">${escHtml(roleText)}</p>` : ''}
       <div class="plugin-card-actions">
+        ${plugin.isUserPlugin && plugin.trusted ? '<button type="button" class="btn-sm plugin-revoke-trust-btn">信頼を解除</button>' : ''}
         <span class="plugin-generate-result" id="plugin-result-${escHtml(plugin.id)}"></span>
       </div>
     `;
@@ -3058,7 +2889,7 @@ function getFilteredPlugins() {
   const search = (state.pluginFilters.searchText || '').trim().toLowerCase();
   const type = state.pluginFilters.type || 'all';
   return pluginState.plugins.filter((plugin) => {
-    if (!state.pluginFilters.showAllCores && !pluginSupportsActiveCore(plugin)) return false;
+    if (!pluginSupportsActiveCore(plugin)) return false;
     if (type !== 'all' && !pluginSupportsType(plugin, type)) return false;
     if (!search) return true;
     const hay = `${plugin.id} ${plugin.name} ${plugin.description} ${(plugin.pluginTypes || []).join(' ')}`.toLowerCase();
@@ -3114,59 +2945,12 @@ function loadSampleCode() {
 
 function updateProjectNameDisplay() {
   if (el.projectName) {
-    const core = getActiveCoreId() === 'pc-engine' ? 'PCE' : 'MD';
-    el.projectName.textContent = `${state.projectConfig.title || 'MY GAME'} · ${core}`;
+    el.projectName.textContent = `${state.projectConfig.title || 'MY GAME'} · PCE`;
   }
 }
 
-function setFieldError(inputEl, errorEl, message) {
-  if (!inputEl || !errorEl) return;
-  const hasError = !!message;
-  inputEl.classList.toggle('invalid', hasError);
-  errorEl.textContent = message || '';
-}
-
-function validateTitle(value) {
-  if (!value) return 'タイトルを入力してください';
-  if (value.length > TITLE_MAX) return `タイトルは ${TITLE_MAX} 文字以内です`;
-  if (!PRINTABLE_ASCII_RE.test(value)) return 'タイトルは半角ASCII文字で入力してください';
-  return '';
-}
-
-function validateAuthor(value) {
-  if (!value) return '作者名を入力してください';
-  if (value.length > AUTHOR_MAX) return `作者名は ${AUTHOR_MAX} 文字以内です`;
-  if (!PRINTABLE_ASCII_RE.test(value)) return '作者名は半角ASCII文字で入力してください';
-  return '';
-}
-
-function validateSerial(value) {
-  if (!value) return 'シリアルナンバーを入力してください';
-  if (value.length !== SERIAL_MAX) return `シリアルナンバーは ${SERIAL_MAX} 文字固定です`;
-  if (!PRINTABLE_ASCII_RE.test(value)) return 'シリアルナンバーは半角ASCII文字で入力してください';
-  if (!SERIAL_RE.test(value)) return '形式が不正です (例: GM 00000000-00)';
-  return '';
-}
-
-function safeMdAuthor(value) {
-  const text = String(value || '').trim();
-  return validateAuthor(text) ? 'AUTHOR' : text;
-}
-
-function safeMdSerial(value) {
-  const text = String(value || '').trim().toUpperCase();
-  return validateSerial(text) ? 'GM 00000000-00' : text;
-}
-
 function getExternalEmulatorProjectSettings() {
-  const testPlay = state.projectConfig?.testPlay;
-  const external = testPlay && typeof testPlay === 'object' && testPlay.externalEmulator && typeof testPlay.externalEmulator === 'object'
-    ? testPlay.externalEmulator
-    : {};
-  return {
-    executablePath: String(external.executablePath || external.path || DEFAULT_EXTERNAL_EMULATOR_PATH).trim(),
-    extraArgs: String(external.extraArgs || external.arguments || '').trim(),
-  };
+  return normalizeExternalEmulatorSettings(state.projectConfig, DEFAULT_EXTERNAL_EMULATOR_PATH);
 }
 
 function collectExternalEmulatorSettings() {
@@ -3196,64 +2980,17 @@ function updateExternalEmulatorSettingsAvailability() {
   }
 }
 
-function buildTestPlaySettingsPatch() {
+function collectAndValidateSettings() {
+  const title = el.settingTitle?.value.trim() || state.projectConfig.title || state.projectConfig.romName || 'pce_sample';
   return {
-    ...(state.projectConfig.testPlay && typeof state.projectConfig.testPlay === 'object' ? state.projectConfig.testPlay : {}),
-    externalEmulator: collectExternalEmulatorSettings(),
+    valid: true,
+    errors: {},
+    config: buildPceProjectSettings(state.projectConfig, {
+      title,
+      externalEmulator: collectExternalEmulatorSettings(),
+    }),
   };
 }
-
-function collectAndValidateSettings({ showError = true } = {}) {
-  if (getActiveCoreId() === 'pc-engine') {
-    const title = el.settingTitle?.value.trim() || state.projectConfig.title || state.projectConfig.romName || 'pce_sample';
-    if (showError) {
-      setFieldError(el.settingTitle, el.settingTitleError, '');
-      setFieldError(el.settingAuthor, el.settingAuthorError, '');
-      setFieldError(el.settingSerial, el.settingSerialError, '');
-    }
-    return {
-      valid: true,
-      errors: {},
-      config: {
-        coreId: 'pc-engine',
-        platform: 'pce',
-        title,
-        romName: state.projectConfig.romName || title,
-        toolchain: 'llvm-mos',
-        testPlay: buildTestPlaySettingsPatch(),
-      },
-    };
-  }
-  const title = el.settingTitle?.value.trim() || state.projectConfig.title || 'MY GAME';
-  const author = el.settingAuthor?.value.trim() || state.projectConfig.author || 'AUTHOR';
-  const serial = (el.settingSerial?.value.trim() || state.projectConfig.serial || 'GM 00000000-00').toUpperCase();
-
-  const errors = {
-    title: validateTitle(title),
-    author: validateAuthor(author),
-    serial: validateSerial(serial),
-  };
-
-  if (showError) {
-    setFieldError(el.settingTitle, el.settingTitleError, errors.title);
-    setFieldError(el.settingAuthor, el.settingAuthorError, errors.author);
-    setFieldError(el.settingSerial, el.settingSerialError, errors.serial);
-  }
-
-  const valid = !errors.title && !errors.author && !errors.serial;
-  return {
-    valid,
-    errors,
-    config: {
-      title: title || state.projectConfig.title,
-      author: author || state.projectConfig.author,
-      serial: serial || state.projectConfig.serial,
-      region: 'JUE',
-      testPlay: buildTestPlaySettingsPatch(),
-    },
-  };
-}
-
 function openModal(modalEl) {
   if (!modalEl) return;
   modalEl.classList.add('open');
@@ -3361,7 +3098,6 @@ function resetProjectScopedPluginUiState() {
 async function reloadProjectAfterSwitch() {
   resetProjectScopedPluginUiState();
   await loadProjectConfig();
-  await loadResDefinitions({ keepSelection: false });
   await loadPlugins({ resetProjectPluginState: true, resetSidebarSelection: true });
   await refreshProjectList();
 }
@@ -3529,18 +3265,13 @@ async function loadProjectConfig() {
 
     const cfg = await window.electronAPI.getProjectConfig();
     if (cfg) {
-      const coreId = cfg.coreId || (cfg.platform === 'pce' ? 'pc-engine' : 'mega-drive');
+      const coreId = 'pc-engine';
       const normalized = {
         coreId,
         title: cfg.title || cfg.romName || state.projectConfig.title,
-        author: coreId === 'pc-engine' ? (cfg.author || state.projectConfig.author) : safeMdAuthor(cfg.author || state.projectConfig.author),
-        serial: coreId === 'pc-engine' ? (cfg.serial || state.projectConfig.serial) : safeMdSerial(cfg.serial || state.projectConfig.serial),
-        region: cfg.region || 'JUE',
       };
       state.projectConfig = { ...state.projectConfig, ...cfg, ...normalized };
       if (el.settingTitle) el.settingTitle.value = state.projectConfig.title;
-      if (el.settingAuthor) el.settingAuthor.value = state.projectConfig.author;
-      if (el.settingSerial) el.settingSerial.value = state.projectConfig.serial;
       populateExternalEmulatorSettings();
       updateProjectNameDisplay();
       collectAndValidateSettings({ showError: true });
@@ -3583,7 +3314,6 @@ async function persistProjectSettings(config, { showMessage = false } = {}) {
     throw new Error(result?.error || 'unknown');
   }
   state.projectConfig = result.config || config;
-  if (el.settingSerial) el.settingSerial.value = state.projectConfig.serial;
   populateExternalEmulatorSettings();
   updateProjectNameDisplay();
   if (showMessage && el.settingsSavedMsg) {
@@ -3781,11 +3511,6 @@ async function exportLastBuild(format) {
 
 // ========================================================= ASSET UTILS ===
 
-function toTypeBadge(type) {
-  const cls = `type-${String(type).toLowerCase().replace(/[^a-z0-9]/g, '')}`;
-  return `<span class="asset-type-pill ${cls}">${type}</span>`;
-}
-
 function escHtml(text) {
   return String(text || '')
     .replace(/&/g, '&amp;')
@@ -3793,316 +3518,6 @@ function escHtml(text) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-function getSelectedFile() {
-  return state.rescomp.files.find((f) => f.file === state.rescomp.selectedFile) || null;
-}
-
-function getFilteredEntries() {
-  const file = getSelectedFile();
-  if (!file) return [];
-  const q = state.rescomp.searchText.trim().toLowerCase();
-  if (!q) return file.entries;
-  return file.entries.filter((e) => {
-    const hay = `${e.name} ${e.type} ${e.sourcePath}`.toLowerCase();
-    return hay.includes(q);
-  });
-}
-
-function getAllAssetEntries() {
-  return (state.rescomp.files || []).flatMap((file) => file.entries || []);
-}
-
-function getPaletteReferenceCandidates(excludeSourcePath = '') {
-  const exclude = String(excludeSourcePath || '').replace(/\\/g, '/');
-  const seen = new Set();
-  return getAllAssetEntries()
-    .filter((entry) => {
-      const type = String(entry?.type || '').toUpperCase();
-      if (!['IMAGE', 'BITMAP', 'SPRITE', 'TILESET', 'TILEMAP', 'MAP'].includes(type)) return false;
-      const sourcePath = String(entry?.sourcePath || '').replace(/\\/g, '/');
-      const sourceAbsolutePath = String(entry?.sourceAbsolutePath || sourcePath).replace(/\\/g, '/');
-      if (!sourcePath && !sourceAbsolutePath) return false;
-      if (exclude && (sourcePath === exclude || sourceAbsolutePath === exclude)) return false;
-      const extBase = sourceAbsolutePath || sourcePath;
-      const ext = extBase.slice(extBase.lastIndexOf('.')).toLowerCase();
-      if (!['.png', '.bmp'].includes(ext)) return false;
-      const dedupeKey = sourceAbsolutePath || sourcePath;
-      if (seen.has(dedupeKey)) return false;
-      seen.add(dedupeKey);
-      return true;
-    })
-    .map((entry) => ({
-      sourcePath: String(entry.sourceAbsolutePath || entry.sourcePath || ''),
-      label: `${entry.name} (${entry.sourcePath})`,
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label, 'ja'));
-}
-
-function extractPaletteFromImageData(imageData, maxColors = 16) {
-  const palette = [];
-  const seen = new Set();
-  const data = imageData?.data;
-  if (!data) return [];
-
-  for (let i = 0; i < data.length; i += 4) {
-    const a = data[i + 3];
-    if (a < 128) continue;
-    const snapped = snapColorToMegaDrive({ r: data[i], g: data[i + 1], b: data[i + 2] });
-    const key = `${snapped.r},${snapped.g},${snapped.b}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    palette.push(snapped);
-    if (palette.length > maxColors) {
-      return null;
-    }
-  }
-
-  return palette;
-}
-
-function getCurrentSelectedEntry() {
-  const file = getSelectedFile();
-  if (!file || state.rescomp.selectedEntryLine == null) return null;
-  return file.entries.find((e) => Number(e.lineNumber) === Number(state.rescomp.selectedEntryLine)) || null;
-}
-
-function allowedTypesForExtension(ext) {
-  return getAllowedAssetTypesForExtension(ext, TYPE_OPTIONS);
-}
-
-function createDefaultEntry(type, sourcePath, fileName) {
-  const base = {
-    type,
-    name: normalizeSymbolName(fileName),
-    sourcePath,
-  };
-
-  if (type === 'IMAGE') {
-    return { ...base, compression: 'NONE', mapOpt: 'ALL', mapBase: '0' };
-  }
-  if (type === 'BITMAP') {
-    return { ...base, compression: 'NONE' };
-  }
-  if (type === 'SPRITE') {
-    return {
-      ...base,
-      width: '2',
-      height: '2',
-      compression: 'NONE',
-      time: '0',
-      collision: 'NONE',
-      optType: 'BALANCED',
-      optLevel: 'FAST',
-      optDuplicate: 'FALSE',
-    };
-  }
-  if (type === 'XGM') {
-    return { ...base, timing: 'AUTO', options: '' };
-  }
-  if (type === 'XGM2') {
-    return { ...base, files: [sourcePath], options: '' };
-  }
-  if (type === 'WAV') {
-    return { ...base, driver: 'DEFAULT', outRate: '', far: 'TRUE' };
-  }
-  if (type === 'MAP') {
-    if (String(sourcePath || '').toLowerCase().endsWith('.tmx')) {
-      return { ...base, tileset: 'Ground', compression: 'NONE', mapCompression: 'NONE', mapBase: '0', ordering: 'ROW' };
-    }
-    return { ...base, tileset: 'tileset_main', compression: 'NONE', mapBase: '0', ordering: 'ROW' };
-  }
-  if (type === 'TILEMAP') {
-    if (String(sourcePath || '').toLowerCase().endsWith('.tmx')) {
-      return { ...base, tileset: 'Ground', compression: 'NONE', mapCompression: 'NONE', mapBase: '0', ordering: 'ROW' };
-    }
-    return { ...base, tileset: 'tileset_main', compression: 'NONE', mapOpt: 'ALL', mapBase: '0', ordering: 'ROW' };
-  }
-  if (type === 'TILESET') {
-    return { ...base, compression: 'NONE', opt: 'ALL', ordering: 'ROW', export: 'FALSE' };
-  }
-  return base;
-}
-
-function getEntryByLine(lineNumber) {
-  const file = getSelectedFile();
-  if (!file) return null;
-  return file.entries.find((e) => Number(e.lineNumber) === Number(lineNumber)) || null;
-}
-
-function renderResFileSelect() {
-  if (!el.resFileSelect) return;
-  el.resFileSelect.innerHTML = '';
-
-  state.rescomp.files.forEach((f) => {
-    const opt = document.createElement('option');
-    opt.value = f.file;
-    opt.textContent = `${f.file} (${f.entryCount})`;
-    el.resFileSelect.appendChild(opt);
-  });
-
-  if (!state.rescomp.selectedFile && state.rescomp.files.length > 0) {
-    state.rescomp.selectedFile = state.rescomp.files[0].file;
-  }
-
-  if (state.rescomp.selectedFile) {
-    el.resFileSelect.value = state.rescomp.selectedFile;
-  }
-
-  if (el.btnDeleteAssetEntry) {
-    el.btnDeleteAssetEntry.disabled = !state.rescomp.selectedFile;
-  }
-}
-
-function renderEntryMeta(entry) {
-  if (!entry) {
-    if (el.infoLine) el.infoLine.textContent = '-';
-    if (el.infoType) el.infoType.textContent = '-';
-    if (el.infoName) el.infoName.textContent = '-';
-    if (el.infoComment) el.infoComment.textContent = '-';
-    if (el.infoSource) el.infoSource.textContent = '-';
-    return;
-  }
-
-  if (el.infoLine) el.infoLine.textContent = String(entry.lineNumber || '-');
-  if (el.infoType) el.infoType.textContent = String(entry.type || '-');
-  if (el.infoName) el.infoName.textContent = String(entry.name || '-');
-  if (el.infoComment) el.infoComment.textContent = String(entry.comment || '-');
-  if (el.infoSource) el.infoSource.textContent = String(entry.sourcePath || '-');
-}
-
-function isImageEntry(entry) {
-  return !!entry && IMAGE_EXTS.includes(pathExt(entry.sourcePath));
-}
-
-function isSpriteEntry(entry) {
-  return !!entry && String(entry.type || '').toUpperCase() === 'SPRITE' && IMAGE_EXTS.includes(pathExt(entry.sourcePath));
-}
-
-function isAudioEntry(entry) {
-  return !!entry && pathExt(entry.sourcePath) === '.wav';
-}
-
-function getVgmPreviewSourcePath(entry) {
-  if (!entry) return '';
-  if (pathExt(entry.sourcePath) === '.vgm') return entry.sourceAbsolutePath || entry.sourcePath || '';
-  const files = Array.isArray(entry.files) ? entry.files : [];
-  const firstFile = String(files[0] || '');
-  if (pathExt(firstFile) !== '.vgm') return '';
-  const resRoot = String(state.rescomp.resRoot || '').replace(/\\/g, '/').replace(/\/+$/, '');
-  return resRoot ? `${resRoot}/${firstFile.replace(/^\/+/, '')}` : firstFile;
-}
-
-function getMusicMetaSourcePath(entry) {
-  const vgmPath = getVgmPreviewSourcePath(entry);
-  if (vgmPath) return vgmPath;
-  if (!entry) return '';
-  if (['.vgm', '.xgm'].includes(pathExt(entry.sourcePath))) return entry.sourceAbsolutePath || entry.sourcePath || '';
-  const files = Array.isArray(entry.files) ? entry.files : [];
-  const musicFile = files.find((file) => ['.vgm', '.xgm'].includes(pathExt(file)));
-  if (!musicFile) return '';
-  const resRoot = String(state.rescomp.resRoot || '').replace(/\\/g, '/').replace(/\/+$/, '');
-  return resRoot ? `${resRoot}/${String(musicFile).replace(/^\/+/, '')}` : String(musicFile);
-}
-
-function isVgmPreviewEntry(entry) {
-  if (!entry || !getVgmPreviewSourcePath(entry)) return false;
-  const player = getPluginCapability('vgm-preview-player');
-  return typeof player?.canPreview === 'function' ? player.canPreview(entry) : false;
-}
-
-function isBgmMetaEntry(entry) {
-  if (!entry || !getMusicMetaSourcePath(entry)) return false;
-  const type = String(entry.type || '').toUpperCase();
-  return ['XGM', 'XGM2'].includes(type) || ['.vgm', '.xgm'].includes(pathExt(entry.sourcePath));
-}
-
-function pathExt(value) {
-  const m = String(value || '').toLowerCase().match(/(\.[a-z0-9]+)$/i);
-  return m ? m[1] : '';
-}
-
-function toFileUrl(absPath) {
-  return `file:///${encodeURI(String(absPath || '').replace(/\\/g, '/'))}`;
-}
-
-function buildEntryTooltip(entry) {
-  const parts = [];
-  if (entry.comment) {
-    parts.push(entry.comment);
-  }
-  if (entry.raw) {
-    parts.push(entry.raw);
-  }
-  return parts.join('\n');
-}
-
-function stopAudioPreview() {
-  if (state.preview.audio) {
-    state.preview.audio.pause();
-    state.preview.audio.currentTime = 0;
-    state.preview.audio = null;
-  }
-  state.preview.audioEntryId = '';
-  syncAudioPlayer(false);
-}
-
-function stopVgmPreview() {
-  const player = getPluginCapability('vgm-preview-player');
-  player?.stop?.();
-  state.preview.vgmEntryId = '';
-  state.preview.vgmDurationSec = 0;
-  syncAudioPlayer(false);
-}
-
-function stopSpritePreview() {
-  if (state.preview.spriteTimer) {
-    window.clearTimeout(state.preview.spriteTimer);
-  }
-  state.preview.spriteTimer = 0;
-  state.preview.spriteEntryId = '';
-  state.preview.spriteImage = null;
-  state.preview.spriteFrame = 0;
-  state.preview.spritePlaying = false;
-}
-
-function extractDisplayPalette(imageData, maxSwatches) {
-  const seen = new Map();
-  const data = imageData.data;
-  let hasTransparent = false;
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i + 3] < 128) {
-      hasTransparent = true;
-      continue;
-    }
-    const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
-    seen.set(key, (seen.get(key) || 0) + 1);
-  }
-  const sorted = [...seen.entries()].sort((a, b) => b[1] - a[1]);
-  const palette = sorted.slice(0, Math.max(0, maxSwatches - (hasTransparent ? 1 : 0))).map(([key]) => ({
-    r: (key >> 16) & 0xff,
-    g: (key >> 8) & 0xff,
-    b: key & 0xff,
-  }));
-  return hasTransparent
-    ? [{ r: 0, g: 0, b: 0, transparent: true }, ...palette]
-    : palette;
-}
-
-function renderPaletteSwatches(container, colors) {
-  if (!container) return;
-  container.innerHTML = '';
-  colors.forEach(({ r, g, b, transparent, empty }, index) => {
-    const sw = document.createElement('div');
-    sw.className = 'palette-swatch';
-    if (transparent) sw.classList.add('is-transparent');
-    if (empty) sw.classList.add('is-empty');
-    const hex = `#${Number(r || 0).toString(16).padStart(2, '0')}${Number(g || 0).toString(16).padStart(2, '0')}${Number(b || 0).toString(16).padStart(2, '0')}`;
-    sw.style.backgroundColor = transparent ? '' : hex;
-    sw.title = transparent ? `${index}: ${hex} (transparent)` : `${index}: ${hex}`;
-    container.appendChild(sw);
-  });
 }
 
 function getCodeCompletionContext() {
@@ -4189,1261 +3604,8 @@ function applyCodeCompletion() {
 
 const IMAGE_PREVIEW_ZOOM_PRESETS = ['25', '50', '100', '200', '300', '400', '800'];
 
-function applyInlineImageZoom() {
-  if (!el.inlinePreviewImage) return;
-  const zoom = String(state.preview.imageZoom || 'fit');
-  const nw = Number(state.preview.imageNaturalWidth || 0);
-  const nh = Number(state.preview.imageNaturalHeight || 0);
-
-  if (zoom === 'fit' || !nw || !nh) {
-    el.inlinePreviewImage.style.width = '';
-    el.inlinePreviewImage.style.height = '';
-    el.inlinePreviewImage.style.maxWidth = '100%';
-    el.inlinePreviewImage.style.maxHeight = '100%';
-    el.inlinePreviewImage.style.objectFit = 'contain';
-    return;
-  }
-
-  const ratio = Math.max(0.01, Number(zoom) / 100);
-  el.inlinePreviewImage.style.maxWidth = 'none';
-  el.inlinePreviewImage.style.maxHeight = 'none';
-  el.inlinePreviewImage.style.objectFit = 'fill';
-  el.inlinePreviewImage.style.width = `${Math.round(nw * ratio)}px`;
-  el.inlinePreviewImage.style.height = `${Math.round(nh * ratio)}px`;
-}
-
-function stepInlineImageZoom(step) {
-  const list = ['fit', ...IMAGE_PREVIEW_ZOOM_PRESETS];
-  const current = String(state.preview.imageZoom || 'fit');
-  if (current === 'fit') {
-    state.preview.imageZoom = step > 0 ? '100' : '50';
-    if (el.inlineImageZoom) el.inlineImageZoom.value = state.preview.imageZoom;
-    applyInlineImageZoom();
-    return;
-  }
-  let idx = list.indexOf(current);
-  if (idx < 0) idx = 0;
-  const nextIdx = Math.max(0, Math.min(list.length - 1, idx + step));
-  state.preview.imageZoom = list[nextIdx];
-  if (el.inlineImageZoom) el.inlineImageZoom.value = state.preview.imageZoom;
-  applyInlineImageZoom();
-}
-
-function parseWavHeader(dataUrl) {
-  try {
-    const b64 = dataUrl.split(',')[1];
-    if (!b64 || b64.length < 60) return null;
-    const dec = atob(b64.slice(0, 64));
-    const u8 = new Uint8Array(dec.length);
-    for (let i = 0; i < dec.length; i++) u8[i] = dec.charCodeAt(i);
-    const view = new DataView(u8.buffer);
-    const riff = String.fromCharCode(u8[0], u8[1], u8[2], u8[3]);
-    const wave = String.fromCharCode(u8[8], u8[9], u8[10], u8[11]);
-    if (riff !== 'RIFF' || wave !== 'WAVE') return null;
-    const numChannels = view.getUint16(22, true);
-    const sampleRate = view.getUint32(24, true);
-    const bitsPerSample = view.getUint16(34, true);
-    const dataSize = view.getUint32(40, true);
-    const durationSec = sampleRate > 0
-      ? dataSize / (sampleRate * numChannels * (bitsPerSample / 8))
-      : 0;
-    const fileSizeBytes = Math.round(b64.replace(/=/g, '').length * 0.75);
-    return { sampleRate, numChannels, bitsPerSample, durationSec, fileSizeBytes };
-  } catch {
-    return null;
-  }
-}
-
-function formatDuration(sec) {
-  if (!isFinite(sec) || sec < 0) return '-';
-  const m = Math.floor(sec / 60);
-  const s = (sec % 60).toFixed(2);
-  return `${m}:${s.padStart(5, '0')}`;
-}
-
-function formatFileSize(bytes) {
-  if (!bytes || bytes <= 0) return '-';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatHex(value) {
-  if (value == null || value === '') return '-';
-  const n = Number(value);
-  if (!Number.isFinite(n)) return String(value);
-  return `0x${Math.max(0, n >>> 0).toString(16).toUpperCase()}`;
-}
-
-function formatPreviewEngineStatus(engine = {}) {
-  const label = engine.label || (engine.highAccuracyAvailable ? 'Nuked-OPN2 WASM' : '簡易 Web Audio');
-  const stateText = engine.highAccuracyAvailable
-    ? '有効'
-    : engine.state === 'loading'
-      ? '確認中'
-      : 'fallback';
-  const detail = engine.message ? ` / ${engine.message}` : '';
-  return `${label} (${stateText})${detail}`;
-}
-
-function renderBgmMetaRows(entry, meta = {}, warnings = [], { preview = false } = {}) {
-  const format = String(meta.format || pathExt(getMusicMetaSourcePath(entry)).replace('.', '').toUpperCase() || 'BGM');
-  const rows = [
-    ['形式', preview ? `${format} / FM+PSG 近似プレビュー` : format],
-    ['ファイル', entry.sourcePath || entry.files?.[0] || '-'],
-    ['サイズ', formatFileSize(meta.fileSizeBytes)],
-    ['再生時間', formatDuration(Number(meta.durationSec || 0))],
-  ];
-  if (format === 'VGM') {
-    rows.push(
-      ['VGM version', formatHex(meta.version)],
-      ['Data offset', formatHex(meta.dataOffset)],
-      ['YM2612 clock', meta.ym2612Clock ? `${meta.ym2612Clock} Hz` : '-'],
-      ['SN76489 clock', meta.sn76489Clock ? `${meta.sn76489Clock} Hz` : '-'],
-      ['Writes', `YM2612 ${meta.ym2612Writes || 0} / PSG ${meta.psgWrites || 0}`],
-      ['Wait samples', String(meta.waitSamples || 0)],
-    );
-  } else if (format === 'XGM') {
-    rows.push(
-      ['XGM version', formatHex(meta.version)],
-      ['Timing', `${meta.timing || '-'}${meta.frameRate ? ` / ${meta.frameRate} fps` : ''}`],
-      ['Frames', String(meta.durationFrames || 0)],
-      ['Samples', `${meta.sampleCount || 0} / block ${formatFileSize(meta.sampleBlockSize)}`],
-      ['Music data', `${formatFileSize(meta.musicDataSize)} @ ${formatHex(meta.musicDataOffset)}`],
-      ['Writes', `YM2612 ${meta.ym2612Writes || 0} / PSG ${meta.psgWrites || 0} / PCM ${meta.pcmCommands || 0}`],
-      ['Flags', `GD3 ${meta.hasGd3 ? 'yes' : 'no'} / Multi ${meta.multiTrack ? 'yes' : 'no'}`],
-    );
-  }
-  if (preview) {
-    rows.push(['プレビューエンジン', formatPreviewEngineStatus(meta.previewEngine || {})]);
-    const build = meta.previewEngine?.buildInfo;
-    const source = meta.previewEngine?.source || build?.source || build?.nukedOpn2Source || '';
-    const builtAt = build?.builtAt || build?.buildTime || build?.timestamp || '';
-    if (source || builtAt) rows.push(['Engine build', [source, builtAt].filter(Boolean).join(' / ')]);
-  }
-  if (meta.headerHex) rows.push(['Header', meta.headerHex]);
-  const allWarnings = [...(Array.isArray(warnings) ? warnings : []), ...(Array.isArray(meta.warnings) ? meta.warnings : [])];
-  if (allWarnings.length) rows.push(['Warning', allWarnings.slice(0, 3).join(' / ')]);
-  return rows.map(([label, value]) => (
-    `<div class="audio-meta-row"><span class="audio-meta-label">${escHtml(label)}</span><span>${escHtml(value)}</span></div>`
-  )).join('');
-}
-
-function parseSpritePreviewSizeToken(value, imageDimension = 0) {
-  const raw = String(value || '').trim().toUpperCase();
-  const numeric = Number.parseInt(raw, 10);
-  if (!Number.isFinite(numeric) || numeric <= 0) return 16;
-  if (raw.endsWith('P')) return Math.max(8, Math.min(248, Math.round(numeric / 8) * 8));
-  if (raw.endsWith('F')) {
-    const frames = Math.max(1, numeric);
-    return imageDimension > 0 ? Math.max(8, Math.floor(imageDimension / frames / 8) * 8) : frames * 8;
-  }
-  return Math.max(8, Math.min(248, numeric * 8));
-}
-
-function parseSpritePreviewTimeRows(value, rows, columns) {
-  const rowCount = Math.max(1, Number(rows) || 1);
-  const columnCount = Math.max(1, Number(columns) || 1);
-  const text = String(value == null ? '' : value).trim();
-  if (!text || !text.startsWith('[')) {
-    const fill = normalizeSpritePreviewTime(text || '0');
-    return Array.from({ length: rowCount }, () => Array.from({ length: columnCount }, () => fill));
-  }
-  const matches = Array.from(text.matchAll(/\[([^\[\]]*)\]/g)).map((match) => match[1]);
-  return Array.from({ length: rowCount }, (_, rowIndex) => {
-    const rowText = matches[rowIndex];
-    if (rowText == null) return Array.from({ length: columnCount }, () => '0');
-    const values = rowText === '' ? ['0'] : rowText.split(',').map((cell) => normalizeSpritePreviewTime(cell));
-    return values.slice(0, columnCount).length ? values.slice(0, columnCount) : ['0'];
-  });
-}
-
-function normalizeSpritePreviewTime(value) {
-  const n = Number.parseInt(String(value == null ? '' : value).trim(), 10);
-  if (!Number.isFinite(n) || n < 0) return '0';
-  return String(n);
-}
-
-function ensureSpritePreviewCanvas() {
-  if (!el.inlineImageFrame) return null;
-  let canvas = el.inlineImageFrame.querySelector('[data-sprite-preview-canvas]');
-  if (!canvas) {
-    canvas = document.createElement('canvas');
-    canvas.dataset.spritePreviewCanvas = 'true';
-    canvas.className = 'sprite-animation-preview-canvas';
-    el.inlineImageFrame.appendChild(canvas);
-  }
-  return canvas;
-}
-
-function getSpritePreviewScale(frameWidth, frameHeight) {
-  const zoom = String(state.preview.imageZoom || 'fit');
-  if (zoom !== 'fit') return Math.max(0.25, Number(zoom) / 100 || 1);
-  const host = el.inlineImageFrame;
-  const fitWidth = Math.max(1, (host?.clientWidth || 240) - 24);
-  const fitHeight = Math.max(1, (host?.clientHeight || 180) - 24);
-  return Math.max(1, Math.min(8, Math.floor(Math.min(fitWidth / frameWidth, fitHeight / frameHeight))));
-}
-
-async function syncSpriteInlinePreview(entry) {
-  if (el.inlineAudioPreview) el.inlineAudioPreview.hidden = true;
-  if (el.inlineNoPreview) el.inlineNoPreview.hidden = true;
-  if (el.inlineImagePreview) el.inlineImagePreview.hidden = false;
-  if (el.inlinePreviewImage) {
-    el.inlinePreviewImage.hidden = true;
-    el.inlinePreviewImage.style.display = 'none';
-    el.inlinePreviewImage.removeAttribute('src');
-  }
-  if (el.inlinePalette) el.inlinePalette.innerHTML = '';
-
-  const canvas = ensureSpritePreviewCanvas();
-  if (!canvas) return;
-  canvas.hidden = false;
-
-  const data = entry.sourceAbsolutePath
-    ? await window.electronAPI.readFileAsDataUrl(entry.sourceAbsolutePath).catch(() => null)
-    : null;
-  if (!data?.ok || !data.dataUrl) {
-    if (el.inlinePreviewInfo) el.inlinePreviewInfo.textContent = `SPRITE ${entry.name || ''}: 画像を読み込めません`;
-    return;
-  }
-
-  const img = new Image();
-  img.src = data.dataUrl;
-  await img.decode();
-  if (state.rescomp.selectedEntryLine !== entry.lineNumber) return;
-
-  state.preview.spriteEntryId = entry.id || `${entry.lineNumber}:${entry.name}`;
-  state.preview.spriteImage = img;
-  state.preview.spriteFrame = 0;
-  state.preview.spriteRow = 0;
-  state.preview.spritePlaying = true;
-  state.preview.imageNaturalWidth = img.naturalWidth;
-  state.preview.imageNaturalHeight = img.naturalHeight;
-
-  const frameWidth = parseSpritePreviewSizeToken(entry.width || '2', img.naturalWidth);
-  const frameHeight = parseSpritePreviewSizeToken(entry.height || '2', img.naturalHeight);
-  const columns = Math.max(1, Math.floor(img.naturalWidth / frameWidth));
-  const rows = Math.max(1, Math.floor(img.naturalHeight / frameHeight));
-  const timeRows = parseSpritePreviewTimeRows(entry.time || '0', rows, columns);
-
-  renderSpritePreviewInfo(entry, frameWidth, frameHeight, rows, columns, timeRows);
-  drawSpritePreviewFrame(canvas, img, frameWidth, frameHeight, 0, 0);
-  scheduleSpritePreviewFrame({ entry, img, canvas, frameWidth, frameHeight, rows, columns, timeRows });
-}
-
-function renderSpritePreviewInfo(entry, frameWidth, frameHeight, rows, columns, timeRows) {
-  if (!el.inlinePreviewInfo) return;
-  const options = timeRows.map((row, index) => (
-    `<option value="${index}" ${index === state.preview.spriteRow ? 'selected' : ''}>${index} (${row.length} frames)</option>`
-  )).join('');
-  el.inlinePreviewInfo.innerHTML = `
-    <div class="sprite-preview-info-line">SPRITE ${escHtml(entry.name || '')}: ${frameWidth} × ${frameHeight}px / ${columns} cols × ${rows} rows</div>
-    <div class="sprite-preview-controls">
-      <label class="sprite-preview-row-control">Animation
-        <select class="form-input form-input-mono" data-sprite-preview-row>${options}</select>
-      </label>
-      <button class="icon-btn sprite-preview-play-toggle" type="button" data-sprite-preview-toggle aria-label="停止" title="SPRITEアニメーションを停止">
-        <svg class="icon"><use href="#icon-stop"></use></svg>
-      </button>
-    </div>
-  `;
-  const select = el.inlinePreviewInfo.querySelector('[data-sprite-preview-row]');
-  select?.addEventListener('change', () => {
-    state.preview.spriteRow = Number(select.value) || 0;
-    state.preview.spriteFrame = 0;
-    redrawCurrentSpritePreview();
-  });
-  const toggle = el.inlinePreviewInfo.querySelector('[data-sprite-preview-toggle]');
-  toggle?.addEventListener('click', () => toggleSpritePreviewPlayback());
-  syncSpritePreviewPlaybackButton();
-}
-
-function drawSpritePreviewFrame(canvas, img, frameWidth, frameHeight, row, frame) {
-  const scale = getSpritePreviewScale(frameWidth, frameHeight);
-  const width = Math.max(1, Math.round(frameWidth * scale));
-  const height = Math.max(1, Math.round(frameHeight * scale));
-  canvas.width = width;
-  canvas.height = height;
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
-  const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, width, height);
-  ctx.drawImage(img, frame * frameWidth, row * frameHeight, frameWidth, frameHeight, 0, 0, width, height);
-}
-
-function scheduleSpritePreviewFrame({ entry, img, canvas, frameWidth, frameHeight, rows, columns, timeRows }) {
-  if (!state.preview.spriteEntryId) return;
-  if (state.preview.spriteTimer) {
-    window.clearTimeout(state.preview.spriteTimer);
-    state.preview.spriteTimer = 0;
-  }
-  const row = Math.max(0, Math.min(rows - 1, Number(state.preview.spriteRow) || 0));
-  const rowTimes = timeRows[row] && timeRows[row].length ? timeRows[row] : Array.from({ length: columns }, () => '0');
-  const frameCount = Math.max(1, Math.min(columns, rowTimes.length));
-  state.preview.spriteFrame = Math.max(0, Math.min(frameCount - 1, state.preview.spriteFrame));
-  drawSpritePreviewFrame(canvas, img, frameWidth, frameHeight, row, state.preview.spriteFrame);
-  syncSpritePreviewPlaybackButton();
-  if (!state.preview.spritePlaying || frameCount <= 1) return;
-  const frameTime = Math.max(1, Number.parseInt(rowTimes[state.preview.spriteFrame] || '0', 10) || 6);
-  state.preview.spriteTimer = window.setTimeout(() => {
-    if (state.rescomp.selectedEntryLine !== entry.lineNumber) return;
-    state.preview.spriteFrame = (state.preview.spriteFrame + 1) % frameCount;
-    scheduleSpritePreviewFrame({ entry, img, canvas, frameWidth, frameHeight, rows, columns, timeRows });
-  }, frameTime * (1000 / 60));
-}
-
-function syncSpritePreviewPlaybackButton() {
-  const toggle = el.inlinePreviewInfo?.querySelector?.('[data-sprite-preview-toggle]');
-  if (!toggle) return;
-  toggle.classList.toggle('active', !!state.preview.spritePlaying);
-  const label = state.preview.spritePlaying ? '停止' : '再生';
-  toggle.setAttribute('aria-label', label);
-  toggle.title = state.preview.spritePlaying ? 'SPRITEアニメーションを停止' : 'SPRITEアニメーションを再生';
-  toggle.querySelector('use')?.setAttribute('href', state.preview.spritePlaying ? '#icon-stop' : '#icon-play');
-}
-
-function toggleSpritePreviewPlayback() {
-  const entry = getCurrentSelectedEntry();
-  if (!isSpriteEntry(entry)) return;
-  state.preview.spritePlaying = !state.preview.spritePlaying;
-  if (!state.preview.spritePlaying && state.preview.spriteTimer) {
-    window.clearTimeout(state.preview.spriteTimer);
-    state.preview.spriteTimer = 0;
-  }
-  syncSpritePreviewPlaybackButton();
-  redrawCurrentSpritePreview();
-}
-
-function redrawCurrentSpritePreview() {
-  const entry = getCurrentSelectedEntry();
-  const img = state.preview.spriteImage;
-  const canvas = el.inlineImageFrame?.querySelector?.('[data-sprite-preview-canvas]');
-  if (!isSpriteEntry(entry) || !img || !canvas || canvas.hidden) return;
-  const frameWidth = parseSpritePreviewSizeToken(entry.width || '2', img.naturalWidth);
-  const frameHeight = parseSpritePreviewSizeToken(entry.height || '2', img.naturalHeight);
-  const columns = Math.max(1, Math.floor(img.naturalWidth / frameWidth));
-  const rows = Math.max(1, Math.floor(img.naturalHeight / frameHeight));
-  const timeRows = parseSpritePreviewTimeRows(entry.time || '0', rows, columns);
-  scheduleSpritePreviewFrame({ entry, img, canvas, frameWidth, frameHeight, rows, columns, timeRows });
-}
-
-async function syncInlinePreview(entry) {
-  stopVgmPreview();
-  stopSpritePreview();
-  if (!entry) {
-    if (el.inlineImagePreview) el.inlineImagePreview.hidden = true;
-    if (el.inlineAudioPreview) el.inlineAudioPreview.hidden = true;
-    if (el.audioPlayer) el.audioPlayer.hidden = false;
-    if (el.inlineNoPreview) el.inlineNoPreview.hidden = false;
-    return;
-  }
-
-  if (isVgmPreviewEntry(entry)) {
-    if (el.inlineImagePreview) el.inlineImagePreview.hidden = true;
-    if (el.inlineNoPreview) el.inlineNoPreview.hidden = true;
-    if (el.inlineAudioPreview) el.inlineAudioPreview.hidden = false;
-    if (el.audioPlayer) el.audioPlayer.hidden = false;
-    if (el.audioPreviewMeta) el.audioPreviewMeta.innerHTML = '<span class="audio-meta-loading">VGM を読み込み中...</span>';
-    syncAudioPlayer(false);
-
-    const sourcePath = getVgmPreviewSourcePath(entry);
-    const player = getPluginCapability('vgm-preview-player');
-    if (!sourcePath || !player?.load) {
-      if (el.audioPreviewMeta) el.audioPreviewMeta.innerHTML = '<div class="audio-meta-row"><span>VGM preview provider が利用できません</span></div>';
-      return;
-    }
-    window.electronAPI.readFileAsDataUrl(sourcePath).then((res) => {
-      if (state.rescomp.selectedEntryLine !== entry.lineNumber) return;
-      if (!res?.ok || !res.dataUrl) {
-        if (el.audioPreviewMeta) el.audioPreviewMeta.innerHTML = `<div class="audio-meta-row"><span>${escHtml(entry.sourcePath || sourcePath)} を読み込めません</span></div>`;
-        return;
-      }
-      const loaded = player.load({ entry, dataUrl: res.dataUrl });
-      if (!loaded?.ok) {
-        if (el.audioPreviewMeta) el.audioPreviewMeta.innerHTML = `<div class="audio-meta-row"><span>${escHtml(loaded?.error || 'VGM を解析できません')}</span></div>`;
-        return;
-      }
-      state.preview.vgmEntryId = entry.id;
-      state.preview.vgmDurationSec = Number(loaded.meta?.durationSec || 0);
-      if (el.audioPreviewMeta) {
-        el.audioPreviewMeta.innerHTML = renderBgmMetaRows(entry, loaded.meta, loaded.warnings, { preview: true });
-      }
-      player.loadHighAccuracyEngine?.().then((engineResult) => {
-        if (state.rescomp.selectedEntryLine !== entry.lineNumber) return;
-        const previewEngine = engineResult?.status || player.getEngineStatus?.() || loaded.previewEngine || loaded.meta?.previewEngine;
-        const warnings = [
-          ...(engineResult?.warning ? [engineResult.warning] : []),
-          ...(loaded.warnings || []),
-        ].filter((warning) => !(engineResult?.ok && String(warning).includes('高精度WASM')));
-        if (el.audioPreviewMeta) {
-          el.audioPreviewMeta.innerHTML = renderBgmMetaRows(entry, {
-            ...loaded.meta,
-            previewEngine,
-          }, warnings, { preview: true });
-        }
-      }).catch((err) => {
-        if (state.rescomp.selectedEntryLine !== entry.lineNumber) return;
-        const previewEngine = {
-          label: '簡易 Web Audio',
-          state: 'fallback',
-          highAccuracyAvailable: false,
-          message: String(err?.message || err),
-        };
-        if (el.audioPreviewMeta) {
-          el.audioPreviewMeta.innerHTML = renderBgmMetaRows(entry, {
-            ...loaded.meta,
-            previewEngine,
-          }, [String(err?.message || err), ...(loaded.warnings || [])], { preview: true });
-        }
-      });
-    }).catch((err) => {
-      if (el.audioPreviewMeta) el.audioPreviewMeta.innerHTML = `<div class="audio-meta-row"><span>${escHtml(String(err?.message || err))}</span></div>`;
-    });
-    return;
-  }
-
-  if (isBgmMetaEntry(entry)) {
-    if (el.inlineImagePreview) el.inlineImagePreview.hidden = true;
-    if (el.inlineNoPreview) el.inlineNoPreview.hidden = true;
-    if (el.inlineAudioPreview) el.inlineAudioPreview.hidden = false;
-    if (el.audioPlayer) el.audioPlayer.hidden = true;
-    if (el.audioPreviewMeta) el.audioPreviewMeta.innerHTML = '<span class="audio-meta-loading">BGM メタ情報を読み込み中...</span>';
-    syncAudioPlayer(false);
-
-    const sourcePath = getMusicMetaSourcePath(entry);
-    const player = getPluginCapability('vgm-preview-player');
-    if (!sourcePath || !player?.parseXgm) {
-      if (el.audioPreviewMeta) el.audioPreviewMeta.innerHTML = '<div class="audio-meta-row"><span>BGM metadata provider が利用できません</span></div>';
-      return;
-    }
-    window.electronAPI.readFileAsDataUrl(sourcePath).then((res) => {
-      if (state.rescomp.selectedEntryLine !== entry.lineNumber) return;
-      if (!res?.ok || !res.dataUrl) {
-        if (el.audioPreviewMeta) el.audioPreviewMeta.innerHTML = `<div class="audio-meta-row"><span>${escHtml(entry.sourcePath || sourcePath)} を読み込めません</span></div>`;
-        return;
-      }
-      const ext = pathExt(sourcePath);
-      const parsed = ext === '.xgm'
-        ? player.parseXgm({ entry, dataUrl: res.dataUrl })
-        : player.parseVgm?.({ entry, dataUrl: res.dataUrl });
-      if (!parsed?.ok) {
-        if (el.audioPreviewMeta) el.audioPreviewMeta.innerHTML = `<div class="audio-meta-row"><span>${escHtml(parsed?.error || 'BGM メタ情報を解析できません')}</span></div>`;
-        return;
-      }
-      if (el.audioPreviewMeta) {
-        el.audioPreviewMeta.innerHTML = renderBgmMetaRows(entry, parsed.meta, parsed.warnings);
-      }
-    }).catch((err) => {
-      if (el.audioPreviewMeta) el.audioPreviewMeta.innerHTML = `<div class="audio-meta-row"><span>${escHtml(String(err?.message || err))}</span></div>`;
-    });
-    return;
-  }
-
-  if (isSpriteEntry(entry)) {
-    await syncSpriteInlinePreview(entry);
-    return;
-  }
-
-  if (isImageEntry(entry)) {
-    if (el.inlineAudioPreview) el.inlineAudioPreview.hidden = true;
-    if (el.audioPlayer) el.audioPlayer.hidden = false;
-    if (el.inlineNoPreview) el.inlineNoPreview.hidden = true;
-    if (el.inlineImagePreview) el.inlineImagePreview.hidden = false;
-
-    state.preview.imageEntryId = entry.id;
-    state.preview.imageNaturalWidth = 0;
-    state.preview.imageNaturalHeight = 0;
-    if (el.inlinePalette) el.inlinePalette.innerHTML = '';
-    if (el.inlinePreviewInfo) el.inlinePreviewInfo.textContent = '';
-
-    const src = entry.sourceAbsolutePath ? toFileUrl(entry.sourceAbsolutePath) : '';
-    if (el.inlinePreviewImage) {
-      el.inlinePreviewImage.hidden = false;
-      el.inlinePreviewImage.style.display = '';
-      el.inlinePreviewImage.src = src;
-      applyInlineImageZoom();
-    }
-    const spriteCanvas = el.inlineImageFrame?.querySelector?.('[data-sprite-preview-canvas]');
-    if (spriteCanvas) spriteCanvas.hidden = true;
-
-    if (src) {
-      const img = new Image();
-      img.onload = () => {
-        state.preview.imageNaturalWidth = img.naturalWidth;
-        state.preview.imageNaturalHeight = img.naturalHeight;
-        if (el.inlinePreviewInfo) {
-          el.inlinePreviewInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight} px`;
-        }
-        applyInlineImageZoom();
-        const cvs = document.createElement('canvas');
-        cvs.width = img.naturalWidth;
-        cvs.height = img.naturalHeight;
-        const ctx = cvs.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(img, 0, 0);
-        const imageData = ctx.getImageData(0, 0, cvs.width, cvs.height);
-        const fallbackColors = extractDisplayPalette(imageData, 16);
-        const paletteBuilder = getPluginCapability('asset-manager')?.buildPreviewPalette;
-        if (typeof paletteBuilder === 'function' && entry.sourceAbsolutePath) {
-          window.electronAPI.readFileAsDataUrl(entry.sourceAbsolutePath).then((res) => {
-            const colors = res?.ok
-              ? paletteBuilder({ dataUrl: res.dataUrl, fallbackColors, maxColors: 16 })
-              : fallbackColors;
-            renderPaletteSwatches(el.inlinePalette, colors);
-          }).catch(() => renderPaletteSwatches(el.inlinePalette, fallbackColors));
-        } else {
-          renderPaletteSwatches(el.inlinePalette, fallbackColors);
-        }
-      };
-      img.src = src;
-      // fetch file size via dataUrl
-      if (entry.sourceAbsolutePath) {
-        window.electronAPI.readFileAsDataUrl(entry.sourceAbsolutePath).then((res) => {
-          if (res?.ok && el.inlinePreviewInfo) {
-            const bytes = Math.round(res.dataUrl.replace(/^data:[^,]+,/, '').replace(/=/g, '').length * 0.75);
-            const sz = formatFileSize(bytes);
-            const cur = el.inlinePreviewInfo.textContent;
-            if (cur && sz !== '-') el.inlinePreviewInfo.textContent = `${cur}  |  ${sz}`;
-          }
-        }).catch(() => {});
-      }
-    }
-    return;
-  }
-
-  if (isAudioEntry(entry)) {
-    stopVgmPreview();
-    if (el.inlineImagePreview) el.inlineImagePreview.hidden = true;
-    if (el.inlineNoPreview) el.inlineNoPreview.hidden = true;
-    if (el.inlineAudioPreview) el.inlineAudioPreview.hidden = false;
-    if (el.audioPlayer) el.audioPlayer.hidden = false;
-    if (el.audioPreviewMeta) el.audioPreviewMeta.innerHTML = '<span class="audio-meta-loading">読み込み中...</span>';
-    syncAudioPlayer(false);
-
-    if (entry.sourceAbsolutePath) {
-      window.electronAPI.readFileAsDataUrl(entry.sourceAbsolutePath).then((res) => {
-        if (!res?.ok || !el.audioPreviewMeta) return;
-        const meta = parseWavHeader(res.dataUrl);
-        if (!meta) {
-          el.audioPreviewMeta.innerHTML = `<div class="audio-meta-row"><span>${escHtml(entry.sourcePath || '')}</span></div>`;
-          return;
-        }
-        const chStr = meta.numChannels === 1 ? 'モノラル' : meta.numChannels === 2 ? 'ステレオ' : `${meta.numChannels}ch`;
-        el.audioPreviewMeta.innerHTML = `
-          <div class="audio-meta-row"><span class="audio-meta-label">ファイル</span><span>${escHtml(entry.sourcePath || '')}</span></div>
-          <div class="audio-meta-row"><span class="audio-meta-label">再生時間</span><span>${formatDuration(meta.durationSec)}</span></div>
-          <div class="audio-meta-row"><span class="audio-meta-label">サンプルレート</span><span>${meta.sampleRate.toLocaleString()} Hz</span></div>
-          <div class="audio-meta-row"><span class="audio-meta-label">形式</span><span>${chStr} / ${meta.bitsPerSample} bit</span></div>
-          <div class="audio-meta-row"><span class="audio-meta-label">ファイルサイズ</span><span>${formatFileSize(meta.fileSizeBytes)}</span></div>
-        `;
-      }).catch(() => {
-        if (el.audioPreviewMeta) el.audioPreviewMeta.innerHTML = `<div class="audio-meta-row"><span>${escHtml(entry.sourcePath || '')}</span></div>`;
-      });
-    }
-    return;
-  }
-
-  // no preview available
-  if (el.inlineImagePreview) el.inlineImagePreview.hidden = true;
-  if (el.inlineAudioPreview) el.inlineAudioPreview.hidden = true;
-  if (el.inlineNoPreview) el.inlineNoPreview.hidden = false;
-}
-
-function setAccordionOpen(section, open) {
-  if (section === 'params') {
-    state.preview.paramsOpen = open;
-    if (el.btnAccordionParams) el.btnAccordionParams.setAttribute('aria-expanded', String(open));
-    if (el.accordionParamsBody) el.accordionParamsBody.classList.toggle('is-collapsed', !open);
-  } else {
-    state.preview.previewOpen = open;
-    if (el.btnAccordionPreview) el.btnAccordionPreview.setAttribute('aria-expanded', String(open));
-    if (el.accordionPreviewBody) el.accordionPreviewBody.classList.toggle('is-collapsed', !open);
-  }
-}
-
-function setPreviewPanelOpen(open) {
-  state.preview.panelOpen = open;
-  if (el.assetsLayout) el.assetsLayout.classList.toggle('preview-collapsed', !open);
-  if (el.btnTogglePreviewPanel) {
-    el.btnTogglePreviewPanel.setAttribute('aria-pressed', String(open));
-    el.btnTogglePreviewPanel.title = open ? 'プレビューパネルを閉じる' : 'プレビューパネルを開く';
-    const iconClose = el.btnTogglePreviewPanel.querySelector('.icon-panel-close');
-    const iconOpen = el.btnTogglePreviewPanel.querySelector('.icon-panel-open');
-    if (iconClose) iconClose.style.display = open ? '' : 'none';
-    if (iconOpen) iconOpen.style.display = open ? 'none' : '';
-  }
-}
-
-function loadAssetPreviewWidth() {
-  try {
-    const saved = Number(localStorage.getItem(ASSET_PREVIEW_WIDTH_KEY));
-    if (Number.isFinite(saved) && saved > 0) {
-      state.preview.panelWidth = clamp(saved, ASSET_PREVIEW_MIN_WIDTH, ASSET_PREVIEW_MAX_WIDTH);
-    }
-  } catch (_) {}
-  applyAssetPreviewWidth();
-}
-
-function applyAssetPreviewWidth() {
-  if (!el.assetsLayout) return;
-  el.assetsLayout.style.setProperty('--asset-preview-width', `${state.preview.panelWidth}px`);
-}
-
-function saveAssetPreviewWidth() {
-  try {
-    localStorage.setItem(ASSET_PREVIEW_WIDTH_KEY, String(Math.round(state.preview.panelWidth)));
-  } catch (_) {}
-}
-
-function beginAssetPreviewResize(event) {
-  if (!el.assetsLayout || !state.preview.panelOpen) return;
-  event.preventDefault();
-  el.assetPreviewResizer?.classList.add('is-dragging');
-  const layoutRect = el.assetsLayout.getBoundingClientRect();
-  const maxWidth = Math.min(ASSET_PREVIEW_MAX_WIDTH, Math.max(ASSET_PREVIEW_MIN_WIDTH, layoutRect.width - 320));
-
-  const resize = (moveEvent) => {
-    const nextWidth = clamp(layoutRect.right - moveEvent.clientX, ASSET_PREVIEW_MIN_WIDTH, maxWidth);
-    state.preview.panelWidth = nextWidth;
-    applyAssetPreviewWidth();
-  };
-  const finish = () => {
-    el.assetPreviewResizer?.classList.remove('is-dragging');
-    saveAssetPreviewWidth();
-    window.removeEventListener('pointermove', resize);
-    window.removeEventListener('pointerup', finish);
-    window.removeEventListener('pointercancel', finish);
-  };
-
-  window.addEventListener('pointermove', resize);
-  window.addEventListener('pointerup', finish, { once: true });
-  window.addEventListener('pointercancel', finish, { once: true });
-}
-
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
-}
-
-function syncAudioPlayer(isPlaying) {
-  if (el.audioPlayIcon) {
-    el.audioPlayIcon.querySelector('use')?.setAttribute('href', isPlaying ? '#icon-stop' : '#icon-play');
-  }
-  if (el.btnAudioPlay) {
-    el.btnAudioPlay.title = isPlaying ? '停止' : '再生';
-  }
-  if (!isPlaying && el.audioSeek) {
-    el.audioSeek.value = 0;
-  }
-  if (!isPlaying && el.audioTime) {
-    el.audioTime.textContent = '0:00';
-  }
-}
-
-function toggleAudioPreview(entry) {
-  if (!isAudioEntry(entry) || !entry.sourceAbsolutePath) {
-    return;
-  }
-
-  stopVgmPreview();
-  if (state.preview.audioEntryId === entry.id && state.preview.audio) {
-    stopAudioPreview();
-    return;
-  }
-
-  stopAudioPreview();
-  const audio = new Audio(toFileUrl(entry.sourceAbsolutePath));
-
-  audio.addEventListener('timeupdate', () => {
-    if (!audio.duration || !el.audioSeek || !el.audioTime) return;
-    el.audioSeek.value = (audio.currentTime / audio.duration) * 100;
-    const m = Math.floor(audio.currentTime / 60);
-    const s = Math.floor(audio.currentTime % 60).toString().padStart(2, '0');
-    el.audioTime.textContent = `${m}:${s}`;
-  });
-
-  audio.addEventListener('ended', () => {
-    stopAudioPreview();
-  });
-
-  state.preview.audio = audio;
-  state.preview.audioEntryId = entry.id;
-  audio.play().then(() => {
-    syncAudioPlayer(true);
-  }).catch(() => {
-    stopAudioPreview();
-  });
-}
-
-async function toggleVgmPreview(entry) {
-  if (!isVgmPreviewEntry(entry)) return;
-  const player = getPluginCapability('vgm-preview-player');
-  if (!player?.play) return;
-
-  if (state.preview.vgmEntryId === entry.id && player.isPlaying?.()) {
-    stopVgmPreview();
-    return;
-  }
-
-  stopAudioPreview();
-  state.preview.vgmEntryId = entry.id;
-  const result = await player.play({
-    onTime: (currentSec) => {
-      const duration = Math.max(0.01, Number(state.preview.vgmDurationSec || 0));
-      if (el.audioSeek) el.audioSeek.value = (currentSec / duration) * 100;
-      if (el.audioTime) {
-        const m = Math.floor(currentSec / 60);
-        const s = Math.floor(currentSec % 60).toString().padStart(2, '0');
-        el.audioTime.textContent = `${m}:${s}`;
-      }
-    },
-    onEnded: () => {
-      stopVgmPreview();
-    },
-    onError: () => {
-      stopVgmPreview();
-    },
-  });
-  if (result?.ok) {
-    state.preview.vgmDurationSec = Number(result.durationSec || state.preview.vgmDurationSec || 0);
-    syncAudioPlayer(true);
-    if (el.audioPreviewMeta && result.previewEngine) {
-      const current = getCurrentSelectedEntry();
-      if (current && current.id === entry.id) {
-        const engineRow = `<div class="audio-meta-row audio-meta-engine"><span class="audio-meta-label">使用中エンジン</span><span>${escHtml(formatPreviewEngineStatus(result.previewEngine))}</span></div>`;
-        if (!el.audioPreviewMeta.innerHTML.includes('使用中エンジン')) {
-          el.audioPreviewMeta.innerHTML += engineRow;
-        }
-      }
-    }
-  } else {
-    stopVgmPreview();
-    if (el.audioPreviewMeta) {
-      el.audioPreviewMeta.innerHTML += `<div class="audio-meta-row"><span class="audio-meta-label">Error</span><span>${escHtml(result?.error || 'VGM preview failed')}</span></div>`;
-    }
-  }
-}
-
-function renderAssetTable() {
-  if (!el.assetTableBody) return;
-
-  const rows = getFilteredEntries();
-  el.assetTableBody.innerHTML = '';
-
-  if (rows.length === 0) {
-    const tr = document.createElement('tr');
-    tr.className = 'asset-row-empty';
-    tr.innerHTML = '<td colspan="6">一致する定義がありません</td>';
-    el.assetTableBody.appendChild(tr);
-    if (el.assetTableHint) el.assetTableHint.textContent = '定義を追加するか、検索条件を変更してください。';
-    renderAssetEditor(null);
-    return;
-  }
-
-  if (el.assetTableHint) {
-    el.assetTableHint.textContent = `${rows.length} 件 / ${state.rescomp.selectedFile}`;
-  }
-
-  rows.forEach((entry) => {
-    const tr = document.createElement('tr');
-    tr.className = 'asset-row';
-    tr.title = buildEntryTooltip(entry);
-    tr.draggable = true;
-    if (Number(state.rescomp.selectedEntryLine) === Number(entry.lineNumber)) {
-      tr.classList.add('active');
-    }
-
-    const isPlaying = isAudioEntry(entry) && state.preview.audioEntryId === entry.id;
-
-    tr.innerHTML = `
-      <td class="asset-drag-cell"><span class="drag-handle">&#8942;&#8942;</span></td>
-      <td>${toTypeBadge(escHtml(entry.type))}</td>
-      <td>${escHtml(entry.name)}</td>
-      <td class="asset-path-cell">${escHtml(entry.sourcePath || '')}</td>
-      <td class="asset-comment-cell">${escHtml(entry.comment || '')}</td>
-      <td class="asset-actions-cell">
-        <button class="icon-btn-sm" data-delete-line="${entry.lineNumber}" title="定義削除">
-          <svg class="icon-sm"><use href="#icon-trash"></use></svg>
-        </button>
-      </td>
-    `;
-
-    tr.addEventListener('click', (ev) => {
-      if (ev.target.closest('button[data-delete-line]')) return;
-      state.rescomp.selectedEntryLine = Number(entry.lineNumber);
-      renderAssetTable();
-      renderAssetEditor(entry);
-    });
-
-    const deleteBtn = tr.querySelector('button[data-delete-line]');
-    deleteBtn?.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      await deleteEntry(entry);
-    });
-
-    tr.addEventListener('dragstart', (ev) => {
-      ev.dataTransfer.effectAllowed = 'move';
-      ev.dataTransfer.setData('text/plain', String(entry.lineNumber));
-      tr.classList.add('drag-source');
-    });
-    tr.addEventListener('dragend', () => {
-      tr.classList.remove('drag-source');
-      el.assetTableBody?.querySelectorAll('.drag-over').forEach((r) => r.classList.remove('drag-over'));
-    });
-    tr.addEventListener('dragover', (ev) => {
-      ev.preventDefault();
-      ev.dataTransfer.dropEffect = 'move';
-      el.assetTableBody?.querySelectorAll('.drag-over').forEach((r) => r.classList.remove('drag-over'));
-      tr.classList.add('drag-over');
-    });
-    tr.addEventListener('dragleave', (ev) => {
-      if (!tr.contains(ev.relatedTarget)) tr.classList.remove('drag-over');
-    });
-    tr.addEventListener('drop', async (ev) => {
-      ev.preventDefault();
-      tr.classList.remove('drag-over');
-      const fromLine = Number(ev.dataTransfer.getData('text/plain'));
-      const toLine = Number(entry.lineNumber);
-      if (fromLine !== toLine) await reorderEntry(fromLine, toLine);
-    });
-
-    el.assetTableBody.appendChild(tr);
-  });
-
-  const current = getEntryByLine(state.rescomp.selectedEntryLine) || rows[0];
-  state.rescomp.selectedEntryLine = current ? Number(current.lineNumber) : null;
-  renderAssetEditor(current);
-}
-
-function createFieldInput(field, value) {
-  let input;
-  if (field.type === 'select') {
-    input = document.createElement('select');
-    input.className = 'form-input form-input-mono';
-    (field.options || []).forEach((opt) => {
-      const o = document.createElement('option');
-      o.value = opt;
-      o.textContent = opt;
-      input.appendChild(o);
-    });
-    input.value = value || field.options?.[0] || '';
-  } else {
-    input = document.createElement('input');
-    input.type = 'text';
-    input.className = field.key === 'sourcePath' ? 'form-input form-input-mono' : 'form-input';
-    input.value = value || '';
-  }
-  input.dataset.field = field.key;
-  return input;
-}
-
-function getAssetFieldLabel(entry, field) {
-  if ((entry?.type === 'MAP' || entry?.type === 'TILEMAP')
-    && field.key === 'tileset'
-    && String(entry?.sourcePath || '').toLowerCase().endsWith('.tmx')) {
-    return 'layer_id';
-  }
-  return field.label;
-}
-
-function getAssetFieldsForEntry(entry) {
-  const type = String(entry?.type || '').toUpperCase();
-  const isTmxInput = (type === 'MAP' || type === 'TILEMAP')
-    && String(entry?.sourcePath || '').toLowerCase().endsWith('.tmx');
-  if (isTmxInput) {
-    return [
-      { key: 'name', label: 'シンボル名', type: 'text' },
-      { key: 'sourcePath', label: '入力TMX', type: 'text' },
-      { key: 'tileset', label: 'layer_id', type: 'text' },
-      { key: 'compression', label: 'tileset圧縮', type: 'select', options: COMPRESSION_OPTIONS },
-      { key: 'mapCompression', label: 'map圧縮', type: 'select', options: COMPRESSION_OPTIONS },
-      { key: 'mapBase', label: 'map_base', type: 'text' },
-      { key: 'ordering', label: 'ordering', type: 'select', options: ORDERING_OPTIONS },
-    ];
-  }
-  return FORM_FIELDS_BY_TYPE[type] || [
-    { key: 'name', label: 'シンボル名', type: 'text' },
-    { key: 'sourcePath', label: '入力ファイル', type: 'text' },
-  ];
-}
-
-function isWavOutRateSupportedDriver(driver) {
-  const normalized = String(driver || '').toUpperCase();
-  return Object.prototype.hasOwnProperty.call(WAV_OUT_RATE_OPTIONS_BY_DRIVER, normalized);
-}
-
-function getWavOutRateOptions(driver) {
-  const normalized = String(driver || '').toUpperCase();
-  const list = WAV_OUT_RATE_OPTIONS_BY_DRIVER[normalized] || [];
-  return ['', ...list];
-}
-
-function getWavDefaultOutRate(driver) {
-  const normalized = String(driver || '').toUpperCase();
-  return WAV_OUT_RATE_DEFAULT_BY_DRIVER[normalized] || '';
-}
-
-function setSelectOptions(select, options, value) {
-  if (!select) return;
-  select.innerHTML = '';
-  options.forEach((opt) => {
-    const o = document.createElement('option');
-    o.value = String(opt);
-    o.textContent = opt === '' ? '(省略)' : String(opt);
-    select.appendChild(o);
-  });
-  const desired = String(value || '');
-  if (options.includes(desired)) {
-    select.value = desired;
-    return;
-  }
-  select.value = options[0] || '';
-}
-
-function bindWavOutRateDriverSync(container) {
-  const driverInput = container?.querySelector('[data-field="driver"]');
-  const outRateInput = container?.querySelector('[data-field="outRate"]');
-  if (!(driverInput instanceof HTMLSelectElement) || !(outRateInput instanceof HTMLSelectElement)) {
-    return;
-  }
-
-  const sync = () => {
-    const driver = String(driverInput.value || '').toUpperCase();
-    const supported = isWavOutRateSupportedDriver(driver);
-    const options = getWavOutRateOptions(driver);
-    const current = String(outRateInput.value || '');
-    setSelectOptions(outRateInput, options, current);
-    outRateInput.disabled = !supported;
-    if (!supported) {
-      outRateInput.value = '';
-      return;
-    }
-    const defaultValue = getWavDefaultOutRate(driver);
-    if (!outRateInput.value || !options.includes(outRateInput.value)) {
-      outRateInput.value = defaultValue;
-    }
-  };
-
-  driverInput.addEventListener('change', sync);
-  driverInput.addEventListener('input', sync);
-  sync();
-}
-
-let _autoSaveTimer = null;
-function scheduleAutoSave() {
-  if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
-  _autoSaveTimer = setTimeout(() => {
-    _autoSaveTimer = null;
-    saveCurrentEntry(true);
-  }, 400);
-}
-
-function renderAssetEditor(entry) {
-  if (!el.assetEditForm || !el.assetEditorPanel) return;
-
-  if (!entry) {
-    if (el.assetNoSelectionHint) el.assetNoSelectionHint.hidden = false;
-    el.assetEditForm.innerHTML = '';
-    syncInlinePreview(null);
-    return;
-  }
-
-  if (el.assetNoSelectionHint) el.assetNoSelectionHint.hidden = true;
-
-  // restore accordion state
-  setAccordionOpen('params', state.preview.paramsOpen);
-  setAccordionOpen('preview', state.preview.previewOpen);
-
-  const fields = getAssetFieldsForEntry(entry);
-
-  el.assetEditForm.innerHTML = '';
-  const grid = document.createElement('div');
-  grid.className = 'asset-edit-grid';
-
-  fields.forEach((field) => {
-    const label = document.createElement('label');
-    label.textContent = getAssetFieldLabel(entry, field);
-    const input = createFieldInput(field, entry[field.key]);
-    grid.appendChild(label);
-    grid.appendChild(input);
-  });
-
-  const warning = document.createElement('div');
-  warning.className = 'asset-warning';
-  warning.textContent = entry.type === 'XGM2'
-    ? 'XGM2 の複数ファイル対応は options で追記可能です。'
-    : '';
-
-  const commentLabel = document.createElement('label');
-  commentLabel.textContent = 'コメント';
-  const commentInput = document.createElement('textarea');
-  commentInput.className = 'form-input form-input-mono';
-  commentInput.rows = 4;
-  commentInput.value = entry.comment || '';
-  commentInput.dataset.field = 'comment';
-
-  grid.appendChild(commentLabel);
-  grid.appendChild(commentInput);
-
-  el.assetEditForm.appendChild(grid);
-  if (warning.textContent) {
-    el.assetEditForm.appendChild(warning);
-  }
-  if (entry.type === 'WAV') {
-    bindWavOutRateDriverSync(el.assetEditForm);
-  }
-
-  // auto-save on edit
-  el.assetEditForm.querySelectorAll('[data-field]').forEach((input) => {
-    input.addEventListener('input', scheduleAutoSave);
-    input.addEventListener('change', scheduleAutoSave);
-  });
-
-  // update preview tab
-  syncInlinePreview(entry);
-}
-
-function collectEditedEntry(entry) {
-  const next = { ...entry };
-  if (!el.assetEditForm) return next;
-
-  el.assetEditForm.querySelectorAll('[data-field]').forEach((input) => {
-    const key = input.dataset.field;
-    next[key] = input.value;
-  });
-
-  next.type = String(entry.type || '').toUpperCase();
-  if (next.type === 'XGM2') {
-    next.files = [next.sourcePath || ''];
-  }
-  if (next.type === 'WAV') {
-    const driver = String(next.driver || 'DEFAULT').toUpperCase();
-    const options = getWavOutRateOptions(driver);
-    if (!isWavOutRateSupportedDriver(driver)) {
-      next.outRate = '';
-    } else if (!options.includes(String(next.outRate || ''))) {
-      next.outRate = getWavDefaultOutRate(driver);
-    }
-  }
-
-  return next;
-}
-
-async function saveCurrentEntry(silent = false) {
-  const entry = getEntryByLine(state.rescomp.selectedEntryLine);
-  if (!entry) return;
-
-  const edited = collectEditedEntry(entry);
-  const payload = {
-    file: state.rescomp.selectedFile,
-    lineNumber: entry.lineNumber,
-    entry: edited,
-  };
-
-  const result = await window.electronAPI.updateResEntry(payload);
-  if (!result?.ok) {
-    if (el.assetTableHint) {
-      el.assetTableHint.textContent = `保存失敗: ${result?.error || 'unknown'}`;
-    }
-    return;
-  }
-
-  if (silent) {
-    // update local entry in memory without re-rendering (avoids cursor loss during typing)
-    const file = getSelectedFile();
-    if (file) {
-      const idx = file.entries.findIndex((e) => e.lineNumber === entry.lineNumber);
-      if (idx >= 0) file.entries[idx] = { ...file.entries[idx], ...edited };
-    }
-    if (el.assetTableHint) el.assetTableHint.textContent = '自動保存しました';
-    return;
-  }
-
-  await loadResDefinitions({ keepSelection: true });
-  if (el.assetTableHint) {
-    el.assetTableHint.textContent = '定義を保存しました';
-  }
-}
-
-async function deleteEntry(entry) {
-  const ok = window.confirm(`定義を削除しますか？\n${entry.type} ${entry.name}`);
-  if (!ok) return;
-
-  const result = await window.electronAPI.deleteResEntry({
-    file: state.rescomp.selectedFile,
-    lineNumber: entry.lineNumber,
-  });
-
-  if (!result?.ok) {
-    if (el.assetTableHint) {
-      el.assetTableHint.textContent = `削除失敗: ${result?.error || 'unknown'}`;
-    }
-    return;
-  }
-
-  state.rescomp.selectedEntryLine = null;
-  await loadResDefinitions({ keepSelection: true });
-}
-
-async function deleteCurrentResFile() {
-  const fileName = state.rescomp.selectedFile || el.resFileSelect?.value || '';
-  if (!fileName) {
-    if (el.assetTableHint) el.assetTableHint.textContent = '削除する .res ファイルがありません';
-    return;
-  }
-
-  const selectedFile = getSelectedFile();
-  const countText = selectedFile ? `${selectedFile.entryCount || 0} 件の定義を含む ` : '';
-  const ok = window.confirm(`${countText}.res ファイルを削除しますか？\n${fileName}`);
-  if (!ok) return;
-
-  const result = await window.electronAPI.deleteResFile(fileName);
-  if (!result?.ok) {
-    if (el.assetTableHint) {
-      el.assetTableHint.textContent = `.res ファイル削除失敗: ${result?.error || 'unknown'}`;
-    }
-    return;
-  }
-
-  state.rescomp.selectedFile = '';
-  state.rescomp.selectedEntryLine = null;
-  await loadResDefinitions({ keepSelection: false });
-  if (el.assetTableHint) {
-    el.assetTableHint.textContent = `.res ファイルを削除しました: ${fileName}`;
-  }
-}
-
-async function reorderEntry(fromLine, toLine) {
-  const file = getSelectedFile();
-  if (!file) return;
-  const entries = file.entries;
-  const fromIdx = entries.findIndex((e) => Number(e.lineNumber) === fromLine);
-  const toIdx = entries.findIndex((e) => Number(e.lineNumber) === toLine);
-  if (fromIdx < 0 || toIdx < 0) return;
-
-  const orderedLineNumbers = entries.map((e) => Number(e.lineNumber));
-  const [removed] = orderedLineNumbers.splice(fromIdx, 1);
-  orderedLineNumbers.splice(toIdx, 0, removed);
-
-  const result = await window.electronAPI.reorderResEntries({
-    file: state.rescomp.selectedFile,
-    orderedLineNumbers,
-  });
-  if (!result?.ok) {
-    if (el.assetTableHint) el.assetTableHint.textContent = `\u4e26\u3073\u66ff\u3048\u5931\u6557: ${result?.error || 'unknown'}`;
-    return;
-  }
-  state.rescomp.selectedEntryLine = null;
-  await loadResDefinitions({ keepSelection: false });
-}
-
-async function loadResDefinitions({ keepSelection = false } = {}) {
-  if (getActiveCoreId() === 'pc-engine') {
-    state.rescomp.resRoot = '';
-    state.rescomp.files = [];
-    state.rescomp.selectedFile = '';
-    state.rescomp.selectedEntryLine = null;
-    renderResFileSelect();
-    renderAssetTable();
-    return;
-  }
-  const prevFile = state.rescomp.selectedFile;
-  const prevLine = state.rescomp.selectedEntryLine;
-
-  const result = await window.electronAPI.listResDefinitions();
-  if (!result?.ok) {
-    if (el.assetTableHint) {
-      el.assetTableHint.textContent = `読み込み失敗: ${result?.error || 'unknown'}`;
-    }
-    return;
-  }
-
-  state.rescomp.resRoot = result.resRoot || '';
-  state.rescomp.files = result.files || [];
-
-  if (keepSelection && prevFile && state.rescomp.files.some((f) => f.file === prevFile)) {
-    state.rescomp.selectedFile = prevFile;
-  } else if (!state.rescomp.selectedFile || !state.rescomp.files.some((f) => f.file === state.rescomp.selectedFile)) {
-    state.rescomp.selectedFile = state.rescomp.files[0]?.file || '';
-  }
-
-  if (keepSelection && prevLine) {
-    state.rescomp.selectedEntryLine = prevLine;
-  } else {
-    state.rescomp.selectedEntryLine = null;
-  }
-
-  renderResFileSelect();
-  renderAssetTable();
-}
-
-function populateAssetTypeOptions(selectedType, ext, providedAllowed = null) {
-  if (!el.assetTypeInput) return;
-  const allowed = Array.isArray(providedAllowed) && providedAllowed.length > 0
-    ? providedAllowed
-    : allowedTypesForExtension(ext);
-  el.assetTypeInput.innerHTML = '';
-  TYPE_OPTIONS.filter((t) => allowed.includes(t)).forEach((type) => {
-    const opt = document.createElement('option');
-    opt.value = type;
-    opt.textContent = type;
-    el.assetTypeInput.appendChild(opt);
-  });
-  el.assetTypeInput.value = allowed.includes(selectedType) ? selectedType : (allowed[0] || 'IMAGE');
-}
-
-function populateAssetResFileOptions() {
-  if (!el.assetResFileInput) return;
-  el.assetResFileInput.innerHTML = '';
-  state.rescomp.files.forEach((f) => {
-    const opt = document.createElement('option');
-    opt.value = f.file;
-    opt.textContent = f.file;
-    el.assetResFileInput.appendChild(opt);
-  });
-  el.assetResFileInput.value = state.rescomp.selectedFile || state.rescomp.files[0]?.file || 'resources.res';
-}
-
-function syncAssetModalForType() {
-  const type = el.assetTypeInput?.value || 'IMAGE';
-  const fileName = el.assetTargetFileNameInput?.value || '';
-  if (el.assetTargetSubdirInput && !el.assetTargetSubdirInput.dataset.userEdited) {
-    el.assetTargetSubdirInput.value = defaultSubDirForType(type);
-  }
-  if (el.assetSymbolNameInput && fileName && !el.assetSymbolNameInput.dataset.userEdited) {
-    el.assetSymbolNameInput.value = normalizeSymbolName(fileName);
-  }
-  const showResize = ['IMAGE', 'BITMAP', 'SPRITE', 'MAP', 'TILEMAP', 'TILESET'].includes(type);
-  const wRow = el.assetResizeTargetWidth?.closest('.form-group');
-  const hRow = el.assetResizeTargetHeight?.closest('.form-group');
-  if (wRow) wRow.style.display = showResize ? '' : 'none';
-  if (hRow) hRow.style.display = showResize ? '' : 'none';
-  if (!showResize) {
-    if (el.assetResizeTargetWidth) el.assetResizeTargetWidth.value = '';
-    if (el.assetResizeTargetHeight) el.assetResizeTargetHeight.value = '';
-  }
-}
-
-function openResFileModal() {
-  if (el.resFileNameInput) el.resFileNameInput.value = '';
-  openModal(el.resFileModal);
-}
-
-async function submitResFileModal() {
-  const fileName = el.resFileNameInput?.value.trim() || '';
-  if (!fileName) {
-    if (el.assetTableHint) el.assetTableHint.textContent = 'ファイル名を入力してください。';
-    return;
-  }
-  const result = await window.electronAPI.createResFile(fileName);
-  if (!result?.ok) {
-    if (el.assetTableHint) el.assetTableHint.textContent = `作成失敗: ${result?.error || 'unknown'}`;
-    return;
-  }
-  state.rescomp.selectedFile = fileName;
-  await loadResDefinitions({ keepSelection: true });
-  closeModal(el.resFileModal);
-  if (el.assetTableHint) el.assetTableHint.textContent = `作成しました: ${fileName}`;
 }
 
 function snapChannelTo3Bit(value) {
@@ -5451,7 +3613,7 @@ function snapChannelTo3Bit(value) {
   return level * 36;
 }
 
-function snapColorToMegaDrive(color) {
+function snapColorToPce(color) {
   return {
     r: snapChannelTo3Bit(color.r),
     g: snapChannelTo3Bit(color.g),
@@ -5512,7 +3674,7 @@ function weightedAverageColor(colors) {
     g += color.g * weight;
     b += color.b * weight;
   });
-  return snapColorToMegaDrive({
+  return snapColorToPce({
     r: total ? r / total : 0,
     g: total ? g / total : 0,
     b: total ? b / total : 0,
@@ -5566,7 +3728,7 @@ function weightedMedianCutPalette(colors, maxColors) {
 }
 
 function refinePaletteKMeans(colors, initialPalette, maxColors, iterations = 14) {
-  let palette = initialPalette.slice(0, maxColors).map((color) => snapColorToMegaDrive(color));
+  let palette = initialPalette.slice(0, maxColors).map((color) => snapColorToPce(color));
   const topColors = colors.slice().sort((a, b) => colorImportance(b) - colorImportance(a));
 
   while (palette.length < maxColors && topColors.length > 0) {
@@ -5592,7 +3754,7 @@ function refinePaletteKMeans(colors, initialPalette, maxColors, iterations = 14)
     palette = palette.map((color, index) => {
       const bucket = buckets[index];
       if (!bucket.total) return color;
-      return snapColorToMegaDrive({
+      return snapColorToPce({
         r: bucket.r / bucket.total,
         g: bucket.g / bucket.total,
         b: bucket.b / bucket.total,
@@ -5714,13 +3876,13 @@ function buildPalette(imageData, maxColors, transparencyMode, customTransparent,
 
     if (transparent) {
       if (!transparentFound) {
-        transparentColor = snapColorToMegaDrive(transparencyMode === 'custom' ? customTransparent : { r, g, b });
+        transparentColor = snapColorToPce(transparencyMode === 'custom' ? customTransparent : { r, g, b });
         transparentFound = true;
       }
       continue;
     }
 
-    const snapped = snapColorToMegaDrive({ r, g, b });
+    const snapped = snapColorToPce({ r, g, b });
     const key = `${snapped.r},${snapped.g},${snapped.b}`;
     const current = colorCounts.get(key) || { ...snapped, count: 0, edge: 0 };
     const x = p % width;
@@ -5829,7 +3991,7 @@ function mapImageToPalette(imageData, palette, options = {}) {
           continue;
         }
 
-        const idx = nearestColorIndex(snapColorToMegaDrive({ r, g, b }), palette);
+        const idx = nearestColorIndex(snapColorToPce({ r, g, b }), palette);
         const c = palette[idx];
         dst[i] = c.r;
         dst[i + 1] = c.g;
@@ -5883,7 +4045,7 @@ function mapImageToPalette(imageData, palette, options = {}) {
         bb = clampColorChannel(bb + shift);
       }
 
-      const idx = nearestColorIndex(snapColorToMegaDrive({ r: rr, g: gg, b: bb }), palette);
+      const idx = nearestColorIndex(snapColorToPce({ r: rr, g: gg, b: bb }), palette);
       const c = palette[idx];
       dst[i] = c.r;
       dst[i + 1] = c.g;
@@ -5914,7 +4076,7 @@ function quantizeToIndexed16(imageData, options) {
   if (hasReferencePalette) {
     fullPalette = options.referencePalette
       .slice(0, 16)
-      .map((c) => snapColorToMegaDrive(c));
+      .map((c) => snapColorToPce(c));
     while (fullPalette.length < 16) {
       fullPalette.push({ ...fullPalette[fullPalette.length - 1] || { r: 0, g: 0, b: 0 } });
     }
@@ -5930,7 +4092,7 @@ function quantizeToIndexed16(imageData, options) {
     transparentColor = built.transparentColor;
     hasTransparent = built.hasTransparent;
     fullPalette = reserveCustomColor
-      ? [{ ...snapColorToMegaDrive(customTransparent) }, ...built.palette]
+      ? [{ ...snapColorToPce(customTransparent) }, ...built.palette]
       : (hasTransparent ? [{ ...transparentColor }, ...built.palette] : built.palette);
   }
 
@@ -5995,8 +4157,7 @@ function readCanvasAsPngDataUrl(canvas) {
 }
 
 // ── インデックス PNG エンコーダ ─────────────────────────────────────────
-// canvas.toDataURL() は RGBA PNG しか生成できず RESCOMP がエラーになるため、
-// RESCOMP が正しく読める indexed PNG (color type 3) を自前で生成する。
+// PCE変換後のパレットを保持するため indexed PNG (color type 3) を生成する。
 
 const PNG_CRC32_TABLE = (() => {
   const t = new Uint32Array(256);
@@ -6534,7 +4695,7 @@ async function openQuantizeModal(sourceDataUrl, options = {}) {
     quantizeState.onApply = async (ok) => {
       if (ok) {
         let finalDataUrl = quantizeState.convertedDataUrl || sourceDataUrl;
-        // indexed PNG (パレットPNG) を生成して RESCOMP に渡す
+        // 変換結果を indexed PNG（パレットPNG）として返す
         const cr = quantizeState._lastConvertResult;
         if (cr && cr.indices && cr.palette) {
           try {
@@ -6983,151 +5144,6 @@ async function openResizeModal(dataUrl, imgWidth, imgHeight, options = {}) {
       }
     };
   });
-}
-
-async function maybeConvertImageToIndexed16(sourcePath, options = {}) {
-  const pipeline = getPluginCapability('image-import-pipeline');
-  if (pipeline?.convertToIndexed16) {
-    return pipeline.convertToIndexed16({
-      sourcePath,
-      targetSize: options.targetSize || null,
-    });
-  }
-
-  const resizeCapability = getPluginCapability('image-resize');
-  if (!resizeCapability?.openResizeModal) {
-    return {
-      canceled: true,
-      convertedDataUrl: '',
-      originalDataUrl: '',
-      warning: '画像リサイズコンバータープラグインが無効または未インストールです',
-    };
-  }
-
-  const read = await window.electronAPI.readFileAsDataUrl(sourcePath);
-  if (!read?.ok || !read.dataUrl) {
-    return { canceled: true, convertedDataUrl: '', originalDataUrl: '', warning: read?.error || '' };
-  }
-
-  const img = new Image();
-  img.src = read.dataUrl;
-  await img.decode();
-
-  let warning = '';
-  let workingDataUrl = read.dataUrl;
-  const resizeResult = await resizeCapability.openResizeModal(read.dataUrl, img.naturalWidth, img.naturalHeight, {
-    targetSize: options.targetSize || null,
-  });
-  if (!resizeResult.ok) {
-    return { canceled: true, convertedDataUrl: '', originalDataUrl: read.dataUrl, warning: 'リサイズ/クリッピングをキャンセルしました' };
-  }
-  if (resizeResult.dataUrl && resizeResult.dataUrl !== read.dataUrl) {
-    workingDataUrl = resizeResult.dataUrl;
-    warning = 'リサイズ/クリッピングを適用しました';
-  }
-
-  const workImg = new Image();
-  workImg.src = workingDataUrl;
-  await workImg.decode();
-
-  const canvas = document.createElement('canvas');
-  canvas.width = workImg.width;
-  canvas.height = workImg.height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(workImg, 0, 0);
-  const imageData = ctx.getImageData(0, 0, workImg.width, workImg.height);
-  const quantizeCapability = getPluginCapability('image-quantize');
-  const countColors = quantizeCapability?.countUniqueColors || countUniqueColors;
-  const unique = countColors(imageData);
-
-  if (unique <= 16) {
-    // canvas を経由した場合 (リサイズ/クリッピング後) は RGBA PNG になっているため
-    // indexed PNG に変換して RESCOMP に渡す
-    let savedDataUrl = '';
-    if (workingDataUrl !== read.dataUrl) {
-      try {
-        const encodeIndexed = quantizeCapability?.imageDataToIndexedPng || imageDataToIndexedPng;
-        savedDataUrl = await encodeIndexed(imageData);
-      } catch (e) {
-        console.warn('indexed PNG 変換失敗、RGBA PNG にフォールバック:', e);
-        savedDataUrl = workingDataUrl;
-      }
-    }
-    return {
-      canceled: false,
-      convertedDataUrl: savedDataUrl,
-      targetExtension: '.png',
-      originalDataUrl: read.dataUrl,
-      warning,
-    };
-  }
-
-  if (!quantizeCapability?.openQuantizeModal) {
-    return {
-      canceled: true,
-      convertedDataUrl: '',
-      originalDataUrl: read.dataUrl,
-      warning: '画像減色コンバータープラグインが無効または未インストールです',
-    };
-  }
-
-  const quantized = await quantizeCapability.openQuantizeModal(workingDataUrl, {
-    sourcePath,
-  });
-  if (!quantized.ok) {
-    return {
-      canceled: true,
-      convertedDataUrl: '',
-      originalDataUrl: read.dataUrl,
-      warning: '減色変換をキャンセルしました',
-    };
-  }
-
-  return {
-    canceled: false,
-    convertedDataUrl: quantized.dataUrl,
-    targetExtension: '.png',
-    originalDataUrl: read.dataUrl,
-    warning: `${warning ? `${warning} / ` : ''}減色変換を適用: ${unique} colors -> 16 colors`,
-  };
-}
-
-async function openAssetModal() {
-  if (!state.rescomp.selectedFile) {
-    await loadResDefinitions({ keepSelection: true });
-  }
-  if (!state.rescomp.selectedFile) {
-    if (el.assetTableHint) el.assetTableHint.textContent = '.res ファイルを先に作成してください。';
-    return;
-  }
-
-  const picked = await window.electronAPI.pickAssetSource();
-  if (!picked || picked.canceled) return;
-
-  state.rescomp.pendingAssetPick = picked;
-  const typeInfo = getAssetTypeInfo(picked);
-  const initialType = typeInfo.initialType || inferTypeFromExtension(picked.ext);
-  if (el.assetSourcePathInput) el.assetSourcePathInput.value = picked.sourcePath;
-  if (el.assetTargetFileNameInput) {
-    el.assetTargetFileNameInput.value = typeInfo.suggestedFileName || picked.fileName;
-  }
-  if (el.assetTargetSubdirInput) {
-    el.assetTargetSubdirInput.value = typeInfo.defaultSubdir || defaultSubDirForType(initialType);
-    delete el.assetTargetSubdirInput.dataset.userEdited;
-  }
-  if (el.assetSymbolNameInput) {
-    el.assetSymbolNameInput.value = typeInfo.defaultSymbol || normalizeSymbolName(picked.fileName);
-    delete el.assetSymbolNameInput.dataset.userEdited;
-  }
-  if (el.assetCommentInput) {
-    el.assetCommentInput.value = '';
-  }
-  if (el.assetResizeTargetWidth) el.assetResizeTargetWidth.value = '';
-  if (el.assetResizeTargetHeight) el.assetResizeTargetHeight.value = '';
-  populateAssetTypeOptions(initialType, picked.ext, typeInfo.allowedTypes);
-  populateAssetResFileOptions();
-  syncAssetModalForType();
-  openModal(el.assetModal);
 }
 
 function formatSeconds(seconds) {
@@ -7685,10 +5701,6 @@ function settleAudioConvertModal(result) {
   if (resolve) resolve(result);
 }
 
-function shouldReturnAudioConvertResult(pending = audioConvertState.pending) {
-  return Boolean(pending?.returnResult || pending?.mode === 'pce-asset' || pending?.target === 'pce-asset');
-}
-
 function closeAudioConvertModal(clearPending = true, result = null) {
   stopAudioConvertPreview();
   closeModal(el.audioConvertModal);
@@ -7703,48 +5715,7 @@ function closeAudioConvertModal(clearPending = true, result = null) {
   if (clearPending) {
     settleAudioConvertModal(result || { ok: false, canceled: true });
     audioConvertState.pending = null;
-    state.rescomp.pendingAssetPick = null;
   }
-}
-
-async function finalizeAssetRegistration({
-  normalizedType,
-  copyResult,
-  targetFileName,
-  symbol,
-  comment,
-  warning,
-  resFile,
-}) {
-  const defaultEntry = createDefaultEntry(normalizedType, copyResult.relativePath, targetFileName);
-  defaultEntry.name = normalizeSymbolName(symbol || defaultEntry.name);
-  defaultEntry.comment = comment || '';
-
-  const addResult = await window.electronAPI.addResEntry({
-    file: resFile || state.rescomp.selectedFile,
-    entry: defaultEntry,
-  });
-
-  if (!addResult?.ok) {
-    if (el.assetTableHint) el.assetTableHint.textContent = `定義追加失敗: ${addResult?.error || 'unknown'}`;
-    return false;
-  }
-
-  state.rescomp.selectedFile = resFile || state.rescomp.selectedFile;
-  await loadResDefinitions({ keepSelection: true });
-
-  const file = getSelectedFile();
-  const matched = file?.entries.find((e) => e.name === defaultEntry.name && e.type === normalizedType && e.sourcePath === defaultEntry.sourcePath);
-  if (matched) {
-    state.rescomp.selectedEntryLine = matched.lineNumber;
-    renderAssetTable();
-  }
-
-  if (el.assetTableHint) {
-    const msg = copyResult?.warning || warning || `追加しました: ${defaultEntry.type} ${defaultEntry.name}`;
-    el.assetTableHint.textContent = msg;
-  }
-  return true;
 }
 
 async function openAudioConvertModal(pending) {
@@ -7774,7 +5745,7 @@ async function openAudioConvertModal(pending) {
     if (el.audioConvertFadeOutInput) el.audioConvertFadeOutInput.value = defaults.fadeOutSec ?? '';
     if (el.audioConvertSampleRateInput) el.audioConvertSampleRateInput.value = defaultSampleRate ? String(defaultSampleRate) : '';
     if (el.audioConvertHint) el.audioConvertHint.textContent = '音声を解析中...';
-    if (el.btnAudioConvertApply) el.btnAudioConvertApply.textContent = pending?.returnResult || pending?.mode === 'pce-asset' ? '変換して戻る' : '変換して追加';
+    if (el.btnAudioConvertApply) el.btnAudioConvertApply.textContent = '変換して戻る';
     audioConvertState.waveZoom = 1;
     audioConvertState.waveScroll = 0;
     audioConvertState.playheadSec = 0;
@@ -7876,48 +5847,17 @@ async function skipAudioConvertModal() {
     closeAudioConvertModal(true);
     return;
   }
-
-  if (el.audioConvertHint) el.audioConvertHint.textContent = 'ファイルをコピー中...';
-
-  if (shouldReturnAudioConvertResult(pending)) {
-    const result = {
-      ok: true,
-      skipped: true,
-      dataUrl: audioConvertState.dataUrl,
-      originalFileName: pending.picked?.fileName || '',
-      sourceFileName: pending.targetFileName || pending.picked?.fileName || 'audio.wav',
-      sampleRate: audioConvertState.sampleRate,
-      channels: audioConvertState.audioBuffer?.numberOfChannels || 0,
-      durationSeconds: audioConvertState.durationSec,
-      processing: { skipped: true },
-    };
-    closeAudioConvertModal(true, result);
-    return;
-  }
-
-  const copyResult = await window.electronAPI.writeAssetFile({
-    sourcePath: pending.picked.sourcePath,
-    targetSubdir: pending.targetSubdir,
-    targetFileName: pending.targetFileName,
+  closeAudioConvertModal(true, {
+    ok: true,
+    skipped: true,
+    dataUrl: audioConvertState.dataUrl,
+    originalFileName: pending.picked?.fileName || '',
+    sourceFileName: pending.targetFileName || pending.picked?.fileName || 'audio.wav',
+    sampleRate: audioConvertState.sampleRate,
+    channels: audioConvertState.audioBuffer?.numberOfChannels || 0,
+    durationSeconds: audioConvertState.durationSec,
+    processing: { skipped: true },
   });
-
-  if (!copyResult?.ok) {
-    if (el.audioConvertHint) el.audioConvertHint.textContent = `コピー失敗: ${copyResult?.error || 'unknown'}`;
-    return;
-  }
-
-  const added = await finalizeAssetRegistration({
-    normalizedType: 'WAV',
-    copyResult,
-    targetFileName: pending.targetFileName,
-    symbol: pending.symbol,
-    comment: pending.comment,
-    warning: '',
-    resFile: pending.resFile,
-  });
-  if (!added) return;
-
-  closeAudioConvertModal(true);
 }
 
 async function applyAudioConvertModal() {
@@ -7929,44 +5869,27 @@ async function applyAudioConvertModal() {
 
   const startSec = Number(el.audioConvertStartInput?.value || audioConvertState.startSec || 0);
   const endSec = Number(el.audioConvertEndInput?.value || audioConvertState.endSec || 0);
-  if (Number.isFinite(startSec) && startSec < 0) {
+  if (!Number.isFinite(startSec) || startSec < 0) {
     if (el.audioConvertHint) el.audioConvertHint.textContent = '開始位置は 0 以上にしてください。';
     return;
   }
-  if (Number.isFinite(endSec) && endSec <= 0) {
-    if (el.audioConvertHint) el.audioConvertHint.textContent = '終了位置は 0 より大きくしてください。';
-    return;
-  }
-  if (Number.isFinite(startSec) && Number.isFinite(endSec) && endSec <= startSec) {
+  if (!Number.isFinite(endSec) || endSec <= startSec) {
     if (el.audioConvertHint) el.audioConvertHint.textContent = '終了位置は開始位置より後にしてください。';
     return;
   }
 
   const sampleRate = Number(el.audioConvertSampleRateInput?.value || 0);
-  const payload = {
-    sourcePath: pending.picked.sourcePath,
-    targetSubdir: pending.targetSubdir,
-    targetFileName: pending.targetFileName,
-    options: {
-      trimStartSec: Number.isFinite(startSec) ? startSec : null,
-      trimEndSec: Number.isFinite(endSec) ? endSec : null,
-      normalize: String(el.audioConvertNormalizeInput?.value || 'FALSE').toUpperCase() === 'TRUE',
-      volumeDb: Number(el.audioConvertVolumeDbInput?.value || 0) || 0,
-      mono: String(el.audioConvertMonoInput?.value || 'FALSE').toUpperCase() === 'TRUE',
-      sampleRate: Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : null,
-    },
+  const options = {
+    trimStartSec: startSec,
+    trimEndSec: endSec,
+    normalize: String(el.audioConvertNormalizeInput?.value || 'FALSE').toUpperCase() === 'TRUE',
+    volumeDb: Number(el.audioConvertVolumeDbInput?.value || 0) || 0,
+    mono: String(el.audioConvertMonoInput?.value || 'FALSE').toUpperCase() === 'TRUE',
+    sampleRate: Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : null,
   };
 
-  if (el.audioConvertHint) el.audioConvertHint.textContent = '音声を変換しています...';
-  let processed;
   try {
-    processed = processAudioBufferToWavDataUrl(audioConvertState.originalAudioBuffer, payload.options);
-  } catch (err) {
-    if (el.audioConvertHint) el.audioConvertHint.textContent = `変換失敗: ${String(err?.message || err)}`;
-    return;
-  }
-
-  if (shouldReturnAudioConvertResult(pending)) {
+    const processed = processAudioBufferToWavDataUrl(audioConvertState.originalAudioBuffer, options);
     closeAudioConvertModal(true, {
       ok: true,
       dataUrl: processed.dataUrl,
@@ -7977,185 +5900,22 @@ async function applyAudioConvertModal() {
       durationSeconds: processed.durationSeconds,
       processing: processed.processing,
     });
-    return;
-  }
 
-  const copyResult = await window.electronAPI.writeAssetFile({
-    sourcePath: pending.picked.sourcePath,
-    targetSubdir: pending.targetSubdir,
-    targetFileName: pending.targetFileName,
-    dataUrl: processed.dataUrl,
-  });
-  if (!copyResult?.ok) {
-    if (el.audioConvertHint) el.audioConvertHint.textContent = `変換失敗: ${copyResult?.error || 'unknown'}`;
-    return;
-  }
-
-  const added = await finalizeAssetRegistration({
-    normalizedType: 'WAV',
-    copyResult,
-    targetFileName: pending.targetFileName,
-    symbol: pending.symbol,
-    comment: pending.comment,
-    warning: '',
-    resFile: pending.resFile,
-  });
-  if (!added) return;
-
-  closeAudioConvertModal(true, { ok: true, copyResult });
-}
-
-async function tryHandleAssetImport(payload) {
-  const handlers = getPluginCapabilities('asset-import-handler');
-  for (const handler of handlers) {
-    if (typeof handler?.handleImport !== 'function') continue;
-    try {
-      const canHandle = typeof handler.canHandle === 'function'
-        ? handler.canHandle(payload)
-        : true;
-      if (!canHandle) continue;
-      const result = await handler.handleImport(payload);
-      if (result?.handled) return result;
-    } catch (err) {
-      appendLog('app', `asset-import-handler エラー: ${String(err?.message || err)}`, 'warn');
-      return { handled: false, error: String(err?.message || err) };
-    }
-  }
-  return { handled: false };
-}
-
-async function submitAssetModal() {
-  const picked = state.rescomp.pendingAssetPick;
-  if (!picked) {
-    closeModal(el.assetModal);
-    return;
-  }
-
-  const normalizedType = String(el.assetTypeInput?.value || '').trim().toUpperCase();
-  if (!TYPE_OPTIONS.includes(normalizedType)) {
-    if (el.assetTableHint) el.assetTableHint.textContent = `未対応タイプ: ${normalizedType}`;
-    return;
-  }
-
-  const targetSubdir = el.assetTargetSubdirInput?.value.trim() || defaultSubDirForType(normalizedType);
-  const inputFileName = el.assetTargetFileNameInput?.value.trim() || picked.fileName;
-  if (!inputFileName) return;
-  let targetFileName = (normalizedType === 'WAV' && AUDIO_EXTS.includes((picked.ext || '').toLowerCase()))
-    ? (String(inputFileName).toLowerCase().endsWith('.wav') ? inputFileName : `${inputFileName.replace(/\.[^.]+$/, '')}.wav`)
-    : inputFileName;
-
-  const symbol = el.assetSymbolNameInput?.value.trim() || normalizeSymbolName(targetFileName);
-  const comment = el.assetCommentInput?.value.trim() || '';
-  const resFile = el.assetResFileInput?.value || state.rescomp.selectedFile;
-
-  let convertedDataUrl = '';
-  let warning = '';
-  const rawTargetW = String(el.assetResizeTargetWidth?.value || '').trim();
-  const rawTargetH = String(el.assetResizeTargetHeight?.value || '').trim();
-  const resizeEnabled = ['IMAGE', 'BITMAP', 'SPRITE', 'MAP', 'TILEMAP', 'TILESET'].includes(normalizedType);
-  if (resizeEnabled && ((rawTargetW && !rawTargetH) || (!rawTargetW && rawTargetH))) {
-    if (el.assetTableHint) {
-      el.assetTableHint.textContent = '画像サイズ指定は幅と高さを両方入力してください。';
-    }
-    return;
-  }
-  const targetWidth = Number(el.assetResizeTargetWidth?.value || 0);
-  const targetHeight = Number(el.assetResizeTargetHeight?.value || 0);
-  const hasTargetSize = Number.isFinite(targetWidth)
-    && Number.isFinite(targetHeight)
-    && targetWidth > 0
-    && targetHeight > 0;
-  const sourceExt = (picked.ext || '').toLowerCase();
-  const isImageAsset = IMAGE_EXTS.includes(sourceExt);
-  const isAudioInput = AUDIO_EXTS.includes(sourceExt);
-  const supportsResize = normalizedType !== 'PALETTE';
-  if (isImageAsset && ['PALETTE', 'IMAGE', 'BITMAP', 'SPRITE', 'MAP', 'TILEMAP', 'TILESET'].includes(normalizedType)) {
-    const converted = await maybeConvertImageToIndexed16(picked.sourcePath, {
-      targetSize: (hasTargetSize && supportsResize) ? { width: Math.round(targetWidth), height: Math.round(targetHeight) } : null,
-    });
-    if (converted.canceled) {
-      closeModal(el.assetModal);
-      if (el.assetTableHint) {
-        el.assetTableHint.textContent = converted.warning || '画像登録をキャンセルしました';
+    card.querySelector('.plugin-revoke-trust-btn')?.addEventListener('click', async () => {
+      const confirmed = window.confirm(`ユーザープラグイン「${plugin.name}」の信頼を解除し、無効化しますか？`);
+      if (!confirmed) return;
+      const result = await window.electronAPI.setPluginTrusted(plugin.id, false);
+      if (!result?.ok) {
+        appendLog('plugin', `信頼解除に失敗: ${result?.error || 'unknown'}`, 'error');
+        return;
       }
-      return;
-    }
-    convertedDataUrl = converted.convertedDataUrl || '';
-    if (converted.targetExtension) {
-      targetFileName = `${targetFileName.replace(/\.[^.]+$/, '')}${converted.targetExtension}`;
-    }
-    warning = converted.warning || '';
-  }
-
-  if (normalizedType === 'WAV' && isAudioInput) {
-    const audioCapability = getPluginCapability('audio-convert-ui');
-    if (!audioCapability?.openAudioConvertModal) {
-      if (el.assetTableHint) {
-        el.assetTableHint.textContent = '音声変換コンバータープラグインが無効または未インストールです';
-      }
-      return;
-    }
-    closeModal(el.assetModal);
-    await audioCapability.openAudioConvertModal({
-      picked,
-      targetSubdir,
-      targetFileName,
-      symbol,
-      comment,
-      resFile,
+      appendLog('plugin', `ユーザープラグイン "${plugin.name}" の信頼を解除しました`, 'warn');
+      await loadPlugins({ skipProjectPluginStateRestore: true });
     });
-    return;
+  } catch (err) {
+    if (el.audioConvertHint) el.audioConvertHint.textContent = `変換失敗: ${String(err?.message || err)}`;
   }
-
-  const handled = await tryHandleAssetImport({
-    picked,
-    normalizedType,
-    targetSubdir,
-    targetFileName,
-    symbol,
-    comment,
-    resFile,
-  });
-  if (handled?.handled) {
-    state.rescomp.pendingAssetPick = null;
-    closeModal(el.assetModal);
-    if (el.assetTableHint && handled.message) {
-      el.assetTableHint.textContent = handled.message;
-    }
-    return;
-  }
-  if (handled?.error) {
-    if (el.assetTableHint) el.assetTableHint.textContent = handled.error;
-    return;
-  }
-
-  const copyResult = await window.electronAPI.writeAssetFile({
-    sourcePath: picked.sourcePath,
-    targetSubdir,
-    targetFileName,
-    dataUrl: convertedDataUrl || '',
-  });
-
-  if (!copyResult?.ok) {
-    if (el.assetTableHint) el.assetTableHint.textContent = `コピー失敗: ${copyResult?.error || 'unknown'}`;
-    return;
-  }
-
-  const added = await finalizeAssetRegistration({
-    normalizedType,
-    copyResult,
-    targetFileName,
-    symbol,
-    comment,
-    warning,
-    resFile,
-  });
-  if (!added) return;
-
-  state.rescomp.pendingAssetPick = null;
-  closeModal(el.assetModal);
 }
-
 function openProjectModal() {
   state.project.newProjectParentDir = state.project.newProjectParentDir || state.project.projectsRootDir || '';
   if (el.projectParentDirInput) {
@@ -8350,12 +6110,6 @@ function bindEvents() {
     state.pluginFilters.type = el.pluginTypeFilter.value || 'all';
     renderPluginList();
   });
-  el.pluginCoreFilterToggle?.addEventListener('change', () => {
-    state.pluginFilters.showAllCores = Boolean(el.pluginCoreFilterToggle.checked);
-    renderPluginRoleSettings();
-    renderPluginList();
-  });
-
   el.btnSetup?.addEventListener('click', () => {
     window.electronAPI.openSetupWindow();
   });
@@ -8506,11 +6260,6 @@ function bindEvents() {
     updateProjectNameDisplay();
     collectAndValidateSettings({ showError: true });
   });
-  el.settingAuthor?.addEventListener('input', () => collectAndValidateSettings({ showError: true }));
-  el.settingSerial?.addEventListener('input', () => {
-    el.settingSerial.value = el.settingSerial.value.toUpperCase();
-    collectAndValidateSettings({ showError: true });
-  });
   [el.externalEmulatorPath, el.externalEmulatorArgs].forEach((input) => {
     input?.addEventListener('input', () => {
       state.projectConfig.testPlay = buildTestPlaySettingsPatch();
@@ -8543,24 +6292,6 @@ function bindEvents() {
 
   el.btnOpenProjectDir?.addEventListener('click', openCurrentProjectDirectory);
   el.btnSettingsProjectPicker?.addEventListener('click', openProjectPicker);
-
-  el.btnOpenResDir?.addEventListener('click', async () => {
-    const r = await window.electronAPI.openResDirectory();
-    if (!r?.ok && el.assetTableHint) {
-      el.assetTableHint.textContent = `res ディレクトリを開けません: ${r?.error || 'unknown'}`;
-    }
-  });
-
-  el.btnCreateResFile?.addEventListener('click', openResFileModal);
-  el.btnAddAsset?.addEventListener('click', openAssetModal);
-
-  el.btnResFileModalClose?.addEventListener('click', () => closeModal(el.resFileModal));
-  el.btnResFileCancel?.addEventListener('click', () => closeModal(el.resFileModal));
-  el.btnResFileCreate?.addEventListener('click', submitResFileModal);
-
-  el.btnAssetModalClose?.addEventListener('click', () => closeModal(el.assetModal));
-  el.btnAssetModalCancel?.addEventListener('click', () => closeModal(el.assetModal));
-  el.btnAssetModalCreate?.addEventListener('click', submitAssetModal);
 
   el.btnAudioConvertClose?.addEventListener('click', () => closeAudioConvertModal(true));
   el.btnAudioConvertCancel?.addEventListener('click', () => closeAudioConvertModal(true));
@@ -8668,70 +6399,6 @@ function bindEvents() {
     if (Number.isFinite(n)) setAudioConvertRange(audioConvertState.startSec, n);
   });
 
-  el.btnAccordionParams?.addEventListener('click', () => {
-    setAccordionOpen('params', !state.preview.paramsOpen);
-  });
-
-  el.btnAccordionPreview?.addEventListener('click', () => {
-    setAccordionOpen('preview', !state.preview.previewOpen);
-  });
-
-  el.btnTogglePreviewPanel?.addEventListener('click', () => {
-    const nextOpen = !state.preview.panelOpen;
-    if (!nextOpen) {
-      stopAudioPreview();
-      stopVgmPreview();
-    }
-    setPreviewPanelOpen(nextOpen);
-  });
-
-  el.btnAudioPlay?.addEventListener('click', () => {
-    const entry = getCurrentSelectedEntry();
-    if (entry && isVgmPreviewEntry(entry)) {
-      toggleVgmPreview(entry);
-    } else if (entry && isAudioEntry(entry)) {
-      if (state.preview.audio && state.preview.audioEntryId === entry.id) {
-        stopAudioPreview();
-      } else {
-        toggleAudioPreview(entry);
-      }
-    }
-  });
-
-  el.audioSeek?.addEventListener('input', () => {
-    if (state.preview.audio && state.preview.audio.duration) {
-      state.preview.audio.currentTime = (parseFloat(el.audioSeek.value) / 100) * state.preview.audio.duration;
-    } else if (state.preview.vgmEntryId) {
-      el.audioSeek.value = 0;
-    }
-  });
-
-  el.inlineImageZoom?.addEventListener('change', () => {
-    state.preview.imageZoom = el.inlineImageZoom.value || 'fit';
-    applyInlineImageZoom();
-    redrawCurrentSpritePreview();
-  });
-  el.inlineImageFrame?.addEventListener('wheel', (event) => {
-    event.preventDefault();
-    const step = event.deltaY < 0 ? 1 : -1;
-    stepInlineImageZoom(step);
-    redrawCurrentSpritePreview();
-  }, { passive: false });
-
-  el.assetTypeInput?.addEventListener('change', syncAssetModalForType);
-  el.assetTargetSubdirInput?.addEventListener('input', () => {
-    el.assetTargetSubdirInput.dataset.userEdited = '1';
-  });
-  el.assetTargetFileNameInput?.addEventListener('input', () => {
-    if (el.assetSymbolNameInput) {
-      delete el.assetSymbolNameInput.dataset.userEdited;
-    }
-    syncAssetModalForType();
-  });
-  el.assetSymbolNameInput?.addEventListener('input', () => {
-    el.assetSymbolNameInput.dataset.userEdited = '1';
-  });
-
   el.btnProjectModalClose?.addEventListener('click', () => {
     if (cancelRequiredProjectSelection()) return;
     closeModal(el.projectModal);
@@ -8764,20 +6431,6 @@ function bindEvents() {
       closeModal($(modalId));
     });
   });
-
-  el.resFileSelect?.addEventListener('change', () => {
-    state.rescomp.selectedFile = el.resFileSelect.value;
-    state.rescomp.selectedEntryLine = null;
-    renderAssetTable();
-  });
-
-  el.assetSearchInput?.addEventListener('input', () => {
-    state.rescomp.searchText = el.assetSearchInput.value || '';
-    renderAssetTable();
-  });
-
-  el.btnDeleteAssetEntry?.addEventListener('click', deleteCurrentResFile);
-  el.assetPreviewResizer?.addEventListener('pointerdown', beginAssetPreviewResize);
 
   el.resizeMode?.addEventListener('change', () => {
     const mode = el.resizeMode.value;
@@ -8922,6 +6575,16 @@ function bindEvents() {
   window.electronAPI.onPluginLog?.((payload) => {
     appendLog(payload?.source || payload?.pluginId || 'plugin', payload?.text || '', payload?.level || 'info');
   });
+  window.electronAPI.onDiagnostic?.((payload) => {
+    appendLog(payload?.source || 'app', `[${payload?.code || 'diagnostic'}] ${payload?.message || ''}`, payload?.level || 'warn');
+  });
+  window.electronAPI.listDiagnostics?.().then((result) => {
+    (Array.isArray(result?.diagnostics) ? result.diagnostics : []).forEach((payload) => {
+      appendLog(payload?.source || 'app', `[${payload?.code || 'diagnostic'}] ${payload?.message || ''}`, payload?.level || 'warn');
+    });
+  }).catch((err) => {
+    appendLog('app', `起動時診断の読み込みに失敗: ${String(err?.message || err)}`, 'warn');
+  });
   window.electronAPI.onLogWindowClosed?.(() => {
     setLogDetached(false);
   });
@@ -8972,20 +6635,10 @@ function bindEvents() {
         if (quantizeState.onApply) quantizeState.onApply(false);
         return;
       }
-      if (el.assetModal?.classList.contains('open')) {
-        e.preventDefault();
-        closeModal(el.assetModal);
-        return;
-      }
       if (el.projectPickerModal?.classList.contains('open')) {
         e.preventDefault();
         if (cancelRequiredProjectSelection()) return;
         closeModal(el.projectPickerModal);
-        return;
-      }
-      if (el.resFileModal?.classList.contains('open')) {
-        e.preventDefault();
-        closeModal(el.resFileModal);
         return;
       }
       if (el.codeEntryModal?.classList.contains('open')) {
@@ -9030,10 +6683,6 @@ async function bootstrap() {
   if (el.codeEncodingSelect) el.codeEncodingSelect.value = state.code.selectedEncoding;
   bindEvents();
   bindCodeScrollSync();
-  loadAssetPreviewWidth();
-  setPreviewPanelOpen(true);
-  setAccordionOpen('params', true);
-  setAccordionOpen('preview', true);
   const waitingForProject = await ensureStartupProjectSelection();
   if (waitingForProject) {
     renderLogPanel();
@@ -9041,9 +6690,6 @@ async function bootstrap() {
   }
   await loadProjectConfig();
   await refreshProjectList();
-  if (isLegacyRescompAvailable()) {
-    await loadResDefinitions({ keepSelection: false });
-  }
   await loadPlugins();
   renderLogPanel();
 

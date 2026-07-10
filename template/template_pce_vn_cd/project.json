@@ -2,9 +2,6 @@
   "coreId": "pc-engine",
   "platform": "pce",
   "title": "MY NEW GAME",
-  "author": "PCE Game Editor",
-  "serial": "PCEVNCD00001",
-  "region": "JUE",
   "romName": "MY NEW GAME",
   "toolchain": "llvm-mos",
   "targetMedia": "cd",
@@ -17,19 +14,22 @@
       "assets/generated/vn/overlay.bin",
       "assets/generated/vn/font_sprite.bin",
       "assets/generated/vn/scenes/000_opening.bin",
-      "assets/generated/vn_classroom_bg/tiles.rle",
-      "assets/generated/vn_classroom_bg/map_vram.rle",
-      "assets/generated/akari_sprite/patterns.rle",
+      "assets/generated/meta/asset_meta.bin",
+      "assets/generated/vn_classroom_bg/tiles.bin",
+      "assets/generated/vn_classroom_bg/map_vram.bin",
+      "assets/generated/akari_sprite/patterns.bin",
       "assets/generated/akari_voice/adpcm.bin",
+      "assets/generated/psg/vn_psg_chime.bin",
       "assets/generated/vn/scenes/001_branch_lab.bin",
-      "assets/generated/command_lab_bg/tiles.rle",
-      "assets/generated/command_lab_bg/map_vram.rle",
-      "assets/generated/mika_sprite/patterns.rle",
+      "assets/generated/command_lab_bg/tiles.bin",
+      "assets/generated/command_lab_bg/map_vram.bin",
+      "assets/generated/mika_sprite/patterns.bin",
       "assets/generated/guide_voice/adpcm.bin",
       "assets/generated/mika_voice/adpcm.bin",
+      "assets/generated/psg/vn_psg_confirm.bin",
       "assets/generated/vn/scenes/002_effect_lab.bin",
-      "assets/generated/rooftop_dusk_bg/tiles.rle",
-      "assets/generated/rooftop_dusk_bg/map_vram.rle",
+      "assets/generated/rooftop_dusk_bg/tiles.bin",
+      "assets/generated/rooftop_dusk_bg/map_vram.bin",
       "assets/generated/vn/scenes/003_ending.bin"
     ],
     "cddaTracks": [
@@ -51,6 +51,5 @@
       "sound-editor",
       "code-editor"
     ]
-  },
-  "generatedAt": "2026-05-31T10:04:55.364Z"
+  }
 }

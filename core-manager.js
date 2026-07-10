@@ -9,9 +9,9 @@ const pceAssetManager = require('./pce-asset-manager');
 const { app } = require('electron');
 const { filterCoresForApp, isCoreAllowed } = require('./game-editor-common');
 const { migratePceProjectsIfNeeded } = require('./pce-project-migration');
+const appDiagnostics = require('./app-diagnostics');
 
 const CORE_IDS = Object.freeze({
-  MEGA_DRIVE: 'mega-drive',
   PC_ENGINE: 'pc-engine',
 });
 
@@ -30,7 +30,6 @@ function normalizeCoreId(value) {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return CORE_IDS.PC_ENGINE;
   if (raw === 'pce' || raw === 'pcengine' || raw === 'pc-engine') return CORE_IDS.PC_ENGINE;
-  if (raw === 'md' || raw === 'megadrive' || raw === 'mega-drive' || raw === 'genesis') return CORE_IDS.MEGA_DRIVE;
   return raw;
 }
 
@@ -39,18 +38,23 @@ function detectCoreIdFromConfig(config = {}) {
     if (config.coreId) return normalizeCoreId(config.coreId);
     const platform = String(config.platform || '').trim().toLowerCase();
     if (platform === 'pce' || platform === 'pc-engine') return CORE_IDS.PC_ENGINE;
-    if (platform === 'md' || platform === 'mega-drive' || platform === 'megadrive' || platform === 'genesis') return CORE_IDS.MEGA_DRIVE;
   }
-  // Projects without an explicit PCE marker are legacy MD projects and should
-  // not appear in the PCE-only project list.
-  return CORE_IDS.MEGA_DRIVE;
+  return '';
 }
 
 function readProjectConfig(projectDir) {
   try {
     const cfgPath = path.join(path.resolve(projectDir), 'project.json');
     if (fs.existsSync(cfgPath)) return JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) || {};
-  } catch (_) {}
+  } catch (err) {
+    appDiagnostics.report({
+      source: 'project',
+      code: 'project-config-read-failed',
+      level: 'error',
+      error: err,
+      details: { projectDir: path.resolve(projectDir || '.') },
+    });
+  }
   return {};
 }
 
@@ -66,17 +70,8 @@ function getSetupManagerForCore() {
   return pceSetupManager;
 }
 
-function getActiveProjectDir() {
-  return pceBuildSystem.getProjectDir();
-}
-
 function getActiveCoreId() {
-  const projectDir = getActiveProjectDir();
-  const configPath = path.join(path.resolve(projectDir || ''), 'project.json');
-  if (!projectDir || !fs.existsSync(configPath)) return CORE_IDS.PC_ENGINE;
-  return getCoreIdForProjectDir(projectDir) === CORE_IDS.PC_ENGINE
-    ? CORE_IDS.PC_ENGINE
-    : CORE_IDS.PC_ENGINE;
+  return CORE_IDS.PC_ENGINE;
 }
 
 function getActiveBuildSystem() {
@@ -96,7 +91,16 @@ function listCores() {
 }
 
 function maybeMigratePceProjects() {
-  try { migratePceProjectsIfNeeded(app); } catch (_) {}
+  try {
+    migratePceProjectsIfNeeded(app);
+  } catch (err) {
+    appDiagnostics.report({
+      source: 'project',
+      code: 'project-migration-failed',
+      level: 'error',
+      error: err,
+    });
+  }
 }
 
 function normalizeListedProject(project) {

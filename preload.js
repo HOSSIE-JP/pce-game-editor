@@ -1,26 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // --- 既存 ---
-  openRomDialog: () => ipcRenderer.invoke('dialog:openRomFile'),
-  readRomFile: (filePath) => ipcRenderer.invoke('fs:readRomFile', filePath),
-  startApiServer: (options) => ipcRenderer.invoke('api:startServer', options),
-  stopApiServer: () => ipcRenderer.invoke('api:stopServer'),
-  isApiServerRunning: () => ipcRenderer.invoke('api:isRunning'),
   startAiControlServer: (options) => ipcRenderer.invoke('ai-control:start', options || {}),
   stopAiControlServer: () => ipcRenderer.invoke('ai-control:stop'),
   getAiControlStatus: () => ipcRenderer.invoke('ai-control:status'),
   listAiControlTools: () => ipcRenderer.invoke('ai-control:listTools'),
-  openDebugWindow: (options) => ipcRenderer.invoke('window:openDebug', options),
-  onRomSelected: (callback) => {
-    ipcRenderer.on('rom-selected', (_event, payload) => callback(payload));
-  },
-  onApiLog: (callback) => {
-    ipcRenderer.on('api-log', (_event, payload) => callback(payload));
-  },
-  onApiExit: (callback) => {
-    ipcRenderer.on('api-exit', (_event, payload) => callback(payload));
-  },
   onAiControlLog: (callback) => {
     ipcRenderer.on('ai-control-log', (_event, payload) => callback(payload));
   },
@@ -47,6 +31,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onPluginLog: (callback) => {
     ipcRenderer.on('plugin-log', (_event, payload) => callback(payload));
   },
+  listDiagnostics: () => ipcRenderer.invoke('diagnostics:list'),
+  onDiagnostic: (callback) => {
+    ipcRenderer.on('app-diagnostic', (_event, payload) => callback(payload));
+  },
   onLogWindowClosed: (callback) => {
     ipcRenderer.on('log:windowClosed', (_event, payload) => callback(payload));
   },
@@ -62,21 +50,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openLogWindow: (snapshot) => ipcRenderer.invoke('log:openWindow', snapshot || {}),
   syncLogWindow: (snapshot) => ipcRenderer.invoke('log:syncWindow', snapshot || {}),
   appendLogWindowEntry: (entry) => ipcRenderer.invoke('log:appendEntry', entry || {}),
-  listResDefinitions: () => ipcRenderer.invoke('res:listDefinitions'),
-  createResFile: (relativePath) => ipcRenderer.invoke('res:createFile', relativePath),
-  deleteResFile: (relativePath) => ipcRenderer.invoke('res:deleteFile', relativePath),
-  addResEntry: (payload) => ipcRenderer.invoke('res:addEntry', payload),
-  updateResEntry: (payload) => ipcRenderer.invoke('res:updateEntry', payload),
-  deleteResEntry: (payload) => ipcRenderer.invoke('res:deleteEntry', payload),
-  openResDirectory: () => ipcRenderer.invoke('res:openDirectory'),
-  reorderResEntries: (payload) => ipcRenderer.invoke('res:reorderEntries', payload),
   pickFile: (options) => ipcRenderer.invoke('dialog:pickFile', options || {}),
-  pickAssetSource: () => ipcRenderer.invoke('res:pickAssetSource'),
-  readFileAsDataUrl: (sourcePath) => ipcRenderer.invoke('res:readFileAsDataUrl', sourcePath),
-  readTempFileAsDataUrl: (sourcePath, options) => ipcRenderer.invoke('res:readTempFileAsDataUrl', sourcePath, options || {}),
-  deleteTempFile: (sourcePath) => ipcRenderer.invoke('res:deleteTempFile', sourcePath),
-  loadOptionalAudioEngine: (engineId) => ipcRenderer.invoke('setup:loadOptionalAudioEngine', engineId),
-  writeAssetFile: (payload) => ipcRenderer.invoke('res:writeAssetFile', payload),
+  readFileAsDataUrl: (sourcePath) => ipcRenderer.invoke('files:readAsDataUrl', sourcePath),
   getCurrentProject: () => ipcRenderer.invoke('project:getCurrent'),
   getProjectStartupState: () => ipcRenderer.invoke('project:getStartupState'),
   listProjects: () => ipcRenderer.invoke('project:list'),
@@ -92,16 +67,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   renameCodeEntry: (payload) => ipcRenderer.invoke('codefs:rename', payload),
   // --- プラグイン ---
   listPlugins: (options) => ipcRenderer.invoke('plugins:list', options || {}),
+  listPluginDiagnostics: (options) => ipcRenderer.invoke('plugins:listDiagnostics', options || {}),
   getPluginRendererAssets: (id) => ipcRenderer.invoke('plugins:getRendererAssets', { id }),
   invokePluginHook: (id, hook, payload) => ipcRenderer.invoke('plugins:invokeHook', { id, hook, payload }),
   getPluginRoles: () => ipcRenderer.invoke('plugins:getRoles'),
   getPluginRole: (roleId) => ipcRenderer.invoke('plugins:getRole', { roleId }),
   setPluginRole: (roleId, id) => ipcRenderer.invoke('plugins:setRole', { roleId, id }),
   setPluginEnabled: (id, enabled) => ipcRenderer.invoke('plugins:setEnabled', { id, enabled }),
+  setPluginTrusted: (id, trusted) => ipcRenderer.invoke('plugins:setTrusted', { id, trusted }),
   runPluginGenerator: (id) => ipcRenderer.invoke('plugins:runGenerator', { id }),
   openPluginsFolder: () => ipcRenderer.invoke('plugins:openFolder'),
-  listCores: () => ipcRenderer.invoke('cores:list'),
-  getActiveCore: () => ipcRenderer.invoke('cores:getActive'),
   listAssets: () => ipcRenderer.invoke('assets:list'),
   upsertAsset: (asset) => ipcRenderer.invoke('assets:upsert', asset || {}),
   deleteAsset: (id) => ipcRenderer.invoke('assets:delete', { id }),

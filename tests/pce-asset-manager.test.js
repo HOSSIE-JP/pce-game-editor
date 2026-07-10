@@ -284,29 +284,7 @@ function makeRleRun(length, byte) {
   return Buffer.from(chunks);
 }
 
-function decodePceRle(buffer, expectedLength) {
-  const output = [];
-  let offset = 0;
-  while (offset < buffer.length && output.length < expectedLength) {
-    const token = buffer[offset];
-    offset += 1;
-    if (token & 0x80) {
-      const count = (token & 0x7f) + 3;
-      const value = buffer[offset];
-      offset += 1;
-      for (let i = 0; i < count && output.length < expectedLength; i += 1) output.push(value);
-    } else {
-      const count = (token & 0x7f) + 1;
-      for (let i = 0; i < count && output.length < expectedLength; i += 1) {
-        output.push(buffer[offset]);
-        offset += 1;
-      }
-    }
-  }
-  return Buffer.from(output);
-}
-
-test('PCE asset schema supports BG image, sprite, generated metadata, and legacy mosaic', () => {
+test('PCE asset schema supports BG image, sprite, generated metadata, and text fallback', () => {
   const assetManager = loadAssetManager();
   const image = assetManager.normalizeAsset({
     id: 'title-bg',
@@ -737,9 +715,8 @@ test('PCE image import generates BG and sprite assets with the internal converte
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.tilesFile)).length, 256);
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.mapFile)).length, 16);
   assert.equal(fs.readFileSync(path.join(projectDir, bg.asset.data.generated.mapVramFile)).readUInt16LE(0) & 0x0fff, 64);
-  // RLE removed: visual assets are uncompressed, so no compressed sidecar is emitted.
-  assert.equal(bg.asset.data.generated.compression.map.codec, 'none');
-  assert.equal(bg.asset.data.generated.mapVramCompressedFile, '');
+  assert.equal(bg.asset.data.generated.compression, undefined);
+  assert.equal(bg.asset.data.generated.mapVramCompressedFile, undefined);
   assert.equal(bg.asset.data.generated.tileCount, 8);
   assert.equal(sprite.asset.type, 'sprite');
   assert.equal(sprite.asset.options.compression, undefined);
@@ -819,16 +796,15 @@ test('PCE visual generation emits raw tiles with no compressed sidecar (RLE remo
     id: 'solid_bg',
   });
   const generated = imported.asset.data.generated;
-  // RLE removed: tiles ship raw; no compressed codec/file is produced.
-  assert.equal(generated.compression.tiles.codec, 'none');
-  assert.equal(generated.tilesCompressedFile, '');
+  assert.equal(generated.compression, undefined);
+  assert.equal(generated.tilesCompressedFile, undefined);
   assert.equal(fs.existsSync(path.join(projectDir, generated.tilesFile)), true);
 
   assetManager.generateAssetSources(projectDir);
 
   const saved = assetManager.readAssetDocument(projectDir);
-  assert.equal(saved.assets[0].data.generated.compression.tiles.codec, 'none');
-  assert.equal(saved.assets[0].data.generated.tilesCompressedFile, '');
+  assert.equal(saved.assets[0].data.generated.compression, undefined);
+  assert.equal(saved.assets[0].data.generated.tilesCompressedFile, undefined);
 });
 
 test('PCE sprite import writes VCE colors and sprite pattern words in hardware order', () => {
@@ -1626,26 +1602,19 @@ test('PCE sample template registers slideshow images for llvm-mos playback', () 
   assert.ok(bgm.options.pattern.length >= 16);
   assert.ok(slides.every((asset) => asset.options.kind === 'background'));
   assert.ok(slides.every((asset) => asset.options.width === 256 && asset.options.height === 224));
-  assert.ok(slides.every((asset) => asset.options.tileBase === 128 && asset.options.mapBase === 0));
+  assert.ok(slides.every((asset) => asset.options.tileBase === 64 && asset.options.mapBase === 0));
   assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.source))));
   assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.data.generated.paletteFile))));
   assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.data.generated.tilesFile))));
   assert.ok(slides.every((asset) => fs.existsSync(path.join(templateDir, asset.data.generated.mapFile))));
-  assert.ok(slides.every((asset) => asset.options.compression === 'auto'));
+  assert.ok(slides.every((asset) => asset.options.compression === undefined));
   slides.forEach((asset) => {
     const generated = asset.data.generated;
     const tiles = fs.readFileSync(path.join(templateDir, generated.tilesFile));
     const map = fs.readFileSync(path.join(templateDir, generated.mapVramFile));
-    if (generated.compression?.tiles?.codec === 'rle') {
-      assert.ok(fs.existsSync(path.join(templateDir, generated.tilesCompressedFile)));
-      const tilesRle = fs.readFileSync(path.join(templateDir, generated.tilesCompressedFile));
-      assert.deepEqual(decodePceRle(tilesRle, tiles.length), tiles);
-    }
-    if (generated.compression?.map?.codec === 'rle') {
-      assert.ok(fs.existsSync(path.join(templateDir, generated.mapVramCompressedFile)));
-      const mapRle = fs.readFileSync(path.join(templateDir, generated.mapVramCompressedFile));
-      assert.deepEqual(decodePceRle(mapRle, map.length), map);
-    }
+    assert.ok(tiles.length > 0);
+    assert.ok(map.length > 0);
+    assert.equal(generated.compression, undefined);
   });
   const sampleMain = fs.readFileSync(path.join(templateDir, 'src', 'main.c'), 'utf-8');
   assert.match(sampleMain, /mos-pce-clang/);
@@ -1714,7 +1683,7 @@ test('PCE sample template registers slideshow images for llvm-mos playback', () 
   }
 });
 
-test('PCE visual novel template compressed visual assets decode to raw data', () => {
+test('PCE visual novel template contains only raw visual asset files', () => {
   const templateDir = path.join(__dirname, '..', 'template', 'template_pce_vn_cd');
   const doc = JSON.parse(fs.readFileSync(path.join(templateDir, 'assets', 'pce-assets.json'), 'utf-8'));
   const visuals = doc.assets.filter((entry) => entry.type === 'image' || entry.type === 'sprite');
@@ -1722,12 +1691,13 @@ test('PCE visual novel template compressed visual assets decode to raw data', ()
   visuals.forEach((asset) => {
     const generated = asset.data.generated;
     const tiles = fs.readFileSync(path.join(templateDir, generated.tilesFile));
-    const tilesRle = fs.readFileSync(path.join(templateDir, generated.tilesCompressedFile));
-    assert.deepEqual(decodePceRle(tilesRle, tiles.length), tiles);
+    assert.ok(tiles.length > 0);
+    assert.equal(generated.tilesCompressedFile, undefined);
+    assert.equal(generated.compression, undefined);
     if (asset.type === 'image') {
       const map = fs.readFileSync(path.join(templateDir, generated.mapVramFile));
-      const mapRle = fs.readFileSync(path.join(templateDir, generated.mapVramCompressedFile));
-      assert.deepEqual(decodePceRle(mapRle, map.length), map);
+      assert.ok(map.length > 0);
+      assert.equal(generated.mapVramCompressedFile, undefined);
     }
   });
 });

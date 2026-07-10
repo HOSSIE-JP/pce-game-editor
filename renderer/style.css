@@ -2565,6 +2565,22 @@ button.project-path-chip {
 }
 .plugin-card-deps-warning { color: var(--yellow); }
 
+.plugin-diagnostics {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid color-mix(in srgb, var(--yellow) 55%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--yellow) 8%, var(--panel));
+}
+.plugin-diagnostics h3 { margin: 0; font-size: 13px; color: var(--yellow); }
+.plugin-diagnostic { display: grid; gap: 2px; font-size: 11px; }
+.plugin-diagnostic strong { font-size: 12px; }
+.plugin-diagnostic p { margin: 0; color: var(--muted); }
+.plugin-diagnostic code { overflow-wrap: anywhere; color: var(--muted); }
+.plugin-diagnostic-error strong { color: var(--red); }
+
 .plugin-builder-badge {
   font-size: 11px;
   background: var(--accent, #6c87f0);

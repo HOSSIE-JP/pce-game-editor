@@ -2,19 +2,25 @@
 
 const fs = require('fs');
 const path = require('path');
-const zlib = require('zlib');
 const audioConverter = require('./pce-audio-converter');
+const {
+  isLikelyAbsolutePath,
+  normalizeAssetSource,
+  normalizeGeneratedData,
+  normalizeSpriteEditorMetadata,
+} = require('./pce-asset-schema');
 const psgQuantize = require('./pce-psg-quantize');
 const vgmImporter = require('./pce-vgm-import');
 const midiImporter = require('./pce-midi-import');
 const { normalizeRelativePath, resolveUnderRoot } = require('./pce-file-safety');
+const { createPceAssetStore } = require('./pce-asset-store');
+const { decodePngImage, parsePngSize } = require('./pce-png-decoder');
 
 const ASSET_FILE = path.join('assets', 'pce-assets.json');
 const PCE_INTERNAL_IMAGE_CONVERTER = 'Internal PCE image converter';
 const PCE_PSG_MIDI_IMPORTER = 'Internal MIDI -> PSG step importer';
 const PCE_PSG_VGM_IMPORTER = 'Internal VGM/VGZ -> PSG step importer';
 const PCE_PSG_QUANTIZER_VERSION = psgQuantize.PSG_QUANTIZER_VERSION || 2;
-const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const SUPPORTED_TYPES = new Set(['image', 'sprite', 'psg-sequence', 'psg-song', 'psg-sfx', 'adpcm', 'cdda-track', 'tileset', 'tilemap', 'palette']);
 const IMAGE_EXTENSIONS = new Set(['.png', '.bmp', '.webp']);
 const AUDIO_EXTENSIONS = new Set(['.wav', '.mp3']);
@@ -42,11 +48,7 @@ const PCE_SLIDESHOW_MAX_WIDTH = 256;
 const PCE_SLIDESHOW_MAX_HEIGHT = 224;
 const PCE_SLIDESHOW_BUILDER_ID = 'pce-slideshow-builder';
 const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
-const PCE_VISUAL_COMPRESSION_NONE = 'none';
-const PCE_VISUAL_COMPRESSION_AUTO = 'auto';
-const PCE_VISUAL_COMPRESSION_RLE = 'rle';
 const PCE_EDITOR_CD_COMPRESSION_NONE = 0;
-const PCE_EDITOR_CD_COMPRESSION_RLE = 1;
 const PCE_ADPCM_CODEC = audioConverter.PCE_ADPCM_CODEC || 'oki-msm5205';
 const PCE_ADPCM_ENCODER_VERSION = audioConverter.PCE_ADPCM_ENCODER_VERSION || 2;
 const PCE_ADPCM_NIBBLE_ORDER = audioConverter.PCE_ADPCM_NIBBLE_ORDER || 'msn-first';
@@ -127,20 +129,12 @@ function ensureDirSync(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
-function isLikelyAbsolutePath(value = '') {
-  const raw = String(value || '');
-  return path.isAbsolute(raw) || /^[a-zA-Z]:[\\/]/.test(raw) || /^\\\\/.test(raw);
-}
-
 function getAssetFilePath(projectDir) {
-  return path.join(path.resolve(projectDir), ASSET_FILE);
+  return getAssetStore().getAssetFilePath(projectDir);
 }
 
 function defaultAssets() {
-  return {
-    version: 2,
-    assets: [],
-  };
+  return getAssetStore().defaultAssets();
 }
 
 function clampInt(value, min, max, fallback) {
@@ -162,19 +156,6 @@ function sanitizeAssetId(value, fallback = 'asset') {
     .replace(/^_+|_+$/g, '')
     .slice(0, 48);
   return base || fallback;
-}
-
-function normalizeAssetSource(source = '') {
-  const raw = String(source || '').trim();
-  if (!raw) return '';
-  if (isLikelyAbsolutePath(raw)) {
-    throw new Error(`project relative asset path is required: ${raw}`);
-  }
-  const cleaned = normalizeRelativePath(raw);
-  if (cleaned.split('/').includes('..')) {
-    throw new Error(`project relative asset path is required: ${raw}`);
-  }
-  return cleaned;
 }
 
 // Parse the sprite editor's per-frame time matrix string ("[[8,8,8][4,4,4]]")
@@ -261,15 +242,6 @@ function autoBackgroundVramOptions() {
   };
 }
 
-function normalizeVisualCompression(value, fallback = PCE_VISUAL_COMPRESSION_AUTO) {
-  const raw = String(value ?? '').trim().toLowerCase();
-  if (!raw) return fallback;
-  if (['none', 'raw', 'off', 'false', '0'].includes(raw)) return PCE_VISUAL_COMPRESSION_NONE;
-  if (['rle', 'pce-rle', 'pce_rle'].includes(raw)) return PCE_VISUAL_COMPRESSION_RLE;
-  if (['auto', 'best', 'fast', 'aplib', 'lz4w', 'true', '1'].includes(raw)) return PCE_VISUAL_COMPRESSION_AUTO;
-  return fallback;
-}
-
 function normalizeImageOptions(asset = {}) {
   const rawOptions = asset.options && typeof asset.options === 'object' ? { ...asset.options } : {};
   const isSprite = asset.type === 'sprite' || rawOptions.kind === 'sprite';
@@ -298,6 +270,9 @@ function normalizeImageOptions(asset = {}) {
     options.cellWidth = cellWidth;
     options.cellHeight = cellHeight;
     options.animations = normalizeSpriteAnimations(options, asset);
+    if (options.spriteEditor && typeof options.spriteEditor === 'object') {
+      options.spriteEditor = normalizeSpriteEditorMetadata(options.spriteEditor);
+    }
   } else {
     const autoVram = autoBackgroundVramOptions(options.width, options.height);
     options.tileBase = autoVram.tileBase;
@@ -307,81 +282,6 @@ function normalizeImageOptions(asset = {}) {
     delete options.animations;
   }
   return options;
-}
-
-function normalizeGeneratedCompressionSlot(slot = {}) {
-  if (!slot || typeof slot !== 'object') {
-    return {
-      codec: PCE_VISUAL_COMPRESSION_NONE,
-      file: '',
-      rawBytes: 0,
-      byteLength: 0,
-      savedBytes: 0,
-    };
-  }
-  const codec = normalizeVisualCompression(slot.codec || slot.method || slot.compression, PCE_VISUAL_COMPRESSION_NONE) === PCE_VISUAL_COMPRESSION_RLE
-    ? PCE_VISUAL_COMPRESSION_RLE
-    : PCE_VISUAL_COMPRESSION_NONE;
-  const rawBytes = clampInt(slot.rawBytes ?? slot.uncompressedBytes, 0, 0x7fffffff, 0);
-  const byteLength = clampInt(slot.byteLength ?? slot.compressedBytes, 0, 0x7fffffff, 0);
-  return {
-    codec,
-    file: normalizeAssetSource(slot.file || slot.path || ''),
-    rawBytes,
-    byteLength,
-    savedBytes: clampInt(slot.savedBytes, 0, 0x7fffffff, Math.max(0, rawBytes - byteLength)),
-  };
-}
-
-function normalizeGeneratedCompression(compression = {}) {
-  if (!compression || typeof compression !== 'object') {
-    return {
-      policy: PCE_VISUAL_COMPRESSION_AUTO,
-      tiles: normalizeGeneratedCompressionSlot(),
-      map: normalizeGeneratedCompressionSlot(),
-    };
-  }
-  return {
-    policy: normalizeVisualCompression(compression.policy ?? compression.requested, PCE_VISUAL_COMPRESSION_AUTO),
-    tiles: normalizeGeneratedCompressionSlot(compression.tiles),
-    map: normalizeGeneratedCompressionSlot(compression.map),
-  };
-}
-
-function normalizeGeneratedData(data = {}) {
-  if (!data || typeof data !== 'object') return {};
-  const generated = data.generated && typeof data.generated === 'object'
-    ? {
-        ...data.generated,
-        paletteFile: normalizeAssetSource(data.generated.paletteFile || ''),
-        tilesFile: normalizeAssetSource(data.generated.tilesFile || ''),
-        tilesCompressedFile: normalizeAssetSource(data.generated.tilesCompressedFile || ''),
-        cellMapFile: normalizeAssetSource(data.generated.cellMapFile || ''),
-        mapFile: normalizeAssetSource(data.generated.mapFile || ''),
-        mapVramFile: normalizeAssetSource(data.generated.mapVramFile || ''),
-        mapVramCompressedFile: normalizeAssetSource(data.generated.mapVramCompressedFile || ''),
-        outputFile: normalizeAssetSource(data.generated.outputFile || ''),
-        previewFile: normalizeAssetSource(data.generated.previewFile || ''),
-        tileCount: clampInt(data.generated.tileCount, 0, 65535, 0),
-        paletteCount: clampInt(data.generated.paletteCount, 0, 32, 0),
-        vramBytes: clampInt(data.generated.vramBytes, 0, 65535, 0),
-        byteLength: clampInt(data.generated.byteLength, 0, 0x7fffffff, 0),
-        sampleRate: clampInt(data.generated.sampleRate, 0, 192000, 0),
-        channels: clampInt(data.generated.channels, 0, 8, 0),
-        durationSeconds: Number.isFinite(Number(data.generated.durationSeconds)) ? Number(data.generated.durationSeconds) : 0,
-        warnings: Array.isArray(data.generated.warnings)
-          ? data.generated.warnings.map((warning) => String(warning)).filter(Boolean)
-          : [],
-        paletteColors: Array.isArray(data.generated.paletteColors)
-          ? data.generated.paletteColors.map((color) => String(color)).filter(Boolean).slice(0, 256)
-          : [],
-        waveform: Array.isArray(data.generated.waveform)
-          ? data.generated.waveform.map((value) => Math.max(0, Math.min(1, Number(value) || 0))).slice(0, 256)
-          : [],
-        compression: normalizeGeneratedCompression(data.generated.compression),
-      }
-    : null;
-  return generated ? { ...data, generated } : { ...data };
 }
 
 function normalizePaletteOptions(asset = {}) {
@@ -484,47 +384,37 @@ function normalizeAssetDocument(doc = {}) {
   };
 }
 
-function ensureAssetFile(projectDir) {
-  const filePath = getAssetFilePath(projectDir);
-  if (!fs.existsSync(filePath)) {
-    ensureDirSync(path.dirname(filePath));
-    fs.writeFileSync(filePath, JSON.stringify(defaultAssets(), null, 2), 'utf-8');
+let assetStoreInstance = null;
+function getAssetStore() {
+  if (!assetStoreInstance) {
+    assetStoreInstance = createPceAssetStore({
+      assetFile: ASSET_FILE,
+      normalizeAsset,
+      normalizeAssetDocument,
+      resolveUnderRoot,
+    });
   }
-  return filePath;
+  return assetStoreInstance;
+}
+
+function ensureAssetFile(projectDir) {
+  return getAssetStore().ensureAssetFile(projectDir);
 }
 
 function readAssetDocument(projectDir) {
-  const filePath = ensureAssetFile(projectDir);
-  try {
-    return normalizeAssetDocument(JSON.parse(fs.readFileSync(filePath, 'utf-8')));
-  } catch (err) {
-    throw new Error(`asset file parse failed: ${err.message || err}`);
-  }
+  return getAssetStore().readAssetDocument(projectDir);
 }
 
 function readRawAssetDocument(projectDir) {
-  const filePath = ensureAssetFile(projectDir);
-  try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    return parsed && typeof parsed === 'object' ? parsed : defaultAssets();
-  } catch (err) {
-    throw new Error(`asset file parse failed: ${err.message || err}`);
-  }
+  return getAssetStore().readRawAssetDocument(projectDir);
 }
 
 function writeAssetDocument(projectDir, doc) {
-  const normalized = normalizeAssetDocument(doc);
-  const filePath = getAssetFilePath(projectDir);
-  ensureDirSync(path.dirname(filePath));
-  fs.writeFileSync(filePath, JSON.stringify(normalized, null, 2), 'utf-8');
-  return normalized;
+  return getAssetStore().writeAssetDocument(projectDir, doc);
 }
 
 function resolveAssetSource(projectDir, asset) {
-  const normalized = normalizeAsset(asset);
-  if (!normalized.source) return { asset: normalized, absPath: null };
-  const { absPath } = resolveUnderRoot(projectDir, normalized.source, 'project');
-  return { asset: normalized, absPath };
+  return getAssetStore().resolveAssetSource(projectDir, asset);
 }
 
 function getMimeForPath(filePath) {
@@ -539,65 +429,19 @@ function getMimeForPath(filePath) {
 }
 
 function listAssets(projectDir) {
-  const doc = readAssetDocument(projectDir);
-  return {
-    file: ASSET_FILE,
-    assets: doc.assets.map((asset) => {
-      let exists = true;
-      let pathError = '';
-      if (asset.source) {
-        try {
-          const { absPath } = resolveUnderRoot(projectDir, asset.source, 'project');
-          exists = fs.existsSync(absPath);
-        } catch (err) {
-          exists = false;
-          pathError = err.message || String(err);
-        }
-      }
-      return {
-        ...asset,
-        exists,
-        pathError,
-      };
-    }),
-  };
+  return getAssetStore().listAssets(projectDir);
 }
 
 function upsertAsset(projectDir, nextAsset) {
-  const doc = readAssetDocument(projectDir);
-  const asset = normalizeAsset(nextAsset);
-  const index = doc.assets.findIndex((entry) => entry.id === asset.id);
-  if (index >= 0) {
-    doc.assets[index] = asset;
-  } else {
-    doc.assets.push(asset);
-  }
-  return writeAssetDocument(projectDir, doc);
+  return getAssetStore().upsertAsset(projectDir, nextAsset);
 }
 
 function deleteAsset(projectDir, id) {
-  const doc = readAssetDocument(projectDir);
-  const assetId = String(id || '').trim();
-  const nextAssets = doc.assets.filter((asset) => asset.id !== assetId);
-  if (nextAssets.length === doc.assets.length) {
-    throw new Error(`asset not found: ${assetId}`);
-  }
-  return writeAssetDocument(projectDir, { ...doc, assets: nextAssets });
+  return getAssetStore().deleteAsset(projectDir, id);
 }
 
 function reorderAssets(projectDir, ids = []) {
-  const doc = readAssetDocument(projectDir);
-  const order = Array.isArray(ids) ? ids.map((id) => String(id)).filter(Boolean) : [];
-  const byId = new Map(doc.assets.map((asset) => [asset.id, asset]));
-  const nextAssets = [];
-  for (const id of order) {
-    if (byId.has(id)) {
-      nextAssets.push(byId.get(id));
-      byId.delete(id);
-    }
-  }
-  nextAssets.push(...doc.assets.filter((asset) => byId.has(asset.id)));
-  return writeAssetDocument(projectDir, { ...doc, assets: nextAssets });
+  return getAssetStore().reorderAssets(projectDir, ids);
 }
 
 function readPceImageJson(absPath) {
@@ -615,15 +459,6 @@ function readPceImageJson(absPath) {
     height,
     pixels: rows,
     palette: Array.isArray(parsed.palette) ? parsed.palette.slice(0, 16) : [],
-  };
-}
-
-function parsePngSize(buffer) {
-  if (!Buffer.isBuffer(buffer) || buffer.length < 24) return null;
-  if (buffer.readUInt32BE(0) !== 0x89504e47 || buffer.readUInt32BE(4) !== 0x0d0a1a0a) return null;
-  return {
-    width: buffer.readUInt32BE(16),
-    height: buffer.readUInt32BE(20),
   };
 }
 
@@ -729,187 +564,24 @@ function buildInternalPceConversionPlan(projectDir, asset) {
   const generatedDir = path.join(projectDir, 'assets', 'generated', normalized.id);
   const paletteFile = relativeGeneratedPath(normalized.id, 'palette.bin');
   const tilesFile = relativeGeneratedPath(normalized.id, kind === 'sprite' ? 'patterns.bin' : 'tiles.bin');
-  const tilesCompressedFile = relativeGeneratedPath(normalized.id, kind === 'sprite' ? 'patterns.rle' : 'tiles.rle');
   const cellMapFile = kind === 'sprite' ? relativeGeneratedPath(normalized.id, 'cellmap.bin') : '';
   const mapFile = kind === 'sprite' ? '' : relativeGeneratedPath(normalized.id, 'map.bin');
   const mapVramFile = kind === 'sprite' ? '' : relativeGeneratedPath(normalized.id, 'map_vram.bin');
-  const mapVramCompressedFile = kind === 'sprite' ? '' : relativeGeneratedPath(normalized.id, 'map_vram.rle');
   const previewFile = relativeGeneratedPath(normalized.id, 'preview.json');
   const paletteAbs = path.join(projectDir, paletteFile);
   const tilesAbs = path.join(projectDir, tilesFile);
-  const tilesCompressedAbs = path.join(projectDir, tilesCompressedFile);
   const cellMapAbs = cellMapFile ? path.join(projectDir, cellMapFile) : '';
   const mapAbs = mapFile ? path.join(projectDir, mapFile) : '';
   const mapVramAbs = mapVramFile ? path.join(projectDir, mapVramFile) : '';
-  const mapVramCompressedAbs = mapVramCompressedFile ? path.join(projectDir, mapVramCompressedFile) : '';
   return {
     kind,
     command: PCE_INTERNAL_IMAGE_CONVERTER,
     args: [],
     cwd: projectDir,
-    files: { paletteFile, tilesFile, tilesCompressedFile, cellMapFile, mapFile, mapVramFile, mapVramCompressedFile, previewFile },
-    absFiles: { paletteAbs, tilesAbs, tilesCompressedAbs, cellMapAbs, mapAbs, mapVramAbs, mapVramCompressedAbs, previewAbs: path.join(projectDir, previewFile) },
+    files: { paletteFile, tilesFile, cellMapFile, mapFile, mapVramFile, previewFile },
+    absFiles: { paletteAbs, tilesAbs, cellMapAbs, mapAbs, mapVramAbs, previewAbs: path.join(projectDir, previewFile) },
     generatedDir,
   };
-}
-
-function paethPredictor(a, b, c) {
-  const p = a + b - c;
-  const pa = Math.abs(p - a);
-  const pb = Math.abs(p - b);
-  const pc = Math.abs(p - c);
-  if (pa <= pb && pa <= pc) return a;
-  if (pb <= pc) return b;
-  return c;
-}
-
-function unfilterPngScanlines(input, width, height, rowBytes, bytesPerPixel) {
-  const output = Buffer.alloc(rowBytes * height);
-  let src = 0;
-  for (let y = 0; y < height; y += 1) {
-    if (src >= input.length) throw new Error('PNG data is truncated');
-    const filter = input[src];
-    src += 1;
-    const rowOffset = y * rowBytes;
-    const prevOffset = rowOffset - rowBytes;
-    for (let x = 0; x < rowBytes; x += 1) {
-      if (src >= input.length) throw new Error('PNG data is truncated');
-      const raw = input[src];
-      src += 1;
-      const left = x >= bytesPerPixel ? output[rowOffset + x - bytesPerPixel] : 0;
-      const up = y > 0 ? output[prevOffset + x] : 0;
-      const upLeft = y > 0 && x >= bytesPerPixel ? output[prevOffset + x - bytesPerPixel] : 0;
-      let value;
-      if (filter === 0) value = raw;
-      else if (filter === 1) value = raw + left;
-      else if (filter === 2) value = raw + up;
-      else if (filter === 3) value = raw + Math.floor((left + up) / 2);
-      else if (filter === 4) value = raw + paethPredictor(left, up, upLeft);
-      else throw new Error(`unsupported PNG filter: ${filter}`);
-      output[rowOffset + x] = value & 0xff;
-    }
-  }
-  return output;
-}
-
-function unpackPngSample(row, x, bitDepth) {
-  if (bitDepth === 8) return row[x] || 0;
-  const bitOffset = x * bitDepth;
-  const byte = row[Math.floor(bitOffset / 8)] || 0;
-  const shift = 8 - bitDepth - (bitOffset % 8);
-  return (byte >> shift) & ((1 << bitDepth) - 1);
-}
-
-function decodePngImage(buffer) {
-  if (!Buffer.isBuffer(buffer) || buffer.length < 33 || !buffer.subarray(0, 8).equals(PNG_SIGNATURE)) {
-    throw new Error('PNG image is required');
-  }
-  let offset = 8;
-  let width = 0;
-  let height = 0;
-  let bitDepth = 0;
-  let colorType = 0;
-  let interlace = 0;
-  let palette = [];
-  let alphaTable = [];
-  const idat = [];
-  while (offset + 12 <= buffer.length) {
-    const length = buffer.readUInt32BE(offset);
-    const type = buffer.toString('ascii', offset + 4, offset + 8);
-    const dataStart = offset + 8;
-    const dataEnd = dataStart + length;
-    if (dataEnd + 4 > buffer.length) throw new Error('PNG chunk is truncated');
-    const data = buffer.subarray(dataStart, dataEnd);
-    if (type === 'IHDR') {
-      width = data.readUInt32BE(0);
-      height = data.readUInt32BE(4);
-      bitDepth = data[8];
-      colorType = data[9];
-      const compression = data[10];
-      const filter = data[11];
-      interlace = data[12];
-      if (compression !== 0 || filter !== 0) throw new Error('unsupported PNG compression/filter method');
-      if (interlace !== 0) throw new Error('interlaced PNG is not supported');
-    } else if (type === 'PLTE') {
-      palette = [];
-      for (let i = 0; i + 2 < data.length; i += 3) {
-        palette.push({ r: data[i], g: data[i + 1], b: data[i + 2] });
-      }
-    } else if (type === 'tRNS') {
-      alphaTable = Array.from(data);
-    } else if (type === 'IDAT') {
-      idat.push(data);
-    } else if (type === 'IEND') {
-      break;
-    }
-    offset = dataEnd + 4;
-  }
-  if (!width || !height || idat.length === 0) throw new Error('invalid PNG image');
-  let bitsPerPixel;
-  if (colorType === 0) bitsPerPixel = bitDepth;
-  else if (colorType === 2) bitsPerPixel = bitDepth * 3;
-  else if (colorType === 3) bitsPerPixel = bitDepth;
-  else if (colorType === 4) bitsPerPixel = bitDepth * 2;
-  else if (colorType === 6) bitsPerPixel = bitDepth * 4;
-  else throw new Error(`unsupported PNG color type: ${colorType}`);
-  if (![1, 2, 4, 8].includes(bitDepth) || (colorType !== 3 && bitDepth !== 8)) {
-    throw new Error(`unsupported PNG bit depth: ${bitDepth}`);
-  }
-  const rowBytes = Math.ceil((width * bitsPerPixel) / 8);
-  const bytesPerPixel = Math.max(1, Math.ceil(bitsPerPixel / 8));
-  const inflated = zlib.inflateSync(Buffer.concat(idat));
-  const rows = unfilterPngScanlines(inflated, width, height, rowBytes, bytesPerPixel);
-  if (colorType === 3) {
-    if (palette.length === 0) throw new Error('indexed PNG is missing PLTE');
-    const indices = new Uint8Array(width * height);
-    for (let y = 0; y < height; y += 1) {
-      const row = rows.subarray(y * rowBytes, (y + 1) * rowBytes);
-      for (let x = 0; x < width; x += 1) {
-        indices[(y * width) + x] = unpackPngSample(row, x, bitDepth);
-      }
-    }
-    return {
-      format: 'indexed',
-      width,
-      height,
-      indices,
-      palette,
-      alphaTable,
-    };
-  }
-  const rgba = new Uint8Array(width * height * 4);
-  for (let y = 0; y < height; y += 1) {
-    const row = rows.subarray(y * rowBytes, (y + 1) * rowBytes);
-    for (let x = 0; x < width; x += 1) {
-      const dest = ((y * width) + x) * 4;
-      if (colorType === 0) {
-        const gray = row[x];
-        rgba[dest] = gray;
-        rgba[dest + 1] = gray;
-        rgba[dest + 2] = gray;
-        rgba[dest + 3] = 255;
-      } else if (colorType === 2) {
-        const src = x * 3;
-        rgba[dest] = row[src];
-        rgba[dest + 1] = row[src + 1];
-        rgba[dest + 2] = row[src + 2];
-        rgba[dest + 3] = 255;
-      } else if (colorType === 4) {
-        const src = x * 2;
-        rgba[dest] = row[src];
-        rgba[dest + 1] = row[src];
-        rgba[dest + 2] = row[src];
-        rgba[dest + 3] = row[src + 1];
-      } else if (colorType === 6) {
-        const src = x * 4;
-        rgba[dest] = row[src];
-        rgba[dest + 1] = row[src + 1];
-        rgba[dest + 2] = row[src + 2];
-        rgba[dest + 3] = row[src + 3];
-      }
-    }
-  }
-  return { format: 'rgba', width, height, rgba };
 }
 
 function pceColorComponent(value) {
@@ -1194,69 +866,6 @@ function encodePceSprites(indexed, options = DEFAULT_SPRITE_OPTIONS) {
   return { patterns: Buffer.concat(uniqueBlocks), cellMap: Buffer.from(cellMap) };
 }
 
-function encodePceRleBuffer(input) {
-  if (!Buffer.isBuffer(input) || input.length === 0) return Buffer.alloc(0);
-  const output = [];
-  let offset = 0;
-  while (offset < input.length) {
-    let runLength = 1;
-    while (
-      offset + runLength < input.length
-      && runLength < 130
-      && input[offset + runLength] === input[offset]
-    ) {
-      runLength += 1;
-    }
-    if (runLength >= 3) {
-      output.push(0x80 | (runLength - 3), input[offset]);
-      offset += runLength;
-      continue;
-    }
-
-    const literalStart = offset;
-    offset += runLength;
-    while (offset < input.length && offset - literalStart < 128) {
-      runLength = 1;
-      while (
-        offset + runLength < input.length
-        && runLength < 130
-        && input[offset + runLength] === input[offset]
-      ) {
-        runLength += 1;
-      }
-      if (runLength >= 3) break;
-      if ((offset - literalStart) + runLength > 128) {
-        offset = literalStart + 128;
-        break;
-      }
-      offset += runLength;
-    }
-    const literalLength = offset - literalStart;
-    output.push(literalLength - 1);
-    for (let i = literalStart; i < offset; i += 1) output.push(input[i]);
-  }
-  return Buffer.from(output);
-}
-
-// RLE visual compression was removed: the CD-ROM2 VN runtime decodes raw tiles/maps/
-// patterns only (the RLE streaming decoder held the VDC write address across CD reads
-// and consumed ~87% of the bank133 overlay). Visual assets always ship uncompressed,
-// so this never emits a sidecar. `policy` is kept for signature compatibility.
-function selectVisualCompression(rawBuffer, policy = PCE_VISUAL_COMPRESSION_AUTO) {
-  return { codec: PCE_VISUAL_COMPRESSION_NONE, buffer: Buffer.alloc(0), rawBytes: (Buffer.isBuffer(rawBuffer) ? rawBuffer.length : 0), byteLength: 0, savedBytes: 0 };
-}
-
-function writeVisualCompressionSidecar(rawBuffer, absPath, policy) {
-  const result = selectVisualCompression(rawBuffer, policy);
-  if (result.codec === PCE_VISUAL_COMPRESSION_RLE && absPath) {
-    ensureDirSync(path.dirname(absPath));
-    fs.writeFileSync(absPath, result.buffer);
-  } else if (absPath && fs.existsSync(absPath)) {
-    fs.unlinkSync(absPath);
-  }
-  return result;
-}
-
 function runInternalPceImageConversion(plan, sourceAbs, asset, options = {}) {
   ensureDirSync(plan.generatedDir);
   if (options.dryRun) {
@@ -1265,18 +874,19 @@ function runInternalPceImageConversion(plan, sourceAbs, asset, options = {}) {
   const decoded = decodePngImage(fs.readFileSync(sourceAbs));
   const indexed = convertDecodedToIndexed16(decoded, normalizeImageOptions(asset));
   const imageOptions = normalizeImageOptions(asset);
+  ['patterns.rle', 'tiles.rle', 'map_vram.rle'].forEach((fileName) => {
+    const stalePath = path.join(plan.generatedDir, fileName);
+    if (fs.existsSync(stalePath)) fs.unlinkSync(stalePath);
+  });
   fs.writeFileSync(plan.absFiles.paletteAbs, encodePcePaletteBuffer(indexed.palette));
   if (plan.kind === 'background') {
     const encoded = encodePceBackground(indexed, asset);
     fs.writeFileSync(plan.absFiles.tilesAbs, encoded.tiles);
     fs.writeFileSync(plan.absFiles.mapAbs, encoded.map);
     fs.writeFileSync(plan.absFiles.mapVramAbs, encoded.vramMap);
-    writeVisualCompressionSidecar(encoded.tiles, plan.absFiles.tilesCompressedAbs, imageOptions.compression);
-    writeVisualCompressionSidecar(encoded.vramMap, plan.absFiles.mapVramCompressedAbs, imageOptions.compression);
   } else {
     const { patterns, cellMap } = encodePceSprites(indexed, imageOptions);
     fs.writeFileSync(plan.absFiles.tilesAbs, patterns);
-    writeVisualCompressionSidecar(patterns, plan.absFiles.tilesCompressedAbs, imageOptions.compression);
     if (plan.absFiles.cellMapAbs) fs.writeFileSync(plan.absFiles.cellMapAbs, cellMap);
   }
   return {
@@ -1294,38 +904,19 @@ function uniqueWarnings(warnings = []) {
 
 // RLE removed: visual assets are always uncompressed, so the generated metadata slot
 // is always NONE with no compressed sidecar file.
-function generatedCompressionSlot(policy, rawBuffer, compressedBuffer, compressedFile) {
-  const rawBytes = Buffer.isBuffer(rawBuffer) ? rawBuffer.length : 0;
-  return { codec: PCE_VISUAL_COMPRESSION_NONE, file: '', rawBytes, byteLength: 0, savedBytes: 0 };
-}
-
 function createGeneratedMetadata(projectDir, asset, plan, sourceRel, imageSize, extraWarnings = []) {
   const palette = fs.existsSync(plan.absFiles.paletteAbs) ? fs.readFileSync(plan.absFiles.paletteAbs) : Buffer.alloc(0);
   const tiles = fs.existsSync(plan.absFiles.tilesAbs) ? fs.readFileSync(plan.absFiles.tilesAbs) : Buffer.alloc(0);
-  const tilesCompressed = fs.existsSync(plan.absFiles.tilesCompressedAbs) ? fs.readFileSync(plan.absFiles.tilesCompressedAbs) : Buffer.alloc(0);
   const map = plan.absFiles.mapAbs && fs.existsSync(plan.absFiles.mapAbs) ? fs.readFileSync(plan.absFiles.mapAbs) : Buffer.alloc(0);
   const vramMap = plan.absFiles.mapVramAbs && fs.existsSync(plan.absFiles.mapVramAbs) ? fs.readFileSync(plan.absFiles.mapVramAbs) : Buffer.alloc(0);
-  const vramMapCompressed = plan.absFiles.mapVramCompressedAbs && fs.existsSync(plan.absFiles.mapVramCompressedAbs) ? fs.readFileSync(plan.absFiles.mapVramCompressedAbs) : Buffer.alloc(0);
   const isSprite = asset.type === 'sprite';
-  const options = normalizeImageOptions(asset);
-  const tilesCompression = generatedCompressionSlot(options.compression, tiles, tilesCompressed, plan.files.tilesCompressedFile);
-  const mapCompression = isSprite
-    ? generatedCompressionSlot(PCE_VISUAL_COMPRESSION_NONE, Buffer.alloc(0), Buffer.alloc(0), '')
-    : generatedCompressionSlot(options.compression, vramMap, vramMapCompressed, plan.files.mapVramCompressedFile);
   const generated = {
     ...plan.files,
-    tilesCompressedFile: tilesCompression.codec === PCE_VISUAL_COMPRESSION_RLE ? plan.files.tilesCompressedFile : '',
-    mapVramCompressedFile: mapCompression.codec === PCE_VISUAL_COMPRESSION_RLE ? plan.files.mapVramCompressedFile : '',
     tileCount: isSprite ? Math.floor(tiles.length / 128) : Math.floor(tiles.length / 32),
     paletteCount: Math.ceil(palette.length / 32),
     vramBytes: tiles.length + (isSprite ? 0 : (vramMap.length || map.length)),
     warnings: [],
     paletteColors: readPaletteColors(palette),
-    compression: {
-      policy: PCE_VISUAL_COMPRESSION_NONE,
-      tiles: tilesCompression,
-      map: mapCompression,
-    },
   };
   generated.warnings = uniqueWarnings([...extraWarnings, ...buildImageWarnings(asset, imageSize, generated)]);
   const preview = {
@@ -1336,26 +927,15 @@ function createGeneratedMetadata(projectDir, asset, plan, sourceRel, imageSize, 
     tileCount: generated.tileCount,
     paletteCount: generated.paletteCount,
     vramBytes: generated.vramBytes,
-    compression: generated.compression,
     warnings: generated.warnings,
   };
   ensureDirSync(path.dirname(plan.absFiles.previewAbs));
   fs.writeFileSync(plan.absFiles.previewAbs, JSON.stringify(preview, null, 2), 'utf-8');
   return { ...generated, previewFile: plan.files.previewFile };
 }
-
 function readFirstTileIndex(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 2) return null;
   return buffer.readUInt16LE(0) & 0x0fff;
-}
-
-function generatedCompressionNeedsRefresh(projectDir, asset, slots = ['tiles']) {
-  if (!asset || (asset.type !== 'image' && asset.type !== 'sprite')) return false;
-  const generated = asset.data?.generated || {};
-  const compression = normalizeGeneratedCompression(generated.compression);
-  // RLE removed: an asset only needs regenerating if it still carries a stale RLE
-  // codec from older generation, so it gets rewritten as raw (uncompressed).
-  return slots.some((slot) => (compression[slot] || {}).codec === PCE_VISUAL_COMPRESSION_RLE);
 }
 
 function backgroundGeneratedAssetNeedsRefresh(projectDir, asset) {
@@ -1378,7 +958,6 @@ function backgroundGeneratedAssetNeedsRefresh(projectDir, asset) {
   if (expectedVramMapBytes && vramMap.length !== expectedVramMapBytes) return true;
   if (vramFirstTile !== null && vramFirstTile !== tileBase) return true;
   if (mapFirstTile !== null && mapFirstTile !== tileBase) return true;
-  if (generatedCompressionNeedsRefresh(projectDir, asset, ['tiles', 'map'])) return true;
   return false;
 }
 
@@ -1404,7 +983,6 @@ function spriteGeneratedAssetNeedsRefresh(projectDir, asset) {
   for (let i = 0; i < cellMap.length; i += 1) {
     if (cellMap[i] >= uniqueCells) return true;
   }
-  if (generatedCompressionNeedsRefresh(projectDir, asset, ['tiles'])) return true;
   return false;
 }
 
@@ -1431,10 +1009,11 @@ function regenerateVisualGeneratedAsset(projectDir, asset) {
   });
 }
 
-function ensureVisualGeneratedAssets(projectDir, doc) {
+function ensureVisualGeneratedAssets(projectDir, doc, options = {}) {
   let changed = false;
   doc.assets = (doc.assets || []).map((asset) => {
-    if (!backgroundGeneratedAssetNeedsRefresh(projectDir, asset) && !spriteGeneratedAssetNeedsRefresh(projectDir, asset)) return asset;
+    if (asset.type !== 'image' && asset.type !== 'sprite') return asset;
+    if (!options.force && !backgroundGeneratedAssetNeedsRefresh(projectDir, asset) && !spriteGeneratedAssetNeedsRefresh(projectDir, asset)) return asset;
     const regenerated = regenerateVisualGeneratedAsset(projectDir, asset);
     if (regenerated !== asset) changed = true;
     return regenerated;
@@ -1479,7 +1058,6 @@ function importImage(projectDir, payload = {}, options = {}) {
     options: {
       ...payload.options,
       kind,
-      compression: payload.compression ?? payload.options?.compression,
       paletteBank: payload.paletteBank ?? payload.options?.paletteBank,
       tileBase: payload.tileBase ?? payload.options?.tileBase,
       mapBase: payload.mapBase ?? payload.options?.mapBase,
@@ -2143,9 +1721,7 @@ function emitCdFileRef(name, buffer, relativePath = '', options = {}) {
   const sectorCount = layout?.sectorCount || Math.ceil(buffer.length / CD_SECTOR_BYTES);
   const byteSize = clampInt(options.byteSize ?? buffer.length, 0, 0x7fffffff, buffer.length);
   const uncompressedSize = clampInt(options.uncompressedSize ?? buffer.length, 0, 0x7fffffff, buffer.length);
-  const compression = normalizeVisualCompression(options.compression, PCE_VISUAL_COMPRESSION_NONE) === PCE_VISUAL_COMPRESSION_RLE
-    ? PCE_EDITOR_CD_COMPRESSION_RLE
-    : PCE_EDITOR_CD_COMPRESSION_NONE;
+  const compression = PCE_EDITOR_CD_COMPRESSION_NONE;
   const cdRefName = `${name}_cd`;
   return {
     lines: [
@@ -2215,14 +1791,6 @@ function readGeneratedBuffer(projectDir, relativePath) {
   }
 }
 
-function generatedCompressionEntry(generated = {}, slot = 'tiles') {
-  const compression = normalizeGeneratedCompression(generated.compression);
-  return slot === 'map' ? compression.map : compression.tiles;
-}
-
-// RLE removed: always ship the raw tile/map/pattern buffer on CD. Any stale RLE
-// codec/sidecar left in older generated metadata is ignored, so existing projects
-// build correctly against the raw-only runtime without forcing a regenerate.
 function generatedCdPayload(projectDir, generated = {}, slot = 'tiles') {
   const rawPath = slot === 'map' ? generated.mapVramFile : generated.tilesFile;
   const raw = readGeneratedBuffer(projectDir, rawPath);
@@ -2231,7 +1799,7 @@ function generatedCdPayload(projectDir, generated = {}, slot = 'tiles') {
     relativePath: rawPath,
     uncompressedSize: raw.length,
     byteSize: raw.length,
-    compression: PCE_VISUAL_COMPRESSION_NONE,
+    compression: PCE_EDITOR_CD_COMPRESSION_NONE,
   };
 }
 
@@ -2258,12 +1826,12 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
     const cellMap = isSprite ? readGeneratedBuffer(projectDir, generated.cellMapFile) : Buffer.alloc(0);
     const tilesPayload = useCdFiles
       ? generatedCdPayload(projectDir, generated, 'tiles')
-      : { buffer: readGeneratedBuffer(projectDir, generated.tilesFile), relativePath: generated.tilesFile, uncompressedSize: 0, byteSize: 0, compression: PCE_VISUAL_COMPRESSION_NONE };
+      : { buffer: readGeneratedBuffer(projectDir, generated.tilesFile), relativePath: generated.tilesFile, uncompressedSize: 0, byteSize: 0, compression: PCE_EDITOR_CD_COMPRESSION_NONE };
     const tiles = tilesPayload.buffer;
     const mapFile = useCdFiles && !isSprite && generated.mapVramFile ? generated.mapVramFile : generated.mapFile;
     const mapPayload = useCdFiles && !isSprite && generated.mapVramFile
       ? generatedCdPayload(projectDir, generated, 'map')
-      : { buffer: isSprite ? Buffer.alloc(0) : readGeneratedBuffer(projectDir, mapFile), relativePath: mapFile, uncompressedSize: 0, byteSize: 0, compression: PCE_VISUAL_COMPRESSION_NONE };
+      : { buffer: isSprite ? Buffer.alloc(0) : readGeneratedBuffer(projectDir, mapFile), relativePath: mapFile, uncompressedSize: 0, byteSize: 0, compression: PCE_EDITOR_CD_COMPRESSION_NONE };
     const map = mapPayload.buffer;
     const paletteRef = emitDataRef(`${ident}_palette`, palette, bankAllocator, {
       threshold: Number.MAX_SAFE_INTEGER,
@@ -3050,7 +2618,7 @@ function assertAdpcmFitsDirectBuffer(asset, byteLength, options = {}) {
   }
 }
 
-function metaCdRefForFile(cdLayout, relativePath, byteSize, compression) {
+function metaCdRefForFile(cdLayout, relativePath, byteSize) {
   const norm = normalizeRelativePath(relativePath || '');
   const entry = norm ? cdLayout?.get(norm) : null;
   const sector = entry?.sector || 0;
@@ -3059,7 +2627,7 @@ function metaCdRefForFile(cdLayout, relativePath, byteSize, compression) {
     sector,
     sectorCount,
     byteSize: byteSize || 0,
-    compression: compression === PCE_VISUAL_COMPRESSION_RLE ? PCE_EDITOR_CD_COMPRESSION_RLE : PCE_EDITOR_CD_COMPRESSION_NONE,
+    compression: PCE_EDITOR_CD_COMPRESSION_NONE,
   };
 }
 
@@ -3078,7 +2646,7 @@ function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout) {
     const hasMap = Boolean(generated.mapVramFile);
     const mapPayload = hasMap
       ? generatedCdPayload(projectDir, generated, 'map')
-      : { relativePath: generated.mapFile, uncompressedSize: 0, byteSize: 0, compression: PCE_VISUAL_COMPRESSION_NONE };
+      : { relativePath: generated.mapFile, uncompressedSize: 0, byteSize: 0, compression: PCE_EDITOR_CD_COMPRESSION_NONE };
     // Struct image (pointer fields left zero; the runtime fixes them up).
     buf.writeUInt16LE(Math.min(palette.length, 32) & 0xffff, base + META_BG_PALETTE_SIZE);
     buf.writeUInt16LE((tilesPayload.uncompressedSize || 0) & 0xffff, base + META_BG_TILES_SIZE);
@@ -3139,7 +2707,7 @@ function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout) {
     buf[base + META_ADPCM_DIVIDER] = numeric(options.divider, 0, 15, 0) & 0xff;
     buf[base + META_ADPCM_LOOP] = options.loop ? 1 : 0;
     buf.writeUInt16LE(adpcmRuntimePlayFrames(data.length, options) & 0xffff, base + META_ADPCM_PLAY_FRAMES);
-    writeMetaCdRef(buf, base + META_ADPCM_CD, metaCdRefForFile(cdLayout, generated.outputFile, data.length, PCE_VISUAL_COMPRESSION_NONE));
+    writeMetaCdRef(buf, base + META_ADPCM_CD, metaCdRefForFile(cdLayout, generated.outputFile, data.length));
   });
   layout.psg.forEach((asset, index) => {
     const base = (layout.psgOffset * CD_SECTOR_BYTES) + (index * META_PSG_SLOT);
@@ -3152,7 +2720,7 @@ function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout) {
     buf.writeUInt16LE(options.steps & 0xffff, base + META_PSG_STEPS);
     buf.writeUInt16LE(pattern.length & 0xffff, base + META_PSG_PATTERN_COUNT);
     if (patternBytes.length) {
-      writeMetaCdRef(buf, base + META_PSG_PATTERN_CD, metaCdRefForFile(cdLayout, psgPatternFile(asset), patternBytes.length, PCE_VISUAL_COMPRESSION_NONE));
+      writeMetaCdRef(buf, base + META_PSG_PATTERN_CD, metaCdRefForFile(cdLayout, psgPatternFile(asset), patternBytes.length));
     }
   });
   {
@@ -3480,7 +3048,7 @@ function normalizeCdDataFileList(projectDir, entries = []) {
 
 function generateAssetSources(projectDir, options = {}) {
   const doc = readAssetDocument(projectDir);
-  ensureVisualGeneratedAssets(projectDir, doc);
+  ensureVisualGeneratedAssets(projectDir, doc, { force: Boolean(options.forceVisualRegeneration) });
   ensureAdpcmGeneratedAssets(projectDir, doc);
   ensurePsgImportedAssets(projectDir, doc);
   const assetIdFilter = Array.isArray(options.assetIds)

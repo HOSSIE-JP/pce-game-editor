@@ -102,6 +102,49 @@ test('PCE core manager exposes only PC Engine and creates PCE projects', async (
   assert.equal(path.extname(result.commandInfo.romPath), '.pce');
 });
 
+test('all current PCE templates support create, save, dry build, and Test Play handoff', async () => {
+  const userData = makeTempDir('pce-editor-template-smoke-');
+  const coreManager = loadCoreManager(userData);
+  const standardEmulator = require('../plugins/pce-standard-emulator');
+  const cases = [
+    ['template_pce_sample', 'smoke_slideshow', 'hucard', '.pce'],
+    ['template_pce_vn_cd', 'smoke_vn_cd', 'cd', '.cue'],
+    ['template_pce_vn_hucard', 'smoke_vn_hucard', 'hucard', '.pce'],
+  ];
+
+  for (const [templateId, projectName, targetMedia, extension] of cases) {
+    const created = coreManager.createProjectInParent('', projectName, {
+      coreId: 'pc-engine',
+      title: `${projectName} initial`,
+    }, null, { templateId });
+    const saved = coreManager.saveProjectConfig({ title: `${projectName} saved` });
+    assert.equal(saved.title, `${projectName} saved`);
+    assert.equal(saved.coreId, 'pc-engine');
+    assert.equal(saved.targetMedia, targetMedia);
+    assert.equal(saved.pluginRoles.testplay, 'pce-standard-emulator');
+
+    const result = await coreManager.buildProject(() => {}, {
+      dryRun: true,
+      allowMissingToolchain: true,
+    });
+    assert.equal(result.success, true, `${templateId} dry build failed`);
+    assert.equal(result.commandInfo.targetMedia, targetMedia);
+    assert.equal(path.extname(result.commandInfo.romPath), extension);
+    assert.equal(fs.existsSync(path.join(created.projectDir, 'project.json')), true);
+
+    let opened = null;
+    const handoff = await standardEmulator.onTestPlay({ romPath: result.commandInfo.romPath }, {
+      testPlay: {
+        openWasmWindow: async (payload) => { opened = payload; return { opened: true }; },
+      },
+    });
+    assert.equal(handoff.ok, true);
+    assert.equal(handoff.handled, true);
+    assert.equal(opened.pluginId, 'pce-standard-emulator');
+    assert.equal(opened.romPath, result.commandInfo.romPath);
+  }
+});
+
 test('PCE migration copies only PCE projects and never overwrites existing folders', () => {
   const sourceRoot = makeTempDir('pce-migration-source-');
   const userData = makeTempDir('pce-migration-user-');

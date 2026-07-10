@@ -1,4 +1,4 @@
-export { countUniqueColors, snapColorToMegaDrive, snapColorToPce, quantizeToIndexed16 } from './quantize-utils.mjs';
+export { countUniqueColors, snapColorToPce, quantizeToIndexed16 } from './quantize-utils.mjs';
 
 export function activatePlugin({ api, logger, registerCapability }) {
   registerCapability('image-quantize', {

@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const appDiagnostics = require('./app-diagnostics');
 const crypto = require('crypto');
 const { getCurrentAppConfig } = require('./game-editor-common');
 
@@ -17,7 +18,15 @@ function normalizePceCoreId(value) {
 function readJsonIfExists(filePath) {
   try {
     if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  } catch (_) {}
+  } catch (err) {
+    appDiagnostics.report({
+      source: 'project',
+      code: 'migration-json-read-failed',
+      level: 'warn',
+      error: err,
+      details: { filePath },
+    });
+  }
   return null;
 }
 

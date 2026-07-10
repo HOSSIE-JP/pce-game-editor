@@ -11,8 +11,6 @@ export function snapColorToPce(color) {
   };
 }
 
-export const snapColorToMegaDrive = snapColorToPce;
-
 export function colorDistanceSq(a, b) {
   const dr = Number(a?.r || 0) - Number(b?.r || 0);
   const dg = Number(a?.g || 0) - Number(b?.g || 0);

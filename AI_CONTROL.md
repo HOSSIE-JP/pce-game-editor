@@ -72,11 +72,9 @@ MCP sidecar は stdout に JSON-RPC メッセージだけを書き、ログは s
 - `project_create` — `{ projectName, parentDir?, templateId?, config?, sourceCode? }` で新規プロジェクトを作成します。`parentDir` 未指定時は既定の `projects` フォルダ、`templateId` 指定時は `template/template_*` テンプレートからコピーします。
 - `project_config_get`
 - `project_config_update`
-- `asset_list`
-- `asset_write_file`
-- `asset_add`
-- `asset_update`
-- `asset_delete`
+- `asset_list` — `assets/pce-assets.json` の現行 PCE asset 一覧を返します。
+- `asset_upsert` — `{ asset }` で ID 単位に追加または置換します。
+- `asset_delete` — `{ id }` で削除します。
 - `code_tree`
 - `code_read`
 - `code_write`

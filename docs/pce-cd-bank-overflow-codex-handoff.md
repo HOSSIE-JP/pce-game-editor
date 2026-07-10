@@ -1,5 +1,7 @@
 # CD-ROM2 テンプレート ビルド失敗 / 表示崩壊 — 調査と修正記録
 
+> **履歴資料:** 2026-06-13 時点の調査記録です。現行 bank 方針は [pce-memory-bank-strategy.md](pce-memory-bank-strategy.md)、[pce-vn-code-bank-optimization.md](pce-vn-code-bank-optimization.md)、[pce-vn-overlay-pathb.md](pce-vn-overlay-pathb.md) と現行コードを優先してください。
+
 作成: 2026-06-13 / 調査・実装: Claude Code（Geargrafx MCP で特定・検証）
 関連: [pce-memory-bank-strategy.md](pce-memory-bank-strategy.md), [AGENTS.md](../AGENTS.md)
 

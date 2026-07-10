@@ -5,6 +5,9 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const assetManager = require('./pce-asset-manager');
+const { mergeCurrentCdDataFiles } = require('./pce-vn-cd-data-files');
+const { createVnCdCatalog } = require('./pce-vn-cd-catalog');
+const { createVnScenePackCodec } = require('./pce-vn-scene-pack');
 
 const VN_SCENE_FILE = path.join('assets', 'pce-vn-scenes.json');
 const VN_FONT_FILE = path.join('assets', 'pce-font.json');
@@ -41,7 +44,6 @@ function pushGlyphIndexEntry(bytes, index) {
   }
   bytes.push(GLYPH_ESCAPE_BYTE, i & 0xff, (i >> 8) & 0xff);
 }
-const LEGACY_DEFAULT_FONT_TILE_BASE = 712;
 const DEFAULT_FONT_TILE_BASE = 540;
 const PCE_SCREEN_WIDTH = 256;
 const PCE_SCREEN_HEIGHT = 224;
@@ -709,7 +711,7 @@ function resolveBuildFontTileBase(savedConfig, options = {}) {
     return clampInt(explicitTileBase, 0, 2047, DEFAULT_FONT_TILE_BASE);
   }
   const savedTileBase = Number(savedConfig?.tileBase);
-  if (!Number.isFinite(savedTileBase) || savedTileBase === LEGACY_DEFAULT_FONT_TILE_BASE) {
+  if (!Number.isFinite(savedTileBase)) {
     return DEFAULT_FONT_TILE_BASE;
   }
   return clampInt(savedTileBase, 0, 2047, DEFAULT_FONT_TILE_BASE);
@@ -2512,24 +2514,6 @@ function buildSpriteAnimationIndex(assetDoc = { assets: [] }, spriteIndex = new 
       if (animations.length === 1) {
         const only = animations[0] && typeof animations[0] === 'object' ? animations[0] : {};
         const onlyId = String(only.id || 'default').trim() || 'default';
-        const looksLikeLegacyDefault = onlyId === 'default'
-          && width > cellWidth
-          && height > cellHeight
-          && clampPositiveInt(only.frameWidth, 1, 1024, 0) <= cellWidth
-          && clampPositiveInt(only.frameHeight, 1, 1024, 0) <= cellHeight
-          && clampPositiveInt(only.frameStrideCells, 1, 255, 0) <= 1;
-        if (looksLikeLegacyDefault) {
-          animations = [{
-            ...only,
-            frameWidth: width,
-            frameHeight: height,
-            frameStrideCells: defaultAnimation.frameStrideCells,
-          }];
-        }
-      }
-      if (animations.length === 1) {
-        const only = animations[0] && typeof animations[0] === 'object' ? animations[0] : {};
-        const onlyId = String(only.id || 'default').trim() || 'default';
         if (onlyId === 'default' && clampInt(only.frameCount, 1, 64, 1) <= 1) {
           return;
         }
@@ -2648,162 +2632,29 @@ function scenePackRelativePath(scene = {}, index = 0) {
   return normalizeRelativePath(path.join(VN_SCENE_PACK_DIR, `${ordinal}_${sceneId}.bin`));
 }
 
-function pushU8(bytes, value) {
-  bytes.push(clampInt(value, 0, 255, 0) & 0xff);
-}
-
-function pushU16(bytes, value) {
-  const encoded = clampInt(value, 0, 0xffff, 0) & 0xffff;
-  bytes.push(encoded & 0xff, (encoded >> 8) & 0xff);
-}
-
-function pushS16(bytes, value) {
-  const encoded = clampSignedInt(value, 0) & 0xffff;
-  bytes.push(encoded & 0xff, (encoded >> 8) & 0xff);
-}
-
-function appendPackData(chunks, state, buffer) {
-  const chunk = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
-  const offset = state.offset;
-  state.offset += chunk.length;
-  chunks.push(chunk);
-  return offset;
-}
-
-function encodeCommandRecord(command = {}) {
-  const bytes = [];
-  pushU8(bytes, command.type);
-  pushS16(bytes, command.assetIndex);
-  pushU8(bytes, command.slot);
-  pushU8(bytes, command.flags);
-  pushU8(bytes, command.arg0);
-  pushU8(bytes, command.arg1);
-  pushU16(bytes, command.x);
-  pushU16(bytes, command.y);
-  pushS16(bytes, command.messageIndex);
-  pushS16(bytes, command.animationIndex);
-  pushS16(bytes, command.sceneIndex);
-  pushS16(bytes, command.choiceIndex);
-  return Buffer.from(bytes);
-}
-
-function encodeMessageRecord(message = {}) {
-  const bytes = [];
-  const instantGlyphCount = clampInt(message.instantGlyphCount, 0, VN_MESSAGE_INSTANT_GLYPH_MAX, 0);
-  const packedMouthSlot = (clampInt(message.mouthSlot, 0, VN_MESSAGE_MOUTH_SLOT_MASK, 0) & VN_MESSAGE_MOUTH_SLOT_MASK)
-    | (instantGlyphCount << VN_MESSAGE_MOUTH_SLOT_BITS);
-  pushU16(bytes, message.glyphOffset);
-  pushU8(bytes, message.glyphCount);
-  pushS16(bytes, message.voiceIndex);
-  pushU8(bytes, message.textSpeedFrames);
-  pushU8(bytes, message.advanceMode);
-  pushU8(bytes, message.autoWaitFrames);
-  pushS16(bytes, message.mouthAnimationIndex);
-  pushU8(bytes, packedMouthSlot);
-  pushU16(bytes, message.textColor);
-  return Buffer.from(bytes);
-}
-
-function encodeChoiceRecord(choice = {}) {
-  const bytes = [];
-  pushU16(bytes, choice.optionOffset);
-  pushU8(bytes, choice.optionCount);
-  pushU8(bytes, choice.defaultIndex);
-  pushS16(bytes, choice.variableIndex);
-  return Buffer.from(bytes);
-}
-
-function encodeChoiceOptionRecord(option = {}) {
-  const bytes = [];
-  pushU16(bytes, option.glyphOffset);
-  pushU8(bytes, option.glyphCount);
-  pushS16(bytes, option.value);
-  pushS16(bytes, option.targetScene);
-  return Buffer.from(bytes);
-}
-
-function encodeSwitchRecord(branch = {}) {
-  const bytes = [];
-  pushU16(bytes, branch.caseOffset);
-  pushU8(bytes, branch.caseCount);
-  pushU16(bytes, branch.defaultCommand);
-  return Buffer.from(bytes);
-}
-
-function encodeSwitchCaseRecord(branchCase = {}) {
-  const bytes = [];
-  pushS16(bytes, branchCase.value);
-  pushU16(bytes, branchCase.command);
-  return Buffer.from(bytes);
-}
-
+let vnScenePackCodecInstance = null;
 function buildScenePack(sceneBuild) {
-  const commands = sceneBuild.commands || [];
-  const messages = sceneBuild.messages || [];
-  const choices = sceneBuild.choices || [];
-  const switches = sceneBuild.switches || [];
-  const commandOffset = VN_SCENE_PACK_HEADER_SIZE;
-  const messageOffset = commandOffset + (commands.length * VN_SCENE_PACK_COMMAND_SIZE);
-  const choiceOffset = messageOffset + (messages.length * VN_SCENE_PACK_MESSAGE_SIZE);
-  const switchOffset = choiceOffset + (choices.length * VN_SCENE_PACK_CHOICE_SIZE);
-  const dataOffset = switchOffset + (switches.length * VN_SCENE_PACK_SWITCH_SIZE);
-  const dataChunks = [];
-  const state = { offset: dataOffset };
-
-  messages.forEach((message) => {
-    message.glyphOffset = appendPackData(dataChunks, state, message.glyphs);
-  });
-  choices.forEach((choice) => {
-    const optionRecords = [];
-    choice.options.forEach((option) => {
-      option.glyphOffset = appendPackData(dataChunks, state, option.glyphs);
-      optionRecords.push(encodeChoiceOptionRecord(option));
+  if (!vnScenePackCodecInstance) {
+    vnScenePackCodecInstance = createVnScenePackCodec({
+      clampInt,
+      clampSignedInt,
+      constants: {
+        cacheBytes: VN_SCENE_PACK_CACHE_BYTES,
+        magic: VN_SCENE_PACK_MAGIC,
+        version: VN_SCENE_PACK_VERSION,
+        headerSize: VN_SCENE_PACK_HEADER_SIZE,
+        commandSize: VN_SCENE_PACK_COMMAND_SIZE,
+        messageSize: VN_SCENE_PACK_MESSAGE_SIZE,
+        choiceSize: VN_SCENE_PACK_CHOICE_SIZE,
+        switchSize: VN_SCENE_PACK_SWITCH_SIZE,
+        spriteTextCommand: VN_COMMAND_SPRITETEXT,
+        instantGlyphMax: VN_MESSAGE_INSTANT_GLYPH_MAX,
+        mouthSlotMask: VN_MESSAGE_MOUTH_SLOT_MASK,
+        mouthSlotBits: VN_MESSAGE_MOUTH_SLOT_BITS,
+      },
     });
-    choice.optionOffset = optionRecords.length
-      ? appendPackData(dataChunks, state, Buffer.concat(optionRecords))
-      : 0;
-  });
-  switches.forEach((branch) => {
-    const caseRecords = branch.cases.map((branchCase) => encodeSwitchCaseRecord(branchCase));
-    branch.caseOffset = caseRecords.length
-      ? appendPackData(dataChunks, state, Buffer.concat(caseRecords))
-      : 0;
-  });
-  // spritetext commands carry their glyph stream inline; append it to the pack
-  // data and patch the command's assetIndex to the resulting offset. Commands
-  // are encoded after this, so the patched offset is picked up below.
-  commands.forEach((command) => {
-    if (command.type !== VN_COMMAND_SPRITETEXT) return;
-    const glyphs = Buffer.isBuffer(command.spriteTextGlyphs) ? command.spriteTextGlyphs : Buffer.alloc(0);
-    command.assetIndex = glyphs.length ? appendPackData(dataChunks, state, glyphs) : 0;
-  });
-
-  const header = Buffer.alloc(VN_SCENE_PACK_HEADER_SIZE);
-  VN_SCENE_PACK_MAGIC.copy(header, 0);
-  header.writeUInt8(VN_SCENE_PACK_VERSION, 4);
-  header.writeUInt8(commands.length, 5);
-  header.writeUInt8(messages.length, 6);
-  header.writeUInt8(choices.length, 7);
-  header.writeUInt8(switches.length, 8);
-  header.writeUInt8(sceneBuild.flags || 0, 9);
-  header.writeUInt16LE(commandOffset, 10);
-  header.writeUInt16LE(messageOffset, 12);
-  header.writeUInt16LE(choiceOffset, 14);
-  header.writeUInt16LE(switchOffset, 16);
-  header.writeUInt16LE(dataOffset, 18);
-
-  const pack = Buffer.concat([
-    header,
-    ...commands.map((command) => encodeCommandRecord(command)),
-    ...messages.map((message) => encodeMessageRecord(message)),
-    ...choices.map((choice) => encodeChoiceRecord(choice)),
-    ...switches.map((branch) => encodeSwitchRecord(branch)),
-    ...dataChunks,
-  ]);
-  if (pack.length > VN_SCENE_PACK_CACHE_BYTES) {
-    throw new Error(`PCE VN scene pack "${sceneBuild.sceneId}" is ${pack.length} bytes; split the scene to stay within ${VN_SCENE_PACK_CACHE_BYTES} bytes`);
   }
-  return pack;
+  return vnScenePackCodecInstance.buildScenePack(sceneBuild);
 }
 
 function writeScenePack(projectDir, sceneBuild) {
@@ -4040,126 +3891,35 @@ function previewFontText(projectDir, payload = {}) {
   };
 }
 
-function assetById(assetDoc = { assets: [] }) {
-  const map = new Map();
-  (assetDoc.assets || []).forEach((asset) => {
-    if (asset?.id) map.set(asset.id, asset);
-  });
-  return map;
-}
-
-function addExistingCdDataFile(projectDir, files, seen, relativePath) {
-  const normalized = normalizeRelativePath(relativePath || '');
-  if (!normalized || seen.has(normalized)) return;
-  if (!fs.existsSync(path.join(projectDir, normalized))) return;
-  seen.add(normalized);
-  files.push(normalized);
-}
-
-function addCdDataFile(files, seen, relativePath) {
-  const normalized = normalizeRelativePath(relativePath || '');
-  if (!normalized || seen.has(normalized)) return;
-  seen.add(normalized);
-  files.push(normalized);
-}
-
-function generatedCompressionEntry(generated = {}, slot = 'tiles') {
-  const compression = generated.compression || {};
-  const entry = slot === 'map' ? compression.map : compression.tiles;
-  return entry && typeof entry === 'object' ? entry : {};
-}
-
-function generatedVisualCdDataFile(projectDir, generated = {}, slot = 'tiles') {
-  // RLE removed: always ship the raw .bin buffer on CD. Any stale RLE sidecar left in
-  // older generated metadata is ignored, so existing projects build against the
-  // raw-only runtime without forcing a regenerate.
-  return slot === 'map' ? generated.mapVramFile : generated.tilesFile;
-}
-
-function addAssetCdDataFiles(projectDir, files, seen, asset, options = {}) {
-  if (!asset) return;
-  const generated = asset.data?.generated || {};
-  if (asset.type === 'image') {
-    addExistingCdDataFile(projectDir, files, seen, generatedVisualCdDataFile(projectDir, generated, 'tiles'));
-    addExistingCdDataFile(projectDir, files, seen, generatedVisualCdDataFile(projectDir, generated, 'map'));
-  } else if (asset.type === 'sprite') {
-    addExistingCdDataFile(projectDir, files, seen, generatedVisualCdDataFile(projectDir, generated, 'tiles'));
-  } else if (asset.type === 'adpcm') {
-    addExistingCdDataFile(projectDir, files, seen, generated.outputFile);
-  } else if ((asset.type === 'psg-song' || asset.type === 'psg-sfx') && options.catalogMode && typeof assetManager.psgPatternFile === 'function') {
-    addExistingCdDataFile(projectDir, files, seen, assetManager.psgPatternFile(asset));
+let vnCdCatalogInstance = null;
+function getVnCdCatalog() {
+  if (!vnCdCatalogInstance) {
+    vnCdCatalogInstance = createVnCdCatalog({
+      assetManager,
+      compiledSceneCommands,
+      normalizeAssetId,
+      normalizeRelativePath,
+      readSceneDocument,
+      scenePackRelativePath,
+      enableVisualPayloadCache: VN_ENABLE_VISUAL_PAYLOAD_CACHE,
+      files: {
+        fontData: VN_FONT_DATA_FILE,
+        overlayData: VN_OVERLAY_DATA_FILE,
+        visualCodeData: VN_VISUAL_CODE_DATA_FILE,
+        cdAsyncCodeData: VN_CD_ASYNC_CODE_DATA_FILE,
+        fontSpriteData: VN_FONT_SPRITE_DATA_FILE,
+      },
+    });
   }
-}
-
-function collectSceneCommandAssetIds(scene = {}) {
-  const ids = [];
-  compiledSceneCommands(scene).forEach((command) => {
-    if (command.type === 'background' || command.type === 'sprite') {
-      if (command.assetId) ids.push(command.assetId);
-    } else if (command.type === 'message') {
-      if (command.voiceAssetId) ids.push(command.voiceAssetId);
-    } else if (command.type === 'audio' && command.action === 'play') {
-      if (command.assetId) ids.push(command.assetId);
-    } else if (command.type === 'cache' && command.action === 'load') {
-      if (command.assetId) ids.push(command.assetId);
-    }
-  });
-  return ids;
+  return vnCdCatalogInstance;
 }
 
 function collectSceneRuntimeAssetIds(doc = {}) {
-  const ids = new Set();
-  (doc.scenes || []).forEach((scene) => {
-    collectSceneCommandAssetIds(scene).forEach((assetId) => {
-      const normalized = normalizeAssetId(assetId);
-      if (normalized) ids.add(normalized);
-    });
-  });
-  return ids;
+  return getVnCdCatalog().collectSceneRuntimeAssetIds(doc);
 }
 
 function collectCdDataFiles(projectDir) {
-  const assetDoc = assetManager.readAssetDocument(projectDir);
-  const doc = readSceneDocument(projectDir);
-  const assets = assetById(assetDoc);
-  const runtimeAssetIds = collectSceneRuntimeAssetIds(doc);
-  const runtimeAssetDoc = {
-    ...assetDoc,
-    assets: (assetDoc.assets || []).filter((asset) => asset?.id && runtimeAssetIds.has(String(asset.id))),
-  };
-  const catalogMode = typeof assetManager.assetMetaShouldUseCd === 'function'
-    && assetManager.assetMetaShouldUseCd(projectDir, runtimeAssetDoc);
-  const files = [];
-  const seen = new Set();
-  // Shared glyph font is streamed into VRAM at boot; place it first so its
-  // CD sector stays stable regardless of scene edits.
-  addCdDataFile(files, seen, VN_FONT_DATA_FILE);
-  // Overlay code blob, streamed into bank133 at boot. Placed right after the font
-  // so its CD sector stays stable across scene edits. Only when it was built.
-  addExistingCdDataFile(projectDir, files, seen, VN_OVERLAY_DATA_FILE);
-  if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) {
-    // Visual cache helper code, streamed into bank121 at boot.
-    addExistingCdDataFile(projectDir, files, seen, VN_VISUAL_CODE_DATA_FILE);
-  }
-  // Direct SCSI async helper code, streamed into bank122 at boot. It is placed
-  // after the visual helper so existing overlay/visual sectors stay stable.
-  addExistingCdDataFile(projectDir, files, seen, VN_CD_ASYNC_CODE_DATA_FILE);
-  // The sprite-format font is only generated when spritetext is used; include it
-  // only when the file actually exists so we never reserve a sector for nothing.
-  addExistingCdDataFile(projectDir, files, seen, VN_FONT_SPRITE_DATA_FILE);
-  // Consolidated per-asset metadata (palette/descriptor/cd refs/cell_map). CD-ROM2
-  // VN always streams this catalog so resident metadata stays O(1);
-  // ensureAssetMetaReservation writes the final-size placeholder before layout.
-  if (catalogMode) {
-    addExistingCdDataFile(projectDir, files, seen, assetManager.ASSET_META_FILE);
-  }
-  (doc.scenes || []).forEach((scene, sceneIndex) => {
-    addCdDataFile(files, seen, scenePackRelativePath(scene, sceneIndex));
-    collectSceneCommandAssetIds(scene).forEach((assetId) => {
-      addAssetCdDataFiles(projectDir, files, seen, assets.get(assetId), { catalogMode });
-    });
-  });
-  return files;
+  return getVnCdCatalog().collectCdDataFiles(projectDir);
 }
 
 function syncVisualNovelRuntime(projectDir, logger) {
@@ -4172,12 +3932,6 @@ function syncVisualNovelRuntime(projectDir, logger) {
   const changed = targets
     .map(([fileName, targetPath]) => copyIfChanged(path.join(sourceDir, fileName), targetPath))
     .some(Boolean);
-  // Remove the obsolete Phase B0 standalone overlay TU if a previous build left it
-  // in the project; the overlay code now lives in pce_vn_runtime.c.
-  const legacyOverlaySrc = path.join(projectDir, 'src', 'pce_vn_overlay.c');
-  if (fs.existsSync(legacyOverlaySrc)) {
-    try { fs.unlinkSync(legacyOverlaySrc); } catch (_) { /* best-effort */ }
-  }
   if (changed) logger?.info?.('PCE visual novel runtime を src/ に同期しました');
   return { changed };
 }
@@ -4505,12 +4259,9 @@ function collectManagedGeneratedCdDataFiles(projectDir) {
       const generated = asset.data?.generated || {};
       if (asset.type === 'image') {
         addManagedGeneratedPath(managed, generated.tilesFile);
-        addManagedGeneratedPath(managed, generated.tilesCompressedFile);
         addManagedGeneratedPath(managed, generated.mapVramFile);
-        addManagedGeneratedPath(managed, generated.mapVramCompressedFile);
       } else if (asset.type === 'sprite') {
         addManagedGeneratedPath(managed, generated.tilesFile);
-        addManagedGeneratedPath(managed, generated.tilesCompressedFile);
       } else if (asset.type === 'adpcm') {
         addManagedGeneratedPath(managed, generated.outputFile);
       }
@@ -4523,24 +4274,14 @@ function collectManagedGeneratedCdDataFiles(projectDir) {
   return managed;
 }
 
-function isLegacyGeneratedVisualRleFile(relativePath) {
-  const normalized = normalizeRelativePath(relativePath || '');
-  return normalized.startsWith('assets/generated/')
-    && /\/(?:patterns|tiles|map_vram)\.rle$/i.test(normalized);
-}
-
 function mergeCdDataFiles(projectDir, generatedDataFiles = [], configuredDataFiles = []) {
   const managed = collectManagedGeneratedCdDataFiles(projectDir);
-  const scenePackPrefix = `${normalizeRelativePath(VN_SCENE_PACK_DIR)}/`;
-  const merged = new Set(generatedDataFiles.map((entry) => normalizeRelativePath(entry || '')).filter(Boolean));
-  (Array.isArray(configuredDataFiles) ? configuredDataFiles : []).forEach((entry) => {
-    const normalized = normalizeRelativePath(entry || '');
-    if (!normalized || merged.has(normalized)) return;
-    if (managed.has(normalized) || normalized.startsWith(scenePackPrefix)) return;
-    if (isLegacyGeneratedVisualRleFile(normalized)) return;
-    merged.add(normalized);
+  return mergeCurrentCdDataFiles({
+    generatedDataFiles,
+    configuredDataFiles,
+    managedPaths: managed,
+    scenePackDir: VN_SCENE_PACK_DIR,
   });
-  return Array.from(merged);
 }
 
 function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logger = null, options = {}) {

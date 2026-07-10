@@ -88,119 +88,6 @@
     <!-- EDITOR PANELS -->
     <main class="editor-area">
 
-      <!-- ASSETS PAGE -->
-      <section class="editor-page active" id="page-assets">
-        <div class="assets-layout" id="assetsLayout">
-          <div class="asset-list-panel">
-            <div class="asset-list-header">
-              <h2>Rescomp アセット管理</h2>
-              <div class="asset-list-header-actions">
-                <button class="icon-btn" id="btnOpenResDir" type="button" title="res ディレクトリを開く">
-                  <svg class="icon"><use href="#icon-folder"></use></svg>
-                </button>
-                <button class="icon-btn" id="btnCreateResFile" type="button" title=".res ファイル追加">
-                  <svg class="icon"><use href="#icon-file-plus"></use></svg>
-                </button>
-                <div id="assetEditorActions" class="asset-editor-actions-inline">
-                  <button class="icon-btn danger-icon-btn" id="btnDeleteAssetEntry" type="button" title="選択中の .res ファイルを削除">
-                    <svg class="icon"><use href="#icon-trash"></use></svg>
-                  </button>
-                </div>
-                <button class="btn-primary" id="btnAddAsset" type="button">アセット登録</button>
-                <button class="icon-btn" id="btnTogglePreviewPanel" type="button" title="プレビューパネルを開閉" aria-pressed="true">
-                  <svg class="icon icon-panel-close"><use href="#icon-panel-close"></use></svg>
-                  <svg class="icon icon-panel-open" style="display:none"><use href="#icon-panel-open"></use></svg>
-                </button>
-              </div>
-            </div>
-            <div class="assets-toolbar">
-              <label class="assets-toolbar-item">
-                <span>.res ファイル</span>
-                <select id="resFileSelect" class="form-input form-input-mono"></select>
-              </label>
-              <label class="assets-toolbar-item assets-search-item">
-                <span>検索</span>
-                <input id="assetSearchInput" class="form-input" type="text" placeholder="名前 / 種別 / パスで検索" />
-              </label>
-            </div>
-            <div class="asset-table-wrap">
-              <table class="asset-table">
-                <thead>
-                  <tr><th class="asset-drag-th"></th><th>タイプ</th><th>名前</th><th>ソース</th><th>コメント</th><th></th></tr>
-                </thead>
-                <tbody id="assetTableBody"></tbody>
-              </table>
-            </div>
-            <p class="hint-text" id="assetTableHint">res/*.res を読み込み中...</p>
-          </div>
-          <div class="asset-preview-resizer" id="assetPreviewResizer" role="separator" aria-orientation="vertical" aria-label="プレビューパネル幅"></div>
-          <div class="asset-preview-panel" id="assetPreviewPanel">
-            <div id="assetEditorPanel">
-
-              <!-- アコーディオン上段: パラメータ -->
-              <div class="accordion-section" id="accordionParams">
-                <button class="accordion-header" id="btnAccordionParams" type="button" aria-expanded="true">
-                  <span class="accordion-title">パラメータ</span>
-                  <svg class="icon accordion-chevron"><use href="#icon-chevron-up"></use></svg>
-                </button>
-                <div class="accordion-body" id="accordionParamsBody">
-                  <div class="asset-editor-box">
-                    <form id="assetEditForm" class="asset-edit-form"></form>
-                    <p class="asset-no-selection-hint" id="assetNoSelectionHint">アセットを選択してください</p>
-                  </div>
-                </div>
-              </div>
-
-              <!-- アコーディオン下段: プレビュー -->
-              <div class="accordion-section" id="accordionPreview">
-                <button class="accordion-header" id="btnAccordionPreview" type="button" aria-expanded="true">
-                  <span class="accordion-title">プレビュー</span>
-                  <svg class="icon accordion-chevron"><use href="#icon-chevron-up"></use></svg>
-                </button>
-                <div class="accordion-body" id="accordionPreviewBody">
-                  <div id="inlineImagePreview" hidden>
-                    <div class="inline-preview-info" id="inlinePreviewInfo"></div>
-                    <div class="image-preview-zoom-bar">
-                      <label class="image-preview-zoom-row">
-                        <span>倍率</span>
-                        <select id="inlineImageZoom" class="form-input form-input-mono">
-                          <option value="fit">画面に合わせる</option>
-                          <option value="25">25%</option>
-                          <option value="50">50%</option>
-                          <option value="100">100%</option>
-                          <option value="200">200%</option>
-                          <option value="300">300%</option>
-                          <option value="400">400%</option>
-                          <option value="800">800%</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div class="image-preview-frame" id="inlineImageFrame">
-                      <img id="inlinePreviewImage" alt="asset preview" />
-                    </div>
-                    <div class="image-preview-palette" id="inlinePalette"></div>
-                  </div>
-                  <div id="inlineAudioPreview" hidden>
-                    <div class="audio-preview-meta" id="audioPreviewMeta"></div>
-                    <div class="audio-player" id="audioPlayer">
-                      <button class="audio-play-btn" id="btnAudioPlay" type="button" title="再生">
-                        <svg class="icon" id="audioPlayIcon"><use href="#icon-play"></use></svg>
-                      </button>
-                      <div class="audio-seek-wrap">
-                        <input class="audio-seek" id="audioSeek" type="range" min="0" max="100" step="0.1" value="0" />
-                      </div>
-                      <span class="audio-time" id="audioTime">0:00</span>
-                    </div>
-                  </div>
-                  <div id="inlineNoPreview" class="inline-no-preview">プレビューなし</div>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </div>
-      </section>
-
       <!-- CODE PAGE -->
       <section class="editor-page" id="page-code">
         <div class="page-header">
@@ -327,13 +214,6 @@
               <option value="emulator">emulator</option>
               <option value="converter">converter</option>
             </select>
-          </label>
-          <label class="plugin-filter-item plugin-filter-check">
-            <span>Core</span>
-            <label class="form-check-inline">
-              <input id="pluginCoreFilterToggle" type="checkbox" />
-              <span>非対応も表示</span>
-            </label>
           </label>
         </section>
         <section class="plugin-role-settings" id="pluginRoleSettings">
@@ -466,81 +346,6 @@
     </div>
   </div>
 
-  <div class="app-modal" id="resFileModal" aria-hidden="true">
-    <div class="app-backdrop" data-modal-close="resFileModal"></div>
-    <section class="app-panel app-panel-sm" role="dialog" aria-modal="true" aria-labelledby="resFileModalTitle">
-      <div class="page-header modal-header">
-        <h2 id="resFileModalTitle">.res ファイル追加</h2>
-        <button class="icon-btn" id="btnResFileModalClose" type="button">✕</button>
-      </div>
-      <div class="settings-form compact-form">
-        <div class="form-group">
-          <label class="form-label">作成先（res 配下）</label>
-          <input type="text" class="form-input form-input-mono" id="resFileNameInput" placeholder="stage1/resources.res" />
-          <p class="form-hint">`.res` 拡張子を含む相対パスを指定します。</p>
-        </div>
-        <div class="form-actions-inline modal-actions-end">
-          <button class="btn-sm" id="btnResFileCancel" type="button">キャンセル</button>
-          <button class="btn-primary" id="btnResFileCreate" type="button">作成</button>
-        </div>
-      </div>
-    </section>
-  </div>
-
-  <div class="app-modal" id="assetModal" aria-hidden="true">
-    <div class="app-backdrop" data-modal-close="assetModal"></div>
-    <section class="app-panel" role="dialog" aria-modal="true" aria-labelledby="assetModalTitle">
-      <div class="page-header modal-header">
-        <h2 id="assetModalTitle">アセット登録</h2>
-        <button class="icon-btn" id="btnAssetModalClose" type="button">✕</button>
-      </div>
-      <div class="settings-form compact-form">
-        <div class="app-grid-2">
-          <div class="form-group app-grid-span-2">
-            <label class="form-label">入力ファイル</label>
-            <input type="text" class="form-input form-input-mono" id="assetSourcePathInput" readonly />
-          </div>
-          <div class="form-group">
-            <label class="form-label">リソースタイプ</label>
-            <select class="form-input" id="assetTypeInput"></select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">定義追加先 .res</label>
-            <select class="form-input form-input-mono" id="assetResFileInput"></select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">保存先サブディレクトリ</label>
-            <input type="text" class="form-input form-input-mono" id="assetTargetSubdirInput" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">保存ファイル名</label>
-            <input type="text" class="form-input form-input-mono" id="assetTargetFileNameInput" />
-          </div>
-          <div class="form-group app-grid-span-2">
-            <label class="form-label">シンボル名</label>
-            <input type="text" class="form-input form-input-mono" id="assetSymbolNameInput" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">変換ターゲット幅（任意）</label>
-            <input type="number" class="form-input form-input-mono" id="assetResizeTargetWidth" min="1" step="1" placeholder="未指定で任意" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">変換ターゲット高さ（任意）</label>
-            <input type="number" class="form-input form-input-mono" id="assetResizeTargetHeight" min="1" step="1" placeholder="未指定で任意" />
-          </div>
-          <div class="form-group app-grid-span-2">
-            <label class="form-label">コメント</label>
-            <textarea class="form-input form-input-mono" id="assetCommentInput" rows="3" placeholder=".res に `// comment` として保存されます"></textarea>
-          </div>
-        </div>
-        <div class="form-actions-inline modal-actions-end">
-          <button class="btn-sm" id="btnAssetModalCancel" type="button">キャンセル</button>
-          <button class="btn-primary" id="btnAssetModalCreate" type="button">追加</button>
-        </div>
-      </div>
-    </section>
-  </div>
-
   <div class="app-modal" id="audioConvertModal" aria-hidden="true">
     <div class="app-backdrop" id="audioConvertBackdrop"></div>
     <section class="app-panel app-panel-lg" role="dialog" aria-modal="true" aria-labelledby="audioConvertTitle">
@@ -637,13 +442,13 @@
           <div class="form-group">
             <button class="btn-sm" id="btnAudioConvertNormalizeApply" type="button" style="width:100%">正規化/ボリュームをプレビューに適用</button>
           </div>
-          <div class="hint-text" id="audioConvertHint">選択範囲を確認してから「変換して追加」を実行してください。</div>
+          <div class="hint-text" id="audioConvertHint">選択範囲を確認してから「変換して戻る」を実行してください。</div>
         </div>
       </div>
       <div class="form-actions-inline modal-actions-end">
         <button class="btn-sm" id="btnAudioConvertCancel" type="button">キャンセル</button>
-        <button class="btn-sm" id="btnAudioConvertSkip" type="button" style="display:none">WAVのままコピー（変換なし）</button>
-        <button class="btn-primary" id="btnAudioConvertApply" type="button">変換して追加</button>
+        <button class="btn-sm" id="btnAudioConvertSkip" type="button" style="display:none">変換せず戻る</button>
+        <button class="btn-primary" id="btnAudioConvertApply" type="button">変換して戻る</button>
       </div>
     </section>
   </div>

@@ -1,11 +1,9 @@
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
-const net = require('net');
 const { shell } = require('electron');
 const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron');
 const { loadAppConfig, applyPortableMode } = require('./game-editor-common');
-const { spawn, spawnSync } = require('child_process');
+const { spawn } = require('child_process');
 const cdBundle = require('./pce-cd-bundle');
 const pceExport = require('./pce-export');
 const { resolveUnderRoot } = require('./pce-file-safety');
@@ -30,7 +28,9 @@ function readAppBuildMeta() {
     if (fs.existsSync(metaPath)) {
       return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
     }
-  } catch (_) {}
+  } catch (err) {
+    console.warn(`[app] build metadata could not be read: ${String(err?.message || err)}`);
+  }
   return { buildNumber: 'dev', buildAt: null };
 }
 
@@ -48,26 +48,25 @@ if (!gotSingleInstanceLock) {
   process.exit(0);
 }
 
-const setupManager = require('./setup-manager');
 const buildSystem = require('./core-manager');
-const rescompManager = require('./rescomp-manager');
 const pceAssetManager = require('./pce-asset-manager');
+const { registerPceAssetIpc } = require('./pce-asset-ipc');
+const testPlaySettings = require('./pce-testplay-settings');
 const pluginManager = require('./plugin-manager');
+const appDiagnostics = require('./app-diagnostics');
+const { registerPluginIpc } = require('./plugin-ipc');
 const {
   createEditorControlService,
   createEditorControlServer,
 } = require('./editor-control-service');
 
 let mainWindow = null;
-let debugWindow = null;
 let setupWindow = null;
 let testPlayWindow = null;
 let testPlaySettingsWindow = null;
 let logWindow = null;
 let currentTestPlayContext = null;
 let pceTestPlayLaunchSerial = 0;
-let apiServerProcess = null;
-let apiServerPort = null;
 let pceTestPlayStaticServer = null;
 let pceTestPlayStaticPort = null;
 let pceTestPlayStaticRoots = null;
@@ -80,10 +79,6 @@ let forcedQuitTimer = null;
 const MAIN_WINDOW_DEFAULT_BOUNDS = { width: 1280, height: 860 };
 const MAIN_WINDOW_MIN_BOUNDS = { width: 960, height: 640 };
 const WINDOW_STATE_FILE = 'window-state.json';
-
-function getRepoRoot() {
-  return path.resolve(__dirname, '..');
-}
 
 function getWindowStatePath() {
   return path.join(app.getPath('userData'), WINDOW_STATE_FILE);
@@ -150,7 +145,6 @@ function closeDevToolsForWindow(win) {
 function getTrackedWindows() {
   const tracked = [
     mainWindow,
-    debugWindow,
     setupWindow,
     testPlayWindow,
     testPlaySettingsWindow,
@@ -196,7 +190,6 @@ function closeWindowIfOpen(win) {
 
 function closeAuxiliaryWindows() {
   [
-    debugWindow,
     setupWindow,
     testPlayWindow,
     testPlaySettingsWindow,
@@ -216,39 +209,12 @@ function stopEditorControlServer() {
   }
 }
 
-function stopApiServerSync() {
-  if (!apiServerProcess) {
-    apiServerPort = null;
-    return false;
-  }
-
-  const proc = apiServerProcess;
-  apiServerProcess = null;
-  apiServerPort = null;
-
-  if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/pid', String(proc.pid), '/t', '/f'], {
-      windowsHide: true,
-      stdio: 'ignore',
-    });
-    return true;
-  }
-
-  signalApiServerProcess(proc, 'SIGTERM');
-  const forceKillTimer = setTimeout(() => {
-    signalApiServerProcess(proc, 'SIGKILL');
-  }, 1500);
-  forceKillTimer.unref?.();
-  return true;
-}
-
 function prepareForAppQuit() {
   isQuitting = true;
   closeOpenDevTools();
   saveMainWindowBounds(mainWindow);
   closeAuxiliaryWindows();
   stopEditorControlServer();
-  stopApiServerSync();
 }
 
 function requestAppQuit(options = {}) {
@@ -328,103 +294,16 @@ function createWindow() {
   });
 }
 
-function openDebugWindow(options = {}) {
-  const mode = options.mode || 'api';
-  const port = options.apiPort || apiServerPort || 8080;
-
-  if (debugWindow && !debugWindow.isDestroyed()) {
-    debugWindow.focus();
-    return { opened: true, reused: true };
-  }
-
-  debugWindow = registerWindowCloseDevTools(new BrowserWindow({
-    width: 1100,
-    height: 760,
-    backgroundColor: '#101217',
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: path.join(__dirname, 'debug-preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
-  }));
-
-  const debugFile = mode === 'wasm'
-    ? path.join(__dirname, 'renderer', 'debug-wasm.html')
-    : path.join(getRepoRoot(), 'frontend', 'debug.html');
-  let didFinishLoad = false;
-
-  if (!fs.existsSync(debugFile)) {
-    const html = `
-      <html><body style="background:#101217;color:#e6edf3;font-family:monospace;padding:16px">
-      <h2>Debug Window Load Failed</h2>
-      <p>electron debug page was not found.</p>
-      <p>Path: ${debugFile}</p>
-      </body></html>
-    `;
-    debugWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-    return { opened: true, reused: false, missingFile: true };
-  }
-
-  debugWindow.webContents.on('did-finish-load', () => {
-    didFinishLoad = true;
-    const script = `
-      (function() {
-        var params = new URLSearchParams(window.location.search);
-        params.set('mode', ${JSON.stringify(mode)});
-        params.set('apiPort', ${JSON.stringify(String(port))});
-        history.replaceState(null, '', window.location.pathname + '?' + params.toString());
-
-        var input = document.getElementById('apiBase');
-        if (input) {
-          input.value = 'http://127.0.0.1:${port}';
-        }
-        var refresh = document.getElementById('btnRefresh');
-        if (refresh) {
-          refresh.click();
-        }
-      })();
-    `;
-    debugWindow.webContents.executeJavaScript(script).catch(() => {});
-  });
-
-  debugWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    if (didFinishLoad || !isMainFrame) {
-      return;
-    }
-    const html = `
-      <html><body style="background:#101217;color:#e6edf3;font-family:monospace;padding:16px">
-      <h2>Debug Window Load Failed</h2>
-      <p>URL: ${validatedURL || debugFile}</p>
-      <p>Code: ${errorCode}</p>
-      <p>Message: ${errorDescription}</p>
-      <p>File exists: ${fs.existsSync(debugFile)}</p>
-      </body></html>
-    `;
-    debugWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-  });
-
-  debugWindow.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalUrl(url);
-    return { action: 'deny' };
-  });
-
-  debugWindow.loadFile(debugFile);
-
-  debugWindow.on('closed', () => {
-    debugWindow = null;
-  });
-
-  return { opened: true, reused: false };
-}
-
 function sendToRenderer(channel, payload) {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return;
   }
   mainWindow.webContents.send(channel, payload);
 }
+
+appDiagnostics.subscribe((diagnostic) => {
+  sendToRenderer('app-diagnostic', diagnostic);
+});
 
 function sendToLogWindow(channel, payload) {
   if (!logWindow || logWindow.isDestroyed()) {
@@ -495,7 +374,7 @@ function sendToSetupWindow(channel, payload) {
 }
 
 function broadcastTestPlaySettings(settings) {
-  [testPlayWindow, debugWindow, testPlaySettingsWindow].forEach((win) => {
+  [testPlayWindow, testPlaySettingsWindow].forEach((win) => {
     if (win && !win.isDestroyed()) {
       win.webContents.send('testplay:settings-changed', settings);
     }
@@ -503,21 +382,11 @@ function broadcastTestPlaySettings(settings) {
 }
 
 function collectProjectAssets(projectDir) {
-  if (buildSystem.getCoreIdForProjectDir(projectDir) === 'pc-engine') {
-    try {
-      return pceAssetManager.listAssets(projectDir).assets;
-    } catch (_) {
-      return [];
-    }
-  }
-  let allAssets = [];
   try {
-    const defs = rescompManager.listResDefinitions(projectDir);
-    (defs.files || []).forEach((f) => {
-      (f.entries || []).forEach((e) => allAssets.push({ ...e, resFile: f.file }));
-    });
-  } catch (_) {}
-  return allAssets;
+    return pceAssetManager.listAssets(projectDir).assets;
+  } catch (_) {
+    return [];
+  }
 }
 
 function createPluginLogger(pluginId) {
@@ -621,14 +490,6 @@ function getMimeForPath(filePath) {
   return 'application/octet-stream';
 }
 
-function isTempPath(filePath) {
-  if (!filePath) return false;
-  const tempRoot = path.resolve(os.tmpdir());
-  const target = path.resolve(filePath);
-  const rel = path.relative(tempRoot, target);
-  return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel));
-}
-
 function pluginSupportsRole(plugin, roleId) {
   const role = String(roleId || '').trim();
   if (!role) return false;
@@ -652,7 +513,17 @@ function resolvePluginForRole(roleId) {
       })[0];
     if (fallback) {
       pluginId = fallback.id;
-      try { buildSystem.setPluginRole(roleId, pluginId); } catch (_) {}
+      try {
+        buildSystem.setPluginRole(roleId, pluginId);
+      } catch (err) {
+        appDiagnostics.report({
+          source: 'plugin',
+          code: 'plugin-role-save-failed',
+          level: 'error',
+          error: err,
+          details: { roleId, pluginId },
+        });
+      }
     }
   }
   return pluginId || '';
@@ -835,62 +706,15 @@ async function openWasmTestPlayWindow(options = {}) {
   return { opened: true, reused: false };
 }
 
-async function openApiTestPlayWindow(options = {}) {
-  const pluginId = String(options.pluginId || 'standard-api-emulator');
-  if (focusExistingTestPlayWindow()) {
-    return { opened: true, reused: true, port: apiServerPort };
-  }
-
-  const htmlPath = resolvePluginAssetPath(pluginId, 'api-testplay.html');
-  const preloadPath = resolvePluginAssetPath(pluginId, 'api-testplay-preload.js');
-  const startResult = await startApiServer(options.port || 8080);
-  const port = startResult.port || startResult.currentPort || apiServerPort || options.port || 8080;
-
-  testPlayWindow = registerWindowCloseDevTools(new BrowserWindow({
-    width: 1120,
-    height: 760,
-    title: 'Test Play API - PCE Game Editor',
-    backgroundColor: '#0f1117',
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: preloadPath,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
-  }));
-
-  const search = new URLSearchParams();
-  search.set('port', String(port));
-  if (options.romPath) search.set('romPath', options.romPath);
-
-  testPlayWindow.loadFile(htmlPath, { search: `?${search.toString()}` });
-  testPlayWindow.on('closed', async () => {
-    testPlayWindow = null;
-    await stopApiServer();
-  });
-
-  return { opened: true, reused: false, port, apiStarted: !startResult.alreadyRunning };
-}
-
 function createTestPlayHostApi(pluginId) {
   return {
     openWasmWindow: (options = {}) => openWasmTestPlayWindow({
       ...options,
       pluginId: options.pluginId || pluginId,
     }),
-    openApiWindow: (options = {}) => openApiTestPlayWindow({
-      ...options,
-      pluginId: options.pluginId || pluginId,
-    }),
-    startApiServer: (options = {}) => startApiServer(options.port || 8080),
-    stopApiServer,
-    isApiServerRunning: () => ({ running: !!apiServerProcess, port: apiServerPort }),
     getProjectConfig: () => buildSystem.loadProjectConfig(),
     launchExternalEmulator: (options = {}) => launchExternalEmulator(options),
-    getEmulatorStatus: () => buildSystem.getActiveCoreId() === 'pc-engine'
-      ? buildSystem.getPceSetupManager().getStatus().emulatorJs
-      : setupManager.getStatus(),
+    getEmulatorStatus: () => buildSystem.getPceSetupManager().getStatus().emulatorJs,
   };
 }
 
@@ -902,7 +726,15 @@ function resolveMacAppBundleExecutable(appPath) {
     const plist = fs.readFileSync(path.join(appPath, 'Contents', 'Info.plist'), 'utf-8');
     const match = plist.match(/<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/);
     if (match?.[1]) candidates.push(match[1]);
-  } catch (_) {}
+  } catch (err) {
+    appDiagnostics.report({
+      source: 'testplay',
+      code: 'mac-app-plist-read-failed',
+      level: 'warn',
+      error: err,
+      details: { appPath },
+    });
+  }
   candidates.push(path.basename(appPath, '.app'), path.basename(appPath, '.app').toLowerCase(), 'geargrafx');
 
   for (const name of Array.from(new Set(candidates.map((item) => String(item || '').trim()).filter(Boolean)))) {
@@ -1226,25 +1058,15 @@ function getEditorControlService() {
     },
     project_config_get: async () => buildSystem.loadProjectConfig(),
     project_config_update: async ({ patch }) => ({ config: buildSystem.saveProjectConfig(patch || {}) }),
-    asset_list: async () => buildSystem.getActiveCoreId() === 'pc-engine'
-      ? pceAssetManager.listAssets(buildSystem.getProjectDir())
-      : rescompManager.listResDefinitions(buildSystem.getProjectDir()),
-    asset_add: async ({ file, entry }) => rescompManager.addResEntry(buildSystem.getProjectDir(), file || 'resources.res', entry || {}),
-    asset_write_file: async ({ targetPath, dataBase64, dataUrl, sourcePath }) => {
-      const payload = {
-        targetSubdir: path.dirname(String(targetPath || '')).replace(/^[./\\]+$/, '') || 'assets',
-        targetFileName: path.basename(String(targetPath || '')),
-        sourcePath,
-        dataUrl,
-      };
-      if (!payload.dataUrl && dataBase64) {
-        payload.dataUrl = `data:application/octet-stream;base64,${dataBase64}`;
-      }
-      if (!payload.targetFileName) throw new Error('targetPath is required');
-      return rescompManager.writeAssetIntoRes(buildSystem.getProjectDir(), payload);
-    },
-    asset_update: async ({ file, lineNumber, entry }) => rescompManager.updateResEntry(buildSystem.getProjectDir(), file || 'resources.res', lineNumber, entry || {}),
-    asset_delete: async ({ file, lineNumber }) => rescompManager.deleteResEntry(buildSystem.getProjectDir(), file || 'resources.res', lineNumber),
+    asset_list: async () => pceAssetManager.listAssets(buildSystem.getProjectDir()),
+    asset_upsert: async ({ asset }) => ({
+      file: 'assets/pce-assets.json',
+      ...pceAssetManager.upsertAsset(buildSystem.getProjectDir(), asset || {}),
+    }),
+    asset_delete: async ({ id }) => ({
+      file: 'assets/pce-assets.json',
+      ...pceAssetManager.deleteAsset(buildSystem.getProjectDir(), id),
+    }),
     code_tree: async ({ path: relPath }) => {
       const { codeRoot, absPath } = resolveUnderCodeRoot(relPath || '');
       if (!fs.existsSync(absPath)) throw new Error(`path not found: ${relPath || ''}`);
@@ -1417,208 +1239,6 @@ function sanitizeExportFileName(value, fallback = 'rom') {
   return base || fallback;
 }
 
-function waitForProcessExit(proc, timeoutMs) {
-  return new Promise((resolve) => {
-    if (!proc || proc.exitCode !== null || proc.signalCode !== null) {
-      resolve(true);
-      return;
-    }
-
-    let settled = false;
-    const timer = setTimeout(() => finish(false), timeoutMs);
-    timer.unref?.();
-
-    function finish(exited) {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      proc.off?.('exit', onExit);
-      proc.off?.('error', onError);
-      resolve(exited);
-    }
-
-    function onExit() {
-      finish(true);
-    }
-
-    function onError() {
-      finish(false);
-    }
-
-    proc.once('exit', onExit);
-    proc.once('error', onError);
-  });
-}
-
-function signalApiServerProcess(proc, signal) {
-  if (!proc || !proc.pid) return false;
-  if (process.platform === 'win32') {
-    try {
-      return proc.kill(signal);
-    } catch (_) {
-      return false;
-    }
-  }
-
-  try {
-    process.kill(-proc.pid, signal);
-    return true;
-  } catch (_) {
-    try {
-      return proc.kill(signal);
-    } catch (__) {
-      return false;
-    }
-  }
-}
-
-async function stopApiServer() {
-  if (!apiServerProcess) {
-    apiServerPort = null;
-    return false;
-  }
-
-  const proc = apiServerProcess;
-
-  if (process.platform === 'win32') {
-    const killer = spawn('taskkill', ['/pid', String(proc.pid), '/t', '/f'], {
-      windowsHide: true,
-      stdio: 'ignore',
-    });
-    killer.on('exit', () => {});
-  } else {
-    signalApiServerProcess(proc, 'SIGTERM');
-
-    const forceKillTimer = setTimeout(() => {
-      signalApiServerProcess(proc, 'SIGKILL');
-    }, 1500);
-    forceKillTimer.unref?.();
-  }
-
-  apiServerProcess = null;
-  apiServerPort = null;
-  return waitForProcessExit(proc, 3500);
-}
-
-function resolveApiLaunch() {
-  const repoRoot = getRepoRoot();
-  const isWin = process.platform === 'win32';
-
-  if (app.isPackaged) {
-    const binName = isWin ? 'md-api.exe' : 'md-api';
-    const standardApiEmulatorDir = pluginManager.getPluginDirectory('standard-api-emulator')
-      || path.join(process.resourcesPath, 'plugins', 'standard-api-emulator');
-    const packagedBin = path.join(standardApiEmulatorDir, 'bin', binName);
-    if (!fs.existsSync(packagedBin)) {
-      throw new Error(`md-api binary not found: ${packagedBin}`);
-    }
-
-    return {
-      command: packagedBin,
-      args: [],
-      cwd: standardApiEmulatorDir,
-    };
-  }
-
-  return {
-    command: isWin ? 'cargo.exe' : 'cargo',
-    args: ['run', '-p', 'md-api'],
-    cwd: repoRoot,
-  };
-}
-
-function canBindPort(port) {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once('error', () => resolve(false));
-    server.once('listening', () => {
-      server.close(() => resolve(true));
-    });
-    server.listen(port, '127.0.0.1');
-  });
-}
-
-async function findAvailablePort(preferredPort, maxOffset = 20) {
-  for (let offset = 0; offset <= maxOffset; offset += 1) {
-    const port = preferredPort + offset;
-    if (await canBindPort(port)) {
-      return port;
-    }
-  }
-  return null;
-}
-
-async function startApiServer(port) {
-  if (apiServerProcess) {
-    return { alreadyRunning: true, port: apiServerPort, currentPort: apiServerPort };
-  }
-
-  const preferredPort = port || 8080;
-  const launchPort = await findAvailablePort(preferredPort);
-  if (launchPort == null) {
-    throw new Error(`no available port found from ${preferredPort} to ${preferredPort + 20}`);
-  }
-
-  const launch = resolveApiLaunch();
-  const env = { ...process.env, MD_API_PORT: String(launchPort) };
-
-  apiServerProcess = spawn(launch.command, launch.args, {
-    cwd: launch.cwd,
-    env,
-    detached: process.platform !== 'win32',
-    windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  apiServerPort = launchPort;
-
-  apiServerProcess.stdout.on('data', (chunk) => {
-    sendToRenderer('api-log', { level: 'info', message: chunk.toString() });
-  });
-
-  apiServerProcess.stderr.on('data', (chunk) => {
-    sendToRenderer('api-log', { level: 'error', message: chunk.toString() });
-  });
-
-  apiServerProcess.on('exit', (code, signal) => {
-    sendToRenderer('api-exit', { code, signal });
-    apiServerProcess = null;
-    apiServerPort = null;
-  });
-
-  return {
-    started: true,
-    port: launchPort,
-    fallbackUsed: launchPort !== preferredPort,
-    requestedPort: preferredPort,
-  };
-}
-
-ipcMain.handle('dialog:openRomFile', async () => {
-  if (!mainWindow) {
-    return { canceled: true, filePath: null };
-  }
-
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile'],
-    filters: [
-      { name: 'Mega Drive ROM', extensions: ['bin', 'md', 'gen', 'smd', 'sms', 'zip'] },
-      { name: 'All Files', extensions: ['*'] },
-    ],
-  });
-
-  if (result.canceled || result.filePaths.length === 0) {
-    return { canceled: true, filePath: null };
-  }
-
-  return { canceled: false, filePath: result.filePaths[0] };
-});
-
-ipcMain.handle('fs:readRomFile', async (_event, filePath) => {
-  const data = fs.readFileSync(filePath);
-  return new Uint8Array(data);
-});
-
 ipcMain.handle('fs:openPathInExplorer', async (_event, targetPath, options = {}) => {
   try {
     if (!targetPath) {
@@ -1650,7 +1270,8 @@ ipcMain.handle('fs:saveRomAs', async (_event, sourcePath) => {
       title: 'ビルド済み ROM を保存',
       defaultPath: suggestedName,
       filters: [
-        { name: 'Mega Drive ROM', extensions: ['bin', 'md', 'gen', 'smd', 'sms'] },
+        { name: 'PC Engine ROM', extensions: ['pce'] },
+        { name: 'PC Engine CD image', extensions: ['cue', 'iso'] },
         { name: 'All Files', extensions: ['*'] },
       ],
     });
@@ -1784,98 +1405,9 @@ ipcMain.handle('codefs:rename', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('res:listDefinitions', async () => {
-  try {
-    const projectDir = buildSystem.getProjectDir();
-    const data = rescompManager.listResDefinitions(projectDir);
-    return { ok: true, ...data };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('res:createFile', async (_event, relativePath) => {
-  try {
-    const projectDir = buildSystem.getProjectDir();
-    const result = rescompManager.createResFile(projectDir, relativePath);
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('res:deleteFile', async (_event, relativePath) => {
-  try {
-    const projectDir = buildSystem.getProjectDir();
-    const result = rescompManager.deleteResFile(projectDir, relativePath);
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('res:reorderEntries', async (_event, payload) => {
-  try {
-    const projectDir = buildSystem.getProjectDir();
-    const result = rescompManager.reorderResEntries(projectDir, payload?.file, payload?.orderedLineNumbers || []);
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('res:addEntry', async (_event, payload) => {
-  try {
-    const projectDir = buildSystem.getProjectDir();
-    const result = rescompManager.addResEntry(projectDir, payload?.file, payload?.entry || {});
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('res:updateEntry', async (_event, payload) => {
-  try {
-    const projectDir = buildSystem.getProjectDir();
-    const result = rescompManager.updateResEntry(projectDir, payload?.file, payload?.lineNumber, payload?.entry || {});
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('res:deleteEntry', async (_event, payload) => {
-  try {
-    const projectDir = buildSystem.getProjectDir();
-    const result = rescompManager.deleteResEntry(projectDir, payload?.file, payload?.lineNumber);
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('res:openDirectory', async () => {
-  try {
-    const resRoot = path.join(buildSystem.getProjectDir(), 'res');
-    fs.mkdirSync(resRoot, { recursive: true });
-    const error = await shell.openPath(resRoot);
-    if (error) {
-      return { ok: false, error };
-    }
-    return { ok: true, path: resRoot };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
 ipcMain.handle('dialog:pickFile', async (_event, options) => pickFile(options || {}));
 
-ipcMain.handle('res:pickAssetSource', async () => pickFile({
-  properties: ['openFile'],
-  filters: DEFAULT_ASSET_FILE_FILTERS,
-}));
-
-ipcMain.handle('res:readFileAsDataUrl', async (_event, sourcePath) => {
+ipcMain.handle('files:readAsDataUrl', async (_event, sourcePath) => {
   try {
     if (!sourcePath || !fs.existsSync(sourcePath)) {
       return { ok: false, error: 'source file not found' };
@@ -1887,176 +1419,10 @@ ipcMain.handle('res:readFileAsDataUrl', async (_event, sourcePath) => {
   }
 });
 
-ipcMain.handle('res:readTempFileAsDataUrl', async (_event, sourcePath, options = {}) => {
-  try {
-    if (!sourcePath || !isTempPath(sourcePath)) {
-      return { ok: false, error: 'temp file path is outside the allowed temp directory' };
-    }
-    if (!fs.existsSync(sourcePath)) {
-      return { ok: false, error: 'temp file not found' };
-    }
-    const data = fs.readFileSync(sourcePath).toString('base64');
-    const dataUrl = `data:${getMimeForPath(sourcePath)};base64,${data}`;
-    if (options?.deleteAfter) {
-      try { fs.unlinkSync(sourcePath); } catch (_) {}
-    }
-    return { ok: true, dataUrl };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('res:deleteTempFile', async (_event, sourcePath) => {
-  try {
-    if (!sourcePath || !isTempPath(sourcePath)) {
-      return { ok: false, error: 'temp file path is outside the allowed temp directory' };
-    }
-    if (fs.existsSync(sourcePath)) fs.unlinkSync(sourcePath);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('res:writeAssetFile', async (_event, payload) => {
-  try {
-    const projectDir = buildSystem.getProjectDir();
-    const result = rescompManager.writeAssetIntoRes(projectDir, payload || {});
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('assets:list', async () => {
-  try {
-    if (buildSystem.getActiveCoreId() !== 'pc-engine') {
-      return { ok: false, error: 'assets:list is available for PC Engine projects only' };
-    }
-    return { ok: true, ...pceAssetManager.listAssets(buildSystem.getProjectDir()) };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('assets:upsert', async (_event, asset) => {
-  try {
-    if (buildSystem.getActiveCoreId() !== 'pc-engine') {
-      return { ok: false, error: 'assets:upsert is available for PC Engine projects only' };
-    }
-    const doc = pceAssetManager.upsertAsset(buildSystem.getProjectDir(), asset || {});
-    return { ok: true, ...doc };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('assets:delete', async (_event, payload) => {
-  try {
-    if (buildSystem.getActiveCoreId() !== 'pc-engine') {
-      return { ok: false, error: 'assets:delete is available for PC Engine projects only' };
-    }
-    const doc = pceAssetManager.deleteAsset(buildSystem.getProjectDir(), payload?.id || payload);
-    return { ok: true, ...doc };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('assets:importImage', async (_event, payload) => {
-  try {
-    if (buildSystem.getActiveCoreId() !== 'pc-engine') {
-      return { ok: false, error: 'assets:importImage is available for PC Engine projects only' };
-    }
-    const result = pceAssetManager.importImage(buildSystem.getProjectDir(), payload || {});
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('assets:importAudio', async (_event, payload) => {
-  try {
-    if (buildSystem.getActiveCoreId() !== 'pc-engine') {
-      return { ok: false, error: 'assets:importAudio is available for PC Engine projects only' };
-    }
-    const result = pceAssetManager.importAudio(buildSystem.getProjectDir(), payload || {});
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('assets:importVgm', async (_event, payload) => {
-  try {
-    if (buildSystem.getActiveCoreId() !== 'pc-engine') {
-      return { ok: false, error: 'assets:importVgm is available for PC Engine projects only' };
-    }
-    const result = pceAssetManager.importVgm(buildSystem.getProjectDir(), payload || {});
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('assets:importMidi', async (_event, payload) => {
-  try {
-    if (buildSystem.getActiveCoreId() !== 'pc-engine') {
-      return { ok: false, error: 'assets:importMidi is available for PC Engine projects only' };
-    }
-    const result = pceAssetManager.importMidi(buildSystem.getProjectDir(), payload || {});
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('assets:previewMidi', async (_event, payload) => {
-  try {
-    if (buildSystem.getActiveCoreId() !== 'pc-engine') {
-      return { ok: false, error: 'assets:previewMidi is available for PC Engine projects only' };
-    }
-    const result = pceAssetManager.previewMidi(buildSystem.getProjectDir(), payload || {});
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('assets:previewSource', async (_event, payload) => {
-  try {
-    if (buildSystem.getActiveCoreId() !== 'pc-engine') {
-      return { ok: false, error: 'assets:previewSource is available for PC Engine projects only' };
-    }
-    const result = pceAssetManager.previewSource(buildSystem.getProjectDir(), payload?.relativePath || payload);
-    return { ok: true, ...result };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('assets:reorder', async (_event, payload) => {
-  try {
-    if (buildSystem.getActiveCoreId() !== 'pc-engine') {
-      return { ok: false, error: 'assets:reorder is available for PC Engine projects only' };
-    }
-    const doc = pceAssetManager.reorderAssets(buildSystem.getProjectDir(), payload?.ids || payload);
-    return { ok: true, ...doc };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('api:startServer', async (_event, options) => {
-  return startApiServer(options?.port ?? 8080);
-});
-
-ipcMain.handle('api:stopServer', async () => {
-  return { stopped: await stopApiServer() };
-});
-
-ipcMain.handle('api:isRunning', async () => {
-  return { running: !!apiServerProcess, port: apiServerPort };
+registerPceAssetIpc({
+  ipcMain,
+  assetManager: pceAssetManager,
+  getProjectDir: () => buildSystem.getProjectDir(),
 });
 
 ipcMain.handle('ai-control:start', async (_event, options = {}) => {
@@ -2088,91 +1454,30 @@ ipcMain.handle('ai-control:listTools', async () => {
   return { ok: true, tools: getEditorControlService().listTools() };
 });
 
-ipcMain.handle('window:openDebug', async (_event, options) => {
-  return openDebugWindow(options || {});
-});
+ipcMain.handle('diagnostics:list', async () => ({ ok: true, diagnostics: appDiagnostics.list() }));
 
-ipcMain.handle('debug:getWasmSnapshot', async (_event, options) => {
-  // testPlayWindow (または mainWindow) から debug bridge を読む
-  const targetWin = (testPlayWindow && !testPlayWindow.isDestroyed()) ? testPlayWindow
-    : (mainWindow && !mainWindow.isDestroyed()) ? mainWindow
-    : null;
-
-  if (!targetWin) {
-    return { ok: false, error: 'no available window' };
-  }
-
-  const palette = Number(options?.palette ?? 0);
-  const script = `
-    (async function () {
-      if (!window.__mdDebugBridge || !window.__mdDebugBridge.getWasmDebugSnapshot) {
-        return { ok: false, error: 'WASM debug bridge is not ready' };
-      }
-      return await window.__mdDebugBridge.getWasmDebugSnapshot(${Number.isFinite(palette) ? palette : 0});
-    })();
-  `;
-
-  try {
-    const result = await targetWin.webContents.executeJavaScript(script, true);
-    return result;
-  } catch (error) {
-    return { ok: false, error: String(error?.message || error) };
-  }
-});
-
-// ---- Plugin handlers ----
-ipcMain.handle('plugins:list', (_event, options = {}) => {
-  return pluginManager.listPlugins({
-    coreId: buildSystem.getActiveCoreId(),
-    includeIncompatible: options?.includeIncompatible !== false,
-  });
-});
-
-ipcMain.handle('plugins:getRendererAssets', (_event, { id }) => {
-  return pluginManager.getRendererAssets(id);
-});
-
-ipcMain.handle('plugins:setEnabled', (_event, { id, enabled }) => {
-  const result = pluginManager.setEnabledWithDependencies(id, Boolean(enabled), { coreId: buildSystem.getActiveCoreId() });
-  if (!result?.ok) {
-    return { ok: false, error: result?.error || 'plugin enable failed' };
-  }
-  return result;
-});
-
-ipcMain.handle('plugins:openFolder', async () => {
-  const pluginsDir = pluginManager.getPluginsDir();
-  try {
-    if (!fs.existsSync(pluginsDir)) {
-      return { ok: false, error: `plugins フォルダが見つかりません: ${pluginsDir}` };
-    }
-    const error = await shell.openPath(pluginsDir);
-    return error ? { ok: false, error } : { ok: true, path: pluginsDir };
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
-  }
-});
-
-ipcMain.handle('plugins:invokeHook', async (_event, { id, hook, payload }) => {
-  return invokeRendererPluginHook(id, hook, payload || {});
-});
-
-ipcMain.handle('plugins:runGenerator', async (_event, { id }) => {
-  return runPluginGeneratorAndWrite(id);
+registerPluginIpc({
+  ipcMain,
+  shell,
+  fs,
+  pluginManager,
+  buildSystem,
+  invokeRendererPluginHook,
+  runPluginGeneratorAndWrite,
 });
 
 ipcMain.handle('testplay:getSettings', async () => {
-  return setupManager.getTestPlaySettings();
+  return testPlaySettings.getTestPlaySettings();
 });
 
 ipcMain.handle('testplay:getContext', async () => ({ ok: true, context: currentTestPlayContext }));
 
 ipcMain.handle('testplay:getDefaultSettings', async () => {
-  return setupManager.getDefaultTestPlaySettings();
+  return testPlaySettings.getDefaultTestPlaySettings();
 });
 
 ipcMain.handle('testplay:saveSettings', async (_event, settings) => {
-  const saved = setupManager.saveTestPlaySettings(settings || {});
+  const saved = testPlaySettings.saveTestPlaySettings(settings || {});
   broadcastTestPlaySettings(saved);
   return saved;
 });
@@ -2225,46 +1530,28 @@ ipcMain.handle('window:openSetup', async () => {
 });
 
 ipcMain.handle('setup:getStatus', async () => {
-  if (buildSystem.getActiveCoreId() === 'pc-engine') {
-    return buildSystem.getPceSetupManager().getStatus();
-  }
-  return setupManager.getStatus();
+  return buildSystem.getPceSetupManager().getStatus();
 });
 
 ipcMain.handle('setup:getCatalog', async () => {
-  if (buildSystem.getActiveCoreId() === 'pc-engine') {
-    return buildSystem.getPceSetupManager().getDownloadCatalog();
-  }
-  return { ok: false, error: 'generic setup catalog is available for PC Engine projects only' };
+  return buildSystem.getPceSetupManager().getDownloadCatalog();
 });
 
 ipcMain.handle('setup:listVersions', async (_event, { kind } = {}) => {
-  if (buildSystem.getActiveCoreId() === 'pc-engine') {
-    return buildSystem.getPceSetupManager().listToolVersions(kind);
-  }
-  return { ok: false, error: 'generic setup versions are available for PC Engine projects only', versions: [] };
+  return buildSystem.getPceSetupManager().listToolVersions(kind);
 });
 
 ipcMain.handle('setup:downloadTool', async (_event, payload = {}) => {
-  if (buildSystem.getActiveCoreId() === 'pc-engine') {
-    return buildSystem.getPceSetupManager().downloadTool(payload || {}, (progress) => {
-      sendToSetupWindow('setup-progress', progress);
-    });
-  }
-  return { ok: false, error: 'generic setup download is available for PC Engine projects only' };
+  return buildSystem.getPceSetupManager().downloadTool(payload || {}, (progress) => {
+    sendToSetupWindow('setup-progress', progress);
+  });
 });
 
 ipcMain.handle('setup:setToolPath', async (_event, { kind, value } = {}) => {
-  if (buildSystem.getActiveCoreId() === 'pc-engine') {
-    return buildSystem.getPceSetupManager().setToolPath(kind, value);
-  }
-  return { ok: false, error: 'generic setup path is available for PC Engine projects only' };
+  return buildSystem.getPceSetupManager().setToolPath(kind, value);
 });
 
 ipcMain.handle('setup:selectPceCdImage', async () => {
-  if (buildSystem.getActiveCoreId() !== 'pc-engine') {
-    return { ok: false, error: 'PCE-CD image selection is available for PC Engine projects only' };
-  }
   const owner = (setupWindow && !setupWindow.isDestroyed()) ? setupWindow : mainWindow;
   const result = await dialog.showOpenDialog(owner, {
     title: 'PCE-CD ISO/CUE/BIN を選択',
@@ -2288,9 +1575,6 @@ ipcMain.handle('setup:selectPceCdImage', async () => {
 });
 
 ipcMain.handle('setup:selectPceSystemCard', async () => {
-  if (buildSystem.getActiveCoreId() !== 'pc-engine') {
-    return { ok: false, error: 'System Card selection is available for PC Engine projects only' };
-  }
   const owner = (setupWindow && !setupWindow.isDestroyed()) ? setupWindow : mainWindow;
   const result = await dialog.showOpenDialog(owner, {
     title: 'System Card ROM を選択',
@@ -2314,66 +1598,7 @@ ipcMain.handle('setup:selectPceSystemCard', async () => {
 });
 
 ipcMain.handle('setup:extractPceCdIpl', async (_event, payload = {}) => {
-  if (buildSystem.getActiveCoreId() === 'pc-engine') {
-    return buildSystem.getPceSetupManager().extractPceCdIpl(payload || {});
-  }
-  return { ok: false, error: 'PCE-CD IPL extraction is available for PC Engine projects only' };
-});
-
-ipcMain.handle('setup:listSgdkVersions', async () => {
-  return setupManager.listSgdkReleases(30);
-});
-
-ipcMain.handle('setup:downloadSgdk', async (_event, tag) => {
-  return setupManager.downloadSgdk(tag, (progress) => {
-    sendToSetupWindow('setup-progress', progress);
-  });
-});
-
-ipcMain.handle('setup:downloadJava', async () => {
-  return setupManager.downloadJava((progress) => {
-    sendToSetupWindow('setup-progress', progress);
-  });
-});
-
-ipcMain.handle('setup:downloadEmsdk', async () => {
-  return setupManager.downloadEmsdk((progress) => {
-    sendToSetupWindow('setup-progress', progress);
-  });
-});
-
-ipcMain.handle('setup:downloadNukedOpn2', async () => {
-  return setupManager.downloadNukedOpn2((progress) => {
-    sendToSetupWindow('setup-progress', progress);
-  });
-});
-
-ipcMain.handle('setup:buildNukedOpn2Wasm', async () => {
-  return setupManager.buildNukedOpn2Wasm((progress) => {
-    sendToSetupWindow('setup-progress', progress);
-  });
-});
-
-ipcMain.handle('setup:loadOptionalAudioEngine', async (_event, engineId) => {
-  return setupManager.loadOptionalAudioEngine(engineId);
-});
-
-ipcMain.handle('setup:setSgdkPath', async (_event, p) => {
-  return setupManager.setSgdkPath(p);
-});
-
-ipcMain.handle('setup:listMarsdevVersions', async () => {
-  return setupManager.listMarsdevReleases(30);
-});
-
-ipcMain.handle('setup:downloadMarsdev', async (_event, tag) => {
-  return setupManager.downloadMarsdev(tag, (progress) => {
-    sendToSetupWindow('setup-progress', progress);
-  });
-});
-
-ipcMain.handle('setup:setMarsdevPath', async (_event, p) => {
-  return setupManager.setMarsdevPath(p);
+  return buildSystem.getPceSetupManager().extractPceCdIpl(payload || {});
 });
 
 // ---- Test play window ----
@@ -2404,99 +1629,7 @@ ipcMain.handle('build:generateStructureOnly', async (_event, config) => {
 // ── ビルド共通ロジック ──────────────────────────────────────────────────────
 
 async function runBuildFull(options = {}) {
-  try {
-    if (buildSystem.getActiveCoreId() === 'pc-engine') {
-      return runPceBuildFull(options);
-    }
-    const toolchainPath = setupManager.getToolchainDir();
-    const javaPath = setupManager.getJavaExePath();
-    const projectDir = buildSystem.getProjectDir();
-    let builderPluginId = resolvePluginForRole('builder');
-    if (!toolchainPath) {
-      return { success: false, error: 'ツールチェーンが設定されていません。Setup を実行してください。' };
-    }
-    if (!builderPluginId) {
-      return { success: false, error: '有効な Build プラグインが未設定です。Plugins 画面で有効化してください。' };
-    }
-    if (!pluginManager.isPluginEnabled(builderPluginId)) {
-      return { success: false, error: `Build プラグイン "${builderPluginId}" は無効です` };
-    }
-    const builderMeta = pluginManager.listPlugins().find((p) => p.id === builderPluginId);
-    if (!pluginSupportsRole(builderMeta, 'builder')) {
-      return { success: false, error: `Build プラグイン "${builderPluginId}" は builder role ではありません` };
-    }
-
-    const pluginContext = {
-      projectDir,
-      assets: collectProjectAssets(projectDir),
-    };
-
-    const buildOptions = {
-      skipClean: Boolean(options?.skipClean),
-    };
-    if (builderPluginId) {
-      const buildStartResult = await invokePluginHookSafe(builderPluginId, 'onBuildStart', {
-        projectDir,
-        toolchainPath,
-      }, {
-        ...pluginContext,
-        coreId: buildSystem.getActiveCoreId(),
-        logger: createPluginLogger(builderPluginId),
-      });
-      if (buildStartResult?.ok && buildStartResult.makeVariables && typeof buildStartResult.makeVariables === 'object') {
-        buildOptions.makeVariables = buildStartResult.makeVariables;
-      }
-      if (buildStartResult?.ok && buildStartResult.env && typeof buildStartResult.env === 'object') {
-        buildOptions.env = buildStartResult.env;
-      }
-      if (buildStartResult?.ok && Array.isArray(buildStartResult.makeTargets)) {
-        buildOptions.makeTargets = buildStartResult.makeTargets;
-      }
-      if (buildStartResult?.ok && Object.prototype.hasOwnProperty.call(buildStartResult, 'skipClean')) {
-        buildOptions.skipClean = Boolean(buildStartResult.skipClean);
-      }
-    }
-
-    const result = await buildSystem.buildProject(toolchainPath, javaPath, (line, level) => {
-      sendToRenderer('build-log', { text: line, level: level || 'info' });
-      if (builderPluginId) {
-        void pluginManager.invokeHook(builderPluginId, 'onBuildLog', {
-          line,
-          level: level || 'info',
-        }, {
-          ...pluginContext,
-          coreId: buildSystem.getActiveCoreId(),
-          logger: createPluginLogger(builderPluginId),
-        }).catch(() => {});
-      }
-    }, buildOptions);
-
-    if (builderPluginId) {
-      if (result.success) {
-        await invokePluginHookSafe(builderPluginId, 'onBuildEnd', result, {
-          ...pluginContext,
-          coreId: buildSystem.getActiveCoreId(),
-          logger: createPluginLogger(builderPluginId),
-        });
-      } else {
-        await invokePluginHookSafe(builderPluginId, 'onBuildError', {
-          error: result.error || 'build failed',
-          result,
-        }, {
-          ...pluginContext,
-          coreId: buildSystem.getActiveCoreId(),
-          logger: createPluginLogger(builderPluginId),
-        });
-      }
-    }
-
-    sendToRenderer('build-end', result);
-    return result;
-  } catch (err) {
-    const r = { success: false, error: err.message || String(err) };
-    sendToRenderer('build-end', r);
-    return r;
-  }
+  return runPceBuildFull(options);
 }
 
 async function runPceBuildFull(options = {}) {
@@ -2522,11 +1655,16 @@ async function runPceBuildFull(options = {}) {
       assets,
       logger: createPluginLogger(builderPluginId),
     };
-    await invokePluginHookSafe(builderPluginId, 'onBuildStart', {
+    const buildStartResult = await invokePluginHookSafe(builderPluginId, 'onBuildStart', {
       projectDir,
       toolchain: config.toolchain,
       toolchainPath: buildSystem.getPceSetupManager().getToolchainPath(config.toolchain),
     }, pluginContext);
+    if (!buildStartResult?.ok) {
+      const failed = { success: false, error: buildStartResult?.error || `Build plugin onBuildStart failed: ${builderPluginId}` };
+      sendToRenderer('build-end', failed);
+      return failed;
+    }
     config = buildSystem.loadProjectConfig();
 
     const result = await buildSystem.buildProject((line, level) => {
@@ -2574,7 +1712,15 @@ async function handleExportRom() {
     const cfg = buildSystem.loadProjectConfig();
     const projectName = cfg?.title || cfg?.romName || cfg?.name || buildSystem.getProjectInfo()?.projectName;
     if (projectName) suggested = `${sanitizeExportFileName(projectName, 'rom')}${isCdMedia ? '.zip' : '.pce'}`;
-  } catch (_) {}
+  } catch (err) {
+    appDiagnostics.report({
+      source: 'export',
+      code: 'export-project-name-read-failed',
+      level: 'warn',
+      error: err,
+      details: { mediaType: isCdMedia ? 'cd' : 'hucard' },
+    });
+  }
 
   const result = await dialog.showSaveDialog(owner, {
     title: isCdMedia ? 'CD-ROM2 bundle をエクスポート' : 'HuCard ROM をエクスポート',
@@ -2647,7 +1793,15 @@ async function handleExportHtml() {
     const cfg = buildSystem.loadProjectConfig();
     const projectName = cfg?.title || cfg?.romName || cfg?.name || buildSystem.getProjectInfo()?.projectName;
     if (projectName) suggested = `${sanitizeExportFileName(projectName, 'rom')}.html`;
-  } catch (_) {}
+  } catch (err) {
+    appDiagnostics.report({
+      source: 'export',
+      code: 'export-project-name-read-failed',
+      level: 'warn',
+      error: err,
+      details: { mediaType: 'html' },
+    });
+  }
 
   const saveResult = await dialog.showSaveDialog(owner, {
     title: 'HTML をエクスポート（スタンドアロン・サーバー不要）',
@@ -2747,14 +1901,6 @@ ipcMain.handle('plugins:setRole', async (_event, { roleId, id }) => {
 
 ipcMain.handle('build:getCurrentSource', async () => {
   return buildSystem.loadCurrentSource();
-});
-
-ipcMain.handle('cores:list', async () => {
-  return { ok: true, cores: buildSystem.listCores(), activeCoreId: buildSystem.getActiveCoreId() };
-});
-
-ipcMain.handle('cores:getActive', async () => {
-  return { ok: true, coreId: buildSystem.getActiveCoreId(), core: buildSystem.getCore(buildSystem.getActiveCoreId()) };
 });
 
 ipcMain.handle('build:getSampleCode', async () => {
@@ -2889,7 +2035,6 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   closeOpenDevTools();
   stopEditorControlServer();
-  stopApiServerSync();
 });
 
 app.on('window-all-closed', () => {
@@ -2914,10 +2059,8 @@ module.exports.__test = {
   closeOpenDevTools,
   closeWindowIfOpen,
   closeAuxiliaryWindows,
-  stopApiServerSync,
   stopEditorControlServer,
   prepareForAppQuit,
   requestAppQuit,
-  waitForProcessExit,
   resolveUnderCodeRoot,
 };

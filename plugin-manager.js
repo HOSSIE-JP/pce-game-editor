@@ -8,7 +8,7 @@
  *   pce-game-editor/plugins/<id>/manifest.json
  *   pce-game-editor/plugins/<id>/index.js
  *
- * manifest v2.5:
+ * Current manifest format:
  *   {
  *     "id": "plugin-id",
  *     "name": "Plugin Name",
@@ -16,7 +16,7 @@
  *     "version": "1.0.0",
  *     "icon": "puzzle",
  *     "types": ["build", "logger"],
- *     "supportedCores": ["mega-drive", "pc-engine"] | ["*"],
+ *     "supportedCores": ["pc-engine"] | ["*"],
  *     "roles": [{ "id": "builder", "label": "Build", "exclusive": true }],
  *     "hooks": ["onBuildStart", "onBuildLog", "onBuildEnd"]
  *   }
@@ -27,6 +27,7 @@ const fs = require('fs');
 const { pathToFileURL } = require('url');
 const { app } = require('electron');
 const { getCurrentAppConfig, pluginAllowedForApp } = require('./game-editor-common');
+const appDiagnostics = require('./app-diagnostics');
 
 function getPluginsDir() {
   if (app.isPackaged) {
@@ -51,7 +52,15 @@ function readState() {
     if (fs.existsSync(getStateFile())) {
       return JSON.parse(fs.readFileSync(getStateFile(), 'utf-8'));
     }
-  } catch (_) {}
+  } catch (err) {
+    appDiagnostics.report({
+      source: 'plugin',
+      code: 'plugin-state-read-failed',
+      level: 'error',
+      error: err,
+      details: { file: getStateFile() },
+    });
+  }
   return {};
 }
 
@@ -69,29 +78,32 @@ function normalizePluginTypes(manifest) {
 }
 
 function normalizeSupportedCores(manifest, pluginTypes = []) {
-  const raw = Array.isArray(manifest.supportedCores) && manifest.supportedCores.length > 0
-    ? manifest.supportedCores
-    : null;
-  const normalize = (value) => {
-    const core = String(value || '').trim();
-    if (!core) return '';
-    if (core === '*') return '*';
-    if (core === 'pce' || core === 'pcengine') return 'pc-engine';
-    if (core === 'md' || core === 'megadrive' || core === 'genesis') return 'mega-drive';
-    return core;
-  };
+  return Array.from(new Set(manifest.supportedCores.map((value) => String(value).trim())));
+}
 
-  if (raw) {
-    const cores = Array.from(new Set(raw.map(normalize).filter(Boolean)));
-    return cores.length > 0 ? cores : ['mega-drive'];
+function validateManifest(manifest, directoryId) {
+  const errors = [];
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    return ['manifest.json must contain an object'];
   }
-
-  if (pluginTypes.includes('core') && manifest.core?.id) {
-    return [normalize(manifest.core.id) || 'mega-drive'];
+  const id = String(manifest.id || '').trim();
+  if (!id) errors.push('id is required');
+  else if (id !== directoryId) errors.push(`id must match plugin directory: ${directoryId}`);
+  if (!String(manifest.name || '').trim()) errors.push('name is required');
+  if (!String(manifest.version || '').trim()) errors.push('version is required');
+  if (!Array.isArray(manifest.types) || manifest.types.length === 0 || manifest.types.some((item) => !String(item || '').trim())) {
+    errors.push('types must be a non-empty string array');
   }
-
-  // Runtime v2.5 以前の既存プラグインは Mega Drive 用として扱う。
-  return ['mega-drive'];
+  if (!Array.isArray(manifest.supportedCores) || manifest.supportedCores.length === 0) {
+    errors.push('supportedCores must be a non-empty array');
+  } else {
+    const invalid = manifest.supportedCores.filter((item) => !['pc-engine', '*'].includes(String(item || '').trim()));
+    if (invalid.length > 0) errors.push(`unsupported core id: ${invalid.join(', ')}`);
+  }
+  if (Array.isArray(manifest.types) && manifest.types.includes('core') && String(manifest.core?.id || '').trim() !== 'pc-engine') {
+    errors.push('core plugins must declare core.id as pc-engine');
+  }
+  return errors;
 }
 
 function normalizeCoreMetadata(manifest, pluginTypes, supportedCores) {
@@ -123,7 +135,7 @@ function detectGeneratorExport(manifest, pluginDir) {
 function pluginSupportsCore(plugin, coreId) {
   const core = String(coreId || '').trim();
   if (!core) return true;
-  const cores = Array.isArray(plugin?.supportedCores) ? plugin.supportedCores : ['mega-drive'];
+  const cores = Array.isArray(plugin?.supportedCores) ? plugin.supportedCores : [];
   return cores.includes('*') || cores.includes(core);
 }
 
@@ -289,8 +301,8 @@ function normalizeRenderer(manifest, pluginDir) {
 }
 
 function isPluginEnabled(id) {
-  const s = readState();
-  return Boolean(s[id]?.enabled ?? true);
+  const plugin = listPlugins({ includeIncompatible: true }).find((entry) => entry.id === id);
+  return Boolean(plugin?.enabled);
 }
 
 function isHiddenPluginManifest(manifest) {
@@ -299,79 +311,138 @@ function isHiddenPluginManifest(manifest) {
 
 // ── プラグイン一覧 ──────────────────────────────────────────────────────────
 
-function listPlugins(options = {}) {
+function scanPlugins(options = {}) {
   const coreId = String(options.coreId || '').trim();
   const includeIncompatible = options.includeIncompatible !== false;
   const builtinDir = getPluginsDir();
   const userDir = getUserPluginsDir();
   const state = readState();
-
-  // ユーザープラグインを優先し、同一 ID は上書き
-  const pluginEntries = []; // { id, baseDir }
-  const seen = new Set();
+  const diagnostics = [];
+  const pluginEntries = [];
 
   function collectFrom(dir, isUser) {
     if (!fs.existsSync(dir)) return;
     fs.readdirSync(dir, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .forEach((d) => {
-        if (!seen.has(d.name)) {
-          seen.add(d.name);
-          pluginEntries.push({ id: d.name, baseDir: dir, isUser });
-        }
-      });
+      .filter((entry) => entry.isDirectory())
+      .forEach((entry) => pluginEntries.push({ id: entry.name, baseDir: dir, isUser }));
   }
 
-  collectFrom(userDir, true);    // ユーザープラグイン優先
-  collectFrom(builtinDir, false); // 組み込みプラグイン
+  collectFrom(userDir, true);
+  collectFrom(builtinDir, false);
 
-  return pluginEntries
-    .map(({ id, baseDir, isUser }) => {
-      let manifest = { id, name: id, description: '', version: '0.0.0' };
-      const manifestPath = path.join(baseDir, id, 'manifest.json');
-      try {
-        manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-      } catch (_) {}
-      if (isHiddenPluginManifest(manifest)) return null;
+  // A valid user plugin shadows a built-in plugin with the same id. An invalid
+  // user plugin is reported but does not hide the valid built-in fallback.
+  const selected = new Map();
+  pluginEntries.forEach(({ id, baseDir, isUser }) => {
+    if (selected.has(id)) return;
+    const manifestPath = path.join(baseDir, id, 'manifest.json');
+    let manifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    } catch (err) {
+      diagnostics.push({
+        pluginId: id,
+        source: isUser ? 'user' : 'builtin',
+        code: 'manifest-read-failed',
+        level: 'error',
+        path: manifestPath,
+        messages: [String(err?.message || err)],
+      });
+      return;
+    }
+    if (isHiddenPluginManifest(manifest)) return;
+    const manifestErrors = validateManifest(manifest, id);
+    if (manifestErrors.length > 0) {
+      diagnostics.push({
+        pluginId: id,
+        source: isUser ? 'user' : 'builtin',
+        code: 'manifest-invalid',
+        level: 'error',
+        path: manifestPath,
+        messages: manifestErrors,
+      });
+      return;
+    }
 
-      const pluginDir = path.join(baseDir, id);
-      const pluginTypes = normalizePluginTypes(manifest);
-      const hasGenerator = detectGeneratorExport(manifest, pluginDir);
-      const supportedCores = normalizeSupportedCores(manifest, pluginTypes);
-      const hooks = normalizeHooks(manifest);
-      const rendererInfo = normalizeRenderer(manifest, pluginDir);
-      const mainApi = normalizeMainApi(manifest);
-      const roles = normalizeRoles(manifest);
+    const pluginDir = path.join(baseDir, id);
+    const pluginTypes = normalizePluginTypes(manifest);
+    const supportedCores = normalizeSupportedCores(manifest, pluginTypes);
+    const rendererInfo = normalizeRenderer(manifest, pluginDir);
+    const trusted = !isUser || state[id]?.trusted === true;
+    const configuredEnabled = Boolean(state[id]?.enabled ?? !isUser);
+    const plugin = {
+      id,
+      name: manifest.name || id,
+      description: manifest.description || '',
+      version: manifest.version || '0.0.0',
+      icon: normalizeIcon(manifest),
+      pluginTypes,
+      pluginType: pluginTypes[0] || 'unknown',
+      supportedCores,
+      core: normalizeCoreMetadata(manifest, pluginTypes, supportedCores),
+      compatibleWithActiveCore: pluginSupportsCore({ supportedCores }, coreId),
+      tab: manifest.tab || null,
+      dependencies: normalizeDependencies(manifest),
+      hooks: normalizeHooks(manifest),
+      mainApi: normalizeMainApi(manifest),
+      permissions: normalizePermissions(manifest),
+      roles: normalizeRoles(manifest),
+      hasGenerator: detectGeneratorExport(manifest, pluginDir),
+      renderer: rendererInfo.renderer,
+      hasRenderer: rendererInfo.hasRenderer,
+      rendererAssets: rendererInfo.rendererAssets,
+      enabled: configuredEnabled && trusted,
+      configuredEnabled,
+      trusted,
+      isUserPlugin: isUser,
+      missingDependencies: [],
+    };
+    if (pluginAllowedForApp(plugin.supportedCores)) selected.set(id, plugin);
+  });
 
-      return {
-        id,
-        name: manifest.name || id,
-        description: manifest.description || '',
-        version: manifest.version || '0.0.0',
-        icon: normalizeIcon(manifest),
-        pluginTypes,
-        pluginType: pluginTypes[0] || 'unknown',
-        supportedCores,
-        core: normalizeCoreMetadata(manifest, pluginTypes, supportedCores),
-        compatibleWithActiveCore: pluginSupportsCore({ supportedCores }, coreId),
-        tab: manifest.tab || null,
-        dependencies: normalizeDependencies(manifest),
-        hooks,
-        mainApi,
-        permissions: normalizePermissions(manifest),
-        roles,
-        hasGenerator,
-        renderer: rendererInfo.renderer,
-        hasRenderer: rendererInfo.hasRenderer,
-        rendererAssets: rendererInfo.rendererAssets,
-        enabled: Boolean(state[id]?.enabled ?? true),
-        isUserPlugin: isUser,  // ユーザー追加プラグインか否か
-      };
-    })
-    .filter(Boolean)
-    .filter((plugin) => pluginAllowedForApp(plugin.supportedCores))
+  const allPlugins = Array.from(selected.values());
+  const availableIds = new Set(allPlugins.map((plugin) => plugin.id));
+  allPlugins.forEach((plugin) => {
+    plugin.missingDependencies = (plugin.dependencies || []).filter((dependencyId) => !availableIds.has(dependencyId));
+    if (plugin.missingDependencies.length > 0) {
+      diagnostics.push({
+        pluginId: plugin.id,
+        source: plugin.isUserPlugin ? 'user' : 'builtin',
+        code: 'dependency-missing',
+        level: 'error',
+        path: '',
+        messages: [`missing dependencies: ${plugin.missingDependencies.join(', ')}`],
+      });
+    }
+  });
+
+  const plugins = allPlugins
     .filter((plugin) => includeIncompatible || pluginSupportsCore(plugin, coreId))
     .sort((a, b) => a.id.localeCompare(b.id, 'ja'));
+  return { plugins, diagnostics };
+}
+
+function listPlugins(options = {}) {
+  return scanPlugins(options).plugins;
+}
+
+function listPluginDiagnostics(options = {}) {
+  return scanPlugins(options).diagnostics;
+}
+
+function setUserPluginTrusted(id, trusted) {
+  const pluginId = String(id || '').trim();
+  const plugin = listPlugins({ includeIncompatible: true }).find((entry) => entry.id === pluginId);
+  if (!plugin) return { ok: false, error: `plugin not found: ${pluginId}` };
+  if (!plugin.isUserPlugin) return { ok: false, error: `built-in plugin trust cannot be changed: ${pluginId}` };
+  const state = readState();
+  state[pluginId] = {
+    ...(state[pluginId] || {}),
+    trusted: Boolean(trusted),
+    ...(trusted ? {} : { enabled: false }),
+  };
+  writeState(state);
+  return { ok: true, id: pluginId, trusted: Boolean(trusted) };
 }
 
 function canInvokeRendererHook(pluginInfo, hookName) {
@@ -402,6 +473,9 @@ function getRendererAssets(id) {
   }
   if (!plugin.hasRenderer || !plugin.rendererAssets) {
     return { ok: false, error: `plugin has no renderer module: ${id}` };
+  }
+  if (plugin.isUserPlugin && !plugin.trusted) {
+    return { ok: false, error: `user plugin trust is required: ${id}`, requiresTrust: true };
   }
   return {
     ok: true,
@@ -435,9 +509,61 @@ function setEnabledWithDependencies(id, enabled, options = {}) {
     return { ok: false, error: `plugin ${pluginId} is not compatible with core: ${coreId}`, changed: [], changedIds: [] };
   }
 
+  if (enabled) {
+    const pendingTrust = [pluginId];
+    const trustVisited = new Set();
+    const untrustedPluginIds = [];
+    while (pendingTrust.length > 0) {
+      const currentId = pendingTrust.pop();
+      if (trustVisited.has(currentId)) continue;
+      trustVisited.add(currentId);
+      const current = pluginMap.get(currentId);
+      if (!current) continue;
+      if (current.isUserPlugin && !current.trusted) untrustedPluginIds.push(currentId);
+      (current.dependencies || []).forEach((dependencyId) => pendingTrust.push(dependencyId));
+    }
+    if (untrustedPluginIds.length > 0) {
+      const ids = Array.from(new Set(untrustedPluginIds));
+      return {
+        ok: false,
+        error: `user plugin trust is required: ${ids.join(', ')}`,
+        requiresTrust: true,
+        untrustedPluginIds: ids,
+        changed: [],
+        changedIds: [],
+      };
+    }
+  }
+
   const state = readState();
   const changed = [];
   const missingDependencies = [];
+
+  if (enabled) {
+    const pending = [pluginId];
+    const visited = new Set();
+    while (pending.length > 0) {
+      const currentId = pending.pop();
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+      const current = pluginMap.get(currentId);
+      if (!current) {
+        missingDependencies.push(currentId);
+        continue;
+      }
+      (current.dependencies || []).forEach((dependencyId) => pending.push(dependencyId));
+    }
+    if (missingDependencies.length > 0) {
+      const missing = Array.from(new Set(missingDependencies));
+      return {
+        ok: false,
+        error: `missing plugin dependencies: ${missing.join(', ')}`,
+        changed: [],
+        changedIds: [],
+        missingDependencies: missing,
+      };
+    }
+  }
 
   const setStateEnabled = (targetId, nextEnabled, reason) => {
     const prevEnabled = Boolean(state[targetId]?.enabled ?? true);
@@ -488,8 +614,6 @@ function setEnabledWithDependencies(id, enabled, options = {}) {
       (current.dependencies || []).forEach((depId) => {
         if (pluginMap.has(depId)) {
           stack.push(depId);
-        } else {
-          missingDependencies.push(depId);
         }
       });
     }
@@ -630,7 +754,9 @@ async function invokeHook(id, hookName, payload = {}, context = {}) {
 }
 
 module.exports = {
+  scanPlugins,
   listPlugins,
+  listPluginDiagnostics,
   getRendererAssets,
   setEnabled,
   setEnabledWithDependencies,
@@ -640,8 +766,10 @@ module.exports = {
   invokeHook,
   invokeRendererHook,
   isPluginEnabled,
+  setUserPluginTrusted,
   pluginSupportsCore,
   getPluginsDir,
   getPluginDirectory,
   getUserPluginsDir,
+  validateManifest,
 };

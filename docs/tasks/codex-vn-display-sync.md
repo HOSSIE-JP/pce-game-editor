@@ -1,5 +1,7 @@
 # Codex タスク: VN runtime 表示/同期の改善（口パク・切替崩れ・コマンド同期）＋エディタ文字色プレビュー
 
+> **履歴資料:** 完了済みタスクの要求記録であり、現行仕様書ではありません。表示/VDC 調査は [../pce-testplay-debugging.md](../pce-testplay-debugging.md) と現行コードを優先してください。
+
 前タスク（docs/tasks/codex-vn-loop-fps.md / ループ fps 削減）の続き。直近の最適化で **ADPCM 再生中にスプライト更新を止めた**ことが口パクを壊した。以下 4 点を修正する。runtime 編集は `template/template_pce_vn_cd/src/pce_vn_runtime.c`（ビルドで project へ同期）。
 
 ## Item 1: ADPCM 再生中もスプライト更新を止めない（口パク維持・最優先）

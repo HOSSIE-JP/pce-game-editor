@@ -190,7 +190,6 @@ Image プラグインの BG 追加 UI では、作者が指定する変換条件
 | `tilesFile` | BG tile data `tiles.bin` |
 | `mapFile` | compact map data |
 | `mapVramFile` | CD-ROM2 VN runtime 用の32タイル幅ソース行 map |
-| `compression` | 互換のため残る圧縮メタ。RLE 撤去後は常に `codec: "none"`（`tilesCompressedFile` / `mapVramCompressedFile` は空） |
 | `tileCount` | 8x8 tile 数 |
 | `vramBytes` | tiles + map の概算 VRAM byte 数 |
 | `warnings` | VRAM overlap やサイズ警告 |

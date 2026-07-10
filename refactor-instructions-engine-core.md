@@ -1,5 +1,7 @@
 # refactor-instructions-engine-core.md — VN Runtime エンジン足回りゼロベース再設計 実装指示書
 
+> **文書区分: タスク時点の設計・実装指示。** 現行仕様の入口ではありません。2026-07-10 の全体監査は [docs/implementation-audit-2026-07-10.md](docs/implementation-audit-2026-07-10.md)、runtime の as-built は `docs/pce-vn-engine-redesign.md` と現行コードを優先してください。
+
 > **本書は `refactor-instructions-psg-adpcm.md` の F1〜F6 個別パッチ路線を置き換える。**
 > F1〜F6 の背景調査（PSG/ADPCM タイミング乖離の構造的原因）と Behaviors To Preserve は引き続き有効な参照資料だが、
 > 新規実装は `refactor-instructions-psg-adpcm.md` の Implementation Phases（Phase 0〜4）には従わず、本書の Phase A〜E に従うこと。

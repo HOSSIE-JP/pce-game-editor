@@ -59,6 +59,7 @@ typedef struct {
   unsigned char palette_bank;
   unsigned char x;
   unsigned char y;
+  const unsigned char *cell_map;
 } pce_editor_sprite_asset_t;
 
 typedef struct {
@@ -109,17 +110,72 @@ typedef struct {
   unsigned int play_frames;
 } pce_editor_cdda_asset_t;
 
+/* CD on-demand metadata directory (see docs/pce-asset-meta-cd-ondemand.md). On
+   CD builds the per-asset BG/sprite/ADPCM descriptors live in a CD data file as
+   fixed-size, sector-aligned record slots; only this constant directory stays
+   resident. Record N is at sector (region.sector + N / records_per_sector) and
+   byte offset (N % records_per_sector) * slot. */
+typedef struct {
+  pce_editor_cd_sector_t sector;
+  unsigned int count;
+} pce_editor_meta_region_t;
+/* BG/sprite records are packed images of the in-memory descriptor struct
+   (pointer fields zeroed) followed by appendices holding palettes, CD refs,
+   and sprite cell maps. ADPCM records keep the same fixed offsets but are
+   decoded field-by-field so the CD metadata path does not depend on copying
+   zeroed pointer slots back into a resident struct image. _Static_assert in
+   the runtime locks this against struct drift. */
+#define PCE_EDITOR_META_BG_SLOT 128u
+#define PCE_EDITOR_META_BG_PALETTE 34u
+#define PCE_EDITOR_META_BG_TILES_CD 66u
+#define PCE_EDITOR_META_BG_MAP_CD 74u
+#define PCE_EDITOR_META_SPRITE_SLOT 512u
+#define PCE_EDITOR_META_SPR_PALETTE 29u
+#define PCE_EDITOR_META_SPR_PATTERNS_CD 61u
+#define PCE_EDITOR_META_SPR_CELL_MAP_LEN 69u
+#define PCE_EDITOR_META_SPR_CELL_MAP 71u
+#define PCE_EDITOR_META_ADPCM_SLOT 32u
+#define PCE_EDITOR_META_ADPCM_DATA_SIZE 2u
+#define PCE_EDITOR_META_ADPCM_SAMPLE_RATE 6u
+#define PCE_EDITOR_META_ADPCM_ADDRESS 8u
+#define PCE_EDITOR_META_ADPCM_DIVIDER 10u
+#define PCE_EDITOR_META_ADPCM_LOOP 11u
+#define PCE_EDITOR_META_ADPCM_PLAY_FRAMES 12u
+#define PCE_EDITOR_META_ADPCM_CD 14u
+#define PCE_EDITOR_META_PSG_SLOT 32u
+#define PCE_EDITOR_META_PSG_IS_SONG 0u
+#define PCE_EDITOR_META_PSG_PERIOD 1u
+#define PCE_EDITOR_META_PSG_BPM 3u
+#define PCE_EDITOR_META_PSG_STEPS 5u
+#define PCE_EDITOR_META_PSG_PATTERN_COUNT 7u
+#define PCE_EDITOR_META_PSG_PATTERN_CD 9u
+#define PCE_EDITOR_META_CDDA_SLOT 32u
+#define PCE_EDITOR_META_CDDA_TRACK 0u
+#define PCE_EDITOR_META_CDDA_LOOP 1u
+#define PCE_EDITOR_META_CDDA_START_SECTOR 2u
+#define PCE_EDITOR_META_CDDA_END_SECTOR 5u
+#define PCE_EDITOR_META_CDDA_END_TIME 8u
+#define PCE_EDITOR_META_CDDA_PLAY_FRAMES 11u
+/* 1 = descriptors stream from CD via pce_editor_*_meta (CD-ROM2 VN);
+   0 = descriptors resident in pce_editor_*_assets[] (HuCard / non-VN templates). */
+#define PCE_EDITOR_ASSET_META_ON_CD 1
+extern const pce_editor_meta_region_t pce_editor_bg_meta;
+extern const pce_editor_meta_region_t pce_editor_sprite_meta;
+extern const pce_editor_meta_region_t pce_editor_adpcm_meta;
+extern const pce_editor_meta_region_t pce_editor_psg_meta;
+extern const pce_editor_meta_region_t pce_editor_cdda_meta;
+
 extern const pce_editor_bg_asset_t pce_editor_bg_assets[];
-extern const unsigned char pce_editor_bg_asset_count;
+extern const unsigned int pce_editor_bg_asset_count;
 extern const pce_editor_sprite_asset_t pce_editor_sprite_assets[];
 extern const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[];
-extern const unsigned char pce_editor_sprite_asset_count;
+extern const unsigned int pce_editor_sprite_asset_count;
 extern const pce_editor_psg_asset_t pce_editor_psg_assets[];
-extern const unsigned char pce_editor_psg_asset_count;
+extern const unsigned int pce_editor_psg_asset_count;
 extern const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[];
-extern const unsigned char pce_editor_adpcm_asset_count;
+extern const unsigned int pce_editor_adpcm_asset_count;
 extern const pce_editor_cdda_asset_t pce_editor_cdda_assets[];
-extern const unsigned char pce_editor_cdda_asset_count;
+extern const unsigned int pce_editor_cdda_asset_count;
 extern const char * const pce_editor_image_rows[];
 extern const unsigned char pce_editor_image_row_count;
 extern const unsigned int pce_editor_tone_period;

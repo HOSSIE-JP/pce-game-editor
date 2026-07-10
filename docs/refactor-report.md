@@ -1,5 +1,7 @@
 # PCE Game Editor Refactor Report
 
+> **履歴資料:** これは 2026-06-13 時点の snapshot です。「現状」「未完了」「推奨」はその後の変更を反映しません。現行監査は [implementation-audit-2026-07-10.md](implementation-audit-2026-07-10.md) を参照してください。
+
 作成日: 2026-06-13
 
 このレポートは `refactor-instructions.md` に基づく段階的リファクタリングの実施結果、未完了の Stop-and-Ask 項目、Phase 8 の提案をまとめたものです。

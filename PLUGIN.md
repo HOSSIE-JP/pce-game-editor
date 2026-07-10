@@ -1,7 +1,9 @@
 # PCE Game Editor — プラグイン開発ガイド
 
 このドキュメントは、**PCE Game Editor** 向けのカスタムプラグインを開発する方を対象としています。  
-プラグインシステム (Plugin Runtime v2.5) の仕様、マニフェスト定義、コア選択、フック API、レンダラーモジュール、およびレンダラーからの呼び出し方を解説します。
+現行の `plugin-manager.js`、`main.js`、`renderer/renderer.js` と組み込み manifest を基準に、マニフェスト定義、フック API、レンダラーモジュール、および renderer からの呼び出し方を解説します。
+
+このリポジトリには manifest の世代を表す公開 `manifestVersion` はありません。本書は、アプリが現在検証している manifest フィールドだけを現行フォーマットとして説明します。
 
 ---
 
@@ -29,19 +31,25 @@
 
 ## 1. プラグインの配置場所
 
-### 開発時（非パッケージ）
+### 組み込みプラグイン
 
 ```
-pce-game-editor/plugins/<plugin-id>/
+<app source>/plugins/<plugin-id>/
 ```
 
-### パッケージ済みアプリ
+開発時はこの場所から読み込み、パッケージ済みアプリでは同じ内容が `<app resources>/plugins/` に配置されます。組み込みプラグインはアプリ配布物の一部であり、ユーザーが編集する場所ではありません。
+
+### ユーザープラグイン
 
 ```
-<app resources>/plugins/<plugin-id>/
+<userData>/plugins/<plugin-id>/
 ```
 
-アプリ内の **Settings > Plugins** パネルの「📂 フォルダを開く」ボタンで、実際の配置先を Explorer で開けます。
+同じフォルダ名の組み込みプラグインがある場合は、有効なユーザープラグインが優先されます。ユーザー側の manifest が不正な場合は診断に表示し、同じ ID の有効な組み込みプラグインを隠しません。**Settings > Plugins** の「フォルダを開く」は、この書き込み可能なユーザープラグインフォルダを作成して開きます。
+
+新しく検出したユーザープラグインは未信頼・無効状態で表示されます。有効化時に、renderer と main process code を実行してよいか確認ダイアログを表示します。明示的に信頼した後だけ実行でき、Settings > Plugins の「信頼を解除」で再び無効化できます。
+
+ユーザープラグインの `index.js` は main process で実行され、Node.js とファイルシステムへアクセスできます。現在は process sandbox に隔離していないため、内容と入手元を確認したコードだけを信頼してください。
 
 ---
 
@@ -75,14 +83,14 @@ pce-game-editor/plugins/
   "icon": "puzzle",            // 任意: サイドバーなどで使う組み込みアイコン名
   "types": ["build"],          // 必須: プラグインタイプ (配列)
   "generator": true,           // 任意: generateSource/generateSourceAsync を明示する場合
-  "supportedCores": ["mega-drive"], // 任意: 対応 core。未指定は legacy 互換で mega-drive 扱い
+  "supportedCores": ["pc-engine"], // PCE プラグインでは必須
   "core": {                     // types: ["core"] の場合のみ使用
-    "id": "mega-drive",
+    "id": "pc-engine",
     "label": "PC Engine",
-    "platform": "md"
+    "platform": "pce"
   },
   "hooks": ["onBuildStart"],   // 任意: 実装するフック名の一覧
-  "permissions": [              // 任意: 使用する host 権限の宣言 (v2.5)
+  "permissions": [              // 任意: 使用する host 権限の宣言
     "project.read",
     "project.write",
     "dialog.openFile",
@@ -91,7 +99,7 @@ pce-game-editor/plugins/
     "main.invokeHook",
     "build.configure"
   ],
-  "roles": [                    // 任意: 単一選択 role の宣言 (v2.5)
+  "roles": [                    // 任意: 単一選択 role の宣言
     { "id": "builder", "label": "Build", "exclusive": true, "order": 10 }
   ],
   "mainApi": {                  // 任意: renderer から呼び出せる main hook/capability
@@ -113,25 +121,25 @@ pce-game-editor/plugins/
 
 | フィールド | 型 | 必須 | 説明 |
 |---|---|---|---|
-| `id` | `string` | ✅ | プラグインを一意に識別する ID。フォルダ名と一致させること |
-| `name` | `string` | ✅ | UI に表示される名前 |
+| `id` | `string` | ✅ | manifest 上の ID。現行 loader が実際の lookup に使う ID はフォルダ名なので、必ずフォルダ名と一致させること |
+| `name` | `string` | ✅ | UI に表示される名前。空文字や未指定は manifest 不正となる |
 | `description` | `string` | — | 設定画面に表示される説明文 |
-| `version` | `string` | ✅ | semver 形式 (例: `"1.0.0"`) |
-| `hidden` | `boolean` | — | `true` の場合、互換用・統合 UI 用の内部モジュールとして扱い、Plugins 画面や sidebar の通常一覧から除外する |
+| `version` | `string` | ✅ | 表示用のバージョン (例: `"1.0.0"`)。現行 loader は semver 検証を行わない |
+| `hidden` | `boolean` | — | `true` の場合は catalog から完全に除外され、hook / role / renderer の通常ロード対象にもならない。`private` / `internal` も同じ扱い |
 | `icon` | `string` | — | サイドバーなどで使う組み込みアイコン名。`assets` / `code` / `grid` / `sprite` / `music` / `play` / `bug` / `build` / `puzzle` など |
-| `types` | `string[]` | ✅ | タイプ名の配列。複数タイプを持てる |
+| `types` | `string[]` | ✅ | 空でないタイプ名の配列。複数タイプを持てる |
 | `generator` | `boolean` | — | `generateSource` / `generateSourceAsync` を持つ plugin かを明示する。hook 専用 build plugin は `false` を推奨 |
-| `supportedCores` | `string[]` | — | 対応する project core。`"mega-drive"` / `"pc-engine"` / `"*"`。未指定の既存 plugin は `"mega-drive"` として扱う |
+| `supportedCores` | `string[]` | ✅ | PCE 専用は `["pc-engine"]`、ハード非依存は `["*"]`。それ以外、空配列、未指定は manifest 不正となる |
 | `core` | `object` | — | `types` に `"core"` を含む core plugin の metadata。`id` / `label` / `platform` を持つ |
 | `hooks` | `string[]` | — | 実装するフック名を列挙する（宣言のみ。実装は `index.js`） |
-| `permissions` | `string[]` | — | 使用する host 権限の宣言。v2.5 では表示・レビュー用途で、sandbox 強制はしない |
+| `permissions` | `string[]` | — | 使用する host 権限の宣言。現在は表示・レビュー用途で、実行時の sandbox 強制はしない |
 | `roles` | `Array<object|string>` | — | builder/testplay など、設定画面で単一選択する plugin role |
-| `mainApi` | `object` | — | renderer plugin から呼び出し可能な main process hook / capability の許可リスト |
+| `mainApi` | `object` | — | `hooks` は renderer から呼び出せる main hook の許可リストとして強制される。`capabilities` は現在 metadata として列挙されるだけで、main API 権限制御には使われない |
 | `tab` | `object` | — | エディタにタブを追加する場合。[§9 参照](#9-タブ-ui-の追加-tab-オブジェクト) |
 | `renderer` | `object` | — | renderer process 側の UI/capability を提供する場合。[§10 参照](#10-renderer-module) |
 | `dependencies` | `string[]` | — | 依存プラグイン ID。[§8 参照](#8-依存関係の宣言) |
 
-> **注意**: `types` は必ず **配列**で記述してください。文字列単体の `"type"` フィールドは Runtime v2.5 では使用しません。
+> **注意**: `id` はフォルダ名と一致し、`name` / `version` / `types` / `supportedCores` を必ず指定してください。不正な manifest と不足 dependency は Settings > Plugins の診断欄に理由を表示します。文字列単体の `"type"` フィールドは使用しません。
 
 ---
 
@@ -150,11 +158,11 @@ pce-game-editor/plugins/
 
 ### Project core と `supportedCores`
 
-Runtime v2.5 では、PC Engine と PC Engine の違いをプロジェクト単位の core として扱います。`project.json.coreId` が実効 core で、未指定の既存 MD project は `"mega-drive"`、`platform: "pce"` を持つ既存 PCE project は `"pc-engine"` として推定されます。
+このアプリが公開する core は `pc-engine` だけです。現行テンプレートの `project.json` は `coreId: "pc-engine"` を持ち、`app.config.js` も `allowedCoreIds: ["pc-engine"]` に固定されています。
 
-通常 plugin は `supportedCores` を宣言してください。MD 専用なら `["mega-drive"]`、PCE 専用なら `["pc-engine"]`、project FS API だけを使う共有 plugin は `["*"]` を指定します。未宣言 plugin は後方互換のため `["mega-drive"]` として扱われます。現在の core に非対応の plugin は Plugins 画面で既定非表示になり、有効化、role 選択、hook/generator 呼び出しの対象からも除外されます。
+PCE 専用 plugin は `["pc-engine"]`、ハードウェア非依存 plugin は `["*"]` を宣言します。宣言がないpluginや別coreを指定したpluginはmanifest不正としてcatalogへ読み込まれません。
 
-core plugin は `types: ["core"]` と `core` metadata を持つ manifest で宣言します。組み込み core plugin ID は `mega-drive-core` / `pc-engine-core`、core ID は `mega-drive` / `pc-engine` です。core plugin は UI を直接持たず、main process 側の provider として setup / project template / build / asset schema / default roles を提供します。
+`pc-engine-core` は `types: ["core"]` と `core` metadata を持つ catalog 項目です。実際の project / setup / build routing は `core-manager.js` と `pce-*.js` が担当し、core plugin の `index.js` provider を動的に呼び出す仕組みではありません。
 
 ---
 
@@ -165,15 +173,17 @@ core plugin は `types: ["core"]` と `core` metadata を持つ manifest で宣�
 ビルド開始直前に呼び出されます。
 
 ```ts
-// payload
-{ projectDir: string }
+// PCE build payload
+{ projectDir: string, toolchain: string, toolchainPath: string | null }
 
 // context
-{ logger: Logger }
+{ coreId: 'pc-engine', projectDir: string, assets: PceAsset[], logger: Logger }
 
 // 戻り値
-{ ok: boolean, error?: string }
+{ ok: boolean, error?: string } | void
 ```
+
+`onBuildStart` が `{ ok: false, error }` を返すか例外になった場合、ビルド本体は実行せず失敗として終了します。組み込み builder の実際の生成・検証は `pce-build-system.js` が担当します。
 
 ### `onBuildLog`
 
@@ -181,7 +191,7 @@ core plugin は `types: ["core"]` と `core` metadata を持つ manifest で宣�
 
 ```ts
 // payload
-{ text: string, level: 'info' | 'warn' | 'error' | 'debug' }
+{ line: string, level: 'info' | 'warn' | 'error' | 'debug' }
 
 // 戻り値
 { ok: boolean }
@@ -192,8 +202,15 @@ core plugin は `types: ["core"]` と `core` metadata を持つ manifest で宣�
 ビルド完了（成功）後に呼び出されます。
 
 ```ts
-// payload
-{ projectDir: string, romPath: string, elapsed: number }
+// payload: pce-build-system.js の build result
+{
+  success: true,
+  projectDir: string,
+  romPath: string,
+  elapsedMs?: number,
+  targetMedia?: 'hucard' | 'cd',
+  [key: string]: unknown
+}
 
 // 戻り値
 { ok: boolean, error?: string }
@@ -205,7 +222,7 @@ core plugin は `types: ["core"]` と `core` metadata を持つ manifest で宣�
 
 ```ts
 // payload
-{ projectDir: string, error: string }
+{ error: string, result?: object }
 
 // 戻り値
 { ok: boolean }
@@ -213,7 +230,7 @@ core plugin は `types: ["core"]` と `core` metadata を持つ manifest で宣�
 
 ### `getTab`
 
-エディタのタブ情報を返します。`editor` タイプのプラグインが実装します。
+`code-editor` に残る旧 export です。現行 renderer は `manifest.tab` と `manifest.renderer.page` から sidebar/page を構築し、通常の画面遷移で `getTab` を呼びません。新規 editor plugin は `manifest.tab` と renderer module を使ってください。
 
 ```ts
 // payload: なし
@@ -229,7 +246,7 @@ core plugin は `types: ["core"]` と `core` metadata を持つ manifest で宣�
 
 ### `onActivate`
 
-タブがアクティブになったときに呼び出されます。
+`code-editor` に残る旧 export で、現行の page 切替からは自動呼び出しされません。page activation は renderer event の `page:activated` を購読します。
 
 ```ts
 // payload: {}
@@ -239,7 +256,7 @@ core plugin は `types: ["core"]` と `core` metadata を持つ manifest で宣�
 
 ### `onDeactivate`
 
-タブが非アクティブになったときに呼び出されます。
+`code-editor` に残る旧 export で、現行の page 切替からは自動呼び出しされません。必要な cleanup は `activatePlugin()` が返す `deactivate()` に実装します。
 
 ```ts
 // payload: {}
@@ -262,16 +279,13 @@ Test Play ボタンが押されたときに呼び出されます。`emulator` �
 }
 ```
 
-`context.testPlay` には、組み込みエミュレータープラグイン向けのホスト API が渡されます。
+`context` には `coreId`、`projectDir`、`assets`、`logger` と、組み込みエミュレータープラグイン向けの `testPlay` host API が渡されます。
 
 ```ts
 context.testPlay.openWasmWindow({ romPath, pluginId })
-context.testPlay.openApiWindow({ romPath, pluginId, port? })
-context.testPlay.startApiServer({ port? })
-context.testPlay.stopApiServer()
-context.testPlay.isApiServerRunning()
 context.testPlay.getProjectConfig()
 context.testPlay.launchExternalEmulator({ executablePath, args, romPath })
+context.testPlay.getEmulatorStatus()
 ```
 
 Test Play の表示崩れ、VDC / VRAM / SATB / palette の調査では、EmulatorJS の画面確認だけで判断せず、利用可能なら Geargrafx MCP を優先して使ってください。詳しい手順は `docs/pce-testplay-debugging.md` にまとめています。
@@ -283,15 +297,12 @@ Test Play の表示崩れ、VDC / VRAM / SATB / palette の調査では、Emulat
 
 ```ts
 // 引数
-assets: Array<{
-  type: string,       // 'IMAGE' | 'SPRITE' | 'XGM2' | 'WAV' など
-  name: string,       // リソース名 (例: 'image001')
-  sourcePath: string, // プロジェクト相対パス
-  sourceAbsolutePath: string // 絶対パス
-}>
+assets: PceAsset[] // assets/pce-assets.json の正規化済み assets
 
 context: {
+  coreId: 'pc-engine',
   projectDir: string,
+  assets: PceAsset[],
   logger: Logger
 }
 
@@ -322,18 +333,18 @@ const manifest = require('./manifest.json');
 
 /**
  * ソースコード生成関数
- * @param {Array<{type:string, name:string, sourcePath:string}>} assets
+ * @param {Array<{id:string, type:string, name:string, source:string}>} assets
  * @param {{ projectDir:string, logger:object }} context
  */
 async function generateSourceAsync(assets, context) {
   context.logger.info('generateSource 開始');
 
-  const images = assets.filter((a) => a.type === 'IMAGE');
+  const images = assets.filter((a) => a.type === 'image');
   if (images.length === 0) {
-    return { ok: false, error: 'IMAGE アセットが見つかりません' };
+    return { ok: false, error: 'image アセットが見つかりません' };
   }
 
-  const sourceCode = `#include <genesis.h>\n/* generated by ${manifest.id} */\n`;
+  const sourceCode = `#include <pce.h>\n/* ${images.length} image(s), generated by ${manifest.id} */\nint main(void) { for (;;) {} }\n`;
   return { ok: true, sourceCode };
 }
 
@@ -391,8 +402,11 @@ module.exports = { manifest, getTab, onActivate, onDeactivate };
 
 ```ts
 interface PluginContext {
+  coreId: 'pc-engine';
   projectDir: string;    // 現在のプロジェクトディレクトリの絶対パス
+  assets: PceAsset[];    // assets/pce-assets.json から収集した asset
   logger: Logger;        // ログ出力オブジェクト
+  testPlay?: TestPlayHostApi; // onTestPlay の場合
 }
 
 interface Logger {
@@ -424,7 +438,7 @@ interface Logger {
 - プラグイン A を **有効化** すると、依存している B も自動的に有効化されます
 - プラグイン B を **無効化** しようとすると、B に依存している A も自動的に無効化されます
 - 単一選択 role で別のプラグインが選ばれて B が無効化される場合も、B に依存している A は同時に無効化されます
-- 依存するプラグインが存在しない場合、`setEnabled` の戻り値 `missingDependencies` に ID が含まれます
+- 依存するプラグインが存在しない場合は有効化全体が失敗し、状態を変更せず `ok: false` と `missingDependencies` を返します
 
 ---
 
@@ -463,7 +477,7 @@ interface Logger {
 
 ## 10. Renderer Module
 
-Plugin Runtime v2.5 では、main process の `index.js` とは別に renderer process 用 ES module を提供できます。
+現行フォーマットでは、main process の `index.js` とは別に renderer process 用 ES module を提供できます。
 本体 renderer はアプリシェル、ページ切替、IPC host API、プラグイン読込を担当し、Assets / Code / Converter などの機能固有 UI は renderer module が capability として登録します。
 
 ```jsonc
@@ -500,7 +514,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
 | `logger` | Plugin Log / Build Log に出力する logger |
 | `registerCapability` | `capabilities` の実装を登録する関数 |
 
-> v2.5 以降、新規プラグインは `pce-game-editor/renderer/renderer.js` や `pce-game-editor/renderer/index.html` へ追記せず、`renderer.js` の `activatePlugin()` 内で `root` / `pageRoot` / `hostRoot` に DOM を構築してください。converter のようにページを持たないプラグインにも `hostRoot` が渡されるため、独自モーダルや非表示 UI を本体 HTML に事前定義する必要はありません。
+> 新規プラグインは本体の `renderer/renderer.js` や `renderer/index.html` へ追記せず、plugin 側 `renderer.js` の `activatePlugin()` 内で `root` / `pageRoot` / `hostRoot` に DOM を構築してください。converter のようにページを持たないプラグインにも `hostRoot` が渡されるため、独自モーダルや非表示 UI を本体 HTML に事前定義する必要はありません。
 
 ### Renderer Host API
 
@@ -584,9 +598,9 @@ export function activatePlugin({ root }) {
 }
 ```
 
-renderer から main process hook を呼ぶ場合は、`hooks` と `mainApi.hooks` の両方に hook 名を宣言してください。新規 plugin で本体 `main.js` / `preload.js` / `pce-build-system.js` の個別追記が必要に見える場合は、まず Runtime v2.5 の汎用 API 不足として扱い、個別 plugin ID の分岐を本体へ追加しないでください。
+renderer から main process hook を呼ぶ場合は、`hooks` と `mainApi.hooks` の両方に hook 名を宣言してください。新規 plugin で本体 `main.js` / `preload.js` / `pce-build-system.js` の個別追記が必要に見える場合は、まず host API の不足として扱い、個別 plugin ID の分岐を本体へ追加しないでください。
 
-### Plugin Runtime v2.5 の追加 capability
+### Asset 関連 capability
 
 Asset 登録や converter 連携は本体 renderer へ追記せず、renderer capability として登録します。
 
@@ -613,7 +627,7 @@ Build ボタンに使う plugin は `builder` role、Test Play ボタンに使�
 
 ### Audio converter の実装
 
-音声変換 plugin は `hooks` と `mainApi.hooks` に `convertAudio` を宣言し、renderer からは `api.plugins.invokeHook(plugin.id, "convertAudio", payload)` を使います。preview は `readTempFileAsDataUrl(tempPath, { deleteAfter: true })`、登録は `writeAssetFile()` を使います。
+音声変換UIは `audio-convert-ui` capability の `openAudioConvertModal()` を使い、WAVの `dataUrl` と変換metadataを呼び出し元へ返します。PCE assetへの保存は呼び出し元が `api.assets.importPceAudio()` で行います。一時ファイル用APIや汎用 `writeAssetFile()` は公開していません。
 
 ---
 
@@ -643,19 +657,15 @@ Build ボタンに使う plugin は `builder` role、Test Play ボタンに使�
 ### プラグイン管理
 
 ```js
-// 全プラグイン一覧を取得。現在 core 非対応 plugin も含める場合は includeIncompatible を使う
+// PCEまたは共有coreを宣言したプラグイン一覧を取得
 const plugins = await window.electronAPI.listPlugins({ includeIncompatible: false });
 // => Array<PluginInfo>
-
-// core 一覧と現在の active core
-const cores = await window.electronAPI.listCores();
-const activeCore = await window.electronAPI.getActiveCore();
 
 // 特定プラグインの renderer asset を取得
 const assets = await window.electronAPI.getPluginRendererAssets('my-plugin');
 // => { ok: boolean, renderer?: object, rendererAssets?: object, error?: string }
 
-// 単一選択 role の現在値を取得/保存 (v2.5)
+// 単一選択 role の現在値を取得/保存
 const roles = await window.electronAPI.getPluginRoles();
 await window.electronAPI.setPluginRole('builder', 'my-build-plugin');
 
@@ -901,7 +911,7 @@ interface PluginInfo {
   icon: string;            // manifest.icon。未指定時は tab.icon、どちらもなければ空文字
   pluginTypes: string[];   // types 配列の正規化済み値
   pluginType: string;      // pluginTypes[0]
-  supportedCores: string[]; // 対応 core。未宣言 plugin は ["mega-drive"] に正規化される
+  supportedCores: string[]; // PCE plugin は ["pc-engine"]、共有 plugin は ["*"]
   compatibleWithActiveCore: boolean; // listPlugins({ coreId }) 時の互換判定
   core: {
     id: string;
@@ -936,6 +946,7 @@ interface PluginInfo {
     styleUrls: string[];    // file:// URL
   } | null;
   enabled: boolean;        // 現在の有効状態
+  isUserPlugin: boolean;   // userData/plugins 由来か
 }
 ```
 
@@ -954,7 +965,7 @@ window.electronAPI.onPluginLog((payload) => {
 
 ## 13. 既存プラグイン一覧
 
-この一覧は `plugins/*/manifest.json` を持つ現行プラグインに合わせています。`hidden: true` のものは統合 UI の内部モジュールで、通常の Plugins 画面や sidebar には表示されません。
+この一覧は `plugins/*/manifest.json` を持つ現行プラグインに合わせています。`hidden: true` の項目は plugin manager から完全に除外されます。組み込みの統合 UI は、それらの renderer module を親 plugin から相対 import して利用しています。
 
 | ID | 表示名 | types | 表示 | 主な役割 |
 |---|---|---|---|---|
@@ -986,15 +997,15 @@ window.electronAPI.onPluginLog((payload) => {
 
 `pce-asset-manager` は `assets/pce-assets.json` v2 を正とする標準アセット管理です。BG image / Sprite sheet / Palette / PSG song/SFX / ADPCM / CD-DA track を扱います。画像の追加は `pce-image-converter` の `image-import-pipeline` を経由し、内蔵 PCE 変換で BG tile / BAT map / sprite pattern 形式の generated asset を作成します。音声の追加は `pce-audio-converter` の共通音声 UI を経由し、project-local WAV を生成してから ADPCM / CD-DA へ登録します。
 
-`image-editor` は BG / Sprites / Palette の画像画面を 1 つの sidebar タブに統合します。画面上部のタブで `BG`、`Sprites`、`Palette` を切り替えます。`pce-background-manager` / `pce-sprite-manager` / `pce-palette-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。BG / sprite の生成物は PCE 変換を使い、Superfamiconv や SGDK ResComp 用の converter には依存しません。BG 追加 UI では出力幅/高さだけを指定し、`paletteBank` / `transparentIndex` は `0` 固定です。Sprites 追加 UI では通常表示を出力幅/高さに絞り、変換時だけ有効な `Cell size` は `アドバンス` に隠します。`paletteBank: 0`、`tileBase: 704`、`x: 144`、`y: 104`、`transparentIndex: 0`、初期 animation `16x16` / `1 frame` / `1 frame delay` で登録します。`tileBase` / `x` / `y` は Properties の `アドバンス` に隠し、旧 ResComp 圧縮由来の `opt_type` / `opt_level` / `opt_duplicate` / `comment` は表示しません。BG の一覧と詳細 preview の境界はドラッグで幅調整できます。preview はホイールで拡大縮小し、中央ボタンドラッグで表示位置を動かせます。一覧では固定的で意味が薄い palette 数列を表示せず、palette count / palette file / swatch は詳細側で確認します。BG の一覧は `Name` と `ID` を別列にし、各列ヘッダーで昇順/降順ソートできます。Image 配下の asset 一覧では `Name` に `folder/item` のような `/` 区切りを使うと、エディタ上ではグループ見出しと leaf 名に分けて表示します。Sprites タブは MD Game Editor の Sprite editor と同じ 3 ペイン構成に寄せ、左に sprite asset tree、中央に frame preview / sprite sheet / Animation Rows、右に properties を表示します。Frame Preview と Sprite Sheet はスクロールでき、倍率は 10-500% の percentage でホイール調整し、中央ボタンドラッグで表示位置を動かせます。Palette タブでは手動 palette の追加、保存、確認付き削除ができます。PCE では `.res` の `SPRITE` 定義ではなく `assets/pce-assets.json` の sprite asset を正とし、frame size、ROW ごとの有効 frame 数、time、collision などの編集結果は `options.animations` と `options.spriteEditor` metadata へ保存します。
+`image-editor` は BG / Sprites / Palette の画像画面を 1 つの sidebar タブに統合します。画面上部のタブで `BG`、`Sprites`、`Palette` を切り替えます。`pce-background-manager` / `pce-sprite-manager` / `pce-palette-editor` は親 plugin から直接 import される内部 renderer module です。BG / sprite の生成物は内蔵 PCE 変換を使います。BG 追加 UI では出力幅/高さだけを指定し、`paletteBank` / `transparentIndex` は `0` 固定です。Sprites 追加 UI では通常表示を出力幅/高さに絞り、変換時だけ有効な `Cell size` は `アドバンス` に隠します。`paletteBank: 0`、`tileBase: 704`、`x: 144`、`y: 104`、`transparentIndex: 0`、初期 animation `16x16` / `1 frame` / `1 frame delay` で登録します。BG の一覧と詳細 preview の境界はドラッグで幅調整でき、preview はホイールで拡大縮小し、中央ボタンドラッグで表示位置を動かせます。BG の一覧は `Name` と `ID` を別列にし、各列ヘッダーで昇順/降順ソートできます。Image 配下の asset 一覧では `Name` に `folder/item` のような `/` 区切りを使うと、エディタ上ではグループ見出しと leaf 名に分けて表示します。Sprites タブは左に sprite asset tree、中央に frame preview / sprite sheet / Animation Rows、右に properties を表示します。PCE では `assets/pce-assets.json` の sprite asset を正とし、frame size、ROW ごとの有効 frame 数、time、collision などの編集結果は `options.animations` と `options.spriteEditor` metadata へ保存します。
 
 ### Sound / Novel 統合 UI
 
-`sound-editor` は ADPCM / CD-DA / PSG の音声画面を 1 つの sidebar タブに統合します。`pce-adpcm-manager` / `pce-cdda-manager` / `pce-music-editor` は互換用の内部モジュール (`hidden: true`) として残し、ユーザー向けプラグイン一覧には表示しません。ADPCM / CD-DA の一覧と詳細 pane の境界はドラッグで幅調整できます。一覧行右端の preview / delete は横並びの icon button として扱い、狭い列幅でも縦に崩れないようにします。ADPCM / CD-DA の一覧は `Name` と `ID` を別列にし、各列ヘッダーで昇順/降順ソートできます。Sound 配下の asset 一覧でも `Name` の `/` 区切りをグループ表示として扱います。PSG タブでは `新規` で空の PSG asset を作るほか、`取込` ボタンで既存の VGM / VGZ / MIDI ファイルを選び、step pattern へ量子化して psg-song / psg-sfx asset として登録できます（拡張子で VGM/MIDI を自動判別）。PSG 一覧には `MIDI取込` / `VGM取込` / `エディタSFX` などの作成元タグと、選択 asset を削除する `×` button があり、プレビューは再生/停止のトグル icon button です。MIDI 取込では設定中の `midiOptions` で `assets:previewMidi` を実行し、保存前に変換結果を WebAudio で試聴できます。VGM は HuC6280 PSG レジスタ書き込みを、MIDI は `pce-midi-import.js` がノートを 6 ボイスへ削減し音程→period・ベロシティ→volume・ドラム(10ch)→PSG ノイズ(ch4/5) に近似して変換します。step pattern と生成 C struct (`pce_editor_psg_step_t`) には 16bit step と noise フラグを持たせ、runtime (`psg_set_noise`) が PSG R7 でノイズを鳴らします。共通の量子化ロジックは `pce-psg-quantize.js`、IPC は `assets:importVgm` / `assets:importMidi` / `assets:previewMidi` です。**大きい曲パターン (>256byte) は CD data file (`assets/generated/psg/<id>.bin`) としてストリームし、再生時に `load_psg_pattern_cd()` が RAM bank134+bank135 の 16KB buffer へ読み込みます**（常駐バンクを消費しない・曲数無制限、最大 4096 step / 2048 pattern event、8byte/entry）。CD-ROM2 VN では短い SFX も同じ PSG pattern CD data file と catalog record で扱い、`.rodata` 常駐の即時再生にはしません。再生開始後の PSG sequencer は CD drive を使わないため、BG/sprite/font/scene pack の CD 転送待ち、CD→VRAM 転送、palette fade 中にも runtime が補償 tick で進め、同期ロード中の停止や大きなテンポ低下を抑えます。完全な割り込み駆動ではないため、非常に長い同期処理ではタイミングが粗くなる場合があります。補償値の実機/エミュレータ調整は `docs/pce-memory-bank-strategy.md` の「PSG 補償 tick 調整 TIPS」を参照してください。Asset manager と VN script の Audio command preview も同じ WebAudio PSG 疑似再生を使います。
+`sound-editor` は ADPCM / CD-DA / PSG の音声画面を 1 つの sidebar タブに統合します。`pce-adpcm-manager` / `pce-cdda-manager` / `pce-music-editor` は `sound-editor/renderer.js` から直接 import される内部 renderer module です。ADPCM / CD-DA の一覧と詳細 pane の境界はドラッグで幅調整できます。一覧行右端の preview / delete は横並びの icon button として扱い、狭い列幅でも縦に崩れないようにします。ADPCM / CD-DA の一覧は `Name` と `ID` を別列にし、各列ヘッダーで昇順/降順ソートできます。Sound 配下の asset 一覧でも `Name` の `/` 区切りをグループ表示として扱います。PSG タブでは `新規` で空の PSG asset を作るほか、`取込` ボタンで既存の VGM / VGZ / MIDI ファイルを選び、step pattern へ量子化して psg-song / psg-sfx asset として登録できます（拡張子で VGM/MIDI を自動判別）。PSG 一覧には `MIDI取込` / `VGM取込` / `エディタSFX` などの作成元タグと、選択 asset を削除する `×` button があり、プレビューは再生/停止のトグル icon button です。MIDI 取込では設定中の `midiOptions` で `assets:previewMidi` を実行し、保存前に変換結果を WebAudio で試聴できます。VGM は HuC6280 PSG レジスタ書き込みを、MIDI は `pce-midi-import.js` がノートを 6 ボイスへ削減し音程→period・ベロシティ→volume・ドラム(10ch)→PSG ノイズ(ch4/5) に近似して変換します。step pattern と生成 C struct (`pce_editor_psg_step_t`) には 16bit step と noise フラグを持たせ、runtime (`psg_set_noise`) が PSG R7 でノイズを鳴らします。共通の量子化ロジックは `pce-psg-quantize.js`、IPC は `assets:importVgm` / `assets:importMidi` / `assets:previewMidi` です。**大きい曲パターン (>256byte) は CD data file (`assets/generated/psg/<id>.bin`) としてストリームし、再生時に `load_psg_pattern_cd()` が RAM bank134+bank135 の 16KB buffer へ読み込みます**（常駐バンクを消費しない・曲数無制限、最大 4096 step / 2048 pattern event、8byte/entry）。CD-ROM2 VN では短い SFX も同じ PSG pattern CD data file と catalog record で扱い、`.rodata` 常駐の即時再生にはしません。再生開始後の PSG sequencer は CD drive を使わないため、BG/sprite/font/scene pack の CD 転送待ち、CD→VRAM 転送、palette fade 中にも runtime が補償 tick で進め、同期ロード中の停止や大きなテンポ低下を抑えます。完全な割り込み駆動ではないため、非常に長い同期処理ではタイミングが粗くなる場合があります。補償値の実機/エミュレータ調整は `docs/pce-memory-bank-strategy.md` の「PSG 補償 tick 調整 TIPS」を参照してください。Asset manager と VN script の Audio command preview も同じ WebAudio PSG 疑似再生を使います。
 
 Sound > ADPCM の詳細フォームと取込ダイアログは、通常編集する ID / Name / Sample rate / Loop / Split だけを表示します。新規取り込みの標準 sample rate は 8000Hz です。Streaming 再生指定は削除済みです。低レベルの `adpcmAddress` と `divider` は UI には出さず、address は既定値、divider は `sampleRate` からの自動値を使います。
 
-`novel-editor` は script scene 編集と font 生成を 1 つの sidebar タブに統合します。画面上部のタブは `スクリプト` / `Font` です。Scenes 一覧では各行右端の削除アイコンから scene を削除でき、ドラッグ＆ドロップで `scenes` 配列順を並び替えられます。シーン名は編集ヘッダの Name で変更でき、`/` 区切りの名前は Scenes 一覧でグループ表示します。scene `id` は同じヘッダの `ID`、開始シーンは `Start` で編集できます。`pce-visual-novel-editor` / `pce-font-editor` は内部モジュール (`hidden: true`) として残します。CD-ROM2 / VN runtime の bank 配置を変える作業では、先に `docs/pce-memory-bank-strategy.md` を読んでください。
+`novel-editor` は script scene 編集、システム設定、font 生成を 1 つの sidebar タブに統合します。画面上部のタブは `スクリプト` / `システム設定` / `フォント` です。Scenes 一覧では各行右端の削除アイコンから scene を削除でき、ドラッグ＆ドロップで `scenes` 配列順を並び替えられます。シーン名は編集ヘッダの Name で変更でき、`/` 区切りの名前は Scenes 一覧でグループ表示します。scene `id` は同じヘッダの `ID`、開始シーンは `Start` で編集できます。`pce-visual-novel-editor` / `pce-vn-system-settings` / `pce-font-editor` は `novel-editor/renderer.js` から直接 import される内部 renderer module です。CD-ROM2 / VN runtime の bank 配置を変える作業では、先に `docs/pce-memory-bank-strategy.md` を読んでください。
 
 ### Test Play
 
@@ -1008,22 +1019,21 @@ Super CD-ROM2 / ADPCM の挙動確認では、標準 EmulatorJS/WASM だけを�
 
 ## 14. 開発の流れ (チュートリアル)
 
-### Runtime v2.5 で plugin 開発者が必ず行うこと
+### 現行 plugin 開発者が必ず行うこと
 
 1. `manifest.json` に `types`、`supportedCores`、`permissions`、必要な `roles`、`hooks`、`renderer.capabilities` を宣言する。
 2. Build / Test Play の単一選択 plugin は `roles` を宣言し、プロジェクト側は `project.json.pluginRoles` に plugin ID を保存する。
-3. MD 専用 plugin は `supportedCores: ["mega-drive"]`、PCE 専用 plugin は `["pc-engine"]`、共有 plugin は `["*"]` を宣言する。
+3. PCE 専用 plugin は `supportedCores: ["pc-engine"]`、ハードウェア非依存 plugin は `["*"]` を宣言する。
 4. UI、modal、preview、converter 連携は plugin の `renderer.js` で実装し、本体 HTML / renderer / main / preload へ個別追記しない。
 5. main process の処理が必要な場合は `hooks` と `mainApi.hooks` に同じ hook 名を宣言し、renderer から `api.plugins.invokeHook()` で呼ぶ。
 6. asset 登録拡張は `asset-type-provider` / `asset-import-handler` / `image-import-pipeline` capability として提供する。
 7. 新しい plugin で本体修正が必要に見えた場合は、まず汎用 API または core provider の不足として扱い、plugin 固有分岐を本体へ追加しない。
 8. renderer 側の入力 UI は `window.prompt()` / `alert()` ではなく、`api.createModal()` で plugin-owned modal として実装する。
-9. `.res` のアセット名は物理ファイル名ではなく ResComp alias / C symbol として扱い、登録前・ビルド前に重複検査する。
+9. PCE asset は `api.assets.*` を通じて `assets/pce-assets.json` に保存し、asset `id` の重複を登録前・build 前に検査する。
 10. ユーザーに見える機能追加、plugin role/API、project 設定、既知制約を変えた場合は、実装と同じ変更で `docs/user-guide.md`、`PLUGIN.md`、関連する `docs/` を更新する。
-11. SGDK の `src/boot/sega.s` / `src/boot/rom_head.c` は専用 build rule が扱うため、plugin の `makeVariables` へ通常ソースとして追加しない。
-12. `src/boot/rom_head.c` はプロジェクト設定からエディタ本体が生成するため、build plugin のテンプレート同期で上書きしない。
-13. アセット参照を持つ editor plugin は、画面を開いた時点または sidebar で再アクティブになった時点で `.res` / source data を再読込し、一覧・select・preview を最新化する。更新ボタンに依存した状態同期だけにしない。
-14. 選択中アセットに未保存変更がある状態で別アセット選択・新規追加・import を行う場合は、保存 / 破棄 / キャンセルを選べる plugin-owned modal を出し、暗黙に編集内容を捨てない。
+11. Build plugin は PCE build の通知・テンプレート同期に留め、compile/link/CD bundle の本体処理は `pce-build-system.js` に集約する。
+12. アセット参照を持つ editor plugin は、画面を開いた時点または sidebar で再アクティブになった時点で `api.assets.listPceAssets({ force: true })` を使い、一覧・select・preview を最新化する。
+13. 選択中アセットに未保存変更がある状態で別アセット選択・新規追加・import を行う場合は、保存 / 破棄 / キャンセルを選べる plugin-owned modal を出し、暗黙に編集内容を捨てない。
 
 ### 手順 1: フォルダを作成する
 
@@ -1081,7 +1091,7 @@ module.exports = { onBuildEnd };
 ### `types` を文字列で書いてしまう
 
 ```jsonc
-// ❌ Runtime v2.5 では無効
+// ❌ 現行 loader では無効
 { "type": "build" }
 
 // ✅ 正しい書き方
@@ -1111,7 +1121,7 @@ module.exports = { onBuildEnd };
 
 ### アセット一覧や select を初回読込時のまま使う
 
-Sprite / TileMap / Music / Block Stage のような editor plugin は、画面表示時と sidebar で再アクティブになった時点で `.res` / source data を再読込してください。別 plugin で追加・削除された asset を古い一覧のまま編集すると、preview や保存先が実体とずれます。
+Image / Sprite / Sound / Novel のような editor plugin は、画面表示時と sidebar で再アクティブになった時点で `api.assets.listPceAssets({ force: true })` または対応する project data を再読込してください。別 plugin で追加・削除された asset を古い一覧のまま編集すると、preview や保存先が実体とずれます。
 
 ### 保存 / 削除をプロパティフォーム末尾にだけ置く
 
@@ -1143,57 +1153,57 @@ SPRITE など定義に意味がある asset は、画像ファイル全体では
 
 ### アセット登録 UI
 
-`resources.res` の `name` は ResComp が生成する C symbol です。UI で「アセット名」として表示する値は物理ファイル名ではなく、この alias を使ってください。
+現行 PCE asset の正本は `assets/pce-assets.json` です。plugin UI では物理ファイル名、ユーザー向け `name`、参照用 `id` を混同しないでください。runtime や scene command が参照するのは `id` です。
 
 アセット登録の基本フロー:
 
 1. ファイルを選択する
-2. converter を起動する前に alias 入力 modal を出す
-3. alias を C symbol として安全な形へ正規化する
-4. `res:listDefinitions` で現在の `.res` を読み、既存 alias と重複していないか確認する
-5. converter に `symbol` / `targetFileName` を渡す
-6. `addResEntry()` または converter の登録処理後に `.res` を読み直し、select / preview / validation を更新する
+2. converter を起動する前に ID / Name 入力 modal を出す
+3. ID を project 内で一意な安全な識別子へ正規化する
+4. `api.assets.listPceAssets({ force: true })` で既存 ID と重複していないか確認する
+5. `api.assets.importPceImage()` / `importPceAudio()` / `importPceVgm()` / `importPceMidi()` の対応 API へ渡す
+6. 成功後は共有ストアが発行する `assets:pce:changed` を受けて一覧・preview・validation を更新する
 
 `window.prompt()` / `alert()` は Electron の埋め込み renderer で期待通り動かないことがあるため、plugin UI では `api.createModal()` を使います。
 
 ### 画像 import pipeline と保存形式
 
-画像アセットを登録する plugin は、変換結果の `dataUrl` だけでなく保存形式も明示してください。`image-import-pipeline.convertToIndexed16()` のような capability が `{ convertedDataUrl, targetExtension }` を返す場合、呼び出し側は `targetFileName` の拡張子を `targetExtension` に合わせます。これを怠ると、中身は BMP なのにファイル名が `.png`、またはその逆になり、preview / ResComp / palette 表示のどこかで原因が分かりにくい不具合になります。
+画像アセットを登録する plugin は、変換結果の `dataUrl` だけでなく保存形式も明示してください。`image-import-pipeline.convertToIndexed16()` のような capability が `{ convertedDataUrl, targetExtension }` を返す場合、呼び出し側は `targetFileName` の拡張子を `targetExtension` に合わせます。これを怠ると、中身と拡張子がずれ、preview / PCE 変換 / palette 表示のどこかで原因が分かりにくい不具合になります。
 
 ```js
 const converted = await imagePipeline.convertToIndexed16({ sourcePath, targetSize });
-const ext = converted.targetExtension || '.png';
-const copyResult = await api.electronAPI.writeAssetFile({
-  sourcePath,
-  targetSubdir: 'gfx',
-  targetFileName: `${symbol}${ext}`,
-  dataUrl: converted.convertedDataUrl || '',
+const result = await api.assets.importPceImage({
+  id: symbol,
+  name: displayName,
+  sourceFileName: `${symbol}${converted.targetExtension || '.png'}`,
+  convertedDataUrl: converted.convertedDataUrl,
+  kind: 'background',
 });
 ```
 
-変換を行わず元ファイルをそのままコピーしたい場合は、`convertedDataUrl: ''` を返します。`writeAssetFile()` は `dataUrl` が空なら `sourcePath` をコピーします。一方、PNG などに変換済みのバイナリを保存したい場合は必ず `convertedDataUrl` を渡します。
+画像変換後は `convertedDataUrl` と実際の形式に一致する `sourceFileName` を `importPceImage()` へ渡します。PCE asset managerがproject内への保存、hardware形式への変換、`assets/pce-assets.json` の更新を一括して行います。
 
 標準アセット登録画面とゲーム固有エディタの登録 UI の両方が同じ `image-import-pipeline` を使う可能性があります。片方だけ直すと、もう片方に古い PNG 変換や拡張子固定の経路が残ります。画像 import の仕様を変えたら、標準登録経路と plugin 固有登録経路の両方で `convertedDataUrl` / `targetExtension` / `targetFileName` の扱いを確認してください。
 
 ### アセット一覧と保存ガード
 
-Sprite / TileMap / Music / Block Stage のような editor plugin は、画面を開いた時点で `.res` や編集元ファイルを再読込し、一覧・filter・select・preview を最新状態にします。ユーザーが手動で押す「更新」ボタンだけを同期手段にすると、別 plugin で追加・削除されたアセットを古い状態のまま編集してしまいます。
+Image / Sprite / Sound / Novel のような editor plugin は、画面を開いた時点で PCE asset store や編集元ファイルを再読込し、一覧・filter・select・preview を最新状態にします。ユーザーが手動で押す「更新」ボタンだけを同期手段にすると、別 plugin で追加・削除されたアセットを古い状態のまま編集してしまいます。
 
 選択中アセットに未保存変更がある場合、別アセット選択・新規追加・import・reload で内容が消えないように、保存 / 破棄 / キャンセルを選べる modal を出してください。`window.confirm()` ではなく `api.createModal()` を使い、保存を選んだ場合は現在の asset を保存してから次の操作へ進めます。
 
 ### SPRITE editor / preview の注意
 
-SPRITE は単なる画像ファイルではなく、`width` / `height` / `time` / `collision` などを含む RESCOMP 定義です。preview ではスプライトシート全体を cover 表示せず、定義された frame size と ROW ごとの animation を使って再生確認できるようにします。canvas 描画では `imageSmoothingEnabled = false` を指定し、pixel art をぼかさないでください。
+PCE sprite asset は単なる画像ファイルではなく、`data.options.animations`、`spriteEditor`、cell size、collision などを含む定義です。preview ではスプライトシート全体を cover 表示せず、定義された frame size と ROW ごとの animation を使って再生確認できるようにします。canvas 描画では `imageSmoothingEnabled = false` を指定し、pixel art をぼかさないでください。
 
-ROW ごとの有効フレーム数は `time` 行列の各 ROW 長で表現します。scalar time を読み込んだ場合は全 ROW / 全列有効として展開し、UI 編集後は `[[...][...]]` 形式へ serialize します。フレーム time が `0` の場合、SGDK 上ではそのフレーム以降の再生が進まないため、editor preview でも停止として扱います。
+ROW ごとの有効フレーム数は `spriteEditor.time` 行列と `options.animations[]` に保存します。現行 runtime が直接使う値は `animations[].frameDelays` です。UI 編集後は両者を同期し、preview も各 frame の delay を使います。
 
-Sprite Sheet には 8x8 grid、選択 frame、無効 frame の overlay、各 frame の time 値を重ねて表示します。シートクリックは ROW / frame 選択だけを行い、自動再生は開始しません。Frame Preview / Sprite Sheet の canvas は preview 領域内でスクロールでき、中央ボタンドラッグでも scroll 位置を移動できます。倍率入力は 10-500% の percentage として扱い、mouse wheel で滑らかに変化させます。collision が `BOX` / `CIRCLE` の場合は、SGDK の collision size が frame の約 75% であることを踏まえて frame preview に overlay を出します。frame size は RESCOMP 制約に合わせ、tile 幅・高さが 32 未満、pixel では最大 248px までに制約してください。
+Sprite Sheet には cell grid、選択 frame、無効 frame の overlay、各 frame の time 値を重ねて表示します。シートクリックは ROW / frame 選択だけを行い、自動再生は開始しません。Frame Preview / Sprite Sheet の canvas は preview 領域内でスクロールでき、中央ボタンドラッグでも scroll 位置を移動できます。倍率入力は 10-500% の percentage として扱い、mouse wheel で滑らかに変化させます。import が受理する cell size は manifest/UI にある `16x16`、`16x32`、`16x64`、`32x16`、`32x32`、`32x64` です。最終的な pattern VRAM / SATB 境界は build 時に検査されます。
 
 Asset Manager の右列 preview でも SPRITE はシートそのものではなく、選択 ROW の animation を表示します。再生 / 停止は icon button にし、animation select の表示は `1 (4 frames)` のように簡潔にします。
 
 ### BMP / PNG palette の扱い
 
-SGDK / ResComp 向け画像では、単に canvas へ描いて `canvas.toDataURL('image/png')` すると indexed palette が失われ、実際に使われている色だけで RGBA PNG へ再構成されます。未使用 palette、特に BMP の palette index 0 を保持したい場合、この経路を通してはいけません。
+PCE 用 indexed 画像を単に canvas へ描いて `canvas.toDataURL('image/png')` すると indexed palette が失われ、実際に使われている色だけで RGBA PNG へ再構成されます。未使用 palette、特に BMP の palette index 0 を保持したい場合、この経路を通してはいけません。
 
 安全な方針:
 
@@ -1205,16 +1215,6 @@ SGDK / ResComp 向け画像では、単に canvas へ描いて `canvas.toDataURL
 
 リサイズやクリッピングを実施した場合は canvas 経由を避けられないことがあります。その場合でも、元画像が indexed PNG / BMP なら元 palette を参照 palette として保持し、最終的に自前の indexed PNG encoder で保存してください。`imageDataToIndexedPng()` のように実ピクセルから palette を作り直す関数は、未使用 palette を落とすため「最適化してよい画像」にだけ使います。
 
-### resources.res の重複検査
-
-同じ alias を複数行に登録すると、ResComp 後の assembler で次のようなエラーになります。
-
-```text
-Error: symbol `se_block_hit' is already defined
-```
-
-この状態はビルドログだけでは原因箇所が分かりにくいため、build plugin は ResComp 前に `assets` の `name` を集計し、重複があれば `{ ok: false, error }` を返してください。`lineNumber` / `resFileAbsolutePath` が取れる場合は、`resources.res:17` のように行番号付きで表示します。
-
 ### 画像・音声 preview
 
 - 画像 thumbnail は「画像全体が見える」「アスペクト比を維持する」「領域内で最大化する」を満たす
@@ -1222,43 +1222,18 @@ Error: symbol `se_block_hit' is already defined
 - `cover` 相当の表示や `width:100%; height:100%` による引き伸ばしは禁止
 - 小さい sprite も拡大表示する。`img` の `max-width/max-height` だけでは元サイズのまま小さく見える場合がある
 - WAV preview は再生/停止の icon button にし、一覧では `HTMLAudioElement` の metadata などから再生長を表示すると確認しやすい
-- 画像アセットでは、実画像から使用色を抽出し palette swatch として表示すると、SGDK の palette 制約を確認しやすい
+- 画像アセットでは、実画像から使用色を抽出し palette swatch として表示すると、PCE の 16 色 palette 制約を確認しやすい
 
 ### 複数 C ファイルを持つ build plugin
 
-ゲームエンジンを複数 C ファイルで構成する build plugin は、`onBuildStart()` で `makeVariables.SRC_C` を明示します。
-
-```js
-function onBuildStart(payload, context) {
-  return {
-    ok: true,
-    makeVariables: {
-      SRC_C: [
-        'src/main.c',
-        'src/ball.c',
-        'src/block.c',
-        'src/player.c',
-      ].join(' '),
-    },
-  };
-}
-```
-
-注意点:
-
-- `SRC_C` の明示は SGDK の wildcard compile による無関係な `src/*.c` 混入を防ぐ
-- `src/boot/rom_head.c` は `SRC_C` に入れない
-- `src/boot/sega.s` は `SRC_S` に入れない
-- `src/boot/rom_head.c` はプロジェクト設定の ROM ヘッダー情報を反映する本体生成ファイルなので、build plugin の `syncEngine()` などでテンプレートからコピーして上書きしない
-- SGDK 2.11 の `makefile.gen` は `src/boot/sega.s` を専用 rule で `out/sega.o` としてリンクする
-- `out/sega.o` と `out/src/boot/sega.o` が同時にリンクされる場合、`rom_header` の multiple definition が起きる
+PCE build は `pce-build-system.js` が template と target media に応じて compile 対象を決めます。`onBuildStart()` の `makeVariables` / `SRC_C` は PCE build では反映されません。複数 C ファイルを追加する builder は、現行 template と `pce-build-system.js` の source collection を更新し、同じ変更で build test と関連ドキュメントを追加してください。
 
 ### テストと確認
 
 - plugin manager / renderer metadata / hook / build option の回帰は `pce-game-editor/tests/*.test.js` に追加する
 - Windows では `node --test tests/**/*.test.js` より `node tests/run-tests.js` が安定する
 - 変更後は `node --check <変更した .js>` と `cd pce-game-editor && node tests/run-tests.js` を実行する
-- Build plugin を変更した場合は、可能なら実プロジェクトで generator 実行と SGDK build を通し、`out/cmd_` に不要な object が入っていないか確認する
+- Build plugin を変更した場合は、対象 template で HuCard または CD-ROM2 build を通し、生成 `.pce` / `.cue` と build log を確認する
 - パッケージ済みアプリで確認する場合は、source tree の `pce-game-editor/plugins` と packaged tree の `resources/plugins` が同期しているか確認する
 
 ---

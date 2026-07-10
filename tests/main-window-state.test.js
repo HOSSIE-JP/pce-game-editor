@@ -114,19 +114,28 @@ test('main process uses a single instance lock and app shutdown hooks', () => {
   assert.equal(lifecycle.getQuitRequests(), process.platform === 'darwin' ? 0 : 1);
 });
 
-test('main lifecycle cleanup covers auxiliary windows and api child process', () => {
+test('main lifecycle cleanup covers PCE auxiliary windows without a legacy api child process', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8');
 
   assert.match(source, /function closeDevToolsForWindow\([\s\S]*closeDevTools/);
   assert.match(source, /function prepareForAppQuit\(\)[\s\S]*closeOpenDevTools/);
-  assert.match(source, /function closeAuxiliaryWindows\(\)[\s\S]*debugWindow/);
   assert.match(source, /function closeAuxiliaryWindows\(\)[\s\S]*setupWindow/);
   assert.match(source, /function closeAuxiliaryWindows\(\)[\s\S]*testPlayWindow/);
   assert.match(source, /function closeAuxiliaryWindows\(\)[\s\S]*testPlaySettingsWindow/);
   assert.match(source, /function closeAuxiliaryWindows\(\)[\s\S]*logWindow/);
-  assert.match(source, /function stopApiServerSync\(\)[\s\S]*taskkill/);
   assert.match(source, /function installProcessTerminationHandlers\(\)[\s\S]*SIGTERM/);
-  assert.match(source, /async function stopApiServer\(\)[\s\S]*waitForProcessExit/);
+  assert.doesNotMatch(source, /api:startServer|stopApiServer|debugWindow/);
+});
+
+test('PCE build stops when the builder onBuildStart hook fails', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8');
+  const start = source.indexOf('async function runPceBuildFull');
+  const end = source.indexOf("ipcMain.handle('build:run'", start);
+  const body = source.slice(start, end);
+
+  assert.match(body, /const buildStartResult = await invokePluginHookSafe/);
+  assert.match(body, /if \(!buildStartResult\?\.ok\)[\s\S]*return failed/);
+  assert.ok(body.indexOf('return failed') < body.indexOf('buildSystem.buildProject'));
 });
 
 test('closing an editor window also closes its DevTools', () => {
@@ -177,22 +186,22 @@ test('asset source picker default filter includes MIDI music files', () => {
 test('project plugin roles restore exclusive plugin enabled state in main process', () => {
   const userData = makeTempUserData();
   const { main, buildSystem } = loadMainWithBuildSystem(userData);
-  const projectDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'md-editor-role-project-')), 'demo');
+  const projectDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pce-editor-role-project-')), 'demo');
 
   buildSystem.createProject(projectDir, {
     title: 'Role Sync',
-    pluginRoles: { builder: 'block-game-builder' },
+    pluginRoles: { builder: 'pce-slideshow-builder' },
   }, 'int main(void) { return 0; }\n');
 
   const result = main.syncProjectPluginRoleState();
   const pluginState = JSON.parse(fs.readFileSync(path.join(userData, 'plugins-state.json'), 'utf-8'));
+  const builderSync = result.synced.find((entry) => entry.roleId === 'builder');
 
   assert.equal(result.ok, true);
-  assert.equal(result.synced[0].roleId, 'builder');
-  assert.equal(result.synced[0].pluginId, 'block-game-builder');
-  assert.notEqual(pluginState['block-game-builder']?.enabled, false);
-  assert.notEqual(pluginState['block-stage-editor']?.enabled, false);
-  assert.equal(pluginState.slideshow.enabled, false);
+  assert.equal(builderSync.pluginId, 'pce-slideshow-builder');
+  assert.notEqual(pluginState['pce-slideshow-builder']?.enabled, false);
+  assert.equal(pluginState['pce-visual-novel-builder']?.enabled, false);
+  assert.equal(pluginState['pce-visual-novel-hucard-builder']?.enabled, false);
 });
 
 test('main code root resolver rejects project path traversal', () => {

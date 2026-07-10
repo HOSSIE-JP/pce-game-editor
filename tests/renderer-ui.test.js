@@ -26,15 +26,16 @@ test('settings page keeps project and export settings in two columns', () => {
 test('settings page exposes external emulator settings gated by Test Play role', () => {
   const html = readRendererFile('index.html');
   const renderer = readRendererFile('renderer.js');
+  const projectSettings = readRendererFile('project-settings.mjs');
 
   assert.match(html, /id="externalEmulatorSettings"[\s\S]*外部エミュレーター/);
   assert.match(html, /id="externalEmulatorPath"/);
   assert.match(html, /id="externalEmulatorArgs"/);
   assert.match(renderer, /const EXTERNAL_EMULATOR_PLUGIN_ID = 'pce-external-emulator'/);
-  assert.match(renderer, /const DEFAULT_EXTERNAL_EMULATOR_PATH = '\/Applications\/Geargrafx\.app\/Contents\/MacOS\/geargrafx'/);
+  assert.match(projectSettings, /DEFAULT_EXTERNAL_EMULATOR_PATH = '\/Applications\/Geargrafx\.app\/Contents\/MacOS\/geargrafx'/);
   assert.match(renderer, /function updateExternalEmulatorSettingsAvailability\(\)/);
   assert.match(renderer, /activeId === EXTERNAL_EMULATOR_PLUGIN_ID/);
-  assert.match(renderer, /testPlay:\s*buildTestPlaySettingsPatch\(\)/);
+  assert.match(renderer, /config:\s*buildPceProjectSettings\(state\.projectConfig/);
   assert.match(renderer, /updateExternalEmulatorSettingsAvailability\(\)/);
 });
 
@@ -78,33 +79,24 @@ test('header build controls include setup and export flow', () => {
   assert.match(css, /\.export-choice-grid/);
 });
 
-test('setup page exposes optional Nuked-OPN2 user download flow', () => {
+test('setup page exposes only the PCE toolchain and EmulatorJS flow', () => {
   const html = readRendererFile('setup.html');
 
-  assert.match(html, /id="emsdkCard"/);
-  assert.match(html, /id="btnDownloadEmsdk"/);
-  assert.match(html, /downloadEmsdk\(\)/);
-  assert.match(html, /id="nukedOpn2Card"/);
-  assert.match(html, /id="btnDownloadNukedOpn2"/);
-  assert.match(html, /id="btnBuildNukedOpn2"/);
-  assert.match(html, /Nuked-OPN2/);
-  assert.match(html, /LGPL-2\.1-or-later/);
-  assert.match(html, /downloadNukedOpn2\(\)/);
-  assert.match(html, /buildNukedOpn2Wasm\(\)/);
-  assert.match(html, /audioEngines\.nukedOpn2/);
-  assert.match(html, /audioEngines\.nukedOpn2Wasm/);
+  assert.match(html, /PC Engine 環境セットアップ/);
+  assert.match(html, /llvm-mos-sdk/);
+  assert.match(html, /EmulatorJS/);
+  assert.match(html, /window\.electronSetup\.downloadTool/);
+  assert.doesNotMatch(html, /SGDK|Marsdev|Nuked-OPN2|Emscripten/);
 });
 
 test('setup page exposes PCE-CD IPL extraction flow', () => {
   const html = readRendererFile('setup.html');
 
-  assert.match(html, /id="pceCdImagePath"/);
-  assert.match(html, /id="btnPickPceCdImage"/);
-  assert.match(html, /id="btnExtractPceCdIpl"/);
-  assert.match(html, /id="pceCdOwnSourceConfirm"/);
-  assert.match(html, /pce-tool-manual/);
-  assert.match(html, /pce-diagnostic-list/);
-  assert.match(html, /data-pce-action="set-path"/);
+  assert.match(html, /id="cdImagePath"/);
+  assert.match(html, /id="pickCdImage"/);
+  assert.match(html, /id="extractIpl"/);
+  assert.match(html, /id="ownedSource"/);
+  assert.match(html, /data-action="apply"/);
   assert.match(html, /ISO\/CUE\/BIN/);
   assert.match(html, /selectPceCdImage\(\)/);
   assert.match(html, /extractPceCdIpl\(\{ sourcePath, confirmOwnedSource \}\)/);
@@ -126,7 +118,7 @@ test('log viewer height persists and popout control is wired', () => {
   const popoutRenderer = readRendererFile('log-viewer.js');
 
   assert.match(html, /id="btnPopoutLog"/);
-  assert.match(renderer, /LOG_VIEWER_STATE_KEY\s*=\s*['"]md-editor\.logViewerState\.v1['"]/);
+  assert.match(renderer, /LOG_VIEWER_STATE_KEY\s*=\s*['"]pce-editor\.logViewerState\.v1['"]/);
   assert.match(renderer, /localStorage\.setItem\(LOG_VIEWER_STATE_KEY/);
   assert.match(renderer, /loadLogViewerState\(\)/);
   assert.match(renderer, /logDetached:\s*false/);
@@ -143,24 +135,22 @@ test('log viewer height persists and popout control is wired', () => {
   assert.match(popoutRenderer, /from '\.\/log-viewer-core\.mjs'/);
 });
 
-test('asset manager res file delete and preview resize are wired', () => {
+test('static ResComp asset UI is absent while PCE conversion modals remain', () => {
   const html = readRendererFile('index.html');
   const renderer = readRendererFile('renderer.js');
   const css = readRendererFile('style.css');
 
-  assert.match(html, /id="btnDeleteAssetEntry"[\s\S]*title="選択中の \.res ファイルを削除"/);
-  assert.match(html, /id="assetPreviewResizer"[\s\S]*role="separator"/);
-  assert.match(renderer, /deleteResFile\(fileName\)/);
-  assert.match(renderer, /el\.btnDeleteAssetEntry\?\.addEventListener\('click',\s*deleteCurrentResFile\)/);
-  assert.match(renderer, /ASSET_PREVIEW_WIDTH_KEY\s*=\s*['"]md-editor\.assetPreviewWidth\.v1['"]/);
-  assert.match(renderer, /assetPreviewResizer:\s*\$\('assetPreviewResizer'\)/);
-  assert.match(renderer, /function beginAssetPreviewResize\(event\)/);
-  assert.match(renderer, /addEventListener\('pointerdown',\s*beginAssetPreviewResize\)/);
-  assert.match(css, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s*5px\s*var\(--asset-preview-width\)/);
-  assert.match(css, /\.asset-preview-resizer/);
+  assert.doesNotMatch(html, /page-assets|resFileModal|assetModal|Rescomp/);
+  assert.doesNotMatch(renderer, /state\.rescomp|loadResDefinitions|writeAssetFile|listResDefinitions/);
+  assert.match(html, /id="audioConvertModal"/);
+  assert.match(html, /id="resizeModal"/);
+  assert.match(html, /id="quantizeModal"/);
+  assert.match(renderer, /function openAudioConvertModal/);
+  assert.match(renderer, /function openResizeModal/);
+  assert.match(renderer, /function openQuantizeModal/);
 });
 
-test('PCE asset manager uses MD-style panes and plugin-owned PCE IPC workflow', () => {
+test('PCE asset manager uses plugin-owned panes and PCE IPC workflow', () => {
   const manifest = readPluginManifest('pce-asset-manager');
   const imageManifest = readPluginManifest('pce-image-converter');
   const audioManifest = readPluginManifest('pce-audio-converter');
@@ -388,7 +378,7 @@ test('Image manager modules expose file-first image import, asset list editing, 
   assert.match(commonRenderer, /collapsedGroups\.has\(path\)\s*\?\s*collapsedGroups\.delete\(path\)\s*:\s*collapsedGroups\.add\(path\)|collapsedGroups\.delete\(path\)/);
   assert.match(commonRenderer, /assetDisplayName\(asset\)/);
   assert.match(commonRenderer, /pce-image-manager-id-cell/);
-  assert.match(commonRenderer, /colspan="6"/);
+  assert.match(commonRenderer, /renderGroupedRows\(list, 6,/);
   assert.match(commonRenderer, /data-role="pane-resizer"/);
   assert.match(commonRenderer, /function setupPaneResizer\(\)/);
   assert.match(commonRenderer, /function setupInteractivePreview\(\)/);
@@ -476,10 +466,10 @@ test('PCE visual novel preview message skip completes the typewriter page', () =
 
   assert.match(previewRuntimeSource, /const messageWaitGlyph = String\(data\.messageWaitGlyph \|\| '▼'\)/);
   assert.match(previewRuntimeSource, /cursor\.textContent = messageWaitGlyph;/);
-  assert.match(showMessageSource, /function complete\(\) \{\n\s+if \(done\) return;\n\s+done = true;\n\s+shownBody = parts\.body\.length;/);
+  assert.match(showMessageSource, /function complete\(\) \{\r?\n\s+if \(done\) return;\r?\n\s+done = true;\r?\n\s+shownBody = parts\.body\.length;/);
   assert.match(showMessageSource, /if \(typeTimer\) \{ clearInterval\(typeTimer\); typeTimer = null; \}/);
   assert.match(showMessageSource, /paintMsg\(full, color, messageAdvanceMode === 'button'\);/);
-  assert.match(showMessageSource, /function revealNextBodyGlyph\(\) \{\n\s+if \(done\) return;/);
+  assert.match(showMessageSource, /function revealNextBodyGlyph\(\) \{\r?\n\s+if \(done\) return;/);
   assert.match(showMessageSource, /pending = function \(\) \{ if \(!done\) complete\(\); else \{ if \(c\.voiceAssetId\) stopAudio\('adpcm'\); next\(\); \} \};/);
 });
 
@@ -1024,9 +1014,9 @@ test('startup selects the first sidebar plugin and project creation exposes temp
   assert.match(renderer, /switchPage\(getFirstSidebarPluginPageId\(\)\s*\|\|\s*getFirstVisiblePageId\(\)\)/);
   assert.match(renderer, /function resetProjectScopedPluginUiState\(\)/);
   assert.match(renderer, /function isStaticPageAvailableForActiveCore\(pageId\)/);
-  assert.match(renderer, /pageId === 'assets'[\s\S]*getActiveCoreId\(\) === 'mega-drive'/);
+  assert.doesNotMatch(html, /id="page-assets"/);
   assert.doesNotMatch(renderer, /renderResFileList\(\)/);
-  assert.match(renderer, /if \(getActiveCoreId\(\) === 'pc-engine'\)[\s\S]*renderResFileSelect\(\)/);
+  assert.doesNotMatch(renderer, /renderResFileSelect\(\)|loadResDefinitions\(/);
   assert.match(renderer, /async function reloadProjectAfterSwitch\(\)/);
   assert.match(renderer, /resetProjectScopedPluginUiState\(\)/);
   assert.match(renderer, /loadPlugins\(\{\s*resetProjectPluginState:\s*true,\s*resetSidebarSelection:\s*true\s*\}\)/);
@@ -1052,22 +1042,23 @@ test('sidebar plugin icons prefer manifest icon over tab icon', () => {
   assert.match(renderer, /resolvePluginIconId\(plugin\.icon \|\| plugin\.tab\?\.icon\)/);
 });
 
-test('default sidebar order prioritizes game editors then core tools', () => {
+test('default sidebar order prioritizes PCE editors then core tools', () => {
   const html = readRendererFile('index.html');
-  const block = readPluginManifest('block-stage-editor');
-  const assets = readPluginManifest('asset-manager');
-  const bgm = readPluginManifest('md-bgm-composer');
+  const novel = readPluginManifest('novel-editor');
+  const assets = readPluginManifest('pce-asset-manager');
+  const image = readPluginManifest('image-editor');
+  const sound = readPluginManifest('sound-editor');
   const code = readPluginManifest('code-editor');
-  const sprites = readPluginManifest('sprite-editor');
 
-  assert.equal(block.tab.order, 5);
+  assert.equal(novel.tab.order, 8);
   assert.equal(assets.tab.order, 10);
-  assert.equal(bgm.tab.order, 20);
+  assert.equal(image.tab.order, 12);
+  assert.equal(sound.tab.order, 13);
   assert.equal(code.tab.order, 30);
-  assert.equal(sprites.tab.order, 40);
-  assert.ok(block.tab.order < assets.tab.order);
-  assert.ok(assets.tab.order < bgm.tab.order);
-  assert.ok(bgm.tab.order < code.tab.order);
+  assert.ok(novel.tab.order < assets.tab.order);
+  assert.ok(assets.tab.order < image.tab.order);
+  assert.ok(image.tab.order < sound.tab.order);
+  assert.ok(sound.tab.order < code.tab.order);
   assert.ok(html.indexOf('id="sidebarPluginTabs"') < html.indexOf('data-page="plugins"'));
   assert.ok(html.indexOf('data-page="plugins"') < html.indexOf('data-page="settings"'));
 });
@@ -1163,56 +1154,6 @@ test('test play rebuilds before opening so ROM header matches project settings',
   assert.match(renderer, /const romPath = buildResult\.romPath \|\| state\.lastRomPath/);
 });
 
-test('api testplay window exposes default-on sound toggle', () => {
-  const html = fs.readFileSync(
-    path.join(__dirname, '..', 'plugins', 'standard-api-emulator', 'api-testplay.html'),
-    'utf-8',
-  );
-
-  assert.match(html, /id="btnAudio" class="icon-btn is-active"/);
-  assert.match(html, /let audioEnabled = true/);
-  assert.match(html, /api\/v1\/audio\/samples\?frames=/);
-  assert.match(html, /function fetchAndPlayAudio\(\)/);
-  assert.match(html, /await fetchAndPlayAudio\(\)/);
-});
-
-test('api testplay toolbar uses icon buttons for primary controls', () => {
-  const html = fs.readFileSync(
-    path.join(__dirname, '..', 'plugins', 'standard-api-emulator', 'api-testplay.html'),
-    'utf-8',
-  );
-
-  ['btnPlay', 'btnReset', 'btnStep', 'btnAudio', 'btnInfo', 'btnDebug', 'btnStopApi'].forEach((id) => {
-    assert.match(html, new RegExp(`id="${id}" class="icon-btn`));
-  });
-  assert.match(html, /<symbol id="icon-pause"/);
-  assert.match(html, /<symbol id="icon-volume-off"/);
-  assert.match(html, /function setButtonIcon\(button,\s*symbolId\)/);
-});
-
-test('api testplay opens a bundled debug viewer with the active API port', () => {
-  const pluginDir = path.join(__dirname, '..', 'plugins', 'standard-api-emulator');
-  const html = fs.readFileSync(path.join(pluginDir, 'api-testplay.html'), 'utf-8');
-  const debugHtml = fs.readFileSync(path.join(pluginDir, 'api-debug.html'), 'utf-8');
-
-  assert.match(html, /id="btnDebug"/);
-  assert.match(html, /new URL\('api-debug\.html',\s*window\.location\.href\)/);
-  assert.match(html, /debugUrl\.searchParams\.set\('port',\s*String\(port\)\)/);
-  assert.match(html, /window\.open\(debugUrl\.href,\s*'md-api-debug'/);
-  assert.match(debugHtml, /API Debug Viewer/);
-  assert.match(debugHtml, /const initialPort = Number\(params\.get\('port'\)\) \|\| 8080/);
-});
-
-test('copy-pkg targets the standard emulator plugin instead of app root pkg', () => {
-  const script = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'copy-pkg.js'), 'utf-8');
-
-  assert.match(script, /standardEmulatorRoot = path\.join\(appRoot,\s*'plugins',\s*'standard-emulator'\)/);
-  assert.match(script, /const toPkg = path\.join\(standardEmulatorRoot,\s*'pkg'\)/);
-  assert.match(script, /const toWrapper = path\.join\(standardEmulatorRoot,\s*'md-emulator\.js'\)/);
-  assert.match(script, /const toPlayer = path\.join\(standardEmulatorRoot,\s*'wasm-player\.js'\)/);
-  assert.doesNotMatch(script, /const toPkg = path\.join\(appRoot,\s*'pkg'\)/);
-});
-
 test('exclusive role selection reloads plugin state after saving', () => {
   const renderer = readRendererFile('renderer.js');
 
@@ -1276,7 +1217,7 @@ test('quantize dialog is larger and exposes tone controls', () => {
   assert.match(renderer, /quantizeToIndexed16\(adjustedData,\s*options\)/);
 });
 
-test('quantize converter targets SGDK palette parameters with fast and slow dithering', () => {
+test('quantize converter targets PCE 16-color palette with fast and slow dithering', () => {
   const html = readRendererFile('index.html');
   const renderer = readRendererFile('renderer.js');
 

@@ -9,15 +9,15 @@ const { loadWithMockedElectron } = require('./helpers/mock-electron');
 
 loadAppConfig({
   appRoot: path.join(__dirname, '..'),
-  defaultCoreId: 'mega-drive',
-  allowedCoreIds: ['default', 'mega-drive', 'pc-engine'],
+  defaultCoreId: 'pc-engine',
+  allowedCoreIds: ['pc-engine'],
   pluginsRoot: path.join(__dirname, '..', 'plugins'),
 });
 
 function makeTempUserData() {
   const root = path.join(__dirname, '..', 'node_modules', '.plugin-test-tmp');
   fs.mkdirSync(root, { recursive: true });
-  return fs.mkdtempSync(path.join(root, 'md-editor-plugin-test-'));
+  return fs.mkdtempSync(path.join(root, 'pce-editor-plugin-test-'));
 }
 
 function writePlugin(userData, id, manifest, files = {}) {
@@ -25,7 +25,7 @@ function writePlugin(userData, id, manifest, files = {}) {
   fs.mkdirSync(pluginDir, { recursive: true });
   fs.writeFileSync(
     path.join(pluginDir, 'manifest.json'),
-    JSON.stringify({ id, name: id, version: '1.0.0', types: ['build'], ...manifest }, null, 2),
+    JSON.stringify({ id, name: id, version: '1.0.0', types: ['build'], supportedCores: ['pc-engine'], ...manifest }, null, 2),
     'utf-8',
   );
   fs.writeFileSync(path.join(pluginDir, 'index.js'), "'use strict';\nmodule.exports = {};\n", 'utf-8');
@@ -34,6 +34,10 @@ function writePlugin(userData, id, manifest, files = {}) {
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, content, 'utf-8');
   });
+  const statePath = path.join(userData, 'plugins-state.json');
+  const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf-8')) : {};
+  state[id] = { ...(state[id] || {}), trusted: true, enabled: true };
+  fs.writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf-8');
 }
 
 test('listPlugins reads user plugins and normalizes manifest fields', () => {
@@ -71,9 +75,10 @@ test('listPlugins reads user plugins and normalizes manifest fields', () => {
   assert.equal(plugins.some((plugin) => plugin.id === 'hidden-internal'), false);
 });
 
-test('listPlugins exposes core compatibility metadata and defaults legacy plugins to Mega Drive', () => {
+test('listPlugins requires an explicit PCE or shared core declaration', () => {
   const userData = makeTempUserData();
-  writePlugin(userData, 'legacy-md', { types: ['editor'] });
+  writePlugin(userData, 'missing-core', { types: ['editor'], supportedCores: null });
+  writePlugin(userData, 'wrong-core', { types: ['editor'], supportedCores: ['mega-drive'] });
   writePlugin(userData, 'shared', { types: ['editor'], supportedCores: ['*'] });
   writePlugin(userData, 'pce-only', { types: ['asset'], supportedCores: ['pc-engine'] });
   writePlugin(userData, 'pc-engine-core', {
@@ -85,34 +90,60 @@ test('listPlugins exposes core compatibility metadata and defaults legacy plugin
   const allForPce = pluginManager.listPlugins({ coreId: 'pc-engine', includeIncompatible: true });
   const filteredForPce = pluginManager.listPlugins({ coreId: 'pc-engine', includeIncompatible: false });
 
-  assert.deepEqual(allForPce.find((plugin) => plugin.id === 'legacy-md').supportedCores, ['mega-drive']);
-  assert.equal(allForPce.find((plugin) => plugin.id === 'legacy-md').compatibleWithActiveCore, false);
+  assert.equal(allForPce.some((plugin) => plugin.id === 'missing-core'), false);
+  assert.equal(allForPce.some((plugin) => plugin.id === 'wrong-core'), false);
   assert.deepEqual(allForPce.find((plugin) => plugin.id === 'shared').supportedCores, ['*']);
   assert.equal(allForPce.find((plugin) => plugin.id === 'pc-engine-core').core.id, 'pc-engine');
-  assert.equal(filteredForPce.some((plugin) => plugin.id === 'legacy-md'), false);
   assert.equal(filteredForPce.some((plugin) => plugin.id === 'pce-only'), true);
 });
 
-test('role selection rejects plugins incompatible with the active core', () => {
+test('manifest validation rejects ids that do not match their directory', () => {
   const userData = makeTempUserData();
-  writePlugin(userData, 'md-builder', {
-    roles: [{ id: 'builder', label: 'Build', exclusive: true, order: 10 }],
-  });
-  writePlugin(userData, 'pce-builder', {
-    supportedCores: ['pc-engine'],
-    roles: [{ id: 'builder', label: 'Build', exclusive: true, order: 10 }],
-  });
+  writePlugin(userData, 'wrong-directory', { id: 'different-id' });
 
   const pluginManager = loadWithMockedElectron(path.join(__dirname, '..', 'plugin-manager.js'), { userData });
-  const rejected = pluginManager.setExclusiveRoleSelection('builder', 'md-builder', { coreId: 'pc-engine' });
-  const accepted = pluginManager.setExclusiveRoleSelection('builder', 'pce-builder', { coreId: 'pc-engine' });
-
-  assert.equal(rejected.ok, false);
-  assert.match(rejected.error, /not compatible/);
-  assert.equal(accepted.ok, true);
+  assert.equal(pluginManager.listPlugins().some((plugin) => plugin.id === 'wrong-directory'), false);
+  assert.match(pluginManager.validateManifest({
+    id: 'different-id', name: 'Wrong', version: '1.0.0', types: ['editor'], supportedCores: ['pc-engine'],
+  }, 'wrong-directory').join('\n'), /id must match/);
+  assert.ok(pluginManager.listPluginDiagnostics().some((entry) => (
+    entry.pluginId === 'wrong-directory' && entry.code === 'manifest-invalid'
+  )));
 });
 
-test('listPlugins uses only declared v2.5 roles', () => {
+test('user plugins require explicit trust before renderer or main code can run', () => {
+  const userData = makeTempUserData();
+  writePlugin(userData, 'untrusted', {
+    types: ['editor'],
+    renderer: { entry: 'renderer.js' },
+  }, { 'renderer.js': 'export function activate() {}\n' });
+  const statePath = path.join(userData, 'plugins-state.json');
+  fs.writeFileSync(statePath, JSON.stringify({ untrusted: { enabled: true, trusted: false } }, null, 2), 'utf-8');
+
+  const pluginManager = loadWithMockedElectron(path.join(__dirname, '..', 'plugin-manager.js'), { userData });
+  const before = pluginManager.listPlugins().find((plugin) => plugin.id === 'untrusted');
+  assert.equal(before.trusted, false);
+  assert.equal(before.enabled, false);
+  assert.equal(pluginManager.getRendererAssets('untrusted').requiresTrust, true);
+  assert.equal(pluginManager.setEnabledWithDependencies('untrusted', true).requiresTrust, true);
+
+  assert.deepEqual(pluginManager.setUserPluginTrusted('untrusted', true), {
+    ok: true, id: 'untrusted', trusted: true,
+  });
+  assert.equal(pluginManager.setEnabledWithDependencies('untrusted', true).ok, true);
+  assert.equal(pluginManager.getRendererAssets('untrusted').ok, true);
+});
+
+test('plugin diagnostics report missing dependencies without hiding the plugin', () => {
+  const userData = makeTempUserData();
+  writePlugin(userData, 'needs-helper', { dependencies: ['missing-helper'] });
+  const pluginManager = loadWithMockedElectron(path.join(__dirname, '..', 'plugin-manager.js'), { userData });
+  const plugin = pluginManager.listPlugins().find((entry) => entry.id === 'needs-helper');
+  assert.deepEqual(plugin.missingDependencies, ['missing-helper']);
+  assert.ok(pluginManager.listPluginDiagnostics().some((entry) => entry.code === 'dependency-missing'));
+});
+
+test('listPlugins uses only declared manifest roles', () => {
   const userData = makeTempUserData();
   writePlugin(userData, 'builder', { types: ['build'] });
   writePlugin(userData, 'emulator', {
@@ -181,7 +212,7 @@ test('built-in PCE asset editor suite is scoped to the PC Engine core', () => {
   assert.equal(pcePlugins.get('novel-editor').tab.label, 'Novel');
 });
 
-test('setEnabledWithDependencies enables dependencies and reports missing ones', () => {
+test('setEnabledWithDependencies rejects missing dependencies without changing state', () => {
   const userData = makeTempUserData();
   writePlugin(userData, 'alpha', { dependencies: ['beta', 'missing-plugin'] });
   writePlugin(userData, 'beta', {});
@@ -193,11 +224,11 @@ test('setEnabledWithDependencies enables dependencies and reports missing ones',
   const result = pluginManager.setEnabledWithDependencies('alpha', true);
   const state = JSON.parse(fs.readFileSync(path.join(userData, 'plugins-state.json'), 'utf-8'));
 
-  assert.equal(result.ok, true);
-  assert.deepEqual(new Set(result.changedIds), new Set(['alpha', 'beta']));
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.changedIds, []);
   assert.deepEqual(result.missingDependencies, ['missing-plugin']);
-  assert.equal(state.alpha.enabled, true);
-  assert.equal(state.beta.enabled, true);
+  assert.equal(state.alpha.enabled, false);
+  assert.equal(state.beta.enabled, false);
 });
 
 test('setEnabledWithDependencies disables peers for exclusive roles', () => {

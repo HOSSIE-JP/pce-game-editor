@@ -19,7 +19,25 @@ PC Engine Core の SetUp には、ツールカードのほかに環境診断が�
 
 Mega Drive ROM ヘッダー向けだったタイトル、作者名、シリアルの入力は PCE 新規作成では使用しません。作成直後の内部表示名はプロジェクトフォルダ名から初期化されます。
 
+### 現行データ形式
+
+現行テンプレートとエディターが書き出すデータを正とします。
+
+- project core は `project.json` の `coreId: "pc-engine"` 固定です。
+- asset の正本は `assets/pce-assets.json` の `version: 2` です。BG / sprite / palette / PSG / ADPCM / CD-DA を同じ document で管理します。
+- VN scene の正本は `assets/pce-vn-scenes.json` の `version: 2` です。scene の実行順は `commands`、scene pack の生成順は `scenes` 配列順です。
+- build plugin と Test Play plugin の選択は `project.json.pluginRoles.builder` / `pluginRoles.testplay` です。
+- HuCard は `targetMedia: "hucard"`、Super CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を使います。
+
+現行 visual asset は raw の `tiles.bin` / `map_vram.bin` / `patterns.bin` だけを使い、圧縮オプションや `.rle` sidecar は保存しません。ADPCM divider/encoder と一部の VN command field には、既存データを安全に読み込むための値補正が残っていますが、UI で複数バージョンを選ぶ機能ではありません。詳細は [Implementation Audit](implementation-audit-2026-07-10.md) を参照してください。
+
 Settings の `プロジェクト表示名` は、アプリ内表示とエクスポート候補名のための project metadata です。PCE ROM ヘッダー情報ではないため、作者名やシリアルの編集欄は表示しません。
+
+### Plugins とユーザーコードの信頼
+
+Settings > Plugins は、有効なプラグインに加えて、不正な manifest と不足 dependency を「プラグイン診断」に表示します。診断にはplugin ID、組み込み/ユーザーの区分、エラー理由、manifest pathが出るため、読み込まれないpluginをフォルダ探索だけで調査する必要はありません。
+
+ユーザープラグインフォルダへ新しく置いたpluginは未信頼・無効状態です。有効化すると、rendererとmain process codeがアプリと同じ権限で動くことを確認するダイアログが表示されます。内容と入手元を確認できる場合だけ信頼してください。「信頼を解除」を押すと、そのpluginを無効化して実行許可を取り消します。現在の信頼モデルは明示確認方式で、user pluginを別processへ隔離するsandboxではありません。
 
 標準の HuCard サンプルは `llvm-mos-sdk` の `mos-pce-clang` でビルドするスライドショーテンプレートです。builder は `pce-slideshow-builder` で、CD-ROM2 VN 用の `pce-visual-novel-builder` とは分離されています。`Image` に登録した BG 画像のうち、ID が `slide_001` または `slide_001_title` の形式に一致するものだけを番号順に表示し、最後の画像の後は先頭へ戻ります。番号は `001` から連番にしてください。スライド画像は PNG として保存され、8px 単位かつ 256x224px 以下である必要があります。ビルド時に形式、サイズ、生成済みデータ、HuCard の ROM bank 使用量を検査し、容量を超える場合は何枚目で超えたかを示すエラーで停止します。コントローラーの `←` は前の画像、`→` またはその他のボタンは次の画像へ進みます。入力がない場合も一定時間で次の画像へ自動遷移します。テンプレートには `slideshow_bgm` の PSG song が含まれ、HuCard 上でループ再生されます。スライドショーテンプレートから作成したプロジェクトでは、既定で `Sound` と `Novel` の sidebar plugin は無効です。
 
@@ -31,7 +49,7 @@ HuCARD ノベルの ROM 配置は固定です。runtime code は `rom_bank1..4` 
 
 `Image` の `BG` では PCE 背景画像を、`Sprites` では PCE sprite sheet を編集します。BG 追加時に指定する変換条件は出力幅/高さで、既定値は標準 BG サイズの 224×136px です。BG の `Palette bank` と `Transparent index` は実用上個別指定する場面が少ないため UI には表示せず、内部既定値 `0` で変換します。`Sprites` の追加時も通常表示は出力幅/高さだけにし、変換時だけ有効な `Cell size` は `アドバンス` に隠します。`Palette bank` / `Transparent index` は表示せず、`paletteBank: 0`、`transparentIndex: 0` で登録します。`tileBase`、`x`、`y` は低レベル既定値として `Properties` の `アドバンス` に隠し、通常は変更しません。追加直後の animation は `Frame W: 16`、`Frame H: 16`、`Frames: 1`、`Speed: 1` です。frame size、ROW ごとの frame 数、time は Sprites タブのエディタ本体で調整してください。変換後に生成済み tile / pattern と metadata がずれないよう、`Cell size` は詳細フォームでは直接編集しません。
 
-`Sprites` は sprite asset tree、Frame Preview、Sprite Sheet、Animation Rows、Properties を持つ編集画面です。フレーム幅・高さと ROW ごとの有効 frame 数 / time を編集すると、PCE VN runtime が参照する `options.animations` と、エディタ再表示用の `options.spriteEditor` metadata に保存されます。Time は 60fps 基準の frame 数で、各フレームごとの値をそのままプレビューと runtime の再生速度に使います。Frame Preview と Sprite Sheet のプレビュー領域はスクロールでき、マウスホイールで 10-500% の倍率を調整できます。中ボタンドラッグでは表示位置を移動できます。Sprite Sheet のセルをクリックすると、その ROW / Frame が Frame Preview（画面上部）に反映され、Animation Rows の対応 ROW がハイライトされます。Sprite Sheet の各フレーム右上には、その frame の Time（既定 time）が表示されます。旧 ResComp 圧縮由来の `opt_type` / `opt_level` / `opt_duplicate` / `comment` は PCE sprite runtime では使わないため、Sprites タブには表示しません。
+`Sprites` は sprite asset tree、Frame Preview、Sprite Sheet、Animation Rows、Properties を持つ編集画面です。フレーム幅・高さと ROW ごとの有効 frame 数 / time を編集すると、PCE VN runtime が参照する `options.animations` と、エディタ再表示用の `options.spriteEditor` metadata に保存されます。Time は 60fps 基準の frame 数で、各フレームごとの値をそのままプレビューと runtime の再生速度に使います。Frame Preview と Sprite Sheet のプレビュー領域はスクロールでき、マウスホイールで 10-500% の倍率を調整できます。中ボタンドラッグでは表示位置を移動できます。Sprite Sheet のセルをクリックすると、その ROW / Frame が Frame Preview（画面上部）に反映され、Animation Rows の対応 ROW がハイライトされます。Sprite Sheet の各フレーム右上には、その frame の Time（既定 time）が表示されます。保存される sprite metadata は frame / animation と PCE 変換に必要な現行フィールドだけです。
 
 `Palette` では手動 palette を追加、保存、削除できます。削除時は確認 modal が表示されます。
 

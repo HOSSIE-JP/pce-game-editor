@@ -569,11 +569,6 @@ function positiveBytes(value) {
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 0;
 }
 
-function visualRawBytes(generated = {}, slot = 'tiles') {
-  const compression = generated?.compression || {};
-  return positiveBytes(compression?.[slot]?.rawBytes);
-}
-
 function visualCachePayloadInfo(asset = {}) {
   const generated = asset?.data?.generated || {};
   const size = assetPixelSize(asset);
@@ -590,17 +585,14 @@ function visualCachePayloadInfo(asset = {}) {
   };
 
   if (asset?.type === 'image') {
-    const tileBytes = visualRawBytes(generated, 'tiles')
-      || (positiveBytes(generated.tileCount) * 32)
+    const tileBytes = (positiveBytes(generated.tileCount) * 32)
       || Math.max(0, Math.ceil((size.width || PCE_SCREEN_WIDTH) / 8) * Math.ceil((size.height || PCE_SCREEN_HEIGHT) / 8) * 32);
-    const mapBytes = visualRawBytes(generated, 'map')
-      || Math.max(0, positiveBytes(generated.vramBytes) - tileBytes)
+    const mapBytes = Math.max(0, positiveBytes(generated.vramBytes) - tileBytes)
       || (generated.mapVramFile ? 32 * Math.ceil((size.height || PCE_SCREEN_HEIGHT) / 8) * 2 : 0);
     addParts('bgTiles', 'BG tiles', tileBytes);
     addParts('bgMap', 'BG map', mapBytes);
   } else if (asset?.type === 'sprite') {
-    const patternBytes = visualRawBytes(generated, 'tiles')
-      || positiveBytes(generated.vramBytes)
+    const patternBytes = positiveBytes(generated.vramBytes)
       || (positiveBytes(generated.tileCount) * 128);
     addParts('spritePatterns', 'Sprite patterns', patternBytes);
   }

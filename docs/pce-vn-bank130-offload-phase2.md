@@ -1,5 +1,7 @@
 # Phase 2 引き継ぎ: bank130 → bank133 overlay オフロード（message compositor）
 
+> **文書区分: 実装 phase の記録。** 現行 overlay 契約は [pce-vn-overlay-pathb.md](pce-vn-overlay-pathb.md) と現行コードを優先してください。
+
 このドキュメントは、VN runtime の **bank130 を空けるために message グリフコンポジタを bank133 overlay へ移す**作業（Phase 2）の設計・実装記録です。**実装済み**。追加変更の前に [docs/pce-vn-overlay-pathb.md](pce-vn-overlay-pathb.md)（overlay = Path B の機構）と [CLAUDE.md](../CLAUDE.md) の「メモリバンク / CD-ROM2」「VN sprite / VDC」節を読んでください。
 
 ## なぜやるか（背景）

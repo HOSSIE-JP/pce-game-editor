@@ -43,21 +43,22 @@ test('packaging includes the bundled game editor template projects', () => {
   assert.doesNotMatch(config, /to:\s*projects\/sample\s/);
 });
 
-test('packaging keeps WASM runtime assets inside the standard emulator plugin', () => {
+test('packaging includes the PCE standard emulator plugin assets', () => {
   const config = readPackageConfig();
+  const pluginDir = path.join(__dirname, '..', 'plugins', 'pce-standard-emulator');
 
   assert.match(config, /from:\s*plugins/);
   assert.match(config, /to:\s*plugins/);
-  assert.doesNotMatch(config, /^\s*-\s*pkg\/\*\*/m);
-  assert.doesNotMatch(config, /^\s*-\s*md-emulator\.js/m);
-  assert.doesNotMatch(config, /^\s*-\s*md-emulator\.d\.ts/m);
+  ['manifest.json', 'index.js', 'testplay.html', 'testplay-preload.js'].forEach((file) => {
+    assert.equal(fs.existsSync(path.join(pluginDir, file)), true, `missing pce-standard-emulator/${file}`);
+  });
 });
 
-test('packaging keeps md-api binary inside the standard API emulator plugin', () => {
+test('packaging has no legacy MD emulator or md-api plugin', () => {
   const config = readPackageConfig();
 
   assert.match(config, /from:\s*plugins/);
   assert.match(config, /to:\s*plugins/);
-  assert.doesNotMatch(config, /from:\s*bin/);
-  assert.doesNotMatch(config, /to:\s*bin/);
+  assert.equal(fs.existsSync(path.join(__dirname, '..', 'plugins', 'standard-emulator')), false);
+  assert.equal(fs.existsSync(path.join(__dirname, '..', 'plugins', 'standard-api-emulator')), false);
 });

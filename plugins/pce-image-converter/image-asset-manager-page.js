@@ -905,9 +905,8 @@ export function createImageAssetManagerPlugin(config = {}) {
       const files = [
         ['palette', generated.paletteFile],
         [kind === 'sprite' ? 'patterns' : 'tiles', generated.tilesFile],
-        [kind === 'sprite' ? 'patterns.rle' : 'tiles.rle', generated.tilesCompressedFile],
         ['map', kind === 'sprite' ? '' : generated.mapFile],
-        ['map.rle', kind === 'sprite' ? '' : generated.mapVramCompressedFile],
+        ['map_vram', kind === 'sprite' ? '' : generated.mapVramFile],
         ['preview', generated.previewFile],
         ['source', asset?.source],
       ].filter((entry) => entry[1]);

@@ -1,5 +1,7 @@
 # refactor-instructions.md — pce-game-editor リファクタリング指示書
 
+> **文書区分: 過去の作業指示。** 2026-07-10 時点の実装監査と次作業は [docs/implementation-audit-2026-07-10.md](docs/implementation-audit-2026-07-10.md) を参照してください。本書と現行コードが異なる場合は現行コードを正とします。
+
 このファイルは実装担当モデル(Codex / Opus 等)向けの作業指示書である。
 作業前に必ず `AGENTS.md` を読み、本書と矛盾する場合は `AGENTS.md` と人間の指示を優先すること。
 
