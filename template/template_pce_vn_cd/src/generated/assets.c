@@ -19,16 +19,14 @@
 
 #include "assets.h"
 
-const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = { { 106u, 0u, 0u }, 3u };
-const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = { { 107u, 0u, 0u }, 2u };
-const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = { { 108u, 0u, 0u }, 3u };
-const pce_editor_meta_region_t pce_editor_psg_meta PCE_EDITOR_RODATA_SECTION = { { 109u, 0u, 0u }, 2u };
-const pce_editor_meta_region_t pce_editor_cdda_meta PCE_EDITOR_RODATA_SECTION = { { 110u, 0u, 0u }, 1u };
+const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = { { 76u, 0u, 0u }, 3u };
+const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = { { 77u, 0u, 0u }, 2u };
+const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = { { 78u, 0u, 0u }, 3u };
+const pce_editor_meta_region_t pce_editor_cdda_meta PCE_EDITOR_RODATA_SECTION = { { 79u, 0u, 0u }, 1u };
 
 const unsigned int pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = 3;
 const unsigned int pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = 2;
 const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 3;
-const unsigned int pce_editor_psg_asset_count PCE_EDITOR_RODATA_SECTION = 2;
 const unsigned int pce_editor_cdda_asset_count PCE_EDITOR_RODATA_SECTION = 1;
 
 

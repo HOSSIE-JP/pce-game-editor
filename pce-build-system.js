@@ -9,6 +9,7 @@ const assetManager = require('./pce-asset-manager');
 const vnManager = require('./pce-vn-manager');
 const hucardVnManager = require('./pce-vn-hucard-manager');
 const setupManager = require('./pce-setup-manager');
+const systemCardProfile = require('./pce-system-card-profile');
 
 const DEFAULT_PROJECT_NAME = 'sample_pce_game';
 const TEMPLATE_PROJECT_PREFIX = 'template_';
@@ -262,6 +263,7 @@ function normalizeCdConfig(value = {}) {
   return {
     iplPath: String(raw.iplPath || '').trim(),
     systemCardPath: String(raw.systemCardPath || '').trim(),
+    systemCardProfile: String(raw.systemCardProfile || '').trim(),
     isoName,
     dataFiles: Array.isArray(raw.dataFiles) ? raw.dataFiles.map((entry) => String(entry || '').trim()).filter(Boolean) : [],
     cddaTracks: Array.isArray(raw.cddaTracks) ? raw.cddaTracks.map((entry) => String(entry || '').trim()).filter(Boolean) : [],
@@ -300,6 +302,12 @@ function normalizeProjectConfig(config = {}) {
     ? { ...config.pluginSettings }
     : {};
   const builder = normalizeTemplateBuilderRole(pluginRoles.builder, targetMedia);
+  const cd = normalizeCdConfig(config.cd);
+  // The current CD VN format has exactly one BIOS ABI. This is a derived build
+  // contract, not a user-selected ROM path or a compatibility switch.
+  if (targetMedia === 'cd' && builder === PCE_VISUAL_NOVEL_BUILDER_ID) {
+    cd.systemCardProfile = systemCardProfile.SYSTEM_CARD_PROFILE_JP_V3;
+  }
   return {
     coreId: 'pc-engine',
     platform: 'pce',
@@ -310,7 +318,7 @@ function normalizeProjectConfig(config = {}) {
     romName,
     toolchain: normalizeToolchain(config.toolchain || DEFAULT_TOOLCHAIN),
     targetMedia,
-    cd: normalizeCdConfig(config.cd),
+    cd,
     testPlay: normalizeTestPlayConfig(config.testPlay),
     pluginRoles: {
       testplay: 'pce-standard-emulator',
@@ -1070,11 +1078,13 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
     }
     const rawCommand = setupManager.getLlvmMosPceCdPath() || toolPath || 'mos-pce-cd-clang';
     const elfPath = path.join(outDir, `${romBase}.elf`);
+    const mapPath = path.join(outDir, `${romBase}.map`);
     const isoPath = path.join(outDir, `${romBase}.iso`);
     const cuePath = path.join(outDir, `${romBase}.cue`);
     const expandedCommand = expandLlvmMosClangWrapper(rawCommand, [
       '-Oz',
       '-DPCE_EDITOR_TARGET_CD=1',
+      `-Wl,-Map=${mapPath}`,
       ...vnManager.overlayLinkerArgs(projectDir),
       '-o',
       elfPath,
@@ -1090,6 +1100,7 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
       cwd: projectDir,
       env: buildSpawnEnv(expandedCommand.command, toolchain),
       elfPath,
+      mapPath,
       isoPath,
       cuePath,
       romPath: cuePath,
@@ -1164,6 +1175,140 @@ function summarizeHuCardVnMapBanks(mapPath) {
     `runtime ${runtimeBanks.map(formatBank).join(', ')}`,
     `data ${dataBanks.length ? dataBanks.map(formatBank).join(', ') : 'none'}`,
   ].join('; ');
+}
+
+const PCE_CD_VN_CONSOLE_RAM_START = 0x2616;
+const PCE_CD_VN_CONSOLE_RAM_END = 0x4000;
+const PCE_CD_VN_CONSOLE_RAM_MAX_USED = 0x1200;
+const PCE_CD_VN_CONSOLE_RAM_MIN_FREE = 2026;
+const PCE_CD_VN_ZP_MAX_END = 0x20e6;
+
+function parseLinkMapOutputSections(mapPath) {
+  if (!mapPath || !fs.existsSync(mapPath)) {
+    throw new Error(`link map が生成されていません: ${mapPath || '(unknown)'}`);
+  }
+  const sections = [];
+  const pattern = /^\s*([0-9a-f]+)\s+([0-9a-f]+)\s+([0-9a-f]+)\s+\d+\s+(\.[A-Za-z0-9_.]+)\s*$/i;
+  fs.readFileSync(mapPath, 'utf-8').split(/\r?\n/).forEach((line) => {
+    const match = pattern.exec(line);
+    if (!match) return;
+    sections.push({
+      vma: parseInt(match[1], 16),
+      lma: parseInt(match[2], 16),
+      size: parseInt(match[3], 16),
+      name: match[4],
+    });
+  });
+  return sections;
+}
+
+function readElf32Sections(elfPath) {
+  const data = fs.readFileSync(elfPath);
+  if (data.length < 52 || data[0] !== 0x7f || data.toString('ascii', 1, 4) !== 'ELF') {
+    throw new Error(`ELF section table を読めません: ${elfPath}`);
+  }
+  if (data[4] !== 1 || data[5] !== 1) {
+    throw new Error('PCE-CD link gate は32-bit little-endian ELFを要求します');
+  }
+  const sectionOffset = data.readUInt32LE(0x20);
+  const sectionEntrySize = data.readUInt16LE(0x2e);
+  const sectionCount = data.readUInt16LE(0x30);
+  const stringTableIndex = data.readUInt16LE(0x32);
+  if (!sectionEntrySize || stringTableIndex >= sectionCount
+      || sectionOffset + (sectionEntrySize * sectionCount) > data.length) {
+    throw new Error('ELF section table が範囲外です');
+  }
+  const stringHeader = sectionOffset + (sectionEntrySize * stringTableIndex);
+  const stringOffset = data.readUInt32LE(stringHeader + 16);
+  const stringSize = data.readUInt32LE(stringHeader + 20);
+  if (stringOffset + stringSize > data.length) throw new Error('ELF section name table が範囲外です');
+  const readName = (offset) => {
+    if (offset >= stringSize) return '';
+    const start = stringOffset + offset;
+    let end = start;
+    while (end < stringOffset + stringSize && data[end]) end++;
+    return data.toString('utf8', start, end);
+  };
+  const out = new Map();
+  for (let index = 0; index < sectionCount; index++) {
+    const offset = sectionOffset + (sectionEntrySize * index);
+    const name = readName(data.readUInt32LE(offset));
+    if (!name) continue;
+    out.set(name, {
+      type: data.readUInt32LE(offset + 4),
+      address: data.readUInt32LE(offset + 12),
+      offset: data.readUInt32LE(offset + 16),
+      size: data.readUInt32LE(offset + 20),
+    });
+  }
+  return out;
+}
+
+function validatePceCdVnLinkMap(mapPath, elfPath) {
+  const sections = parseLinkMapOutputSections(mapPath);
+  const elfSections = readElf32Sections(elfPath);
+  const errors = [];
+  const maxEndInRange = (origin, length) => sections.reduce((max, section) => {
+    const ends = [section.vma, section.lma]
+      .filter((address) => address >= origin && address < origin + length)
+      .map((address) => (address - origin) + section.size);
+    return ends.length ? Math.max(max, ...ends) : max;
+  }, 0);
+  const bankOrigin = (bank, address) => 0x01000000 + (bank * 0x10000) + address;
+  const usage = {
+    123: maxEndInRange(bankOrigin(123, 0xc000), 0x2000),
+    128: maxEndInRange(bankOrigin(128, 0x4000), 0x2000),
+    129: maxEndInRange(bankOrigin(129, 0x6000), 0x2000),
+    130: maxEndInRange(bankOrigin(130, 0x8000), 0x2000),
+    132: maxEndInRange(bankOrigin(132, 0xc000), 0x2000),
+    133: maxEndInRange(bankOrigin(133, 0x8000), 0x2000),
+    134: maxEndInRange(bankOrigin(134, 0xc000), 0x2000),
+    135: maxEndInRange(bankOrigin(135, 0xc000), 0x2000),
+  };
+  const bank132Tail = sections.find((section) => section.name === '.ram_bank132_tail');
+  if (bank132Tail) usage[132] = Math.max(usage[132], ((bank132Tail.vma & 0xffff) - 0xc000) + bank132Tail.size);
+  [128, 129, 130, 132, 133].forEach((bank) => {
+    if (usage[bank] >= 0x2000) errors.push(`bank${bank} usage ${usage[bank]}/8192 must be below 8192`);
+  });
+  [123, 134, 135].forEach((bank) => {
+    if (usage[bank] !== 0x2000) errors.push(`bank${bank} reservation ${usage[bank]}/8192 must equal 8192`);
+  });
+  ['.ram_bank123', '.ram_bank134', '.ram_bank135'].forEach((name) => {
+    const section = elfSections.get(name);
+    if (!section || section.type !== 8) errors.push(`${name} must be an ELF SHT_NOBITS/NOLOAD section`);
+  });
+  ['.vn_visual_code', '.vn_cd_async_code'].forEach((name) => {
+    const section = sections.find((entry) => entry.name === name);
+    if (section && section.size >= 0x2000) errors.push(`${name} ${section.size}/8192 must be below 8192`);
+  });
+  let consoleEnd = PCE_CD_VN_CONSOLE_RAM_START;
+  let zpEnd = 0x2020;
+  sections.forEach((section) => {
+    const address = section.vma & 0xffff;
+    const end = address + section.size;
+    if (['.bss', '.noinit', '.console_ram'].includes(section.name)
+        && address >= PCE_CD_VN_CONSOLE_RAM_START && address < PCE_CD_VN_CONSOLE_RAM_END) {
+      consoleEnd = Math.max(consoleEnd, end);
+    }
+    if (['.zp.data', '.zp.bss', '.zp'].includes(section.name)) zpEnd = Math.max(zpEnd, end);
+  });
+  const consoleUsed = consoleEnd - PCE_CD_VN_CONSOLE_RAM_START;
+  const consoleFree = PCE_CD_VN_CONSOLE_RAM_END - consoleEnd;
+  if (consoleUsed > PCE_CD_VN_CONSOLE_RAM_MAX_USED) {
+    errors.push(`app console RAM ${consoleUsed} exceeds ${PCE_CD_VN_CONSOLE_RAM_MAX_USED} bytes`);
+  }
+  if (consoleFree < PCE_CD_VN_CONSOLE_RAM_MIN_FREE) {
+    errors.push(`System Card console RAM margin ${consoleFree} is below ${PCE_CD_VN_CONSOLE_RAM_MIN_FREE} bytes`);
+  }
+  if (zpEnd > PCE_CD_VN_ZP_MAX_END) errors.push(`ZP end $${zpEnd.toString(16)} exceeds $20e6`);
+  if (errors.length) throw new Error(`PCE-CD VN link-map gate failed: ${errors.join('; ')}`);
+  return { usage, consoleUsed, consoleFree, consoleEnd, zpEnd };
+}
+
+function formatPceCdVnLinkGate(report) {
+  const banks = [123, 128, 129, 130, 132, 133, 134, 135]
+    .map((bank) => `bank${bank} ${report.usage[bank]}/8192`).join(', ');
+  return `${banks}; console ${report.consoleUsed}/4608 (free ${report.consoleFree}); ZP end $${report.zpEnd.toString(16)}`;
 }
 
 function buildProject(onLog, options = {}) {
@@ -1350,7 +1495,9 @@ function buildProject(onLog, options = {}) {
       flushBuildStdout();
       flushBuildStderr();
       stageDone(commandInfo.targetMedia === 'cd' ? 'compile/link ELF' : 'compile ROM', compileStage, `exit ${code}`);
-      const hucardVnMapSummary = summarizeHuCardVnMapBanks(commandInfo.mapPath);
+      const hucardVnMapSummary = commandInfo.targetMedia !== 'cd'
+        ? summarizeHuCardVnMapBanks(commandInfo.mapPath)
+        : null;
       if (hucardVnMapSummary) {
         log(`HuCARD VN bank usage: ${hucardVnMapSummary}`);
       }
@@ -1360,6 +1507,10 @@ function buildProject(onLog, options = {}) {
       }
       try {
         let romInfo = null;
+        if (commandInfo.targetMedia === 'cd' && isVisualNovelProject(projectDir, config)) {
+          const linkGate = validatePceCdVnLinkMap(commandInfo.mapPath, commandInfo.elfPath);
+          log(`PCE-CD VN memory gate: ${formatPceCdVnLinkGate(linkGate)}`);
+        }
         if (commandInfo.toolchain === 'cc65') {
           romInfo = postprocessCc65PceRom(commandInfo.binPath, commandInfo.romPath);
         }
@@ -1464,6 +1615,10 @@ module.exports = {
   PCE_VISUAL_NOVEL_BUILDER_ID,
   PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID,
   PCE_CD_DATA_BASE_SECTOR,
+  PCE_CD_VN_CONSOLE_RAM_START,
+  PCE_CD_VN_CONSOLE_RAM_MAX_USED,
+  PCE_CD_VN_CONSOLE_RAM_MIN_FREE,
+  PCE_CD_VN_ZP_MAX_END,
   parseMkcdFirstDataSector,
   findLlvmMosLinkerPath,
   formatLlvmMosLinkerPreflightFailure,
@@ -1503,6 +1658,10 @@ module.exports = {
   normalizeToolchain,
   openProject,
   postprocessCc65PceRom,
+  parseLinkMapOutputSections,
+  readElf32Sections,
+  validatePceCdVnLinkMap,
+  formatPceCdVnLinkGate,
   repairHuCardSlideshowMainIfNeeded,
   resolveCc65Home,
   saveProjectConfig,

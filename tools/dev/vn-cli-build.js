@@ -18,7 +18,9 @@ Module._load = function (request, parent, isMain) {
   return origLoad.apply(this, arguments);
 };
 const bs = require(path.join(process.cwd(), 'pce-build-system.js'));
-const projectDir = path.join(process.cwd(), 'data/projects/my_pce_game');
+const projectDir = process.env.PCE_VN_PROJECT
+  ? path.resolve(process.env.PCE_VN_PROJECT)
+  : path.join(process.cwd(), 'data/projects/my_pce_game');
 bs.setProjectDir(projectDir);
 const log = (m, lvl='info') => console.log(`[${lvl}] ${m}`);
 bs.buildProject(log, {}).then((r) => {

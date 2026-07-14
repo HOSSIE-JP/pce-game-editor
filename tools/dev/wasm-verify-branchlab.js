@@ -3,6 +3,7 @@
 // enough to pass opening -> branch_lab (the ADPCM mid-playback stop), capture
 // frames. Disables Chromium background throttling so rAF runs at full speed.
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const setupManager = require('../../pce-setup-manager');
@@ -58,9 +59,10 @@ async function main() {
     debug: true,
   };
   ipcMain.handle('testplay:getContext', () => ({ context }));
+  ipcMain.handle('testplay:getSettings', () => ({ settings: {} }));
 
   const win = new BrowserWindow({
-    width: 960, height: 760, show: true, backgroundColor: '#0d1117',
+    width: 960, height: 760, show: false, backgroundColor: '#0d1117',
     webPreferences: {
       preload: path.join(repoDir, 'plugins', 'pce-standard-emulator', 'testplay-preload.js'),
       contextIsolation: true, nodeIntegration: false, sandbox: false, backgroundThrottling: false,
@@ -73,30 +75,60 @@ async function main() {
   // Wait for the core to be Running.
   for (let i = 0; i < 45; i++) {
     const s = await win.webContents.executeJavaScript(`(document.getElementById('status')?.textContent||'')`);
-    if (/Running|Emulator ready|Ready/.test(s)) break;
+    if (/Running/.test(s)) break;
     await sleep(1000);
   }
-  await sleep(2000);
+  /* EJS_onGameStart fires before the emulated System Card has reached its
+     input-ready prompt. */
+  await sleep(30000);
 
   const haveMgr = await win.webContents.executeJavaScript(
     `!!(window.EJS_emulator && window.EJS_emulator.gameManager && window.EJS_emulator.gameManager.simulateInput)`);
   process.stdout.write(`MANAGER_READY ${haveMgr}\n`);
+  if (!haveMgr) throw new Error('EmulatorJS simulateInput() is unavailable');
 
-  // Tap RUN (button 3) many times to advance opening -> jump to branch_lab.
-  // Capture a frame after each batch so we can see how far it got.
-  const shotDir = '/private/tmp/wasm-verify';
+  // Enter CD boot once, then leave the System Card loader undisturbed. After
+  // boot, alternate I and RUN through the public simulateInput() path.
+  const shotDir = path.join(os.tmpdir(), `wasm-verify-${Date.now()}`);
   fs.mkdirSync(shotDir, { recursive: true });
-  const tapRun = () => win.webContents.executeJavaScript(`(() => {
+  const tapButton = (button) => win.webContents.executeJavaScript(`(() => {
     const m = window.EJS_emulator && window.EJS_emulator.gameManager;
     if (!m || !m.simulateInput) return false;
-    m.simulateInput(0, 3, 1);
-    setTimeout(() => m.simulateInput(0, 3, 0), 120);
+    m.simulateInput(0, ${Number(button) || 0}, 1);
+    setTimeout(() => m.simulateInput(0, ${Number(button) || 0}, 0), 120);
     return true;
   })()`);
 
-  for (let i = 0; i < 45; i++) {
-    await tapRun();
-    await sleep(900);
+  let bootStarted = false;
+  for (let i = 0; i < 90; i++) {
+    if (i % 3 === 0) await tapButton(3);
+    await sleep(2000);
+    const transitionImage = await win.webContents.capturePage();
+    if (transitionImage.toPNG().length <= 13000) {
+      bootStarted = true;
+      break;
+    }
+  }
+  if (!bootStarted) throw new Error('System Card did not enter CD boot');
+
+  let bootImage = null;
+  let applicationReady = false;
+  for (let i = 0; i < 60; i++) {
+    await sleep(2000);
+    bootImage = await win.webContents.capturePage();
+    /* On this Test Play layout the System Card/blank frames are <= 17 KiB,
+       while the first VN background is materially larger.  Do not consume VN
+       input until CD boot has actually drawn application content. */
+    if (bootImage.toPNG().length > 20000) {
+      applicationReady = true;
+      break;
+    }
+  }
+  if (!applicationReady) throw new Error('VN application background was not drawn after CD boot');
+  fs.writeFileSync(path.join(shotDir, 'boot.png'), bootImage.toPNG());
+  for (let i = 0; i < 80; i++) {
+    await tapButton(i % 3 === 2 ? 3 : 0);
+    await sleep(500);
     if (i % 5 === 4) {
       const img = await win.webContents.capturePage();
       fs.writeFileSync(path.join(shotDir, `shot-${String(i + 1).padStart(2, '0')}.png`), img.toPNG());

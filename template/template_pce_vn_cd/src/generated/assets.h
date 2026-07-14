@@ -71,25 +71,6 @@ typedef struct {
   unsigned char palette_bank;
 } pce_editor_sprite_draw_meta_t;
 
-typedef struct __attribute__((packed)) {
-  unsigned int step;
-  unsigned char channel;
-  unsigned int period;
-  unsigned char volume;
-  unsigned char noise;
-  unsigned char reserved;
-} pce_editor_psg_step_t;
-
-typedef struct {
-  unsigned char is_song;
-  unsigned int period;
-  unsigned int bpm;
-  unsigned int steps;
-  const pce_editor_psg_step_t *pattern;
-  unsigned int pattern_count;
-  const pce_editor_cd_data_ref_t *pattern_cd;
-} pce_editor_psg_asset_t;
-
 typedef struct {
   const unsigned char *data;
   unsigned long data_size;
@@ -142,13 +123,6 @@ typedef struct {
 #define PCE_EDITOR_META_ADPCM_LOOP 11u
 #define PCE_EDITOR_META_ADPCM_PLAY_FRAMES 12u
 #define PCE_EDITOR_META_ADPCM_CD 14u
-#define PCE_EDITOR_META_PSG_SLOT 32u
-#define PCE_EDITOR_META_PSG_IS_SONG 0u
-#define PCE_EDITOR_META_PSG_PERIOD 1u
-#define PCE_EDITOR_META_PSG_BPM 3u
-#define PCE_EDITOR_META_PSG_STEPS 5u
-#define PCE_EDITOR_META_PSG_PATTERN_COUNT 7u
-#define PCE_EDITOR_META_PSG_PATTERN_CD 9u
 #define PCE_EDITOR_META_CDDA_SLOT 32u
 #define PCE_EDITOR_META_CDDA_TRACK 0u
 #define PCE_EDITOR_META_CDDA_LOOP 1u
@@ -162,7 +136,6 @@ typedef struct {
 extern const pce_editor_meta_region_t pce_editor_bg_meta;
 extern const pce_editor_meta_region_t pce_editor_sprite_meta;
 extern const pce_editor_meta_region_t pce_editor_adpcm_meta;
-extern const pce_editor_meta_region_t pce_editor_psg_meta;
 extern const pce_editor_meta_region_t pce_editor_cdda_meta;
 
 extern const pce_editor_bg_asset_t pce_editor_bg_assets[];
@@ -170,8 +143,6 @@ extern const unsigned int pce_editor_bg_asset_count;
 extern const pce_editor_sprite_asset_t pce_editor_sprite_assets[];
 extern const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta[];
 extern const unsigned int pce_editor_sprite_asset_count;
-extern const pce_editor_psg_asset_t pce_editor_psg_assets[];
-extern const unsigned int pce_editor_psg_asset_count;
 extern const pce_editor_adpcm_asset_t pce_editor_adpcm_assets[];
 extern const unsigned int pce_editor_adpcm_asset_count;
 extern const pce_editor_cdda_asset_t pce_editor_cdda_assets[];

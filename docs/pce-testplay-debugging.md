@@ -1,119 +1,149 @@
 # PCE Test Play Debugging
 
-このメモは、PC Engine / Super CD-ROM2 の Test Play や描画崩れを Codex が調査するときの運用です。
+PC Engine / Super CD-ROM²のTest Play、VDC、System Card PSG、ADPCMを調査するときの現行手順です。
 
 ## 基本方針
 
-- PCE の画面荒れ、波打ち、タイル化け、スプライト化けは、利用可能なら Geargrafx MCP でデバッグします。
-- EmulatorJS / ブラウザーキャプチャは再現確認やユーザー向け見た目確認に使い、原因特定は Geargrafx MCP の VDC / VRAM / SATB / palette 情報を優先します。
-- CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` 前提です。System Card / IPL はユーザー所有ファイルとして扱い、リポジトリへ同梱しません。
-- Super CD-ROM2 / ADPCM の確認では、標準 EmulatorJS/WASM だけを正としません。Geargrafx や外部エミュレーターで正常に進む場合は、ROM/runtime 全体ではなく標準 WASM core の差分として扱います。
-- Geargrafx MCP がこのセッションで見えない場合は、まず MCP ツール discovery と接続状態を確認し、それでも使えないときだけ Electron Test Play キャプチャを暫定手段にします。
+- 描画、VDC、SATB、PSG、bank、IRQの原因特定にはGeargrafx MCPを優先します。
+- EmulatorJS/WASMはユーザー向け再現とADPCM固有回帰の確認に使います。WASMだけの挙動で実機寄りruntimeを壊さないでください。
+- CD VNは`targetMedia: "cd"`、`toolchain: "llvm-mos"`で、builderが`cd.systemCardProfile: "jp-v3"`へ自動的に正規化します。System Card ROMはビルド入力ではなく、Test PlayがSetupで指定されたユーザー所有の日本版Super System Card 3.0 ROMを検証します。
+- BIOS、IPL、PSG driver、抽出fontをリポジトリへ保存しません。
 
-## 推奨手順
+## 起動
 
-1. `PLUGIN.md` とこのファイルを読み、変更対象が PCE runtime / asset / build / Test Play のどこかを切り分けます。
-2. 対象プロジェクトを通常のビルド経路でビルドし、`.cue` / `.pce` の出力を確認します。
-3. Geargrafx MCP で出力 ROM / CUE を起動し、ゲーム開始後の問題フレームまで進めます。
-4. VDC control register を確認し、DRAM refresh、VRAM increment、BG / sprite enable が意図通りかを見ます。
-5. BG map、tile VRAM、font/UI tile 領域、palette bank を確認し、マップが参照しているタイル番号と実データが一致しているかを見ます。
-6. スプライト化けでは SATB の `x` / `y` / `pattern` / `attr`、sprite pattern VRAM、sprite palette を合わせて確認します。
-7. 修正後は Geargrafx MCP で同じフレームを再確認し、必要なら Electron Test Play でもユーザーが見る画面をキャプチャします。
+1. 通常buildで`.cue`を生成し、memory gateを確認します。
+2. `load_media`後に`debug_continue`します。
+3. System Card画面でRUNを`press_and_release`します。
+4. CD bootは実時間で待ちます。`debug_step_frame`だけで進めるとboot/input edge/PSG timingを誤判定します。
+5. `get_media_info`で`is_cdrom`、`loaded_bios`、`ready`を確認します。
 
-## Geargrafx MCP で CD-ROM2 を起動するとき
+`debug_reset`後はpausedのことがあります。`debug_get_status`を確認してから`debug_continue`してください。
 
-- Super CD-ROM2 / CUE 起動直後に表示されるのはゲーム本体ではなく System Card 画面です。CD-ROM2 VN タイトルは、ここで RUN を押して CD boot を開始しない限り VN runtime / `main()` は動きません。RUN 前の VDC / SATB / CPU 状態をゲーム側の状態として扱わないでください。
-- MCP で進めるときは、`get_media_info` で `is_cdrom: true`、`loaded_bios: true`、`ready: true` を確認したあと、`controller_button` に `{ "player": 1, "button": "run", "action": "press_and_release" }` を送ります。
-- RUN 後に数秒の黒画面が出ても、CD data 読み込み待ちの正常な経過であることがあります。すぐハングと判断せず、数秒待って `get_screenshot` / `get_cdrom_status` / `get_huc6280_status` を見てから切り分けます。
-- `debug_reset` を使った直後は Geargrafx が paused のままになることがあります。黒画面で入力が効かない場合は `debug_get_status` の `paused` を確認し、必要なら `debug_continue` してから RUN / I / RIGHT などを送ります。
+## Codex tool一覧にMCPがない場合
 
-## Codex から Geargrafx MCP が直接見えない場合
+Windowsでは次をstdio MCP serverとして直接起動できます。
 
-この環境では Geargrafx MCP が Codex の通常 tool として露出していなくても、Geargrafx 本体を stdio MCP server として直接起動して調査できます。セットアップ不足とは限らず、Codex 側の tool discovery に出ていないだけのことがあります。
-
-- Windows の既定確認先は `C:\homebrew\emulator\Geargrafx\Geargrafx.exe` です。`--headless --mcp-stdio` を付けて起動します。
-- Geargrafx 1.7.x の stdio MCP は 1 行 1 JSON の JSON-RPC です。Language Server 風の `Content-Length:` framing ではないため、送信は `JSON.stringify(payload) + "\n"`、受信は改行単位で parse します。
-- 最初に `initialize` を送り、その後 `tools/list` で必ず schema を確認します。バージョン差で引数名が変わることがあります。
-- Geargrafx 1.7.12 では `load_media` の引数は `{ "file_path": "..." }` です。`path` では `File path is required` になります。
-- Geargrafx 1.7.12 では `controller_button` の引数は `{ "player": 1, "button": "I", "action": "press" | "release" | "press_and_release" }` です。`pressed: true/false` では動きません。
-- `tools/call` で `load_media`、`debug_continue`、`controller_button`、`get_psg_status`、`get_huc6280_status` などを直接呼べます。環境によっては `execute_tool` wrapper もありますが、まず `tools/list` の direct tool schema を正とします。
-- CD-ROM2 の boot / ADPCM / PSG / 入力 edge は実時間経過に依存します。`debug_step_frame` だけで高速に進めると、System Card boot や RUN/I edge の扱いを誤認しやすいため、`debug_continue` 後に `setTimeout` などで実時間待ちを入れて確認してください。
-- PSG song / sfx の確認では、画面遷移だけでなく `get_psg_status` を見ます。`main_amplitude: "FF"`、対象 channel の `enabled`、`frequency`、左右 volume が非ゼロかを確認します。短い SFX はすぐ自然終了するため、押下直後だけでなく数百 ms 間隔で複数回サンプリングします。
-- bank 切り替えが絡む PSG / CD data 調査では `get_huc6280_status` の MPR を確認します。たとえば VN data の MPR6 は通常 bank132 (`0x84`) に戻るべきで、PSG pattern 読み込み中だけ bank134/135 に切り替わります。
-- breakpoint は `set_breakpoint` で `memory_area: "cpu_addr"` と `execute: true`、または write breakpoint を使います。PSG なら `play_psg_asset`、`psg_apply_step_row`、`PCE_PSG_GLOBAL` (`$0801`) / `PCE_PSG_CONTROL` (`$0804`) への write を見ると、command 実行、pattern 適用、実 register 書き込みを分けられます。
-
-## 標準 WASM だけ ADPCM 後に進まない場合
-
-既知の切り分け結果として、Geargrafx では正常に進む Super CD-ROM2 / VN project が、標準 EmulatorJS/WASM の `mednafen_pce-wasm.data` だけ ADPCM 再生後に message input を受け付けず、同じ frame が描画され続けることがあります。この状態では emulator の frame counter は進み、`gameManager.simulateInput()` で PCE button index を直接注入しても VN script が次 command へ進みません。ADPCM command を抜いた同一 scene は同じ入力注入で進むため、単純な window focus / key mapping の不具合とは区別します。
-
-再発防止メモ:
-
-- 「ADPCM 再生中に次 command へ進んだ」だけでは合格にしません。短い voice が自然終了する時点まで待ち、その後の `wait` / next message が実行されるかを確認します。
-- 画面が同じままでも、原因は VN command scheduler、joypad edge、CPU 停止のどれかで異なります。`simulateInput()` で進まない場合でも入力経路だけを疑わず、ADPCM 完了IRQで CPU が止まるケースを先に除外します。
-- 標準 WASM だけで再現し、Geargrafx / 外部エミュレーターで再現しない場合は、runtime の正しい実機寄り挙動を壊して回避しないでください。WASM core 固有の IRQ / BIOS helper 差分として切り分けます。
-- `pce_cdb_adpcm_status()` の stopped bit を毎 frame 監視する修正、自然終了後の追加 `pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()`、ADPCM divider や encoder を触る修正は、この症状の初手にしません。
-
-調査手順:
-
-1. Geargrafx MCP または `pce-external-emulator` で同じ `.cue` を起動し、ADPCM 後の message advance が正常か確認します。
-2. 標準 EmulatorJS 側では console log で読み込まれた core が `mednafen_pce-wasm.data` か、legacy core へ落ちていないかを確認します。
-3. Electron Test Play では frame counter が進むかを確認し、停止しているのが emulator 全体か VN input path かを分けます。
-4. 同じ project から ADPCM audio command だけを抜いた比較 build を作り、同じ `simulateInput()` 注入で次 message / scene へ進むか確認します。
-5. `message.voiceAssetId` 付き auto message の直後に ADPCM の想定再生時間より長い `wait` と次 message を置き、入力なしで最後の message へ到達するか確認します。ADPCMなし対照だけが進む場合は、command advance ではなく ADPCM 完了時点の問題を疑います。
-6. Geargrafx が正常で標準 WASM だけが止まる場合、VN runtime の割り込みや ADPCM 終了処理をむやみに変えないでください。ADPCM one-shot / buffered 再生は、再生開始後に毎フレーム System Card BIOS の `pce_cdb_adpcm_status()` で自然終了監視しないでください。標準 WASM core では ADPCM 終了まで status polling した後に joypad edge が戻らないことがあります。現行 runtime は data size と sample rate から求めた frame counter で自然終了や buffered loop を管理します。
-7. 標準 WASM core では buffered ADPCM one-shot の完了IRQで CPU が止まることがあります。現行 runtime は CD data read / CD-DA / RAM fallback など BIOS 操作時だけ external IRQ を有効にし、RAM に収まる buffered 再生は `pce_cdb_adpcm_play()` を使わず direct latch + repeat mode で開始し、generated `play_frames` より数 frame 早く direct stopします。direct latch は ADPCM read address / `0xffff` length / divider を使い、実データ長を hardware length に入れません。実データ長を入れると通常再生の中間地点で ADPCM half IRQ (`0x04`) が立ち、System Card IRQ path が VDC/PSG state を壊すためです。CD-backed ADPCM RAM load は bank122 の direct SCSI async path で `IO_PCD_ADPCM_DATA` へ書き、external IRQ や `quiet_cd_unit_irqs()` を使いません。Geargrafx では async load 中の PC が bank122 (`MPR4=$7A`) 側へ入り、`sectors_left` が減る間も PSG signature が frame ごとに変化することを確認します。終端後に `get_adpcm_status.control=20` のまま `cd_active_irqs=08` または `0C` が残る場合は、direct stop が間に合わず repeat wrap しています。
-8. CD data read、CD-DA pause/play、ADPCM RAM fallback など BIOS helper を追加・移動した場合は、必要な直前だけ external IRQ を有効にし、helper 後は `sync_cd_external_irq_after_bios_call()` で external IRQ と HuC6280 `IRQ_VDC` mask を閉じます。CD-backed ADPCM RAM load の標準 path はこの BIOS helper 契約の対象外で、raw VBlank wait + `engine_service()` + `vn_cd_async_service_frame()` の loading frame で進めます。buffered direct playback の明示 stop / 自然終了 cleanup では BIOS stop/reset を通さず、ADPCM hardware の PLAY bit を直接落とします。PC が runtime の `vn_wait_next_vblank()` で止まり MPR0 が `$00` なら、VDC / PSG / joypad の MMIO read 前に MPR0 を `$FF` I/O page へ戻す処理が抜けています。
-9. CD-ROM2 VN runtime は System Card の VBlank handler を使いません。`VN_VDC_CONTROL_BASE` には `IO_VDC_STATUS` polling 用に `VDC_CONTROL_IRQ_VBLANK` を残しますが、HuC6280 側の `IRQ_VDC` は通常 `pce_irq_disable(IRQ_VDC)` で mask します。Geargrafx で CPU execute breakpoint `$E870` が message 待ち中に止まるなら System Card handler が残っています。
-10. ADPCM BIOS call 直後の message advance edge が標準 WASM core だけで落ちる場合があります。現行 runtime は ADPCM 再生開始後に次の joypad edge 判定を一度だけ初期化し、`message.voiceAssetId` 付き message でも次 command へ進めるようにしています。この初期化では現在押されている button を baseline にし、押しっぱなしの I/RUN を新規 edge として扱わないでください。`last_pad` を 0 に戻すと、ADPCM message 開始直後に `finish_active_message()` が走り typewriter が即スキップされます。
-11. 自然終了済みの ADPCM へ追加の `pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()` を投げると、標準 WASM core で joypad edge が戻らない原因になります。明示的な AUDIO stop と自然終了 cleanup は分けて扱います。RAM に収まる buffered 再生の AUDIO stop も direct stop を使います。
-12. それでも標準 WASM だけが止まる場合、実機寄り確認は外部エミュレーターを優先し、標準 WASM 側の制約として記録します。
-
-最小再現 scene の形:
-
-```jsonc
-{
-  "settings": { "messageAdvanceMode": "auto", "messageAutoWaitFrames": 1 },
-  "commands": [
-    { "type": "message", "text": "ADPCMさいせい", "voiceAssetId": "voice_01" },
-    { "type": "wait", "frames": 90 },
-    { "type": "message", "text": "かんりょうごも うごいています" }
-  ]
-}
+```text
+C:\homebrew\emulator\Geargrafx\Geargrafx.exe --headless --mcp-stdio
 ```
 
-この scene は手入力に依存しないため、ADPCM BIOS call 直後の joypad edge 問題と、ADPCM 自然終了時の CPU 停止問題を分けやすいです。比較用に `voiceAssetId` だけを外した build も作り、標準 WASM の同じ core で最後の message へ到達するか確認してください。
+Geargrafx 1.7.xはnewline-delimited JSON-RPCです。`Content-Length` framingではありません。
 
-## 割り込みと VDC レジスタの非再入性（スプライト破壊）
+1. `initialize`
+2. `tools/list`
+3. schemaどおりに`tools/call`
 
-VDC の 2 レジスタ I/F（$0000 = レジスタ選択 latch、$0002 = データ）は**再入不可**です。VRAM/SATB 転送は MAWR（書き込みアドレス）を設定→データ語を連続書き込みする手順で、途中で別経路が VDC を叩くと latch / 書き込みアドレスが壊れ、残りの転送が**別レジスタ・別 VRAM アドレス**へ着弾します。ADPCM/CD 再生中は System Card external IRQ が有効なので、この最中に IRQ が割り込むとスプライト（SATB / pattern）が壊れます。
+既知の引数は`load_media: { file_path }`、`controller_button: { player, button, action }`です。必ず実行中versionの`tools/list`を正とします。
 
-IRQ アトミック化のヘルパは `vn_vdc_irq_lock()`/`vn_vdc_irq_unlock()`（I フラグを php/plp で退避・SEI して復元。boot 等で IRQ 無効でも誤って有効化しない save/restore）。現在ガード済みの経路:
-- **口パクスプライト**（`upload_sprite_pattern_words()`、毎フレームの SATB 差分書き換え）= 「ADPCM 再生でスプライトが壊れる」。
-- **メッセージグリフ描画**（`draw_message_next_glyph_locked()`/`draw_message_text_locked()`、bank128 常駐ラッパーで `draw_message_glyph_at` の VDC mask 読み+合成タイル書きと bank133 overlay swap 全体を丸ごと囲む）= 「メッセージ描画タイミングで UI 外側にノイズ」。bank133 を map してから IRQ lock する、または IRQ unlock 後に bank130 へ戻す順序だと、短い IRQ 窓で数フレームだけ BG/メッセージが崩れる。message window の全 BAT remap (`map_message_window_cells`) は VDC 書き込みだけでなく、`msg_bat_row` を埋める C ループも IRQ lock の内側へ入れます。
-- **共通 VRAM copy**（`pce_editor_vram_copy()`、resident/noinline）= `write_map_words()` の BAT 行更新、message window clear、raw BG/map/font/sprite pattern の RAM→VDC data port 転送を IRQ guard 付きで実行。CD-ROM2 runtime では HuC6280 の TIA block transfer を使う。message 開始時の strip clear は message strip 208 タイルを連続で触るため、ここが未ガード、または表示中に参照中 tile をそのまま更新するとランダムな一瞬の BG/メッセージ破壊になる。message 開始/全文 reveal/choice 再描画は `begin_message_window_vram_update()` で message 窓 BAT だけを `PCE_VN_BLANK_TILE` へ退避し、clear/先読み/初回 glyph/一括 glyph draw が終わってから `end_message_window_vram_update()` で strip BAT へ戻す。R5 の display bit と `pending_display_enable` は Message 用には触らない。
-- **R5 high byte の維持** = VN runtime では `pce_vdc_set_copy_word()` を使わない。この SDK helper は R5 high byte を 0 にして DRAM refresh / VBlank status latch を落とす。System Card handler を mask しているため BIOS 側の復元も期待できない。`pce_editor_vram_copy()` と `upload_sprite_pattern_words()` は `vn_vdc_set_copy_word()` で R5 low byte を保ったまま high byte を `04` に戻す。通常表示中の R5 目安は `04C8`。
-- **SATB 全アップロード**（`upload_sprite_table()`）= BG/シーン変更後のスプライト再表示。
-- **口パク差分 refresh**（`refresh_scene_sprite_patterns()` → bank130 `refresh_scene_sprite_patterns_impl()`）= ADPCM/メッセージ中に走る SATB pattern/attr 差分更新。`upload_sprite_pattern_words()` は R19(SATB DMA start) を含む VDC 書き込み前に `vn_wait_next_vblank()` で次 VBlank に寄せる。Geargrafx で `huc6270_reg` R19 write breakpoint を置き、`v_state=VDW`（表示期間）で止まるならまだ危険。`VDS`/VBlank 側で止まる状態を確認する。
-- **CD/ADPCM/CD-DA BIOS helper 後の VDC 復元**（`restore_video_after_cdb_call()`）= resolution / memory control / SATB start / scroll / display control を連続で戻すため、表示中に戻す場合は VBlank へ寄せてから復元シーケンス全体を IRQ guard で囲む。すでに display blank 中の復元や `display_enable()` では、blank のまま VBlank を待つと Geargrafx で R5 が `0408` のまま進まないため、先に R5 を通常表示 (`04C8`) へ戻してから呼び出し側で次 frame を待つ。単発の `pce_vdc_poke` でも VDC register-select latch は再入不可なので、`set_vdc_control()` と `apply_screen_offset()` 単体も IRQ guard 付きにする。sprite layer enable/disable は BG を残した状態で VBlank wait 経由にし、表示期間中の R5/R7/R8/R9/R10 書き換えを避ける。
-- **System Card VBlank handler は使わない** = `PCE_CDB_MASK_VBLANK_NO_BIOS` でも System Card handler (`$E870`) は R5/R7/R8 を書くことがある。Geargrafx で CPU execute breakpoint `$E870`、または `huc6270_reg` R5/R7/R8 write breakpoint を置き、通常 message 待ち中に止まるなら HuC6280 `IRQ_VDC` の mask が足りない。VDC R5 の `VDC_CONTROL_IRQ_VBLANK` は status latch 用に残し、CPU 側だけ mask する。
-- **PSG step 適用中の bank switch** = PSG song の pattern は bank134/135 を MPR6 に張って読むため、`psg_apply_step_row()` は `vn_overlay_dispatch_locked(VN_OVERLAY_OP_APPLY_PSG_STEP, ...)` を通し、bank133 map、MPR6 の bank134/135 切替、PSG register write、bank130 復帰を IRQ save/restore で囲みます。Geargrafx で PSG+ADPCM 時だけ BG/Sprite が壊れる場合は、PSG register trace と同時に MPR6 が最終的に bank132 (`0x84`) へ戻ること、`VN_OVERLAY_OP_APPLY_PSG_STEP` が unguarded `vn_overlay_dispatch()` に戻っていないことを確認します。
+## System Card BIOS IRQ/PSG gate
 
-これらは bank128 常駐（または常駐ラッパー）でガードを 1 か所に持つことで、満杯の bank129/130 へインライン展開させずに収めています。巨大な compositor 関数（`draw_message_*`）は bank133 overlay へ逃がし、sprite 差分 refresh と message window BAT remap helper は bank130 に置いています（Phase 2 + VBlank/VDC/SATB/message-window hardening 後の Kitahe 実測: bank128=8110B(99.00%)、bank129=7963B(97.20%)、bank130=7686B(93.82%)、overlay=2260B/4096B）。
+CD VNはgraphics/full VBlank handlerを使わず、generic IRQ user vectorを使います。VBlank handlerの正しい流れは、VDC status ack→`PSG_DRIVE` 1回→frame epoch加算→`RTI`です。
 
-- **旧 RLE writer は撤去済み**。現行 generated visual payload は raw の `tiles.bin` / `map_vram.bin` / `patterns.bin` だけで、raw の CD blit / map row copy / BAT row write は `pce_editor_vram_copy()` の共通 guard を通る。旧 project に残る `.rle` sidecar は build 時に無視・除外される。
-- ガードは `--print-memory-usage` で bank128/129/130 の % を必ず確認すること。`memory` クロバーは付けない（volatile 同士の順序は保たれ、付けると満杯バンクのアップロードコードを deopt して溢れる）。
+6000 frame smokeで次を計測します。
 
-## 見るべき典型ポイント
+```powershell
+node tools\dev\geargrafx-system-card-smoke.js --cue template\template_pce_vn_cd\out\MY_NEW_GAME.cue
+node tools\dev\geargrafx-system-card-smoke.js --cue template\template_pce_vn_cd\out\MY_NEW_GAME.cue --exercise
+```
 
-- 波打ちや画面全体の破綻: VDC control の DRAM refresh が表示切り替え時にも保持されているか。
-- BG の崩れ: `tileBase * 16`、map base、VRAM copy destination、map word の palette bank / tile index。CD-ROM2 VN の `map_vram.bin` は 32 tile 幅のソース行として扱い、部分幅 BG は `width_tiles` 分だけを行単位で BAT へ置く。full-width BG は同じ row pitch のまま連続 BAT copy にできる。
-- UI / font の縦縞: 空白タイルの VRAM 内容、font tile base、UI palette bank、window fill map。
-- スプライト崩れ: SATB の pattern 値、pattern VRAM destination、16x16 pattern のエンコード順、width / height attr。
-- CD-ROM2 固有の差: BIOS helper 経由の SATB 更新、VDC copy mode、banked asset の RAM bank 切り替え。
+1本目は初期scene/typewriterを600 frame安定化してから6000 epochを測り、MPR、VDC、BAT、SATBを前後比較します。2本目は180入力でsampleの全4 sceneを巡回し、CD async、CD-DA、ADPCM、BIOS font/SpriteText、BGM+SFX同時再生をまとめて通します。どちらも`$E873`へbreakpointを置き、到達時点で失敗します。
 
-## 回帰確認
+| address | 期待 |
+|---:|---|
+| `$E86D` | 各VBlankに1回 |
+| `$E6CF` | 各VBlankに1回 |
+| `$E873` | 0回。full graphics handler禁止 |
 
-- コード変更後は編集範囲に対応する最小限のテストを実行します。
-- PCE 全体の基本確認は `npm test` です。
-- 画面系の修正では、テストだけでなく Geargrafx MCP か Test Play キャプチャで実画面を確認します。
-- ADPCM 後の進行修正では、標準 EmulatorJS/WASM の `mednafen_pce-wasm.data` で ADPCMあり/なしの最小 scene を両方確認し、ADPCMありでも自然終了後の next message へ到達することを合格条件にします。
+addressは対象jp-v3 ROMの公開ABI/trace gateです。違うprofileへ流用しません。
+
+同時に確認するもの:
+
+- ISR入口/出口のMPR4/5/6が一致する。
+- `$20F5`はuser-vector bitを維持し、SYNC/full-handler bitを立てない。
+- R5/R7/R8/R13、SATB、BGがIRQで書き戻されない。
+- `vn_irq_frame_epoch`がVBlankごとに1増える。
+- HuC6280 TIMER/TIQ handlerへ入らない。
+- package/CD async load中もepochとPSG channel状態が進む。
+
+倍速なら`PSG_DRIVE`二重呼出し、遅延/停止ならIRQ欠落または長いIRQ lockを疑います。credit/catch-up定数を追加して回避しません。
+
+## BGM/SFX package
+
+`get_psg_status`とMPRを組み合わせて確認します。
+
+- `psg-song`はmain/BGM、`psg-sfx`はsub/SFXとして同時に鳴る。
+- 新BGMはBGMだけ、新SFXはSFXだけを置換する。
+- BGM loadはbank134、SFX loadはbank135だけを書き換える。
+- 別busのload中も再生中busが止まらない。
+- CD sector paddingではなく宣言byte数だけが転送される。
+- `audio stop target:bgm|sfx|all`が指定busだけを停止する。
+
+短いSFXは数百msで消えるため、ボタン直後から複数回sampleします。
+
+## BIOS font/scene
+
+- 起動probeがversion 3.0、代表glyph、12×12非ゼロ出力を通る。
+- 失敗時は`SC3 ERR`で停止し、fallback fontを表示しない。
+- message開始時にMPR6が短時間bank123になり、終了後に元bankへ戻る。
+- typewriter/ADPCM/入力待ち中はbank123を参照しない。
+- message glyphは12×12→24-byte mask cache、SpriteTextは16×16→4bpp VRAM uploadになる。
+- JIS第一水準以外はruntime化する前にbuild errorになる。
+
+## VDC/SATB
+
+VDCのselect/data interfaceは再入不可です。VDC書込、SATB DMA、overlay/bank switch、BIOS callのIRQ lock範囲を確認します。
+
+- 通常表示のR5、scroll R7/R8、SATB start R13が安定する。
+- R19 DMA startは表示期間ではなくVBlank側で行う。
+- `VN_VDC_MEMORY_CONTROL`のsprite cycle bitを落とさない。
+- BG `map_vram.bin`は32-tile source rowとして`width_tiles`分だけコピーし、余白のblank tileを残す。
+- 未使用SATB entryはhidden Yへ逃がす。zero entryを無効spriteとみなさない。
+
+## ADPCMと標準WASM
+
+CDサンプルを標準EmulatorJS/WASMで自動起動し、System Card画面からVN開始後まで入力を進める回帰確認には次を使えます。
+
+```powershell
+.\node_modules\.bin\electron.cmd tools\dev\wasm-verify-branchlab.js template\template_pce_vn_cd\build\MY_NEW_GAME.cue
+```
+
+このツールはhidden windowでSystem Card起動、CD boot遷移、VN描画開始を順に確認してからI/RUN入力を注入し、途中画面を一時ディレクトリへ保存します。起動段階を通過できない場合は失敗終了します。
+
+Geargrafxで正常でも標準`mednafen_pce-wasm.data`だけADPCM自然終了後に入力が戻らないことがあります。次を維持します。
+
+- buffered one-shot開始後に`pce_cdb_adpcm_status()`を毎frame pollしない。
+- 自然終了後に追加の`pce_cdb_adpcm_stop()`/`reset()`を投げない。
+- 明示的なAudio stopだけdirect stopする。
+- ADPCM開始後のjoypad edge baselineは現在押されているbutton。`last_pad=0`にしない。
+- direct async ADPCM RAM load中もVSync user IRQを維持する。
+
+比較手順:
+
+1. 同じsceneのADPCMあり/なしbuildを作る。
+2. Geargrafxで自然終了後のnext messageまで進む。
+3. WASMでframe counterと`simulateInput()`直接注入を確認する。
+4. 読み込まれたcore filenameを確認する。
+5. WASMだけ止まる場合はcore差分として記録し、System Card PSG/IRQ runtimeを壊して回避しない。
+
+## 組合せ受入
+
+最低限、次を単独ではなく組み合わせて確認します。
+
+- BGM + SFX、BGM中のSFX load
+- async CD + BGM/SFX
+- CD-DA開始/停止 + scene load
+- ADPCM voice + typewriter + mouth animation
+- BIOS message font + choice + SpriteText
+- scene切替 + bank123復帰
+- 明示PSG bus stop + 再play
+
+異常が出たらframe、PC、MPR、IRQ count、VDC register、PSG channelを同じ時点で採取します。BIOS probeまたはIRQ一回性gateが成立しない場合はfallbackを追加せず、原因を報告して移行を止めます。
+
+## 回帰
+
+- 変更範囲のunit test
+- `npm test`
+- CD sample実buildとlink-map gate
+- HuCard VN build
+- Geargrafxの画面/IRQ/PSG/bank確認
+- EmulatorJS/WASMのADPCM自然終了後入力

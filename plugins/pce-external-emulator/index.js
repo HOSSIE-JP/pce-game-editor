@@ -76,6 +76,20 @@ async function onTestPlay(payload, context = {}) {
   const projectConfig = typeof context.testPlay.getProjectConfig === 'function'
     ? await context.testPlay.getProjectConfig()
     : {};
+  const isCdVisualNovel = String(projectConfig?.targetMedia || '').toLowerCase() === 'cd'
+    && projectConfig?.pluginRoles?.builder === 'pce-visual-novel-builder';
+  if (isCdVisualNovel && projectConfig?.cd?.systemCardProfile !== 'jp-v3') {
+    return { ok: false, error: 'CD visual novel requires cd.systemCardProfile: "jp-v3"' };
+  }
+  if (isCdVisualNovel) {
+    if (typeof context.testPlay.getSystemCardProfileStatus !== 'function') {
+      return { ok: false, error: 'System Card profile validation host API is unavailable' };
+    }
+    const profile = await context.testPlay.getSystemCardProfileStatus();
+    if (!profile?.ok || profile.profile !== 'jp-v3') {
+      return { ok: false, error: `Japanese Super System Card 3.0 is required: ${profile?.error || 'profile mismatch'}` };
+    }
+  }
   const external = projectConfig?.testPlay?.externalEmulator || {};
   const executablePath = String(external.executablePath || external.path || DEFAULT_EXTERNAL_EMULATOR_PATH).trim();
   const args = buildLaunchArgs(external.extraArgs || '', romPath);

@@ -19,7 +19,7 @@ static uint8_t VN_BANKED_CODE scene_pack_read_choice_option(const vn_scene_pack_
    reads VRAM back (the standard WASM core mishandles VRAM read-back) and never
    touches VDC memory/cycle control. Only the current glyph's mask is read from
    VRAM (1 read/char). */
-static uint16_t composer_prev_mask[VN_GLYPH_MASK_WORDS] __attribute__((section(".bss"))); /* previous glyph's 12 mask rows */
+static uint16_t composer_prev_mask[VN_GLYPH_MASK_ROWS] __attribute__((section(".bss"))); /* previous glyph's 12 mask rows */
 static uint8_t composer_prev_col __attribute__((section(".bss")));   /* column of the previous visible glyph */
 static uint8_t composer_prev_valid __attribute__((section(".bss"))); /* 1 if composer_prev_mask holds a left neighbor */
 static uint8_t composer_row __attribute__((section(".bss")));        /* text row the previous glyph belongs to */
@@ -28,7 +28,7 @@ static uint16_t message_glyph_cache_ids[VN_MESSAGE_GLYPH_CACHE_COUNT] __attribut
 /* ".ram_bank132_tail": NOLOAD overlay-window reuse (see cd_transfer_scratch). This
    write-before-read cache shares bank132's never-read overlay LMA tail so the
    resident metadata region stays free for growth. */
-static uint16_t message_glyph_cache_masks[VN_MESSAGE_GLYPH_CACHE_COUNT][VN_GLYPH_MASK_WORDS] __attribute__((section(".ram_bank132_tail")));
+static uint16_t message_glyph_cache_masks[VN_MESSAGE_GLYPH_CACHE_COUNT][VN_GLYPH_MASK_ROWS] __attribute__((section(".ram_bank132_tail")));
 static uint8_t message_glyph_cache_count __attribute__((section(".bss")));
 static uint8_t message_glyph_cache_valid __attribute__((section(".bss")));
 #endif
@@ -39,11 +39,10 @@ static void VN_BANKED_CODE2 restore_text_vram_after_full_screen_bg(void)
     return;
 #else
     if (!full_screen_bg_text_vram_dirty) return;
-    upload_font_tiles();
-    upload_font_sprite_patterns();
     upload_blank_tile();
 #if defined(__PCE_CD__)
     message_glyph_cache_valid = 0u;
+    spritetext_glyph_cache_count = 0u;
 #endif
     full_screen_bg_text_vram_dirty = 0u;
 #endif
@@ -107,7 +106,7 @@ static void VN_OVERLAY_CODE add_glyph_tile(const uint16_t *gmask, uint16_t gpx0,
 static uint16_t msg_bat_row[VN_MSG_TILE_COLS] __attribute__((section(".bss")));
 static uint8_t msg_enc[32] __attribute__((section(".bss")));
 static uint8_t msg_mask8[8] __attribute__((section(".bss")));
-static uint16_t msg_gmask[VN_GLYPH_MASK_WORDS] __attribute__((section(".bss")));
+static uint16_t msg_gmask[VN_GLYPH_MASK_ROWS] __attribute__((section(".bss")));
 
 static void VN_BANKED_CODE2 map_message_window_cells(uint8_t blank)
 {
@@ -185,27 +184,18 @@ static void VN_BANKED_CODE map_message_wait_indicator_cell(uint8_t blank)
    tile columns (x two tile rows) are each rebuilt from the current glyph plus the
    previous glyph (which may share the left tile), then written once — no VRAM
    read-back. glyph 0 / newline / end add no pixels and break the neighbor chain. */
-/* Decode the BG message/choice glyph entry at byte offset `pos`. Encoding (see
-   pce-vn-manager.js): a single byte 0x00..0xfc is a direct glyph index; 0xfd is an
-   escape prefix followed by a 16-bit little-endian index (used for indices >= 253);
-   0xfe is newline and 0xff is end. The newline and end bytes decode to the 16-bit
-   sentinels PCE_VN_GLYPH_NEWLINE / _END so that escaped indices (bounded well below
-   0xfffe) can never collide with them. Callers advance their own cursor by
-   vn_glyph_stride() — kept by-value (no pointer mutation) for the HuC6280 backend. */
+/* Scene pack v2 stores one little-endian 16-bit Shift-JIS/control word per
+   entry. The numeric word keeps the Shift-JIS lead byte in bits 15..8. */
 static uint16_t VN_BANKED_CODE vn_glyph_decode(const uint8_t *glyphs, uint16_t pos)
 {
-    const uint8_t b = glyphs[pos];
-    if (b == PCE_VN_GLYPH_ESCAPE)
-        return (uint16_t)((uint16_t)glyphs[pos + 1u] | ((uint16_t)glyphs[pos + 2u] << 8));
-    if (b == 0xfeu) return PCE_VN_GLYPH_NEWLINE;
-    if (b == 0xffu) return PCE_VN_GLYPH_END;
-    return (uint16_t)b;
+    return (uint16_t)((uint16_t)glyphs[pos] | ((uint16_t)glyphs[pos + 1u] << 8));
 }
 
-/* Bytes consumed by the glyph entry at `pos` (3 for an escape entry, else 1). */
 static uint16_t VN_BANKED_CODE vn_glyph_stride(const uint8_t *glyphs, uint16_t pos)
 {
-    return (glyphs[pos] == PCE_VN_GLYPH_ESCAPE) ? 3u : 1u;
+    (void)glyphs;
+    (void)pos;
+    return 2u;
 }
 
 #if defined(__PCE_CD__)
@@ -248,10 +238,8 @@ static void VN_OVERLAY_CODE preload_message_glyph_masks(const pce_vn_message_t *
         if (message_glyph_cache_find(glyph) < VN_MESSAGE_GLYPH_CACHE_COUNT) continue;
         if (message_glyph_cache_count >= VN_MESSAGE_GLYPH_CACHE_COUNT) continue;
         message_glyph_cache_ids[message_glyph_cache_count] = glyph;
-        pce_vdc_copy_from_vram(message_glyph_cache_masks[message_glyph_cache_count],
-            (uint16_t)(PCE_VN_FONT_MASK_VRAM_WORD + ((uint16_t)glyph * VN_GLYPH_MASK_WORDS)),
-            (uint16_t)(VN_GLYPH_MASK_WORDS * 2u));
-        message_glyph_cache_count++;
+        if (vn_system_card_font12_mask(glyph, message_glyph_cache_masks[message_glyph_cache_count]))
+            message_glyph_cache_count++;
     }
 }
 #else
@@ -288,9 +276,11 @@ static void VN_OVERLAY_CODE draw_message_glyph_at(uint16_t glyph, uint8_t col, u
     gmask = cached_message_glyph_mask(glyph);
     if (!gmask)
     {
-        pce_vdc_copy_from_vram(msg_gmask,
-            (uint16_t)(PCE_VN_FONT_MASK_VRAM_WORD + ((uint16_t)glyph * VN_GLYPH_MASK_WORDS)),
-            (uint16_t)(VN_GLYPH_MASK_WORDS * 2u));
+        if (!vn_system_card_font12_mask(glyph, msg_gmask))
+        {
+            composer_prev_valid = 0u;
+            return;
+        }
         gmask = msg_gmask;
     }
     for (tc = tc0; tc <= tc1 && tc < VN_MSG_TILE_COLS; tc++)
@@ -308,7 +298,7 @@ static void VN_OVERLAY_CODE draw_message_glyph_at(uint16_t glyph, uint8_t col, u
             pce_editor_vram_copy((uint16_t)(tile * 16u), msg_enc, 32u);
         }
     }
-    for (k = 0u; k < VN_GLYPH_MASK_WORDS; k++) composer_prev_mask[k] = gmask[k];
+    for (k = 0u; k < VN_GLYPH_MASK_ROWS; k++) composer_prev_mask[k] = gmask[k];
     composer_prev_col = col;
     composer_prev_valid = 1u;
     composer_row = row;

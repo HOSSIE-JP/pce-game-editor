@@ -18,17 +18,18 @@
 PCE_RAM_BANK_AT(128, 2);
 PCE_RAM_BANK_AT(129, 3);
 PCE_RAM_BANK_AT(130, 4);
+/* bank123 = active scene pack. It is mapped into MPR6 only for bounded
+   offset/count reads and never exposed as a long-lived raw pointer. */
+PCE_RAM_BANK_AT(123, 6);
 /* bank133 = transition/upload overlay, time-shared with bank130 in MPR slot 4
    (0x8000). Its code is NOT in the boot image (the IPL only loads banks 128-132);
    load_overlay_code() streams it from CD into bank133 RAM at boot. bank133 is
    never used by the System Card (unlike bank131/MPR5), so it is safe for code. */
 PCE_RAM_BANK_AT(133, 4);
-/* bank134/135 = active PSG song pattern buffer, time-shared with bank132 in MPR
-   slot 6 (0xc000). Large PSG/VGM/MIDI song patterns do not sit in the resident
-   banks; load_psg_pattern_cd() streams the currently-playing song's pattern from
-   CD into these RAM banks at play time. Like bank133 they are outside the IPL
-   auto-load range and never used by the System Card, so they are safe scratch
-   banks. */
+/* bank134/135 = System Card PSG driver data banks. PSG_BANK maps them into
+   MPR4/MPR5: bank134 owns wave45, the two-entry index and active BGM package;
+   bank135 owns the active SFX package. The app maps them through MPR6 only
+   while preparing/loading data and always restores the previous mapping. */
 PCE_RAM_BANK_AT(134, 6);
 PCE_RAM_BANK_AT(135, 6);
 /* Visual payload cache helper code is streamed into bank121 after System Card
@@ -42,6 +43,7 @@ PCE_RAM_BANK_AT(121, 4);
    bank121, and bank133 in MPR slot 4. Keeping it separate prevents the async
    loader from consuming the already-tight visual helper and overlay banks. */
 PCE_RAM_BANK_AT(122, 4);
+PCE_CDB_USE_PSG_DRIVER(1);
 PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #endif
 
@@ -56,16 +58,6 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define PAD_RIGHT 0x20u
 #define PAD_DOWN 0x40u
 #define PAD_LEFT 0x80u
-
-/* PSG MMIO registers (hardware addresses). */
-#define PCE_PSG_SELECT (*(volatile uint8_t *)0x0800)
-#define PCE_PSG_GLOBAL (*(volatile uint8_t *)0x0801)
-#define PCE_PSG_FREQ_LO (*(volatile uint8_t *)0x0802)
-#define PCE_PSG_FREQ_HI (*(volatile uint8_t *)0x0803)
-#define PCE_PSG_CONTROL (*(volatile uint8_t *)0x0804)
-#define PCE_PSG_BALANCE (*(volatile uint8_t *)0x0805)
-#define PCE_PSG_WAVE (*(volatile uint8_t *)0x0806)
-#define PCE_PSG_NOISE (*(volatile uint8_t *)0x0807)
 
 #define PCE_VCE_ADDR_LO (*(volatile uint8_t *)0x0402)
 #define PCE_VCE_ADDR_HI (*(volatile uint8_t *)0x0403)
@@ -89,20 +81,6 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
    commands; local RAM fallback still uses the ADPCM busy wait below. */
 #define VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS 8u
 #define VN_ADPCM_PRELOAD_READ_CHUNK_SECTORS 8u
-#ifndef VN_ADPCM_BUSY_PSG_POLL_INTERVAL
-#define VN_ADPCM_BUSY_PSG_POLL_INTERVAL 16u
-#endif
-#ifndef VN_ADPCM_BUSY_PSG_POLL_ITERATIONS
-#define VN_ADPCM_BUSY_PSG_POLL_ITERATIONS 192u
-#endif
-/* ADPCM_BUSY status polling can spend time in BIOS calls between our short
-   VBlank samples. If a sample sees no real VBlank edge, optionally drip a
-   tiny PSG-only estimate so note changes still reach hardware during the
-   wait. Lowering POLL_INTERVAL makes this more aggressive; raising
-   FALLBACK_FRAMES can make PSG run ahead during long ADPCM loads. */
-#ifndef VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES
-#define VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES 1u
-#endif
 #define VN_PCD_IRQ_STATUS_ADPCM_END 0x08u
 #define VN_SATB_ADDR 0x7f00u
 #define VN_SPRITE_PATTERN_END_BASE (VN_SATB_ADDR / 32u)
@@ -143,23 +121,15 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 /* One dedicated, always-zero tile for the BG/UI blank fill (the old blank tile
    aliased the font base, which is now dynamic strip data). */
 #define PCE_VN_BLANK_TILE (PCE_VN_FONT_TILE_BASE + VN_MSG_TILE_COUNT)
-/* 12x12 glyph masks live in VRAM (12 words/glyph) right after the blank tile.
-   CD builds preload the active message's masks into a bounded RAM cache before
-   starting ADPCM, so voiced typewriter frames do not pay a VRAM read per glyph.
-   A full resident mask table still does not fit: bank128 is full, MPR5 corrupts
-   the System Card BIOS, and a table in bank132 grows the loaded image and breaks
-   the CD data sector layout. */
-#define PCE_VN_FONT_MASK_VRAM_WORD (((uint16_t)PCE_VN_BLANK_TILE + 1u) * 16u)
-#define VN_GLYPH_MASK_WORDS 12u
+/* EX_GETFNT 12x12 output is converted into 12 row masks and cached in RAM. */
+#define VN_GLYPH_MASK_ROWS 12u
 #define VN_MESSAGE_GLYPH_CACHE_COUNT 68u
 #define VN_UI_PALETTE 15u
 #define VN_UI_BLANK_TILE PCE_VN_BLANK_TILE
 #define VN_CD_SECTOR_BYTES 2048u
-/* VBlank is polled from IO_VDC_STATUS. The VDC VBlank bit remains enabled so
-   the status latch fires, while the HuC6280 IRQ_VDC line is normally masked to
-   keep the System Card VBlank handler out of VN frames. CD/ADPCM BIOS helpers
-   briefly open the shared IRQ1 line, then the runtime closes it before resuming
-   its own VDC/PSG work. */
+/* The resident user-vector IRQ acknowledges VBlank and runs PSG_DRIVE.  The
+   System Card full graphics handler stays disabled, so R5/R7/R8 remain owned
+   by the VN runtime. */
 #define VN_VDC_CONTROL_BASE (VDC_CONTROL_IRQ_VBLANK | VDC_CONTROL_DRAM_REFRESH | VDC_CONTROL_VRAM_ADD_1)
 #define VN_VDC_DISPLAY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG | VDC_CONTROL_ENABLE_SPRITE)
 #define VN_VDC_BG_ONLY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG)
@@ -175,15 +145,10 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_EXEC_RESTART 2u
 #define VN_COMMAND_STEP_GUARD 1024u
 #define VN_BG_IMPLICIT_FADE_FRAMES 6u
-#define VN_PSG_STEP_ACCUM_UNIT 3600u
-#define VN_PSG_STEPS_PER_BEAT 4u
-#define VN_VBLANK_CREDIT_MAX 8u
-#define VN_VBLANK_CREDIT_SERVICE_LIMIT 4u
 /* Post-BIOS settle sampler bound for one CD transfer chunk. The CD BIOS helper
    already waits for the command/data phase; this loop is only a short
    cooperative settle window. 65535 made every sector add a large artificial
-   pause, which dominated boot/BG/sprite/ADPCM loads and made PSG compensation
-   need unrealistically large values. */
+   pause, which dominated boot/BG/sprite/ADPCM loads. */
 #ifndef VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS
 #define VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS 4096u
 #endif
@@ -198,19 +163,13 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #endif
 #define VN_VISUAL_CACHE_CD_READ_CHUNK_BYTES ((uint16_t)(VN_CD_SECTOR_BYTES * VN_VISUAL_CACHE_CD_READ_CHUNK_SECTORS))
 #define VN_CD_CHUNK_SECTOR_COUNT(bytes) ((uint8_t)(((uint16_t)(bytes) + 2047u) >> 11))
-/* CD/ADPCM BIOS helpers can spend time before the cooperative VBlank sampler
-   regains control. Add a tiny PSG-only estimate per CD transfer chunk so music
-   tempo does not stall during BG/sprite/voice loads. This is deliberately not
-   fed into ADPCM/message timing. */
-#ifndef VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES
-#define VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES 10u
-#endif
 #define VN_CD_BUS_IDLE 0u
 #define VN_CD_BUS_BIOS_HELPER 1u
 #define VN_CD_BUS_ASYNC_DATA 2u
 #define VN_CD_ASYNC_DEST_BANK132 1u
 #define VN_CD_ASYNC_DEST_SCENE_PACK_CACHE 2u
 #define VN_CD_ASYNC_DEST_ADPCM_RAM 3u
+#define VN_CD_ASYNC_DEST_PSG_BANK 4u
 #define VN_CD_ASYNC_STATUS_IDLE 0u
 #define VN_CD_ASYNC_STATUS_ACTIVE 1u
 #define VN_CD_ASYNC_STATUS_DONE 2u
@@ -228,43 +187,14 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_CD_ASYNC_MAX_BYTES VN_ADPCM_BUFFERED_SAFE_BYTES
 #endif
 #define VN_CD_ASYNC_MAX_SECTORS VN_CD_CHUNK_SECTOR_COUNT(VN_CD_ASYNC_MAX_BYTES)
-/* Diagnostic switch for PSG/CD-load stutter investigation. The current test
-   default drips blocking-work PSG credit one frame at a time while leaving
-   ADPCM countdown catch-up unchanged. Set to 0 to return to the batched
-   production path: one logical fast-forward and one hardware commit for a
-   multi-frame PSG credit. */
-#ifndef VN_PSG_COMMIT_EACH_CREDIT_DURING_BLOCKING
-#define VN_PSG_COMMIT_EACH_CREDIT_DURING_BLOCKING 1
-#endif
-/* PHASE_C: the old per-frame tick clamps (VN_PSG_MAX_TICKS_PER_FRAME_DURING_ADPCM /
-   VN_PSG_MAX_CATCHUP_TICKS_PER_FRAME) are removed. psg_core is now state-driven
-   (psg_advance/psg_commit, see vn_psg_core.c): advancing several ticks in one
-   call only updates psg_logical[] (no MMIO), so a multi-tick catch-up cannot
-   drop a note-off or skip a chord the way the edge-driven driver could. The
-   credit cap above (VN_VBLANK_CREDIT_MAX / _SERVICE_LIMIT) is the only
-   remaining bound, and it now bounds latency only, not correctness. */
-/* Primary time source (design doc engine_time §5.1/§5.4): 1 drives the single
-   real-frame credit counter from the HuC6280 TIMER IRQ (~60Hz), with BIOS
-   block windows filled by time_blocked_poll()'s measured VBlank-edge count
-   instead of a per-sector estimate. Set to 0 to fall back to cooperative
-   VBlank-edge polling (the pre-Phase-B behaviour) if the TIMER path fails its
-   Gate (G-B1: TIQ delivery during BIOS CD_READ). */
-#define VN_TIME_SOURCE_TIMER 1
-#define VN_PSG_TIMER_HZ 60u
 #define VN_VISUAL_VRAM_COPY_SLICE_BYTES 16u
 #define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES
-#define VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES() ((psg_active && psg_current) ? VN_VISUAL_VRAM_COPY_SLICE_BYTES : VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES)
+#define VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES() (psg_active ? VN_VISUAL_VRAM_COPY_SLICE_BYTES : VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES)
 #define VN_VISUAL_CODE_RESERVED_SECTORS 4u
 #define VN_CD_ASYNC_CODE_RESERVED_SECTORS 4u
-/* The System Card uses the HuC6280 TIMER internally while its CD/ADPCM BIOS
-   helpers run (it reprograms the reload and relies on its own TIQ handling;
-   leaving the $20F5 TIMER dispatch bit set during CD_READ hangs the read).
-   The TIMER credit driver therefore owns the timer only BETWEEN BIOS calls:
-   the quiet mask keeps the TIMER bit and every $20F5 restore stays
-   EXTERNAL-only, exactly like the pre-driver state, and vn_psg_timer_own()
-   re-asserts the TIMER dispatch bit afterwards. */
-#define VN_CDB_IRQ_MASK_RUNTIME_QUIET ((uint8_t)(PCE_CDB_MASK_IRQ_EXTERNAL | PCE_CDB_MASK_IRQ_VDC | PCE_CDB_MASK_IRQ_TIMER | PCE_CDB_MASK_NMI | PCE_CDB_MASK_HBLANK | PCE_CDB_MASK_HBLANK_NO_BIOS | PCE_CDB_MASK_VBLANK | PCE_CDB_MASK_VBLANK_NO_BIOS))
-#define VN_CDB_BIOS_IRQ_MASK_IDLE ((uint8_t)PCE_CDB_MASK_IRQ_EXTERNAL)
+/* Idle $20F5 owns only the generic VDC user vector. SYNC/VBLANK/full-handler
+   bits remain clear; external IRQ is enabled transiently by CD/ADPCM helpers. */
+#define VN_CDB_BIOS_IRQ_MASK_USER ((uint8_t)PCE_CDB_MASK_IRQ_VDC)
 #define VN_PCD_IRQ_STATUS_ALL 0x0fu
 
 #define VN_BG_UPLOAD_DISPLAY_DISABLE() display_disable()
@@ -280,15 +210,14 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_VISUAL_CACHE_OP_PRELOAD_REF 3u
 #define VN_VISUAL_CACHE_OP_INVALIDATE 4u
 #define VN_VISUAL_CACHE_OP_COPY_REF_TO_VRAM 5u
-#define VN_VISUAL_CACHE_OP_LOAD_PSG_PATTERN 11u
-#define VN_VISUAL_CACHE_OP_DRAW_SPRITETEXT 12u
-#define VN_VISUAL_CACHE_OP_CLEAR_RUNTIME_CACHE 13u
-#define VN_VISUAL_CACHE_OP_TICK_SPRITE_ANIMATIONS 14u
-#define VN_VISUAL_CACHE_OP_LOAD_SPRITE_PATTERN_CACHE 15u
-#define VN_VISUAL_CACHE_OP_FADE_SCREEN 16u
-#define VN_VISUAL_CACHE_OP_RESTORE_SCREEN_PALETTE 17u
-#define VN_VISUAL_CACHE_OP_FLASH_SCREEN 18u
-#define VN_VISUAL_CACHE_OP_CDDA_COMMAND 19u
+#define VN_VISUAL_CACHE_OP_DRAW_SPRITETEXT 6u
+#define VN_VISUAL_CACHE_OP_CLEAR_RUNTIME_CACHE 7u
+#define VN_VISUAL_CACHE_OP_TICK_SPRITE_ANIMATIONS 8u
+#define VN_VISUAL_CACHE_OP_LOAD_SPRITE_PATTERN_CACHE 9u
+#define VN_VISUAL_CACHE_OP_FADE_SCREEN 10u
+#define VN_VISUAL_CACHE_OP_RESTORE_SCREEN_PALETTE 11u
+#define VN_VISUAL_CACHE_OP_FLASH_SCREEN 12u
+#define VN_VISUAL_CACHE_OP_CDDA_COMMAND 13u
 #define VN_CDDA_STATE_ACTIVE 0x01u
 #define VN_CDDA_STATE_RESUME_PENDING 0x02u
 #define VN_CDDA_STATE_REPEAT 0x04u
@@ -402,12 +331,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_OVERLAY_OP_MAP_WAIT_CELL 16u
 /* a0 = variable index, a1 = value（共に 16bit signed を uint16 で運ぶ）。純粋(bss 書き込み)。 */
 #define VN_OVERLAY_OP_SET_VARIABLE 17u
-/* a0 = PSG step number. Pure PSG/MMIO + MPR6 bank134/135 reads; no bank130 calls. */
-#define VN_OVERLAY_OP_APPLY_PSG_STEP 18u
 /* a0 = ADPCM asset index. Snapshot copy only; no bank130 calls. */
-#define VN_OVERLAY_OP_COPY_ADPCM_VOICE 19u
-/* a0 = frame credit, a1 = blocking-work flag. PSG catch-up policy only. */
-#define VN_OVERLAY_OP_APPLY_PSG_CREDIT 20u
+#define VN_OVERLAY_OP_COPY_ADPCM_VOICE 18u
 #if defined(__PCE_CD__)
 typedef uint8_t (*vn_overlay_entry_fn_t)(uint8_t, uint16_t, uint16_t, uint8_t);
 #define VN_OVERLAY_CALL(op, a0, a1, a2) \

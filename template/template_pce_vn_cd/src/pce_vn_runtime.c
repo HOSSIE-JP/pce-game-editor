@@ -23,6 +23,7 @@
      vn_main.c last. */
 #include "vn_engine_config.h"
 #include "vn_engine_state.c"
+#include "vn_system_card.c"
 #include "vn_engine_time.c"
 #include "vn_engine_bus.c"
 #include "vn_port_video.c"

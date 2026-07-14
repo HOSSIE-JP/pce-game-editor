@@ -34,6 +34,8 @@ npm start
 
 アプリ内の `SetUp` 画面では、PCE 向けの `llvm-mos-sdk`、EmulatorJS runtime、PCE-CD IPL / System Card を設定できます。ZIP / 7z 展開コマンドや VN フォント描画 renderer も診断表示されるため、別ユーザーへ配布する前にこの画面で不足を確認してください。
 
+CD-ROM2 VNは日本版Super System Card 3.0 profile `jp-v3`専用です。HuC6280 PSGはSystem Cardのmain/sub track driverをVSync IRQで駆動し、本文とSpriteTextは`EX_GETFNT`のJIS第一水準glyphを必要時に使います。BIOS、PSG driver、抽出glyphはゲーム生成物へ含めません。CD VNのPSG/font/scene/bank契約は[System Card BIOS設計](docs/pce-vn-engine-redesign.md)を参照してください。
+
 `Export` では、HuCard の `.pce`、Super CD-ROM2 の `.zip` bundle、または EmulatorJS runtime/core とゲームデータを埋め込んだ単体 HTML を出力できます。CD-ROM2 HTML export は Setup 済みの System Card ROM も埋め込みます。
 
 ## テスト
@@ -49,7 +51,9 @@ PCE 関連の基本回帰テストは `tests/run-tests.js` から実行されま
 - [User Guide](docs/user-guide.md): Setup、Build、標準/外部エミュレーター Test Play の使い方。
 - [PLUGIN.md](PLUGIN.md): plugin manifest、hook、capability、PCE 内蔵 plugin の開発仕様。
 - [PCE Test Play Debugging](docs/pce-testplay-debugging.md): Geargrafx MCP / EmulatorJS を使った Test Play 調査手順。
-- [PCE Media Programming Guide](docs/pce-media-programming-guide.md): 画像、スプライト、ADPCM、CD-DA の実装ガイド。
+- [PCE Media Programming Guide](docs/pce-media-programming-guide.md): 画像、スプライト、System Card PSG/font、ADPCM、CD-DA の実装ガイド。
+- [CD VN System Card BIOS Design](docs/pce-vn-engine-redesign.md): IRQ、PSG package、Shift-JIS scene/font契約。
+- [CD VN Memory Strategy](docs/pce-memory-bank-strategy.md): bank123/128-135とlink-map gate。
 - [Implementation Audit (2026-07-10)](docs/implementation-audit-2026-07-10.md): 実装と文書の照合結果、残存互換層、潜在課題、次の作業計画。
 
 `refactor-instructions*.md`、`docs/refactor-report.md`、`docs/tasks/`、`*-handoff.md`、`*-phase*.md` は、その時点の作業指示・調査結果・移行記録です。現行仕様の入口にはせず、記述が競合する場合は現行コード、上記の利用者/開発者向け文書、`AGENTS.md` の順に確認してください。

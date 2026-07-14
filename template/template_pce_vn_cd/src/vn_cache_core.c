@@ -10,7 +10,6 @@
 static uint8_t VN_BANKED_CODE2 load_psg_cache_asset(signed int asset_index);
 static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t chunk_sectors);
 static uint8_t VN_RESIDENT_CODE adpcm_playback_active(void);
-static uint16_t loaded_psg_pattern_key;
 #if defined(__PCE_CD__)
 static uint8_t message_glyph_cache_valid __attribute__((section(".bss")));
 #endif
@@ -145,13 +144,8 @@ static void VN_VISUAL_CACHE_CODE visual_cache_invalidate_impl(uint8_t scope)
 
 static void VN_VISUAL_CACHE_CODE cd_transfer_wait_visual_cache_impl(void)
 {
-    /* Same settle-wait contract as cd_transfer_wait() (vn_engine_bus.c): the
-       measured-credit path feeds ADPCM/PSG, then a PSG-only estimate covers
-       time spent inside the BIOS helper before the sampler regains control. */
+    /* Consume only IRQ-observed frame epochs. PSG_DRIVE continues in IRQ. */
     engine_service_blocking(VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS);
-#if VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES
-    engine_apply_psg_credit((uint8_t)VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES, 1u);
-#endif
 }
 
 static void VN_VISUAL_CACHE_CODE vram_copy_sliced_from_visual_code_impl(uint16_t dest, const uint8_t *source, uint16_t length)
@@ -410,10 +404,6 @@ static uint8_t VN_VISUAL_CACHE_ENTRY_CODE visual_cache_entry(uint8_t op)
     if (visual_op == VN_VISUAL_CACHE_OP_COPY_REF_TO_VRAM)
     {
         return visual_cache_copy_ref_to_vram_impl(vn_visual_cache_arg_dest, vn_visual_cache_arg_kind, vn_visual_cache_arg_asset, vn_visual_cache_arg_ref);
-    }
-    if (visual_op == VN_VISUAL_CACHE_OP_LOAD_PSG_PATTERN)
-    {
-        return load_psg_pattern_cd_impl();
     }
     if (visual_op == VN_VISUAL_CACHE_OP_DRAW_SPRITETEXT)
     {
@@ -725,7 +715,6 @@ static void VN_RESIDENT_CODE copy_data_ref_to_vram(uint16_t dest, const pce_edit
 #define VN_META_BG_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_BG_SLOT)
 #define VN_META_SPRITE_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_SPRITE_SLOT)
 #define VN_META_ADPCM_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_ADPCM_SLOT)
-#define VN_META_PSG_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_PSG_SLOT)
 #define VN_META_CDDA_PER_SECTOR (VN_CD_SECTOR_BYTES / PCE_EDITOR_META_CDDA_SLOT)
 #define VN_BG_META_CACHE_SLOTS 8u
 /* These asserts pin the appendix offsets past the struct image and the cd-ref
@@ -739,7 +728,6 @@ _Static_assert(PCE_EDITOR_META_ADPCM_PLAY_FRAMES + 2 <= PCE_EDITOR_META_ADPCM_CD
 _Static_assert(PCE_EDITOR_META_BG_SLOT >= PCE_EDITOR_META_BG_MAP_CD + 8, "bg record overruns its slot");
 _Static_assert(PCE_EDITOR_META_SPRITE_SLOT >= PCE_EDITOR_META_SPR_CELL_MAP + VN_META_CELL_MAP_MAX, "sprite record (incl inline cell_map) overruns its slot");
 _Static_assert(PCE_EDITOR_META_ADPCM_SLOT >= PCE_EDITOR_META_ADPCM_CD + 8, "adpcm record overruns its slot");
-_Static_assert(PCE_EDITOR_META_PSG_SLOT >= PCE_EDITOR_META_PSG_PATTERN_CD + 8, "psg record overruns its slot");
 _Static_assert(PCE_EDITOR_META_CDDA_SLOT >= PCE_EDITOR_META_CDDA_PLAY_FRAMES + 2, "cdda record overruns its slot");
 
 /* Read the meta sector holding record (region base + sector_off) into
@@ -1106,7 +1094,8 @@ static void VN_VISUAL_CACHE_CODE clear_runtime_cache_impl(uint8_t scope)
     }
     if (scope_bit & VN_CACHE_CLEAR_PSG_MASK)
     {
-        loaded_psg_pattern_key = 0u;
+        loaded_system_psg_package_key[0] = 0u;
+        loaded_system_psg_package_key[1] = 0u;
     }
     if (scope_bit & VN_CACHE_CLEAR_GLYPH_MASK)
     {
@@ -1154,7 +1143,8 @@ static void VN_BANKED_CODE2 clear_runtime_cache(uint8_t scope)
     }
     if (scope_bit & VN_CACHE_CLEAR_PSG_MASK)
     {
-        loaded_psg_pattern_key = 0u;
+        loaded_system_psg_package_key[0] = 0u;
+        loaded_system_psg_package_key[1] = 0u;
     }
     if (scope_bit & VN_CACHE_CLEAR_GLYPH_MASK)
     {

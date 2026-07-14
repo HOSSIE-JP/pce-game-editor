@@ -105,16 +105,35 @@ static uint8_t VN_BANKED_CODE2 jump_to_command(uint16_t command_offset)
 
 static uint8_t VN_OVERLAY_CODE scene_pack_has_range(const vn_scene_pack_cache_t *cache, uint16_t offset, uint16_t length)
 {
-    if (!cache || !cache->valid || !cache->data) return 0u;
+    if (!cache || !cache->valid || !cache->base) return 0u;
     if (offset > cache->size) return 0u;
     return (uint8_t)(length <= (uint16_t)(cache->size - offset));
 }
 
 static uint8_t scene_pack_u8(const vn_scene_pack_cache_t *cache, uint16_t offset)
 {
-    if (!cache || !cache->valid || !cache->data) return 0u;
+    uint8_t saved;
+    uint8_t value;
+    if (!cache || !cache->valid || !cache->base) return 0u;
     if (offset >= cache->size) return 0u;
-    return cache->data[offset];
+    __asm__ volatile("tma #$40" : "=a"(saved));
+    __asm__ volatile("lda #123\n\ttam #$40" ::: "a");
+    value = ((const uint8_t *)(uintptr_t)cache->base)[offset];
+    __asm__ volatile("tam #$40" : : "a"(saved));
+    return value;
+}
+
+static uint8_t VN_OVERLAY_CODE scene_pack_copy(const vn_scene_pack_cache_t *cache,
+    uint16_t offset, uint8_t *dest, uint16_t length)
+{
+    uint8_t saved;
+    uint16_t i;
+    if (!dest || !scene_pack_has_range(cache, offset, length)) return 0u;
+    __asm__ volatile("tma #$40" : "=a"(saved));
+    __asm__ volatile("lda #123\n\ttam #$40" ::: "a");
+    for (i = 0u; i < length; i++) dest[i] = ((const uint8_t *)(uintptr_t)cache->base)[offset + i];
+    __asm__ volatile("tam #$40" : : "a"(saved));
+    return 1u;
 }
 
 /* Overlay (bank133) functions: they are called only by the overlay scene-pack
@@ -124,8 +143,10 @@ static uint8_t scene_pack_u8(const vn_scene_pack_cache_t *cache, uint16_t offset
    has_range is overlay-only to keep bank128 below its fixed resident budget. */
 static uint16_t VN_OVERLAY_CODE scene_pack_u16(const vn_scene_pack_cache_t *cache, uint16_t offset)
 {
+    uint8_t bytes[2];
     if (!scene_pack_has_range(cache, offset, 2u)) return 0u;
-    return (uint16_t)((uint16_t)cache->data[offset] | ((uint16_t)cache->data[(uint16_t)(offset + 1u)] << 8));
+    if (!scene_pack_copy(cache, offset, bytes, 2u)) return 0u;
+    return (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8));
 }
 
 static signed int VN_OVERLAY_CODE scene_pack_s16(const vn_scene_pack_cache_t *cache, uint16_t offset)
@@ -135,12 +156,12 @@ static signed int VN_OVERLAY_CODE scene_pack_s16(const vn_scene_pack_cache_t *ca
 
 static uint8_t scene_pack_is_valid(const vn_scene_pack_cache_t *cache)
 {
-    if (!cache || !cache->data || cache->size < PCE_VN_SCENE_PACK_HEADER_SIZE) return 0u;
-    if (cache->data[0] != VN_SCENE_PACK_MAGIC_P) return 0u;
-    if (cache->data[1] != VN_SCENE_PACK_MAGIC_V) return 0u;
-    if (cache->data[2] != VN_SCENE_PACK_MAGIC_N) return 0u;
-    if (cache->data[3] != VN_SCENE_PACK_MAGIC_S) return 0u;
-    return (uint8_t)(cache->data[VN_SCENE_PACK_OFFSET_VERSION] == PCE_VN_SCENE_PACK_VERSION);
+    if (!cache || !cache->base || cache->size < PCE_VN_SCENE_PACK_HEADER_SIZE) return 0u;
+    if (scene_pack_u8(cache, 0u) != VN_SCENE_PACK_MAGIC_P) return 0u;
+    if (scene_pack_u8(cache, 1u) != VN_SCENE_PACK_MAGIC_V) return 0u;
+    if (scene_pack_u8(cache, 2u) != VN_SCENE_PACK_MAGIC_N) return 0u;
+    if (scene_pack_u8(cache, 3u) != VN_SCENE_PACK_MAGIC_S) return 0u;
+    return (uint8_t)(scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_VERSION) == PCE_VN_SCENE_PACK_VERSION);
 }
 
 static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache)
@@ -159,7 +180,7 @@ static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, v
         sector.lo = pack.sector.lo;
         sector.md = pack.sector.md;
         sector.hi = pack.sector.hi;
-        if (!vn_cd_async_begin_scene_pack_read(sector, (uint16_t)(uintptr_t)cache->data, pack.byte_size))
+        if (!vn_cd_async_begin_scene_pack_read(sector, cache->base, pack.byte_size))
         {
             return 0u;
         }
@@ -171,7 +192,11 @@ static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, v
         }
         cache->size = pack.byte_size;
         cache->scene_index = scene_index;
-        cache->valid = (uint8_t)(vn_cd_async_status == VN_CD_ASYNC_STATUS_DONE && scene_pack_is_valid(cache));
+        /* The bounded bank123 readers intentionally reject an invalid cache.
+           Mark a completed transfer readable for the header probe, then revoke
+           it immediately when magic/version validation fails. */
+        cache->valid = (uint8_t)(vn_cd_async_status == VN_CD_ASYNC_STATUS_DONE);
+        if (cache->valid && !scene_pack_is_valid(cache)) cache->valid = 0u;
         VN_MAP_BANK130_FOR_CODE();
         return cache->valid;
     }
@@ -234,8 +259,10 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_message_impl(const vn_scene_pack_
     glyph_offset = scene_pack_u16(cache, offset);
     /* Each glyph entry (and the 0xffff terminator) is 16-bit. */
     if (!scene_pack_has_range(cache, glyph_offset, 2u)) return 0u;
-    message->glyphs = &cache->data[glyph_offset];
     message->glyph_count = scene_pack_u8(cache, (uint16_t)(offset + 2u));
+    if (message->glyph_count > VN_MESSAGE_GLYPH_CACHE_COUNT) return 0u;
+    if (!scene_pack_copy(cache, glyph_offset, vn_scene_text_buffer, (uint16_t)message->glyph_count * 2u)) return 0u;
+    message->glyphs = vn_scene_text_buffer;
     message->voice_index = scene_pack_s16(cache, (uint16_t)(offset + 3u));
     message->text_speed_frames = scene_pack_u8(cache, (uint16_t)(offset + 5u));
     message->advance_mode = scene_pack_u8(cache, (uint16_t)(offset + 6u));
@@ -271,8 +298,10 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_choice_option_impl(const vn_scene
     glyph_offset = scene_pack_u16(cache, offset);
     /* Each glyph entry (and the 0xffff terminator) is 16-bit. */
     if (!scene_pack_has_range(cache, glyph_offset, 2u)) return 0u;
-    option->glyphs = &cache->data[glyph_offset];
     option->glyph_count = scene_pack_u8(cache, (uint16_t)(offset + 2u));
+    if (option->glyph_count > VN_MESSAGE_GLYPH_CACHE_COUNT) return 0u;
+    if (!scene_pack_copy(cache, glyph_offset, vn_scene_text_buffer, (uint16_t)option->glyph_count * 2u)) return 0u;
+    option->glyphs = vn_scene_text_buffer;
     option->value = scene_pack_s16(cache, (uint16_t)(offset + 3u));
     option->target_scene = scene_pack_s16(cache, (uint16_t)(offset + 5u));
     return 1u;
@@ -454,7 +483,7 @@ static void upload_bg_graphics(const pce_editor_bg_asset_t *bg, uint16_t map_des
     clear_bg_map_side_margins(map_dest, bg->width_tiles, bg->height_tiles);
 }
 
-static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset_index, uint8_t slot)
+static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset_index, uint8_t arg)
 {
     const uint8_t kind = (uint8_t)(flags & 0x0fu);
     const uint8_t action = (uint8_t)(flags & 0xf0u);
@@ -466,8 +495,8 @@ static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset
     }
     else if (kind == PCE_VN_AUDIO_KIND_PSG)
     {
-        if (action == PCE_VN_AUDIO_ACTION_STOP) stop_psg();
-        else play_psg_asset(asset_index, slot);
+        if (action == PCE_VN_AUDIO_ACTION_STOP) stop_psg_target(arg);
+        else play_psg_asset(asset_index, arg);
     }
     else
     {
@@ -478,13 +507,13 @@ static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset
     if (kind == PCE_VN_AUDIO_KIND_PSG)
     {
         if (action == PCE_VN_AUDIO_ACTION_STOP) stop_psg();
-        else play_psg_asset(asset_index, slot);
+        else play_psg_asset(asset_index, arg);
     }
     else
     {
         (void)action;
         (void)asset_index;
-        (void)slot;
+        (void)arg;
     }
 #endif
 }
@@ -676,7 +705,7 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
     if (bg_index < 0 || (unsigned int)bg_index >= pce_editor_bg_asset_count) return;
     next_bg = vn_get_bg_asset((uint16_t)bg_index);
 #if defined(__PCE_CD__)
-    pce_vn_font_tiles_map();
+    pce_vn_data_map();
 #endif
     if (bg_fade_out_frames && current_bg_index >= 0 && !pending_display_enable && current_bg_palette_size)
     {
@@ -901,7 +930,7 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
     else if (command->type == PCE_VN_COMMAND_AUDIO)
     {
         VN_MAP_BANK130_FOR_CODE();
-        handle_audio_command(command->flags, command->asset_index, command->slot);
+        handle_audio_command(command->flags, command->asset_index, command->arg0);
     }
     else if (command->type == PCE_VN_COMMAND_CACHE)
     {
@@ -1013,7 +1042,9 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
                bounds, so a truncated pack just yields blank glyphs. */
             for (i = 0u; i < count; i++)
             {
-                spritetext_slots[slot].glyphs[i] = scene_pack_u8(&active_scene_pack, (uint16_t)(glyph_offset + i));
+                const uint16_t byte_offset = (uint16_t)(glyph_offset + ((uint16_t)i * 2u));
+                spritetext_slots[slot].glyphs[i] = (uint16_t)scene_pack_u8(&active_scene_pack, byte_offset)
+                    | ((uint16_t)scene_pack_u8(&active_scene_pack, (uint16_t)(byte_offset + 1u)) << 8);
             }
             spritetext_slots[slot].glyph_count = count;
             spritetext_slots[slot].x = command->x;

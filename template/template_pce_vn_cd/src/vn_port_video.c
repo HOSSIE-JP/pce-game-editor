@@ -123,7 +123,10 @@ static void VN_BANKED_CODE restore_video_after_cdb_call(uint8_t restore_display)
     apply_screen_offset();
     vn_slot4_map_bank(slot4_bank);
     set_vdc_control(restore_display ? VN_VDC_DISPLAY_CONTROL : VN_VDC_BLANK_CONTROL);
-    pce_irq_disable(IRQ_VDC);
+    /* BIOS video helpers may rewrite $20F5 and the CPU IRQ mask.  The VN no
+       longer polls VDC status, so leaving IRQ1 disabled here permanently
+       stalls both the frame epoch and PSG_DRIVE after the first CD payload. */
+    vn_system_card_irq_rearm();
     vn_vdc_irq_unlock(irq);
 #else
     (void)restore_display;
@@ -416,93 +419,6 @@ static void apply_message_text_color(uint16_t color)
 {
     ui_text_color = color;
     write_ui_text_palette(ui_text_color_word(color));
-}
-
-static void upload_font_tiles(void)
-{
-#if defined(__PCE_CD__)
-    /* 12x12 glyph masks (12 words/glyph) are streamed from the CD font.bin into the
-       VRAM mask region at boot; the compositor reads each glyph's mask back from
-       VRAM when revealing message text. Only the small pce_vn_font_data ref
-       (sector/size) lives in ram_bank132. */
-    pce_vn_cd_data_ref_t font;
-    pce_sector_t sector = {0};
-    uint16_t remaining;
-    uint16_t vram_dest = (uint16_t)PCE_VN_FONT_MASK_VRAM_WORD;
-    map_vn_data();
-    font = pce_vn_font_data;
-    map_resident_data();
-    if (!font.byte_size || !font.sector_count) return;
-    prepare_cd_data_access();
-    sector.lo = font.sector.lo;
-    sector.md = font.sector.md;
-    sector.hi = font.sector.hi;
-    remaining = font.byte_size;
-    /* cd_transfer_scratch is in bank132; ensure MPR6 points at it for the loop. */
-    map_vn_data();
-    while (remaining)
-    {
-        const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
-        (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)cd_transfer_scratch, chunk);
-        cd_transfer_wait();
-        vram_copy_sliced_from_vn_data(vram_dest, cd_transfer_scratch, chunk);
-        vram_dest = (uint16_t)(vram_dest + ((chunk + 1u) / 2u));
-        remaining = (uint16_t)(remaining - chunk);
-        cd_sector_advance(&sector);
-    }
-    sync_cd_external_irq_after_bios_call();
-    resume_cdda_after_cd_data_access();
-    VN_MAP_BANK130_FOR_CODE();
-#elif defined(__PCE__)
-    pce_editor_vram_copy((uint16_t)PCE_VN_FONT_MASK_VRAM_WORD, pce_vn_font_tiles, (uint16_t)(pce_vn_font_glyph_count * (VN_GLYPH_MASK_WORDS * 2u)));
-#endif
-}
-
-/* Stream the sprite-format glyph font (used by spritetext overlays) into VRAM
-   once at boot. Each glyph is one 16x16 sprite pattern (128 bytes); the pattern
-   number for glyph g is PCE_VN_FONT_SPRITE_PATTERN_BASE + g*2.
-   In .ram_bank130 to keep the resident bank128 within budget (mirrors the
-   banked CD->VRAM helpers); called once from init_video at boot. */
-static void VN_BANKED_CODE2 upload_font_sprite_patterns(void)
-{
-#if !PCE_VN_HAS_SPRITETEXT
-    return;
-#else
-#if defined(__PCE_CD__)
-    pce_vn_cd_data_ref_t font;
-    pce_sector_t sector = {0};
-    uint16_t remaining;
-    uint16_t vram_dest = (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE * 32u);
-    map_vn_data();
-    font = pce_vn_font_sprite_data;
-    map_resident_data();
-    if (!font.byte_size || !font.sector_count) return;
-    prepare_cd_data_access();
-    sector.lo = font.sector.lo;
-    sector.md = font.sector.md;
-    sector.hi = font.sector.hi;
-    remaining = font.byte_size;
-    map_vn_data();
-    while (remaining)
-    {
-        const uint16_t chunk = remaining > VN_CD_SECTOR_BYTES ? VN_CD_SECTOR_BYTES : remaining;
-        (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)cd_transfer_scratch, chunk);
-        cd_transfer_wait();
-        vram_copy_sliced_from_vn_data(vram_dest, cd_transfer_scratch, chunk);
-        vram_dest = (uint16_t)(vram_dest + ((chunk + 1u) / 2u));
-        remaining = (uint16_t)(remaining - chunk);
-        cd_sector_advance(&sector);
-    }
-    sync_cd_external_irq_after_bios_call();
-    resume_cdda_after_cd_data_access();
-    VN_MAP_BANK130_FOR_CODE();
-#elif defined(__PCE__)
-    if (pce_vn_font_sprite_glyph_count)
-    {
-        pce_editor_vram_copy((uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE * 32u), pce_vn_font_sprite_tiles, (uint16_t)(pce_vn_font_sprite_glyph_count * 128u));
-    }
-#endif
-#endif
 }
 
 static void write_map_words(uint16_t map_addr, const uint16_t *words, uint16_t count)

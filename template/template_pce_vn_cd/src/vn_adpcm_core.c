@@ -166,28 +166,10 @@ static uint8_t VN_BANKED_CODE2 wait_adpcm_transfer_ready(void)
 {
 #if defined(__PCE_CD__)
     uint16_t guard = 65535u;
-    uint8_t poll_sub = VN_ADPCM_BUSY_PSG_POLL_INTERVAL;
     while (guard && (pce_cdb_adpcm_status() & ADPCM_BUSY))
     {
         guard--;
-        /* ADPCM reset/read busy waits can hold the timer in System Card
-           ownership with no cd_transfer_wait() calls. Fold a measured slice
-           of this span into real credit and tick PSG sparsely here, but do
-           not feed service_adpcm_playback(): this same wait is used by
-           stop/reset paths while ADPCM bookkeeping is intentionally being
-           torn down. An 8-bit sub-counter (rather than masking the 16-bit
-           guard) keeps this poll-rate check a single decrement+branch. */
-        if (--poll_sub == 0u)
-        {
-            uint8_t frames = time_blocked_poll_psg_only(VN_ADPCM_BUSY_PSG_POLL_ITERATIONS);
-#if VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES
-            if (!frames)
-            {
-                engine_apply_psg_credit((uint8_t)VN_ADPCM_BUSY_PSG_FALLBACK_FRAMES, 1u);
-            }
-#endif
-            poll_sub = VN_ADPCM_BUSY_PSG_POLL_INTERVAL;
-        }
+        /* PSG_DRIVE remains IRQ-owned during this direct ADPCM busy wait. */
     }
     return guard ? 1u : 0u;
 #else

@@ -422,15 +422,16 @@ function messageDrawableLength(text = '') {
   return [...String(text || '')].filter((ch) => ch !== '\r' && ch !== '\n').length;
 }
 
-// グリフフォントは 16bit エスケープ符号化で 254 種を大きく超えられ（実用上限は
-// VRAM 依存で約 1000 種）、超過時はビルドが VRAM オーバーフローのエラーで検知する
-// ため、エディタ側の文字種カウント/フォント上限インジケータは廃止した。
-
-// pce-vn-manager.js の scene pack バイナリ仕様を反映した定数。runtime は scene 入場時に
-// 1 シーンを VN_SCENE_PACK_LIMIT バイトの active cache へ読み込むため、これを超えると
+// pce-vn-manager.js の scene pack バイナリ仕様を反映した定数。CD scene pack v2は
+// bank123の8192-byte cache、HuCard scene pack v1は4096-byte cacheへ読み込む。
+// project.jsonをloadしたあとvnScenePackLimit/vnScenePackUsesShiftJisを切り替える。
+// これを超えると
 // ビルドが失敗する（シーン分割が必要）。下の見積りはエディタ上の早期警告で、最終的な
 // 判定はビルド時の buildScenePack が行う。
-const VN_SCENE_PACK_LIMIT = 4096;
+const VN_CD_SCENE_PACK_LIMIT = 8192;
+const VN_HUCARD_SCENE_PACK_LIMIT = 4096;
+let vnScenePackLimit = VN_CD_SCENE_PACK_LIMIT;
+let vnScenePackUsesShiftJis = true;
 const VN_PACK_HEADER_SIZE = 20;
 const VN_PACK_COMMAND_SIZE = 19;
 // 13 bytes: glyphOffset(2)+glyphCount(1)+voice(2)+speed(1)+advance(1)+autoWait(1)
@@ -459,14 +460,15 @@ function estimateScenePackBytes(scene = {}) {
   commands.forEach((command) => {
     if (command?.type === 'message') {
       messageCount += 1;
-      // 表示文字列の各文字 (\r 除く、\n も 1 byte) + 終端マーカー 1 byte。
+      // CD v2は各文字/改行/終端が16-bit、HuCard v1はglyph index stream。
       const glyphs = [...messageFullText(command)].filter((ch) => ch !== '\r').length;
-      dataBytes += glyphs + 1;
+      dataBytes += (glyphs + 1) * (vnScenePackUsesShiftJis ? 2 : 1);
     } else if (command?.type === 'choice') {
       choiceCount += 1;
       const options = (command.choices || []).slice(0, VN_MAX_CHOICE_OPTIONS);
       options.forEach((option) => {
-        dataBytes += String(option?.label || '').length + 1;
+        const glyphs = [...String(option?.label || '').replace(/[\r\n]/g, '')].length;
+        dataBytes += (glyphs + 1) * (vnScenePackUsesShiftJis ? 2 : 1);
       });
       dataBytes += options.length * VN_PACK_OPTION_SIZE;
     } else if (command?.type === 'switch') {
@@ -891,6 +893,9 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       action,
       assetId: action === 'play' && valid ? asset.id : '',
       channel: clamp(raw.channel, 0, 5, 0),
+      ...(kind === 'psg' && action === 'stop'
+        ? { target: raw.target === 'bgm' || raw.target === 'sfx' ? raw.target : 'all' }
+        : {}),
     };
   }
   if (raw.type === 'inputcheck') {
@@ -3010,7 +3015,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       return `${name} slot ${command.slot} (${command.x}, ${command.y})`;
     }
     if (command.type === 'message') return `${command.speaker ? `${command.speaker}: ` : ''}${command.text || '本文なし'}`;
-    if (command.type === 'audio') return `${command.kind}:${command.action}${command.assetId ? ` ${command.assetId}` : ''}${command.kind === 'psg' && command.action === 'play' ? ` ch${command.channel || 0}` : ''}`;
+    if (command.type === 'audio') return `${command.kind}:${command.action}${command.assetId ? ` ${command.assetId}` : ''}${command.kind === 'psg' && command.action === 'play' ? ` ch${command.channel || 0}` : ''}${command.kind === 'psg' && command.action === 'stop' ? ` ${command.target || 'all'}` : ''}`;
     if (command.type === 'cache') {
       if (command.action === 'load') {
         const label = assetById(command.assetId)?.name || command.assetId || cacheScopeLabel(command.scope);
@@ -3130,6 +3135,7 @@ export function activatePlugin({ root, api, registerCapability }) {
         action: detailForm.elements.action.value,
         assetId: detailForm.elements.assetId.value,
         channel: detailForm.elements.channel?.value ?? 0,
+        target: detailForm.elements.target?.value || 'all',
       }, assets);
     }
     if (type === 'inputcheck') {
@@ -3407,12 +3413,12 @@ export function activatePlugin({ root, api, registerCapability }) {
       const firstMessage = item.commands.find((command) => command.type === 'message');
       const canDelete = doc.scenes.length > 1;
       const bytes = estimateScenePackBytes(item);
-      const level = bytes > VN_SCENE_PACK_LIMIT ? 'error' : (bytes / VN_SCENE_PACK_LIMIT >= 0.85 ? 'warn' : 'ok');
+      const level = bytes > vnScenePackLimit ? 'error' : (bytes / vnScenePackLimit >= 0.85 ? 'warn' : 'ok');
       const depth = Math.min(4, Math.max(0, row.depth || 0));
       const idMeta = String(item.name || '').trim() ? `<small>ID ${esc(item.id)}</small>` : '';
       const badge = level === 'ok'
         ? ''
-        : `<span class="pce-vn-scene-budget-badge" data-level="${level}" title="scene pack ${bytes} / ${VN_SCENE_PACK_LIMIT} byte">${level === 'error' ? '⚠ 超過' : `${Math.round((bytes / VN_SCENE_PACK_LIMIT) * 100)}%`}</span>`;
+        : `<span class="pce-vn-scene-budget-badge" data-level="${level}" title="scene pack ${bytes} / ${vnScenePackLimit} byte">${level === 'error' ? '⚠ 超過' : `${Math.round((bytes / vnScenePackLimit) * 100)}%`}</span>`;
       return `
         <div class="pce-vn-scene-row ${item.id === selectedId ? 'active' : ''}" data-scene-row="${esc(item.id)}" draggable="true" style="--scene-depth:${depth}">
           <button type="button" data-scene-id="${esc(item.id)}" class="pce-vn-scene-select">
@@ -3547,8 +3553,11 @@ export function activatePlugin({ root, api, registerCapability }) {
       const audioAssets = command.kind === 'adpcm'
         ? byType(['adpcm'])
         : (command.kind === 'psg' ? byType(['psg-song', 'psg-sfx']) : byType(['cdda-track']));
-      const channelField = command.kind === 'psg'
+      const channelField = command.kind === 'psg' && command.action !== 'stop'
         ? `<label class="form-group"><span class="form-label">基準ch</span><input class="form-input" name="channel" type="number" min="0" max="5" value="${esc(command.channel || 0)}" /></label>`
+        : '';
+      const targetField = command.kind === 'psg' && command.action === 'stop'
+        ? `<label class="form-group"><span class="form-label">停止対象</span><select class="form-select" name="target"><option value="all" ${command.target !== 'bgm' && command.target !== 'sfx' ? 'selected' : ''}>all</option><option value="bgm" ${command.target === 'bgm' ? 'selected' : ''}>BGM</option><option value="sfx" ${command.target === 'sfx' ? 'selected' : ''}>SFX</option></select></label>`
         : '';
       return `
         <div class="pce-vn-grid">
@@ -3558,6 +3567,7 @@ export function activatePlugin({ root, api, registerCapability }) {
         <div class="pce-vn-grid">
           <label class="form-group"><span class="form-label">Asset</span><select class="form-select" name="assetId">${optionsFor(audioAssets, command.assetId, 'なし')}</select></label>
           ${channelField}
+          ${targetField}
         </div>
       `;
     }
@@ -4012,21 +4022,21 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (!sceneBudgetEl) return;
     const current = scene();
     const bytes = current ? estimateScenePackBytes(current) : 0;
-    const ratio = bytes / VN_SCENE_PACK_LIMIT;
+    const ratio = bytes / vnScenePackLimit;
     const percent = Math.round(ratio * 100);
-    const level = bytes > VN_SCENE_PACK_LIMIT ? 'error' : (ratio >= 0.85 ? 'warn' : 'ok');
+    const level = bytes > vnScenePackLimit ? 'error' : (ratio >= 0.85 ? 'warn' : 'ok');
     sceneBudgetEl.dataset.level = level;
     sceneBudgetEl.querySelector('[data-role="scene-budget-value"]').textContent =
-      `${bytes} / ${VN_SCENE_PACK_LIMIT} byte (${percent}%)`;
+      `${bytes} / ${vnScenePackLimit} byte (${percent}%)`;
     const fill = sceneBudgetEl.querySelector('[data-role="scene-budget-fill"]');
     fill.style.width = `${Math.min(100, percent)}%`;
     const note = sceneBudgetEl.querySelector('[data-role="scene-budget-note"]');
     if (level === 'error') {
-      note.textContent = `このシーンは scene pack 上限 ${VN_SCENE_PACK_LIMIT} byte を ${bytes - VN_SCENE_PACK_LIMIT} byte 超過しています。`
+      note.textContent = `このシーンは scene pack 上限 ${vnScenePackLimit} byte を ${bytes - vnScenePackLimit} byte 超過しています。`
         + 'このままではビルドが失敗します。Jump で別シーンに分割してください。';
       note.style.display = '';
     } else if (level === 'warn') {
-      note.textContent = `残り ${VN_SCENE_PACK_LIMIT - bytes} byte。上限に近づいています。長くなる場合はシーン分割を検討してください。`;
+      note.textContent = `残り ${vnScenePackLimit - bytes} byte。上限に近づいています。長くなる場合はシーン分割を検討してください。`;
       note.style.display = '';
     } else {
       note.style.display = 'none';
@@ -4044,6 +4054,17 @@ export function activatePlugin({ root, api, registerCapability }) {
   async function load(options = {}) {
     errorEl.textContent = '';
     assetDataUrlCache.clear();
+    const projectRead = await api.electronAPI.readCodeFile({ path: 'project.json' });
+    try {
+      const project = projectRead?.ok && projectRead.content ? JSON.parse(projectRead.content) : {};
+      const hucard = String(project.targetMedia || '').toLowerCase() === 'hucard'
+        || project?.pluginRoles?.builder === 'pce-visual-novel-hucard-builder';
+      vnScenePackLimit = hucard ? VN_HUCARD_SCENE_PACK_LIMIT : VN_CD_SCENE_PACK_LIMIT;
+      vnScenePackUsesShiftJis = !hucard;
+    } catch (_) {
+      vnScenePackLimit = VN_CD_SCENE_PACK_LIMIT;
+      vnScenePackUsesShiftJis = true;
+    }
     const assetResult = await listPceAssets({ force: Boolean(options.force) });
     assets = Array.isArray(assetResult?.assets) ? assetResult.assets : [];
     const read = await api.electronAPI.readCodeFile({ path: SCENE_FILE });
@@ -4207,7 +4228,7 @@ export function activatePlugin({ root, api, registerCapability }) {
           visualPageCount: VN_VISUAL_CACHE_PAGE_COUNT,
           visualTotalBytes: VN_VISUAL_CACHE_TOTAL_BYTES,
           adpcmRamBytes: VN_ADPCM_RAM_BYTES,
-          scenePackLimitBytes: VN_SCENE_PACK_LIMIT,
+          scenePackLimitBytes: vnScenePackLimit,
         },
         scenePackBytesById: Object.fromEntries(snapshot.scenes.map((item) => [item.id, estimateScenePackBytes(item)])),
         screen: { w: PCE_SCREEN_WIDTH, h: PCE_SCREEN_HEIGHT },

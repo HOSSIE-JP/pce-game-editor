@@ -8,29 +8,31 @@
   "cd": {
     "iplPath": "",
     "systemCardPath": "",
+    "systemCardProfile": "jp-v3",
     "isoName": "",
     "dataFiles": [
-      "assets/generated/vn/font.bin",
       "assets/generated/vn/overlay.bin",
-      "assets/generated/vn/font_sprite.bin",
+      "assets/generated/vn/visual_code.bin",
+      "assets/generated/vn/cd_async_code.bin",
       "assets/generated/vn/scenes/000_opening.bin",
       "assets/generated/meta/asset_meta.bin",
       "assets/generated/vn_classroom_bg/tiles.bin",
       "assets/generated/vn_classroom_bg/map_vram.bin",
       "assets/generated/akari_sprite/patterns.bin",
       "assets/generated/akari_voice/adpcm.bin",
-      "assets/generated/psg/vn_psg_chime.bin",
       "assets/generated/vn/scenes/001_branch_lab.bin",
       "assets/generated/command_lab_bg/tiles.bin",
       "assets/generated/command_lab_bg/map_vram.bin",
       "assets/generated/mika_sprite/patterns.bin",
       "assets/generated/guide_voice/adpcm.bin",
       "assets/generated/mika_voice/adpcm.bin",
-      "assets/generated/psg/vn_psg_confirm.bin",
       "assets/generated/vn/scenes/002_effect_lab.bin",
       "assets/generated/rooftop_dusk_bg/tiles.bin",
       "assets/generated/rooftop_dusk_bg/map_vram.bin",
-      "assets/generated/vn/scenes/003_ending.bin"
+      "assets/generated/vn/scenes/003_ending.bin",
+      "assets/generated/vn/system-card-psg/vn_psg_chime.ch0.bin",
+      "assets/generated/vn/system-card-psg/vn_psg_confirm.ch1.bin",
+      "assets/generated/vn/system-card-psg/vn_psg_confirm.ch2.bin"
     ],
     "cddaTracks": [
       "assets/generated/opening_cdda/cdda.wav"

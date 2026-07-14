@@ -83,7 +83,7 @@ VDC を触る overlay（message compositor / sprite frame）は `vn_overlay_disp
 - `VN_BANK132_TAIL_VMA = 0xd078`：`.ram_bank132_tail`(NOLOAD) の CPU アドレス。固定 write-before-read バッファ（`cd_transfer_scratch` 2KB ＋ `message_glyph_cache_masks` 1632B ＋ BG descriptor cache palette storage 256B）を bank132 末尾に置く。**overlay はもう bank132 末尾に良性コピーを置かない**（bank133 に load 領域を持つ）ので、tail は素の bank132 RAM。メタデータ予算 [0xc000, 0xd078) は不変。
 - 旧 `VN_OVERLAY_LMA` / `VN_BANK132_LMA_END` は撤去（良性 LMA 窓が不要になったため）。
 - `VN_VISUAL_CODE_LINK_ADDR` / `VN_VISUAL_CODE_RESERVED_SECTORS = 4` / `VN_VISUAL_CODE_SECTION = '.vn_visual_code'` は visual cache helper code 用。overlay と**同じ** 抽出方式（`.entry` 先頭固定 → `--remove-section` → `neutralizeElfLoadSegments()` で bank121 `PT_LOAD` を `PT_NULL` 化）。`pce-mkcd` は section table でなく program header も参照するため、ここを残すと初期ロードヘッダが `$8000` 側へ引っ張られ System Card の `JUST A MOMENT...` で停止しうる。実コードが予約 sector を超えると build error。
-- `VN_CD_ASYNC_CODE_LINK_ADDR` / `VN_CD_ASYNC_CODE_RESERVED_SECTORS = 4` / `VN_CD_ASYNC_CODE_SECTION = '.vn_cd_async_code'` は direct CD/SCSI async helper code 用。bank122/slot4 に読み込み、scene pack cache の CPU RAM read は System Card BIOS の `pce_cdb_cd_read()` ではなくこの fixed entry を毎 loading frame で service する。DATA IN 中は `quiet_cd_unit_irqs()` を呼ばず、TIMER は runtime 所有のままにする。
+- `VN_CD_ASYNC_CODE_LINK_ADDR` / `VN_CD_ASYNC_CODE_RESERVED_SECTORS = 4` / `VN_CD_ASYNC_CODE_SECTION = '.vn_cd_async_code'`はdirect CD/SCSI async helper code用。bank122/slot4へ読み込み、scene pack、ADPCM RAM、System Card PSG packageをfixed entryでserviceする。DATA IN中もgeneric VSync user IRQを維持し、各VBlankの`PSG_DRIVE`を止めない。
 
 ## 4. オーバーレイに関数を追加する手順
 
@@ -143,7 +143,7 @@ message typewriter / skip / choice glyph が正常描画されれば、オーバ
 - **残る上限**: 物理 bank133 = 8KB。これを超えるなら bank121 visual-code(別の 8KB slot4 退避先)へ分散するか、(B) の追加 overlay、または runtime コード削減。
 
 ### (B) 複数オーバーレイ（追加バンク）
-- bank134/135 は PSG pattern の CD ストリーム再生バッファとして使用中です。追加 overlay を作る場合は、PSG バッファと同じ物理 bank を共有しない未使用 bank を選んでください。
+- bank134/135はSystem Card PSG driverのmain/BGM・sub/SFX package bankです。runtime overlayやMPR6 work bufferとして流用しないでください。
 - bank122 は direct CD/SCSI async helper として使用中です。追加 overlay 用に流用しないでください。
 - **制約**: slot4 を時分割する以上、**同時に map できるオーバーレイは 1 枚**。別オーバーレイ間の直接相互呼び出しは不可（co-residency）。常駐 dispatcher 経由でのみ切替える。あるいは別 slot（ただし空き slot は実質ない）。
 - 実装は load_overlay_code / dispatcher / 予約・抽出を bank ごとに複製する形になる。

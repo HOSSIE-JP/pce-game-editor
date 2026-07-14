@@ -34,12 +34,10 @@ test('VN CD catalog collects referenced raw payloads behind a dedicated boundary
     normalizeRelativePath: (value) => String(value || '').replace(/\\/g, '/'),
     readSceneDocument: () => ({ scenes: [scene] }),
     scenePackRelativePath: () => 'assets/generated/vn/scenes/000_opening.bin',
-    files: { fontData: 'assets/generated/vn/font.bin' },
   });
 
   const files = catalog.collectCdDataFiles(projectDir);
   assert.deepEqual(files, [
-    'assets/generated/vn/font.bin',
     'assets/generated/vn/scenes/000_opening.bin',
     'assets/generated/bg/tiles.bin',
     'assets/generated/bg/map_vram.bin',

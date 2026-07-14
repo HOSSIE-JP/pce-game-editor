@@ -13,11 +13,11 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 - scene の `name` は表示用です。`chapter1/opening` のように `/` 区切りにできます。
 - scene 遷移は `id` 参照です。`name` を参照先に使わないでください。
 - 使える command type は `background`, `sprite`, `message`, `audio`, `cache`, `variable`, `choice`, `if`, `switch`, `label`, `goto`, `inputcheck`, `jump`, `wait`, `effect`, `spritetext` です。
-- `cache` は `{ "type": "cache", "action": "clear", "scope": "visual" }` のような明示クリア、または ADPCM / BG / Sprite の `load` に使えます。BG load は tiles + map、Sprite load は patterns を visual RAM cache へ先読みしますが、VRAM/BAT/SATB への反映は表示 command 時だけです。
+- `cache` は明示clear、またはADPCM / BG / Sprite / PSGのloadに使えます。CDで同じBGM/SFX busの別PSG packageをloadする場合は、そのbusを先にstopしてください。
 - 未定義の command type や独自フィールドを作らないでください。必要な説明は JSON の外に別セクションとして出してください。
-- 1 scene pack は runtime の 4096 byte cache に収まる必要があります。長い会話や分岐は複数 scene に分割し、`jump` でつないでください。
+- CD VNの1 scene packは8192 bytes、HuCard VNは4096 bytesに収めてください。長い会話や分岐は複数sceneへ分割します。
 - 1 scene の command 数、message 数、choice 数、switch 数、変数数などは各 255 未満にしてください。
-- 1 プロジェクトの使用文字種は既定レイアウトでおよそ 1000 種までです。漢字を大量に増やすより、表記ゆれを減らして文字種を抑えてください。
+- CD VNの文字はprintable ASCII（全角化）、日本版v3非漢字領域、JIS第一水準だけを使ってください。第二水準、CP932拡張、半角カナ、絵文字、結合文字は禁止です。
 - message は画面下部から 1 タイル上の 17 文字 x 4 行に表示されます。1 message は短く、読みやすく分割してください。
 - `message.text` は最大 96 文字に正規化されます。1 文を詰め込まず、2 から 4 行程度にしてください。
 - `message.speaker` は最大 16 文字です。
@@ -34,7 +34,7 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 - `audio.kind` は `cdda`, `adpcm`, `psg` です。`action` は `play` または `stop`。
 - CD-DA 再生中に BG / sprite / ADPCM などの CD data load が入ると CD-DA は短く一時停止します。音楽を自然に始めたい scene では、BG / sprite 表示を先に置いてから CD-DA を再生してください。
 - `adpcm` voice は message の `voiceAssetId` に指定できます。文字送り速度はビルド時に voice 長へ合わせて自動計算されます。
-- `psg` は `psg-song` または `psg-sfx` asset を再生します。`channel` は 0..5 の基準チャンネルです。
+- `psg`は`psg-song`（BGM）または`psg-sfx`（SFX）を再生します。`channel`は0..5です。stopは`target: "bgm" | "sfx" | "all"`を指定でき、未指定は`all`です。
 - `variable` は `define`, `set`, `add`, `sub`, `random` を使えます。値は signed 16-bit 範囲にしてください。
 - `if`, `switch`, `goto`, `inputcheck` の移動先は同一 scene 内の `label.name` です。別 scene へ行くときは `jump` または `choice.choices[].targetSceneId` を使ってください。
 - `inputcheck.buttons` は `up`, `down`, `left`, `right`, `select`, `run`, `i`, `ii` から選びます。複数指定は OR 条件です。

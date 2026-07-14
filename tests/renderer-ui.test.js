@@ -443,6 +443,28 @@ test('PCE visual novel editor does not auto-insert CD-DA playback into new scene
   assert.match(renderer, /return \{ type: 'audio', kind: 'cdda', action: 'play', assetId: first\('cdda-track'\), channel: 0 \};/);
 });
 
+test('PCE visual novel editor exposes independent System Card PSG stop targets', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+
+  assert.match(renderer, /command\.kind === 'psg' && command\.action === 'stop'/);
+  assert.match(renderer, /<span class="form-label">停止対象<\/span>/);
+  assert.match(renderer, /<option value="all"/);
+  assert.match(renderer, /<option value="bgm"/);
+  assert.match(renderer, /<option value="sfx"/);
+  assert.match(renderer, /target: detailForm\.elements\.target\?\.value \|\| 'all'/);
+  assert.match(renderer, /kind === 'psg' && action === 'stop'[\s\S]*target: raw\.target === 'bgm' \|\| raw\.target === 'sfx' \? raw\.target : 'all'/);
+});
+
+test('PCE visual novel editor estimates the target-specific scene pack contract', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+
+  assert.match(renderer, /const VN_CD_SCENE_PACK_LIMIT = 8192;/);
+  assert.match(renderer, /const VN_HUCARD_SCENE_PACK_LIMIT = 4096;/);
+  assert.match(renderer, /readCodeFile\(\{ path: 'project\.json' \}\)/);
+  assert.match(renderer, /vnScenePackLimit = hucard \? VN_HUCARD_SCENE_PACK_LIMIT : VN_CD_SCENE_PACK_LIMIT/);
+  assert.match(renderer, /\(glyphs \+ 1\) \* \(vnScenePackUsesShiftJis \? 2 : 1\)/);
+});
+
 test('PCE visual novel editor keeps scene deletion in the scene list', () => {
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
 

@@ -7,7 +7,7 @@
 `SetUp` 画面で、使用する機能に応じて次の外部ファイルを設定します。
 
 - `llvm-mos-sdk`: HuCard / CD-ROM2 のビルドに使います。
-- IPL / System Card: Super CD-ROM2 のビルドや Test Play に使います。ユーザー所有ファイルとして扱い、リポジトリには同梱しません。
+- IPL / System Card: Super CD-ROM2 のビルドや Test Play に使います。CD VNは日本版Super System Card 3.0 profile `jp-v3`専用で、Test Play前にROM内容を検証します。ユーザー所有ファイルとして扱い、リポジトリやゲーム生成物には同梱しません。
 - EmulatorJS runtime: 標準エミュレーターで Test Play する場合に使います。
 
 Windows で `llvm-mos linker を起動できません` または `Application Control policy has blocked this file` が出る場合は、プロジェクトや C ソースではなく Windows Application Control / Smart App Control / WDAC が `llvm-mos-sdk` の `ld.lld.exe` を拒否しています。`data/tools/llvm-mos-sdk/llvm-mos/bin/ld.lld.exe --version` が単体で起動できる状態にする必要があります。Windows 側でこのファイルを許可するか、SetUp で実行可能な `llvm-mos-sdk` を指定してください。
@@ -27,7 +27,7 @@ Mega Drive ROM ヘッダー向けだったタイトル、作者名、シリア�
 - asset の正本は `assets/pce-assets.json` の `version: 2` です。BG / sprite / palette / PSG / ADPCM / CD-DA を同じ document で管理します。
 - VN scene の正本は `assets/pce-vn-scenes.json` の `version: 2` です。scene の実行順は `commands`、scene pack の生成順は `scenes` 配列順です。
 - build plugin と Test Play plugin の選択は `project.json.pluginRoles.builder` / `pluginRoles.testplay` です。
-- HuCard は `targetMedia: "hucard"`、Super CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を使います。
+- HuCard は `targetMedia: "hucard"`、Super CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を使います。CD VNの`cd.systemCardProfile`はbuilderが固定値`"jp-v3"`へ正規化する生成契約で、ユーザーが設定する項目ではありません。System Card ROM本体はビルドには不要で、Setupで指定したユーザー所有ROMをTest Play／HTML Export時だけ検証・使用します。
 
 現行 visual asset は raw の `tiles.bin` / `map_vram.bin` / `patterns.bin` だけを使い、圧縮オプションや `.rle` sidecar は保存しません。ADPCM divider/encoder と一部の VN command field には、既存データを安全に読み込むための値補正が残っていますが、UI で複数バージョンを選ぶ機能ではありません。詳細は [Implementation Audit](implementation-audit-2026-07-10.md) を参照してください。
 
@@ -65,9 +65,9 @@ Visual Novel CD テンプレートには、`BG` / `Sprite` / `Message` / `Audio`
 
 `システム設定` タブでは、ノベルエンジン全体のメッセージ速度と Advance を設定します。メッセージ速度は `速度1(速い)：0`、`速度2：10`、`速度3：20`、`速度4：30`、`速度5：40`、`速度6(遅い)：50` から選びます。Advance は既定が `button` で、`auto` にすると Auto wait のフレーム数経過後に次へ進みます。これらは全 `Message` command 共通で、Message のプロパティには表示されません。
 
-BG / Sprite / ADPCM / PSG などの読み込みは runtime が scene 入場時と各表示・再生命令で管理します。シナリオ側で明示的な先読み command は必須ではありません。ADPCM の sample rate は Asset Manager / ADPCM Manager のリストから、実機rate codeに対応する `4000`, `4571`, `5333`, `6400`, `8000`, `10666`, `16000`, `32000` Hz を選択します。ボイス付き `Message` は build 時に内部 `Cache Load ADPCM` が自動挿入され、可視文字を描く前に ADPCM RAM へ読み込んでから再生を開始します。分岐やADPCM cache操作より前にある最初のボイスは、PSG再生開始直前の詰まりを避けるためscene先頭へ前倒しされます。1scene内で別のADPCMボイスへ切り替わる場合は、そのmessage直前に必要なcache loadが追加されます。ボタン待ち状態では次のADPCM loadを先取りせず、ページ送り後に command stream が再開してから通常の `Cache Load ADPCM` として実行します。手動で同じ ADPCM の `Cache Load` を置いた場合は重複挿入されません。BG / Sprite の CD ロード位置を前倒ししたい場合は、`Cache Load` で低位 System Card RAM の visual cache へ先読みできます。banked PSG song の開始前ロードを暗転中や待ち中へ寄せたい場合は `Cache Load PSG` で pattern を bank134/135 へ先読みできます。実際の VRAM / BAT / SATB 反映は `background` / `sprite` command 実行時だけです。
+BG / Sprite / ADPCM / PSGなどの読み込みはruntimeがscene入場時と各表示・再生命令で管理します。CD scene pack v2は最大8192 bytesでbank123へ読み込み、message開始時に最大68 glyphをconsole RAMへ切り離します。BG / Spriteは`Cache Load`でvisual cacheへ、PSGは`(assetId, channel)`単位のSystem Card packageをBGM=bank134、SFX=bank135へ先読みできます。実際のVRAM / BAT / SATB反映は`background` / `sprite` command実行時だけです。
 
-`Cache` コマンドは、runtime cache をシナリオ側から制御します。Action は `Clear` / `Load` を選べます。`Clear` は読み込み済み判定だけを明示的にクリアし、Scope は `Visual`（BG + Sprite）/ `BG` / `Sprite` / `ADPCM` / `PSG` / `All` から選べます。現在表示中の VRAM、SATB、再生中の ADPCM、CD-DA、PSG、変数、scene pack は破壊しません。次に該当 asset 種別を使う `background` / `sprite` / `audio` / `message.voiceAssetId` が来た時点で再ロードさせたい場合に使ってください。`Load PSG` は再生予定の banked PSG pattern を先に bank134/135 へ読み込みますが、現在再生中の PSG が同じ bank134/135 を使う banked pattern の場合は現曲保護のため何もせず skip します。`All` は Visual、ADPCM、PSG に加えて message glyph cache も無効化します。
+`Cache`コマンドはruntime cacheを制御します。`Clear`は読み込み済み判定だけを落とし、現在表示/再生中のVRAM、SATB、ADPCM、CD-DA、PSG、変数、scene packを破壊しません。`Load PSG`は参照するchannel variantを対象busへ先読みします。同じbusで別packageを再生中にpreloadするsceneはbuild errorになるため、先に`Audio stop`で`BGM`または`SFX`を停止してください。`All`はmessageのBIOS glyph cacheも無効化します。
 
 `Load` は `ADPCM`、`BG`、`Sprite` の asset を明示して先読みできます。ADPCM load は再生中のADPCMがある場合は何もせず、停止中だけADPCM RAMへ読み込みます。BG load は BG tiles と map を、Sprite load は sprite pattern payload を visual RAM cache へ読み込みます。どちらも VRAM / BAT / SATB / 現在の表示を変更しません。
 
@@ -81,7 +81,7 @@ BG / Sprite / ADPCM / PSG などの読み込みは runtime が scene 入場時�
 
 Asset 一覧に未使用の大きな BG / Sprite / Audio が残っていても、VN build の runtime metadata と VRAM 予約は scene から参照される asset だけを対象にします。使っていない素材を置いたままでもビルド予算を消費しません。
 
-CD-ROM2 VN build では、scene から参照される BG / Sprite / ADPCM / PSG は各 512 件までを標準保証ラインとして扱います。runtime metadata と PSG pattern は常に CD data file へ置き、asset 数が増えても RAM 常駐量が比例して増えないようにします。CD-DA は CD の物理 audio track を使うため、使える track は 2〜99（最大 98 本）です。数百件のボイスや効果音を扱う場合は、CD-DA ではなく ADPCM または PSG を使ってください。
+CD-ROM2 VN buildでは、sceneから参照されるBG / Sprite / ADPCM / PSGは各512件までを標準保証ラインとして扱います。BG / Sprite / ADPCM / CD-DA metadataは`asset_meta.bin`、PSGはSystem Card packageとしてCD data fileへ置くため、asset数に比例するRAM常駐配列を作りません。CD-DA trackは2〜99（最大98本）です。
 
 `Sprite`（立ち絵）コマンドの主なプロパティは次のとおりです。
 
@@ -99,9 +99,9 @@ CD-ROM2 VN build では、scene から参照される BG / Sprite / ADPCM / PSG 
 - **ADPCM 同期の文字送り**: `ADPCM` ボイスをセットすると、文字送り速度はボイスの再生時間に合わせて自動計算され、本文を出し終わるタイミングと音声の終わりがほぼ揃います（このとき手動の **Speed** は無視されます）。話者行は同期計算に含めず、本文部分の文字数だけを使います。
 - **ボタンでのウェイトスキップ**: `Advance` が `button` のとき、表示途中にボタンを押すと、表示済みの文字は消さずに残りの本文だけを追加描画してページ送り待ちにできます。ページ送り待ち中は 4 行目末尾の `▼` が点滅します。さらにボタンを押して次ページへ送ると、まだ鳴っている ADPCM ボイスは停止します。
 
-`Audio` コマンドの **Kind** には `CD-DA` / `ADPCM` に加えて **`PSG`** を選べます。`PSG` を選ぶと PSG 音源アセット（song / SFX）を再生でき、**基準 ch**（0〜5）で再生を始めるチャンネルを指定できます（song はループ、SFX は一度だけ）。`stop` で停止します。PSG song の大きい pattern は再生開始時に RAM bank134/135 へ読み込まれるため、背景・スプライトなどの CD ロード中も PSG 自体はドライブを占有しません。開始直前の無音を避けたい大きい PSG song は、暗転・fade・ユーザー待ちなど音開始前の余裕がある位置へ `Cache Load PSG` を置いてください。
+`Audio`コマンドの**Kind**には`CD-DA` / `ADPCM` / `PSG`を選べます。CD VNのPSGはSystem Card driverを使い、songはmain track/BGM、SFXはsub track/SFXとして同時再生できます。**基準 ch**（0〜5）はbuild時にshift/clamp済みpackage variantへ変換されます。`stop`では**停止対象**を`all` / `BGM` / `SFX`から選べ、未指定は`all`です。新しい再生は同じbusだけを置換します。
 
-現行の CD-ROM2 runtime は `VN_PSG_TIMER_IRQ_DRIVER` を既定で無効にし、main thread の VBlank polling を実フレームの時間源にします。CD settle など main loop が観測できない短い待ちは PSG 専用の補償 credit として扱い、ADPCM 残り時間・message 同期・入力待ちは実 VBlank credit だけで進めます。PSG catch-up は 1 frame あたりの tick 数を制限し、Geargrafx の PSG buffer overflow につながる一括 register write を避けます。`VN_PSG_TIMER_IRQ_DRIVER 1` は実験用 fallback として残していますが、PSG song + ADPCM voice の標準契約では使いません。
+CD VNはgeneric VSync user IRQを登録し、各VBlankでSystem Card `PSG_DRIVE`を正確に1回呼びます。System Cardのfull graphics/VBlank handler、HuC6280 TIMER、main-thread polling、credit/catch-upは使いません。長いCD転送はdirect async loaderで進めるため、BGM/SFXは転送中もIRQ駆動を継続します。
 
 Message voice は buffered ADPCM 専用です。ADPCM は direct-buffered 安全上限（既定 address では 32767 bytes、または `65536 - adpcmAddress` の小さい方）以内の asset / part だけを ADPCM RAM へ読み込んで再生します。安全上限を超える ADPCM を `message.voiceAssetId` に指定すると build error になります。長い音声は分割、sample rate 低下、または CD-DA を使ってください。ADPCM 再生中に次の BG / Sprite / cache / scene などの CD data read へ進む場合、runtime は残っている voice を先に明示停止してから CD access を開始します。CD-DA 再生中にシーン変更や背景・スプライトの CD ロードが入る場合、ロード中は短く一時停止し、ロード後に同じトラックを再開します。Loop 有効の CD-DA は generated `play_frames` の guard に到達した時点で同じ開始 sector へ再生命令を出し直し、Loop 無効ならそこで停止します。
 
@@ -119,7 +119,7 @@ Message voice は buffered ADPCM 専用です。ADPCM は direct-buffered 安全
 - **文字色**: カラーピッカー / `#rrggbb` で指定（PCE 表示色へ自動丸め）。**同時表示するときは 1 色**（後から描いた色が優先）になります。
 - **Blink**: `0` で常時表示、`1` 以上で指定フレームごとに点滅します。
 
-ハードウェアの制約として、スプライト文字は立ち絵と同じ **SATB（最大 64 個）/ 1 走査線 16 個**を共有します。長い文章には向かないので（その用途は通常の `Message`）、ボタン催促やラベル等の短い演出に使ってください。SpriteText で使う文字は、ビルド時に通常のフォントとは別の**スプライト用フォント**として自動生成され、起動時に一度だけ VRAM へ転送されます。
+ハードウェアの制約として、スプライト文字は立ち絵と同じ **SATB（最大64個）/ 1走査線16個**を共有します。CD VNは表示時にSystem Card `EX_GETFNT`の16×16 glyphを取得して4bpp化し、必要なpatternだけをVRAMへuploadします。`font_sprite.bin`や起動時一括転送はありません。
 
 `Message` コマンドの **Mouth slot** / **Mouth animation** は、メッセージ表示中に立ち絵の口を動かす（口パク）ための設定です。使うには次の手順が必要です。
 
@@ -129,16 +129,16 @@ Message voice は buffered ADPCM 専用です。ADPCM は direct-buffered 安全
 
 スロットに立ち絵が表示されていない、または入力したアニメーション名が見つからない場合は無効（口パクなし）になります。口パクはメッセージ表示開始時に再生が始まり、ADPCM 音声の再生中も止めずに更新されます。メッセージ完了後も自動では止まりません。喋り終わりで口を閉じたいときは、その `Message` の後に同じスロットへ通常（idle）アニメーションを指定した `Sprite` コマンドを置いてください。
 
-ゲーム内のグリフフォントは、ビルド時にスクリプト中で実際に使われた文字だけを 12×12px のビットマップ（マスク）として生成し、CD-ROM の `assets/generated/vn/font.bin` から起動時に VRAM へ転送します（メモリ常駐ではないので文字種を増やしても本体 RAM を圧迫しません）。**1 プロジェクトで使える異なる文字種は、既定レイアウトでおよそ 1000 種**まで対応します（旧バージョンの 254 種上限から拡張しました）。実際の上限はグリフマスクを置く VRAM 容量で決まるため、フォント `tileBase` を高くしたり `spritetext` 用フォントを併用したりすると少し下がります。上限を超えるとビルドはエラーで停止し（VRAM 末尾の SATB を侵食するため）、上限に近づくとビルドログに警告が出ます。なお、各メッセージはランタイムの 4096 byte シーンキャッシュに収まる必要があり、インデックス 253 以上の文字（漢字など多くの追加文字）は 1 文字あたり 3 byte で符号化されるため、文字種の多いシーンが大きい場合は「scene pack ... bytes」のビルドエラーが出たらシーンを分割してください。
+CD VNの本文はlength付き16-bit Shift-JISでscene pack v2へ保存され、printable ASCIIは全角JISへ正規化されます。許可文字は日本版v3の非漢字領域とJIS第一水準だけです。第二水準、CP932拡張、半角カナ、絵文字、結合文字はscene/command位置付きbuild errorになります。runtimeは`EX_GETFNT`の12×12出力を24-byte maskへ変換し、68-glyph cacheで必要時に再利用します。`font.bin`は生成しません。
 
-ノベル編集画面の **フォント** タブで、このグリフフォントの元になる **フォントファイル（.ttf / .otf / .ttc）を管理**します。**「フォントを追加」**で選んだフォントは**プロジェクトの `assets/fonts/` 配下にコピー**され（外部フォルダの場所に依存しなくなり、日本語・空白を含むパスでもプレビュー／ビルドで確実に読み込めます）、一覧に追加されます。**一覧の行をクリックすると、そのフォントが描画に使う「選択中」フォント**になり、`✕` で削除できます（削除したフォントが選択中だった場合は OS 標準フォントへ戻ります）。**複数のフォントを登録して切り替え**でき、**「OS標準フォント（自動）」を選ぶ（=未選択）と、引き続き OS の日本語フォントを自動使用**します。`Font size` / `Threshold` / `X/Y offset` でドット化の太さや位置を、`Preview text` で確認用の文章を調整し、**プレビュー**で「ゲーム内表示イメージ」に即時反映、**保存してVNへ反映**で実際のフォントマスクを再生成します。フォント描画は PATH 上の `ffmpeg`、Windows System.Drawing、Python+Pillow の順に利用できる renderer を探します。Windows では追加ツールなしでも System.Drawing fallback で描画できます。`renderer:` が `fallback` の場合は実フォントを描画できていない状態なので、SetUp の環境診断を確認してください。`font:` のメタ表示が選択したフォントのパスになっていれば、そのフォントで描画されています。
+ノベル編集画面の**フォント**タブで管理するTTF/OTF設定はHuCard VNとエディタpreview用です。CD VNのゲーム生成物には反映せず、System Card内蔵glyphを正とします。BIOS由来glyph byteや画像をprojectへ保存する機能はありません。
 
 ### 1 シーンのメモリ（scene pack）インジケータ
 
-ゲームは実行中、表示中の 1 シーン分のスクリプト（scene pack）を **4096 バイトの作業領域**に読み込みます。長大なシーンを作るとこの上限を超えてビルドが失敗するため、スクリプト編集画面の上部に **現在のシーンが使用しているバイト数 / 4096 とゲージ**を常時表示します。このヘッダ領域はコマンド一覧をスクロールしても上部に固定されます。コマンドや本文を編集するたびにリアルタイムで更新され、
+ゲームは実行中、表示中の1シーン分のscriptをactive scene packへ読み込みます。上限はCD VNが**8192 bytes**、HuCard VNが**4096 bytes**です。Novel editorは`project.json`のtarget/builderを読み、対応する上限とencoding（CDは16-bit Shift-JIS、HuCardはglyph index stream）でbyte数とゲージを表示します。
 
 - 85% 以上になると黄色の警告（残りバイト数を表示）
-- 4096 バイトを超えると赤いエラー（超過バイト数とシーン分割の案内）
+- targetごとの上限を超えると赤いエラー（超過バイト数とシーン分割の案内）
 
 を出します。Scenes 一覧でも、上限に近い／超過しているシーンに割合バッジ（`92%` や `⚠ 超過`）が付きます。超過したシーンは `Jump` コマンドで別シーンに分割すると解消できます（この表示はエディタ上の見積りで、最終的な判定はビルド時に行われます）。
 

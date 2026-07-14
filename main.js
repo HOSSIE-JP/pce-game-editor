@@ -6,6 +6,7 @@ const { loadAppConfig, applyPortableMode } = require('./game-editor-common');
 const { spawn } = require('child_process');
 const cdBundle = require('./pce-cd-bundle');
 const pceExport = require('./pce-export');
+const systemCardProfile = require('./pce-system-card-profile');
 const { resolveUnderRoot } = require('./pce-file-safety');
 const {
   PCE_CD_SYSTEM_CARD_EMULATOR_NAME,
@@ -622,6 +623,26 @@ async function makePceTestPlayContext(options = {}) {
       needsSetup: true,
     };
   }
+  const projectConfig = buildSystem.loadProjectConfig();
+  const isCdVisualNovel = isCdMedia
+    && projectConfig?.pluginRoles?.builder === 'pce-visual-novel-builder';
+  if (isCdVisualNovel && projectConfig?.cd?.systemCardProfile !== systemCardProfile.SYSTEM_CARD_PROFILE_JP_V3) {
+    return {
+      ok: false,
+      error: 'CD visual novel requires cd.systemCardProfile: "jp-v3". Build the current project before Test Play.',
+      needsBuild: true,
+    };
+  }
+  if (isCdVisualNovel) {
+    const profile = systemCardProfile.inspectSystemCardFile(systemCardPath);
+    if (!profile.ok || profile.profile !== systemCardProfile.SYSTEM_CARD_PROFILE_JP_V3) {
+      return {
+        ok: false,
+        error: `Test Play requires a Japanese Super System Card 3.0 ROM for profile jp-v3: ${profile.error}`,
+        needsSetup: true,
+      };
+    }
+  }
 
   const bundle = isCdMedia ? cdBundle.createCdTestPlayBundle(romPath) : null;
   const servedRomPath = bundle?.zipPath || romPath;
@@ -713,6 +734,9 @@ function createTestPlayHostApi(pluginId) {
       pluginId: options.pluginId || pluginId,
     }),
     getProjectConfig: () => buildSystem.loadProjectConfig(),
+    getSystemCardProfileStatus: () => systemCardProfile.inspectSystemCardFile(
+      buildSystem.getPceSetupManager().getPceCdSystemCardPath(),
+    ),
     launchExternalEmulator: (options = {}) => launchExternalEmulator(options),
     getEmulatorStatus: () => buildSystem.getPceSetupManager().getStatus().emulatorJs,
   };

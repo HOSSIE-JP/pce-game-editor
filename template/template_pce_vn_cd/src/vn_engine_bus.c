@@ -23,64 +23,48 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_choice_option_impl(const vn_scene
 static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_impl(const vn_scene_pack_cache_t *cache, uint8_t switch_index, vn_switch_ref_t *branch);
 static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_case_impl(const vn_scene_pack_cache_t *cache, const vn_switch_ref_t *branch, uint8_t case_index, pce_vn_switch_case_t *branch_case);
 static void VN_OVERLAY_CODE set_variable_value_impl(signed int variable_index, signed int value);
-static void VN_OVERLAY_CODE psg_apply_step_row_impl(uint16_t step_no);
 static uint8_t VN_OVERLAY_CODE copy_adpcm_voice_impl(signed int voice_index);
 #endif
 /* PHASE_A_SPLIT:END */
-#if defined(__PCE_CD__) && VN_TIME_SOURCE_TIMER
-/* Every System Card CD/ADPCM/CD-DA BIOS helper must run with the audio timer
-   handed back to the BIOS: the BIOS reprograms the timer for its own CD
-   pacing and relies on its internal TIQ handling, and entering e.g. CD_READ
-   with our $20F5 TIMER dispatch bit still set parks the BIOS in its
-   $E73x-$E82x IRQ dispatcher forever. Route every BIOS primitive through a
-   release()-first wrapper so no call site can be missed; ownership is
-   re-acquired at the next cd_transfer_wait() / quiet_cd_unit_irqs(). The
-   wrappers are static inline so bank121/bank133 callers inline them and only
-   the resident-callable vn_psg_timer_release() is shared. */
-static void VN_RESIDENT_CODE vn_psg_timer_release(void);
+#if defined(__PCE_CD__)
+/* Central wrappers keep every CD/ADPCM/CD-DA BIOS primitive behind the same
+   IRQ-mask boundary. The resident PSG user vector remains installed; helpers
+   may enable external IRQ transiently and vn_system_card_irq_rearm() restores
+   the user-vector-only idle contract afterwards. */
 static inline uint8_t vn_cdb_cd_read_guarded(pce_sector_t sector, uint8_t address_type, uint16_t address, uint16_t length)
 {
-    vn_psg_timer_release();
     return pce_cdb_cd_read(sector, address_type, address, length);
 }
 static inline uint8_t vn_cdb_adpcm_read_from_cd_guarded(pce_sector_t sector, uint8_t length, uint16_t address)
 {
-    vn_psg_timer_release();
     return pce_cdb_adpcm_read_from_cd(sector, length, address);
 }
 static inline uint8_t vn_cdb_adpcm_read_from_ram_guarded(uint8_t source_type, uint16_t source, uint16_t dest, uint16_t length)
 {
-    vn_psg_timer_release();
     return pce_cdb_adpcm_read_from_ram(source_type, source, dest, length);
 }
 static inline uint8_t vn_cdb_adpcm_play_guarded(uint16_t address, uint16_t length, uint8_t divider, uint8_t mode)
 {
-    vn_psg_timer_release();
     return pce_cdb_adpcm_play(address, length, divider, mode);
 }
 static inline void vn_cdb_adpcm_stop_guarded(void)
 {
-    vn_psg_timer_release();
     pce_cdb_adpcm_stop();
 }
 static inline void vn_cdb_adpcm_reset_guarded(void)
 {
-    vn_psg_timer_release();
     pce_cdb_adpcm_reset();
 }
 static inline uint16_t vn_cdb_adpcm_status_guarded(void)
 {
-    vn_psg_timer_release();
     return pce_cdb_adpcm_status();
 }
 static inline uint8_t vn_cdb_cdda_play_guarded(uint8_t start_type, pce_sector_t start, uint8_t end_type, pce_sector_t end, uint8_t mode)
 {
-    vn_psg_timer_release();
     return pce_cdb_cdda_play(start_type, start, end_type, end, mode);
 }
 static inline uint8_t vn_cdb_cdda_pause_guarded(void)
 {
-    vn_psg_timer_release();
     return pce_cdb_cdda_pause();
 }
 #define pce_cdb_cd_read(...) vn_cdb_cd_read_guarded(__VA_ARGS__)
@@ -97,7 +81,7 @@ static inline uint8_t vn_cdb_cdda_pause_guarded(void)
 static void map_vn_data(void)
 {
 #if defined(__PCE_CD__)
-    pce_vn_font_tiles_map();
+    pce_vn_data_map();
 #endif
 }
 
@@ -109,12 +93,7 @@ static void map_resident_data(void)
 }
 
 /* Shared prefix for quiet_cd_unit_irqs()/vn_cd_irq1_quiet_handler(): drop the
-   CD unit back to idle and restore the BIOS IRQ mask, preserving the TIMER
-   dispatch bit while the audio timer is owned (losing it would leave TIQ
-   deliverable with no acking handler; a clear-then-re-enable pair would also
-   open a window where a TIQ lands on the System Card's default, non-acking
-   path and hangs the CPU). Factored out of the two near-identical callers to
-   avoid duplicating this sequence twice in bank129. */
+   CD unit back to idle and restore the generic VDC user-vector mask. */
 static void VN_BANKED_CODE vn_cdb_quiet_idle(void)
 {
 #if defined(__PCE_CD__)
@@ -122,20 +101,7 @@ static void VN_BANKED_CODE vn_cdb_quiet_idle(void)
     *IO_PCD_CONTROL = 0u;
     *IO_PCD_STATUS = VN_PCD_IRQ_STATUS_ALL;
     *VN_CDB_IRQ_PENDING_FLAGS = 0u;
-#if VN_TIME_SOURCE_TIMER
-    *VN_CDB_BIOS_IRQ_MASK = (uint8_t)(vn_timer_owned ? (VN_CDB_BIOS_IRQ_MASK_IDLE | PCE_CDB_MASK_IRQ_TIMER) : VN_CDB_BIOS_IRQ_MASK_IDLE);
-#else
-    *VN_CDB_BIOS_IRQ_MASK = VN_CDB_BIOS_IRQ_MASK_IDLE;
-#endif
-#endif
-}
-
-static void VN_BANKED_CODE vn_cd_irq1_quiet_handler(void)
-{
-#if defined(__PCE_CD__)
-    vn_cdb_quiet_idle();
-    pce_irq_disable(IRQ_VDC);
-    *IO_IRQ_ACK = IRQ_VDC;
+    *VN_CDB_BIOS_IRQ_MASK = VN_CDB_BIOS_IRQ_MASK_USER;
 #endif
 }
 
@@ -243,18 +209,13 @@ static void cd_sector_end_from_count(pce_sector_t *dest, const pce_sector_t *sta
 #endif /* PHASE_A_SPLIT */
 #if defined(__PCE_CD__) /* PHASE_A_SPLIT: re-opened (was inside the file-spanning conditional) */
 /* Opens the System Card external-IRQ window right before a CD/ADPCM/CD-DA
-   BIOS helper. With the TIMER driver this also hands the timer hardware back
-   to the BIOS (which reprograms it for its own CD pacing/timeouts). Resident
-   (bank128), not bank129/130: both banks are saturated after TIMER promotion;
-   see the vn_psg_timer_own() comment for the same bank-balance rationale. */
+   BIOS helper, then re-establishes the resident VDC user vector. */
 static void VN_RESIDENT_CODE vn_cd_bios_irq_open(void)
 {
 #if defined(__PCE_CD__)
     vn_cd_bus_state = VN_CD_BUS_BIOS_HELPER;
-#if VN_TIME_SOURCE_TIMER
-    vn_psg_timer_release();
-#endif
     pce_cdb_irq_enable(PCE_CDB_MASK_IRQ_EXTERNAL);
+    vn_system_card_irq_rearm();
 #endif
 }
 
@@ -266,9 +227,6 @@ static void VN_RESIDENT_CODE vn_cd_bios_irq_open(void)
 static void cd_transfer_wait(void)
 {
     engine_service_blocking(VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS);
-#if VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES
-    engine_apply_psg_credit((uint8_t)VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES, 1u);
-#endif
 }
 
 static void VN_BANKED_CODE quiet_cd_unit_irqs(void);
@@ -291,34 +249,16 @@ static void VN_BANKED_CODE quiet_cd_unit_irqs(void)
 #if defined(__PCE_CD__)
     if (vn_cd_bus_state == VN_CD_BUS_ASYNC_DATA) return;
     vn_cdb_quiet_idle();
-    pce_irq_disable(IRQ_VDC);
-#if VN_TIME_SOURCE_TIMER
-    /* Runs once per frame (vn_wait_next_vblank) and after every BIOS helper:
-       re-acquire the audio timer whenever the CD unit is quiet. */
-    vn_psg_timer_own();
-#endif
+    vn_system_card_irq_rearm();
 #endif
 }
 
 static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call(void)
 {
 #if defined(__PCE_CD__)
-    /* PHASE_C (design doc §4.3/§6.2): every BIOS helper may have touched the
-       PSG SELECT latch or other shared PSG state; mark the shadow
-       untrustworthy here -- the single common point every CD/ADPCM/CD-DA BIOS
-       helper call site routes through on completion -- so the next
-       psg_commit() does a full resync instead of trusting a possibly-stale
-       diff. Cheap (just clears a flag) and safe to call unconditionally. */
-    psg_mark_hw_dirty();
-    pce_cdb_irq_set(PCE_CDB_ID_IRQ_VDC, vn_cd_irq1_quiet_handler);
-#if VN_TIME_SOURCE_TIMER
-    /* The QUIET disable clears the $20F5 TIMER dispatch bit; mask TIQ
-       first (release) so no unackable TIQ can land in the window. The
-       trailing quiet_cd_unit_irqs() re-owns the timer. */
-    vn_psg_timer_release();
-#endif
+    /* Restore the adapter-owned user IRQ contract after any BIOS helper. */
     vn_cd_bus_state = VN_CD_BUS_IDLE;
-    pce_cdb_irq_disable(VN_CDB_IRQ_MASK_RUNTIME_QUIET);
+    pce_cdb_irq_disable(PCE_CDB_MASK_IRQ_EXTERNAL);
     quiet_cd_unit_irqs();
 #endif
 }
@@ -326,10 +266,7 @@ static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call(void)
 static void VN_RESIDENT_CODE mask_buffered_adpcm_completion_irq(void)
 {
 #if defined(__PCE_CD__)
-#if VN_TIME_SOURCE_TIMER
-    vn_psg_timer_release();
-#endif
-    pce_cdb_irq_disable(VN_CDB_IRQ_MASK_RUNTIME_QUIET);
+    pce_cdb_irq_disable(PCE_CDB_MASK_IRQ_EXTERNAL);
     quiet_cd_unit_irqs();
 #endif
 }
@@ -419,8 +356,7 @@ static uint8_t VN_BANKED_CODE vn_overlay_dispatch(uint8_t op, uint16_t a0, uint1
 }
 
 /* Same as vn_overlay_dispatch but with the IRQ lock held across the slot4 swap.
-   This is shared by overlay work that touches the non-reentrant VDC interface and
-   by PSG step application, which temporarily maps MPR6 to bank134/135. Keep IRQs
+   It is used by overlay work that touches the non-reentrant VDC interface. Keep IRQs
    masked while those mappings/register sequences are transient, then restore the
    caller's slot4 bank rather than forcing bank130: this helper can be reached
    while bank121/133 code is on the stack through cooperative blocking-work
@@ -466,9 +402,7 @@ static uint8_t VN_OVERLAY_ENTRY_CODE vn_overlay_entry(uint8_t op, uint16_t a0, u
     if (o == VN_OVERLAY_OP_CACHE_SPRITE_ANIM) { cache_sprite_animation_impl(a2); return 0u; }
     if (o == VN_OVERLAY_OP_MAP_WAIT_CELL) { map_message_wait_indicator_cell_impl((uint8_t)a2); return 0u; }
     if (o == VN_OVERLAY_OP_SET_VARIABLE) { set_variable_value_impl((signed int)(int16_t)a0, (signed int)(int16_t)a1); return 0u; }
-    if (o == VN_OVERLAY_OP_APPLY_PSG_STEP) { psg_apply_step_row_impl(a0); return 0u; }
     if (o == VN_OVERLAY_OP_COPY_ADPCM_VOICE) return copy_adpcm_voice_impl((signed int)(int16_t)a0);
-    if (o == VN_OVERLAY_OP_APPLY_PSG_CREDIT) { engine_apply_psg_credit_impl((uint8_t)a0, (uint8_t)a1); return 0u; }
     return 0u;
 }
 #endif
@@ -519,20 +453,15 @@ static void VN_CD_ASYNC_CODE vn_cd_async_store_byte(uint8_t value)
         vn_cd_async_store_remaining--;
         return;
     }
-    if (vn_cd_async_dest_kind == VN_CD_ASYNC_DEST_BANK132)
+    if (vn_cd_async_dest_kind == VN_CD_ASYNC_DEST_BANK132 ||
+        vn_cd_async_dest_kind == VN_CD_ASYNC_DEST_PSG_BANK ||
+        vn_cd_async_dest_kind == VN_CD_ASYNC_DEST_SCENE_PACK_CACHE)
     {
-        (void)vn_cd_async_dest_bank;
-        __asm__ volatile("lda #132\n\ttam #$40" ::: "a");
+        __asm__ volatile("tam #$40" : : "a"(vn_cd_async_dest_bank));
         ((uint8_t *)(uintptr_t)vn_cd_async_dest_addr)[0] = value;
         vn_cd_async_dest_addr = (uint16_t)(vn_cd_async_dest_addr + 1u);
         vn_cd_async_store_remaining--;
         return;
-    }
-    if (vn_cd_async_dest_kind == VN_CD_ASYNC_DEST_SCENE_PACK_CACHE)
-    {
-        ((uint8_t *)(uintptr_t)vn_cd_async_dest_addr)[0] = value;
-        vn_cd_async_dest_addr = (uint16_t)(vn_cd_async_dest_addr + 1u);
-        vn_cd_async_store_remaining--;
     }
 }
 
@@ -667,6 +596,7 @@ static uint8_t VN_BANKED_CODE vn_cd_async_call_bank122(uint8_t op)
     uint8_t result;
     pce_ram_bank122_map();
     result = VN_CD_ASYNC_CALL(op);
+    __asm__ volatile("tam #$40" : : "a"(vn_cd_async_saved_mpr6));
     pce_ram_bank130_map();
     return result;
 }
@@ -676,7 +606,8 @@ static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_data_read(pce_sector_t sector, 
     uint8_t sectors;
     if (!byte_count || byte_count > VN_CD_ASYNC_MAX_BYTES) return 0u;
     if (vn_cd_async_status == VN_CD_ASYNC_STATUS_ACTIVE) return 0u;
-    if (dest_kind != VN_CD_ASYNC_DEST_BANK132 && dest_kind != VN_CD_ASYNC_DEST_SCENE_PACK_CACHE && dest_kind != VN_CD_ASYNC_DEST_ADPCM_RAM) return 0u;
+    if (dest_kind != VN_CD_ASYNC_DEST_BANK132 && dest_kind != VN_CD_ASYNC_DEST_SCENE_PACK_CACHE &&
+        dest_kind != VN_CD_ASYNC_DEST_ADPCM_RAM && dest_kind != VN_CD_ASYNC_DEST_PSG_BANK) return 0u;
     if (!vn_cd_async_code_loaded) load_cd_async_code();
     if (!vn_cd_async_code_loaded) return 0u;
     sectors = VN_CD_CHUNK_SECTOR_COUNT(byte_count);
@@ -684,6 +615,7 @@ static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_data_read(pce_sector_t sector, 
     vn_cd_async_sector = sector;
     vn_cd_async_dest_kind = dest_kind;
     vn_cd_async_dest_bank = dest_bank;
+    __asm__ volatile("tma #$40" : "=a"(vn_cd_async_saved_mpr6));
     vn_cd_async_dest_addr = dest_addr;
     vn_cd_async_sector_count = sectors;
     vn_cd_async_store_remaining = byte_count;
@@ -710,6 +642,8 @@ static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_scene_pack_read(pce_sector_t se
     sectors = VN_CD_CHUNK_SECTOR_COUNT(byte_count);
     vn_cd_async_sector = sector;
     vn_cd_async_dest_kind = VN_CD_ASYNC_DEST_SCENE_PACK_CACHE;
+    vn_cd_async_dest_bank = 123u;
+    __asm__ volatile("tma #$40" : "=a"(vn_cd_async_saved_mpr6));
     vn_cd_async_dest_addr = dest_addr;
     vn_cd_async_sector_count = sectors;
     vn_cd_async_store_remaining = byte_count;

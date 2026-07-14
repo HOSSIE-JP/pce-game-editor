@@ -1138,7 +1138,7 @@ test('PCE CD VN asset source generation streams large payloads through cd.dataFi
   assert.match(header, /extern const pce_editor_meta_region_t pce_editor_bg_meta;/);
   assert.match(header, /extern const pce_editor_meta_region_t pce_editor_sprite_meta;/);
   assert.match(header, /extern const pce_editor_meta_region_t pce_editor_adpcm_meta;/);
-  assert.match(header, /extern const pce_editor_meta_region_t pce_editor_psg_meta;/);
+  assert.doesNotMatch(header, /pce_editor_psg_step_t|pce_editor_psg_asset_t|pce_editor_psg_meta/);
   assert.match(header, /extern const pce_editor_meta_region_t pce_editor_cdda_meta;/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_DATA_SIZE 2u/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_SAMPLE_RATE 6u/);
@@ -1148,7 +1148,7 @@ test('PCE CD VN asset source generation streams large payloads through cd.dataFi
   assert.doesNotMatch(header, /PCE_EDITOR_META_ADPCM_STREAM/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_PLAY_FRAMES 12u/);
   assert.match(header, /#define PCE_EDITOR_META_ADPCM_CD 14u/);
-  assert.match(header, /#define PCE_EDITOR_META_PSG_SLOT 32u/);
+  assert.doesNotMatch(header, /PCE_EDITOR_META_PSG/);
   assert.match(header, /#define PCE_EDITOR_META_CDDA_SLOT 32u/);
   // Resident directory: payloads occupy sectors 64..69, so the meta file lands at
   // sector 70; its regions are bg@70, sprite@71, adpcm@72, cdda@73.
@@ -1929,7 +1929,7 @@ test('PCE CD VN asset metadata always uses the catalog path', () => {
   assert.equal(assetManager.assetMetaShouldUseCd(projectDir), false);
 });
 
-test('PCE asset catalog streams PSG and CD-DA metadata from CD', () => {
+test('PCE asset catalog leaves PSG to System Card packages and streams CD-DA metadata', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-catalog-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
@@ -1964,20 +1964,15 @@ test('PCE asset catalog streams PSG and CD-DA metadata from CD', () => {
 
   assert.equal(generated.assetCatalogMode, 'cd');
   assert.deepEqual(assetManager.collectCdDataFiles(projectDir), [
-    'assets/generated/psg/beep.bin',
     'assets/generated/meta/asset_meta.bin',
   ]);
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_psg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 65u, 0u, 0u \}, 1u \};/);
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_cdda_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 66u, 0u, 0u \}, 1u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_cdda_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 64u, 0u, 0u \}, 1u \};/);
+  assert.doesNotMatch(source, /pce_editor_psg_meta|pce_editor_psg_asset_count/);
   assert.doesNotMatch(source, /pce_editor_psg_beep_pattern/);
   assert.doesNotMatch(source, /pce_editor_psg_assets\[\] = \{/);
   assert.doesNotMatch(source, /pce_editor_cdda_assets\[\] = \{/);
-  assert.equal(meta.length, 2 * 2048);
-  assert.equal(meta[0], 0); // PSG is_song
-  assert.equal(meta.readUInt16LE(1), 512);
-  assert.equal(meta.readUInt16LE(7), 2); // pattern_count
-  assert.equal(meta[9], 64); // PSG pattern CD sector
-  const cddaBase = 2048;
+  assert.equal(meta.length, 2048);
+  const cddaBase = 0;
   assert.equal(meta[cddaBase + 0], 2);
   assert.equal(meta[cddaBase + 1], 1);
   assert.equal(meta[cddaBase + 2], 194); // CD-DA audio starts at sector 450.
@@ -2042,10 +2037,12 @@ test('PCE asset catalog accepts 512 BG/sprite/ADPCM/PSG assets and rejects 513',
   assert.equal(generated.bgCount, 512);
   assert.equal(generated.spriteCount, 512);
   assert.equal(generated.adpcmCount, 512);
-  assert.equal(generated.psgCount, 512);
+  assert.equal(generated.psgCount, 0);
   assert.equal(generated.assetCatalogMode, 'cd');
+  // Validation still counts source PSG assets, but CD asset metadata emits none;
+  // pce-vn-manager compiles only referenced variants into System Card packages.
   assert.deepEqual(generated.assetCatalogCounts, { bg: 512, sprite: 512, adpcm: 512, psg: 512, cdda: 0 });
-  assert.equal(meta.length, (32 + 128 + 8 + 8) * 2048);
+  assert.equal(meta.length, (32 + 128 + 8) * 2048);
   assert.deepEqual(assetManager.collectCdDataFiles(projectDir), [
     'assets/generated/bg/tiles.bin',
     'assets/generated/bg/map_vram.bin',
@@ -2056,7 +2053,7 @@ test('PCE asset catalog accepts 512 BG/sprite/ADPCM/PSG assets and rejects 513',
   assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 68u, 0u, 0u \}, 512u \};/);
   assert.match(source, /const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 100u, 0u, 0u \}, 512u \};/);
   assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 228u, 0u, 0u \}, 512u \};/);
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_psg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 236u, 0u, 0u \}, 512u \};/);
+  assert.doesNotMatch(source, /pce_editor_psg_meta|pce_editor_psg_asset_count/);
   assert.doesNotMatch(source, /const pce_editor_bg_asset_t pce_editor_bg_assets\[\]/);
   assert.doesNotMatch(source, /const pce_editor_sprite_asset_t pce_editor_sprite_assets\[\]/);
   assert.doesNotMatch(source, /const pce_editor_adpcm_asset_t pce_editor_adpcm_assets\[\]/);

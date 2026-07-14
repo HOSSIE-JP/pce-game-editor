@@ -1,89 +1,55 @@
 # PCE-CD VN Asset Catalog
 
-CD-ROM2 VN build では、BG / Sprite / ADPCM / PSG / CD-DA の runtime metadata を常に
-CD data file `assets/generated/meta/asset_meta.bin` へ置きます。bank128 `.rodata` や
-bank132 VN data に asset 数ぶんの構造体配列を常駐させないため、参照 asset 数が増えても
-RAM 常駐量はほぼ一定です。
+CD-ROM2 VN buildはBG / Sprite / ADPCM / CD-DAのruntime metadataを`assets/generated/meta/asset_meta.bin`へ置きます。asset数に比例する構造体配列をbank128/132へ常駐させません。
 
-CD-ROM2 VN では、BG / Sprite / ADPCM / PSG は各 512 件までを標準保証ラインにします。
-CD-DA は CD 規格の物理 track 制約があるため、track 2..99 の最大 98 本までです。数百件の
-音声用途には ADPCM または PSG を使ってください。
+System Card BIOS化後のPSGはこのcatalogの対象外です。CD VNは`pce_editor_psg_step_t`、PSG asset record、`PCE_EDITOR_META_PSG` region、`assets/generated/psg/<id>.bin`を生成しません。PSGは`(assetId, channel)`単位のSystem Card packageとして`assets/generated/vn/system-card-psg/`に生成されます。HuCardは従来のPSG step形式を維持します。
 
-## 対象
+## 対象と件数
 
-この asset catalog は CD-ROM2 VN build 用の現行形式です。`assets/pce-vn-scenes.json` を持つ
-CD target は常に catalog を生成します。HuCard や VN ではない CD template は別 runtime なので、
-従来の `pce_editor_*_assets[]` 配列を使いますが、これは CD-ROM2 VN の後方互換 mode ではありません。
+`targetMedia: "cd"`かつCD VN builderのprojectは常にcatalogを使います。VNから実際に参照されるassetだけを含めます。
 
-生成時は `assetIds` で絞った「VN から実際に参照される asset」だけを catalog と `cd.dataFiles`
-へ含めます。Asset 一覧に未使用素材が残っていても、runtime metadata、VRAM 予約、ISO data file
-は膨らませません。
+| 種別 | 標準保証上限 | 備考 |
+|---|---:|---|
+| BG | 512 | raw tiles/map CD ref |
+| Sprite | 512 | raw pattern CD ref、cell map |
+| ADPCM | 512 | direct-buffered metadata |
+| PSG source asset | 512 | catalog recordなし。package生成のvalidation上限 |
+| CD-DA | 98 | 物理track 2..99 |
 
 ## レコード配置
 
-`asset_meta.bin` は種別ごとに sector 整列された固定長 record を持ちます。常駐側には
-`pce_editor_meta_region_t { sector, count, slot }` だけを置きます。`count` と各
-`pce_editor_*_asset_count` は 512 件を扱えるよう `unsigned int` です。
+`asset_meta.bin`は種別ごとにsector整列された固定長recordを持ちます。resident側に置くのは`pce_editor_meta_region_t { sector, count, slot }`だけです。
 
 | 種別 | record size | 内容 |
 |---|---:|---|
 | BG | 128B | descriptor、palette 32B、tile/map CD ref |
-| Sprite | 512B | descriptor、palette 32B、pattern CD ref、`cell_map` 最大 256 cell |
-| ADPCM | 32B | size/rate/address/divider/loop/play_frames、ADPCM CD ref |
-| PSG | 32B | song/SFX flag、period/BPM、step count、pattern count、PSG pattern CD ref |
-| CD-DA | 32B | track、loop、start/end sector、end time、play frames |
+| Sprite | 512B | descriptor、palette 32B、pattern CD ref、最大256-cell map |
+| ADPCM | 32B | size/rate/address/divider/loop/play_frames、CD ref |
+| CD-DA | 32B | track、loop、start/end sector、end time、play_frames |
 
-レコード N の位置は `region.sector + N / (2048 / slot)`、sector 内 offset は
-`(N % (2048 / slot)) * slot` です。生成ヘッダの `PCE_EDITOR_META_*` offset と runtime の
-`_Static_assert` で record layout の drift を検出します。
-
-PSG は短い SFX も含めて pattern を `assets/generated/psg/<id>.bin` に出し、
-`pce_editor_psg_*_pattern[]` を常駐生成しません。CD-DA も `pce_editor_cdda_assets[]` を出さず、
-catalog record から decode します。
+record Nは`region.sector + N / (2048 / slot)`、sector内offsetは`(N % (2048 / slot)) * slot`です。generated header offsetとruntime `_Static_assert`を同時に更新し、layout driftをbuild errorにします。
 
 ## Runtime
 
-runtime は `vn_get_bg_asset()` / `vn_get_sprite_asset()` / `vn_get_adpcm_asset()` /
-`vn_get_psg_asset()` で catalog record を読みます。CD-DA は resident cache を持たず、
-`cdda_command_impl()` が command 実行時に catalog record を直接 decode します。Record 内に
-pointer は保存せず、palette、CD ref、`cell_map`、PSG pattern ref は runtime cache へ decode
-してから既存構造体の形で返します。
+`vn_get_bg_asset()`、`vn_get_sprite_asset()`、`vn_get_adpcm_asset()`がcatalog recordをdecodeします。CD-DAはcommand実行時に直接decodeします。recordへCPU pointerを保存しません。
 
-Cache は現在、BG descriptor 8 枠（asset index 下位3bitの direct-mapped）、Sprite descriptor 4 枠、ADPCM 1 枠、PSG 1 枠です。Cache key と
-preload / loaded index は 16bit asset index として扱い、scene command の signed index は
-`0..count-1` を検証してから使います。`(uint8_t)asset_index` で比較しないでください。
+cacheはBG 8枠、Sprite 4枠、ADPCM 1枠です。key/indexは16-bitで扱い、`uint8_t`へcastして比較してはいけません。consumerはaccessorを1回だけ呼び、必要fieldをruntime-owned snapshotへ落としてからhot pathで使います。
 
-Accessor は CD BIOS helper、MPR 復帰、`cd_transfer_scratch` を触るため、consumer では
-関数入口で 1 回呼び、必要 field を local snapshot へ落としてから hot path で使います。
-特に ADPCM の multi-byte field は `memcpy` や構造体同士の連続 copy に戻さず、offset から
-scalar decode してください。llvm-mos が `tii` へ畳むと WRAM 高位アドレスを落とすことがあります。
-ADPCM の自然終了 / buffered loop 用 frame counter は generator が `play_frames` として
-catalog record へ焼き込み、runtime では sample rate から再計算しません。
+ADPCMのmulti-byte fieldを構造体連続copyへ戻さず、offsetからscalar decodeします。llvm-mosがblock transferへ畳んだときにWRAM高位addressを落とす可能性があるためです。自然終了/loop用`play_frames`はgeneratorがrecordへ焼き込みます。
 
-## Catalog 判定
+## Hard error
 
-`assetMetaDecision()` は CD target かつ `assets/pce-vn-scenes.json` を持つ project で
-`useCd: true` / `reason: "cd-vn-asset-catalog"` を返します。件数や見積もり budget による
-resident / catalog の自動切替はなく、環境変数による強制切替もありません。
-
-Build log には catalog 使用状態、理由、種別ごとの件数、catalog size を出します。調査時は
-scene pack / font / overlay の制約と catalog metadata 制約を混同しないでください。
-
-## Hard Error
-
-- BG / Sprite / ADPCM / PSG の VN 参照数が各 512 件を超える。
-- CD-DA が 98 本を超える。
-- CD-DA track が 2..99 の範囲外。
-- CD-DA track が重複する。
-- Sprite `cell_map` が 256 cell を超える。
-- PSG pattern が 2048 event を超える。
-- ADPCM 1 asset が direct-buffered 安全上限 `min(32767, 65536 - adpcmAddress)` bytes を超える。
+- BG / Sprite / ADPCM / PSG参照数が各512件を超える。
+- CD-DAが98本を超える、trackが2..99外、またはtrackが重複する。
+- Sprite cell mapが256 cellを超える。
+- ADPCM 1 assetが`min(65535, 65536 - adpcmAddress)` bytesを超える。
+- System Card PSG packageがBGM 8156 bytes / SFX 8192 bytesを超える。
+- 同じPSG busの再生中に別packageをpreloadする。
 
 ## 変更時の確認
 
-- `pce_editor_*_asset_count` と `pce_editor_meta_region_t.count` は `unsigned int` のままにする。
-- Runtime で asset index を `uint8_t` へ cast して比較しない。
-- `cd.dataFiles` の安定順は、font/scene pack など VN data、asset payload、PSG pattern、
-  `asset_meta.bin` の予約順を崩さない。
-- Catalog record を増やす場合は、generator offset、generated header、runtime decode、
-  `_Static_assert`、unit test を同時に更新する。
+- catalogのstable orderとsector再計算テストを更新する。
+- CD generated headerに旧PSG型/region/countが無いことを検査する。
+- `font.bin`/`font_sprite.bin`/旧PSG patternがCD dataFilesに無いことを検査する。
+- HuCard generated headerには既存PSG型が残ることを検査する。
+- recordを増やす場合はgenerator、header、runtime decode、assert、unit testを同時に更新する。

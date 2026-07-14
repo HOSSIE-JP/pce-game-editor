@@ -1,6 +1,8 @@
 #ifndef PCE_EDITOR_GENERATED_VN_H
 #define PCE_EDITOR_GENERATED_VN_H
 
+#define PCE_VN_SYSTEM_CARD_PROFILE_JP_V3 1u
+
 #define PCE_VN_COMMAND_BACKGROUND 0u
 #define PCE_VN_COMMAND_SPRITE 1u
 #define PCE_VN_COMMAND_MESSAGE 2u
@@ -35,6 +37,9 @@
 #define PCE_VN_AUDIO_KIND_PSG 2u
 #define PCE_VN_AUDIO_ACTION_PLAY 16u
 #define PCE_VN_AUDIO_ACTION_STOP 32u
+#define PCE_VN_PSG_STOP_ALL 0u
+#define PCE_VN_PSG_STOP_BGM 1u
+#define PCE_VN_PSG_STOP_SFX 2u
 #define PCE_VN_INPUT_MODE_SYNC 0u
 #define PCE_VN_INPUT_MODE_ASYNC 1u
 #define PCE_VN_INPUT_MODE_CANCEL 2u
@@ -59,9 +64,12 @@
 #define PCE_VN_COMPARE_GTE 5u
 #define PCE_VN_NO_COMMAND 65535u
 #define PCE_VN_SCENE_FLAG_FULL_SCREEN_BG 1u
+#define PCE_VN_HAS_FULL_SCREEN_BG 0u
+#define PCE_VN_HAS_SPRITE_ANIMATIONS 1u
+#define PCE_VN_HAS_SPRITETEXT 1u
 #define PCE_VN_VARIABLE_STORAGE_COUNT 3u
-#define PCE_VN_SCENE_PACK_CACHE_BYTES 4096u
-#define PCE_VN_SCENE_PACK_VERSION 1u
+#define PCE_VN_SCENE_PACK_CACHE_BYTES 8192u
+#define PCE_VN_SCENE_PACK_VERSION 2u
 #define PCE_VN_SCENE_PACK_HEADER_SIZE 20u
 #define PCE_VN_SCENE_PACK_COMMAND_SIZE 19u
 #define PCE_VN_SCENE_PACK_MESSAGE_SIZE 13u
@@ -71,7 +79,7 @@
 #define PCE_VN_SCENE_PACK_SWITCH_CASE_SIZE 4u
 
 typedef struct {
-  unsigned char sprite_index;
+  unsigned int sprite_index;
   unsigned char first_cell;
   unsigned char frame_count;
   unsigned char frame_delay;
@@ -79,6 +87,7 @@ typedef struct {
   unsigned char frame_height_cells;
   unsigned char frame_stride_cells;
   unsigned char loop;
+  const unsigned char *frame_delays;
 } pce_vn_sprite_anim_t;
 
 typedef struct {
@@ -146,6 +155,12 @@ typedef struct {
 } pce_vn_cd_data_ref_t;
 
 typedef struct {
+  pce_vn_cd_data_ref_t data;
+  unsigned char bus;
+  unsigned char channel;
+} pce_vn_system_psg_package_t;
+
+typedef struct {
   pce_vn_cd_sector_t sector;
   unsigned int sector_count;
   unsigned int byte_size;
@@ -153,33 +168,30 @@ typedef struct {
 } pce_vn_scene_pack_t;
 
 #define PCE_VN_FONT_TILE_BASE 712u
-#define PCE_VN_CHOICE_CURSOR_GLYPH 1u
+#define PCE_VN_CHOICE_CURSOR_GLYPH 33156u
+#define PCE_VN_MESSAGE_WAIT_GLYPH 33189u
 #define PCE_VN_GLYPH_END 0xffffu
 #define PCE_VN_GLYPH_NEWLINE 0xfffeu
-#define PCE_VN_GLYPH_ESCAPE 0xfdu
-#define PCE_VN_FONT_SPRITE_PATTERN_BASE 523u
+#define PCE_VN_FONT_SPRITE_PATTERN_BASE 461u
 #define PCE_VN_FONT_SPRITE_PALETTE_BANK 15u
+#define PCE_VN_SPRITE_PATTERN_BASE 589u
 
 #if defined(__PCE_CD__)
-extern const pce_vn_cd_data_ref_t pce_vn_font_data;
 #define PCE_VN_OVERLAY_LOAD_ADDR 32768u
 extern const pce_vn_cd_data_ref_t pce_vn_overlay_data;
-#else
-extern const unsigned char pce_vn_font_tiles[];
+#define PCE_VN_VISUAL_CODE_LOAD_ADDR 32768u
+extern const pce_vn_cd_data_ref_t pce_vn_visual_code_data;
+#define PCE_VN_CD_ASYNC_CODE_LOAD_ADDR 32768u
+extern const pce_vn_cd_data_ref_t pce_vn_cd_async_code_data;
 #endif
-extern const unsigned int pce_vn_font_glyph_count;
-void pce_vn_font_tiles_map(void);
-#if defined(__PCE_CD__)
-extern const pce_vn_cd_data_ref_t pce_vn_font_sprite_data;
-#else
-extern const unsigned char pce_vn_font_sprite_tiles[];
-#endif
-extern const unsigned char pce_vn_font_sprite_glyph_count;
+void pce_vn_data_map(void);
 extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];
-extern const unsigned char pce_vn_sprite_animation_count;
+extern const unsigned int pce_vn_sprite_animation_count;
 extern const signed int pce_vn_variable_initial_values[];
 extern const unsigned char pce_vn_variable_count;
 extern const pce_vn_scene_pack_t pce_vn_scene_packs[];
+extern const pce_vn_system_psg_package_t pce_vn_system_psg_packages[];
+extern const unsigned int pce_vn_system_psg_package_count;
 extern const unsigned char pce_vn_scene_count;
 extern const unsigned char pce_vn_start_scene;
 

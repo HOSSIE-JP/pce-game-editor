@@ -103,6 +103,67 @@ test('PCE external emulator defaults to Geargrafx on macOS when path is unset', 
   assert.equal(launchOptions.executablePath, defaultGeargrafxPath);
 });
 
+test('PCE external emulator rejects CD VN Test Play without the jp-v3 profile contract', async () => {
+  const plugin = require(path.join(pluginDir, 'index.js'));
+  let launched = false;
+
+  const result = await plugin.onTestPlay({ romPath: '/tmp/out/game.cue' }, {
+    testPlay: {
+      getProjectConfig: async () => ({
+        targetMedia: 'cd',
+        pluginRoles: { builder: 'pce-visual-novel-builder' },
+        cd: {},
+      }),
+      launchExternalEmulator: async () => {
+        launched = true;
+        return { ok: true };
+      },
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /systemCardProfile: "jp-v3"/);
+  assert.equal(launched, false);
+});
+
+test('PCE external emulator validates the user-owned System Card before CD VN launch', async () => {
+  const plugin = require(path.join(pluginDir, 'index.js'));
+  let launched = false;
+  const projectConfig = {
+    targetMedia: 'cd',
+    pluginRoles: { builder: 'pce-visual-novel-builder' },
+    cd: { systemCardProfile: 'jp-v3' },
+    testPlay: { externalEmulator: { executablePath: '/tmp/geargrafx' } },
+  };
+
+  const rejected = await plugin.onTestPlay({ romPath: '/tmp/out/game.cue' }, {
+    testPlay: {
+      getProjectConfig: async () => projectConfig,
+      getSystemCardProfileStatus: async () => ({ ok: false, error: 'profile mismatch' }),
+      launchExternalEmulator: async () => {
+        launched = true;
+        return { ok: true };
+      },
+    },
+  });
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.error, /Japanese Super System Card 3\.0/);
+  assert.equal(launched, false);
+
+  const accepted = await plugin.onTestPlay({ romPath: '/tmp/out/game.cue' }, {
+    testPlay: {
+      getProjectConfig: async () => projectConfig,
+      getSystemCardProfileStatus: async () => ({ ok: true, profile: 'jp-v3' }),
+      launchExternalEmulator: async () => {
+        launched = true;
+        return { ok: true };
+      },
+    },
+  });
+  assert.equal(accepted.ok, true);
+  assert.equal(launched, true);
+});
+
 test('PCE project config preserves external emulator settings', () => {
   const { normalizeProjectConfig } = require(path.join(__dirname, '..', 'pce-build-system'));
 

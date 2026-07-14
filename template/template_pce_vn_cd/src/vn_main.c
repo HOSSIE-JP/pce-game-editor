@@ -34,12 +34,12 @@ static void init_runtime_state(void)
     adpcm_play_frames_remaining = 0u;
     adpcm_play_looping = 0u;
     pad_edge_reset_pending = 0u;
-    active_scene_pack.data = vn_active_scene_pack_data;
+    active_scene_pack.base = (uint16_t)(uintptr_t)VN_ACTIVE_SCENE_PACK_DATA;
     active_scene_pack.size = 0u;
     active_scene_pack.scene_index = 0xffu;
     active_scene_pack.valid = 0u;
 #else
-    active_scene_pack.data = (uint8_t *)0;
+    active_scene_pack.base = 0u;
     active_scene_pack.size = 0u;
     active_scene_pack.scene_index = 0xffu;
     active_scene_pack.valid = 0u;
@@ -111,36 +111,8 @@ static void init_runtime_state(void)
 static void VN_BANKED_CODE vn_wait_next_vblank_raw(void)
 {
 #if defined(__PCE__) || defined(__PCE_CD__)
-    __asm__ volatile(
-        "lda #$ff\n"
-        "tam #$01\n"
-        "ldy #$80\n"
-        "vn_wait_vblank_end_outer%=:\n"
-        "ldx #$ff\n"
-        "vn_wait_vblank_end_inner%=:\n"
-        "lda $0000\n"
-        "and #$20\n"
-        "beq vn_wait_vblank_start%=\n"
-        "dex\n"
-        "bne vn_wait_vblank_end_inner%=\n"
-        "dey\n"
-        "bne vn_wait_vblank_end_outer%=\n"
-        "vn_wait_vblank_start%=:\n"
-        "ldy #$80\n"
-        "vn_wait_vblank_start_outer%=:\n"
-        "ldx #$ff\n"
-        "vn_wait_vblank_start_inner%=:\n"
-        "lda $0000\n"
-        "and #$20\n"
-        "bne vn_wait_vblank_done%=\n"
-        "dex\n"
-        "bne vn_wait_vblank_start_inner%=\n"
-        "dey\n"
-        "bne vn_wait_vblank_start_outer%=\n"
-        "vn_wait_vblank_done%=:\n"
-        :
-        :
-        : "a", "x", "y", "memory");
+    const uint16_t start = vn_frame_epoch;
+    while (vn_frame_epoch == start) {}
 #endif
 }
 
@@ -181,6 +153,68 @@ static uint8_t read_pad_raw(void)
 #endif
 }
 
+#if defined(__PCE_CD__)
+static uint8_t VN_BANKED_CODE2 vn_system_card_diagnostic_char(uint8_t index)
+{
+    if (index == 0u) return 'S';
+    if (index == 1u) return 'C';
+    if (index == 2u) return '3';
+    if (index == 4u) return 'E';
+    if (index == 5u || index == 6u) return 'R';
+    return ' ';
+}
+
+static uint8_t VN_BANKED_CODE2 vn_system_card_diagnostic_row(uint8_t ch, uint8_t row)
+{
+    if (ch == 'S')
+    {
+        if (row == 0u || row == 3u || row == 6u) return 0x1eu;
+        return row < 3u ? 0x10u : 0x01u;
+    }
+    if (ch == 'C') return (row == 0u || row == 6u) ? 0x1eu : 0x10u;
+    if (ch == '3') return (row == 0u || row == 3u || row == 6u) ? 0x1eu : 0x01u;
+    if (ch == 'E') return (row == 0u || row == 3u || row == 6u) ? 0x1fu : 0x10u;
+    if (ch == 'R')
+    {
+        if (row == 0u || row == 3u) return 0x1eu;
+        if (row == 1u || row == 2u) return 0x11u;
+        if (row == 4u) return 0x14u;
+        if (row == 5u) return 0x12u;
+        return 0x11u;
+    }
+    return 0u;
+}
+
+/* This tiny fixed ASCII renderer is deliberately not a general font fallback.
+   It exists only to make an unsupported System Card/font probe diagnosable. */
+static void VN_BANKED_CODE2 __attribute__((noreturn)) vn_system_card_show_failure(void)
+{
+    uint8_t diagnostic_tile[32];
+    uint16_t diagnostic_map[7];
+    uint8_t glyph;
+    uint8_t row;
+    for (glyph = 0u; glyph < 7u; glyph++)
+    {
+        const uint16_t tile = (uint16_t)(PCE_VN_BLANK_TILE + 1u + glyph);
+        const uint8_t ch = vn_system_card_diagnostic_char(glyph);
+        for (row = 0u; row < 8u; row++)
+        {
+            const uint8_t mask = row < 7u ? (uint8_t)(vn_system_card_diagnostic_row(ch, row) << 1) : 0u;
+            diagnostic_tile[row * 2u] = mask;
+            diagnostic_tile[(row * 2u) + 1u] = mask;
+            diagnostic_tile[16u + (row * 2u)] = mask;
+            diagnostic_tile[17u + (row * 2u)] = mask;
+        }
+        pce_editor_vram_copy((uint16_t)(tile * 16u), diagnostic_tile, 32u);
+        diagnostic_map[glyph] = ui_tile(tile);
+    }
+    write_map_words((uint16_t)((14u * VN_MAP_WIDTH) + 12u), diagnostic_map, 7u);
+    set_vdc_control(VN_VDC_DISPLAY_CONTROL);
+    pce_irq_disable(IRQ_VDC);
+    for (;;) __asm__ volatile("nop");
+}
+#endif
+
 static void init_video(void)
 {
 #if defined(__PCE_CD__)
@@ -192,11 +226,7 @@ static void init_video(void)
     vn_vdc_set_copy_word();
     set_vdc_control(VN_VDC_BLANK_CONTROL);
     pce_vdc_sprite_set_table_start(VN_SATB_ADDR);
-    pce_cdb_irq_set(PCE_CDB_ID_IRQ_VDC, vn_cd_irq1_quiet_handler);
-    pce_irq_disable(IRQ_VDC);
-    pce_cdb_irq_disable(VN_CDB_IRQ_MASK_RUNTIME_QUIET);
-    quiet_cd_unit_irqs();
-    init_psg_service();
+    (void)init_psg_service();
 #elif defined(__PCE__)
     pce_vdc_set_resolution(256, 224, VCE_COLORBURST_ON);
     pce_vdc_bg_set_size(VDC_BG_SIZE_32_32);
@@ -208,10 +238,11 @@ static void init_video(void)
     pce_irq_disable(IRQ_VDC);
 #endif
     upload_ui_palette();
-    upload_font_tiles();
-    upload_font_sprite_patterns();
     upload_blank_tile();
     clear_screen_map();
+#if defined(__PCE_CD__)
+    if (!vn_system_card_probe_ok) vn_system_card_show_failure();
+#endif
     set_screen_offset(0, 0);
 #if defined(__PCE_CD__)
     /* Stream the transition/upload overlay into bank133 at boot. It is invoked

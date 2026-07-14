@@ -264,6 +264,22 @@ static uint8_t VN_BANKED_CODE call_overlay_show_sprite_slot(uint8_t i)
    Placed in .ram_bank130 (VN_BANKED_CODE2) so -Oz does not fold it into
    refresh_scene_sprites (.ram_bank129) and it does not bloat the resident
    bank128; banks 128/129/130 are all mapped (MPR2/3/4) and inter-callable. */
+#if defined(__PCE_CD__)
+static uint8_t VN_VISUAL_CACHE_CODE ensure_spritetext_glyph(uint16_t glyph)
+{
+    uint8_t i;
+    for (i = 0u; i < spritetext_glyph_cache_count; i++)
+        if (spritetext_glyph_cache_ids[i] == glyph) return i;
+    if (spritetext_glyph_cache_count >= 64u) return 0xffu;
+    i = spritetext_glyph_cache_count;
+    if (!vn_system_card_font16_upload(glyph,
+            (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE + ((uint16_t)i << 1)))) return 0xffu;
+    spritetext_glyph_cache_ids[i] = glyph;
+    spritetext_glyph_cache_count++;
+    return i;
+}
+#endif
+
 static uint8_t VN_VISUAL_CACHE_CODE draw_spritetext_slots_impl(uint8_t satb_index)
 {
 #if !PCE_VN_HAS_SPRITETEXT
@@ -289,19 +305,26 @@ static uint8_t VN_VISUAL_CACHE_CODE draw_spritetext_slots_impl(uint8_t satb_inde
         y = (int16_t)((int16_t)slot->y + 64 + screen_shake_y);
         for (i = 0u; i < slot->glyph_count; i++)
         {
-            const uint8_t glyph = slot->glyphs[i];
+            const uint16_t glyph = slot->glyphs[i];
+            uint8_t pattern_index;
             vdc_sprite_t *entry;
-            if (glyph == VN_SPRITETEXT_GLYPH_NEWLINE)
+            if (glyph == PCE_VN_GLYPH_NEWLINE)
             {
                 x = base_x;
                 y = (int16_t)(y + 16);
                 continue;
             }
+#if defined(__PCE_CD__)
+            pattern_index = ensure_spritetext_glyph(glyph);
+            if (pattern_index == 0xffu) continue;
+#else
+            pattern_index = (uint8_t)glyph;
+#endif
             if ((uint8_t)(satb_index + written) >= 64u) return written;
             entry = &sprite_shadow[(uint8_t)(satb_index + written)];
             entry->x = (uint16_t)x;
             entry->y = (uint16_t)y;
-            entry->pattern = (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE + ((uint16_t)glyph << 1));
+            entry->pattern = (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE + ((uint16_t)pattern_index << 1));
             entry->attr = attr;
             written++;
             x = (int16_t)(x + 16);
@@ -380,11 +403,14 @@ static uint8_t VN_OVERLAY_CODE show_character_sprite_frame_slot(uint8_t i)
 static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns(void)
 {
 #if defined(__PCE_CD__)
-    /* The animation fast path only rewrites cached SATB pattern/attr words.
-       vn_overlay_dispatch_locked blocks external IRQs while slot4 is mapped to the
-       bank133 overlay, then restores bank130 before re-enabling IRQs. */
+    /* The overlay rebuilds cached SATB pattern/attr words, then
+       upload_sprite_pattern_words() waits for VBlank before taking its own short
+       VDC register lock.  Do not hold the outer IRQ lock across that wait: the
+       System Card VSync handler is resident and preserves MPR4 while bank133 is
+       mapped, so the unlocked dispatcher is both safe and required for the frame
+       epoch to advance. */
     map_vn_data();
-    return vn_overlay_dispatch_locked(VN_OVERLAY_OP_REFRESH_SPRITE, 0u, 0u, 0u);
+    return vn_overlay_dispatch(VN_OVERLAY_OP_REFRESH_SPRITE, 0u, 0u, 0u);
 #else
     return refresh_scene_sprite_patterns_impl();
 #endif
@@ -775,6 +801,12 @@ static void VN_BANKED_CODE2 hide_sprites_for_asset_load(void)
         sprite_layer_disable();
         delay_frame();
     }
+#if defined(__PCE_CD__)
+    spritetext_glyph_cache_count = 0u;
+#endif
+#if defined(__PCE_CD__)
+    spritetext_glyph_cache_count = 0u;
+#endif
 }
 
 /* preload_scene_assets/preload_scan_boundary/preload_adpcm_voice removed: the

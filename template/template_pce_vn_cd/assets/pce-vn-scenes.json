@@ -126,9 +126,16 @@
           "channel": 0
         },
         {
+          "type": "audio",
+          "kind": "psg",
+          "action": "play",
+          "assetId": "vn_psg_confirm",
+          "channel": 1
+        },
+        {
           "type": "message",
           "speaker": "Akari",
-          "text": "PSG chimeを\n鳴らしました。\nAudio stopのあと\nJumpで分岐です。",
+          "text": "BGM中にSE packageを\n読み込み同時再生。\nAudio stopのあと\nJumpで分岐です。",
           "textColor": "",
           "voiceAssetId": "",
           "mouthSlot": 0,
@@ -139,7 +146,8 @@
           "kind": "psg",
           "action": "stop",
           "assetId": "",
-          "channel": 0
+          "channel": 0,
+          "target": "all"
         },
         {
           "type": "jump",
@@ -379,7 +387,8 @@
           "kind": "psg",
           "action": "stop",
           "assetId": "",
-          "channel": 0
+          "channel": 0,
+          "target": "all"
         },
         {
           "type": "jump",
@@ -581,7 +590,8 @@
           "kind": "psg",
           "action": "stop",
           "assetId": "",
-          "channel": 0
+          "channel": 0,
+          "target": "all"
         },
         {
           "type": "jump",

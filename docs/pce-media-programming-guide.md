@@ -1,6 +1,6 @@
-# PCE 画像・スプライト・ADPCM・CD-DA プログラミングガイド
+# PCE 画像・スプライト・音声・BIOS font プログラミングガイド
 
-このガイドは、PCE Game Editor の現行実装における背景画像、スプライト表示、ADPCM 再生、CD-DA 再生の API を、開発者が実装に使える形でまとめたものです。
+このガイドは、PCE Game Editor の現行実装における背景画像、スプライト表示、PSG、ADPCM、CD-DA、BIOS fontのAPIを、開発者が実装に使える形でまとめたものです。CD VNは日本版Super System Card 3.0 profile `jp-v3`を前提とし、PSGとfontにSystem Card BIOSを使います。HuCardのPSG/font形式は別実装です。
 
 対象は PC Engine / Super CD-ROM2 project です。特に Visual Novel runtime (`template/template_pce_vn_cd/src/pce_vn_runtime.c`) と、そこへ渡される asset / scene 生成物を中心に説明します。
 
@@ -37,9 +37,9 @@ flowchart LR
 | スプライトを表示する | `importAssetImage({ kind: "sprite" })` | `sprite` | `sprite` | `pce_editor_sprite_asset_t`, `pce_vn_sprite_anim_t` | `refresh_scene_sprites()` / `show_character_sprite_frame()` |
 | ADPCM を鳴らす | `importAssetAudio({ kind: "adpcm" })` | `adpcm` | `audio` または `message.voiceAssetId` | `pce_editor_adpcm_asset_t` | `play_adpcm_voice()` / `stop_adpcm_voice()` |
 | CD-DA を鳴らす | `importAssetAudio({ kind: "cdda-track" })` | `cdda-track` | `audio` | `pce_editor_cdda_asset_t` | `cdda_audio_command()` / `cdda_command_impl()` |
-| PSG を鳴らす | PSG asset を登録 | `psg-song` / `psg-sfx` | `audio` (`kind: "psg"`) | `pce_editor_psg_asset_t` | `play_psg_asset()` / `tick_psg()` / `stop_psg()` |
+| PSG を鳴らす | PSG asset を登録 | `psg-song` / `psg-sfx` | `audio` (`kind: "psg"`) | `pce_vn_system_psg_package_t` (CD) | `system_psg_audio_command()` / System Card `PSG_DRIVE` |
 | 入力で分岐する | — | — | `inputcheck` | `pce_vn_command_t` | メインループの sync/async 入力ウォッチャ + `jump_to_command()` |
-| 短い文字をスプライトで重ねる | — | — | `spritetext` | `pce_vn_command_t` + `pce_vn_font_sprite_data` | `draw_spritetext_slots()` / `upload_font_sprite_patterns()` / `tick_spritetext()` |
+| 短い文字をスプライトで重ねる | — | — | `spritetext` | Shift-JIS scene data | `EX_GETFNT` 16×16 / on-demand VRAM upload |
 
 ## Renderer IPC API
 
@@ -425,13 +425,13 @@ CD-ROM2 VN runtime の `background` command は同期 command です。BG 切替
 | `blinkFrames` | `0..255` | `0` で常時表示。`1` 以上で `blinkFrames` フレームごとに表示/非表示をトグル（点滅） |
 | `visible` | `boolean` | `false` で slot を消去 |
 
-`spritetext` で使う文字は、メッセージ用の BG グリフフォントとは別に、**スプライト用フォント (`assets/generated/vn/font_sprite.bin`)** として build 時に自動生成されます。エンコードされるのは `spritetext` が実際に使う文字種だけで、起動時に 1 回だけスプライト VRAM (`PCE_VN_FONT_SPRITE_PATTERN_BASE`) へ転送されます。BG フォントに日本語が大量にあってもスプライトフォントは肥大化しません。
+CD VNの`spritetext`文字列はscene pack v2へ16-bit Shift-JISで格納されます。runtimeは表示に必要な文字だけをSystem Card `EX_GETFNT`の16×16 modeで取得し、4bppの4 tileへ変換してVRAMへuploadします。`font_sprite.bin`や起動時一括uploadはありません。HuCard VNは従来のbanked sprite fontを使います。
 
 制約（PCE ハードウェア由来）:
 
 - スプライト文字は character sprite と同じ **64 entry の SATB / 1 走査線 16 スプライト**を共有します。1 文字 = 16x16 = 1 スプライトなので、立ち絵と合わせて 64 を超えないように短く保ってください。超過分は描画されません。
 - 文字色は**予約スプライトパレットバンク** (`PCE_VN_FONT_SPRITE_PALETTE_BANK`、既定 15) の index 15 を runtime が書き換えて表現します。複数 slot を同時表示すると最後に描いた slot の色が全 slot に適用されます（同時に別色を出したい場合は表示タイミングをずらしてください）。スプライト asset の palette bank は既定 1 なので衝突しませんが、bank 15 を asset に割り当てている場合は避けてください。
-- スプライトフォントの pattern 領域は BG グリフフォント直後へ自動配置します。文字種が多すぎて SATB と重なる場合は build 時に warning を出します。
+- BIOS glyphのpatternはon-demand cacheへ置きます。cacheがSATBや通常sprite pattern領域と重なる配置はbuild errorです。
 - 通常 sprite asset の pattern 領域も SATB (`0x7f00`) より手前に収めてください。`tileBase * 32 + patterns.bin / 2` が `0x7f00` を超える asset は warning になり、VN runtime では sprite 下部や SATB が壊れます。
 
 点滅以外の表現（数フレームでフェード、移動など）は、`spritetext` の表示/非表示と既存の `wait` / `goto` / `inputcheck` を組み合わせて作れます。
@@ -469,7 +469,8 @@ CD-ROM2 VN runtime の `background` command は同期 command です。BG 切替
 
 ```jsonc
 { "type": "audio", "kind": "psg", "action": "play", "assetId": "chime", "channel": 0 }
-{ "type": "audio", "kind": "psg", "action": "stop", "assetId": "" }
+{ "type": "audio", "kind": "psg", "action": "stop", "target": "bgm" }
+{ "type": "audio", "kind": "psg", "action": "stop", "target": "all" }
 ```
 
 | field | 値 | 説明 |
@@ -478,14 +479,15 @@ CD-ROM2 VN runtime の `background` command は同期 command です。BG 切替
 | `action` | `"play"` / `"stop"` | 再生または停止 |
 | `assetId` | `psg-song` / `psg-sfx` asset ID | `play` のとき参照 |
 | `channel` | `0..5`, 既定 `0` | 基準 PSG チャンネル |
+| `target` | `"bgm"` / `"sfx"` / `"all"` | `stop`の対象。未指定は`all` |
 
-VN runtime は PSG asset の step パターンをフレーム駆動シーケンサ (`tick_psg()`) で 1 step ずつ再生します。`psg-song` はパターン末尾で先頭へループ、`psg-sfx` はパターン終了で停止するワンショットです。指定した `channel` を基準チャンネルとし、各 step の channel をそこからのオフセットとして加算、0..5 にクランプして発音します（同じ SFX を別チャンネルへ振り分けられます）。1 step のフレーム数は asset の `bpm` から算出します（`3600 / (bpm * 4)`、2..24 frame にクランプ）。大きい PSG pattern は CD data file から bank134+bank135 の 16KB 再生バッファへ読み込み、最大 2048 pattern event（8byte/entry）まで扱います。`action: "stop"` は再生中に使用したチャンネルだけを停止します。CD-DA や ADPCM とは独立して鳴らせます。
+CD VN buildはstep sourceをSystem Card track bytecodeへ変換します。`psg-song`はmain track/BGM、`psg-sfx`はsub track/SFXで、両方を同時再生できます。新しいplayは同じbusだけを置換します。再生時間はVSync user IRQが各VBlankで1回呼ぶ`PSG_DRIVE/$E0E1`だけで進み、main-thread sequencer、TIMER、credit、catch-upはありません。
 
-効果音は外部ファイルの取込だけでなく、エディタの **PSG 効果音デザイナー**（Sound タブ → PSG → `新規`）でプリセット＋スライダーから step pattern を直接生成して `psg-sfx` として登録できます。合成ロジックは renderer 側の純関数モジュール `plugins/pce-music-editor/psg-sfx-synth.mjs`（`synthesizeSfxPattern()`）にあり、出力は他の取込経路と同じ `options.pattern = [{ step, channel, period, volume, noise }]` 形式なので、シリアライズ（`serializePsgPattern()`）・C 生成（`generatePsgMetadata()`）・runtime は**変更なし**で共有します。デザイナーが生成する SFX は **31 step（pattern event 32 以下＝256 byte 以下）に収まる長さ**で末尾に note-off を付けるため、`PSG_PATTERN_CD_THRESHOLD_BYTES`(=256) を超えず常に常駐（`.rodata`）扱いになり、CD ストリーミングなしで即座に発音します。トーンは矩形波（`psg_load_basic_wave()`）固定で、独自波形テーブル（三角波・ノコギリ波など）は現行 runtime では未対応。音色はトーン（ch0）とノイズ（ch4）の sweep / envelope / vibrato で表現します。
+packageは実際にsceneから参照された`(assetId, channel)`ごとに作ります。`channel` shift/clampはbuild時にvariantへ焼き込みます。長さはBPM規則からframeへ変換し、長いnoteはdirect-length分割+tie、song loopはSEGNO、SFX終端はend commandになります。tone periodをnote+detuneで正確に表現できない場合、noiseがchannel 4/5以外に配置される場合、容量を超える場合は位置付きbuild errorです。
 
-PSG asset には全体音量 `options.volume`（0〜100%、既定 100）があり、build 時に `normalizePsgPatternEntries()` が各 step の `volume`(0..31) を `round(volume * volume% / 100)` でスケールしてから serialize / C 生成します。エディタの WebAudio プレビュー（`normalizePsgPreviewPattern()`）も同じ式で同じ値を鳴らすため、プレビューと実機の音量が一致します。runtime のデータ構造・再生コードは非変更です。
+CD packageはbank134 `$8024`以降のBGM（最大8156 bytes）とbank135 `$A000`以降のSFX（最大8192 bytes）へdirect async loadします。対象busだけを停止し、宣言byte数だけを転送するので、他方のbusは継続します。同じbusの再生中に別packageを`cache load`するscriptはvalidation errorです。
 
-CD ロードと PSG の同時再生について: CD 転送待ち（`cd_transfer_wait()`）では `engine_service_blocking()` が待ち中に見えた実 VBlank credit を PSG/ADPCM へ渡し、さらに `VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES`（既定 `10u`）を **PSG 専用**に加えます。BIOS helper 自体の中で進んだ時間は cooperative sampler から見えないことがあるため、この補償で BG load / sprite load / visual payload read 中の PSG テンポ落ちを抑えます。補償は `engine_apply_psg_credit()` だけに入り、ADPCM の残フレームや message timing は進めません。CD-backed ADPCM RAM load は bank122 の direct SCSI async read で `IO_PCD_ADPCM_DATA` へ書くため、この BIOS 補償 path を使いません。`VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS`（既定 `4096u`）は BIOS helper 後の短い settle poll 上限で、旧 `65535u` のように各転送へ大きい人工待ちを足さないためのものです。bank133 overlay、scene pack cache、bank134/135 PSG pattern のように RAM bank へ直接読む payload は `VN_CD_RAM_READ_CHUNK_SECTORS`（既定 `2u`）までまとめて CD read します。VRAM 転送は 1 sector scratch 経由なので従来どおり 1 sector 単位です。PSG 再生中の VRAM 転送は約16 byte sliceごとに区切り、slice 後に `engine_service()` を呼んで実 credit だけを消費します。sprite SATB 全転送と pattern/attr 差分更新では、非再入の VDC 書き込み中には触らず、VDC ロック直前/直後で同じ service を呼びます。通常フレームは main loop 先頭ではなく `delay_frame()` 内で VBlank 待ち直後に進めます。PSG が鳴っていない場合は最大 1 sector までまとめて転送します。
+waveformは32-byte square waveをuser waveform 45として固定し、外部envelope/FMは使いません。`options.volume`のbuild-time scaleとWebAudio preview、MIDI/VGM取込、SFXデザイナーは従来どおり利用できます。HuCard buildはSystem Card packageへ変換せず、既存step runtimeを使います。
 
 ### CD-DA 再生 command
 
@@ -500,11 +502,11 @@ CD ロードと PSG の同時再生について: CD 転送待ち（`cd_transfer_
 | `action` | `"play"` / `"stop"` | `play` は track 再生、`stop` は pause |
 | `assetId` | `cdda-track` asset ID | `play` のとき `options.track` が runtime へ渡る |
 
-現行 VN runtime の CD-DA 再生は、明示的な audio command がある場合だけ開始します。開始位置は `cdda-track.options.track` から生成した `start_sector`、終了位置は `PCE_CDB_LOCATION_TYPE_UNTIL_END` として `pce_cdb_cdda_play()` を呼びます。track 境界は BIOS の明示終了指定ではなく、WAV 長から生成した `play_frames` を runtime が毎 VBlank で減算して管理します。CD-ROM2 VN runtime は VDC 表示制御を直接所有するため、System Card の VBlank handler は使いません。通常 frame wait は VDC status の `VDC_FLAG_VBLANK` を guard 付きで直接待つので、VDC R5 の VBlank bit は polling 用に有効化し、HuC6280 側の `IRQ_VDC` を mask します。CD/ADPCM BIOS helper 後は System Card の R5 shadow (`$F3/$F4`) も runtime 側で更新します。`cdda-track.options.loop` が `true` の場合は境界直前で同じ asset の開始 sector へ再生命令を再発行し、`false` の場合は `pce_cdb_cdda_pause()` で停止します。
+現行 VN runtime の CD-DA 再生は、明示的な audio command がある場合だけ開始します。開始位置は `cdda-track.options.track` から生成した `start_sector`、終了位置は `PCE_CDB_LOCATION_TYPE_UNTIL_END` として `pce_cdb_cdda_play()` を呼びます。track 境界はWAV長から生成した`play_frames`をVSync IRQ epochごとに減算して管理します。CD VNはgraphics/full VBlank handlerを使わず、generic IRQ user vectorでVDC statusをackして`PSG_DRIVE`を1回実行します。CD/ADPCM/CD-DA BIOS helper後はadapterがuser vector、IRQ mask、R5を再確立します。`cdda-track.options.loop` が `true` の場合は境界直前で同じ asset の開始 sector へ再生命令を再発行し、`false` の場合は `pce_cdb_cdda_pause()` で停止します。
 
 ### 読み込みと cache
 
-明示的な `preload` command は廃止済みです。scene 入場時の runtime は、scene pack を active cache (`4096` bytes) へ読み込んでから、最初の `message` / `choice` / `wait` / `jump` までに必要な asset だけを先読みします。scene 後半の背景・sprite・ADPCM は必要になった時点で読み込むため、起動直後や scene 切替直後の長い同期ロードを避けやすくなります。BG/Sprite は各 `background` / `sprite` command で初めて固定 VRAM 領域へ反映され、VRAM/BAT/SATB 転送、必要な fade、表示 layer の再有効化まで同期完了してから次 command へ進みます。scene 末尾の表示 command がメッセージ待ちを飛び越えて先に見えることはありません。script pack 読み込みも CD data read なので、CD-DA と同時には行えません。raw visual payload は CD read 中だけ CD-DA を pause し、sector が `cd_transfer_scratch` に入った後の VRAM/BAT copy では CD-DA を再開します。CD-DA の中断をさらに短くしたい scene では、BG/Sprite 表示 command 自体を CD-DA 開始前に寄せてください。
+明示的な `preload` command は廃止済みです。scene 入場時の runtime は、scene pack v2をbank123のactive cache（8192 bytes）へ読み込んでから、最初の `message` / `choice` / `wait` / `jump` までに必要なassetだけを先読みします。scene readerはoffset/countでbank123へ短時間mapし、message開始時には最大68 glyphをconsole RAMへdetachします。scene後半の背景・sprite・ADPCMは必要になった時点で読み込みます。script pack読込はCD data readなのでCD-DAと同時には行えません。
 
 現行 runtime は ADPCM の cache 状態を `loaded_adpcm_valid` / `loaded_adpcm_index` で管理します。build は `message.voiceAssetId` に必要な内部 `Cache Load ADPCM` を挿入し、分岐やADPCM cache操作より前にある最初の message voice については scene 先頭へ hoist します。同じscene内で別ADPCMの message voice が続く場合は、そのmessage直前でADPCM RAMを読み替えます。実際の `audio` / `message.voiceAssetId` 再生時に必要な ADPCM を読み込み、すでに同じ ADPCM が読み込まれている場合は controller を reset/load しません。音声の確実な再生制御は `audio` command または `message.voiceAssetId` を主 API にしてください。
 
@@ -514,11 +516,11 @@ CD ロードと PSG の同時再生について: CD 転送待ち（`cd_transfer_
 { "type": "cache", "action": "clear", "scope": "visual" }
 ```
 
-`scope` は `visual`（BG + Sprite）/ `bg` / `sprite` / `adpcm` / `psg` / `all` です。`visual` は `preloaded_bg_valid`、`preloaded_scene_visual_valid`、sprite pattern の loaded flag を落とし、`adpcm` は `loaded_adpcm_valid`、`psg` は `loaded_psg_pattern_valid` だけを落とします。`all` は visual + ADPCM + PSG に加えて message glyph cache を無効化します。いずれも現在の VRAM / BAT / SATB / ADPCM controller / CD-DA / PSG / scene pack / 変数には触れず、次に該当 asset を使う command で再ロードさせるための非破壊操作です。scene pack command record は既存 19 byte のままで、`type = PCE_VN_COMMAND_CACHE`、`flags = PCE_VN_CACHE_ACTION_CLEAR`、`arg0 = PCE_VN_CACHE_SCOPE_*`、その他 field は sentinel / 0 です。
+`scope` は `visual`（BG + Sprite）/ `bg` / `sprite` / `adpcm` / `psg` / `all` です。`psg`はBGM/SFXそれぞれのloaded package keyだけを落とし、再生自体は停止しません。`all`はvisual + ADPCM + PSGに加えてBIOS message glyph cacheを無効化します。いずれも現在のVRAM / BAT / SATB / ADPCM controller / CD-DA / PSG / scene pack / 変数には触れない非破壊操作です。
 
-明示 load は同じ `cache` command の `action: "load"` を使います。対象は1 commandにつき1 assetです。`scope: "adpcm"` はADPCM停止中だけADPCM RAMへ読み込みます。`scope: "psg"` は banked PSG pattern を bank134/135 の単一 buffer へ先読みし、後続の `audio` command が同じ PSG asset を再生するときは CD read なしで開始します。現在再生中の PSG が banked pattern の場合、bank134/135 は現曲の pattern なので `Cache Load PSG` は上書きせず skip します。`scope: "bg"` は BG tiles と map を、`scope: "sprite"` は sprite pattern payload を低位 System Card RAM の visual cache へ読み込みます。BG/Sprite load は VRAM/BAT/SATB、`sprite_slots[]`、現在の表示状態を変更しません。実際の VRAM/BAT/SATB 反映は `background` / `sprite` command 実行時だけで、cache hit すれば CD read なし、evict 済みなら CD→scratch→VRAM へ fallback します。scene pack command record は19 byteのまま、`flags = PCE_VN_CACHE_ACTION_LOAD`、`arg0 = PCE_VN_CACHE_SCOPE_*`、`assetIndex` / `slot` / `x` / `y` に対象を格納します。
+明示 load は同じ `cache` command の `action: "load"` を使います。対象は1 commandにつき1 assetです。`scope: "adpcm"`はADPCM停止中だけADPCM RAMへ読み込みます。`scope: "psg"`は参照commandの`(assetId, channel)` packageをbus別bankへ先読みします。同じbusが再生中の別packageをpreloadするsceneはbuild時に拒否されます。`scope: "bg"`はBG tiles/map、`scope: "sprite"`はsprite patternをvisual cacheへ読み込み、表示状態は変えません。
 
-PSG の途切れを調査する場合は、BGM 開始直前の CD-backed pattern load と、CD/VRAM blocking 中に複数 frame credit をまとめて `psg_advance()` してから 1 回だけ `psg_commit()` する catch-up の両方を分けて確認します。runtime には検証用スイッチ `VN_PSG_COMMIT_EACH_CREDIT_DURING_BLOCKING` があり、現在の検証既定 `1` では blocking work 中の PSG credit だけを 1 frame ごとに `advance + commit` し、ADPCM countdown の catch-up は従来どおりまとめて進めます。`0` に戻すと複数 PSG credit をまとめて進める production path になります。`VN_PSG_CD_TRANSFER_COMPENSATION_FRAMES` を大きくするとリズムだけは見えやすくなりますが、CD read 後の人工待ちや過細分化を隠すだけの場合があります。まず `VN_CD_TRANSFER_SETTLE_POLL_ITERATIONS`、RAM 直読みの chunk、visual cache hit、ADPCM preload の有無を確認してください。恒久対応として採る前に、Geargrafx で PSG register write、MPR6 の bank132 復帰、ADPCM/CD-DA との同時動作を確認してください。
+PSGの途切れ/倍速はcredit調整で直しません。Geargrafxで`PSG_DRIVE/$E0E1`が各VBlank 1回だけ通ること、full handler`$E873`が0回であること、package load中もIRQ epochが進むことを確認します。BGM loadはbank134、SFX loadはbank135だけを更新し、ISR前後のMPR4/5/6が一致しなければBIOS adapter/bank復帰の不具合です。
 
 HuCARD VN では HuC6280 TIMER IRQ を PSG の時間源にしません。TIMER credit 実験では main thread の VBlank service と独立した credit が積まれ、通常時の高速再生や不安定な catch-up を起こしやすかったため、HuCARD 側は `wait_vblank()` 直後の cooperative service point で `psg_advance(1)` する方式を標準にします。PSG register / VDC / bank 切替は main thread の安全地点でのみ行います。HuCARD 側で PSG slowdown を調査する場合は、PSG register write の間隔、`IRQ_VDC` が mask のままか、長い `copy_data_ref_to_vram_guarded()` の slice 間で VBlank service が挟まっているかを確認してください。
 
@@ -631,6 +633,10 @@ classDiagram
     end_time
     play_frames
   }
+  class pce_vn_system_psg_package_t {
+    data
+    bus
+  }
   class pce_vn_command_t {
     type
     asset_index
@@ -654,15 +660,16 @@ classDiagram
 | `pce_editor_sprite_draw_meta[]` | sprite SATB 構築用の compact metadata。CD runtime は共有状態へコピーせず、asset descriptor とSLOT割り当てから必要フィールドをslotごとのローカル値へスナップショットして使う |
 | `pce_editor_adpcm_assets[]` / `_count` | `adpcm` asset の data size, address, divider, loop, play_frames, CD sector metadata |
 | `pce_editor_cdda_assets[]` / `_count` | `cdda-track` asset の track/loop metadata |
+| `pce_vn_system_psg_packages[]` / `_count` | CD VNで参照された`(assetId, channel)`ごとのSystem Card package CD refとmain/sub bus |
 | `pce_vn_sprite_animations[]` / `_count` | `sprite.options.animations` を cell 単位へ正規化した metadata |
 | `pce_vn_scene_packs[]` / `_count` | scene pack の CD sector、sector count、byte size、next scene |
 | `pce_vn_variable_initial_values[]` / `_count` | runtime 変数の初期値 |
 
-`voice_index`、`asset_index`、`message_index`、`animation_index`、`scene_index`、`choice_index`、`target_scene`、`variable_index`、`next_scene` は `-1` sentinel を持つため `signed int` として生成します。scene 数、variable 数、sprite animation 数は `unsigned char` で公開するため build 時に 255 件を上限として検証します。CD-ROM2 VN の command/message/choice/switch は scene pack 内の local index になり、上限は scene ごとに 255 件です。1 scene pack は runtime cache に合わせて 4096 bytes 以下である必要があります。
+`voice_index`、`asset_index`、`message_index`、`animation_index`、`scene_index`、`choice_index`、`target_scene`、`variable_index`、`next_scene` は `-1` sentinel を持つため `signed int` として生成します。scene 数、variable 数、sprite animation 数は `unsigned char` で公開するため build 時に 255 件を上限として検証します。CD-ROM2 VN の command/message/choice/switch は scene pack 内の local index になり、上限は scene ごとに 255 件です。CD scene pack v2は8192 bytes以下、HuCard scene packは4096 bytes以下です。
 
-PCE-CD / Super CD-ROM2 build では、llvm-mos の既定 `.text` / `.rodata` は常駐 `ram_bank128` に配置されます。VN runtime は command interpreter、VBlank wait、ADPCM 制御、scene pack command/message reader を `.ram_bank129`、scene pack choice/switch reader、sprite refresh、preload helper を `.ram_bank130`、sprite animation、variable 初期値、scene pack directory、font tiles の CD data ref を `.ram_bank132` に明示配置し、bank128 に全 runtime/data を詰め込まない構成にしています。bank133 overlay には message グリフコンポジタを置きます。BG/Sprite visual payload RAM cache は実験版として helper code を `visual_code.bin` から bank121/slot4 へ読み込み、payload を bank104-119/slot6 の 8KB x 16 page LRU cache に保持します。bank131 は例外的な小さい CPU-readable fallback data 用に残し、scene script、ADPCM 本体、**グリフフォント (`assets/generated/vn/font.bin`)** は `cd.dataFiles` から active cache / scratch buffer / VRAM / ADPCM RAM へ転送します。背景 tiles/map と sprite pattern は `cache load` で visual cache へ先読みでき、表示 command で cache miss した場合だけ CD→scratch→VRAM へ fallback します。font tiles は起動時に 1 回だけ VRAM へストリームし、`pce_vn_font_data` (sector/サイズ) だけを bank132 に残すため、glyph 数を増やしても bank132 を圧迫しません。glyph index は 16bit エスケープ符号化（0..252 は 1 byte、253 以上は `0xfd`+16bit LE）のため旧 254 種上限を超えられ、残る上限は VRAM tile のみです（既定 `tileBase` でおよそ 1000 種 = `VN_MAX_GLYPH_COUNT`。build 時に `computeFontBudget()` が検査）。詳細な割り当てと変更時の注意は `docs/pce-memory-bank-strategy.md` を参照してください。
+PCE-CD / Super CD-ROM2 buildではbank123をscene pack、bank128/129/130をresident code、bank132をgenerated data/scratch/変換済みglyph cache、bank133をcode overlay、bank134をSystem Card BGM、bank135をSystem Card SFXに使います。bank131はSystem Cardのため使用禁止です。message/spritetext glyphは`EX_GETFNT`からon-demand取得し、`font.bin`/`font_sprite.bin`を生成しません。CD textはlength付き16-bit Shift-JISで、ASCIIは全角化し、非漢字領域+JIS第一水準以外をbuild errorにします。詳細とlink-map gateは`docs/pce-memory-bank-strategy.md`を参照してください。
 
-VN sprite runtime は sprite asset descriptor の cell size / sheet cell 数と、SLOT順に割り当てた実 pattern base / palette bank を slot ごとのローカル値へスナップショットしてから SATB を組みます。実 pattern base は `PCE_VN_SPRITE_PATTERN_BASE` からSLOT順に積まれ、各SLOTの値は `sprite_slot_pattern_base[]` に保持されます。palette / pattern の data ref と `cell_map` も helper 呼び出し前に退避するため、SLOT0 が 32x64、SLOT1 が 16x64 のように cell size が違う asset を連続表示しても、後続SLOTの描画メタが前SLOTへ混ざりません。animation metadata が sheet 範囲内なら `frame_count: 1` の default でも 1 frame の表示サイズとして使い、frame size 未指定時は generator 側で sheet 全体表示へ正規化します。未使用 SATB entry は `VN_SPRITE_HIDDEN_Y` へ逃がします。PCE ではゼロ化した SATB entry も無効 sprite ではなく、BG の色0部分に pattern 0 が出るためです。ADPCM 再生中も sprite/spritetext refresh は止めず、口パク維持のため slot に cache した animation metadata と pattern word 差分更新で per-frame cost を抑えます。SATB の全転送と pattern/attr 差分更新は VDC 書き込み直前に `vn_wait_next_vblank()` で VBlank へ寄せ、表示期間中の R19/SATB DMA start を避けます。PSG 再生中は VDC ロックの前後で VBlank-gated PSG service を呼び、非再入の VDC register / SATB 更新中には PSG tick を入れません。message 開始/全文 reveal/choice 再描画の strip clear と glyph 一括描画は、message 窓 BAT だけを blank tile へ退避してから行い、全画面 display blank は使いません。CD/ADPCM/CD-DA BIOS helper 後の timing/control/scroll 復元と display/sprite layer 切り替えも VBlank 側で行い、表示期間中の R5/R7/R8/R9/R10 書き換えを避けます。VDC memory control は `VN_VDC_MEMORY_CONTROL` (`VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_32_32`) を使い、BG size 更新時に sprite cycle bit を落とさないことを前提にしています。
+VN sprite runtime はsprite descriptorとSLOT割当をruntime-owned snapshotへ落としてからSATBを組みます。未使用SATB entryは`VN_SPRITE_HIDDEN_Y`へ逃がします。ADPCM再生中もsprite/spritetext/口パクを更新します。VDC accessはIRQ lockでSystem Card VSync handlerとの再入を防ぎ、SATB DMA/R5/R7/R8等の更新はVBlank側へ寄せます。PSGのframe進行はmain threadからserviceせず、VSync IRQの`PSG_DRIVE`だけが担当します。VDC memory controlは`VN_VDC_MEMORY_CONTROL` (`VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_32_32`)を使います。
 
 CD-ROM2 VN runtime は `map_vram.bin` を `mapBase` から丸ごとVRAMへ置くblobとして扱いません。raw `map_vram.bin`（無圧縮）は1行32タイルのソースとしてCDから読み、各行の `width_tiles` 分だけを `mapBase + command.y * 32 + command.x + row * 32` にコピーします。これにより、背景画像より広い画面領域の左右/上下余白は blank tile のまま残り、CD map paddingの0 wordが古いVRAM tileを参照して縦縞になる事故を防ぎます。BG command の fade は BG palette bank だけを暗く/明るくし、display layer 全体を無効化しないため、メッセージ UI palette までは暗転しません。UI も含めて指定色へ落としたい場合は `effect: "fadeOut"` と `color` を使います。
 
@@ -731,7 +738,7 @@ buffered playback の停止は ADPCM hardware の PLAY bit を直接落としま
 
 CD-ROM2 runtime は CD 上の ADPCM payload を bank122 の direct SCSI async helper で ADPCM RAM へ読み込みます。direct-buffered 安全上限に収まる buffered asset は、その後の再生開始と停止を ADPCM hardware への direct latch / direct stop で行います。安全上限を超える voice は `splitPolicy: "auto"` や sample rate 低下で分割し、runtime で true streaming へ fallback しません。
 
-ADPCM RAM への CD 読み込み中は `vn_wait_next_vblank_raw()` + `engine_service()` + `vn_cd_async_service_frame()` を毎 frame 実行し、SCSI DATA IN を `IO_PCD_ADPCM_DATA` へ直接書きます。この区間は System Card BIOS helper、external IRQ、`quiet_cd_unit_irqs()` を使わないため、TIMER は runtime 所有のまま PSG が実フレームで進みます。buffered playback では direct latch で再生を開始します。再生開始時には直前の buffered ADPCM を direct stop してから再生します。ADPCM の data size、address、divider、loop、play_frames、CD sector は runtime-owned snapshot へ直接コピーし、CD access のあとに MPR が変わっても bank128 の asset metadata を読み間違えないようにします。非loop の buffered 再生は、System Card BIOS の stopped bit を毎 frame 監視せず、generated catalog の `play_frames` で自然終了を管理します。buffered direct playback は hardware repeat mode の wrap より数 frame 早く PLAY を落とし、自然終了後に追加の `pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()` は発行しません。標準 EmulatorJS/WASM core では buffered ADPCM one-shot の完了IRQで CPU が止まることがあるため、非loop buffered 再生中は完了IRQをマスクします。ADPCM 再生開始後は次の joypad edge 判定を一度だけ初期化します。このとき現在押されている button を baseline にし、押しっぱなしの I/RUN を新規 edge として扱いません。VN の audio command は buffered direct playback を開始したら待ち状態を返さず次の command へ進みます。ただし未読み込みの通常 ADPCM は、再生開始前の ADPCM RAM 読み込みだけ同期的に完了待ちします。CD-DA 再生中に ADPCM や画像/sprite の CD data file を読む場合は、CD drive を data read に戻すため runtime が CD-DA を pause します。
+ADPCM RAM への CD 読み込み中は `vn_wait_next_vblank_raw()` + `engine_service()` + `vn_cd_async_service_frame()` を毎 frame 実行し、SCSI DATA IN を `IO_PCD_ADPCM_DATA` へ直接書きます。この区間はSystem Card CD/ADPCM BIOS helperやCD external IRQを使いませんが、VSync user IRQは動作し続け、`PSG_DRIVE`が実フレームで進みます。buffered playbackではdirect latchで再生を開始します。非loop playbackはBIOS stopped bitを毎frame監視せず、generated `play_frames`で自然終了を管理します。自然終了後に追加の`pce_cdb_adpcm_stop()` / `pce_cdb_adpcm_reset()`は発行しません。ADPCM再生開始後のjoypad baselineには現在押されているbuttonを使い、押しっぱなしを新規edgeにしません。
 Generated C の `data_size` は `unsigned long` field として出力し、長尺 ADPCM でも llvm-mos の16bit `unsigned int` literal に丸められないようにします。
 
 ADPCM 後の進行停止を直す場合は、`docs/pce-testplay-debugging.md` の「標準 WASM だけ ADPCM 後に進まない場合」を先に確認してください。command scheduler、joypad edge、ADPCM 完了IRQによる CPU 停止は見た目が似ているため、入力なしで完了後の next message へ進む最小 scene と、`voiceAssetId` を外した対照 build の両方を標準 WASM core で確認してから runtime を変更します。
@@ -812,7 +819,7 @@ ADPCM の `divider` は再生周波数/速度側の値で、音量ではあり�
 | BG/Sprite compression | 撤去済み。visual asset は常に無圧縮の raw `.bin` を CD data file として使う |
 | Sprite cell size | `16x16`, `16x32`, `16x64`, `32x16`, `32x32`, `32x64` のみ |
 | VN sprite slot | 論理 slot は 4。hardware SATB は 64 entry |
-| spritetext オーバーレイ | 論理 slot 4、1 command 最大 32 グリフ。character sprite と SATB(64)/16-per-line を共有。色は予約 sprite palette bank(既定15) index15 で同時表示は後勝ち 1 色。スプライト用フォントは `font_sprite.bin` に使用文字だけ生成 |
+| spritetext オーバーレイ | 論理 slot 4、1 command 最大 32 グリフ。character sprite と SATB(64)/16-per-line を共有。CD VNは`EX_GETFNT` 16×16をon-demand 4bpp化し、`font_sprite.bin`を生成しない |
 | Sprite pattern / palette | 同時表示SLOTを `0` から順に使う。runtime は `PCE_VN_SPRITE_PATTERN_BASE` からSLOT順に非重複配置する。build は同時表示分の配置結果がSATBや予約palette bankへ食い込む構成を error にする |
 | VN sprite 表示 | `sprite` command は指定座標へ即時表示・差し替え・非表示する。移動演出は未実装 |
 | VN screen shake | `effect: "shake"` は BG scroll と sprite SATB 座標を同じ offset で揺らす |

@@ -42,8 +42,6 @@ function createVnCdCatalog(options = {}) {
       addExisting(projectDir, files, seen, generated.tilesFile);
     } else if (asset.type === 'adpcm') {
       addExisting(projectDir, files, seen, generated.outputFile);
-    } else if ((asset.type === 'psg-song' || asset.type === 'psg-sfx') && catalogMode && typeof assetManager.psgPatternFile === 'function') {
-      addExisting(projectDir, files, seen, assetManager.psgPatternFile(asset));
     }
   }
 
@@ -85,11 +83,9 @@ function createVnCdCatalog(options = {}) {
       && assetManager.assetMetaShouldUseCd(projectDir, runtimeAssetDoc);
     const files = [];
     const seen = new Set();
-    add(files, seen, managedFiles.fontData);
     addExisting(projectDir, files, seen, managedFiles.overlayData);
     if (enableVisualPayloadCache) addExisting(projectDir, files, seen, managedFiles.visualCodeData);
     addExisting(projectDir, files, seen, managedFiles.cdAsyncCodeData);
-    addExisting(projectDir, files, seen, managedFiles.fontSpriteData);
     if (catalogMode) addExisting(projectDir, files, seen, assetManager.ASSET_META_FILE);
     (doc.scenes || []).forEach((scene, sceneIndex) => {
       add(files, seen, scenePackRelativePath(scene, sceneIndex));

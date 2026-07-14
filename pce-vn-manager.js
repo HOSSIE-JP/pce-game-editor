@@ -8,6 +8,8 @@ const assetManager = require('./pce-asset-manager');
 const { mergeCurrentCdDataFiles } = require('./pce-vn-cd-data-files');
 const { createVnCdCatalog } = require('./pce-vn-cd-catalog');
 const { createVnScenePackCodec } = require('./pce-vn-scene-pack');
+const systemCardPsg = require('./pce-system-card-psg');
+const systemCardFont = require('./pce-system-card-font');
 
 const VN_SCENE_FILE = path.join('assets', 'pce-vn-scenes.json');
 const VN_FONT_FILE = path.join('assets', 'pce-font.json');
@@ -17,7 +19,7 @@ const VN_FONT_FILE = path.join('assets', 'pce-font.json');
 const VN_FONT_DIR = path.join('assets', 'fonts');
 const FONT_FILE_EXTS = ['.ttf', '.otf', '.ttc'];
 const VN_BUILD_STAMP_FILE = path.join('assets', 'generated', 'vn', 'build-stamp.json');
-const VN_BUILD_STAMP_VERSION = 2;
+const VN_BUILD_STAMP_VERSION = 3;
 const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
 // BG message / choice glyph streams stay byte-oriented so the common case costs
 // one byte per glyph, but a 0xfd escape prefix lets the project-wide font exceed
@@ -92,6 +94,9 @@ const VN_AUDIO_KIND_CDDA = 1;
 const VN_AUDIO_KIND_PSG = 2;
 const VN_AUDIO_ACTION_PLAY = 0x10;
 const VN_AUDIO_ACTION_STOP = 0x20;
+const VN_PSG_STOP_ALL = 0;
+const VN_PSG_STOP_BGM = 1;
+const VN_PSG_STOP_SFX = 2;
 // Input check command modes (stored in command flags).
 const VN_INPUT_MODE_SYNC = 0;
 const VN_INPUT_MODE_ASYNC = 1;
@@ -141,8 +146,8 @@ const VN_MAX_U8_COUNT = 255;
 const VN_MAX_SPRITE_ANIMATION_COUNT = 512;
 const VN_SCENE_FLAG_FULL_SCREEN_BG = 1;
 const VN_SCENE_PACK_DIR = path.join('assets', 'generated', 'vn', 'scenes');
-// Font tiles are streamed from this CD data file into VRAM at boot (no longer
-// resident in ram_bank132). One glyph = 16x16 px = 4 BG tiles = 128 bytes.
+// HuCard-only message font payload. CD builds obtain glyphs from EX_GETFNT and
+// keep this path solely in managed-output cleanup so stale files are removed.
 const VN_FONT_DATA_FILE = path.join('assets', 'generated', 'vn', 'font.bin');
 // Overlay code blob (Path B, Phase B1). The overlay functions now live in
 // pce_vn_runtime.c (section .vn_overlay), compiled in the SAME link as the main
@@ -207,10 +212,11 @@ const VN_BANK132_TAIL_VMA = 0xd078;
 // Sprite-format copy of the glyphs used by `spritetext` commands. Only the
 // characters referenced by spritetext are encoded here (BG-format font tiles
 // cannot be reused for hardware sprites), so this stays small even when the BG
-// font has hundreds of glyphs. One glyph = 16x16 px = 1 hardware sprite = 128
-// bytes of sprite pattern data.
+// HuCard-only SpriteText payload. One glyph = 16x16 px = 1 hardware sprite =
+// 128 bytes of sprite pattern data; CD builds obtain it from EX_GETFNT.
 const VN_FONT_SPRITE_DATA_FILE = path.join('assets', 'generated', 'vn', 'font_sprite.bin');
 const VN_HUCARD_PSG_DIR = path.join('assets', 'generated', 'vn', 'psg');
+const VN_SYSTEM_CARD_PSG_DIR = path.join('assets', 'generated', 'vn', 'system-card-psg');
 // VCE sprite palette bank reserved for spritetext glyphs. Lit pixels use color
 // index 15 of this bank; the runtime writes each command's color into that
 // entry at draw time. Keep clear of the sprite asset palette banks (default 1).
@@ -221,8 +227,8 @@ const VN_SPRITETEXT_MAX_GLYPHS = 32;
 // Number of distinct sprite-font glyphs we will encode (index space 0..253,
 // 0xfe = newline marker in command glyph streams).
 const VN_FONT_SPRITE_MAX_GLYPH_COUNT = 254;
-// Message glyphs are 12x12 px. font.bin stores one 12x12 1bpp mask per glyph
-// (12 words = 24 bytes; per row the high byte = pixels 0..7, low byte high nibble
+// HuCard message glyphs are 12x12 px. font.bin stores one 12x12 1bpp mask per
+// glyph (12 words = 24 bytes; per row the high byte = pixels 0..7, low byte high nibble
 // = pixels 8..11, so VRAM word bit 0x8000 = leftmost pixel). The runtime streams
 // the masks to VRAM and composites them into the message strip at a 12px pitch
 // via pce_vdc_copy_from_vram. (Was 16x16 pre-baked as 4 BG tiles = 128 bytes.)
@@ -246,8 +252,10 @@ const VN_MAX_GLYPH_COUNT = 1000;
 const VN_FONT_VRAM_TILE_HARD_CEILING = 2032;
 const VN_FONT_VRAM_TILE_SOFT_CEILING = 1728;
 const VN_GLYPH_COUNT_SOFT_WARN = 900;
-const VN_SCENE_PACK_CACHE_BYTES = 4096;
-const VN_SCENE_PACK_VERSION = 1;
+const VN_SCENE_PACK_CACHE_BYTES = 8192;
+const VN_HUCARD_SCENE_PACK_CACHE_BYTES = 4096;
+const VN_SCENE_PACK_VERSION = 2;
+const VN_HUCARD_SCENE_PACK_VERSION = 1;
 const VN_SCENE_PACK_HEADER_SIZE = 20;
 const VN_SCENE_PACK_COMMAND_SIZE = 19;
 const VN_SCENE_PACK_MESSAGE_SIZE = 13;
@@ -444,11 +452,11 @@ function vnGeneratedOutputsReady(projectDir, generated = {}) {
   const required = [
     path.join('src', 'generated', 'vn.h'),
     path.join('src', 'generated', 'vn.c'),
-    VN_FONT_DATA_FILE,
+    ...(generated.targetMedia === 'hucard' ? [VN_FONT_DATA_FILE] : []),
     ...((generated.scenePackPaths || []).map((entry) => generatedDataFilePath(entry)).filter(Boolean)),
     ...((generated.extraDataFiles || []).map((entry) => generatedDataFilePath(entry)).filter(Boolean)),
   ];
-  if ((generated.fontSpriteBudget || {}).byteSize > 0) {
+  if (generated.targetMedia === 'hucard' && (generated.fontSpriteBudget || {}).byteSize > 0) {
     required.push(VN_FONT_SPRITE_DATA_FILE);
   }
   return required.every((relativePath) => fs.existsSync(path.join(projectDir, relativePath)));
@@ -1260,6 +1268,9 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
       action,
       assetId: action === 'play' && validAsset ? assetId : '',
       channel: clampInt(raw.channel, 0, 5, 0),
+      ...(kind === 'psg' && action === 'stop'
+        ? { target: raw.target === 'bgm' || raw.target === 'sfx' ? raw.target : 'all' }
+        : {}),
     };
   }
   if (type === 'inputcheck') {
@@ -1286,6 +1297,7 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
         action: 'load',
         scope,
         assetId: validAsset ? assetId : '',
+        ...(scope === 'psg' ? { channel: clampInt(raw.channel ?? raw.slot, 0, 5, 0) } : {}),
         slot: clampInt(raw.slot, 0, 3, 0),
         x: clampInt(raw.x ?? raw.tileX ?? raw.mapX, 0, 63, 0),
         y: clampInt(raw.y ?? raw.tileY ?? raw.mapY, 0, 31, 0),
@@ -1574,8 +1586,8 @@ function collectGlyphs(doc) {
 }
 
 // Distinct characters used by `spritetext` commands across the whole VN. These
-// are encoded into the sprite-format font (font_sprite.bin), kept separate from
-// the BG glyph font so the BG font is not bloated by overlay-only characters.
+// are encoded into the HuCard sprite-format font (font_sprite.bin). CD builds
+// instead retain this set as metadata and obtain each glyph from EX_GETFNT.
 // Returns [] when no scene uses spritetext (no sprite font is generated then).
 function collectSpriteTextGlyphsRaw(doc) {
   const glyphs = [];
@@ -2632,16 +2644,17 @@ function scenePackRelativePath(scene = {}, index = 0) {
   return normalizeRelativePath(path.join(VN_SCENE_PACK_DIR, `${ordinal}_${sceneId}.bin`));
 }
 
-let vnScenePackCodecInstance = null;
-function buildScenePack(sceneBuild) {
-  if (!vnScenePackCodecInstance) {
-    vnScenePackCodecInstance = createVnScenePackCodec({
+const vnScenePackCodecInstances = new Map();
+function buildScenePack(sceneBuild, hucardMode = false) {
+  const key = hucardMode ? 'hucard-v1' : 'jp-v3-v2';
+  if (!vnScenePackCodecInstances.has(key)) {
+    vnScenePackCodecInstances.set(key, createVnScenePackCodec({
       clampInt,
       clampSignedInt,
       constants: {
-        cacheBytes: VN_SCENE_PACK_CACHE_BYTES,
+        cacheBytes: hucardMode ? VN_HUCARD_SCENE_PACK_CACHE_BYTES : VN_SCENE_PACK_CACHE_BYTES,
         magic: VN_SCENE_PACK_MAGIC,
-        version: VN_SCENE_PACK_VERSION,
+        version: hucardMode ? VN_HUCARD_SCENE_PACK_VERSION : VN_SCENE_PACK_VERSION,
         headerSize: VN_SCENE_PACK_HEADER_SIZE,
         commandSize: VN_SCENE_PACK_COMMAND_SIZE,
         messageSize: VN_SCENE_PACK_MESSAGE_SIZE,
@@ -2652,9 +2665,9 @@ function buildScenePack(sceneBuild) {
         mouthSlotMask: VN_MESSAGE_MOUTH_SLOT_MASK,
         mouthSlotBits: VN_MESSAGE_MOUTH_SLOT_BITS,
       },
-    });
+    }));
   }
-  return vnScenePackCodecInstance.buildScenePack(sceneBuild);
+  return vnScenePackCodecInstances.get(key).buildScenePack(sceneBuild);
 }
 
 function writeScenePack(projectDir, sceneBuild) {
@@ -2733,6 +2746,84 @@ function cdSectorInitializer(layoutEntry = {}) {
   return `{ ${sector & 0xff}u, ${(sector >> 8) & 0xff}u, ${(sector >> 16) & 0xff}u }`;
 }
 
+function systemCardPsgPackagePath(asset, channel) {
+  const ident = toCIdentifier(asset?.id || 'psg');
+  return normalizeRelativePath(path.join(VN_SYSTEM_CARD_PSG_DIR, ident + '.ch' + clampInt(channel, 0, 5, 0) + '.bin'));
+}
+
+function collectSystemCardPsgVariants(doc, assetDoc) {
+  const assets = new Map((assetDoc.assets || [])
+    .filter((asset) => asset?.id && (asset.type === 'psg-song' || asset.type === 'psg-sfx'))
+    .map((asset) => [String(asset.id), asset]));
+  const variants = new Map();
+  const add = (assetId, channel, location) => {
+    const asset = assets.get(String(assetId || ''));
+    if (!asset) return;
+    const resolvedChannel = clampInt(channel, 0, 5, 0);
+    const key = systemCardPsg.systemCardPsgVariantKey(asset.id, resolvedChannel);
+    if (!variants.has(key)) {
+      variants.set(key, {
+        key,
+        asset,
+        channel: resolvedChannel,
+        bus: asset.type === 'psg-song' ? 'bgm' : 'sfx',
+        location,
+      });
+    }
+  };
+  (doc.scenes || []).forEach((scene, sceneIndex) => {
+    const active = { bgm: '', sfx: '' };
+    compiledSceneCommands(scene).forEach((command, commandIndex) => {
+      const location = 'scene "' + (scene.id || sceneIndex) + '", command ' + commandIndex;
+      if (command.type === 'audio' && command.kind === 'psg') {
+        if (command.action === 'play' && command.assetId) {
+          add(command.assetId, command.channel, location);
+          const asset = assets.get(String(command.assetId));
+          if (asset) active[asset.type === 'psg-song' ? 'bgm' : 'sfx'] = systemCardPsg.systemCardPsgVariantKey(asset.id, command.channel);
+        } else if (command.action === 'stop') {
+          const target = command.target === 'bgm' || command.target === 'sfx' ? command.target : 'all';
+          if (target === 'all' || target === 'bgm') active.bgm = '';
+          if (target === 'all' || target === 'sfx') active.sfx = '';
+        }
+      }
+      if (command.type === 'cache' && command.action === 'load' && command.scope === 'psg' && command.assetId) {
+        add(command.assetId, command.channel, location);
+        const asset = assets.get(String(command.assetId));
+        if (asset) {
+          const bus = asset.type === 'psg-song' ? 'bgm' : 'sfx';
+          const key = systemCardPsg.systemCardPsgVariantKey(asset.id, command.channel);
+          if (active[bus] && active[bus] !== key) {
+            throw new Error(location + ': cannot preload System Card PSG package "' + key
+              + '" while another ' + bus.toUpperCase() + ' package is playing; stop that bus first');
+          }
+        }
+      }
+    });
+  });
+  return Array.from(variants.values());
+}
+
+function writeSystemCardPsgPackages(projectDir, variants) {
+  const dir = path.join(projectDir, VN_SYSTEM_CARD_PSG_DIR);
+  ensureDirSync(dir);
+  const expected = new Set();
+  const compiled = variants.map((variant) => {
+    const result = systemCardPsg.compileSystemCardPsgPackage(variant.asset, variant.channel);
+    const relativePath = systemCardPsgPackagePath(variant.asset, variant.channel);
+    const absPath = path.join(projectDir, relativePath);
+    expected.add(path.resolve(absPath));
+    ensureDirSync(path.dirname(absPath));
+    fs.writeFileSync(absPath, result.bytes);
+    return { ...variant, ...result, relativePath };
+  });
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.bin')) continue;
+    const absPath = path.resolve(dir, entry.name);
+    if (!expected.has(absPath)) fs.unlinkSync(absPath);
+  }
+  return compiled;
+}
+
 function generateVnSources(projectDir, options = {}) {
   const targetMedia = String(options.targetMedia || options.target || '').trim().toLowerCase();
   const hucardMode = targetMedia === 'hucard';
@@ -2743,6 +2834,10 @@ function generateVnSources(projectDir, options = {}) {
     ...assetDoc,
     assets: (assetDoc.assets || []).filter((asset) => asset?.id && runtimeAssetIds.has(String(asset.id))),
   };
+  const systemPsgVariants = hucardMode
+    ? []
+    : writeSystemCardPsgPackages(projectDir, collectSystemCardPsgVariants(doc, runtimeAssetDoc));
+  const systemPsgVariantIndex = new Map(systemPsgVariants.map((variant, index) => [variant.key, index]));
   const systemSettings = normalizeVnSystemSettings(doc.settings);
   if ((doc.scenes || []).length > VN_MAX_U8_COUNT) {
     throw new Error(`PCE VN supports up to ${VN_MAX_U8_COUNT} scenes`);
@@ -2757,17 +2852,22 @@ function generateVnSources(projectDir, options = {}) {
     tileBase: resolveBuildFontTileBase(savedFontConfig, options),
   });
   const fontTileBase = Number(fontConfig.tileBase || DEFAULT_FONT_TILE_BASE);
-  const fontBudget = computeFontBudget(rawGlyphs.length, fontTileBase);
+  const fontBudget = computeFontBudget(hucardMode ? rawGlyphs.length : 0, fontTileBase);
   if (fontBudget.errors.length) {
     throw new Error(fontBudget.errors.join(' '));
   }
-  const fontRender = renderGlyphBitmaps(glyphs, fontConfig, projectDir);
-  const fontTiles = encodeGlyphMaskData(fontRender.bitmaps);
-  // Glyph masks live on the CD as a streamed data file, not in ram_bank132.
+  const fontRender = hucardMode
+    ? renderGlyphBitmaps(glyphs, fontConfig, projectDir)
+    : { bitmaps: [], renderer: 'system-card-jp-v3', fontPath: '' };
+  const fontTiles = hucardMode ? encodeGlyphMaskData(fontRender.bitmaps) : Buffer.alloc(0);
   const fontDataPath = normalizeRelativePath(VN_FONT_DATA_FILE);
   const fontDataAbsPath = path.join(projectDir, fontDataPath);
-  ensureDirSync(path.dirname(fontDataAbsPath));
-  fs.writeFileSync(fontDataAbsPath, fontTiles);
+  if (hucardMode) {
+    ensureDirSync(path.dirname(fontDataAbsPath));
+    fs.writeFileSync(fontDataAbsPath, fontTiles);
+  } else if (fs.existsSync(fontDataAbsPath)) {
+    fs.unlinkSync(fontDataAbsPath);
+  }
 
   // Sprite-format font for `spritetext` overlays. Only the characters used by
   // spritetext are encoded, and only when at least one scene uses the command.
@@ -2786,7 +2886,7 @@ function generateVnSources(projectDir, options = {}) {
     options.fontConfig?.spritePaletteBank ?? fontConfig.spritePaletteBank,
     0, 15, DEFAULT_FONT_SPRITE_PALETTE_BANK,
   );
-  if (spriteTextGlyphs.length) {
+  if (hucardMode && spriteTextGlyphs.length) {
     const fontSpriteRender = renderGlyphBitmaps(spriteTextGlyphs, fontConfig, projectDir);
     fontSpriteRenderer = fontSpriteRender.renderer;
     fontSpriteTiles = encodeGlyphSpriteData(fontSpriteRender.bitmaps);
@@ -2805,18 +2905,19 @@ function generateVnSources(projectDir, options = {}) {
     try { fs.unlinkSync(fontSpriteDataAbsPath); } catch (_) {}
   }
   const fontSpriteBudget = {
-    glyphCount: spriteTextGlyphs.length,
+    glyphCount: hucardMode ? spriteTextGlyphs.length : 0,
     byteSize: fontSpriteTiles.length,
     sectorCount: Math.max(1, Math.ceil(fontSpriteTiles.length / VN_CD_SECTOR_BYTES)),
   };
+  const systemSpriteGlyphCapacity = hucardMode ? spriteTextGlyphs.length : (spriteTextGlyphs.length ? 64 : 0);
   doc.scenes.forEach((scene) => validateFullScreenBgScene(scene, assetDoc));
   const visualAssetUsage = collectSceneVisualAssetUsage(doc);
 
   // Single authoritative VRAM reservation check: reject any overlap between BG,
   // message font, spritetext font, sprite patterns, BAT, and SATB (build error).
-  validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphs.length, visualAssetUsage);
+  validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, systemSpriteGlyphCapacity, visualAssetUsage);
   validateVnSpritePaletteLayout(assetDoc, fontSpritePaletteBank, visualAssetUsage);
-  const spritePatternBase = computeVnSpritePatternBase(fontBudget, fontSpritePatternBase, spriteTextGlyphs.length);
+  const spritePatternBase = computeVnSpritePatternBase(fontBudget, fontSpritePatternBase, systemSpriteGlyphCapacity);
 
   const imageIndex = indexAssets(runtimeAssetDoc.assets || [], 'image');
   const spriteIndex = indexAssets(runtimeAssetDoc.assets || [], 'sprite');
@@ -2912,7 +3013,7 @@ function generateVnSources(projectDir, options = {}) {
       pushInternalAdpcmPreload(hoistedAdpcmPreloadAssetId);
       knownAdpcmPreloadAssetId = hoistedAdpcmPreloadAssetId;
     }
-    compiledCommands.forEach((command) => {
+    compiledCommands.forEach((command, commandIndex) => {
       if (command.type === 'background') {
         previousExplicitAdpcmPreloadAssetId = '';
         const bgIndex = imageIndex.has(command.assetId) ? imageIndex.get(command.assetId) : -1;
@@ -2978,24 +3079,34 @@ function generateVnSources(projectDir, options = {}) {
           throw new Error('PCE VN supports up to 255 messages per scene');
         }
         const display = messageDisplayParts(command);
-        const bytes = [];
-        let entryCount = 0;
-        for (const glyph of display.full) {
-          if (glyph === '\r') continue;
-          if (glyph === '\n') {
-            bytes.push(GLYPH_NEWLINE_BYTE);
+        let bytes;
+        let entryCount;
+        if (hucardMode) {
+          bytes = [];
+          entryCount = 0;
+          for (const glyph of display.full) {
+            if (glyph === '\r') continue;
+            if (glyph === '\n') {
+              bytes.push(GLYPH_NEWLINE_BYTE);
+              entryCount += 1;
+              continue;
+            }
+            pushGlyphIndexEntry(bytes, glyphIndex.get(glyph) ?? 0);
             entryCount += 1;
-            continue;
           }
-          pushGlyphIndexEntry(bytes, glyphIndex.get(glyph) ?? 0);
-          entryCount += 1;
+          bytes.push(GLYPH_END_BYTE);
+        } else {
+          const encoded = systemCardFont.encodeSystemCardText(display.full, {
+            sceneId: sceneBuild.sceneId, commandIndex, field: 'message',
+          }, { maxCharacters: 68 });
+          bytes = Array.from(encoded.buffer);
+          entryCount = encoded.length;
         }
         // glyph_count is the number of entries (glyphs + newlines), excluding the
         // terminator. It is stored as a u8, so cap at 255 entries.
         if (entryCount > VN_MAX_U8_COUNT) {
           throw new Error(`PCE VN message in scene "${sceneBuild.sceneId}" exceeds 255 glyphs`);
         }
-        bytes.push(GLYPH_END_BYTE);
         const mouthSlot = clampInt(command.mouthSlot, 0, 3, 0);
         const mouthSpriteId = slotSpriteAssets[mouthSlot] || '';
         const mouthAnimationIndex = command.mouthAnimationId && mouthSpriteId
@@ -3045,7 +3156,10 @@ function generateVnSources(projectDir, options = {}) {
         const action = command.action === 'stop' ? VN_AUDIO_ACTION_STOP : VN_AUDIO_ACTION_PLAY;
         const lookupIndex = () => {
           if (kindCode === VN_AUDIO_KIND_ADPCM) return adpcmIndex.get(command.assetId) ?? -1;
-          if (kindCode === VN_AUDIO_KIND_PSG) return psgIndex.get(command.assetId) ?? -1;
+          if (kindCode === VN_AUDIO_KIND_PSG) {
+            if (hucardMode) return psgIndex.get(command.assetId) ?? -1;
+            return systemPsgVariantIndex.get(systemCardPsg.systemCardPsgVariantKey(command.assetId, command.channel)) ?? -1;
+          }
           return cddaIndex.get(command.assetId) ?? -1;
         };
         const assetIndex = command.action === 'play' && (!hucardMode || kindCode === VN_AUDIO_KIND_PSG)
@@ -3055,10 +3169,13 @@ function generateVnSources(projectDir, options = {}) {
         pushCommand({
           type: VN_COMMAND_AUDIO,
           assetIndex,
-          // For PSG, slot carries the base channel (0-5).
-          slot: kindCode === VN_AUDIO_KIND_PSG ? clampInt(command.channel, 0, 5, 0) : 0,
+          // HuCard resolves base channel at runtime. CD package variants are
+          // already shifted/clamped and the package record selects main/sub.
+          slot: kindCode === VN_AUDIO_KIND_PSG && hucardMode ? clampInt(command.channel, 0, 5, 0) : 0,
           flags,
-          arg0: 0,
+          arg0: kindCode === VN_AUDIO_KIND_PSG && action === VN_AUDIO_ACTION_STOP
+            ? (command.target === 'bgm' ? VN_PSG_STOP_BGM : (command.target === 'sfx' ? VN_PSG_STOP_SFX : VN_PSG_STOP_ALL))
+            : 0,
           arg1: 0,
           x: 0,
           y: 0,
@@ -3108,7 +3225,10 @@ function generateVnSources(projectDir, options = {}) {
           } else if (command.scope === 'adpcm' && !hucardMode) {
             assetIndex = adpcmIndex.get(command.assetId) ?? -1;
           } else if (command.scope === 'psg') {
-            assetIndex = psgIndex.get(command.assetId) ?? -1;
+            assetIndex = hucardMode
+              ? (psgIndex.get(command.assetId) ?? -1)
+              : (systemPsgVariantIndex.get(systemCardPsg.systemCardPsgVariantKey(command.assetId, command.channel)) ?? -1);
+            slot = hucardMode ? clampInt(command.channel, 0, 5, 0) : 0;
           }
         }
         pushCommand({
@@ -3145,18 +3265,28 @@ function generateVnSources(projectDir, options = {}) {
           throw new Error('PCE VN supports up to 255 choices per scene');
         }
         const options = (command.choices || []).slice(0, 4);
-        const encodedOptions = options.map((option) => {
-          const bytes = [];
-          let entryCount = 0;
-          for (const glyph of String(option.label || '')) {
-            if (glyph === '\r' || glyph === '\n') continue;
-            pushGlyphIndexEntry(bytes, glyphIndex.get(glyph) ?? 0);
-            entryCount += 1;
+        const encodedOptions = options.map((option, optionIndex) => {
+          let bytes;
+          let entryCount;
+          if (hucardMode) {
+            bytes = [];
+            entryCount = 0;
+            for (const glyph of String(option.label || '')) {
+              if (glyph === '\r' || glyph === '\n') continue;
+              pushGlyphIndexEntry(bytes, glyphIndex.get(glyph) ?? 0);
+              entryCount += 1;
+            }
+            bytes.push(GLYPH_END_BYTE);
+          } else {
+            const encoded = systemCardFont.encodeSystemCardText(String(option.label || '').replace(/[\r\n]/g, ''), {
+              sceneId: sceneBuild.sceneId, commandIndex, field: `choice[${optionIndex}]`,
+            }, { maxCharacters: 68 });
+            bytes = Array.from(encoded.buffer);
+            entryCount = encoded.length;
           }
           if (entryCount > VN_MAX_U8_COUNT) {
             throw new Error(`PCE VN choice label in scene "${sceneBuild.sceneId}" exceeds 255 glyphs`);
           }
-          bytes.push(GLYPH_END_BYTE);
           const target = option.targetSceneId && sceneIndex.has(option.targetSceneId) ? sceneIndex.get(option.targetSceneId) : -1;
           return {
             glyphs: Buffer.from(bytes),
@@ -3370,12 +3500,23 @@ function generateVnSources(projectDir, options = {}) {
       }
       if (command.type === 'spritetext') {
         previousExplicitAdpcmPreloadAssetId = '';
-        const glyphBytes = [];
-        for (const char of String(command.text || '')) {
-          if (glyphBytes.length >= VN_SPRITETEXT_MAX_GLYPHS) break;
-          if (char === '\n') { glyphBytes.push(0xfe); continue; }
-          if (char === '\r') continue;
-          if (spriteGlyphIndex.has(char)) glyphBytes.push(spriteGlyphIndex.get(char));
+        let glyphBytes;
+        let spriteTextLength;
+        if (hucardMode) {
+          glyphBytes = [];
+          for (const char of String(command.text || '')) {
+            if (glyphBytes.length >= VN_SPRITETEXT_MAX_GLYPHS) break;
+            if (char === '\n') { glyphBytes.push(0xfe); continue; }
+            if (char === '\r') continue;
+            if (spriteGlyphIndex.has(char)) glyphBytes.push(spriteGlyphIndex.get(char));
+          }
+          spriteTextLength = glyphBytes.length;
+        } else {
+          const encoded = systemCardFont.encodeSystemCardText(String(command.text || ''), {
+            sceneId: sceneBuild.sceneId, commandIndex, field: 'spritetext',
+          }, { maxCharacters: VN_SPRITETEXT_MAX_GLYPHS, terminate: false });
+          glyphBytes = Array.from(encoded.buffer);
+          spriteTextLength = encoded.length;
         }
         pushCommand({
           type: VN_COMMAND_SPRITETEXT,
@@ -3384,7 +3525,7 @@ function generateVnSources(projectDir, options = {}) {
           slot: clampInt(command.slot, 0, 3, 0),
           flags: command.visible ? VN_SPRITE_VISIBLE : 0,
           arg0: clampInt(command.blinkFrames, 0, 255, 0),
-          arg1: glyphBytes.length,
+          arg1: spriteTextLength,
           x: clampInt(command.x, 0, 319, 0),
           y: clampInt(command.y, 0, 223, 0),
           messageIndex: spriteTextColorWord(command.color),
@@ -3395,7 +3536,7 @@ function generateVnSources(projectDir, options = {}) {
         });
       }
     });
-    sceneBuild.packBuffer = buildScenePack(sceneBuild);
+    sceneBuild.packBuffer = buildScenePack(sceneBuild, hucardMode);
     writeScenePack(projectDir, sceneBuild);
     sceneBuilds.push(sceneBuild);
   });
@@ -3420,8 +3561,10 @@ function generateVnSources(projectDir, options = {}) {
     : (hucardMode ? [] : collectCdDataFiles(projectDir));
   const cdLayout = hucardMode ? new Map() : cdLayoutForFiles(projectDir, cdDataFiles);
   const fontLayout = cdLayout.get(fontDataPath) || {};
-  const fontSectorCount = fontLayout.sectorCount || fontBudget.sectorCount;
-  const fontDataInitializer = `{ ${cdSectorInitializer(fontLayout)}, ${fontSectorCount}u, ${fontBudget.byteSize}u }`;
+  const fontSectorCount = hucardMode ? (fontLayout.sectorCount || fontBudget.sectorCount) : 0;
+  const fontDataInitializer = hucardMode
+    ? `{ ${cdSectorInitializer(fontLayout)}, ${fontSectorCount}u, ${fontBudget.byteSize}u }`
+    : '{ { 0u, 0u, 0u }, 0u, 0u }';
   const fontSpriteLayout = cdLayout.get(fontSpriteDataPath) || {};
   const fontSpriteSectorCount = fontSpriteBudget.byteSize
     ? (fontSpriteLayout.sectorCount || fontSpriteBudget.sectorCount)
@@ -3469,6 +3612,12 @@ function generateVnSources(projectDir, options = {}) {
     const sectorCount = layout.sectorCount || Math.max(1, Math.ceil(sceneBuild.packBuffer.length / VN_CD_SECTOR_BYTES));
     return `  { ${cdSectorInitializer(layout)}, ${sectorCount}u, ${sceneBuild.packBuffer.length}u, ${sceneBuild.nextScene} }${index + 1 < sceneBuilds.length ? ',' : ''}`;
   });
+  const systemPsgMeta = systemPsgVariants.map((variant, index) => {
+    const layout = cdLayout.get(variant.relativePath) || {};
+    const sectorCount = layout.sectorCount || Math.max(1, Math.ceil(variant.bytes.length / VN_CD_SECTOR_BYTES));
+    const bus = variant.bus === 'bgm' ? 0 : 1;
+    return `  { { ${cdSectorInitializer(layout)}, ${sectorCount}u, ${variant.bytes.length}u }, ${bus}u, ${variant.channel}u }${index + 1 < systemPsgVariants.length ? ',' : ''}`;
+  });
   const hucardPsgMeta = hucardPsgEntries.map((entry, index) => (
     `  { ${entry.asset.type === 'psg-song' ? '1u' : '0u'}, ${assetManager.firstPsgPeriod ? assetManager.firstPsgPeriod(entry.asset) : '512'}u, ${entry.options.bpm}u, ${entry.options.steps}u, &${entry.symbol}, ${entry.pattern.length}u }${index + 1 < hucardPsgEntries.length ? ',' : ''}`
   ));
@@ -3479,6 +3628,8 @@ function generateVnSources(projectDir, options = {}) {
   const hucardExtraData = hucardMode
     ? hucardExtraDataFiles(sceneBuilds, hucardPsgEntries, fontSpriteBudget.byteSize > 0)
     : [];
+  const systemChoiceCursorGlyph = hucardMode ? 0 : systemCardFont.encodeSystemCardText('>', 'choice cursor', { terminate: false }).words[0];
+  const systemMessageWaitGlyph = hucardMode ? 0 : systemCardFont.encodeSystemCardText(MESSAGE_WAIT_GLYPH, 'message wait glyph', { terminate: false }).words[0];
 
   const headerPath = path.join(generatedDir, 'vn.h');
   const sourcePath = path.join(generatedDir, 'vn.c');
@@ -3487,6 +3638,7 @@ function generateVnSources(projectDir, options = {}) {
     '#define PCE_EDITOR_GENERATED_VN_H',
     '',
     ...(hucardMode ? ['#include "assets.h"', ''] : []),
+    ...(!hucardMode ? ['#define PCE_VN_SYSTEM_CARD_PROFILE_JP_V3 1u', ''] : []),
     `#define PCE_VN_COMMAND_BACKGROUND ${VN_COMMAND_BACKGROUND}u`,
     `#define PCE_VN_COMMAND_SPRITE ${VN_COMMAND_SPRITE}u`,
     `#define PCE_VN_COMMAND_MESSAGE ${VN_COMMAND_MESSAGE}u`,
@@ -3521,6 +3673,9 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_AUDIO_KIND_PSG ${VN_AUDIO_KIND_PSG}u`,
     `#define PCE_VN_AUDIO_ACTION_PLAY ${VN_AUDIO_ACTION_PLAY}u`,
     `#define PCE_VN_AUDIO_ACTION_STOP ${VN_AUDIO_ACTION_STOP}u`,
+    `#define PCE_VN_PSG_STOP_ALL ${VN_PSG_STOP_ALL}u`,
+    `#define PCE_VN_PSG_STOP_BGM ${VN_PSG_STOP_BGM}u`,
+    `#define PCE_VN_PSG_STOP_SFX ${VN_PSG_STOP_SFX}u`,
     `#define PCE_VN_INPUT_MODE_SYNC ${VN_INPUT_MODE_SYNC}u`,
     `#define PCE_VN_INPUT_MODE_ASYNC ${VN_INPUT_MODE_ASYNC}u`,
     `#define PCE_VN_INPUT_MODE_CANCEL ${VN_INPUT_MODE_CANCEL}u`,
@@ -3549,8 +3704,8 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_HAS_SPRITE_ANIMATIONS ${spriteAnimations.meta.length ? 1 : 0}u`,
     `#define PCE_VN_HAS_SPRITETEXT ${spriteTextGlyphs.length ? 1 : 0}u`,
     `#define PCE_VN_VARIABLE_STORAGE_COUNT ${Math.max(1, variables.initialValues.length)}u`,
-    `#define PCE_VN_SCENE_PACK_CACHE_BYTES ${VN_SCENE_PACK_CACHE_BYTES}u`,
-    `#define PCE_VN_SCENE_PACK_VERSION ${VN_SCENE_PACK_VERSION}u`,
+    `#define PCE_VN_SCENE_PACK_CACHE_BYTES ${hucardMode ? VN_HUCARD_SCENE_PACK_CACHE_BYTES : VN_SCENE_PACK_CACHE_BYTES}u`,
+    `#define PCE_VN_SCENE_PACK_VERSION ${hucardMode ? VN_HUCARD_SCENE_PACK_VERSION : VN_SCENE_PACK_VERSION}u`,
     `#define PCE_VN_SCENE_PACK_HEADER_SIZE ${VN_SCENE_PACK_HEADER_SIZE}u`,
     `#define PCE_VN_SCENE_PACK_COMMAND_SIZE ${VN_SCENE_PACK_COMMAND_SIZE}u`,
     `#define PCE_VN_SCENE_PACK_MESSAGE_SIZE ${VN_SCENE_PACK_MESSAGE_SIZE}u`,
@@ -3655,6 +3810,12 @@ function generateVnSources(projectDir, options = {}) {
         '} pce_vn_cd_data_ref_t;',
         '',
         'typedef struct {',
+        '  pce_vn_cd_data_ref_t data;',
+        '  unsigned char bus;',
+        '  unsigned char channel;',
+        '} pce_vn_system_psg_package_t;',
+        '',
+        'typedef struct {',
         '  pce_vn_cd_sector_t sector;',
         '  unsigned int sector_count;',
         '  unsigned int byte_size;',
@@ -3663,11 +3824,11 @@ function generateVnSources(projectDir, options = {}) {
         '',
       ]),
     `#define PCE_VN_FONT_TILE_BASE ${Number(fontConfig.tileBase || DEFAULT_FONT_TILE_BASE)}u`,
-    `#define PCE_VN_CHOICE_CURSOR_GLYPH ${glyphIndex.get('>') ?? 0}u`,
-    `#define PCE_VN_MESSAGE_WAIT_GLYPH ${glyphIndex.get(MESSAGE_WAIT_GLYPH) ?? 0}u`,
+    `#define PCE_VN_CHOICE_CURSOR_GLYPH ${hucardMode ? (glyphIndex.get('>') ?? 0) : systemChoiceCursorGlyph}u`,
+    `#define PCE_VN_MESSAGE_WAIT_GLYPH ${hucardMode ? (glyphIndex.get(MESSAGE_WAIT_GLYPH) ?? 0) : systemMessageWaitGlyph}u`,
     '#define PCE_VN_GLYPH_END 0xffffu',
     '#define PCE_VN_GLYPH_NEWLINE 0xfffeu',
-    '#define PCE_VN_GLYPH_ESCAPE 0xfdu',
+    ...(hucardMode ? ['#define PCE_VN_GLYPH_ESCAPE 0xfdu'] : []),
     `#define PCE_VN_FONT_SPRITE_PATTERN_BASE ${fontSpritePatternBase}u`,
     `#define PCE_VN_FONT_SPRITE_PALETTE_BANK ${fontSpritePaletteBank}u`,
     `#define PCE_VN_SPRITE_PATTERN_BASE ${spritePatternBase}u`,
@@ -3675,10 +3836,15 @@ function generateVnSources(projectDir, options = {}) {
     ...(hucardMode
       ? [
         'extern const pce_editor_data_ref_t pce_vn_font_data_ref;',
+        'extern const unsigned int pce_vn_font_glyph_count;',
+        'void pce_vn_font_tiles_map(void);',
+        '#if PCE_VN_HAS_SPRITETEXT',
+        'extern const pce_editor_data_ref_t pce_vn_font_sprite_data_ref;',
+        '#endif',
+        'extern const unsigned char pce_vn_font_sprite_glyph_count;',
       ]
       : [
         '#if defined(__PCE_CD__)',
-        'extern const pce_vn_cd_data_ref_t pce_vn_font_data;',
         `#define PCE_VN_OVERLAY_LOAD_ADDR ${VN_OVERLAY_VRAM_LOAD_ADDR}u`,
         'extern const pce_vn_cd_data_ref_t pce_vn_overlay_data;',
         ...(VN_ENABLE_VISUAL_PAYLOAD_CACHE
@@ -3689,31 +3855,20 @@ function generateVnSources(projectDir, options = {}) {
           : []),
         `#define PCE_VN_CD_ASYNC_CODE_LOAD_ADDR ${VN_CD_ASYNC_CODE_VRAM_LOAD_ADDR}u`,
         'extern const pce_vn_cd_data_ref_t pce_vn_cd_async_code_data;',
-        '#else',
-        'extern const unsigned char pce_vn_font_tiles[];',
         '#endif',
+        'void pce_vn_data_map(void);',
       ]),
-    'extern const unsigned int pce_vn_font_glyph_count;',
-    'void pce_vn_font_tiles_map(void);',
-    ...(hucardMode
-      ? [
-        '#if PCE_VN_HAS_SPRITETEXT',
-        'extern const pce_editor_data_ref_t pce_vn_font_sprite_data_ref;',
-        '#endif',
-      ]
-      : [
-        '#if defined(__PCE_CD__)',
-        'extern const pce_vn_cd_data_ref_t pce_vn_font_sprite_data;',
-        '#else',
-        'extern const unsigned char pce_vn_font_sprite_tiles[];',
-        '#endif',
-      ]),
-    'extern const unsigned char pce_vn_font_sprite_glyph_count;',
     'extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];',
     'extern const unsigned int pce_vn_sprite_animation_count;',
     'extern const signed int pce_vn_variable_initial_values[];',
     'extern const unsigned char pce_vn_variable_count;',
     'extern const pce_vn_scene_pack_t pce_vn_scene_packs[];',
+    ...(!hucardMode
+      ? [
+        'extern const pce_vn_system_psg_package_t pce_vn_system_psg_packages[];',
+        'extern const unsigned int pce_vn_system_psg_package_count;',
+      ]
+      : []),
     ...(hucardMode
       ? [
         'extern const pce_vn_psg_asset_t pce_vn_psg_assets[];',
@@ -3767,42 +3922,25 @@ function generateVnSources(projectDir, options = {}) {
     '#if defined(__PCE_CD__)',
     '#include <pce-cd.h>',
     'PCE_RAM_BANK_AT(132, 6);',
-    '#define PCE_VN_FONT_SECTION __attribute__((section(".ram_bank132")))',
     '#define PCE_VN_DATA_SECTION __attribute__((section(".ram_bank132")))',
     '#else',
-    '#define PCE_VN_FONT_SECTION',
     '#define PCE_VN_DATA_SECTION',
     '#endif',
     '',
     '#include "vn.h"',
     '',
-    '#if defined(__PCE_CD__)',
-    `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_data = ${fontDataInitializer};`,
     `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_overlay_data = ${overlayDataInitializer};`,
     ...(VN_ENABLE_VISUAL_PAYLOAD_CACHE
       ? [`const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_visual_code_data = ${visualCodeDataInitializer};`]
       : []),
     `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_cd_async_code_data = ${cdAsyncCodeDataInitializer};`,
-    '#else',
-    ...bytesToCArray('PCE_VN_FONT_SECTION pce_vn_font_tiles', fontTiles, 'const unsigned char'),
-    '#endif',
-    `const unsigned int PCE_VN_DATA_SECTION pce_vn_font_glyph_count = ${glyphs.length}u;`,
     '',
-    'void pce_vn_font_tiles_map(void)',
+    'void pce_vn_data_map(void)',
     '{',
     '#if defined(__PCE_CD__)',
     '  pce_ram_bank132_map();',
     '#endif',
     '}',
-    '',
-    '#if defined(__PCE_CD__)',
-    `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_font_sprite_data = ${fontSpriteDataInitializer};`,
-    '#else',
-    ...(fontSpriteTiles.length
-      ? bytesToCArray('PCE_VN_FONT_SECTION pce_vn_font_sprite_tiles', fontSpriteTiles, 'const unsigned char')
-      : ['const unsigned char PCE_VN_FONT_SECTION pce_vn_font_sprite_tiles[] = { 0u };']),
-    '#endif',
-    `const unsigned char PCE_VN_DATA_SECTION pce_vn_font_sprite_glyph_count = ${fontSpriteBudget.glyphCount}u;`,
     '',
     ...animationDelayTables,
     'const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations[] = {',
@@ -3820,6 +3958,11 @@ function generateVnSources(projectDir, options = {}) {
     'const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs[] = {',
     ...(scenePackMeta.length ? scenePackMeta : ['  { { 0u, 0u, 0u }, 0u, 0u, -1 }']),
     '};',
+    '',
+    'const pce_vn_system_psg_package_t PCE_VN_DATA_SECTION pce_vn_system_psg_packages[] = {',
+    ...(systemPsgMeta.length ? systemPsgMeta : ['  { { { 0u, 0u, 0u }, 0u, 0u }, 0u, 0u }']),
+    '};',
+    `const unsigned int PCE_VN_DATA_SECTION pce_vn_system_psg_package_count = ${systemPsgVariants.length}u;`,
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_scene_count = ${doc.scenes.length};`,
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_start_scene = ${startScene}u;`,
     '',
@@ -3842,13 +3985,13 @@ function generateVnSources(projectDir, options = {}) {
     scenePackBytes: sceneBuilds.map((sceneBuild) => sceneBuild.packBuffer.length),
     fontRenderer: fontRender.renderer,
     fontPath: fontRender.fontPath,
-    fontDataPath,
+    fontDataPath: hucardMode ? fontDataPath : '',
     fontByteSize: fontBudget.byteSize,
     fontSectorCount: fontSectorCount,
     fontTileBase,
     fontEndTile: fontBudget.endTile,
     droppedGlyphCount: fontBudget.droppedGlyphCount,
-    fontSpriteDataPath,
+    fontSpriteDataPath: hucardMode ? fontSpriteDataPath : '',
     fontSpriteGlyphCount: fontSpriteBudget.glyphCount,
     fontSpriteByteSize: fontSpriteBudget.byteSize,
     fontSpritePatternBase,
@@ -3919,7 +4062,16 @@ function collectSceneRuntimeAssetIds(doc = {}) {
 }
 
 function collectCdDataFiles(projectDir) {
-  return getVnCdCatalog().collectCdDataFiles(projectDir);
+  const files = getVnCdCatalog().collectCdDataFiles(projectDir);
+  const psgDir = path.join(projectDir, VN_SYSTEM_CARD_PSG_DIR);
+  if (fs.existsSync(psgDir)) {
+    for (const entry of fs.readdirSync(psgDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.bin')) {
+        files.push(normalizeRelativePath(path.join(VN_SYSTEM_CARD_PSG_DIR, entry.name)));
+      }
+    }
+  }
+  return Array.from(new Set(files));
 }
 
 function syncVisualNovelRuntime(projectDir, logger) {
@@ -4252,6 +4404,7 @@ function collectManagedGeneratedCdDataFiles(projectDir) {
   addManagedGeneratedPath(managed, VN_VISUAL_CODE_DATA_FILE);
   addManagedGeneratedPath(managed, VN_CD_ASYNC_CODE_DATA_FILE);
   addManagedGeneratedPath(managed, VN_FONT_SPRITE_DATA_FILE);
+  addManagedGeneratedPath(managed, VN_SYSTEM_CARD_PSG_DIR);
   const scenePackDir = normalizeRelativePath(VN_SCENE_PACK_DIR);
   try {
     const assetDoc = assetManager.readAssetDocument(projectDir);
@@ -4271,6 +4424,7 @@ function collectManagedGeneratedCdDataFiles(projectDir) {
     addManagedGeneratedPath(managed, scenePackRelativePath(scene, sceneIndex));
   });
   managed.add(scenePackDir);
+  managed.add(normalizeRelativePath(VN_SYSTEM_CARD_PSG_DIR));
   return managed;
 }
 
@@ -4344,6 +4498,7 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
             targetMedia: 'cd',
             cd: {
               ...cd,
+              systemCardProfile: 'jp-v3',
               dataFiles: cached.mergedDataFiles,
               cddaTracks: cached.mergedCddaTracks || [],
             },
@@ -4386,6 +4541,7 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
       targetMedia: 'cd',
       cd: {
         ...cd,
+        systemCardProfile: 'jp-v3',
         dataFiles: mergedDataFiles,
         cddaTracks: mergedCddaTracks,
       },
@@ -4455,6 +4611,9 @@ module.exports = {
   VN_ADVANCE_BUTTON,
   VN_ADVANCE_AUTO,
   VN_AUDIO_KIND_PSG,
+  VN_PSG_STOP_ALL,
+  VN_PSG_STOP_BGM,
+  VN_PSG_STOP_SFX,
   VN_INPUT_MODE_SYNC,
   VN_INPUT_MODE_ASYNC,
   VN_INPUT_MODE_CANCEL,
