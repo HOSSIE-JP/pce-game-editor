@@ -455,6 +455,22 @@ test('PCE visual novel editor exposes independent System Card PSG stop targets',
   assert.match(renderer, /kind === 'psg' && action === 'stop'[\s\S]*target: raw\.target === 'bgm' \|\| raw\.target === 'sfx' \? raw\.target : 'all'/);
 });
 
+test('PCE visual novel editor exposes synchronous and concurrent sprite movement', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+
+  assert.match(renderer, /type: 'spritemove', label: 'Sprite Move'/);
+  assert.match(renderer, /return \{ type: 'spritemove', slot: 0, x: 128, y: DEFAULT_CHARACTER_Y, frames: 30, async: false/);
+  assert.match(renderer, /<span class="form-label">Target X<\/span>/);
+  assert.match(renderer, /name="frames" type="number" min="1" max="65535"/);
+  assert.match(renderer, /name="async" type="checkbox"/);
+  assert.match(renderer, /function spriteMoveAnimationOptions\(command = \{\}\)/);
+  assert.match(renderer, /const spriteMoveTimers = new Map\(\)/);
+  assert.match(renderer, /function startSpriteMove\(c, onComplete\)/);
+  assert.match(renderer, /if \(c\.async\)[\s\S]*startSpriteMove\(c, null\)/);
+  assert.match(renderer, /startSpriteMove\(c, run\)/);
+  assert.match(renderer, /cancelAllSpriteMoves\(\)/);
+});
+
 test('PCE visual novel editor estimates the target-specific scene pack contract', () => {
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
 
@@ -823,13 +839,18 @@ test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page
   assert.match(musicRenderer, /minVelocity/);
   assert.match(musicRenderer, /voicePriority/);
   assert.match(musicRenderer, /patternDetail/);
+  assert.match(musicRenderer, /timbreMode/);
+  assert.match(musicRenderer, /programWaveMap/);
+  assert.match(musicRenderer, /GM family → BIOS wave/);
   assert.match(musicRenderer, /data-preview-toggle/);
   assert.match(musicRenderer, /data-delete-id/);
   assert.match(musicRenderer, /data-preview-midi/);
   assert.match(musicRenderer, /createPsgPreviewController/);
   assert.match(psgPreview, /export function expandPsgPreviewStates/);
   assert.match(psgPreview, /function scheduleStep\(\)/);
+  assert.match(psgPreview, /cell\.wave/);
   assert.match(musicCss, /\.pce-music-midi-controls/);
+  assert.match(musicCss, /\.pce-music-midi-wave-map/);
   assert.match(musicCss, /\.pce-music-list-delete/);
   assert.match(musicCss, /\.pce-tracker-summary/);
 });

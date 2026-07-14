@@ -105,6 +105,7 @@ static void init_runtime_state(void)
         vn_variable_hi[i] = 0u;
     }
     VN_MAP_BANK130_FOR_CODE();
+    cancel_all_sprite_moves();
     clear_spritetext_slots();
 }
 
@@ -299,8 +300,17 @@ int main(void)
             async_input_mask = 0u;
             async_input_target = PCE_VN_NO_COMMAND;
             VN_MAP_BANK130_FOR_CODE();
+            cancel_all_sprite_moves();
             (void)jump_to_command(target);
             advance_story();
+        }
+        else if (sync_sprite_move_slot < VN_SPRITE_SLOT_COUNT)
+        {
+            if (!sprite_moves[sync_sprite_move_slot].active)
+            {
+                sync_sprite_move_slot = 0xffu;
+                advance_story();
+            }
         }
         else if (active_choice_index >= 0)
         {
@@ -342,14 +352,6 @@ int main(void)
                 advance_story();
             }
         }
-        /* Do not restore the old ADPCM gate:
-        if (!adpcm_playback_active())
-        {
-            tick_sprite_animations();
-        } */
-        tick_sprite_animations();
-        tick_spritetext();
-        if (pending_sprite_refresh) refresh_scene_sprites();
         tick_active_message();
         tick_message_wait_indicator();
         if (active_message_index >= 0 && message_complete)
@@ -364,6 +366,12 @@ int main(void)
                 }
             }
         }
+        /* Animation and movement tick after all script advancement so a move
+           started by input or auto-advance takes its first DDA step before this
+           frame's VBlank. PSG remains IRQ-driven throughout the SATB update. */
+        tick_sprite_animations();
+        tick_spritetext();
+        if (pending_sprite_refresh) refresh_scene_sprites();
         last_pad = pad;
         delay_frame();
     }

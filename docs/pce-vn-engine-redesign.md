@@ -57,7 +57,7 @@ BIOS helperがmask/vector/R5を変更し得るため、adapterは呼び出し後
 
 ## System Card PSG package
 
-エディタの`psg-song`、`psg-sfx`、step編集、MIDI/VGM取込、SFXデザイナーは共通source形式を維持します。CD buildだけが`pce-system-card-psg.js`でSystem Card track bytecodeへ変換します。HuCard buildは既存のstep形式を維持します。
+エディタの`psg-song`、`psg-sfx`、step編集、MIDI/VGM取込、SFXデザイナーは共通source形式を維持します。tone stepはoptionalな`wave: 0..45`を持てます。CD buildだけが`pce-system-card-psg.js`でSystem Card track bytecodeへ変換し、HuCard buildは`wave`を無視して既存のstep形式を維持します。
 
 ### bus
 
@@ -76,8 +76,10 @@ packageは実際に参照された`(assetId, channel)`ごとに生成します�
 - 長いdurationはdirect-length commandへ分割し、継続部分をtieで結びます。
 - songは`SEGNO`/`DAL SEGNO`でloopし、SFXはend commandで停止します。
 - toneはnote+signed detuneから元periodを正確に再現します。表現不能periodはasset/step/channel位置付きbuild errorです。
+- toneの`wave`は発音時の`WAVE` commandへ変換します。0..44はSystem Card内蔵wave、45はbank134へ登録したuser squareです。未指定は45です。
 - noiseはchannel 4/5のmode 2へ変換します。
-- waveform 45以外のuser waveform、外部envelope、FMは使いません。
+- MIDI Program Changeは取込時にGM 16ファミリーへまとめ、設定可能なfamily→wave tableでtone stepへ焼き込みます。
+- waveform 45以外のuser waveform、外部envelope、FMは使いません。System Card内蔵wave bytesを生成物へ複製しません。
 
 容量上限はBGM 8156 bytes、SFX 8192 bytesです。loaderは対象busだけを停止し、statusで停止を確認してから宣言byte数だけをdirect async転送します。sector paddingをRAMへ書いてはいけません。他方のbusは転送中もIRQ駆動を継続します。
 
@@ -111,7 +113,7 @@ CD生成物には`font.bin`、`font_sprite.bin`を出しません。起動時全
 - ADPCMは既存buffered direct pathを維持します。PSG BIOS化を理由にstatus polling、自然終了後stop/reset、joypad baselineを変更してはいけません。
 - graphics driver/full VBlank handlerは使いません。VDC/BAT/SATB/compositorはruntimeが所有します。
 - VDC access、PSG/font BIOS call、overlay/bank switchは各境界のIRQ lock契約を守ります。
-- HuCard runtimeと生成形式は変更しません。
+- `spritemove`はCD/HuCard共通の19-byte command契約で、CDのPSG/font/ADPCM/CD-DA契約には影響させません。
 
 ## RAM/bank配置
 
@@ -135,7 +137,7 @@ bank123/134/135は8KBの`NOLOAD`予約です。link gateはconsole RAM使用量`
 - font/scene: ASCII全角化、Shift-JIS coverage、12×12/16×16変換、68-glyph cache、位置付きerror
 - build: 8192-byte scene、bank123/134/135 NOLOAD、console/ZP/code-bank gate、catalog再計算、旧font/PSG file不在、CD/HuCard両build
 - Geargrafx: `$E86D`と`$E6CF`が各VBlank 1回、full handler`$E873`が0回、MPR4/5/6とR5/R7/R8/R13・SATB・BGが非破壊
-- 組合せ: BGM+SFX、別bus load、async CD、CD-DA、ADPCM、message font、spritetext、scene切替
+- 組合せ: BGM+SFX、別bus load、async CD、CD-DA、ADPCM、message font、spritetext、同期/4-slot非同期spritemove、scene切替
 - EmulatorJS/WASM: ADPCM自然終了後入力、押しっぱなしedge、明示stop/resetの既存回帰
 
 BIOS probeまたはIRQ一回性gateが成立しない場合はfallbackを追加せず、BIOS-only移行を停止して原因を報告します。

@@ -2186,7 +2186,7 @@ test('PCE VN manager emits per-frame sprite delays and the runtime honors them',
 
   const runtime = readRuntimeSource();
   // The animation tick must index the per-frame table by the current frame.
-  assert.match(runtime, /animation\.frame_delays\[slot->frame\]/);
+  assert.match(runtime, /slot->anim_frame_delays\[slot->frame\]/);
 });
 
 test('PCE VN runtime owns only the System Card user VSync vector', () => {
@@ -2235,6 +2235,142 @@ test('PCE VN runtime owns only the System Card user VSync vector', () => {
   assert.match(source, /pad_edge_reset_pending = 1u/);
   assert.doesNotMatch(source, /while \(pce_cdb_adpcm_status\(\)\)/);
   assert.doesNotMatch(source, /service_adpcm_playback[\s\S]{0,500}pce_cdb_adpcm_stop\(\)/);
+});
+
+test('PCE VN manager emits synchronous and asynchronous sprite movement in the fixed command record', () => {
+  const projectDir = makeTempDir('pce-vn-sprite-move-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [{
+      id: 'hero',
+      type: 'sprite',
+      source: 'assets/sprites/hero.png',
+      options: {
+        width: 64,
+        height: 32,
+        cellWidth: 16,
+        cellHeight: 16,
+        animations: [
+          { id: 'default', frameWidth: 16, frameHeight: 16, firstCell: 0, frameCount: 2, frameDelay: 8, frameStrideCells: 1 },
+          { id: 'walk', frameWidth: 16, frameHeight: 16, firstCell: 4, frameCount: 2, frameDelay: 6, frameStrideCells: 1 },
+        ],
+      },
+      data: { generated: { width: 64, height: 32, cellColumns: 4, cellRows: 2 } },
+    }],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'sprite', slot: 2, assetId: 'hero', x: 16, y: 24, animationId: 'default', visible: true },
+        { type: 'spritemove', slot: 2, x: 300, y: 7, frames: 513, async: true, animationAssetId: 'hero', animationId: 'walk' },
+        { type: 'spritemove', slot: 2, x: 10, y: 200, frames: 30 },
+      ],
+    }],
+  });
+
+  const normalized = vnManager.readSceneDocument(projectDir);
+  assert.deepEqual(normalized.scenes[0].commands[1], {
+    type: 'spritemove',
+    slot: 2,
+    x: 300,
+    y: 7,
+    frames: 513,
+    async: true,
+    animationAssetId: 'hero',
+    animationId: 'walk',
+  });
+  const generated = vnManager.generateVnSources(projectDir);
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+  const asyncMove = commandRecord(pack, 1);
+  const syncMove = commandRecord(pack, 2);
+  assert.equal(pack[5], 3);
+  assert.equal(asyncMove.type, vnManager.VN_COMMAND_SPRITE_MOVE);
+  assert.equal(asyncMove.assetIndex, 0);
+  assert.equal(asyncMove.slot, 2);
+  assert.equal(asyncMove.flags, vnManager.VN_SPRITE_MOVE_ASYNC);
+  assert.equal(asyncMove.arg0, 1);
+  assert.equal(asyncMove.arg1, 2);
+  assert.equal(asyncMove.x, 300);
+  assert.equal(asyncMove.y, 7);
+  assert.equal(asyncMove.animationIndex, 1);
+  assert.equal(syncMove.type, vnManager.VN_COMMAND_SPRITE_MOVE);
+  assert.equal(syncMove.flags, 0);
+  assert.equal(syncMove.arg0, 30);
+  assert.equal(syncMove.arg1, 0);
+  assert.equal(syncMove.assetIndex, -1);
+  assert.equal(syncMove.animationIndex, -1);
+  assert.match(header, /PCE_VN_COMMAND_SPRITE_MOVE 16u/);
+  assert.match(header, /PCE_VN_SPRITE_MOVE_ASYNC 1u/);
+  assert.match(header, /PCE_VN_SCENE_PACK_COMMAND_SIZE 19u/);
+
+  const cdState = fs.readFileSync(path.join(TEMPLATE_VN_SRC_DIR, 'vn_engine_state.c'), 'utf-8');
+  const cdSprite = fs.readFileSync(path.join(TEMPLATE_VN_SRC_DIR, 'vn_port_sprite.c'), 'utf-8');
+  const cdScene = fs.readFileSync(path.join(TEMPLATE_VN_SRC_DIR, 'vn_port_scene.c'), 'utf-8');
+  const huCard = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_hucard', 'src', 'pce_vn_hucard_runtime.c'), 'utf-8');
+  assert.match(cdState, /vn_sprite_move_t sprite_moves\[VN_SPRITE_SLOT_COUNT\]/);
+  assert.match(cdSprite, /start_sprite_move[\s\S]*move->distance_x = distance_x[\s\S]*remaining_frames--/);
+  assert.doesNotMatch(cdSprite, /distance_[xy] [\/%] frames/);
+  assert.match(cdSprite, /sprite_shadow\[entry_index\]\.y[\s\S]*sprite_shadow\[entry_index\]\.x/);
+  assert.match(cdScene, /command->type == PCE_VN_COMMAND_SPRITE_MOVE/);
+  assert.match(huCard, /command\.type == PCE_VN_COMMAND_SPRITE_MOVE/);
+  assert.match(huCard, /upload_sprite_table_now\(\)/);
+});
+
+test('PCE VN manager rejects sprite movement in full-screen BG scenes and reports invalid animation locations', () => {
+  const projectDir = makeTempDir('pce-vn-sprite-move-invalid-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [{
+      id: 'hero',
+      type: 'sprite',
+      options: { width: 16, height: 16, cellWidth: 16, cellHeight: 16 },
+      data: { generated: { width: 16, height: 16, cellColumns: 1, cellRows: 1 } },
+    }],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{ id: 'opening', fullScreenBg: true, commands: [{ type: 'spritemove', slot: 0, x: 10, y: 20, frames: 1 }] }],
+  });
+  assert.throws(() => vnManager.generateVnSources(projectDir), /fullScreenBg and cannot move sprites/);
+
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'sprite', slot: 0, assetId: 'hero', x: 0, y: 0, visible: true },
+        { type: 'spritemove', slot: 0, x: 10, y: 20, frames: 1, animationAssetId: 'hero', animationId: 'missing' },
+      ],
+    }],
+  });
+  assert.throws(
+    () => vnManager.generateVnSources(projectDir),
+    /scene "opening" command 2: spritemove animation "missing" is not defined/
+  );
+
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'sprite', slot: 0, assetId: 'hero', x: 0, y: 0, visible: true },
+        { type: 'spritemove', slot: 0, x: 10, y: 20, frames: 1, animationAssetId: 'missing-sprite', animationId: 'default' },
+      ],
+    }],
+  });
+  assert.throws(
+    () => vnManager.generateVnSources(projectDir),
+    /scene "opening" command 2: spritemove animation "default" is not defined for sprite "missing-sprite"/
+  );
 });
 
 test('PCE VN runtime cache clear only invalidates non-destructive cache flags', () => {
@@ -2524,14 +2660,16 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.notEqual(hucardFlushEnd, -1);
   const hucardFlushSource = runtime.slice(hucardFlushStart, hucardFlushEnd);
   assert.match(hucardFlushSource, /wait_vblank\(\);[\s\S]*restore_bg_scroll\(\);[\s\S]*vn_vram_copy\(msg_tile_batch_addr\[i\], msg_tile_batch\[i\], 32u\);[\s\S]*service_psg\(\);/);
-  // upload_sprite_table also spends a VBlank, so it must service PSG too, or the
-  // BGM drags one tick per sprite-animation update (mouth flap) during messages.
+  // Full upload_sprite_table spends a VBlank and pairs it with PSG service. The
+  // per-frame movement/animation path uses upload_sprite_table_now after the
+  // main loop's existing VBlank, so it must not add a second timing tick.
   const hucardUploadSatbStart = runtime.indexOf('static void VN_HUCARD_CODE_VIDEO upload_sprite_table(void)');
   const hucardUploadSatbEnd = runtime.indexOf('static void VN_HUCARD_CODE_VIDEO hide_sprite_slot', hucardUploadSatbStart);
   assert.notEqual(hucardUploadSatbStart, -1);
   assert.notEqual(hucardUploadSatbEnd, -1);
   const hucardUploadSatbSource = runtime.slice(hucardUploadSatbStart, hucardUploadSatbEnd);
-  assert.match(hucardUploadSatbSource, /wait_vblank\(\);[\s\S]*pce_vdc_poke\(VDC_REG_SATB_START, VN_SATB_ADDR\);[\s\S]*service_psg\(\);/);
+  assert.match(hucardUploadSatbSource, /wait_vblank\(\);[\s\S]*upload_sprite_table_now\(\);[\s\S]*service_psg\(\);/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_VIDEO upload_sprite_table_now\(void\)[\s\S]*pce_vdc_poke\(VDC_REG_SATB_START, VN_SATB_ADDR\);/);
   assert.match(runtime, /bg_scroll_x_shadow = 0u;[\s\S]*bg_scroll_y_shadow = 0u;[\s\S]*restore_bg_scroll\(\);/);
   assert.match(runtime, /vn_hu_wait_vblank_start_outer/);
   assert.match(runtime, /copy_data_ref_to_vram_guarded/);

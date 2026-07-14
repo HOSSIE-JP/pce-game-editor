@@ -103,6 +103,9 @@ function normalizePattern(pattern, options = {}, baseChannel = 0) {
   const source = Array.isArray(pattern) ? pattern : [];
   const masterVolume = clampInt(options.volume, 0, 100, 100);
   const defaultPeriod = clampInt(options.period, 1, 4095, 512);
+  const defaultWave = options.wave == null
+    ? PSG_USER_WAVE_NUMBER
+    : clampInt(options.wave, 0, PSG_USER_WAVE_NUMBER, PSG_USER_WAVE_NUMBER);
   const resolvedBase = clampInt(baseChannel, 0, 5, 0);
   return source.map((rawEntry, sourceIndex) => {
     const entry = rawEntry && typeof rawEntry === 'object' ? rawEntry : {};
@@ -120,6 +123,9 @@ function normalizePattern(pattern, options = {}, baseChannel = 0) {
       period: clampInt(entry.period, 1, 4095, defaultPeriod),
       volume,
       noise: clampInt(entry.noise, 0, 1, 0),
+      wave: entry.wave == null
+        ? defaultWave
+        : clampInt(entry.wave, 0, PSG_USER_WAVE_NUMBER, defaultWave),
     };
   }).sort((a, b) => {
     if (a.step !== b.step) return a.step - b.step;
@@ -163,6 +169,10 @@ function compileToneEvent(bytes, entry, duration, state, context) {
   if (state.mode !== 0) {
     bytes.push(COMMAND.MODE, 0);
     state.mode = 0;
+  }
+  if (state.wave !== entry.wave) {
+    bytes.push(COMMAND.WAVE, entry.wave);
+    state.wave = entry.wave;
   }
   if (state.octave !== note.octave) {
     bytes.push(COMMAND.OCTAVE_1 + note.octave - 1);
@@ -208,7 +218,6 @@ function compileChannelStream(events, options, context) {
   const song = Boolean(options.isSong);
   const bytes = [
     COMMAND.TIME_BASE, 0,
-    COMMAND.WAVE, PSG_USER_WAVE_NUMBER,
     COMMAND.PAN, 0xff,
     COMMAND.GATE, 8,
   ];
@@ -218,6 +227,7 @@ function compileChannelStream(events, options, context) {
     detune: null,
     transpose: null,
     volume: null,
+    wave: null,
   };
   if (song) bytes.push(COMMAND.SEGNO);
 
@@ -278,6 +288,9 @@ function compileSystemCardPsgPackage(asset, baseChannel = 0, compileOptions = {}
       period: clampInt(options.period, 1, 4095, 512),
       volume: 0,
       noise: 0,
+      wave: options.wave == null
+        ? PSG_USER_WAVE_NUMBER
+        : clampInt(options.wave, 0, PSG_USER_WAVE_NUMBER, PSG_USER_WAVE_NUMBER),
     });
   }
   const usedChannels = channelEvents

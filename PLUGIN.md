@@ -761,6 +761,9 @@ const importedPsg = await window.electronAPI.importAssetMidi({
     minVelocity: 8,
     voicePriority: 'melodyBass', // "melodyBass" | "high" | "low" | "loud"
     patternDetail: 'auto', // "auto" | "full" | "half" | "quarter" | "eighth"
+    timbreMode: 'gm-family', // "gm-family" | "legacy-square"
+    // GM program 1-8, 9-16, ... 121-128 に対応する System Card wave 0..45
+    programWaveMap: [9, 22, 20, 5, 10, 8, 13, 14, 11, 1, 35, 6, 30, 24, 21, 28],
   },
 });
 
@@ -787,7 +790,7 @@ ADPCM の true CD streaming (`pce_cdb_adpcm_stream`) は VN runtime / editor 機
 
 `assets/pce-assets.json` の v2 画像/音声タイプは `image` (BG), `sprite`, `palette`, `psg-song`, `psg-sfx`, `adpcm`, `cdda-track` です。旧 `psg-sequence` は読み込み時に `psg-sfx` として正規化されます。PCE/CD-ROM2 は `llvm-mos-sdk` 固定で扱い、IPL / System Card は Setup でユーザー所有ファイルを指定します。
 
-MIDIからPSGへ取り込む場合、`midiOptions`でvoice削減、drum noise、velocity threshold、pattern detailを調整できます。previewは同じoptionsでstep sourceを返します。CD VNはこのsourceをSystem Card packageへcompileし、BGM 8156 bytes/SFX 8192 bytesの最終byte上限で検査します。HuCardは既存step/event上限を維持します。WebAudio previewはsquare/noiseの近似であり、System Card driverの実機mixを完全再現しません。
+MIDIからPSGへ取り込む場合、`midiOptions`でvoice削減、drum noise、velocity threshold、pattern detail、音色割り当てを調整できます。`timbreMode: "gm-family"`は発音開始時のMIDI Program Changeを16個のGM familyへまとめ、`programWaveMap`の対応するSystem Card wave番号をpatternの`wave`へ保存します。wave `0..44`はSystem Card内蔵、`45`はエディタが登録する32-byte squareです。`legacy-square`は全toneを45へ統一します。previewは同じoptionsでstep sourceを返します。CD VNはこのsourceをSystem Card packageへcompileし、BGM 8156 bytes/SFX 8192 bytesの最終byte上限で検査します。HuCardは`wave`を無視して既存step/event上限とsquare toneを維持します。WebAudio previewは内蔵wave番号ごとの大まかなsine/saw/triangle/square近似であり、System Cardの32-sample波形や実機mixを完全再現しません。
 
 BG の `tileBase` / `mapBase` は PCE asset manager 側で自動管理されます。CD-ROM2 VN runtime の 32x32 BAT を `mapBase: 0` に置き、BG tile は BAT の後ろ (`tileBase: 128`) に配置するため、UI ではこれらをユーザー選択させません。古い asset に値が残っていても読み込み・生成時に BG は自動値へ正規化されます。
 
@@ -837,7 +840,7 @@ Sprite asset は `options.animations` で VN runtime 向けの差分アニメー
 
 **各フレームの表示時間（per-frame display time）**: `frameDelay` は全フレーム共通の既定値、`frameDelays`（長さ `frameCount` の配列）は **1 フレームごとの表示フレーム数**です。スプライトエディタの time フィールド（`spriteEditor.time` = `[[行0…][行1…]]` 行列、1 行 = 1 animation）から保存され、build 時に各 animation の per-frame テーブルとして `vn.c` に出力されます（`pce_vn_sprite_anim_delays_N[]`、resident rodata）。`pce_vn_sprite_anim_t.frame_delays` がこのテーブルを指し、runtime の `tick_sprite_animations()` は **現在フレームの `frame_delays[frame]`** で各フレームを送ります（空セルや legacy data で `frame_delays` が無い場合は `frame_delay` にフォールバック）。`frameDelays` を持たない旧 asset でも、`spriteEditor.time` 行列があれば正規化時に per-frame 値へ移行します。time フィールドは右ペインから直接編集でき、上部の Time フィールド（ROW/Frame 選択）でセル単位の編集も可能です。
 
-CD-ROM2 VN templateはbuilder roleに`pce-visual-novel-builder`を使い、`targetMedia: "cd"`、`toolchain: "llvm-mos"`を使用します。`cd.systemCardProfile`はbuilderが固定値`"jp-v3"`へ正規化する生成契約であり、ユーザー設定ではありません。VN runtimeは`template/template_pce_vn_cd/src/pce_vn_runtime.c`を共通実体とし、build前にcurrent runtime/generated filesを同期します。CD scene pack v2は16-bit Shift-JIS、最大8192 bytesで、旧pack/font/PSG生成物を読む互換layerはありません。`skipClean` buildはversion 3 generation stampと必要なmanaged outputが一致する場合だけ再生成を省略します。System Card ROM、PSG driver bytes、抽出glyphは生成物へ含めず、ROM本体はTest Play／HTML Export時だけSetup設定から検証・使用します。
+CD-ROM2 VN templateはbuilder roleに`pce-visual-novel-builder`を使い、`targetMedia: "cd"`、`toolchain: "llvm-mos"`を使用します。`cd.systemCardProfile`はbuilderが固定値`"jp-v3"`へ正規化する生成契約であり、ユーザー設定ではありません。VN runtimeは`template/template_pce_vn_cd/src/pce_vn_runtime.c`を共通実体とし、build前にcurrent runtime/generated filesを同期します。CD scene pack v2は16-bit Shift-JIS、最大8192 bytesで、旧pack/font/PSG生成物を読む互換layerはありません。`skipClean` buildはversion 4 generation stampと必要なmanaged outputが一致する場合だけ再生成を省略します。System Card ROM、PSG driver bytes、抽出glyphは生成物へ含めず、ROM本体はTest Play／HTML Export時だけSetup設定から検証・使用します。
 
 CD VNのPSG/font/IRQ契約は`docs/pce-vn-engine-redesign.md`を正とします。`PCE_CDB_USE_PSG_DRIVER(1)`、`PCE_CDB_USE_GRAPHICS_DRIVER(0)`で、generic VSync user vectorが各VBlankに`PSG_DRIVE/$E0E1`を1回呼びます。full graphics handler、HuC6280 TIMER、main-thread credit/catch-upは使用禁止です。`psg-song`はmain/BGM、`psg-sfx`はsub/SFXへコンパイルし、`(assetId, channel)`単位のpackageをbank134/135へdirect async loadします。fontは`EX_GETFNT/$E060`の12×12/16×16をon-demand変換し、許可範囲を日本版v3の非漢字領域+JIS第一水準に限定します。起動probe不一致時にfallbackを追加してはいけません。
 
@@ -865,6 +868,7 @@ Novel > スクリプトは同じ scene document を `GUI` / `JSON` の 2 モー�
       "commands": [
         { "type": "background", "assetId": "classroom", "transition": "fade", "fadeOutFrames": 30, "fadeInFrames": 30, "x": 2, "y": 1 },
         { "type": "sprite", "slot": 0, "assetId": "akari", "x": 128, "y": 24, "animationId": "default", "visible": true },
+        { "type": "spritemove", "slot": 0, "x": 200, "y": 24, "frames": 60, "async": false, "animationAssetId": "akari", "animationId": "walk" },
         { "type": "audio", "kind": "cdda", "action": "play", "assetId": "opening_theme" },
         { "type": "variable", "variableName": "route", "operation": "define", "value": 0 },
         { "type": "audio", "kind": "psg", "action": "play", "assetId": "chime", "channel": 0 },
@@ -893,6 +897,8 @@ CD VNの`audio kind: "psg"`は`psg-song`をmain/BGM、`psg-sfx`をsub/SFXへ割�
 
 CD message/choice/spritetextはlength付き16-bit Shift-JIS列です。printable ASCIIは全角JISへ正規化し、改行は`0xFFFE`、終端は`0xFFFF`です。日本版v3の非漢字領域+JIS第一水準以外はscene/command位置付きbuild errorです。CD scene pack上限は8192 bytes、HuCard上限は4096 bytesです。
 
+`spritemove`はCD/HuCard共通commandです。`slot: 0..3`の表示中spriteを`x: 0..319`, `y: 0..223`へ`frames: 1..65535` VBlankで整数DDA移動します。`async`未指定/`false`は完了までscriptを停止し、`true`は後続を実行するため別slotを最大4枚同時に動かせます。任意の`animationAssetId`/`animationId`は移動開始時に同じassetのanimationへ切り替えます。command recordは19 bytesを維持し、durationは`arg0/arg1`、非同期は`flags bit0`、animationは`asset_index/animation_index`です。同じslotへの新しいmove/sprite、scene切替、`blank`は先行移動を中止します。Full BG sceneの`spritemove`と、未定義/asset不一致animationは位置付きbuild errorです。
+
 scene の `name` はエディタ表示用の任意名です。`chapter1/opening` のように `/` で区切ると Novel > スクリプトの Scenes 一覧ではグループ見出しと leaf 名に分けて表示します。scene pack の生成順は `scenes` 配列順で、Scenes 一覧のドラッグ＆ドロップ並び替えはこの配列順を更新します。`Jump` / `Choice.targetSceneId` / `startScene` は `id` を参照するため、`name` を変更しても遷移先は変わりません。GUI ではヘッダの `ID` で scene `id` を変更でき、`Start` で `startScene` を選べます。`ID` 変更時は `Jump` / `Choice.targetSceneId` / `nextSceneId` / `startScene` の参照を同時に更新し、重複 ID は自動で suffix を付けて回避します。
 
 scene の `fullScreenBg` を `true` にすると、その scene は 256x224 の全画面 BG 専用になります。`background` command は 256x224px の BG asset を `x: 0`, `y: 0` に置く必要があり、`message` / `choice` / 表示中の `sprite` / 表示中の `spritetext` を含めると build error になります。256x224 BG は `tileBase` 次第で message/font/spritetext/sprite pattern 用 VRAM と重なるため、VN build はその BG asset が Full BG 専用のときだけ重なりを許可します（同じ asset を通常 scene の `background` でも使う場合は通常どおり build error）。runtime は Full BG 読み込み後に text/spritetext/blank 用 VRAM と sprite pattern cache を dirty 扱いし、通常 scene へ戻る前または `message` / `choice` / `spritetext` の直前に必要領域を再転送します。runtime も scene pack flag を見てこれらの表示 command を無視するため、前後 scene の UI や sprite が全画面 BG を上書きしません。
@@ -903,7 +909,9 @@ VN build では `src/generated/vn.h` / `vn.c` に `pce_vn_command_t`, `pce_vn_me
 
 > **CD VN runtime契約**: active messageはbank123から最大68 glyphをdetachし、`EX_GETFNT`で準備したbank132 mask cacheを使うため、typewriter/ADPCM中にscene bankを参照しません。ADPCM direct path、自然終了後のno stop/reset、現在buttonを使うjoypad baseline、CD-DA BIOS APIは維持します。PSGはmain-threadでは進めず、generic VSync user IRQが各VBlankに`PSG_DRIVE`を1回呼びます。frame waitはIRQ epochだけを参照します。graphics/full VBlank handlerは使わず、VDC/SATB/compositorをruntimeが所有します。BIOS helper後はSystem Card adapterがuser vector、IRQ mask、R5、MPRを再確立します。`audio kind: "psg"`のplayはpackage index、stopは`target`でBGM/SFX/allを独立制御します。
 
-Sprite animation の差分更新では、既存 SATB layout の pattern word と attr word を同時に更新し、VDC write address を hidden SATB entry へ逃がしてから戻ります。これにより、ADPCM / CD-DA BIOS helper 後の復元処理で最後の表示 sprite attr が一瞬壊れることを避けます。
+CD `spritemove`の開始/中止はbank130、毎frame DDAはbank121 visual helper、SATB再構築はbank133 overlayへ配置します。4 slotの移動状態はconsole RAM 96 bytes以下です。複数slotのY/X/pattern/attrをVRAM側SATBへ書いた後にR13を1回armし、main loop末尾の1 VBlankだけで反映します。移動中もSystem Card VSync IRQの`PSG_DRIVE`を止めません。
+
+Sprite animation / movement の差分更新では、既存 SATB layout の Y / X / pattern / attr word を同時に更新し、VDC write address を hidden SATB entry へ逃がしてから戻ります。これにより、移動座標をSATBへ反映しつつ、ADPCM / CD-DA BIOS helper 後の復元処理で最後の表示 sprite attr が一瞬壊れることを避けます。
 
 `effect` command は `fadeOut` / `fadeIn` / `blank` / `shake` / `flash` を持ちます。`fadeOut` と `flash` の `color` は PCE 表示可能色へ丸めた 9-bit GRB として command record の `x` に格納します（未指定時は `fadeOut` が黒、`flash` が白）。このため `flash` / 色付き `fadeOut` を追加しても scene pack の command record サイズは増えません。
 
@@ -1008,7 +1016,7 @@ window.electronAPI.onPluginLog((payload) => {
 
 ### Sound / Novel 統合 UI
 
-`sound-editor`はADPCM / CD-DA / PSGを1つのsidebarタブに統合します。PSGタブのstep編集、VGM/VGZ/MIDI取込、SFXデザイナー、WebAudio previewは共通source形式を維持します。HuCard buildは既存`pce_editor_psg_step_t`/banked patternを使います。CD VN buildだけは`pce-system-card-psg.js`でmain/sub track bytecodeへ変換し、旧PSG C struct/catalog record/`assets/generated/psg/<id>.bin`を出しません。実際に参照された`(assetId, channel)` variantを`assets/generated/vn/system-card-psg/`へ生成し、BGMはbank134最大8156 bytes、SFXはbank135最大8192 bytesです。duration split/tie、loop/end、period+detune、ch4/ch5 mode-2 noiseをcompileし、表現不能値と容量超過は位置付きerrorにします。waveformはuser waveform 45の32-byte square固定で、外部envelope/FMは使いません。
+`sound-editor`はADPCM / CD-DA / PSGを1つのsidebarタブに統合します。PSGタブのstep編集、VGM/VGZ/MIDI取込、SFXデザイナー、WebAudio previewは共通source形式を維持します。HuCard buildは既存`pce_editor_psg_step_t`/banked patternを使い、optionalな`wave`は無視します。CD VN buildだけは`pce-system-card-psg.js`でmain/sub track bytecodeへ変換し、旧PSG C struct/catalog record/`assets/generated/psg/<id>.bin`を出しません。実際に参照された`(assetId, channel)` variantを`assets/generated/vn/system-card-psg/`へ生成し、BGMはbank134最大8156 bytes、SFXはbank135最大8192 bytesです。duration split/tie、loop/end、period+detune、発音ごとのSystem Card `WAVE`（内蔵0..44/user 45）、ch4/ch5 mode-2 noiseをcompileし、表現不能値と容量超過は位置付きerrorにします。user waveformは45の32-byte squareだけを登録し、外部envelope/FMは使いません。
 
 Sound > ADPCM の詳細フォームと取込ダイアログは、通常編集する ID / Name / Sample rate / Loop / Split だけを表示します。新規取り込みの標準 sample rate は 8000Hz です。Streaming 再生指定は削除済みです。低レベルの `adpcmAddress` と `divider` は UI には出さず、address は既定値、divider は `sampleRate` からの自動値を使います。
 

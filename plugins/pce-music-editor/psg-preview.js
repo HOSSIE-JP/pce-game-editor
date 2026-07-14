@@ -2,6 +2,9 @@ import { psgNoiseHzFromValue } from './psg-sfx-synth.mjs';
 
 const PSG_CLOCK = 3579545;
 const PSG_CHANNEL_COUNT = 6;
+const PREVIEW_SINE_WAVES = new Set([1, 8, 13]);
+const PREVIEW_SAW_WAVES = new Set([2, 5, 11, 30, 35, 43]);
+const PREVIEW_TRIANGLE_WAVES = new Set([6, 20, 22, 24, 25, 31]);
 
 function asNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -42,7 +45,7 @@ export function normalizePsgPreviewPattern(asset = {}) {
   const scaleVolume = (volume) => clampInt(Math.round((volume * volumeScale) / 100), 0, 31, volume);
   if (!rawPattern.length) {
     const period = clampInt(options.period, 1, 4095, 512);
-    return period ? [{ step: 0, channel: 0, period, volume: scaleVolume(16), noise: 0 }] : [];
+    return period ? [{ step: 0, channel: 0, period, volume: scaleVolume(16), noise: 0, wave: 45 }] : [];
   }
   return rawPattern.map((entry, index) => {
     const raw = entry && typeof entry === 'object' ? entry : {};
@@ -58,6 +61,7 @@ export function normalizePsgPreviewPattern(asset = {}) {
       period,
       volume: scaleVolume(clampInt(raw.volume, 0, 31, volumeFallback)),
       noise: clampInt(raw.noise, 0, 1, 0),
+      wave: raw.wave == null ? 45 : clampInt(raw.wave, 0, 45, 45),
     };
   });
 }
@@ -69,10 +73,10 @@ export function expandPsgPreviewStates(asset = {}) {
   normalizePsgPreviewPattern(asset).forEach((entry) => {
     if (entry.step >= 0 && entry.step < steps) byStep[entry.step].push(entry);
   });
-  const state = Array.from({ length: PSG_CHANNEL_COUNT }, () => ({ period: 0, volume: 0, noise: 0 }));
+  const state = Array.from({ length: PSG_CHANNEL_COUNT }, () => ({ period: 0, volume: 0, noise: 0, wave: 45 }));
   return byStep.map((entries) => {
     entries.forEach((entry) => {
-      state[entry.channel] = { period: entry.period, volume: entry.volume, noise: entry.noise };
+      state[entry.channel] = { period: entry.period, volume: entry.volume, noise: entry.noise, wave: entry.wave };
     });
     return state.map((cell) => ({ ...cell }));
   });
@@ -82,11 +86,13 @@ export function psgPreviewStats(asset = {}) {
   const entries = normalizePsgPreviewPattern(asset);
   const used = new Set(entries.filter((entry) => entry.volume > 0).map((entry) => entry.channel));
   const noiseCount = entries.filter((entry) => entry.noise && entry.volume > 0).length;
+  const waves = Array.from(new Set(entries.filter((entry) => !entry.noise && entry.volume > 0).map((entry) => entry.wave))).sort((a, b) => a - b);
   const firstTone = entries.find((entry) => entry.volume > 0 && entry.period > 0 && !entry.noise);
   return {
     entries: entries.length,
     channels: used.size || 0,
     noiseCount,
+    waves,
     firstPeriod: firstTone?.period || clampInt(asset.options?.period, 1, 4095, 512),
   };
 }
@@ -126,7 +132,16 @@ export function createPsgPreviewController({ onStateChange, onError } = {}) {
     if (!frequency || !audioContext) return;
     const osc = audioContext.createOscillator();
     const gain = audioContext.createGain();
-    osc.type = 'square';
+    // WebAudio cannot reproduce the BIOS' 32-sample internal tables exactly.
+    // Give each allocation family a useful spectral approximation while the
+    // generated CD track keeps the exact System Card wave number.
+    osc.type = PREVIEW_SINE_WAVES.has(cell.wave)
+      ? 'sine'
+      : PREVIEW_SAW_WAVES.has(cell.wave)
+        ? 'sawtooth'
+        : PREVIEW_TRIANGLE_WAVES.has(cell.wave)
+          ? 'triangle'
+          : 'square';
     osc.frequency.setValueAtTime(frequency, start);
     scheduleEnvelope(gain, start, duration, Math.min(0.12, (cell.volume / 31) * 0.1));
     osc.connect(gain).connect(audioContext.destination);

@@ -4,7 +4,7 @@
 //
 // This module knows nothing about VGM or MIDI. It only consumes the "snapshot
 // contract": an array of steps, where each step is a PSG_CHANNEL_COUNT-element
-// array of `{ period, volume, noise? }` describing what each PSG voice is doing
+// array of `{ period, volume, noise?, wave? }` describing what each PSG voice is doing
 // at that step boundary. The PC Engine PSG runtime holds a voice until it is
 // changed, so the pattern only needs to record CHANGES (see buildPattern).
 //
@@ -16,7 +16,7 @@ const PSG_CHANNEL_COUNT = 6;
 const MAX_STEPS = 4096;
 const MAX_PATTERN_ENTRIES = 2048;
 const DEFAULT_SAMPLE_RATE = 44100; // VGM/MIDI both quantize on a 44100Hz grid.
-const PSG_QUANTIZER_VERSION = 2;
+const PSG_QUANTIZER_VERSION = 3;
 
 function clampInt(value, min, max, fallback) {
   const parsed = Number(value);
@@ -34,13 +34,15 @@ function gridForBpm(bpm) {
 }
 
 // Turn per-step channel snapshots into compact pattern entries. A voice is held
-// by the runtime until changed, so we only emit when (period, volume, noise)
+// by the runtime until changed, so we only emit when (period, volume, noise,
+// optional System Card wave)
 // differs from the previously emitted state for that channel (silence is the
-// baseline). The `noise` key is only attached when set, so tone-only patterns
-// keep the historical `{ step, channel, period, volume }` shape.
+// baseline). The `noise` key is only attached when set and `wave` only when the
+// source snapshot provides it, so VGM and existing hand-authored patterns keep
+// their historical `{ step, channel, period, volume }` shape.
 function buildPattern(snapshots) {
   const pattern = [];
-  const last = Array.from({ length: PSG_CHANNEL_COUNT }, () => ({ period: 0, volume: 0, noise: 0 }));
+  const last = Array.from({ length: PSG_CHANNEL_COUNT }, () => ({ period: 0, volume: 0, noise: 0, wave: null }));
   let truncated = false;
   for (let step = 0; step < snapshots.length; step += 1) {
     for (let ch = 0; ch < PSG_CHANNEL_COUNT; ch += 1) {
@@ -48,8 +50,12 @@ function buildPattern(snapshots) {
       const noise = cell.noise ? 1 : 0;
       const period = cell.period > 0 ? cell.period : 0;
       const volume = cell.volume;
-      if (period === last[ch].period && volume === last[ch].volume && noise === last[ch].noise) continue;
-      last[ch] = { period, volume, noise };
+      const hasWave = !noise && Number.isFinite(Number(cell.wave));
+      const wave = volume > 0 && hasWave
+        ? clampInt(cell.wave, 0, 45, 45)
+        : last[ch].wave;
+      if (period === last[ch].period && volume === last[ch].volume && noise === last[ch].noise && wave === last[ch].wave) continue;
+      last[ch] = { period, volume, noise, wave };
       if (pattern.length >= MAX_PATTERN_ENTRIES) { truncated = true; continue; }
       const entry = {
         step,
@@ -58,6 +64,7 @@ function buildPattern(snapshots) {
         volume: clampInt(volume, 0, 31, 0),
       };
       if (noise) entry.noise = 1;
+      else if (volume > 0 && hasWave) entry.wave = wave;
       pattern.push(entry);
     }
   }

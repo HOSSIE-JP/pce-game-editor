@@ -126,6 +126,22 @@ typedef struct
 } vn_sprite_slot_t;
 static vn_sprite_slot_t sprite_slots_storage[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 #define sprite_slots sprite_slots_storage
+typedef struct
+{
+    uint16_t target_x;
+    uint16_t target_y;
+    uint16_t distance_x;
+    uint16_t distance_y;
+    uint16_t error_x;
+    uint16_t error_y;
+    uint16_t total_frames;
+    uint16_t remaining_frames;
+    int8_t direction_x;
+    int8_t direction_y;
+    uint8_t active;
+} vn_sprite_move_t;
+static vn_sprite_move_t sprite_moves[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint8_t sync_sprite_move_slot = 0xffu;
 static uint8_t sprite_satb_slot_start[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint8_t sprite_satb_slot_count[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint8_t sprite_slot_pattern_valid[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
@@ -259,6 +275,9 @@ static uint8_t vn_switch_case_scratch_storage[sizeof(pce_vn_switch_case_t)] __at
 static void advance_story(void);
 static void VN_RESIDENT_CODE clear_spritetext_slots(void);
 static void VN_BANKED_CODE refresh_scene_sprites(void);
+static void VN_BANKED_CODE cancel_sprite_move(uint8_t slot);
+static void VN_BANKED_CODE cancel_all_sprite_moves(void);
+static uint8_t VN_BANKED_CODE2 start_sprite_move(const pce_vn_command_t *command);
 static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache);
 static uint8_t scene_pack_command_count(const vn_scene_pack_cache_t *cache);
 #if defined(__PCE_CD__)

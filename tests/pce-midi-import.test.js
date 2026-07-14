@@ -57,6 +57,7 @@ test('convertMidiToPsg maps a single note to period and a note-off to silence', 
   assert.equal(first.channel, 0);
   assert.equal(first.period, 254);
   assert.equal(first.volume, 24); // default toneVolumeScale preserves MIDI note velocity.
+  assert.equal(first.wave, 9); // GM program 0 (Piano) -> jp-v3 BIOS wave profile.
   assert.ok(!first.noise);
   assert.ok(result.pattern.some((e) => e.channel === 0 && e.volume === 0)); // note-off
 });
@@ -113,6 +114,63 @@ test('convertMidiToPsg derives BPM from the MIDI tempo when not overridden', () 
   const result = midiImporter.convertMidiToPsg(buildSmf({ tracks: [track] }));
   assert.equal(result.bpm, 200); // round(60000000 / 300000)
   assert.equal(result.stats.midiBpm, 200);
+});
+
+test('parseSmf preserves Program Change and conversion maps GM families to BIOS waves', () => {
+  const track = [
+    0x00, 0xc0, 40, // Violin (zero-based program 40), Strings family.
+    0x00, 0x90, 60, 100,
+    ...vlq(120), 0x80, 60, 0,
+    0x00, 0xc0, 80, // Synth Lead family.
+    0x00, 0x90, 64, 100,
+    ...vlq(120), 0x80, 64, 0,
+    ...END,
+  ];
+  const midi = buildSmf({ tracks: [track] });
+  const parsed = midiImporter.parseSmf(midi);
+  assert.deepEqual(
+    parsed.tracks[0].filter((event) => event.type === 'program').map((event) => event.program),
+    [40, 80],
+  );
+
+  const result = midiImporter.convertMidiToPsg(midi, { bpm: 120 });
+  const tones = result.pattern.filter((entry) => entry.volume > 0 && !entry.noise);
+  assert.equal(tones[0].wave, midiImporter.DEFAULT_MIDI_GM_PROGRAM_WAVE_MAP[5]);
+  assert.ok(tones.some((entry) => entry.wave === midiImporter.DEFAULT_MIDI_GM_PROGRAM_WAVE_MAP[10]));
+  assert.equal(result.stats.programChanges, 2);
+  assert.deepEqual(result.stats.usedPrograms, [40, 80]);
+  assert.deepEqual(result.stats.usedProgramFamilies, [5, 10]);
+  assert.ok(result.warnings.some((warning) => warning.includes('System Card 内蔵wave')));
+});
+
+test('convertMidiToPsg supports custom family allocation and legacy square mode', () => {
+  const track = [
+    0x00, 0xc0, 40,
+    0x00, 0x90, 60, 100,
+    ...vlq(120), 0x80, 60, 0,
+    ...END,
+  ];
+  const midi = buildSmf({ tracks: [track] });
+  const customMap = Array.from(midiImporter.DEFAULT_MIDI_GM_PROGRAM_WAVE_MAP);
+  customMap[5] = 3;
+  const custom = midiImporter.convertMidiToPsg(midi, { bpm: 120, programWaveMap: customMap });
+  assert.equal(custom.pattern.find((entry) => entry.volume > 0).wave, 3);
+  assert.equal(custom.stats.midiOptions.programWaveMap[5], 3);
+
+  const legacy = midiImporter.convertMidiToPsg(midi, { bpm: 120, timbreMode: 'legacy-square', programWaveMap: customMap });
+  assert.equal(legacy.pattern.find((entry) => entry.volume > 0).wave, 45);
+  assert.deepEqual(legacy.stats.usedWaves, [45]);
+});
+
+test('normalizeMidiPsgOptions validates the 16-family System Card wave allocation', () => {
+  const normalized = midiImporter.normalizeMidiPsgOptions({
+    timbreMode: 'unknown',
+    programWaveMap: [44, 99, -5, 'bad', null],
+  });
+  assert.equal(normalized.timbreMode, 'gm-family');
+  assert.equal(normalized.programWaveMap.length, 16);
+  assert.deepEqual(normalized.programWaveMap.slice(0, 4), [44, 45, 0, midiImporter.DEFAULT_MIDI_GM_PROGRAM_WAVE_MAP[3]]);
+  assert.equal(normalized.programWaveMap[4], midiImporter.DEFAULT_MIDI_GM_PROGRAM_WAVE_MAP[4]);
 });
 
 test('convertMidiToPsg keeps 120 BPM quarter notes on the 16th-note grid', () => {

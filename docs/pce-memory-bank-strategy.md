@@ -35,7 +35,7 @@ bank131はSystem Cardがslot5で実行するため使用禁止です。bank134/1
 
 bank134:
 
-- `$8000-$801F`: 32-byte fixed square waveform。user waveform 45
+- `$8000-$801F`: 32-byte fixed square waveform。user waveform 45。MIDI割り当てで使う0..44はSystem Card内蔵waveであり、このbankへ複製しない
 - `$8020-$8021`: main track package pointer
 - `$8022-$8023`: sub track package pointer
 - `$8024-$9FFF`: active BGM package、最大8156 bytes
@@ -60,6 +60,7 @@ package loaderは対象busを停止してstatusを確認し、宣言byte数だ�
 - overlay実行中はbank130が見えません。`VN_OVERLAY_CODE`から呼ぶhelperはbank129か本当に必要な最小bank128へ置き、bank130へ置きません。
 - visual/async helperは`.vn_visual_code`/`.vn_cd_async_code`としてlink後に抽出し、対応する`PT_LOAD`を`PT_NULL`化します。これを怠ると`pce-mkcd`の初期load imageが壊れます。
 - bank133 overlayは`.vn_overlay`を抽出し、residentからは`vn_overlay_entry`の固定address dispatchだけで呼びます。
+- `spritemove`の開始/中止helperはbank130、毎frameのDDA tickはbank121 visual helper、SATB再構築はbank133 overlayに置きます。console RAMの移動状態は4 slot合計96 bytes以下とし、command recordは19 bytesから増やしません。
 - 詳しい抽出/relocation規則は[pce-vn-overlay-pathb.md](pce-vn-overlay-pathb.md)を参照してください。
 
 ## console RAM / ZP gate
@@ -97,4 +98,5 @@ CD VN link後にELF sectionとmapを読み、次をhard errorにします。
 2. `llvm-readelf -S`でbank123/134/135がNOBITSであることを確認する。
 3. `llvm-objdump -dr`でoverlay/visual/asyncから時分割bankへの禁止relocationがないことを確認する。
 4. GeargrafxでIRQ前後のMPR4/5/6、scene切替、BGM+SFX+async loadを確認する。
-5. HuCard VN buildを通し、CD固有配置が混入していないことを確認する。
+5. 同期/非同期`spritemove`を60/6000 frame動かし、R13/SATB、PSG IRQ一回性、4 slot同時移動、scene切替キャンセルを確認する。
+6. HuCard VN buildを通し、CD固有配置が混入していないことを確認する。

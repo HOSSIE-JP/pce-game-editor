@@ -50,6 +50,8 @@ function createVnCdCatalog(options = {}) {
     compiledSceneCommands(scene).forEach((command) => {
       if (command.type === 'background' || command.type === 'sprite') {
         if (command.assetId) ids.push(command.assetId);
+      } else if (command.type === 'spritemove') {
+        if (command.animationAssetId) ids.push(command.animationAssetId);
       } else if (command.type === 'message') {
         if (command.voiceAssetId) ids.push(command.voiceAssetId);
       } else if (command.type === 'audio' && command.action === 'play') {

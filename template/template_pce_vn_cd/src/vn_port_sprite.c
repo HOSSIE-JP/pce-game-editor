@@ -90,27 +90,19 @@ static void VN_RESIDENT_CODE upload_sprite_pattern_words(uint8_t satb_index, uin
 #if defined(__PCE__)
     uint8_t i;
     uint8_t irq;
-    /* Runs every frame during ADPCM lip-sync. The IO_VDC_INDEX/IO_VDC_DATA pokes
-       below are the non-reentrant VDC sequence: mask IRQs for the whole rewrite so a
-       CD/ADPCM external IRQ cannot land between the register-select and the data
-       writes and corrupt the SATB. */
-#if defined(__PCE_CD__)
-    if (!pending_display_enable)
-    {
-        vn_wait_next_vblank();
-        engine_service();
-    }
-#else
-    vn_wait_next_vblank();
-#endif
+    /* Per-frame animation/movement updates rewrite complete SATB entries and
+       arm SATB DMA. The frame tail performs the one VBlank wait after every
+       active slot has been updated. */
     irq = vn_vdc_irq_lock();
     vn_vdc_set_copy_word();
     for (i = 0u; i < count; i++)
     {
         const uint8_t entry_index = (uint8_t)(satb_index + i);
         *IO_VDC_INDEX = VDC_REG_VRAM_WRITE_ADDR;
-        *IO_VDC_DATA = (uint16_t)(VN_SATB_ADDR + ((uint16_t)entry_index * 4u) + 2u);
+        *IO_VDC_DATA = (uint16_t)(VN_SATB_ADDR + ((uint16_t)entry_index * 4u));
         *IO_VDC_INDEX = VDC_REG_VRAM_DATA;
+        *IO_VDC_DATA = sprite_shadow[entry_index].y;
+        *IO_VDC_DATA = sprite_shadow[entry_index].x;
         *IO_VDC_DATA = sprite_shadow[entry_index].pattern;
         *IO_VDC_DATA = sprite_shadow[entry_index].attr;
     }
@@ -121,9 +113,6 @@ static void VN_RESIDENT_CODE upload_sprite_pattern_words(uint8_t satb_index, uin
     *IO_VDC_INDEX = VDC_REG_SATB_START;
     *IO_VDC_DATA = VN_SATB_ADDR;
     vn_vdc_irq_unlock(irq);
-#if defined(__PCE_CD__)
-    engine_service();
-#endif
 #else
     (void)satb_index;
     (void)count;
@@ -353,9 +342,6 @@ static uint8_t VN_RESIDENT_CODE draw_spritetext_slots(uint8_t satb_index)
 
 static uint8_t VN_OVERLAY_CODE refresh_scene_sprite_patterns_impl(void)
 {
-#if !PCE_VN_HAS_SPRITE_ANIMATIONS
-    return 1u;
-#else
 #if defined(__PCE__)
     uint8_t i;
     if (!sprite_satb_layout_valid) return 0u;
@@ -369,7 +355,6 @@ static uint8_t VN_OVERLAY_CODE refresh_scene_sprite_patterns_impl(void)
         if (!expected_count) continue;
         if (!sprite_slot_pattern_valid[i]) return 0u;
         if (!slot->visible || slot->sprite_index < 0) return 0u;
-        if (slot->animation_index < 0 || slot->anim_frame_count <= 1u) continue;
         satb_index = sprite_satb_slot_start[i];
         written = show_character_sprite_frame(
             satb_index,
@@ -383,7 +368,6 @@ static uint8_t VN_OVERLAY_CODE refresh_scene_sprite_patterns_impl(void)
     return 1u;
 #else
     return 1u;
-#endif
 #endif
 }
 
@@ -403,12 +387,8 @@ static uint8_t VN_OVERLAY_CODE show_character_sprite_frame_slot(uint8_t i)
 static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns(void)
 {
 #if defined(__PCE_CD__)
-    /* The overlay rebuilds cached SATB pattern/attr words, then
-       upload_sprite_pattern_words() waits for VBlank before taking its own short
-       VDC register lock.  Do not hold the outer IRQ lock across that wait: the
-       System Card VSync handler is resident and preserves MPR4 while bank133 is
-       mapped, so the unlocked dispatcher is both safe and required for the frame
-       epoch to advance. */
+    /* The overlay rebuilds cached SATB entries and arms DMA without waiting.
+       The frame tail performs the single VBlank wait after all slot updates. */
     map_vn_data();
     return vn_overlay_dispatch(VN_OVERLAY_OP_REFRESH_SPRITE, 0u, 0u, 0u);
 #else
@@ -580,13 +560,11 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
     uint8_t satb_index = 0u;
     const uint8_t display_active = (uint8_t)!pending_display_enable;
     uint8_t requires_safe_hide;
-#if PCE_VN_HAS_SPRITE_ANIMATIONS
     if (pending_sprite_refresh == VN_SPRITE_REFRESH_PATTERNS && refresh_scene_sprite_patterns())
     {
         pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
         return;
     }
-#endif
     requires_safe_hide = plan_scene_sprite_layout();
     clear_sprites();
     if (display_active && requires_safe_hide)
@@ -681,43 +659,145 @@ static void VN_BANKED_CODE cache_sprite_animation(uint8_t slot_index)
 #endif
 }
 
+static void VN_BANKED_CODE cancel_sprite_move(uint8_t slot)
+{
+    sprite_moves[slot].active = 0u;
+    if (sync_sprite_move_slot == slot) sync_sprite_move_slot = 0xffu;
+}
+
+static void VN_BANKED_CODE cancel_all_sprite_moves(void)
+{
+    uint8_t slot;
+    for (slot = 0u; slot < VN_SPRITE_SLOT_COUNT; slot++)
+    {
+        sprite_moves[slot].active = 0u;
+    }
+    sync_sprite_move_slot = 0xffu;
+}
+
+static uint8_t VN_BANKED_CODE2 start_sprite_move(const pce_vn_command_t *command)
+{
+    vn_sprite_slot_t *slot_state;
+    vn_sprite_move_t *move;
+    uint8_t slot;
+    uint16_t frames;
+    int16_t delta_x;
+    int16_t delta_y;
+    uint16_t distance_x;
+    uint16_t distance_y;
+    slot = command->slot;
+    slot_state = &sprite_slots[slot];
+    cancel_sprite_move(slot);
+    if (!slot_state->visible || slot_state->sprite_index < 0) return 0u;
+    frames = (uint16_t)command->arg0 | ((uint16_t)command->arg1 << 8);
+    if (command->animation_index >= 0 && command->asset_index == slot_state->sprite_index)
+    {
+        slot_state->animation_index = command->animation_index;
+        slot_state->frame = 0u;
+        slot_state->timer = 0u;
+        cache_sprite_animation(slot);
+    }
+    move = &sprite_moves[slot];
+    delta_x = (int16_t)((int16_t)command->x - (int16_t)slot_state->x);
+    delta_y = (int16_t)((int16_t)command->y - (int16_t)slot_state->y);
+    distance_x = (uint16_t)(delta_x < 0 ? -delta_x : delta_x);
+    distance_y = (uint16_t)(delta_y < 0 ? -delta_y : delta_y);
+    move->target_x = command->x;
+    move->target_y = command->y;
+    move->distance_x = distance_x;
+    move->distance_y = distance_y;
+    move->direction_x = delta_x < 0 ? -1 : (delta_x > 0 ? 1 : 0);
+    move->direction_y = delta_y < 0 ? -1 : (delta_y > 0 ? 1 : 0);
+    move->error_x = 0u;
+    move->error_y = 0u;
+    move->total_frames = frames;
+    move->remaining_frames = frames;
+    move->active = 1u;
+    if (!(command->flags & PCE_VN_SPRITE_MOVE_ASYNC)) sync_sprite_move_slot = slot;
+    return (uint8_t)!(command->flags & PCE_VN_SPRITE_MOVE_ASYNC);
+}
+
 #if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
 static void VN_VISUAL_CACHE_CODE tick_sprite_animations_impl(void)
 #else
 static void tick_sprite_animations(void)
 #endif
 {
-#if PCE_VN_HAS_SPRITE_ANIMATIONS
     uint8_t i;
     uint8_t changed = 0u;
     for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
     {
         vn_sprite_slot_t *slot = sprite_slot_ref(i);
+#if PCE_VN_HAS_SPRITE_ANIMATIONS
         uint8_t frame_delay;
-        if (!slot->visible || slot->anim_frame_count <= 1u) continue;
-        /* Per-frame display time: each frame holds for its own delay (frame_delays
-           lives in resident rodata and is cached on the slot when the animation
-           changes, so ADPCM frames do not reread the bank132 animation table.
-           This replaces the old animation.frame_delays[slot->frame] hot read. */
-        frame_delay = (slot->anim_frame_delays && slot->frame < slot->anim_frame_count)
-            ? slot->anim_frame_delays[slot->frame]
-            : slot->anim_frame_delay;
-        if (!frame_delay) frame_delay = slot->anim_frame_delay;
-        slot->timer++;
-        if (slot->timer < frame_delay) continue;
-        slot->timer = 0u;
-        if (slot->frame + 1u < slot->anim_frame_count)
+        if (slot->visible && slot->anim_frame_count > 1u)
         {
-            slot->frame++;
+            frame_delay = (slot->anim_frame_delays && slot->frame < slot->anim_frame_count)
+                ? slot->anim_frame_delays[slot->frame]
+                : slot->anim_frame_delay;
+            if (!frame_delay) frame_delay = slot->anim_frame_delay;
+            slot->timer++;
+            if (slot->timer >= frame_delay)
+            {
+                slot->timer = 0u;
+                if (slot->frame + 1u < slot->anim_frame_count) slot->frame++;
+                else if (slot->anim_loop) slot->frame = 0u;
+                changed = 1u;
+            }
         }
-        else if (slot->anim_loop)
+#endif
+        if (sprite_moves[i].active)
         {
-            slot->frame = 0u;
+            vn_sprite_move_t *move = &sprite_moves[i];
+            uint16_t amount;
+            uint16_t room;
+            if (move->remaining_frames <= 1u)
+            {
+                slot->x = move->target_x;
+                slot->y = move->target_y;
+                move->remaining_frames = 0u;
+                move->active = 0u;
+            }
+            else
+            {
+                amount = move->distance_x;
+                while (amount)
+                {
+                    room = (uint16_t)(move->total_frames - move->error_x);
+                    if (amount < room)
+                    {
+                        move->error_x = (uint16_t)(move->error_x + amount);
+                        amount = 0u;
+                    }
+                    else
+                    {
+                        amount = (uint16_t)(amount - room);
+                        move->error_x = 0u;
+                        slot->x = (uint16_t)((int16_t)slot->x + move->direction_x);
+                    }
+                }
+                amount = move->distance_y;
+                while (amount)
+                {
+                    room = (uint16_t)(move->total_frames - move->error_y);
+                    if (amount < room)
+                    {
+                        move->error_y = (uint16_t)(move->error_y + amount);
+                        amount = 0u;
+                    }
+                    else
+                    {
+                        amount = (uint16_t)(amount - room);
+                        move->error_y = 0u;
+                        slot->y = (uint16_t)((int16_t)slot->y + move->direction_y);
+                    }
+                }
+                move->remaining_frames--;
+            }
+            changed = 1u;
         }
-        changed = 1u;
     }
     if (changed) REQUEST_SPRITE_REFRESH_PATTERNS();
-#endif
 }
 
 #if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
@@ -801,9 +881,6 @@ static void VN_BANKED_CODE2 hide_sprites_for_asset_load(void)
         sprite_layer_disable();
         delay_frame();
     }
-#if defined(__PCE_CD__)
-    spritetext_glyph_cache_count = 0u;
-#endif
 #if defined(__PCE_CD__)
     spritetext_glyph_cache_count = 0u;
 #endif

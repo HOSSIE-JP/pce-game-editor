@@ -36,7 +36,19 @@ const MIDI_IMPORT_DEFAULTS = Object.freeze({
   minVelocity: 8,
   voicePriority: 'melodyBass',
   patternDetail: 'auto',
+  timbreMode: 'gm-family',
+  programWaveMap: Object.freeze([
+    9, 22, 20, 5, 10, 8, 13, 14,
+    11, 1, 35, 6, 30, 24, 21, 28,
+  ]),
 });
+
+const MIDI_GM_FAMILY_LABELS = Object.freeze([
+  'Piano', 'Chromatic Percussion', 'Organ', 'Guitar',
+  'Bass', 'Strings', 'Ensemble', 'Brass',
+  'Reed', 'Pipe', 'Synth Lead', 'Synth Pad',
+  'Synth Effects', 'Ethnic', 'Percussive', 'Sound Effects',
+]);
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -81,6 +93,18 @@ function assetGroupParts(asset = {}) {
 
 function assetFullName(asset = {}) {
   return assetNameParts(asset).join('/');
+}
+
+function midiProgramWaveMapHtml() {
+  const waveOptions = (selected) => Array.from({ length: 46 }, (_unused, wave) => (
+    `<option value="${wave}"${wave === selected ? ' selected' : ''}>${wave === 45 ? '45 · User square' : `${wave} · BIOS internal`}</option>`
+  )).join('');
+  return MIDI_GM_FAMILY_LABELS.map((label, family) => `
+    <label class="pce-music-midi-wave-row">
+      <span><b>${family * 8 + 1}–${family * 8 + 8}</b> ${esc(label)}</span>
+      <select class="form-select" name="programWave${family}" data-program-wave>${waveOptions(MIDI_IMPORT_DEFAULTS.programWaveMap[family])}</select>
+    </label>
+  `).join('');
 }
 
 function psgImportFormat(asset = {}) {
@@ -596,6 +620,7 @@ export function activatePlugin({ root, api, registerCapability }) {
                 <label class="form-group"><span class="form-label">Tone voices</span><input class="form-input" name="maxToneVoices" type="number" min="1" max="6" value="${MIDI_IMPORT_DEFAULTS.maxToneVoices}" /></label>
                 <label class="form-group"><span class="form-label">Drum/noise</span><select class="form-select" name="drumMode"><option value="soft" selected>Soft ch5</option><option value="off">Off</option><option value="full">Full ch4/5</option></select></label>
                 <label class="form-group"><span class="form-label">Tone volume %</span><input class="form-input" name="toneVolumeScale" type="number" min="0" max="100" value="${MIDI_IMPORT_DEFAULTS.toneVolumeScale}" /></label>
+                <label class="form-group"><span class="form-label">Timbre allocation</span><select class="form-select" name="timbreMode"><option value="gm-family" selected>GM family → BIOS wave</option><option value="legacy-square">Legacy square (wave 45)</option></select></label>
               </div>
               <details class="pce-music-midi-details">
                 <summary>詳細</summary>
@@ -605,11 +630,15 @@ export function activatePlugin({ root, api, registerCapability }) {
                   <label class="form-group"><span class="form-label">Voice priority</span><select class="form-select" name="voicePriority"><option value="melodyBass" selected>Melody + bass</option><option value="high">High notes</option><option value="low">Low notes</option><option value="loud">Loud notes</option></select></label>
                   <label class="form-group"><span class="form-label">Pattern detail</span><select class="form-select" name="patternDetail"><option value="auto" selected>Auto reduce</option><option value="full">Full</option><option value="half">1/2 updates</option><option value="quarter">1/4 updates</option><option value="eighth">1/8 updates</option></select></label>
                 </div>
+                <div class="pce-music-midi-wave-map" data-midi-wave-map>
+                  <p>GM Program family → System Card wave（0–44: BIOS内蔵、45: 従来の矩形波）</p>
+                  ${midiProgramWaveMapHtml()}
+                </div>
               </details>
             </div>
       ` : '';
       const note = isMidi
-        ? 'MIDI を PSG pattern へ近似します。既定では tone 4 voice、drum は控えめな ch5 noise、音量 100% で取り込みます。BPM 空欄で MIDI のテンポを使用します。'
+        ? 'MIDI を System Card PSG pattern へ近似します。Program Change は GM 16ファミリーごとの BIOS 内蔵waveへ割り当てます。BPM 空欄で MIDI のテンポを使用します。'
         : 'VGM の PSG レジスタ書き込みを 16 分音符グリッド (最大 4096 ステップ) へ量子化します。BPM でステップ間隔が決まります。波形 / LFO / ノイズ / DDA は近似されません。';
       const typeAutoLabel = isMidi ? '自動 (曲として登録)' : '自動 (ループで判定)';
       const previewButton = isMidi ? '<button class="btn-sm" type="button" data-preview-midi>▶ 試聴</button>' : '';
@@ -672,6 +701,10 @@ export function activatePlugin({ root, api, registerCapability }) {
             minVelocity: asNumber(modalForm.elements.minVelocity.value, MIDI_IMPORT_DEFAULTS.minVelocity),
             voicePriority: modalForm.elements.voicePriority.value,
             patternDetail: modalForm.elements.patternDetail.value,
+            timbreMode: modalForm.elements.timbreMode.value,
+            programWaveMap: MIDI_GM_FAMILY_LABELS.map((_label, family) => (
+              asNumber(modalForm.elements[`programWave${family}`].value, MIDI_IMPORT_DEFAULTS.programWaveMap[family])
+            )),
           };
         }
         return payload;
@@ -685,6 +718,15 @@ export function activatePlugin({ root, api, registerCapability }) {
       modal.panel.querySelectorAll('[data-cancel]').forEach((button) => {
         button.addEventListener('click', () => close(null), { once: true });
       });
+      const timbreMode = modalForm.elements.timbreMode;
+      const waveMap = modal.panel.querySelector('[data-midi-wave-map]');
+      const syncTimbreControls = () => {
+        const legacy = timbreMode?.value === 'legacy-square';
+        waveMap?.classList.toggle('is-disabled', legacy);
+        waveMap?.querySelectorAll('[data-program-wave]').forEach((select) => { select.disabled = legacy; });
+      };
+      timbreMode?.addEventListener('change', syncTimbreControls);
+      syncTimbreControls();
       modalPreviewButton?.addEventListener('click', async () => {
         if (modalPreviewController.isPlaying) {
           modalPreviewController.stop();

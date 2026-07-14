@@ -9,7 +9,7 @@ const readline = require('node:readline');
 const DEFAULT_EXE = 'C:\\homebrew\\emulator\\Geargrafx\\Geargrafx.exe';
 
 function parseArgs(argv) {
-  const result = { exe: DEFAULT_EXE, cue: '', frames: 6000, exercise: false, inspectCommand: false, inspectCount: false, presses: 180, settle: 0, skipPsgCheck: false, skipForbiddenCheck: false, list: false, search: '', info: '' };
+  const result = { exe: DEFAULT_EXE, cue: '', frames: 6000, exercise: false, inspectCommand: false, inspectCount: false, inspectSpriteMove: false, presses: 180, settle: 0, skipPsgCheck: false, skipForbiddenCheck: false, list: false, search: '', info: '' };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--list') result.list = true;
@@ -21,6 +21,7 @@ function parseArgs(argv) {
     else if (arg === '--exercise') result.exercise = true;
     else if (arg === '--inspect-command') { result.exercise = true; result.inspectCommand = true; }
     else if (arg === '--inspect-count') { result.exercise = true; result.inspectCount = true; }
+    else if (arg === '--inspect-sprite-move') result.inspectSpriteMove = true;
     else if (arg === '--presses') result.presses = Math.max(1, Number(argv[++i]) || 180);
     else if (arg === '--settle') result.settle = Math.max(0, Number(argv[++i]) || 0);
     else if (arg === '--skip-psg-check') result.skipPsgCheck = true;
@@ -178,13 +179,41 @@ async function main() {
     const cdBusStateAddress = optionalSymbolCpuAddress(mapPath, 'vn_cd_bus_state');
     const commandReaderAddress = optionalSymbolCpuAddress(mapPath, 'scene_pack_read_command_impl');
     const commandCountAddress = optionalSymbolCpuAddress(mapPath, 'scene_pack_command_count');
+    const spriteMoveStartAddress = optionalSymbolCpuAddress(mapPath, 'start_sprite_move');
+    const spriteMovesAddress = optionalSymbolCpuAddress(mapPath, 'sprite_moves');
+    const spriteSlotsAddress = optionalSymbolCpuAddress(mapPath, 'sprite_slots_storage');
+    const spriteSatbStartsAddress = optionalSymbolCpuAddress(mapPath, 'sprite_satb_slot_start');
+    const syncSpriteMoveAddress = optionalSymbolCpuAddress(mapPath, 'sync_sprite_move_slot');
+    const spriteMoveBreakpoint = {
+      address: (((130 - 128) * 0x2000) + (spriteMoveStartAddress & 0x1fff)).toString(16),
+      memory_area: 'cd_ram',
+      execute: true,
+    };
 
     const loadResult = contentPayload(await client.tool('load_media', { file_path: cuePath }));
+    if (options.inspectSpriteMove) {
+      if (!spriteMoveStartAddress || !spriteMovesAddress || !spriteSlotsAddress
+          || !spriteSatbStartsAddress || !syncSpriteMoveAddress) {
+        throw new Error('Sprite-move inspection symbols are missing');
+      }
+      await client.tool('set_breakpoint', spriteMoveBreakpoint);
+    }
     await client.tool('debug_continue');
     await sleep(1200);
     await client.tool('controller_button', { player: 1, button: 'run', action: 'press_and_release' });
-    await sleep(5000);
-    await client.tool('debug_pause');
+    if (options.inspectSpriteMove) {
+      const bootDeadline = Date.now() + 15000;
+      let bootStatus = {};
+      while (Date.now() < bootDeadline) {
+        bootStatus = contentPayload(await client.routed('debug_get_status'));
+        if (bootStatus?.paused) break;
+        await sleep(100);
+      }
+      if (!bootStatus?.paused) await client.tool('debug_pause');
+    } else {
+      await sleep(5000);
+      await client.tool('debug_pause');
+    }
 
     const media = contentPayload(await client.tool('get_media_info'));
     const bootCpu = contentPayload(await client.tool('get_huc6280_status'));
@@ -228,6 +257,18 @@ async function main() {
       const bytes = bytesFromPayload(payload);
       if (bytes.length < 2) throw new Error(`Cannot decode WRAM word $${cpuAddress.toString(16)}: ${JSON.stringify(payload)}`);
       return bytes[0] | (bytes[1] << 8);
+    };
+    const readWramBytes = async (cpuAddress, size) => {
+      const payload = contentPayload(await client.tool('read_memory', {
+        area: wramArea,
+        offset: (cpuAddress & 0x1fff).toString(16),
+        size,
+      }));
+      const bytes = bytesFromPayload(payload);
+      if (bytes.length !== size) {
+        throw new Error(`Cannot decode WRAM bytes $${cpuAddress.toString(16)}: expected ${size}, got ${bytes.length}`);
+      }
+      return bytes;
     };
     const readVram = async (wordOffset, byteSize) => {
       const payload = contentPayload(await client.tool('read_memory', {
@@ -293,7 +334,11 @@ async function main() {
             if (!status?.paused) await client.tool('debug_pause');
             return { stepResults, status, start, current, delta };
           }
-          if (status?.paused) break;
+          // debug_step_frame is asynchronous and may briefly report the stale
+          // pre-call paused state. Do not submit a second frame request until
+          // the epoch has actually advanced, or the verification can overshoot
+          // by one VBlank (most visible on longer batches).
+          if (status?.paused && delta > deltaBefore) break;
           await sleep(10);
         }
         if (!status?.paused) await client.tool('debug_pause');
@@ -303,6 +348,109 @@ async function main() {
       await client.tool('debug_pause');
       throw new Error(`Geargrafx frame step timed out: ${JSON.stringify({ frames, start, current, status, stepResults })}`);
     };
+
+    if (options.inspectSpriteMove) {
+      const status = contentPayload(await client.routed('debug_get_status'));
+      const pc = String(status?.pc ?? status?.PC ?? status?.current_pc ?? '').replace(/^0x|^\$/i, '').toLowerCase();
+      const expectedPc = spriteMoveStartAddress.toString(16).toLowerCase();
+      if (!status?.paused || !pc.endsWith(expectedPc)) {
+        throw new Error(`First sprite move was not reached: ${JSON.stringify(status)}`);
+      }
+      await client.routed('remove_breakpoint', spriteMoveBreakpoint);
+      await client.routed('debug_step_out');
+      const stepOutDeadline = Date.now() + 3000;
+      let stepOutStatus = status;
+      while (Date.now() < stepOutDeadline) {
+        stepOutStatus = contentPayload(await client.routed('debug_get_status'));
+        const stepOutPc = String(stepOutStatus?.pc ?? stepOutStatus?.PC ?? stepOutStatus?.current_pc ?? '')
+          .replace(/^0x|^\$/i, '').toLowerCase();
+        if (stepOutStatus?.paused && !stepOutPc.endsWith(expectedPc)) break;
+        await sleep(10);
+      }
+      const returnedPc = String(stepOutStatus?.pc ?? stepOutStatus?.PC ?? stepOutStatus?.current_pc ?? '')
+        .replace(/^0x|^\$/i, '').toLowerCase();
+      if (!stepOutStatus?.paused || returnedPc.endsWith(expectedPc)) {
+        throw new Error(`Sprite move step-out did not complete: ${JSON.stringify(stepOutStatus)}`);
+      }
+
+      const word = (bytes, offset) => bytes[offset] | (bytes[offset + 1] << 8);
+      const signedByte = (value) => (value & 0x80 ? value - 0x100 : value);
+      const snapshotMove = async () => {
+        const move = await readWramBytes(spriteMovesAddress, 19);
+        const slot = await readWramBytes(spriteSlotsAddress, 21);
+        const satbIndex = await readWramByte(spriteSatbStartsAddress);
+        const satb = await readVram(0x7f00 + (satbIndex * 4), 8);
+        return {
+          slot: { x: word(slot, 4), y: word(slot, 6) },
+          move: {
+            targetX: word(move, 0), targetY: word(move, 2),
+            distanceX: word(move, 4), distanceY: word(move, 6),
+            errorX: word(move, 8), errorY: word(move, 10),
+            total: word(move, 12), remaining: word(move, 14),
+            directionX: signedByte(move[16]), directionY: signedByte(move[17]), active: move[18],
+          },
+          syncSlot: await readWramByte(syncSpriteMoveAddress),
+          satb: { index: satbIndex, x: word(satb, 2), y: word(satb, 0) },
+        };
+      };
+
+      const start = await snapshotMove();
+      await stepFramesAndWait(15);
+      const syncMid1 = await snapshotMove();
+      await stepFramesAndWait(15);
+      const syncMid2 = await snapshotMove();
+      await stepFramesAndWait(15);
+
+      let asyncStart = await snapshotMove();
+      for (let i = 0; i < 5 && !(asyncStart.move.active && asyncStart.move.targetX === 96); i += 1) {
+        await stepFramesAndWait(1);
+        asyncStart = await snapshotMove();
+      }
+      if (start.slot.x !== 96 || start.slot.y !== 24 || start.move.targetX !== 144 || start.move.targetY !== 56
+          || start.move.total !== 45 || start.move.remaining !== 45
+          || start.move.directionX !== 1 || start.move.directionY !== 1 || !start.move.active || start.syncSlot !== 0) {
+        throw new Error(`Unexpected synchronous sprite move start: ${JSON.stringify(start)}`);
+      }
+      if (!(syncMid1.slot.x > start.slot.x && syncMid1.slot.x < 144
+          && syncMid2.slot.x > syncMid1.slot.x && syncMid2.slot.x < 144
+          && syncMid1.slot.y > start.slot.y && syncMid1.slot.y < 56
+          && syncMid2.slot.y > syncMid1.slot.y && syncMid2.slot.y < 56
+          && syncMid1.move.remaining < start.move.remaining
+          && syncMid2.move.remaining < syncMid1.move.remaining
+          && syncMid2.satb.x > syncMid1.satb.x && syncMid2.satb.y > syncMid1.satb.y)) {
+        throw new Error(`Synchronous sprite move did not advance smoothly: ${JSON.stringify({ start, syncMid1, syncMid2 })}`);
+      }
+      if (!(asyncStart.move.active && asyncStart.move.targetX === 96 && asyncStart.move.targetY === 24
+          && asyncStart.move.total === 90 && asyncStart.move.directionX === -1
+          && asyncStart.move.directionY === -1 && asyncStart.syncSlot === 0xff)) {
+        throw new Error(`Asynchronous sprite move did not start: ${JSON.stringify(asyncStart)}`);
+      }
+
+      await stepFramesAndWait(30);
+      const asyncMid = await snapshotMove();
+      if (!(asyncMid.slot.x < asyncStart.slot.x && asyncMid.slot.x > 96
+          && asyncMid.slot.y < asyncStart.slot.y && asyncMid.slot.y > 24
+          && asyncMid.move.remaining < asyncStart.move.remaining
+          && asyncMid.satb.x < asyncStart.satb.x && asyncMid.satb.y < asyncStart.satb.y)) {
+        throw new Error(`Asynchronous sprite move did not advance with the script unlocked: ${JSON.stringify({ asyncStart, asyncMid })}`);
+      }
+      await stepFramesAndWait(asyncMid.move.remaining);
+      let complete = await snapshotMove();
+      if (complete.move.active) {
+        await stepFramesAndWait(1);
+        complete = await snapshotMove();
+      }
+      if (complete.slot.x !== 96 || complete.slot.y !== 24 || complete.move.active || complete.syncSlot !== 0xff) {
+        throw new Error(`Asynchronous sprite move did not finish at its target: ${JSON.stringify(complete)}`);
+      }
+      process.stdout.write(`${JSON.stringify({
+        ok: true,
+        mode: 'inspect-sprite-move',
+        cue: cuePath,
+        snapshots: { start, syncMid1, syncMid2, asyncStart, asyncMid, complete },
+      }, null, 2)}\n`);
+      return;
+    }
 
     const driveDispatchHit = await assertReached('e86d');
     const psgDriveHit = options.skipPsgCheck ? null : await assertReached('e6cf');

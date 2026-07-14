@@ -1713,6 +1713,7 @@ test('PCE importMidi converts a MIDI file into a PSG song asset with noise drums
   };
   const track = [
     0x00, 0xff, 0x51, 0x03, 0x07, 0xa1, 0x20, // tempo 500000 (120 BPM)
+    0x00, 0xc0, 40, // Strings family -> configurable System Card wave.
     0x00, 0x90, 69, 100, // melodic note A4
     0x00, 0x99, 38, 110, // drum (ch10) snare
     ...vlq(240), 0x80, 69, 0,
@@ -1737,12 +1738,15 @@ test('PCE importMidi converts a MIDI file into a PSG song asset with noise drums
       drumVolumeScale: 100,
       minVelocity: 0,
       voicePriority: 'high',
+      timbreMode: 'gm-family',
+      programWaveMap: Array.from({ length: 16 }, (_unused, family) => (family === 5 ? 14 : 45)),
     },
   });
   assert.equal(result.asset.type, 'psg-song'); // MIDI "auto" defaults to song.
   assert.equal(result.asset.options.bpm, 120); // derived from the MIDI tempo.
   assert.ok(result.asset.options.pattern.some((e) => e.noise === 1)); // drum -> noise.
   assert.ok(result.asset.options.pattern.some((e) => e.period === 254)); // A4 tone.
+  assert.ok(result.asset.options.pattern.some((e) => e.period === 254 && e.wave === 14));
   // The original MIDI is copied next to the project for traceability.
   assert.equal(result.asset.source, 'assets/psg/tune.mid');
   assert.ok(fs.existsSync(path.join(projectDir, 'assets/psg/tune.mid')));
@@ -1750,18 +1754,21 @@ test('PCE importMidi converts a MIDI file into a PSG song asset with noise drums
   assert.equal(result.asset.data.import.midiOptions.drumMode, 'full');
   assert.equal(result.asset.data.import.midiOptions.voicePriority, 'high');
   assert.equal(result.asset.data.import.midiOptions.toneVolumeScale, 100);
+  assert.equal(result.asset.data.import.midiOptions.timbreMode, 'gm-family');
+  assert.equal(result.asset.data.import.midiOptions.programWaveMap[5], 14);
   assert.equal(result.conversion.stats.midiOptions.maxToneVoices, 4);
 
   const preview = assetManager.previewMidi(projectDir, {
     sourcePath: source,
     type: 'psg-sfx',
-    midiOptions: { drumMode: 'off', maxToneVoices: 2 },
+    midiOptions: { drumMode: 'off', maxToneVoices: 2, timbreMode: 'legacy-square' },
   });
   assert.equal(preview.preview.type, 'psg-sfx');
   assert.equal(preview.preview.options.kind, 'sfx');
   assert.ok(preview.preview.options.pattern.some((e) => e.period === 254));
   assert.ok(!preview.preview.options.pattern.some((e) => e.noise === 1));
   assert.equal(preview.conversion.stats.midiOptions.drumMode, 'off');
+  assert.ok(preview.preview.options.pattern.some((entry) => entry.volume > 0 && entry.wave === 45));
 });
 
 test('PCE source generation refreshes stale imported PSG timing before build', () => {

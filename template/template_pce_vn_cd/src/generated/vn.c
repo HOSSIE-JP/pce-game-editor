@@ -37,7 +37,7 @@ const signed int PCE_VN_DATA_SECTION pce_vn_variable_initial_values[] = {
 const unsigned char PCE_VN_DATA_SECTION pce_vn_variable_count = 3;
 
 const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs[] = {
-  { { 80u, 0u, 0u }, 1u, 899u, 1 },
+  { { 80u, 0u, 0u }, 1u, 937u, 1 },
   { { 95u, 0u, 0u }, 1u, 1278u, 2 },
   { { 113u, 0u, 0u }, 1u, 995u, 3 },
   { { 123u, 0u, 0u }, 1u, 475u, -1 }

@@ -116,6 +116,7 @@ function readableTextColor(hex) {
 const COMMAND_DEFINITIONS = [
   { type: 'background', label: 'BG', category: '表示', description: '背景画像と切替' },
   { type: 'sprite', label: 'Sprite', category: '表示', description: '立ち絵の表示/非表示' },
+  { type: 'spritemove', label: 'Sprite Move', category: '表示', description: '立ち絵を指定フレームで滑らかに移動' },
   { type: 'message', label: 'Message', category: 'テキスト', description: '話者、本文、送り設定' },
   { type: 'variable', label: 'Variable', category: '変数', description: '定義、代入、加算、減算、ランダム' },
   { type: 'choice', label: 'Choice', category: '分岐', description: '選択肢と変数への値設定' },
@@ -725,6 +726,15 @@ function computeVisualState(commands = [], uptoIndex = -1, fullScreenBg = false)
           animationId: command.animationId,
         };
       }
+    } else if (command.type === 'spritemove' && !fullScreenBg) {
+      const sprite = state.sprites[command.slot];
+      if (sprite) {
+        sprite.x = command.x;
+        sprite.y = command.y;
+        if (command.animationId && (!command.animationAssetId || command.animationAssetId === sprite.assetId)) {
+          sprite.animationId = command.animationId;
+        }
+      }
     } else if (command.type === 'spritetext' && !fullScreenBg) {
       if (command.visible === false) {
         delete state.spriteTexts[command.slot];
@@ -774,6 +784,9 @@ function defaultCommand(type, assets = []) {
   if (type === 'sprite') {
     const assetId = first('sprite');
     return { type: 'sprite', slot: 0, assetId, x: 128, y: DEFAULT_CHARACTER_Y, animationId: 'default', flipX: false, flipY: false, visible: true };
+  }
+  if (type === 'spritemove') {
+    return { type: 'spritemove', slot: 0, x: 128, y: DEFAULT_CHARACTER_Y, frames: 30, async: false, animationAssetId: '', animationId: '' };
   }
   if (type === 'audio') {
     return { type: 'audio', kind: 'cdda', action: 'play', assetId: first('cdda-track'), channel: 0 };
@@ -876,6 +889,20 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
       flipX: Boolean(raw.flipX ?? raw.flippedX ?? raw.hflip),
       flipY: Boolean(raw.flipY ?? raw.flippedY ?? raw.vflip),
       visible: raw.visible !== false,
+    };
+  }
+  if (raw.type === 'spritemove') {
+    const animationId = String(raw.animationId || '').trim().slice(0, 32);
+    const animationAssetId = String(raw.animationAssetId || raw.assetId || '').trim();
+    return {
+      type: 'spritemove',
+      slot: clamp(raw.slot, 0, 3, 0),
+      x: clamp(raw.x, 0, 319, 0),
+      y: clamp(raw.y, 0, 223, 0),
+      frames: clamp(raw.frames ?? raw.durationFrames, 1, 65535, 30),
+      async: raw.async === true || raw.mode === 'async',
+      animationAssetId: animationId ? animationAssetId : '',
+      animationId,
     };
   }
   if (raw.type === 'audio') {
@@ -1261,6 +1288,7 @@ function previewRuntime() {
   let typeTimer = null;
   let waitTimer = null;
   let autoTimer = null;
+  const spriteMoveTimers = new Map();
   let spriteTextBlinkRaf = 0;
   let spriteTextBlinkPrev = 0;
   let spriteTextBlinkAcc = 0;
@@ -1788,6 +1816,45 @@ function previewRuntime() {
     if (waitTimer) { clearTimeout(waitTimer); waitTimer = null; }
     if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
   }
+  function cancelSpriteMove(slot) {
+    const move = spriteMoveTimers.get(slot);
+    if (!move) return;
+    clearInterval(move.timer);
+    spriteMoveTimers.delete(slot);
+  }
+  function cancelAllSpriteMoves() {
+    [...spriteMoveTimers.keys()].forEach(cancelSpriteMove);
+  }
+  function startSpriteMove(c, onComplete) {
+    const slot = Math.max(0, Math.min(3, Number(c.slot) || 0));
+    const sprite = state.sprites[slot];
+    if (!sprite) return false;
+    cancelSpriteMove(slot);
+    if (c.animationId && (!c.animationAssetId || c.animationAssetId === sprite.assetId)) {
+      sprite.animationId = c.animationId;
+    }
+    const startX = Number(sprite.x) || 0;
+    const startY = Number(sprite.y) || 0;
+    const targetX = Math.max(0, Math.min(319, Number(c.x) || 0));
+    const targetY = Math.max(0, Math.min(223, Number(c.y) || 0));
+    const frames = Math.max(1, Math.min(65535, Number(c.frames) || 30));
+    let frame = 0;
+    const move = { timer: null };
+    move.timer = setInterval(() => {
+      if (spriteMoveTimers.get(slot) !== move) return;
+      frame += 1;
+      sprite.x = frame >= frames ? targetX : startX + Math.trunc(((targetX - startX) * frame) / frames);
+      sprite.y = frame >= frames ? targetY : startY + Math.trunc(((targetY - startY) * frame) / frames);
+      renderStage();
+      if (frame < frames) return;
+      clearInterval(move.timer);
+      spriteMoveTimers.delete(slot);
+      if (typeof onComplete === 'function') onComplete();
+    }, 1000 / 60);
+    spriteMoveTimers.set(slot, move);
+    renderStage();
+    return true;
+  }
   function updateAudioHint() {
     const blocked = Object.keys(blockedAudio).filter((kind) => blockedAudio[kind]);
     if (blocked.length) {
@@ -1948,6 +2015,7 @@ function previewRuntime() {
     pc = i >= 0 ? i : pc + 1;
   }
   function setScene(id) {
+    cancelAllSpriteMoves();
     scene = scenesById[id] || null;
     sceneId = id;
     pc = 0;
@@ -2039,6 +2107,7 @@ function previewRuntime() {
     const seconds = Math.max(0.01, frames / 60);
     const color = c.color || (c.effect === 'flash' ? '#ffffff' : '#000000');
     if (c.effect === 'blank') {
+      cancelAllSpriteMoves();
       state.background = null;
       state.sprites = {};
       state.spriteTexts = {};
@@ -2246,6 +2315,7 @@ function previewRuntime() {
       if (t === 'background') { pc += 1; recordVisualDisplay(c.assetId, 'bg', 'BG'); applyBackground(c); return; }
       if (t === 'sprite') {
         if (scene.fullScreenBg) { pc += 1; continue; }
+        cancelSpriteMove(c.slot);
         if (c.visible === false) delete state.sprites[c.slot];
         else {
           recordVisualDisplay(c.assetId, 'sprite', 'Sprite');
@@ -2254,6 +2324,16 @@ function previewRuntime() {
         renderStage();
         pc += 1;
         continue;
+      }
+      if (t === 'spritemove') {
+        if (scene.fullScreenBg || !state.sprites[c.slot]) { pc += 1; continue; }
+        pc += 1;
+        if (c.async) {
+          startSpriteMove(c, null);
+          continue;
+        }
+        if (!startSpriteMove(c, run)) continue;
+        return;
       }
       if (t === 'spritetext') {
         if (scene.fullScreenBg) { pc += 1; continue; }
@@ -2298,6 +2378,7 @@ function previewRuntime() {
 
   function start() {
     clearTimers();
+    cancelAllSpriteMoves();
     stopAudio('cdda');
     stopAudio('adpcm');
     stopAudio('psg');
@@ -2340,6 +2421,7 @@ function previewRuntime() {
   root.querySelector('#pv-restart').addEventListener('click', (e) => { e.stopPropagation(); start(); });
   debugToggle?.addEventListener('change', (e) => { setVarDebugVisible(e.currentTarget.checked); });
   window.addEventListener('beforeunload', () => {
+    cancelAllSpriteMoves();
     stopAudio('cdda');
     stopAudio('adpcm');
     stopAudio('psg');
@@ -2563,6 +2645,24 @@ export function activatePlugin({ root, api, registerCapability }) {
     return options.join('');
   }
 
+  function spriteMoveAnimationOptions(command = {}) {
+    const spriteId = command.animationAssetId || spriteAssetIdForSlotAt(command.slot);
+    const current = String(command.animationId || '').trim();
+    const options = ['<option value="">変更しない</option>'];
+    if (!spriteId) {
+      if (current) options.push(`<option value="${esc(current)}" selected>${esc(current)}</option>`);
+      return options.join('');
+    }
+    const rows = spriteAnimationRows(assetById(spriteId));
+    rows.forEach((row) => {
+      options.push(`<option value="${esc(row.id)}" ${row.id === current ? 'selected' : ''}>${esc(row.label)}</option>`);
+    });
+    if (current && !rows.some((row) => row.id === current)) {
+      options.push(`<option value="${esc(current)}" selected>${esc(current)}</option>`);
+    }
+    return options.join('');
+  }
+
   function decodeDataUrlText(dataUrl = '') {
     const match = String(dataUrl || '').match(/^data:([^;,]+)?(;base64)?,(.*)$/);
     if (!match) return '';
@@ -2708,7 +2808,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       .sort((a, b) => b.slot - a.slot)
       .forEach((s) => {
         if (s.assetId && urls[s.assetId]) {
-          stage.appendChild(makeStageImg(s, 'sprite', urls[s.assetId], command?.type === 'sprite' && s.slot === command.slot));
+          stage.appendChild(makeStageImg(s, 'sprite', urls[s.assetId], (command?.type === 'sprite' || command?.type === 'spritemove') && s.slot === command.slot));
         }
       });
   }
@@ -3014,6 +3114,10 @@ export function activatePlugin({ root, api, registerCapability }) {
       const name = assetById(command.assetId)?.name || command.assetId || 'spriteなし';
       return `${name} slot ${command.slot} (${command.x}, ${command.y})`;
     }
+    if (command.type === 'spritemove') {
+      const animation = command.animationId ? ` / ${command.animationId}` : '';
+      return `slot ${command.slot} -> (${command.x}, ${command.y}) ${command.frames}f ${command.async ? 'async' : 'sync'}${animation}`;
+    }
     if (command.type === 'message') return `${command.speaker ? `${command.speaker}: ` : ''}${command.text || '本文なし'}`;
     if (command.type === 'audio') return `${command.kind}:${command.action}${command.assetId ? ` ${command.assetId}` : ''}${command.kind === 'psg' && command.action === 'play' ? ` ch${command.channel || 0}` : ''}${command.kind === 'psg' && command.action === 'stop' ? ` ${command.target || 'all'}` : ''}`;
     if (command.type === 'cache') {
@@ -3074,6 +3178,9 @@ export function activatePlugin({ root, api, registerCapability }) {
     if (command.type === 'background' || command.type === 'sprite') {
       addAssetSearchText(parts, command.assetId);
       if (command.animationId) parts.push(command.animationId);
+    } else if (command.type === 'spritemove') {
+      addAssetSearchText(parts, command.animationAssetId);
+      if (command.animationId) parts.push(command.animationId);
     } else if (command.type === 'message') {
       parts.push(command.speaker || '', command.text || '');
       addAssetSearchText(parts, command.voiceAssetId);
@@ -3126,6 +3233,18 @@ export function activatePlugin({ root, api, registerCapability }) {
         flipX: detailForm.elements.flipX.checked,
         flipY: detailForm.elements.flipY.checked,
         visible: detailForm.elements.visible.checked,
+      }, assets);
+    }
+    if (type === 'spritemove') {
+      return normalizeCommand({
+        type,
+        slot: detailForm.elements.slot.value,
+        x: detailForm.elements.x.value,
+        y: detailForm.elements.y.value,
+        frames: detailForm.elements.frames.value,
+        async: detailForm.elements.async.checked,
+        animationAssetId: detailForm.elements.animationAssetId.value,
+        animationId: detailForm.elements.animationId.value,
       }, assets);
     }
     if (type === 'audio') {
@@ -3549,6 +3668,24 @@ export function activatePlugin({ root, api, registerCapability }) {
         </div>
       `;
     }
+    if (command.type === 'spritemove') {
+      const inferredSpriteId = spriteAssetIdForSlotAt(command.slot);
+      const spriteOptions = optionsFor(byType(['sprite']), command.animationAssetId, inferredSpriteId ? `slotの表示中sprite (${assetById(inferredSpriteId)?.name || inferredSpriteId})` : 'slotの表示中sprite');
+      return `
+        <div class="pce-vn-grid tight">
+          <label class="form-group"><span class="form-label">Slot</span><input class="form-input" name="slot" type="number" min="0" max="3" value="${esc(command.slot)}" /></label>
+          <label class="form-group"><span class="form-label">Target X</span><input class="form-input" name="x" type="number" min="0" max="319" value="${esc(command.x)}" /></label>
+          <label class="form-group"><span class="form-label">Target Y</span><input class="form-input" name="y" type="number" min="0" max="223" value="${esc(command.y)}" /></label>
+          <label class="form-group"><span class="form-label">Frames</span><input class="form-input" name="frames" type="number" min="1" max="65535" value="${esc(command.frames)}" /></label>
+          <label class="pce-vn-check"><input name="async" type="checkbox" ${command.async ? 'checked' : ''} /><span>async（同時移動）</span></label>
+        </div>
+        <div class="pce-vn-grid">
+          <label class="form-group"><span class="form-label">Animation sprite</span><select class="form-select" name="animationAssetId">${spriteOptions}</select></label>
+          <label class="form-group"><span class="form-label">Animation</span><select class="form-select" name="animationId">${spriteMoveAnimationOptions(command)}</select></label>
+        </div>
+        <small class="pce-vn-hint">同期が既定です。asyncなら最大4 slotを同時移動できます。同じslotへの新しい移動・Sprite表示・scene切替は先行移動を中止します。</small>
+      `;
+    }
     if (command.type === 'audio') {
       const audioAssets = command.kind === 'adpcm'
         ? byType(['adpcm'])
@@ -3898,7 +4035,7 @@ export function activatePlugin({ root, api, registerCapability }) {
       startMessagePreview(node, command, token);
       return;
     }
-    if (command.type === 'background' || command.type === 'sprite' || command.type === 'spritetext') {
+    if (command.type === 'background' || command.type === 'sprite' || command.type === 'spritemove' || command.type === 'spritetext') {
       const loadingLabel = command.type === 'background' ? '背景' : (command.type === 'spritetext' ? 'SpriteText' : 'Sprite');
       renderCommandPreviewLoading(command, command.type === 'spritetext' ? null : assetById(command.assetId), loadingLabel);
       const state = computeVisualState(current.commands, selectedCommandIndex, current.fullScreenBg);
@@ -4595,7 +4732,7 @@ export function activatePlugin({ root, api, registerCapability }) {
     syncDetailColorInputs(event.target);
     const isInputToggle = Boolean(event.target?.dataset?.inputButton);
     const rerenderDetail = isInputToggle
-      || ['type', 'kind', 'action', 'scope', 'assetId', 'mode', 'effect', 'voiceAssetId', 'mouthSlot', 'textColorEnabled', 'textColor', 'textColorHex', 'color', 'colorHex'].includes(name);
+      || ['type', 'kind', 'action', 'scope', 'assetId', 'animationAssetId', 'slot', 'mode', 'effect', 'voiceAssetId', 'mouthSlot', 'textColorEnabled', 'textColor', 'textColorHex', 'color', 'colorHex'].includes(name);
     updateSelectedCommandFromDetail({ rerenderDetail, rerenderCommands: true, updatePreview: true });
   });
 

@@ -529,6 +529,8 @@ static void show_scene(uint8_t scene_index)
 #if defined(__PCE_CD__)
     cancel_runtime_cache_load();
 #endif
+    VN_MAP_BANK130_FOR_CODE();
+    cancel_all_sprite_moves();
     map_vn_data();
     if (!pce_vn_scene_count) return;
     if (scene_index >= pce_vn_scene_count) scene_index = runtime_start_scene;
@@ -915,6 +917,8 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
         if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
 #endif
         slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
+        VN_MAP_BANK130_FOR_CODE();
+        cancel_sprite_move(slot);
         sprite_slots[slot].sprite_index = command->asset_index;
         sprite_slots[slot].animation_index = command->animation_index;
         sprite_slots[slot].visible = (uint8_t)((command->flags & PCE_VN_SPRITE_VISIBLE) && command->asset_index >= 0);
@@ -926,6 +930,14 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
         sprite_slots[slot].y = command->y;
         REQUEST_SPRITE_REFRESH_FULL();
         if (pending_sprite_refresh && !pending_display_enable) refresh_scene_sprites();
+    }
+    else if (command->type == PCE_VN_COMMAND_SPRITE_MOVE)
+    {
+#if PCE_VN_HAS_FULL_SCREEN_BG
+        if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
+#endif
+        VN_MAP_BANK130_FOR_CODE();
+        return start_sprite_move(command) ? VN_EXEC_WAIT : VN_EXEC_CONTINUE;
     }
     else if (command->type == PCE_VN_COMMAND_AUDIO)
     {
@@ -1005,6 +1017,7 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
             if (!pending_display_enable) display_disable();
             pending_display_enable = 1u;
             VN_MAP_BANK130_FOR_CODE();
+            cancel_all_sprite_moves();
             hide_sprites_for_asset_load();
 #if PCE_VN_HAS_FULL_SCREEN_BG
             restore_text_vram_after_full_screen_bg();

@@ -1414,6 +1414,8 @@ function midiImportOptionsFromPayload(payload = {}) {
     'minVelocity',
     'voicePriority',
     'patternDetail',
+    'timbreMode',
+    'programWaveMap',
   ].forEach((key) => {
     if (payload[key] != null && payload[key] !== '') raw[key] = payload[key];
   });

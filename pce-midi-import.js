@@ -7,10 +7,12 @@
 // approximates: it reduces polyphony to the 6 PSG voices, maps note pitch ->
 // period via the exact PSG frequency formula, velocity -> volume, renders the
 // drum channel (MIDI ch 10 / index 9) as PSG noise on channels 4/5, and
-// quantizes everything onto the same 16th-note grid the VGM importer uses.
+// maps General MIDI program families to the System Card's internal waveforms
+// before quantizing everything onto the same 16th-note grid the VGM importer
+// uses.
 //
 // The conversion produces the shared "snapshot contract" (per-step arrays of
-// `{period, volume, noise}` for the 6 voices) and hands it to pce-psg-quantize,
+// `{period, volume, noise, wave?}` for the 6 voices) and hands it to pce-psg-quantize,
 // so the snapshot->pattern logic is reused unchanged.
 
 const quantize = require('./pce-psg-quantize');
@@ -25,6 +27,32 @@ const SAMPLE_RATE = 44100;
 const MIDI_PSG_DRUM_MODES = new Set(['off', 'soft', 'full']);
 const MIDI_PSG_VOICE_PRIORITIES = new Set(['melodyBass', 'high', 'low', 'loud']);
 const MIDI_PSG_PATTERN_DETAILS = new Set(['auto', 'full', 'half', 'quarter', 'eighth']);
+const MIDI_PSG_TIMBRE_MODES = new Set(['gm-family', 'legacy-square']);
+const MIDI_GM_FAMILY_LABELS = Object.freeze([
+  'Piano',
+  'Chromatic Percussion',
+  'Organ',
+  'Guitar',
+  'Bass',
+  'Strings',
+  'Ensemble',
+  'Brass',
+  'Reed',
+  'Pipe',
+  'Synth Lead',
+  'Synth Pad',
+  'Synth Effects',
+  'Ethnic',
+  'Percussive',
+  'Sound Effects',
+]);
+// Deterministic jp-v3 profile. Values 0..44 select the System Card's built-in
+// waveforms; 45 selects the editor-owned 32-byte square wave. No BIOS bytes are
+// copied into the project or generated game.
+const DEFAULT_MIDI_GM_PROGRAM_WAVE_MAP = Object.freeze([
+  9, 22, 20, 5, 10, 8, 13, 14,
+  11, 1, 35, 6, 30, 24, 21, 28,
+]);
 const MIDI_PSG_PATTERN_DETAIL_STRIDES = Object.freeze({
   auto: 1,
   full: 1,
@@ -40,6 +68,8 @@ const DEFAULT_MIDI_PSG_OPTIONS = Object.freeze({
   minVelocity: 8,
   voicePriority: 'melodyBass',
   patternDetail: 'auto',
+  timbreMode: 'gm-family',
+  programWaveMap: DEFAULT_MIDI_GM_PROGRAM_WAVE_MAP,
 });
 
 function midiNoteToFreq(note) {
@@ -67,6 +97,8 @@ function normalizeMidiPsgOptions(options = {}) {
   const rawDrumMode = String(options.drumMode || DEFAULT_MIDI_PSG_OPTIONS.drumMode);
   const rawVoicePriority = String(options.voicePriority || DEFAULT_MIDI_PSG_OPTIONS.voicePriority);
   const rawPatternDetail = String(options.patternDetail || DEFAULT_MIDI_PSG_OPTIONS.patternDetail);
+  const rawTimbreMode = String(options.timbreMode || DEFAULT_MIDI_PSG_OPTIONS.timbreMode);
+  const sourceWaveMap = Array.isArray(options.programWaveMap) ? options.programWaveMap : [];
   return {
     maxToneVoices: clampInt(options.maxToneVoices, 1, 6, DEFAULT_MIDI_PSG_OPTIONS.maxToneVoices),
     drumMode: MIDI_PSG_DRUM_MODES.has(rawDrumMode) ? rawDrumMode : DEFAULT_MIDI_PSG_OPTIONS.drumMode,
@@ -75,6 +107,10 @@ function normalizeMidiPsgOptions(options = {}) {
     minVelocity: clampInt(options.minVelocity, 0, 127, DEFAULT_MIDI_PSG_OPTIONS.minVelocity),
     voicePriority: MIDI_PSG_VOICE_PRIORITIES.has(rawVoicePriority) ? rawVoicePriority : DEFAULT_MIDI_PSG_OPTIONS.voicePriority,
     patternDetail: MIDI_PSG_PATTERN_DETAILS.has(rawPatternDetail) ? rawPatternDetail : DEFAULT_MIDI_PSG_OPTIONS.patternDetail,
+    timbreMode: MIDI_PSG_TIMBRE_MODES.has(rawTimbreMode) ? rawTimbreMode : DEFAULT_MIDI_PSG_OPTIONS.timbreMode,
+    programWaveMap: DEFAULT_MIDI_GM_PROGRAM_WAVE_MAP.map((fallback, index) => (
+      sourceWaveMap[index] == null ? fallback : clampInt(sourceWaveMap[index], 0, 45, fallback)
+    )),
   };
 }
 
@@ -123,6 +159,7 @@ function parseSmf(rawBuffer) {
   const tracks = [];
   const tempoMap = [];
   let pitchBendSeen = false;
+  let controlChangeSeen = false;
   let pos = 8 + headerLen;
 
   for (let t = 0; t < ntrks && pos + 8 <= buffer.length; t += 1) {
@@ -162,10 +199,15 @@ function parseSmf(rawBuffer) {
         events.push(vel === 0
           ? { tick: absTick, type: 'off', ch, note }
           : { tick: absTick, type: 'on', ch, note, vel });
-      } else if (hi === 0xa0 || hi === 0xb0) {
-        p += 2; // poly aftertouch / control change: ignored.
-      } else if (hi === 0xc0 || hi === 0xd0) {
-        p += 1; // program change / channel aftertouch: ignored.
+      } else if (hi === 0xa0) {
+        p += 2; // poly aftertouch: ignored.
+      } else if (hi === 0xb0) {
+        p += 2; controlChangeSeen = true; // control change: ignored.
+      } else if (hi === 0xc0) {
+        const program = buffer[p]; p += 1;
+        events.push({ tick: absTick, type: 'program', ch, program });
+      } else if (hi === 0xd0) {
+        p += 1; // channel aftertouch: ignored.
       } else if (hi === 0xe0) {
         p += 2; pitchBendSeen = true; // pitch bend: ignored.
       } else if (status === 0xff) {
@@ -188,7 +230,18 @@ function parseSmf(rawBuffer) {
     tracks.push(events);
   }
 
-  return { format, ntrks, division, ppq, smpteDivision, ticksPerSecond, tempoMap, tracks, pitchBendSeen };
+  return {
+    format,
+    ntrks,
+    division,
+    ppq,
+    smpteDivision,
+    ticksPerSecond,
+    tempoMap,
+    tracks,
+    pitchBendSeen,
+    controlChangeSeen,
+  };
 }
 
 // Build a tick->seconds function from the (PPQ) tempo map, or real-time for SMPTE.
@@ -275,7 +328,8 @@ function choosePatternReduction(snapshots, detail) {
 
 // Convert a raw MIDI buffer into a PSG asset description (same shape as
 // convertVgmToPsg). options: { bpm, maxToneVoices, drumMode,
-// drumVolumeScale, toneVolumeScale, minVelocity, voicePriority, patternDetail }
+// drumVolumeScale, toneVolumeScale, minVelocity, voicePriority, patternDetail,
+// timbreMode, programWaveMap }
 // — omit/blank bpm to use the MIDI tempo.
 function convertMidiToPsg(rawBuffer, options = {}) {
   const parsed = parseSmf(rawBuffer);
@@ -286,11 +340,13 @@ function convertMidiToPsg(rawBuffer, options = {}) {
   for (const track of parsed.tracks) {
     for (const ev of track) events.push(ev);
   }
-  // Stable, deterministic ordering: tick, note-off before note-on, channel, note.
+  // Stable, deterministic ordering: program changes first, then note-off and
+  // note-on. A program change at the same tick therefore affects that note-on.
+  const eventPriority = (event) => (event.type === 'program' ? 0 : event.type === 'off' ? 1 : 2);
   events.sort((a, b) => a.tick - b.tick
-    || (a.type === 'off' ? 0 : 1) - (b.type === 'off' ? 0 : 1)
+    || eventPriority(a) - eventPriority(b)
     || a.ch - b.ch
-    || a.note - b.note);
+    || (a.type === 'program' || b.type === 'program' ? 0 : (a.note ?? 0) - (b.note ?? 0)));
 
   if (!events.some((ev) => ev.type === 'on')) {
     throw new Error('MIDI に取り込める音符が見つかりませんでした');
@@ -317,8 +373,11 @@ function convertMidiToPsg(rawBuffer, options = {}) {
   const melodicChannels = Array.from({ length: toneCapacity }, (_unused, index) => index);
 
   const voices = Array.from({ length: VOICE_COUNT }, () => ({
-    active: false, note: 0, period: 0, volume: 0, noise: 0, key: -1, vel: 0,
+    active: false, note: 0, period: 0, volume: 0, noise: 0, wave: 45, key: -1, vel: 0,
   }));
+  const channelPrograms = Array(16).fill(0);
+  const usedPrograms = new Set();
+  const usedWaves = new Set();
   const stats = {
     noteCount: 0,
     drumNotes: 0,
@@ -327,6 +386,7 @@ function convertMidiToPsg(rawBuffer, options = {}) {
     clampedNotes: 0,
     filteredVelocity: 0,
     ignoredDrums: 0,
+    programChanges: 0,
   };
 
   const keyOf = (ev) => ev.ch * 128 + ev.note;
@@ -337,10 +397,17 @@ function convertMidiToPsg(rawBuffer, options = {}) {
     if (clamped) stats.clampedNotes += 1;
     const volume = scaledVelocityToVolume(ev.vel, midiOptions.toneVolumeScale);
     if (!volume) return;
+    const program = channelPrograms[ev.ch] || 0;
+    const family = Math.floor(program / 8);
+    const wave = midiOptions.timbreMode === 'legacy-square'
+      ? 45
+      : midiOptions.programWaveMap[family];
+    usedPrograms.add(program);
+    usedWaves.add(wave);
     const key = keyOf(ev);
     for (const sl of melodicChannels) {
       if (voices[sl].active && voices[sl].key === key) {
-        voices[sl].period = period; voices[sl].volume = volume; voices[sl].note = ev.note; voices[sl].vel = ev.vel;
+        voices[sl].period = period; voices[sl].volume = volume; voices[sl].note = ev.note; voices[sl].vel = ev.vel; voices[sl].wave = wave;
         return;
       }
     }
@@ -359,7 +426,7 @@ function convertMidiToPsg(rawBuffer, options = {}) {
       if (target === -1) { stats.droppedNotes += 1; return; }
       stats.stolenVoices += 1;
     }
-    voices[target] = { active: true, note: ev.note, period, volume, noise: 0, key, vel: ev.vel };
+    voices[target] = { active: true, note: ev.note, period, volume, noise: 0, wave, key, vel: ev.vel };
   };
 
   const freeMelodic = (ev) => {
@@ -381,11 +448,14 @@ function convertMidiToPsg(rawBuffer, options = {}) {
     let target = -1;
     for (const sl of drumChannels) { if (!voices[sl].active) { target = sl; break; } }
     if (target === -1) target = drumChannels[drumChannels.length - 1];
-    voices[target] = { active: true, note: ev.note, period: drumNoteToNoiseFreq(ev.note), volume, noise: 1, key: -1, vel: ev.vel };
+    voices[target] = { active: true, note: ev.note, period: drumNoteToNoiseFreq(ev.note), volume, noise: 1, wave: 45, key: -1, vel: ev.vel };
   };
 
   const applyEvent = (ev) => {
-    if (ev.type === 'on') {
+    if (ev.type === 'program') {
+      channelPrograms[ev.ch] = clampInt(ev.program, 0, 127, 0);
+      stats.programChanges += 1;
+    } else if (ev.type === 'on') {
       if (ev.vel < midiOptions.minVelocity) { stats.filteredVelocity += 1; return; }
       if (ev.ch === DRUM_CHANNEL) allocDrum(ev);
       else allocMelodic(ev);
@@ -394,7 +464,8 @@ function convertMidiToPsg(rawBuffer, options = {}) {
     }
   };
 
-  const lastSeconds = events.length ? events[events.length - 1].seconds : 0;
+  const noteEvents = events.filter((event) => event.type === 'on' || event.type === 'off');
+  const lastSeconds = noteEvents.length ? noteEvents[noteEvents.length - 1].seconds : 0;
   const requiredSteps = Math.max(1, Math.ceil(lastSeconds / stepSeconds) + 1);
   const steps = Math.min(MAX_STEPS, requiredSteps);
 
@@ -410,6 +481,7 @@ function convertMidiToPsg(rawBuffer, options = {}) {
       period: v.active ? v.period : 0,
       volume: v.active ? v.volume : 0,
       noise: v.active ? v.noise : 0,
+      wave: v.wave,
     })));
     // Drums are one-shot: clear their voices so each hit lasts a single step.
     for (const dch of drumChannels) { voices[dch].active = false; voices[dch].volume = 0; voices[dch].noise = 0; }
@@ -425,7 +497,14 @@ function convertMidiToPsg(rawBuffer, options = {}) {
   if (requiredSteps > MAX_STEPS) {
     warnings.push(`曲が長いため先頭 ${MAX_STEPS} ステップ (約 ${(MAX_STEPS * stepSeconds).toFixed(1)} 秒) のみ取り込みました`);
   }
-  warnings.push('ピッチベンド / コントロールチェンジ / プログラムチェンジは再現されません');
+  if (parsed.pitchBendSeen || parsed.controlChangeSeen) {
+    warnings.push('ピッチベンド / コントロールチェンジは再現されません');
+  }
+  if (stats.programChanges > 0 && midiOptions.timbreMode === 'gm-family') {
+    warnings.push('プログラムチェンジは GM 16ファミリーから System Card 内蔵waveへ割り当てました');
+  } else if (stats.programChanges > 0) {
+    warnings.push('プログラムチェンジは legacy square 設定によりwave 45へ統一しました');
+  }
   if (parsed.smpteDivision) warnings.push('SMPTE 分解能のため tempo を無視して実時間で量子化しました');
   if (parsed.format === 2) warnings.push('format 2 の独立トラックは連結して近似しました');
   if (parsed.tempoMap.length > 1) warnings.push(`テンポ変化が複数あるため最初のテンポ (${midiBpm} BPM) でグリッドを固定しました`);
@@ -458,6 +537,10 @@ function convertMidiToPsg(rawBuffer, options = {}) {
       clampedNotes: stats.clampedNotes,
       filteredVelocity: stats.filteredVelocity,
       ignoredDrums: stats.ignoredDrums,
+      programChanges: stats.programChanges,
+      usedPrograms: Array.from(usedPrograms).sort((a, b) => a - b),
+      usedProgramFamilies: Array.from(new Set(Array.from(usedPrograms).map((program) => Math.floor(program / 8)))).sort((a, b) => a - b),
+      usedWaves: Array.from(usedWaves).sort((a, b) => a - b),
       midiOptions,
       patternReductionStride: reduction.stride,
       framesPerStep,
@@ -468,6 +551,8 @@ function convertMidiToPsg(rawBuffer, options = {}) {
 
 module.exports = {
   DEFAULT_MIDI_PSG_OPTIONS,
+  DEFAULT_MIDI_GM_PROGRAM_WAVE_MAP,
+  MIDI_GM_FAMILY_LABELS,
   PSG_CLOCK,
   midiNoteToPeriod,
   drumNoteToNoiseFreq,

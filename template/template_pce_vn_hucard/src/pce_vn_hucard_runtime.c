@@ -136,11 +136,28 @@ typedef struct
     uint8_t visible;
 } vn_sprite_slot_t;
 
+typedef struct
+{
+    uint16_t target_x;
+    uint16_t target_y;
+    uint16_t distance_x;
+    uint16_t distance_y;
+    uint16_t error_x;
+    uint16_t error_y;
+    uint16_t total_frames;
+    uint16_t remaining_frames;
+    int8_t direction_x;
+    int8_t direction_y;
+    uint8_t active;
+} vn_sprite_move_t;
+
 static uint8_t scene_pack_storage[PCE_VN_SCENE_PACK_CACHE_BYTES] __attribute__((section(".bss")));
 static vn_scene_pack_cache_t active_scene_pack __attribute__((section(".bss")));
 static uint16_t variable_values[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
 static vdc_sprite_t sprite_shadow[64] __attribute__((section(".bss")));
 static vn_sprite_slot_t sprite_slots[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static vn_sprite_move_t sprite_moves[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint8_t sync_sprite_move_slot = 0xffu;
 static uint16_t sprite_slot_pattern_base[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint8_t sprite_slot_palette_bank[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint8_t sprite_slot_pattern_valid[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
@@ -1227,13 +1244,18 @@ static void VN_HUCARD_CODE_VIDEO clear_sprite_slot_shadow(uint8_t slot)
     }
 }
 
-static void VN_HUCARD_CODE_VIDEO upload_sprite_table(void)
+static void VN_HUCARD_CODE_VIDEO upload_sprite_table_now(void)
 {
-    wait_vblank();
     restore_bg_scroll();
     vn_vram_copy(VN_SATB_ADDR, (const uint8_t *)sprite_shadow, (uint16_t)(64u * sizeof(vdc_sprite_t)));
     pce_vdc_poke(VDC_REG_DMA_CONTROL, VDC_DMA_SRC_INC);
     pce_vdc_poke(VDC_REG_SATB_START, VN_SATB_ADDR);
+}
+
+static void VN_HUCARD_CODE_VIDEO upload_sprite_table(void)
+{
+    wait_vblank();
+    upload_sprite_table_now();
     /* Consumes one VBlank (wait_vblank above); service PSG for that frame so the
        BGM does not drag one tick per sprite-animation update (mouth flap). */
     service_psg();
@@ -1393,11 +1415,77 @@ static void VN_HUCARD_CODE_VIDEO refresh_scene_sprites(uint8_t upload_patterns)
     upload_sprite_table();
 }
 
+static void VN_HUCARD_CODE_VIDEO cancel_sprite_move(uint8_t slot)
+{
+    if (slot >= VN_SPRITE_SLOT_COUNT) return;
+    sprite_moves[slot].active = 0u;
+    sprite_moves[slot].remaining_frames = 0u;
+    if (sync_sprite_move_slot == slot) sync_sprite_move_slot = 0xffu;
+}
+
+static void VN_HUCARD_CODE_VIDEO cancel_all_sprite_moves(void)
+{
+    uint8_t slot;
+    for (slot = 0u; slot < VN_SPRITE_SLOT_COUNT; slot++)
+    {
+        sprite_moves[slot].active = 0u;
+        sprite_moves[slot].remaining_frames = 0u;
+    }
+    sync_sprite_move_slot = 0xffu;
+}
+
+static uint8_t VN_HUCARD_CODE_VIDEO start_sprite_move(const pce_vn_command_t *command)
+{
+    vn_sprite_slot_t *state;
+    vn_sprite_move_t *move;
+    uint8_t slot;
+    uint16_t frames;
+    int16_t delta_x;
+    int16_t delta_y;
+    uint16_t distance_x;
+    uint16_t distance_y;
+    if (!command) return 0u;
+    slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
+    state = &sprite_slots[slot];
+    cancel_sprite_move(slot);
+    if (!state->visible || state->asset_index < 0) return 0u;
+    frames = (uint16_t)command->arg0 | ((uint16_t)command->arg1 << 8);
+    if (!frames) frames = 1u;
+    if (command->animation_index >= 0
+        && command->asset_index == state->asset_index
+        && (uint16_t)command->animation_index < pce_vn_sprite_animation_count
+        && pce_vn_sprite_animations[command->animation_index].sprite_index == (uint16_t)state->asset_index)
+    {
+        state->animation_index = command->animation_index;
+        state->frame = 0u;
+        state->timer = 0u;
+    }
+    move = &sprite_moves[slot];
+    delta_x = (int16_t)((int16_t)command->x - (int16_t)state->x);
+    delta_y = (int16_t)((int16_t)command->y - (int16_t)state->y);
+    distance_x = (uint16_t)(delta_x < 0 ? -delta_x : delta_x);
+    distance_y = (uint16_t)(delta_y < 0 ? -delta_y : delta_y);
+    move->target_x = command->x;
+    move->target_y = command->y;
+    move->distance_x = distance_x;
+    move->distance_y = distance_y;
+    move->direction_x = delta_x < 0 ? -1 : (delta_x > 0 ? 1 : 0);
+    move->direction_y = delta_y < 0 ? -1 : (delta_y > 0 ? 1 : 0);
+    move->error_x = 0u;
+    move->error_y = 0u;
+    move->total_frames = frames;
+    move->remaining_frames = frames;
+    move->active = 1u;
+    if (!(command->flags & PCE_VN_SPRITE_MOVE_ASYNC)) sync_sprite_move_slot = slot;
+    return (uint8_t)!(command->flags & PCE_VN_SPRITE_MOVE_ASYNC);
+}
+
 static void VN_HUCARD_CODE_VIDEO set_sprite(const pce_vn_command_t *command)
 {
     uint8_t slot;
     if (!command) return;
     slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
+    cancel_sprite_move(slot);
     if (!(command->flags & PCE_VN_SPRITE_VISIBLE) || command->asset_index < 0)
     {
         hide_sprite_slot(slot);
@@ -1424,22 +1512,81 @@ static void VN_HUCARD_CODE_VIDEO tick_sprites(void)
         vn_sprite_slot_t *state = &sprite_slots[slot];
         const pce_vn_sprite_anim_t *anim;
         uint8_t delay;
-        if (!state->visible || state->animation_index < 0 || (uint16_t)state->animation_index >= pce_vn_sprite_animation_count) continue;
-        anim = &pce_vn_sprite_animations[state->animation_index];
-        delay = anim->frame_delays ? anim->frame_delays[state->frame] : anim->frame_delay;
-        if (!delay) delay = 1u;
-        state->timer++;
-        if (state->timer < delay) continue;
-        state->timer = 0u;
-        state->frame++;
-        if (state->frame >= anim->frame_count)
+        uint8_t slot_dirty = 0u;
+        if (state->visible && state->animation_index >= 0 && (uint16_t)state->animation_index < pce_vn_sprite_animation_count)
         {
-            state->frame = anim->loop ? 0u : (uint8_t)(anim->frame_count - 1u);
+            anim = &pce_vn_sprite_animations[state->animation_index];
+            delay = anim->frame_delays ? anim->frame_delays[state->frame] : anim->frame_delay;
+            if (!delay) delay = 1u;
+            state->timer++;
+            if (state->timer >= delay)
+            {
+                state->timer = 0u;
+                state->frame++;
+                if (state->frame >= anim->frame_count)
+                {
+                    state->frame = anim->loop ? 0u : (uint8_t)(anim->frame_count - 1u);
+                }
+                slot_dirty = 1u;
+            }
         }
-        draw_sprite_slot(slot, 0u);
-        dirty = 1u;
+        if (sprite_moves[slot].active)
+        {
+            vn_sprite_move_t *move = &sprite_moves[slot];
+            uint16_t amount;
+            uint16_t room;
+            if (move->remaining_frames <= 1u)
+            {
+                state->x = move->target_x;
+                state->y = move->target_y;
+                move->remaining_frames = 0u;
+                move->active = 0u;
+            }
+            else
+            {
+                amount = move->distance_x;
+                while (amount)
+                {
+                    room = (uint16_t)(move->total_frames - move->error_x);
+                    if (amount < room)
+                    {
+                        move->error_x = (uint16_t)(move->error_x + amount);
+                        amount = 0u;
+                    }
+                    else
+                    {
+                        amount = (uint16_t)(amount - room);
+                        move->error_x = 0u;
+                        state->x = (uint16_t)((int16_t)state->x + move->direction_x);
+                    }
+                }
+                amount = move->distance_y;
+                while (amount)
+                {
+                    room = (uint16_t)(move->total_frames - move->error_y);
+                    if (amount < room)
+                    {
+                        move->error_y = (uint16_t)(move->error_y + amount);
+                        amount = 0u;
+                    }
+                    else
+                    {
+                        amount = (uint16_t)(amount - room);
+                        move->error_y = 0u;
+                        state->y = (uint16_t)((int16_t)state->y + move->direction_y);
+                    }
+                }
+                move->remaining_frames--;
+            }
+            slot_dirty = 1u;
+        }
+        if (slot_dirty)
+        {
+            draw_sprite_slot(slot, 0u);
+            dirty = 1u;
+        }
     }
-    if (dirty) upload_sprite_table();
+    if (dirty) upload_sprite_table_now();
 }
 
 static void VN_HUCARD_CODE_TEXT upload_font_sprite_patterns(void)
@@ -1571,6 +1718,7 @@ static void VN_HUCARD_CODE_SCRIPT apply_effect(const pce_vn_command_t *command)
     if (!command) return;
     if (command->flags == PCE_VN_EFFECT_BLANK)
     {
+        cancel_all_sprite_moves();
         clear_screen_map(0);
         return;
     }
@@ -1771,6 +1919,7 @@ static uint8_t VN_HUCARD_CODE_TEXT handle_choice_input(uint8_t pressed)
 
 static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index)
 {
+    cancel_all_sprite_moves();
     if (scene_index >= pce_vn_scene_count) scene_index = 0u;
     if (!load_scene_pack_into_cache(scene_index, &active_scene_pack)) return;
     current_scene = scene_index;
@@ -1796,6 +1945,10 @@ static void VN_HUCARD_CODE_SCRIPT advance_story(void)
         else if (command.type == PCE_VN_COMMAND_SPRITE)
         {
             set_sprite(&command);
+        }
+        else if (command.type == PCE_VN_COMMAND_SPRITE_MOVE)
+        {
+            if (start_sprite_move(&command)) return;
         }
         else if (command.type == PCE_VN_COMMAND_MESSAGE)
         {
@@ -1946,6 +2099,8 @@ int main(void)
     last_pad = pce_joypad_read();
     show_scene(pce_vn_start_scene);
     advance_story();
+    tick_sprites();
+    service_psg();
 
     while (1)
     {
@@ -1965,8 +2120,6 @@ int main(void)
                 tick_message_wait_indicator();
             }
         }
-        service_psg();
-        tick_sprites();
         pad = pce_joypad_read();
         pressed = (uint8_t)(pad & (uint8_t)~last_pad);
         last_pad = pad;
@@ -1980,13 +2133,23 @@ int main(void)
             active_choice_index = -1;
             wait_frames_remaining = 0u;
             hide_message_window_map();
+            cancel_all_sprite_moves();
             advance_story();
-            continue;
+            goto frame_end;
+        }
+        if (sync_sprite_move_slot < VN_SPRITE_SLOT_COUNT)
+        {
+            if (!sprite_moves[sync_sprite_move_slot].active)
+            {
+                sync_sprite_move_slot = 0xffu;
+                advance_story();
+            }
+            goto frame_end;
         }
         if (active_choice_index >= 0)
         {
             handle_choice_input(pressed);
-            continue;
+            goto frame_end;
         }
         if (active_message_index >= 0)
         {
@@ -2013,13 +2176,13 @@ int main(void)
                     advance_story();
                 }
             }
-            continue;
+            goto frame_end;
         }
         if (wait_frames_remaining)
         {
             wait_frames_remaining--;
             if (!wait_frames_remaining) advance_story();
-            continue;
+            goto frame_end;
         }
         if (async_input_mask)
         {
@@ -2030,9 +2193,12 @@ int main(void)
                 async_input_target = PCE_VN_NO_COMMAND;
                 advance_story();
             }
-            continue;
+            goto frame_end;
         }
         advance_story();
+frame_end:
+        tick_sprites();
+        service_psg();
     }
 
     return 0;

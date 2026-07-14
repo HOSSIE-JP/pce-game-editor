@@ -147,3 +147,31 @@ test('System Card PSG fixed waveform is user waveform 45 and exactly 32 bytes', 
   assert.deepEqual(Array.from(compiler.SYSTEM_CARD_SQUARE_WAVE.subarray(0, 16)), Array(16).fill(31));
   assert.deepEqual(Array.from(compiler.SYSTEM_CARD_SQUARE_WAVE.subarray(16)), Array(16).fill(0));
 });
+
+test('System Card PSG emits per-note BIOS waveform allocation and keeps wave 45 as fallback', () => {
+  const allocated = streamBytes(compiler.compileSystemCardPsgPackage(makeAsset({
+    options: {
+      steps: 3,
+      pattern: [
+        { step: 0, channel: 0, period: compiler.midiNotePeriod(60), volume: 20, wave: 9 },
+        { step: 1, channel: 0, period: compiler.midiNotePeriod(64), volume: 20, wave: 35 },
+      ],
+    },
+  })));
+  const firstWave = allocated.indexOf(compiler.COMMAND.WAVE);
+  assert.ok(firstWave >= 0);
+  assert.deepEqual(Array.from(allocated.subarray(firstWave, firstWave + 2)), [compiler.COMMAND.WAVE, 9]);
+  const secondWave = allocated.indexOf(compiler.COMMAND.WAVE, firstWave + 2);
+  assert.ok(secondWave > firstWave);
+  assert.deepEqual(Array.from(allocated.subarray(secondWave, secondWave + 2)), [compiler.COMMAND.WAVE, 35]);
+
+  const legacy = streamBytes(compiler.compileSystemCardPsgPackage(makeAsset()));
+  const legacyWave = legacy.indexOf(compiler.COMMAND.WAVE);
+  assert.deepEqual(Array.from(legacy.subarray(legacyWave, legacyWave + 2)), [compiler.COMMAND.WAVE, 45]);
+
+  const nullWave = streamBytes(compiler.compileSystemCardPsgPackage(makeAsset({
+    options: { pattern: [{ step: 0, channel: 0, period: 512, volume: 20, wave: null }] },
+  })));
+  const nullWaveCommand = nullWave.indexOf(compiler.COMMAND.WAVE);
+  assert.deepEqual(Array.from(nullWave.subarray(nullWaveCommand, nullWaveCommand + 2)), [compiler.COMMAND.WAVE, 45]);
+});

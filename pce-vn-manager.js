@@ -19,7 +19,7 @@ const VN_FONT_FILE = path.join('assets', 'pce-font.json');
 const VN_FONT_DIR = path.join('assets', 'fonts');
 const FONT_FILE_EXTS = ['.ttf', '.otf', '.ttc'];
 const VN_BUILD_STAMP_FILE = path.join('assets', 'generated', 'vn', 'build-stamp.json');
-const VN_BUILD_STAMP_VERSION = 3;
+const VN_BUILD_STAMP_VERSION = 4;
 const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
 // BG message / choice glyph streams stay byte-oriented so the common case costs
 // one byte per glyph, but a 0xfd escape prefix lets the project-wide font exceed
@@ -69,6 +69,8 @@ const VN_COMMAND_GOTO = 12;
 const VN_COMMAND_INPUTCHECK = 13;
 const VN_COMMAND_SPRITETEXT = 14;
 const VN_COMMAND_CACHE = 15;
+const VN_COMMAND_SPRITE_MOVE = 16;
+const VN_SPRITE_MOVE_ASYNC = 1;
 const VN_CACHE_ACTION_CLEAR = 0;
 const VN_CACHE_ACTION_LOAD = 1;
 const VN_CACHE_SCOPE_VISUAL = 0;
@@ -862,6 +864,9 @@ function validateFullScreenBgScene(scene = {}, assetDoc = { assets: [] }) {
     if (command.type === 'sprite' && command.visible !== false) {
       throw new Error(`PCE VN scene "${sceneId}" uses fullScreenBg and cannot show sprites`);
     }
+    if (command.type === 'spritemove') {
+      throw new Error(`PCE VN scene "${sceneId}" uses fullScreenBg and cannot move sprites`);
+    }
     if (command.type === 'spritetext' && command.visible !== false) {
       throw new Error(`PCE VN scene "${sceneId}" uses fullScreenBg and cannot show spritetext`);
     }
@@ -1245,6 +1250,20 @@ function normalizeCommand(command = {}, index = 0, valid = assetIdsByType(), ass
       flipX: Boolean(raw.flipX ?? raw.flippedX ?? raw.hflip),
       flipY: Boolean(raw.flipY ?? raw.flippedY ?? raw.vflip),
       visible,
+    };
+  }
+  if (type === 'spritemove') {
+    const animationId = String(raw.animationId || '').trim().slice(0, 32);
+    const animationAssetId = String(raw.animationAssetId || raw.assetId || '').trim();
+    return {
+      type: 'spritemove',
+      slot: clampInt(raw.slot, 0, 3, 0),
+      x: clampInt(raw.x, 0, 319, 0),
+      y: clampInt(raw.y, 0, 223, 0),
+      frames: clampInt(raw.frames ?? raw.durationFrames, 1, 65535, 30),
+      async: raw.async === true || raw.mode === 'async',
+      animationAssetId: animationId ? animationAssetId : '',
+      animationId,
     };
   }
   if (type === 'message') {
@@ -1730,6 +1749,9 @@ function collectSceneVisualAssetUsage(doc = {}) {
           const slot = clampInt(command.slot, 0, 3, 0);
           spriteSlots[slot] = '';
           addSpriteLayout(spriteSlots);
+        } else if (command?.type === 'spritemove') {
+          const assetId = normalizeAssetId(command.animationAssetId);
+          if (assetId) spriteAssetIds.add(assetId);
         } else if (command?.type === 'cache' && command.action === 'load') {
           const assetId = normalizeAssetId(command.assetId);
           if (command.scope === 'bg' && assetId) {
@@ -3060,6 +3082,41 @@ function generateVnSources(projectDir, options = {}) {
         });
         return;
       }
+      if (command.type === 'spritemove') {
+        previousExplicitAdpcmPreloadAssetId = '';
+        const slot = clampInt(command.slot, 0, 3, 0);
+        const frames = clampInt(command.frames, 1, 65535, 30);
+        let spriteAssetIndex = -1;
+        let animationIndex = -1;
+        if (command.animationId) {
+          const spriteAssetId = command.animationAssetId || slotSpriteAssets[slot] || '';
+          spriteAssetIndex = spriteIndex.has(spriteAssetId) ? spriteIndex.get(spriteAssetId) : -1;
+          animationIndex = spriteAssetIndex >= 0
+            ? (spriteAnimations.index.get(`${spriteAssetId}:${command.animationId}`) ?? -1)
+            : -1;
+          if (spriteAssetIndex < 0 || animationIndex < 0) {
+            throw new Error(`PCE VN scene "${sceneBuild.sceneId}" command ${commandIndex + 1}: spritemove animation "${command.animationId}" is not defined for sprite "${spriteAssetId || '(none)'}"`);
+          }
+          if (slotSpriteAssets[slot] && slotSpriteAssets[slot] !== spriteAssetId) {
+            throw new Error(`PCE VN scene "${sceneBuild.sceneId}" command ${commandIndex + 1}: spritemove animation sprite "${spriteAssetId}" does not match slot ${slot} sprite "${slotSpriteAssets[slot]}"`);
+          }
+        }
+        pushCommand({
+          type: VN_COMMAND_SPRITE_MOVE,
+          assetIndex: spriteAssetIndex,
+          slot,
+          flags: command.async ? VN_SPRITE_MOVE_ASYNC : 0,
+          arg0: frames & 0xff,
+          arg1: (frames >> 8) & 0xff,
+          x: command.x,
+          y: command.y,
+          animationIndex,
+          messageIndex: -1,
+          sceneIndex: -1,
+          choiceIndex: -1,
+        });
+        return;
+      }
       if (command.type === 'message') {
         // HuCARD strips ADPCM/CD audio, so a voiced message carries no ADPCM on
         // that target (voiceIndex resolves to -1 below). Skip the buffered-voice
@@ -3655,6 +3712,8 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_COMMAND_INPUTCHECK ${VN_COMMAND_INPUTCHECK}u`,
     `#define PCE_VN_COMMAND_SPRITETEXT ${VN_COMMAND_SPRITETEXT}u`,
     `#define PCE_VN_COMMAND_CACHE ${VN_COMMAND_CACHE}u`,
+    `#define PCE_VN_COMMAND_SPRITE_MOVE ${VN_COMMAND_SPRITE_MOVE}u`,
+    `#define PCE_VN_SPRITE_MOVE_ASYNC ${VN_SPRITE_MOVE_ASYNC}u`,
     `#define PCE_VN_CACHE_ACTION_CLEAR ${VN_CACHE_ACTION_CLEAR}u`,
     `#define PCE_VN_CACHE_ACTION_LOAD ${VN_CACHE_ACTION_LOAD}u`,
     `#define PCE_VN_CACHE_SCOPE_VISUAL ${VN_CACHE_SCOPE_VISUAL}u`,
@@ -4590,6 +4649,8 @@ module.exports = {
   VN_COMMAND_INPUTCHECK,
   VN_COMMAND_SPRITETEXT,
   VN_COMMAND_CACHE,
+  VN_COMMAND_SPRITE_MOVE,
+  VN_SPRITE_MOVE_ASYNC,
   VN_CACHE_ACTION_CLEAR,
   VN_CACHE_ACTION_LOAD,
   VN_CACHE_SCOPE_VISUAL,

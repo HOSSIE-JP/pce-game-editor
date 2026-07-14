@@ -39,6 +39,26 @@
           "visible": true
         },
         {
+          "type": "spritemove",
+          "slot": 0,
+          "x": 144,
+          "y": 56,
+          "frames": 45,
+          "async": false,
+          "animationAssetId": "akari_sprite",
+          "animationId": "mouth"
+        },
+        {
+          "type": "spritemove",
+          "slot": 0,
+          "x": 96,
+          "y": 24,
+          "frames": 90,
+          "async": true,
+          "animationAssetId": "akari_sprite",
+          "animationId": "default"
+        },
+        {
           "type": "message",
           "speaker": "Akari",
           "text": "これはVNコマンドの\nサンプルです。\nBG Sprite Audioを\nじゅんに実行します。",

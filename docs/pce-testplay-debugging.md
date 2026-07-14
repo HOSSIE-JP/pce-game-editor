@@ -27,6 +27,12 @@ Windowsでは次をstdio MCP serverとして直接起動できます。
 C:\homebrew\emulator\Geargrafx\Geargrafx.exe --headless --mcp-stdio
 ```
 
+標準CD VNテンプレートのSprite Move回帰は、テンプレートをbuildした後に次で確認できます。同期45 frame移動、非同期90 frame移動、runtime座標とSATB座標の中間値・終点を自動検査します。
+
+```powershell
+node tools/dev/geargrafx-system-card-smoke.js --cue template/template_pce_vn_cd/out/MY_NEW_GAME.cue --inspect-sprite-move
+```
+
 Geargrafx 1.7.xはnewline-delimited JSON-RPCです。`Content-Length` framingではありません。
 
 1. `initialize`

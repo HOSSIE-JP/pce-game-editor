@@ -119,6 +119,39 @@
   font-size: 11px;
 }
 
+.pce-music-midi-wave-map {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  margin-top: 10px;
+}
+
+.pce-music-midi-wave-map > p {
+  grid-column: 1 / -1;
+  margin: 0 0 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pce-music-midi-wave-map.is-disabled {
+  opacity: 0.5;
+}
+
+.pce-music-midi-wave-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.pce-music-midi-wave-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pce-music-editor-shell .pce-plugin-items .pce-music-list-tags {
   display: flex;
   align-items: center;

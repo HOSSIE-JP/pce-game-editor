@@ -35,6 +35,7 @@ flowchart LR
 |---|---|---|---|---|---|
 | 背景画像を表示する | `importAssetImage({ kind: "background" })` | `image` | `background` | `pce_editor_bg_asset_t` | `set_background()` / `upload_bg_graphics()` |
 | スプライトを表示する | `importAssetImage({ kind: "sprite" })` | `sprite` | `sprite` | `pce_editor_sprite_asset_t`, `pce_vn_sprite_anim_t` | `refresh_scene_sprites()` / `show_character_sprite_frame()` |
+| 表示中スプライトを移動する | — | `sprite` | `spritemove` | 既存19-byte command record | DDA tick / SATB Y・X・pattern・attr更新 |
 | ADPCM を鳴らす | `importAssetAudio({ kind: "adpcm" })` | `adpcm` | `audio` または `message.voiceAssetId` | `pce_editor_adpcm_asset_t` | `play_adpcm_voice()` / `stop_adpcm_voice()` |
 | CD-DA を鳴らす | `importAssetAudio({ kind: "cdda-track" })` | `cdda-track` | `audio` | `pce_editor_cdda_asset_t` | `cdda_audio_command()` / `cdda_command_impl()` |
 | PSG を鳴らす | PSG asset を登録 | `psg-song` / `psg-sfx` | `audio` (`kind: "psg"`) | `pce_vn_system_psg_package_t` (CD) | `system_psg_audio_command()` / System Card `PSG_DRIVE` |
@@ -388,6 +389,24 @@ CD-ROM2 VN runtime の `background` command は同期 command です。BG 切替
 
 `sprite` command も同期 command です。表示・差し替え・非表示は指定座標へ即時反映されます。旧 `durationFrames` / `moveFrames` は読み込み時に破棄され、生成には使われません。立ち絵SLOTは `0`, `1`, `2`, `3` の順に詰めて使ってください。同時表示中の sprite pattern と sprite palette bank は、生成された `PCE_VN_SPRITE_PATTERN_BASE` / 最初の visible slot の `paletteBank` からSLOT順に非重複で配置されるため、SLOT1のロードでSLOT0の pattern や palette を上書きしません。通常BG 224x136px の場合、BG tile 64〜539 の直後にメッセージ strip / blank / glyph mask / spritetext font を詰め、その直後から SATB 手前までを連続した sprite pattern 領域として使います。追加SLOTのロードが既存SLOTのpattern/palette範囲に触れない場合は、表示中のSLOTを隠さずに転送します。同一 slot に別 asset をロードする場合など、表示中の範囲を上書きする場合だけ sprite layer を無効化して画面外 SATB を反映し、転送後に SATB と sprite layer を再有効化してから次 command へ進みます。VRAM 書き換え中の中間表示は見せません。同じ asset 内の目パチ・口パク frame 更新は pattern を再転送せず、既存 SATB layout の pattern word だけを差分更新します。
 
+### スプライト移動 command (`spritemove`)
+
+```jsonc
+{ "type": "spritemove", "slot": 0, "x": 224, "y": 24, "frames": 60, "async": false }
+{ "type": "spritemove", "slot": 1, "x": 32, "y": 24, "frames": 60, "async": true, "animationAssetId": "mika_sprite", "animationId": "walk" }
+```
+
+| field | 値 | 説明 |
+|---|---|---|
+| `type` | `"spritemove"` | 表示中sprite slotを直線移動 |
+| `slot` | `0..3` | 対象slot。非表示/未設定ならno-op |
+| `x`, `y` | `0..319`, `0..223` | 移動先の画面座標 |
+| `frames` | `1..65535` | 開始位置から目標位置までのVBlank数 |
+| `async` | `boolean` | `false`（既定）は完了までscriptを停止。`true`は後続を実行し、別slotと同時移動可能 |
+| `animationAssetId`, `animationId` | sprite ID / animation ID | 任意。移動開始時に同じ表示assetのanimationへ変更。asset不一致・未定義animationは位置付きbuild error |
+
+command recordは19 bytesのままです。`frames`を`arg0/arg1`、移動先を`x/y`、非同期を`flags bit0`、任意animationを`asset_index/animation_index`へ格納します。runtimeは座標差と方向を保持する除算不要の整数DDAで補間します。CD版は最大4slot分のSATB entryを更新してから1回だけVBlankを待ち、System Card PSGのIRQ駆動を止めません。HuCard版も同じscene command契約です。同じslotへの新しい移動/表示、scene切替、`blank`で先行移動を中止します。Full BG sceneではbuild errorです。
+
 ### 演出 command
 
 ```jsonc
@@ -487,7 +506,7 @@ packageは実際にsceneから参照された`(assetId, channel)`ごとに作り
 
 CD packageはbank134 `$8024`以降のBGM（最大8156 bytes）とbank135 `$A000`以降のSFX（最大8192 bytes）へdirect async loadします。対象busだけを停止し、宣言byte数だけを転送するので、他方のbusは継続します。同じbusの再生中に別packageを`cache load`するscriptはvalidation errorです。
 
-waveformは32-byte square waveをuser waveform 45として固定し、外部envelope/FMは使いません。`options.volume`のbuild-time scaleとWebAudio preview、MIDI/VGM取込、SFXデザイナーは従来どおり利用できます。HuCard buildはSystem Card packageへ変換せず、既存step runtimeを使います。
+user waveformとして登録するのは32-byte squareの45だけで、外部envelope/FMは使いません。CD patternのoptional `wave`は0〜44をSystem Card内蔵wave、45をそのsquareとして発音ごとの`WAVE` commandへ変換します。MIDI取込はProgram ChangeをGM 16ファミリーへまとめ、`midiOptions.programWaveMap`で割り当てます。手入力、VGM、SFXデザイナーなど`wave`未指定のtoneは45です。`options.volume`のbuild-time scaleも従来どおり利用できます。HuCard buildはSystem Card packageへ変換せず、`wave`を無視して既存step runtimeを使います。WebAudio previewは内蔵waveの大まかなスペクトル分類であり、最終音色はGeargrafx/実機で確認します。
 
 ### CD-DA 再生 command
 
