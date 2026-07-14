@@ -11,6 +11,7 @@ const PCE_SCREEN_HEIGHT = 224;
 // 256x224 画面、メッセージ窓 208x64px を下部中央から1タイル上 (x=24,y=152) に配置。
 // 1 文字 12×12px を 12px 横ピッチで 17 文字、16px 行ピッチで 4 行。
 const MESSAGE_AREA = { x: 24, y: 152, cols: 17, rows: 4, cellW: 12, cellH: 16 };
+const SPRITETEXT_CELL = { width: 12, height: 16 };
 const MESSAGE_WAIT_GLYPH = '▼';
 const DEFAULT_CHARACTER_Y = 24;
 const DEFAULT_BG_TILE_X = 2;
@@ -88,6 +89,36 @@ function snapHexToPce(value) {
   const g = snap(s.slice(2, 4));
   const b = snap(s.slice(4, 6));
   return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
+}
+
+// Preview SpriteText with the runtime's fixed-width cells. A plain CSS
+// monospace run would still render ASCII at about half the width of Japanese
+// glyphs, while both CD and HuCARD runtimes advance every glyph by 12 pixels.
+function renderSpriteTextCells(node, text) {
+  node.replaceChildren();
+  let row = document.createElement('span');
+  row.style.display = 'block';
+  row.style.height = `${SPRITETEXT_CELL.height}px`;
+  node.appendChild(row);
+  for (const glyph of String(text || '')) {
+    if (glyph === '\r') continue;
+    if (glyph === '\n') {
+      row = document.createElement('span');
+      row.style.display = 'block';
+      row.style.height = `${SPRITETEXT_CELL.height}px`;
+      node.appendChild(row);
+      continue;
+    }
+    const cell = document.createElement('span');
+    cell.style.display = 'inline-block';
+    cell.style.width = `${SPRITETEXT_CELL.width}px`;
+    cell.style.height = `${SPRITETEXT_CELL.height}px`;
+    cell.style.overflow = 'hidden';
+    cell.style.textAlign = 'center';
+    cell.style.verticalAlign = 'top';
+    cell.textContent = glyph;
+    row.appendChild(cell);
+  }
 }
 
 // 編集専用のコメント色は PCE 表示色へスナップせず、自由な "#rrggbb" を許容する。
@@ -1962,9 +1993,8 @@ function previewRuntime() {
       node.style.left = (st.x || 0) + 'px';
       node.style.top = (st.y || 0) + 'px';
       node.style.color = st.color || '#ffffff';
-      node.style.font = '16px/16px monospace';
-      node.style.whiteSpace = 'pre';
-      node.textContent = st.text || '';
+      node.style.font = '12px/16px monospace';
+      renderSpriteTextCells(node, st.text);
       stage.insertBefore(node, msgBox);
     });
     Object.keys(state.sprites).map(Number).sort((a, b) => b - a).forEach((slot) => {
@@ -2797,10 +2827,9 @@ export function activatePlugin({ root, api, registerCapability }) {
         node.style.top = `${st.y || 0}px`;
         node.style.color = st.color || '#ffffff';
         if (st.blinkFrames) node.style.animationDuration = `${Math.max(1, Number(st.blinkFrames) || 1) / 30}s`;
-        node.style.font = '16px/16px monospace';
-        node.style.whiteSpace = 'pre';
+        node.style.font = '12px/16px monospace';
         node.style.letterSpacing = '0';
-        node.textContent = st.text || '';
+        renderSpriteTextCells(node, st.text);
         if (command?.type === 'spritetext' && st.slot === command.slot) node.classList.add('is-active');
         stage.appendChild(node);
       });

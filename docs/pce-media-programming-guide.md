@@ -40,7 +40,7 @@ flowchart LR
 | CD-DA を鳴らす | `importAssetAudio({ kind: "cdda-track" })` | `cdda-track` | `audio` | `pce_editor_cdda_asset_t` | `cdda_audio_command()` / `cdda_command_impl()` |
 | PSG を鳴らす | PSG asset を登録 | `psg-song` / `psg-sfx` | `audio` (`kind: "psg"`) | `pce_vn_system_psg_package_t` (CD) | `system_psg_audio_command()` / System Card `PSG_DRIVE` |
 | 入力で分岐する | — | — | `inputcheck` | `pce_vn_command_t` | メインループの sync/async 入力ウォッチャ + `jump_to_command()` |
-| 短い文字をスプライトで重ねる | — | — | `spritetext` | Shift-JIS scene data | `EX_GETFNT` 16×16 / on-demand VRAM upload |
+| 短い文字をスプライトで重ねる | — | — | `spritetext` | Shift-JIS scene data | `EX_GETFNT` 12×12 / on-demand VRAM upload |
 
 ## Renderer IPC API
 
@@ -444,11 +444,11 @@ command recordは19 bytesのままです。`frames`を`arg0/arg1`、移動先を
 | `blinkFrames` | `0..255` | `0` で常時表示。`1` 以上で `blinkFrames` フレームごとに表示/非表示をトグル（点滅） |
 | `visible` | `boolean` | `false` で slot を消去 |
 
-CD VNの`spritetext`文字列はscene pack v2へ16-bit Shift-JISで格納されます。runtimeは表示に必要な文字だけをSystem Card `EX_GETFNT`の16×16 modeで取得し、4bppの4 tileへ変換してVRAMへuploadします。`font_sprite.bin`や起動時一括uploadはありません。HuCard VNは従来のbanked sprite fontを使います。
+CD VNの`spritetext`文字列はscene pack v2へ16-bit Shift-JISで格納されます。runtimeは表示に必要な文字だけをSystem Card `EX_GETFNT`の12×12 modeで取得し、2pxの透明余白を持つ16×16 hardware sprite patternへ4bpp化してVRAMへuploadします。見える字形と横ピッチはmessageと同じ12px、改行ピッチは16pxです。`font_sprite.bin`や起動時一括uploadはありません。HuCard VNのbanked sprite fontも同じ12×12字形・12pxピッチを使います。
 
 制約（PCE ハードウェア由来）:
 
-- スプライト文字は character sprite と同じ **64 entry の SATB / 1 走査線 16 スプライト**を共有します。1 文字 = 16x16 = 1 スプライトなので、立ち絵と合わせて 64 を超えないように短く保ってください。超過分は描画されません。
+- スプライト文字は character sprite と同じ **64 entry の SATB / 1 走査線 16 スプライト**を共有します。見える字形は12x12・横12pxピッチですが、1文字につき透明余白付き16x16 hardware spriteを1個使うため、立ち絵と合わせて64 entry、同じ走査線で16個を超えないように短く保ってください。超過分は描画されません。
 - 文字色は**予約スプライトパレットバンク** (`PCE_VN_FONT_SPRITE_PALETTE_BANK`、既定 15) の index 15 を runtime が書き換えて表現します。複数 slot を同時表示すると最後に描いた slot の色が全 slot に適用されます（同時に別色を出したい場合は表示タイミングをずらしてください）。スプライト asset の palette bank は既定 1 なので衝突しませんが、bank 15 を asset に割り当てている場合は避けてください。
 - BIOS glyphのpatternはon-demand cacheへ置きます。cacheがSATBや通常sprite pattern領域と重なる配置はbuild errorです。
 - 通常 sprite asset の pattern 領域も SATB (`0x7f00`) より手前に収めてください。`tileBase * 32 + patterns.bin / 2` が `0x7f00` を超える asset は warning になり、VN runtime では sprite 下部や SATB が壊れます。
@@ -838,7 +838,7 @@ ADPCM の `divider` は再生周波数/速度側の値で、音量ではあり�
 | BG/Sprite compression | 撤去済み。visual asset は常に無圧縮の raw `.bin` を CD data file として使う |
 | Sprite cell size | `16x16`, `16x32`, `16x64`, `32x16`, `32x32`, `32x64` のみ |
 | VN sprite slot | 論理 slot は 4。hardware SATB は 64 entry |
-| spritetext オーバーレイ | 論理 slot 4、1 command 最大 32 グリフ。character sprite と SATB(64)/16-per-line を共有。CD VNは`EX_GETFNT` 16×16をon-demand 4bpp化し、`font_sprite.bin`を生成しない |
+| spritetext オーバーレイ | 論理 slot 4、1 command 最大 32 グリフ。12×12字形を横12px・縦16pxピッチで配置し、character sprite と SATB(64)/16-per-line を共有。CD VNは`EX_GETFNT` 12×12をon-demand 4bpp化し、`font_sprite.bin`を生成しない |
 | Sprite pattern / palette | 同時表示SLOTを `0` から順に使う。runtime は `PCE_VN_SPRITE_PATTERN_BASE` からSLOT順に非重複配置する。build は同時表示分の配置結果がSATBや予約palette bankへ食い込む構成を error にする |
 | VN sprite 表示 | `sprite` command は指定座標へ即時表示・差し替え・非表示する。移動演出は未実装 |
 | VN screen shake | `effect: "shake"` は BG scroll と sprite SATB 座標を同じ offset で揺らす |

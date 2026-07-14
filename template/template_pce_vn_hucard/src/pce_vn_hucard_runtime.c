@@ -41,6 +41,8 @@
 #define VN_SPRITE_SATB_PER_SLOT 12u
 #define VN_SPRITETEXT_SATB_BASE 48u
 #define VN_SPRITETEXT_MAX_GLYPHS 32u
+#define VN_SPRITETEXT_PITCH_X VN_GLYPH_W
+#define VN_SPRITETEXT_PITCH_Y 16u
 #define VN_SPRITE_HIDDEN_Y 240u
 #define VN_VRAM_SLICE_BYTES 512u
 #define VN_PSG_STEP_ACCUM_UNIT 3600u
@@ -1639,8 +1641,8 @@ static void VN_HUCARD_CODE_TEXT draw_spritetext(const pce_vn_command_t *command)
             continue;
         }
         entry = &sprite_shadow[(uint8_t)(VN_SPRITETEXT_SATB_BASE + written)];
-        entry->y = (uint16_t)(command->y + ((uint16_t)row * 16u) + 64u);
-        entry->x = (uint16_t)(command->x + ((uint16_t)col * 12u) + 32u);
+        entry->y = (uint16_t)(command->y + ((uint16_t)row * VN_SPRITETEXT_PITCH_Y) + 64u);
+        entry->x = (uint16_t)(command->x + ((uint16_t)col * VN_SPRITETEXT_PITCH_X) + 32u);
         entry->pattern = (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE + ((uint16_t)glyph * 2u));
         entry->attr = (uint16_t)(VDC_SPRITE_FG | VDC_SPRITE_COLOR(PCE_VN_FONT_SPRITE_PALETTE_BANK));
         col++;

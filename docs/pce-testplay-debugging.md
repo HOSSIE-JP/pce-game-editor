@@ -92,7 +92,7 @@ addressは対象jp-v3 ROMの公開ABI/trace gateです。違うprofileへ流用�
 - 失敗時は`SC3 ERR`で停止し、fallback fontを表示しない。
 - message開始時にMPR6が短時間bank123になり、終了後に元bankへ戻る。
 - typewriter/ADPCM/入力待ち中はbank123を参照しない。
-- message glyphは12×12→24-byte mask cache、SpriteTextは16×16→4bpp VRAM uploadになる。
+- message glyphは12×12→24-byte mask cache、SpriteTextは12×12→透明余白付き16×16 hardware sprite patternへ4bpp化し、横12pxピッチでVRAM uploadされる。16×16 patternは2 pattern unitを使うため、`PCE_VN_FONT_SPRITE_PATTERN_BASE`は必ず偶数境界に置く（VDCはSATB pattern値の下位bitを無視する）。
 - JIS第一水準以外はruntime化する前にbuild errorになる。
 
 ## VDC/SATB

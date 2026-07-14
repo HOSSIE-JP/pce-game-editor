@@ -87,19 +87,23 @@ function convertSystemCardGlyph12ToMask24(source) {
   return out;
 }
 
-function convertSystemCardGlyph16ToPce4bpp(source, color = 1) {
+// EX_GETFNT's 12x12 mode stores each row as the high 12 bits of a 16-bit
+// word. Center that visible glyph in a transparent 16x16 hardware-sprite cell;
+// SpriteText can then overlap adjacent cells at a 12px pitch while retaining
+// one SATB entry and one 128-byte pattern per glyph.
+function convertSystemCardGlyph12ToPce4bpp(source, color = 1) {
   const input = Buffer.from(source || []);
-  if (input.length !== 32) throw new Error('System Card 16x16 glyph source must be exactly 32 bytes');
+  if (input.length !== 32) throw new Error('System Card 12x12 glyph source must be exactly 32 bytes');
   const out = Buffer.alloc(128);
   const ink = Math.max(1, Math.min(15, Number(color) || 1));
-  for (let y = 0; y < 16; y += 1) {
-    const left = input[y * 2];
-    const right = input[y * 2 + 1];
+  for (let sourceY = 0; sourceY < 12; sourceY += 1) {
+    const sourceBits = (((input[sourceY * 2] << 8) | input[(sourceY * 2) + 1]) & 0xfff0) >>> 2;
+    const y = sourceY + 2;
+    const left = sourceBits >>> 8;
+    const right = sourceBits & 0xff;
     for (let plane = 0; plane < 4; plane += 1) {
       if (!(ink & (1 << plane))) continue;
       const offset = (plane * 32) + (y * 2);
-      /* PCE sprite patterns store the right 8 pixels before the left 8 pixels
-         for each 16-pixel row, with one 32-byte block per bitplane. */
       out[offset] = right;
       out[offset + 1] = left;
     }
@@ -114,5 +118,5 @@ module.exports = {
   isJapaneseV3GlyphBytes,
   encodeSystemCardText,
   convertSystemCardGlyph12ToMask24,
-  convertSystemCardGlyph16ToPce4bpp,
+  convertSystemCardGlyph12ToPce4bpp,
 };

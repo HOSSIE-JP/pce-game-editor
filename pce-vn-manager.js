@@ -214,8 +214,9 @@ const VN_BANK132_TAIL_VMA = 0xd078;
 // Sprite-format copy of the glyphs used by `spritetext` commands. Only the
 // characters referenced by spritetext are encoded here (BG-format font tiles
 // cannot be reused for hardware sprites), so this stays small even when the BG
-// HuCard-only SpriteText payload. One glyph = 16x16 px = 1 hardware sprite =
-// 128 bytes of sprite pattern data; CD builds obtain it from EX_GETFNT.
+// HuCard-only SpriteText payload. One visible glyph is 12x12 px, centered in a
+// 16x16 hardware sprite (= 128 bytes of pattern data); CD builds obtain the
+// same 12x12 glyph from EX_GETFNT and convert it on demand.
 const VN_FONT_SPRITE_DATA_FILE = path.join('assets', 'generated', 'vn', 'font_sprite.bin');
 const VN_HUCARD_PSG_DIR = path.join('assets', 'generated', 'vn', 'psg');
 const VN_SYSTEM_CARD_PSG_DIR = path.join('assets', 'generated', 'vn', 'system-card-psg');
@@ -2901,9 +2902,10 @@ function generateVnSources(projectDir, options = {}) {
   let fontSpriteTiles = Buffer.alloc(0);
   let fontSpriteRenderer = '';
   // Place the sprite font right after the BG glyph font, in 32-word pattern
-  // units (a 16x16 sprite pattern spans two units). This sits between the BG
-  // font and the sprite asset region (default sprite tileBase 704).
-  const fontSpritePatternBase = Math.ceil((fontBudget.endTile * 16) / 32);
+  // units. A 16x16 hardware sprite spans two units and the VDC ignores the
+  // low pattern-address bit, so the first glyph must start at an even unit.
+  // This sits between the BG font and the sprite asset region.
+  const fontSpritePatternBase = Math.ceil((fontBudget.endTile * 16) / 64) * 2;
   const fontSpritePaletteBank = clampInt(
     options.fontConfig?.spritePaletteBank ?? fontConfig.spritePaletteBank,
     0, 15, DEFAULT_FONT_SPRITE_PALETTE_BANK,

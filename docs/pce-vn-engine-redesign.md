@@ -103,7 +103,7 @@ CD文字列はlength付き16-bit Shift-JIS列です。LFは内部制御値`0xFFF
 
 message glyphは必要時に`EX_GETFNT/$E060`の12×12 modeで32-byte scratchへ取得し、24-byte maskへ変換して既存の68-glyph cacheへ入れます。17×4 layout、色、typewriter、選択肢、VRAM readback不要compositorは維持します。
 
-`spritetext`は16×16 modeを必要時に呼び、4bppの4 tileへ変換してVRAMへuploadします。
+`spritetext`も12×12 modeを必要時に呼び、2pxの透明余白を持つ16×16 hardware sprite patternへ4bpp化してVRAMへuploadします。SATBは従来どおり1文字1entryですが、配置はmessageと同じ横12px・縦16pxピッチです。
 
 CD生成物には`font.bin`、`font_sprite.bin`を出しません。起動時全font uploadと全glyph VRAM mask領域もありません。`>`、`▼`、起動失敗表示だけを固定図形として持ち、一般文字のfallbackには使いません。
 
@@ -134,7 +134,7 @@ bank123/134/135は8KBの`NOLOAD`予約です。link gateはconsole RAM使用量`
 ## 変更時の受入条件
 
 - compiler: main/sub header、absolute pointer relocation、loop/end、duration split/tie、period/detune、noise、channel variant、bank上限
-- font/scene: ASCII全角化、Shift-JIS coverage、12×12/16×16変換、68-glyph cache、位置付きerror
+- font/scene: ASCII全角化、Shift-JIS coverage、12×12 message mask / SpriteText pattern変換、SpriteText 12pxピッチ、68-glyph cache、位置付きerror
 - build: 8192-byte scene、bank123/134/135 NOLOAD、console/ZP/code-bank gate、catalog再計算、旧font/PSG file不在、CD/HuCard両build
 - Geargrafx: `$E86D`と`$E6CF`が各VBlank 1回、full handler`$E873`が0回、MPR4/5/6とR5/R7/R8/R13・SATB・BGが非破壊
 - 組合せ: BGM+SFX、別bus load、async CD、CD-DA、ADPCM、message font、spritetext、同期/4-slot非同期spritemove、scene切替

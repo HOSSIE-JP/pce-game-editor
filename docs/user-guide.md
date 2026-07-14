@@ -121,7 +121,7 @@ Message voice は buffered ADPCM 専用です。ADPCM は direct-buffered 安全
 - **文字色**: カラーピッカー / `#rrggbb` で指定（PCE 表示色へ自動丸め）。**同時表示するときは 1 色**（後から描いた色が優先）になります。
 - **Blink**: `0` で常時表示、`1` 以上で指定フレームごとに点滅します。
 
-ハードウェアの制約として、スプライト文字は立ち絵と同じ **SATB（最大64個）/ 1走査線16個**を共有します。CD VNは表示時にSystem Card `EX_GETFNT`の16×16 glyphを取得して4bpp化し、必要なpatternだけをVRAMへuploadします。`font_sprite.bin`や起動時一括転送はありません。
+SpriteTextの見える字形は本文と同じ12×12pxで、横12px・縦16pxピッチです。PCEの最小スプライトセルは16×16なので、字形を2pxの透明余白で中央に置き、隣の文字を12px間隔で重ねて配置します。ハードウェアの制約として、スプライト文字は立ち絵と同じ **SATB（最大64個）/ 1走査線16個**を共有します。CD VNは表示時にSystem Card `EX_GETFNT`の12×12 glyphを取得して4bpp化し、必要なpatternだけをVRAMへuploadします。`font_sprite.bin`や起動時一括転送はありません。
 
 `Message` コマンドの **Mouth slot** / **Mouth animation** は、メッセージ表示中に立ち絵の口を動かす（口パク）ための設定です。使うには次の手順が必要です。
 

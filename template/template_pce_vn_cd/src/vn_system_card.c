@@ -135,23 +135,34 @@ static uint8_t VN_RESIDENT_CODE vn_system_card_font12_mask(uint16_t sjis, uint16
     return 1u;
 }
 
-static uint8_t VN_RESIDENT_CODE vn_system_card_font16_upload(uint16_t sjis, uint16_t pattern_base)
+/* Convert the BIOS 12x12 glyph into a 16x16 hardware sprite pattern. The
+   visible glyph is centered with two transparent pixels on every side, so
+   SpriteText can place adjacent hardware sprites at the message text's 12px
+   horizontal pitch without changing the one-glyph/one-SATB-entry contract. */
+static uint8_t VN_RESIDENT_CODE vn_system_card_font12_sprite_upload(uint16_t sjis, uint16_t pattern_base)
 {
     uint8_t plane;
     uint8_t row;
     uint8_t irq;
-    if (vn_system_card_get_font(sjis, 0u, vn_system_card_font_scratch)) return 0u;
+    if (vn_system_card_get_font(sjis, 1u, vn_system_card_font_scratch)) return 0u;
     irq = vn_vdc_irq_lock();
-    for (plane = 0u; plane < 4u; plane++)
+    for (row = 0u; row < 16u; row++)
     {
-        for (row = 0u; row < 16u; row++)
+        uint16_t bits = 0u;
+        if (row >= VN_GLYPH_Y_OFFSET && row < (uint8_t)(VN_GLYPH_Y_OFFSET + VN_GLYPH_H))
         {
-            const uint8_t source = (uint8_t)(row * 2u);
-            const uint8_t dest = (uint8_t)((plane * 32u) + source);
+            const uint8_t source = (uint8_t)((row - VN_GLYPH_Y_OFFSET) * 2u);
+            bits = (uint16_t)(((((uint16_t)vn_system_card_font_scratch[source]) << 8)
+                | vn_system_card_font_scratch[source + 1u]) & 0xfff0u);
+            bits = (uint16_t)(bits >> VN_SPRITETEXT_GLYPH_X_OFFSET);
+        }
+        for (plane = 0u; plane < 4u; plane++)
+        {
+            const uint8_t dest = (uint8_t)((plane * 32u) + (row * 2u));
             /* Hardware sprite layout is four 32-byte plane blocks. Within a
                row the right 8 pixels precede the left 8 pixels. */
-            vn_system_card_sprite_pattern[dest] = vn_system_card_font_scratch[source + 1u];
-            vn_system_card_sprite_pattern[dest + 1u] = vn_system_card_font_scratch[source];
+            vn_system_card_sprite_pattern[dest] = (uint8_t)bits;
+            vn_system_card_sprite_pattern[dest + 1u] = (uint8_t)(bits >> 8);
         }
     }
     pce_editor_vram_copy((uint16_t)(pattern_base * 32u), vn_system_card_sprite_pattern, 128u);

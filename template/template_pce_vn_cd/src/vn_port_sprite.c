@@ -245,8 +245,9 @@ static uint8_t VN_BANKED_CODE call_overlay_show_sprite_slot(uint8_t i)
 }
 
 /* Append the visible spritetext overlays to the SATB starting at satb_index and
-   return how many hardware sprite entries were written. Each glyph is one 16x16
-   sprite using the boot-loaded sprite font; lit pixels read color index 15 of
+   return how many hardware sprite entries were written. Each 12x12 glyph is
+   centered in one 16x16 hardware sprite and placed at the same 12px horizontal
+   pitch / 16px line pitch as message text. Lit pixels read color index 15 of
    the reserved sprite palette bank, which we set to the slot's color here.
    Note: all spritetext shares one palette entry, so if two slots are visible at
    once the last color written wins.
@@ -261,7 +262,7 @@ static uint8_t VN_VISUAL_CACHE_CODE ensure_spritetext_glyph(uint16_t glyph)
         if (spritetext_glyph_cache_ids[i] == glyph) return i;
     if (spritetext_glyph_cache_count >= 64u) return 0xffu;
     i = spritetext_glyph_cache_count;
-    if (!vn_system_card_font16_upload(glyph,
+    if (!vn_system_card_font12_sprite_upload(glyph,
             (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE + ((uint16_t)i << 1)))) return 0xffu;
     spritetext_glyph_cache_ids[i] = glyph;
     spritetext_glyph_cache_count++;
@@ -300,7 +301,7 @@ static uint8_t VN_VISUAL_CACHE_CODE draw_spritetext_slots_impl(uint8_t satb_inde
             if (glyph == PCE_VN_GLYPH_NEWLINE)
             {
                 x = base_x;
-                y = (int16_t)(y + 16);
+                y = (int16_t)(y + VN_SPRITETEXT_PITCH_Y);
                 continue;
             }
 #if defined(__PCE_CD__)
@@ -316,7 +317,7 @@ static uint8_t VN_VISUAL_CACHE_CODE draw_spritetext_slots_impl(uint8_t satb_inde
             entry->pattern = (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE + ((uint16_t)pattern_index << 1));
             entry->attr = attr;
             written++;
-            x = (int16_t)(x + 16);
+            x = (int16_t)(x + VN_SPRITETEXT_PITCH_X);
         }
     }
 #else

@@ -110,6 +110,11 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_GLYPH_H 12u
 /* Vertical pad to center a 12px glyph inside the 16px (2-tile) line band. */
 #define VN_GLYPH_Y_OFFSET 2u
+/* SpriteText keeps one 16x16 hardware sprite per glyph, but uses the same
+   visible 12x12 glyph and 12px horizontal pitch as message text. */
+#define VN_SPRITETEXT_GLYPH_X_OFFSET 2u
+#define VN_SPRITETEXT_PITCH_X VN_GLYPH_W
+#define VN_SPRITETEXT_PITCH_Y 16u
 #define VN_MSG_TILE_COLS 26u
 #define VN_MSG_TILE_ROWS 8u
 #define VN_MSG_TILE_COUNT (VN_MSG_TILE_COLS * VN_MSG_TILE_ROWS)

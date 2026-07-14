@@ -6,7 +6,7 @@ const {
   normalizeSystemCardText,
   encodeSystemCardText,
   convertSystemCardGlyph12ToMask24,
-  convertSystemCardGlyph16ToPce4bpp,
+  convertSystemCardGlyph12ToPce4bpp,
 } = require('../pce-system-card-font');
 
 test('System Card text normalizes printable ASCII and encodes fixed Shift-JIS words', () => {
@@ -33,15 +33,16 @@ test('System Card 12x12 conversion masks the unused four columns', () => {
   for (let row = 0; row < 12; row += 1) assert.equal(mask[row * 2 + 1], 0xf0);
 });
 
-test('System Card 16x16 conversion emits PCE hardware sprite plane order', () => {
+test('System Card 12x12 sprite conversion centers the glyph in a 16x16 pattern', () => {
   const source = Buffer.alloc(32);
-  source[0] = 0x80;
-  source[31] = 0x01;
-  const pattern = convertSystemCardGlyph16ToPce4bpp(source, 3);
+  source[0] = 0x80; // source (0, 0) -> sprite (2, 2)
+  source[23] = 0x1f; // source (11, 11) -> sprite (13, 13); low nibble is padding
+  const pattern = convertSystemCardGlyph12ToPce4bpp(source, 3);
   assert.equal(pattern.length, 128);
-  assert.equal(pattern[1], 0x80);
-  assert.equal(pattern[33], 0x80);
-  assert.equal(pattern[30], 0x01);
-  assert.equal(pattern[62], 0x01);
+  assert.equal(pattern[5], 0x20);
+  assert.equal(pattern[37], 0x20);
+  assert.equal(pattern[26], 0x04);
+  assert.equal(pattern[58], 0x04);
+  assert.equal(pattern.subarray(0, 4).every((byte) => byte === 0), true);
   assert.equal(pattern.subarray(64).every((byte) => byte === 0), true);
 });

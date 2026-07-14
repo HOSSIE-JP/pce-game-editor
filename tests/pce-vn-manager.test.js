@@ -1926,7 +1926,9 @@ test('PCE VN manager encodes spritetext overlays for on-demand BIOS glyphs', () 
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
   assert.match(header, /PCE_VN_COMMAND_SPRITETEXT 14u/);
-  assert.match(header, /#define PCE_VN_FONT_SPRITE_PATTERN_BASE \d+u/);
+  const spritePatternBaseMatch = header.match(/#define PCE_VN_FONT_SPRITE_PATTERN_BASE (\d+)u/);
+  assert.ok(spritePatternBaseMatch);
+  assert.equal(Number(spritePatternBaseMatch[1]) % 2, 0, '16x16 SpriteText patterns must start on an even pattern unit');
   assert.match(header, /#define PCE_VN_FONT_SPRITE_PALETTE_BANK 15u/);
   assert.doesNotMatch(source, /pce_vn_font_sprite/);
   assert.equal(generated.fontSpriteGlyphCount, 0);
@@ -1955,9 +1957,28 @@ test('PCE VN manager encodes spritetext overlays for on-demand BIOS glyphs', () 
   const runtime = readRuntimeSource();
   assert.match(runtime, /command->type == PCE_VN_COMMAND_SPRITETEXT/);
   assert.match(runtime, /draw_spritetext_slots\(uint8_t satb_index\)/);
-  assert.match(runtime, /vn_system_card_font16_upload\(glyph,[\s\S]*PCE_VN_FONT_SPRITE_PATTERN_BASE[\s\S]*i << 1/);
+  assert.match(runtime, /vn_system_card_font12_sprite_upload\(glyph,[\s\S]*PCE_VN_FONT_SPRITE_PATTERN_BASE[\s\S]*i << 1/);
+  assert.match(runtime, /vn_system_card_get_font\(sjis, 1u, vn_system_card_font_scratch\)/);
+  assert.match(runtime, /#define VN_SPRITETEXT_PITCH_X VN_GLYPH_W/);
+  assert.match(runtime, /x = \(int16_t\)\(x \+ VN_SPRITETEXT_PITCH_X\)/);
   assert.match(runtime, /spritetext_glyph_cache_ids\[64\]/);
   assert.match(runtime, /static void tick_spritetext\(void\)/);
+
+  const hucardRuntime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_hucard', 'src', 'pce_vn_hucard_runtime.c'),
+    'utf-8',
+  );
+  assert.match(hucardRuntime, /#define VN_SPRITETEXT_PITCH_X VN_GLYPH_W/);
+  assert.match(hucardRuntime, /col \* VN_SPRITETEXT_PITCH_X/);
+
+  const editorRenderer = fs.readFileSync(
+    path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'),
+    'utf-8',
+  );
+  assert.equal((editorRenderer.match(/12px\/16px monospace/g) || []).length, 2);
+  assert.equal((editorRenderer.match(/renderSpriteTextCells\(node, st\.text\)/g) || []).length, 2);
+  assert.match(editorRenderer, /SPRITETEXT_CELL = \{ width: 12, height: 16 \}/);
+  assert.doesNotMatch(editorRenderer, /16px\/16px monospace/);
 });
 
 test('PCE VN manager omits the sprite font when no scene uses spritetext', () => {
@@ -2219,7 +2240,7 @@ test('PCE VN runtime owns only the System Card user VSync vector', () => {
 
   assert.match(source, /jsr \$e060/);
   assert.match(source, /vn_system_card_font12_mask/);
-  assert.match(source, /vn_system_card_font16_upload/);
+  assert.match(source, /vn_system_card_font12_sprite_upload/);
   assert.match(source, /message_glyph_cache_masks\[VN_MESSAGE_GLYPH_CACHE_COUNT\]\[VN_GLYPH_MASK_ROWS\]/);
   assert.doesNotMatch(source, /PCE_VN_FONT_MASK_VRAM_WORD|upload_font_tiles\(|upload_font_sprite_patterns\(/);
   assert.match(source, /vn_system_card_show_failure/);
