@@ -7,6 +7,7 @@ PC Engine / Super CD-ROM²のTest Play、VDC、System Card PSG、ADPCMを調査�
 - 描画、VDC、SATB、PSG、bank、IRQの原因特定にはGeargrafx MCPを優先します。
 - EmulatorJS/WASMはユーザー向け再現とADPCM固有回帰の確認に使います。WASMだけの挙動で実機寄りruntimeを壊さないでください。
 - 標準EmulatorJSはbrowser loopとcore内VSyncの二重同期を避けるため、`EJS_defaultOptions.vsync`を`disabled`にします。FPSが約30へ段落ちした場合は、同一ROMをGeargrafxで比較し、EmulatorJSの`gameManager.getFrameNum()`差分と実時間を採取します。HuCARD runtime側では、main loop直後のtypewriter/SATB小転送が同じVBlankを共有し、追加waitを入れていないことも確認します。
+- HuCARDでmessage開始時だけBGが縦にずれる場合は、GeargrafxでVDC R8 (`BYR`) write breakpointを設定します。現行runtimeはR7/R8を表示開始前に各1回だけ初期化し、message/BAT/glyph/SATBのVRAM転送中には再書き込みません。同値のBYR再書き込みも次の走査線へ作用するため、VRAM helperからscrollを復元してはいけません。
 - CD VNは`targetMedia: "cd"`、`toolchain: "llvm-mos"`で、builderが`cd.systemCardProfile: "jp-v3"`へ自動的に正規化します。System Card ROMはビルド入力ではなく、Test PlayがSetupで指定されたユーザー所有の日本版Super System Card 3.0 ROMを検証します。
 - BIOS、IPL、PSG driver、抽出fontをリポジトリへ保存しません。
 

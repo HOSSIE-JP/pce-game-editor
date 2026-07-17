@@ -216,8 +216,6 @@ static uint16_t wait_frames_remaining;
 static uint8_t async_input_mask;
 static uint16_t async_input_target = PCE_VN_NO_COMMAND;
 static uint16_t vdc_control_shadow = VN_VDC_CONTROL_BASE;
-static uint16_t bg_scroll_x_shadow;
-static uint16_t bg_scroll_y_shadow;
 static vn_psg_player_t psg_song __attribute__((section(".bss")));
 static vn_psg_player_t psg_sfx __attribute__((section(".bss")));
 static vn_psg_voice_t psg_hardware_voices[6] __attribute__((section(".bss")));
@@ -284,12 +282,6 @@ static void vn_vdc_set_copy_word(void)
     pce_vdc_poke(VDC_REG_CONTROL, vdc_control_shadow);
 }
 
-static void restore_bg_scroll(void)
-{
-    pce_vdc_poke(VDC_REG_BG_SCROLL_X, bg_scroll_x_shadow);
-    pce_vdc_poke(VDC_REG_BG_SCROLL_Y, bg_scroll_y_shadow);
-}
-
 static void vn_vram_copy(uint16_t dest, const void *source, uint16_t byte_count)
 {
     vn_vdc_set_copy_word();
@@ -304,7 +296,6 @@ static void service_psg(void)
 static void service_psg_during_blocking_work(void)
 {
     wait_vblank();
-    restore_bg_scroll();
     service_psg();
 }
 
@@ -547,7 +538,6 @@ static void VN_HUCARD_CODE_TEXT map_message_window_cells_now(uint8_t blank)
        VN_MSG_TILE_COLS (=208) BAT words fit comfortably in one VBlank, so write
        them in one pass for an instant show/clear (matches the CD runtime, which
        never waits per row). */
-    restore_bg_scroll();
     for (tr = 0u; tr < VN_MSG_TILE_ROWS; tr++)
     {
         const uint16_t row_tile = (uint16_t)(VN_MSG_STRIP_TILE_BASE + ((uint16_t)tr * VN_MSG_TILE_COLS));
@@ -648,7 +638,6 @@ static void VN_HUCARD_CODE_TEXT flush_msg_tile_batch_now(void)
 {
     uint8_t i;
     if (!msg_tile_batch_count) return;
-    restore_bg_scroll();
     for (i = 0u; i < msg_tile_batch_count; i++)
     {
         vn_vram_copy(msg_tile_batch_addr[i], msg_tile_batch[i], 32u);
@@ -1398,7 +1387,6 @@ static void VN_HUCARD_CODE_SPRITE_STATE clear_sprite_slot_shadow(uint8_t slot)
 
 static void VN_HUCARD_CODE_VIDEO upload_sprite_table_now(void)
 {
-    restore_bg_scroll();
     vn_vram_copy(VN_SATB_ADDR, (const uint8_t *)sprite_shadow, (uint16_t)(64u * sizeof(vdc_sprite_t)));
     pce_vdc_poke(VDC_REG_DMA_CONTROL, VDC_DMA_SRC_INC);
     pce_vdc_poke(VDC_REG_SATB_START, VN_SATB_ADDR);
@@ -2229,13 +2217,16 @@ static void VN_HUCARD_CODE_VIDEO init_video(void)
 {
     pce_cpu_irq_disable();
     pce_irq_disable(IRQ_VDC);
-    bg_scroll_x_shadow = 0u;
-    bg_scroll_y_shadow = 0u;
     pce_vdc_set_resolution(256u, 224u, VCE_COLORBURST_ON);
     pce_vdc_bg_set_size(VDC_BG_SIZE_32_32);
     pce_vdc_poke(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL);
     vn_vdc_set_copy_word();
-    restore_bg_scroll();
+    /* BXR/BYR have scanline side effects even when the written value is
+       unchanged. Initialize them once while display is disabled; VRAM/SATB
+       transfers only change the VDC address register and never need to
+       "restore" scroll during message rendering. */
+    pce_vdc_poke(VDC_REG_BG_SCROLL_X, 0u);
+    pce_vdc_poke(VDC_REG_BG_SCROLL_Y, 0u);
     set_vdc_control(VN_VDC_CONTROL_BASE);
     pce_vdc_sprite_set_table_start(VN_SATB_ADDR);
     clear_sprites();

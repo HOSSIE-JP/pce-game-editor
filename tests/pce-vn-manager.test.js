@@ -2672,8 +2672,9 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.match(runtime, /VN_VDC_MEMORY_CONTROL \(VDC_CYCLE_4_SLOTS \| VDC_BG_SIZE_32_32\)/);
   assert.match(runtime, /pce_vdc_poke\(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL\);/);
   assert.match(runtime, /pce_vdc_sprite_set_table_start\(VN_SATB_ADDR\);/);
-  assert.match(runtime, /static uint16_t bg_scroll_x_shadow;/);
-  assert.match(runtime, /static void restore_bg_scroll\(void\)[\s\S]*pce_vdc_poke\(VDC_REG_BG_SCROLL_X, bg_scroll_x_shadow\);[\s\S]*pce_vdc_poke\(VDC_REG_BG_SCROLL_Y, bg_scroll_y_shadow\);/);
+  assert.doesNotMatch(runtime, /bg_scroll_[xy]_shadow|restore_bg_scroll/);
+  assert.equal((runtime.match(/pce_vdc_poke\(VDC_REG_BG_SCROLL_X, 0u\);/g) || []).length, 1);
+  assert.equal((runtime.match(/pce_vdc_poke\(VDC_REG_BG_SCROLL_Y, 0u\);/g) || []).length, 1);
   assert.match(runtime, /static void vn_vram_copy\(uint16_t dest, const void \*source, uint16_t byte_count\)[\s\S]*pce_vdc_copy_to_vram\(dest, source, byte_count\);/);
   assert.doesNotMatch(runtime, /static void vn_vram_copy\(uint16_t dest, const void \*source, uint16_t byte_count\)[\s\S]*pce_vdc_copy_to_vram\(dest, source, byte_count\);\r?\n    restore_bg_scroll\(\);/);
   assert.match(runtime, /#define VN_PSG_VBLANK_FRAMES_PER_SERVICE 1u/);
@@ -2687,8 +2688,7 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.match(runtime, /static void service_psg\(void\)[\s\S]*psg_advance\(VN_PSG_VBLANK_FRAMES_PER_SERVICE\);/);
   assert.doesNotMatch(runtime, /VN_PSG_TIMER_HZ|VN_VBLANK_CREDIT_MAX|VN_VBLANK_CREDIT_SERVICE_LIMIT|vn_vblank_credit|vn_hucard_psg_timer_irq_hook|\.irq_timer|vn_consume_vblank_credit|pce_timer_set|pce_timer_enable|pce_irq_enable\(IRQ_TIMER\)|pce_cpu_irq_enable\(\)/);
   assert.match(runtime, /static void VN_HUCARD_CODE_VIDEO fade_palette\(const pce_editor_data_ref_t \*palette, uint16_t base, uint8_t frames, uint8_t fade_in\)[\s\S]*upload_palette\(palette, base, level\);[\s\S]*service_psg_during_blocking_work\(\);/);
-  assert.match(runtime, /static void service_psg_during_blocking_work\(void\)[\s\S]*wait_vblank\(\);[\s\S]*restore_bg_scroll\(\);[\s\S]*service_psg\(\);/);
-  assert.doesNotMatch(runtime, /static void service_psg_during_blocking_work\(void\)\s*\{\s*restore_bg_scroll\(\);\s*wait_vblank\(\);/);
+  assert.match(runtime, /static void service_psg_during_blocking_work\(void\)[\s\S]*wait_vblank\(\);[\s\S]*service_psg\(\);/);
   // Blocking glyph uploads wait and service PSG once. The per-frame typewriter
   // path reuses main()'s current VBlank and must neither wait nor service again.
   const hucardFlushNowStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT flush_msg_tile_batch_now(void)');
@@ -2699,7 +2699,7 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.notEqual(hucardFlushEnd, -1);
   const hucardFlushNowSource = runtime.slice(hucardFlushNowStart, hucardFlushStart);
   const hucardFlushSource = runtime.slice(hucardFlushStart, hucardFlushEnd);
-  assert.match(hucardFlushNowSource, /restore_bg_scroll\(\);[\s\S]*vn_vram_copy\(msg_tile_batch_addr\[i\], msg_tile_batch\[i\], 32u\);/);
+  assert.match(hucardFlushNowSource, /vn_vram_copy\(msg_tile_batch_addr\[i\], msg_tile_batch\[i\], 32u\);/);
   assert.doesNotMatch(hucardFlushNowSource, /wait_vblank\(\)|service_psg\(\)/);
   assert.match(hucardFlushSource, /wait_vblank\(\);[\s\S]*flush_msg_tile_batch_now\(\);[\s\S]*service_psg\(\);/);
   // Full upload_sprite_table spends a VBlank and pairs it with PSG service. The
@@ -2712,7 +2712,7 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   const hucardUploadSatbSource = runtime.slice(hucardUploadSatbStart, hucardUploadSatbEnd);
   assert.match(hucardUploadSatbSource, /wait_vblank\(\);[\s\S]*upload_sprite_table_now\(\);[\s\S]*service_psg\(\);/);
   assert.match(runtime, /static void VN_HUCARD_CODE_VIDEO upload_sprite_table_now\(void\)[\s\S]*pce_vdc_poke\(VDC_REG_SATB_START, VN_SATB_ADDR\);/);
-  assert.match(runtime, /bg_scroll_x_shadow = 0u;[\s\S]*bg_scroll_y_shadow = 0u;[\s\S]*restore_bg_scroll\(\);/);
+  assert.match(runtime, /pce_vdc_poke\(VDC_REG_BG_SCROLL_X, 0u\);[\s\S]*pce_vdc_poke\(VDC_REG_BG_SCROLL_Y, 0u\);[\s\S]*clear_sprites\(\);/);
   assert.match(runtime, /"csl\\n"[\s\S]*vn_hu_wait_vblank_start_outer[\s\S]*"csh\\n"/);
   assert.match(runtime, /copy_data_ref_to_vram_guarded/);
   assert.match(runtime, /service_psg_during_blocking_work/);
@@ -2732,7 +2732,7 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   const hucardMapWinNowSource = runtime.slice(hucardMapWinNowStart, hucardMapWinStart);
   const hucardMapWinSource = runtime.slice(hucardMapWinStart, hucardMapWinEnd);
   assert.doesNotMatch(hucardMapWinNowSource, /wait_vblank\(\)|service_psg\(\)/);
-  assert.match(hucardMapWinNowSource, /restore_bg_scroll\(\);[\s\S]*for \(tr = 0u; tr < VN_MSG_TILE_ROWS; tr\+\+\)[\s\S]*vn_vram_copy\(\(uint16_t\)\(\(\(VN_TEXT_Y \+ tr\) \* VN_MAP_WIDTH\) \+ VN_TEXT_X\), msg_bat_row, \(uint16_t\)\(VN_MSG_TILE_COLS \* 2u\)\);/);
+  assert.match(hucardMapWinNowSource, /for \(tr = 0u; tr < VN_MSG_TILE_ROWS; tr\+\+\)[\s\S]*vn_vram_copy\(\(uint16_t\)\(\(\(VN_TEXT_Y \+ tr\) \* VN_MAP_WIDTH\) \+ VN_TEXT_X\), msg_bat_row, \(uint16_t\)\(VN_MSG_TILE_COLS \* 2u\)\);/);
   assert.match(hucardMapWinSource, /wait_vblank\(\);[\s\S]*map_message_window_cells_now\(blank\);[\s\S]*service_psg\(\);/);
   assert.match(runtime, /#define VN_MSG_CLEAR_TILES_PER_VBLANK 16u/);
   assert.match(runtime, /static void VN_HUCARD_CODE_TEXT clear_window_tile_pixels\(void\)[\s\S]*if \(\(tile & \(VN_MSG_CLEAR_TILES_PER_VBLANK - 1u\)\) == 0u\) service_psg_during_blocking_work\(\);[\s\S]*vn_vram_copy\(\(uint16_t\)\(\(VN_MSG_STRIP_TILE_BASE \+ tile\) \* 16u\), msg_tile, 32u\);/);

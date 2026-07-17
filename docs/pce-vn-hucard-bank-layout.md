@@ -37,6 +37,8 @@ TIMER IRQ は HuCARD 側では使いません。過去の TIMER credit 実験で
 
 `wait_vblank()` のstatus polling中だけHuC6280を`CSL`で低速モードにし、終了時に必ず`CSH`へ戻します。待機時間そのものはVDCに同期した1フレームのままですが、高速CPUでVDC statusを連続readする量を減らし、エミュレーターのI/O dispatch負荷も抑えます。
 
+VDC `BXR` / `BYR`（R7/R8）は `init_video()` で表示を有効にする前に0へ初期化し、その後のBG/BAT/message/SATB用VRAM転送では書き直しません。VRAM転送helperが変更するのはVDC address/control registerであり、scroll値の復元は不要です。特に`BYR`は同じ値の再書き込みでも次の走査線から縦scroll counterへ反映されるため、message開始やtypewriter更新から呼ぶとBGが1 frameだけ縦にずれて見えます。将来scroll commandを追加する場合も、転送helperへ暗黙の復元を戻さず、frame境界で明示的にR7/R8を更新してください。
+
 `spritemove`とsprite animationの毎frame更新はmain loopの1回の`wait_vblank()`を共有します。DDAで座標を進めてshadow SATBを組み直した後は`upload_sprite_table_now()`で次VBlank用のSATB DMAをarmし、追加の`wait_vblank()`や`service_psg()`を呼びません。同期moveは完了SATBが反映された次loopでscriptを再開し、async moveは最大4 slotを並行更新します。4 slot分の移動状態はconsole RAM 96 bytes以下です。
 
 ## VN data の扱い
