@@ -971,7 +971,7 @@ test('PCE generated assets emit BG and sprite C arrays for resident templates', 
           steps: 16,
           pattern: [
             { step: 0, channel: 0, period: 512, volume: 20 },
-            { step: 2, channel: 1, period: 1024, volume: 12 },
+            { step: 2, channel: 1, period: 1024, volume: 12, wave: 22 },
             { step: 3, channel: 4, period: 5, volume: 16, noise: 1 },
           ],
         },
@@ -1019,9 +1019,10 @@ test('PCE generated assets emit BG and sprite C arrays for resident templates', 
   assert.match(source, /static const unsigned char pce_editor_image_bg_palette\[\] PCE_EDITOR_RODATA_SECTION/);
   assert.match(source, /static const unsigned char pce_editor_sprite_spr_patterns\[\] PCE_EDITOR_RODATA_SECTION/);
   assert.match(source, /static const pce_editor_psg_step_t pce_editor_psg_beep_pattern\[\] PCE_EDITOR_RODATA_SECTION/);
-  // PSG step carries a noise flag so MIDI drums can map to PSG noise (ch4/5).
-  assert.match(header, /typedef struct __attribute__\(\(packed\)\) \{[\s\S]*unsigned int step;[\s\S]*unsigned char noise;[\s\S]*unsigned char reserved;\n\} pce_editor_psg_step_t;/);
-  assert.match(source, /\{ 3u, 4u, 5u, 16u, 1u, 0u \}/);
+  // PSG step carries noise and wave so HuCARD can consume the same MIDI timbre data.
+  assert.match(header, /typedef struct __attribute__\(\(packed\)\) \{[\s\S]*unsigned int step;[\s\S]*unsigned char noise;[\s\S]*unsigned char wave;\n\} pce_editor_psg_step_t;/);
+  assert.match(source, /\{ 2u, 1u, 1024u, 12u, 0u, 22u \}/);
+  assert.match(source, /\{ 3u, 4u, 5u, 16u, 1u, 45u \}/);
   // PSG asset carries a CD-ref pointer; small patterns stay resident (cd = null),
   // while large imported PSG songs keep their pattern data on CD.
   assert.match(header, /const pce_editor_cd_data_ref_t \*pattern_cd;\n\} pce_editor_psg_asset_t;/);
@@ -1873,9 +1874,9 @@ test('PCE PSG source generation sorts pattern entries for cursor playback', () =
   });
   const out = assetManager.generateAssetSources(projectDir);
   const source = fs.readFileSync(out.sourcePath, 'utf-8');
-  const step0ch0 = source.indexOf('{ 0u, 0u, 512u, 10u, 0u, 0u }');
-  const step0ch2 = source.indexOf('{ 0u, 2u, 384u, 9u, 0u, 0u }');
-  const step2ch1 = source.indexOf('{ 2u, 1u, 768u, 8u, 0u, 0u }');
+  const step0ch0 = source.indexOf('{ 0u, 0u, 512u, 10u, 0u, 45u }');
+  const step0ch2 = source.indexOf('{ 0u, 2u, 384u, 9u, 0u, 45u }');
+  const step2ch1 = source.indexOf('{ 2u, 1u, 768u, 8u, 0u, 45u }');
   assert.ok(step0ch0 >= 0);
   assert.ok(step0ch2 > step0ch0);
   assert.ok(step2ch1 > step0ch2);
@@ -1916,8 +1917,8 @@ test('PCE PSG master volume scales generated step amplitudes', () => {
   const out = assetManager.generateAssetSources(projectDir);
   const source = fs.readFileSync(out.sourcePath, 'utf-8');
   // 50% master volume: 20 -> 10, 30 -> 15.
-  assert.match(source, /\{ 0u, 0u, 512u, 10u, 0u, 0u \}/);
-  assert.match(source, /\{ 1u, 0u, 256u, 15u, 0u, 0u \}/);
+  assert.match(source, /\{ 0u, 0u, 512u, 10u, 0u, 45u \}/);
+  assert.match(source, /\{ 1u, 0u, 256u, 15u, 0u, 45u \}/);
 });
 
 test('PCE CD VN asset metadata always uses the catalog path', () => {

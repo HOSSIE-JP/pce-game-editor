@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { pathToFileURL } = require('node:url');
 
 function readRendererFile(name) {
   return fs.readFileSync(path.join(__dirname, '..', 'renderer', name), 'utf-8');
@@ -148,6 +149,32 @@ test('static ResComp asset UI is absent while PCE conversion modals remain', () 
   assert.match(renderer, /function openAudioConvertModal/);
   assert.match(renderer, /function openResizeModal/);
   assert.match(renderer, /function openQuantizeModal/);
+});
+
+test('quantize palette references use current PCE BG and sprite assets', async () => {
+  const renderer = readRendererFile('renderer.js');
+  const modulePath = pathToFileURL(path.join(__dirname, '..', 'renderer', 'palette-reference.mjs')).href;
+  const { getPaletteReferenceCandidates } = await import(modulePath);
+  const assets = [
+    { id: 'title', name: 'Title BG', type: 'image', source: 'assets/images/title.png', exists: true },
+    { id: 'hero', name: 'Hero', type: 'sprite', source: 'assets/sprites/hero.bmp', exists: true },
+    { id: 'voice', name: 'Voice', type: 'adpcm', source: 'assets/adpcm/voice.wav', exists: true },
+    { id: 'missing', name: 'Missing', type: 'image', source: 'assets/images/missing.png', exists: false },
+    { id: 'webp', name: 'WebP', type: 'image', source: 'assets/images/source.webp', exists: true },
+    { id: 'duplicate', name: 'Duplicate', type: 'image', source: 'assets/images/title.png', exists: true },
+  ];
+
+  const candidates = getPaletteReferenceCandidates(assets, {
+    projectDir: 'C:\\projects\\game',
+    excludeSourcePath: 'c:\\PROJECTS\\GAME\\assets\\sprites\\hero.bmp',
+  });
+
+  assert.deepEqual(candidates, [{
+    sourcePath: 'C:/projects/game/assets/images/title.png',
+    label: 'Title BG (assets/images/title.png)',
+  }]);
+  assert.match(renderer, /import \{ getPaletteReferenceCandidates \} from '\.\/palette-reference\.mjs'/);
+  assert.match(renderer, /getPaletteReferenceCandidates\(pceAssetState\.assets,\s*\{[\s\S]*excludeSourcePath,[\s\S]*projectDir: state\.project\.dir/);
 });
 
 test('PCE asset manager uses plugin-owned panes and PCE IPC workflow', () => {

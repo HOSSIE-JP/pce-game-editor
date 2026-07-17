@@ -77,7 +77,7 @@ typedef struct __attribute__((packed)) {
   unsigned int period;
   unsigned char volume;
   unsigned char noise;
-  unsigned char reserved;
+  unsigned char wave;
 } pce_editor_psg_step_t;
 
 typedef struct {

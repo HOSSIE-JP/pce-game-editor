@@ -106,6 +106,7 @@ const DEFAULT_PSG_OPTIONS = Object.freeze({
   bpm: 150,
   speed: 6,
   period: 512,
+  wave: 45,
   channels: 6,
   steps: 32,
   volume: 100,
@@ -308,6 +309,9 @@ function normalizePsgOptions(asset = {}) {
     bpm: clampInt(rawOptions.bpm, 30, 300, DEFAULT_PSG_OPTIONS.bpm),
     speed: clampInt(rawOptions.speed, 1, 16, DEFAULT_PSG_OPTIONS.speed),
     period: clampInt(rawOptions.period, 1, 4095, DEFAULT_PSG_OPTIONS.period),
+    wave: rawOptions.wave == null
+      ? DEFAULT_PSG_OPTIONS.wave
+      : clampInt(rawOptions.wave, 0, 45, DEFAULT_PSG_OPTIONS.wave),
     channels: clampInt(rawOptions.channels, 1, 6, DEFAULT_PSG_OPTIONS.channels),
     steps: clampInt(rawOptions.steps, 1, PCE_PSG_MAX_STEPS, DEFAULT_PSG_OPTIONS.steps),
     volume: clampInt(rawOptions.volume, 0, 100, DEFAULT_PSG_OPTIONS.volume),
@@ -2138,6 +2142,7 @@ function normalizePsgPatternEntries(asset, options) {
       period: clampInt(raw.period, 1, 4095, options.period),
       volume: clampInt(Math.round((baseVolume * volumeScale) / 100), 0, 31, baseVolume),
       noise: clampInt(raw.noise, 0, 1, 0),
+      wave: raw.wave == null ? options.wave : clampInt(raw.wave, 0, 45, options.wave),
     };
   }).sort((a, b) => {
     if (a.step !== b.step) return a.step - b.step;
@@ -2150,6 +2155,7 @@ function normalizePsgPatternEntries(asset, options) {
       period: entry.period,
       volume: entry.volume,
       noise: entry.noise,
+      wave: entry.wave,
     };
   });
 }
@@ -2170,7 +2176,7 @@ function serializePsgPattern(pattern) {
     buffer.writeUInt16LE(step.period & 0xffff, offset + 3);
     buffer[offset + 5] = step.volume & 0xff;
     buffer[offset + 6] = step.noise & 0xff;
-    buffer[offset + 7] = 0;
+    buffer[offset + 7] = step.wave & 0xff;
   });
   return buffer;
 }
@@ -2248,7 +2254,7 @@ function generatePsgMetadata(projectDir, assets, generationOptions = {}) {
     } else if (pattern.length) {
       arrayLines.push(`static const pce_editor_psg_step_t ${ident}_pattern[] PCE_EDITOR_RODATA_SECTION = {`);
       pattern.forEach((step, stepIndex) => {
-        arrayLines.push(`  { ${step.step}u, ${step.channel}u, ${step.period}u, ${step.volume}u, ${step.noise}u, 0u }${stepIndex + 1 < pattern.length ? ',' : ''}`);
+        arrayLines.push(`  { ${step.step}u, ${step.channel}u, ${step.period}u, ${step.volume}u, ${step.noise}u, ${step.wave}u }${stepIndex + 1 < pattern.length ? ',' : ''}`);
       });
       arrayLines.push('};');
       arrayLines.push('');
@@ -3245,7 +3251,7 @@ function generateAssetSources(projectDir, options = {}) {
       '  unsigned int period;',
       '  unsigned char volume;',
       '  unsigned char noise;',
-      '  unsigned char reserved;',
+      '  unsigned char wave;',
       '} pce_editor_psg_step_t;',
       '',
       'typedef struct {',

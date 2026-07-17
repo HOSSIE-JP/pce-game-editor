@@ -506,7 +506,9 @@ packageは実際にsceneから参照された`(assetId, channel)`ごとに作り
 
 CD packageはbank134 `$8024`以降のBGM（最大8156 bytes）とbank135 `$A000`以降のSFX（最大8192 bytes）へdirect async loadします。対象busだけを停止し、宣言byte数だけを転送するので、他方のbusは継続します。同じbusの再生中に別packageを`cache load`するscriptはvalidation errorです。
 
-user waveformとして登録するのは32-byte squareの45だけで、外部envelope/FMは使いません。CD patternのoptional `wave`は0〜44をSystem Card内蔵wave、45をそのsquareとして発音ごとの`WAVE` commandへ変換します。MIDI取込はProgram ChangeをGM 16ファミリーへまとめ、`midiOptions.programWaveMap`で割り当てます。手入力、VGM、SFXデザイナーなど`wave`未指定のtoneは45です。`options.volume`のbuild-time scaleも従来どおり利用できます。HuCard buildはSystem Card packageへ変換せず、`wave`を無視して既存step runtimeを使います。WebAudio previewは内蔵waveの大まかなスペクトル分類であり、最終音色はGeargrafx/実機で確認します。
+user waveformとして登録するのは32-byte squareの45だけで、外部envelope/FMは使いません。CD patternのoptional `wave`は0〜44をSystem Card内蔵wave、45をそのsquareとして発音ごとの`WAVE` commandへ変換します。MIDI取込はProgram ChangeをGM 16ファミリーへまとめ、`midiOptions.programWaveMap`で割り当てます。手入力、VGM、SFXデザイナーなど`wave`未指定のtoneは45です。`options.volume`のbuild-time scaleも従来どおり利用できます。WebAudio previewは内蔵waveの大まかなスペクトル分類であり、最終音色はGeargrafx/実機で確認します。
+
+HuCARD VN build は System Card package へは変換しませんが、共通の 8-byte step の byte 7 に `wave`を保持します。System Card ROM の波形表は利用できないため、0〜45 を preview と同じ sine / saw / triangle / square の4分類へ近似し、HuCARD runtime が32-sample waveを生成します。CD版と波形のスペクトルは完全一致しませんが、MIDI再変換後の音色割り当てがすべて矩形波へ失われることはありません。song/BGMとSFXは別busとして管理し、同じ物理channelでは発音中のSFXを優先して、終了時にBGMを復元します。`stop`の`bgm` / `sfx` / `all`もHuCARD側で区別します。
 
 ### CD-DA 再生 command
 

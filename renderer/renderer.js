@@ -30,6 +30,7 @@ import {
   buildPceProjectSettings,
   normalizeExternalEmulatorSettings,
 } from './project-settings.mjs';
+import { getPaletteReferenceCandidates } from './palette-reference.mjs';
 
 // ------------------------------------------------------------------ state --
 const state = {
@@ -4627,7 +4628,10 @@ async function rerenderQuantizePreview() {
 
 function populateQuantizePaletteAssetOptions(excludeSourcePath = '') {
   if (!el.quantizePaletteAsset) return;
-  const candidates = getPaletteReferenceCandidates(excludeSourcePath);
+  const candidates = getPaletteReferenceCandidates(pceAssetState.assets, {
+    excludeSourcePath,
+    projectDir: state.project.dir,
+  });
   const options = ['<option value="">指定なし（自動パレット）</option>'];
   candidates.forEach((entry) => {
     options.push(`<option value="${escHtml(entry.sourcePath)}">${escHtml(entry.label)}</option>`);

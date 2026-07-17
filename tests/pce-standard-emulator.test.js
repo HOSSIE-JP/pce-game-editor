@@ -41,7 +41,7 @@ test('PCE EmulatorJS page bridges core EJS_Runtime into window global', () => {
   assert.match(html, /fetch\(script\.src\)/);
   assert.match(html, /window\.EJS_core = 'pce'/);
   assert.match(html, /window\.EJS_startOnLoaded = true/);
-  assert.match(html, /window\.EJS_defaultOptions = \{ webgl2Enabled: 'enabled' \}/);
+  assert.match(html, /window\.EJS_defaultOptions = \{ webgl2Enabled: 'enabled', vsync: 'disabled' \}/);
   assert.match(html, /window\.EJS_cacheConfig = \{ enabled: false/);
   assert.match(html, /window\.EJS_pathtodata/);
 });

@@ -1779,7 +1779,7 @@ test('PCE HuCARD VN generation keeps scene-pack commands and strips CD audio out
           bpm: 120,
           steps: 4,
           pattern: [
-            { step: 0, channel: 0, period: 384, volume: 20 },
+            { step: 0, channel: 0, period: 384, volume: 20, wave: 9 },
             { step: 2, channel: 4, period: 8, volume: 12, noise: 1 },
           ],
         },
@@ -1821,6 +1821,10 @@ test('PCE HuCARD VN generation keeps scene-pack commands and strips CD audio out
   assert.ok(generated.extraDataFiles.some((entry) => entry.symbol === 'pce_vn_psg_pattern_ref_0'));
   assert.ok(generated.extraDataFiles.every((entry) => entry.forceBanked === true));
   assert.equal(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'psg', 'theme.bin')), true);
+  const psgPattern = fs.readFileSync(path.join(projectDir, 'assets', 'generated', 'vn', 'psg', 'theme.bin'));
+  assert.equal(psgPattern.length, 16);
+  assert.equal(psgPattern[7], 9);
+  assert.equal(psgPattern[15], 45);
 
   assert.match(header, /#include "assets\.h"/);
   assert.match(header, /const pce_editor_data_ref_t \*data;/);
@@ -2645,8 +2649,14 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.match(runtime, /#include "pce_vn_hucard_banks\.h"/);
   assert.match(runtime, /VN_HUCARD_CODE_SCRIPT __attribute__\(\(noinline, section\("\.rom_bank1"\)\)\)/);
   assert.match(runtime, /VN_HUCARD_CODE_PSG __attribute__\(\(noinline, section\("\.rom_bank4"\)\)\)/);
+  assert.match(runtime, /VN_HUCARD_CODE_SPRITE_STATE __attribute__\(\(noinline, section\("\.rom_bank4"\)\)\)/);
   assert.match(runtime, /VN_HUCARD_CODE_SUPPORT __attribute__\(\(noinline, section\("\.rom_bank4"\)\)\)/);
   assert.match(runtime, /static uint16_t VN_HUCARD_CODE_SUPPORT scale_vce_color\(uint16_t color, uint8_t level\)/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_SPRITE_STATE plan_sprite_layout\(void\)/);
+  assert.match(runtime, /static uint8_t VN_HUCARD_CODE_SPRITE_STATE start_sprite_move\(const pce_vn_command_t \*command\)/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_SPRITE_STATE tick_sprites\(void\)/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_VIDEO draw_sprite_slot\(uint8_t slot, uint8_t upload_patterns\)/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_VIDEO upload_sprite_table_now\(void\)/);
   assert.match(runtime, /pce_vn_hucard_map_runtime_banks\(\);/);
   assert.match(bankHeader, /PCE_ROM_BANK_AT\(1, 2\);/);
   assert.match(bankHeader, /PCE_ROM_BANK_AT\(4, 5\);/);
@@ -2667,32 +2677,43 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.match(runtime, /static void vn_vram_copy\(uint16_t dest, const void \*source, uint16_t byte_count\)[\s\S]*pce_vdc_copy_to_vram\(dest, source, byte_count\);/);
   assert.doesNotMatch(runtime, /static void vn_vram_copy\(uint16_t dest, const void \*source, uint16_t byte_count\)[\s\S]*pce_vdc_copy_to_vram\(dest, source, byte_count\);\r?\n    restore_bg_scroll\(\);/);
   assert.match(runtime, /#define VN_PSG_VBLANK_FRAMES_PER_SERVICE 1u/);
+  assert.match(runtime, /static uint8_t VN_HUCARD_CODE_PSG psg_wave_kind\(uint8_t wave\)/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_PSG psg_load_wave\(uint8_t channel, uint8_t wave\)/);
+  assert.match(runtime, /const uint8_t wave = data_ref_byte_at\(asset->pattern, \(uint16_t\)\(base \+ 7u\)\);/);
+  assert.match(runtime, /if \(psg_sfx\.active && psg_sfx\.voices\[channel\]\.active\) voice = &psg_sfx\.voices\[channel\];[\s\S]*else if \(psg_song\.active && psg_song\.voices\[channel\]\.active\) voice = &psg_song\.voices\[channel\];/);
+  assert.match(runtime, /if \(command->arg0 == PCE_VN_PSG_STOP_BGM\) psg_stop_player\(&psg_song\);[\s\S]*else if \(command->arg0 == PCE_VN_PSG_STOP_SFX\) psg_stop_player\(&psg_sfx\);/);
+  assert.match(runtime, /pce_vn_hucard_map_runtime_banks\(\);\s*psg_init\(\);/);
+  assert.doesNotMatch(runtime, /advance_story\(\);\s*tick_sprites\(\);\s*service_psg\(\);\s*\n\s*while \(1\)/);
   assert.match(runtime, /static void service_psg\(void\)[\s\S]*psg_advance\(VN_PSG_VBLANK_FRAMES_PER_SERVICE\);/);
   assert.doesNotMatch(runtime, /VN_PSG_TIMER_HZ|VN_VBLANK_CREDIT_MAX|VN_VBLANK_CREDIT_SERVICE_LIMIT|vn_vblank_credit|vn_hucard_psg_timer_irq_hook|\.irq_timer|vn_consume_vblank_credit|pce_timer_set|pce_timer_enable|pce_irq_enable\(IRQ_TIMER\)|pce_cpu_irq_enable\(\)/);
   assert.match(runtime, /static void VN_HUCARD_CODE_VIDEO fade_palette\(const pce_editor_data_ref_t \*palette, uint16_t base, uint8_t frames, uint8_t fade_in\)[\s\S]*upload_palette\(palette, base, level\);[\s\S]*service_psg_during_blocking_work\(\);/);
   assert.match(runtime, /static void service_psg_during_blocking_work\(void\)[\s\S]*wait_vblank\(\);[\s\S]*restore_bg_scroll\(\);[\s\S]*service_psg\(\);/);
   assert.doesNotMatch(runtime, /static void service_psg_during_blocking_work\(void\)\s*\{\s*restore_bg_scroll\(\);\s*wait_vblank\(\);/);
-  // flush_msg_tile_batch spends a whole VBlank (wait_vblank), so it must also
-  // service PSG for that frame; otherwise the BGM drags one tick per glyph
-  // reveal during typewriter output.
+  // Blocking glyph uploads wait and service PSG once. The per-frame typewriter
+  // path reuses main()'s current VBlank and must neither wait nor service again.
+  const hucardFlushNowStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT flush_msg_tile_batch_now(void)');
   const hucardFlushStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT flush_msg_tile_batch(void)');
   const hucardFlushEnd = runtime.indexOf('static void VN_HUCARD_CODE_TEXT add_glyph_tile', hucardFlushStart);
+  assert.notEqual(hucardFlushNowStart, -1);
   assert.notEqual(hucardFlushStart, -1);
   assert.notEqual(hucardFlushEnd, -1);
+  const hucardFlushNowSource = runtime.slice(hucardFlushNowStart, hucardFlushStart);
   const hucardFlushSource = runtime.slice(hucardFlushStart, hucardFlushEnd);
-  assert.match(hucardFlushSource, /wait_vblank\(\);[\s\S]*restore_bg_scroll\(\);[\s\S]*vn_vram_copy\(msg_tile_batch_addr\[i\], msg_tile_batch\[i\], 32u\);[\s\S]*service_psg\(\);/);
+  assert.match(hucardFlushNowSource, /restore_bg_scroll\(\);[\s\S]*vn_vram_copy\(msg_tile_batch_addr\[i\], msg_tile_batch\[i\], 32u\);/);
+  assert.doesNotMatch(hucardFlushNowSource, /wait_vblank\(\)|service_psg\(\)/);
+  assert.match(hucardFlushSource, /wait_vblank\(\);[\s\S]*flush_msg_tile_batch_now\(\);[\s\S]*service_psg\(\);/);
   // Full upload_sprite_table spends a VBlank and pairs it with PSG service. The
   // per-frame movement/animation path uses upload_sprite_table_now after the
   // main loop's existing VBlank, so it must not add a second timing tick.
   const hucardUploadSatbStart = runtime.indexOf('static void VN_HUCARD_CODE_VIDEO upload_sprite_table(void)');
-  const hucardUploadSatbEnd = runtime.indexOf('static void VN_HUCARD_CODE_VIDEO hide_sprite_slot', hucardUploadSatbStart);
+  const hucardUploadSatbEnd = runtime.indexOf('static void VN_HUCARD_CODE_SPRITE_STATE hide_sprite_slot', hucardUploadSatbStart);
   assert.notEqual(hucardUploadSatbStart, -1);
   assert.notEqual(hucardUploadSatbEnd, -1);
   const hucardUploadSatbSource = runtime.slice(hucardUploadSatbStart, hucardUploadSatbEnd);
   assert.match(hucardUploadSatbSource, /wait_vblank\(\);[\s\S]*upload_sprite_table_now\(\);[\s\S]*service_psg\(\);/);
   assert.match(runtime, /static void VN_HUCARD_CODE_VIDEO upload_sprite_table_now\(void\)[\s\S]*pce_vdc_poke\(VDC_REG_SATB_START, VN_SATB_ADDR\);/);
   assert.match(runtime, /bg_scroll_x_shadow = 0u;[\s\S]*bg_scroll_y_shadow = 0u;[\s\S]*restore_bg_scroll\(\);/);
-  assert.match(runtime, /vn_hu_wait_vblank_start_outer/);
+  assert.match(runtime, /"csl\\n"[\s\S]*vn_hu_wait_vblank_start_outer[\s\S]*"csh\\n"/);
   assert.match(runtime, /copy_data_ref_to_vram_guarded/);
   assert.match(runtime, /service_psg_during_blocking_work/);
   assert.match(runtime, /#define VN_WAIT_CURSOR_BLINK_FRAMES 24u/);
@@ -2702,16 +2723,22 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   // map_message_window_cells must map the whole window BAT within a single
   // VBlank. A per-row wait_vblank spreads the 8-row strip over 8 frames and
   // shows up as a top-to-bottom wipe when the window is shown/hidden.
+  const hucardMapWinNowStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT map_message_window_cells_now(uint8_t blank)');
   const hucardMapWinStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT map_message_window_cells(uint8_t blank)');
   const hucardMapWinEnd = runtime.indexOf('static void VN_HUCARD_CODE_TEXT clear_window_tile_pixels', hucardMapWinStart);
+  assert.notEqual(hucardMapWinNowStart, -1);
   assert.notEqual(hucardMapWinStart, -1);
   assert.notEqual(hucardMapWinEnd, -1);
+  const hucardMapWinNowSource = runtime.slice(hucardMapWinNowStart, hucardMapWinStart);
   const hucardMapWinSource = runtime.slice(hucardMapWinStart, hucardMapWinEnd);
-  assert.equal((hucardMapWinSource.match(/wait_vblank\(\)/g) || []).length, 1);
-  assert.match(hucardMapWinSource, /wait_vblank\(\);[\s\S]*restore_bg_scroll\(\);[\s\S]*for \(tr = 0u; tr < VN_MSG_TILE_ROWS; tr\+\+\)[\s\S]*vn_vram_copy\(\(uint16_t\)\(\(\(VN_TEXT_Y \+ tr\) \* VN_MAP_WIDTH\) \+ VN_TEXT_X\), msg_bat_row, \(uint16_t\)\(VN_MSG_TILE_COLS \* 2u\)\);[\s\S]*service_psg\(\);/);
+  assert.doesNotMatch(hucardMapWinNowSource, /wait_vblank\(\)|service_psg\(\)/);
+  assert.match(hucardMapWinNowSource, /restore_bg_scroll\(\);[\s\S]*for \(tr = 0u; tr < VN_MSG_TILE_ROWS; tr\+\+\)[\s\S]*vn_vram_copy\(\(uint16_t\)\(\(\(VN_TEXT_Y \+ tr\) \* VN_MAP_WIDTH\) \+ VN_TEXT_X\), msg_bat_row, \(uint16_t\)\(VN_MSG_TILE_COLS \* 2u\)\);/);
+  assert.match(hucardMapWinSource, /wait_vblank\(\);[\s\S]*map_message_window_cells_now\(blank\);[\s\S]*service_psg\(\);/);
   assert.match(runtime, /#define VN_MSG_CLEAR_TILES_PER_VBLANK 16u/);
   assert.match(runtime, /static void VN_HUCARD_CODE_TEXT clear_window_tile_pixels\(void\)[\s\S]*if \(\(tile & \(VN_MSG_CLEAR_TILES_PER_VBLANK - 1u\)\) == 0u\) service_psg_during_blocking_work\(\);[\s\S]*vn_vram_copy\(\(uint16_t\)\(\(VN_MSG_STRIP_TILE_BASE \+ tile\) \* 16u\), msg_tile, 32u\);/);
-  assert.match(runtime, /static void VN_HUCARD_CODE_TEXT hide_message_window_map\(void\)[\s\S]*map_message_window_cells\(1u\);[\s\S]*service_psg\(\);/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_TEXT hide_message_window_map\(void\)\s*\{\s*map_message_window_cells\(1u\);\s*\}/);
+  assert.match(runtime, /static uint8_t VN_HUCARD_CODE_TEXT begin_message_window_vram_update\(void\)\s*\{\s*map_message_window_cells\(1u\);\s*return 1u;\s*\}/);
+  assert.match(runtime, /static void VN_HUCARD_CODE_TEXT end_message_window_vram_update\(uint8_t restore_display\)\s*\{\s*if \(!restore_display\) return;\s*map_message_window_cells\(0u\);\s*\}/);
   assert.doesNotMatch(runtime, /static void VN_HUCARD_CODE_PSG tick_psg\(void\)/);
   assert.match(runtime, /static void VN_HUCARD_CODE_TEXT update_choice_cursor\(uint8_t old_index, uint8_t new_index\)/);
   assert.match(runtime, /tick_message_wait_indicator\(\);/);
@@ -2741,12 +2768,19 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   const hucardCopySource = runtime.slice(hucardCopyStart, hucardCopyEnd);
   assert.match(hucardCopySource, /while \(copied < chunk->size\)[\s\S]*pce_editor_map_asset_bank\(chunk->bank\);[\s\S]*vn_vram_copy/);
   assert.doesNotMatch(hucardCopySource, /pce_editor_map_asset_bank\(chunk->bank\);\s*while \(copied < chunk->size\)/);
-  const hucardGlyphStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT draw_message_glyph_at');
+  const hucardGlyphStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT draw_message_glyph_at_impl');
   const hucardGlyphEnd = runtime.indexOf('static void VN_HUCARD_CODE_TEXT clear_message_glyph_area', hucardGlyphStart);
   assert.notEqual(hucardGlyphStart, -1);
   assert.notEqual(hucardGlyphEnd, -1);
   const hucardGlyphSource = runtime.slice(hucardGlyphStart, hucardGlyphEnd);
-  assert.match(hucardGlyphSource, /reset_msg_tile_batch\(\);[\s\S]*queue_msg_tile\(tile, msg_tile\);[\s\S]*flush_msg_tile_batch\(\);/);
+  assert.match(hucardGlyphSource, /reset_msg_tile_batch\(\);[\s\S]*queue_msg_tile\(tile, msg_tile\);[\s\S]*if \(wait_for_vblank\) flush_msg_tile_batch\(\);[\s\S]*else flush_msg_tile_batch_now\(\);/);
+  const hucardTickMessageEnd = runtime.indexOf('static void VN_HUCARD_CODE_TEXT draw_choice_options', hucardTickMessageStart);
+  const hucardTickMessageSource = runtime.slice(hucardTickMessageStart, hucardTickMessageEnd);
+  assert.match(hucardTickMessageSource, /draw_message_next_entry_now\(&active_message_state\);/);
+  assert.doesNotMatch(hucardTickMessageSource, /wait_vblank\(\)|service_psg\(\)/);
+  const hucardUpdateChoiceStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT update_choice_cursor');
+  const hucardUpdateChoiceEnd = runtime.indexOf('static void VN_HUCARD_CODE_TEXT start_choice', hucardUpdateChoiceStart);
+  assert.doesNotMatch(runtime.slice(hucardUpdateChoiceStart, hucardUpdateChoiceEnd), /service_psg\(\);/);
   const hucardChoiceDrawStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT draw_choice_options');
   const hucardChoiceDrawEnd = runtime.indexOf('static void VN_HUCARD_CODE_TEXT draw_choice_cursor_row', hucardChoiceDrawStart);
   assert.notEqual(hucardChoiceDrawStart, -1);

@@ -176,7 +176,10 @@
       window.EJS_startOnLoaded = true;
       window.EJS_disableDatabases = true;
       window.EJS_disableLocalStorage = true;
-      window.EJS_defaultOptions = { webgl2Enabled: 'enabled' };
+      // EmulatorJS already schedules the core from its browser loop. Its inner
+      // VSync can miss a presentation deadline under HuCARD VN load and lock
+      // playback to the next divisor (about 30 fps), including audio slowdown.
+      window.EJS_defaultOptions = { webgl2Enabled: 'enabled', vsync: 'disabled' };
       if (ctx.isCdMedia) {
         window.EJS_forceExtract = true;
       }

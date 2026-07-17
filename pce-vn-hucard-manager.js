@@ -9,7 +9,7 @@ const HUCARD_VN_RUNTIME_ROM_BANKS = Object.freeze([
   Object.freeze({ bank: 1, offset: 2, role: 'script' }),
   Object.freeze({ bank: 2, offset: 3, role: 'video' }),
   Object.freeze({ bank: 3, offset: 4, role: 'text' }),
-  Object.freeze({ bank: 4, offset: 5, role: 'psg' }),
+  Object.freeze({ bank: 4, offset: 5, role: 'psg/sprite-state' }),
 ]);
 const HUCARD_VN_DATA_ROM_BANK_START = 5;
 const HUCARD_VN_DATA_ROM_BANK_MAX = 127;
