@@ -2802,10 +2802,10 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   const incremental = await buildSystem.buildProject((line) => incrementalLogs.push(line), {
     dryRun: true,
     allowMissingToolchain: true,
-    skipClean: true,
   });
   assert.equal(incremental.success, true);
   assert.equal(incremental.generated.visualNovel.incrementalSkipped, true);
+  assert.equal(incremental.buildSkipped, undefined);
   assert.ok(incrementalLogs.some((line) => /VN generation skipped: inputs unchanged/.test(line)));
   assert.equal(incrementalLogs.some((line) => /HuCARD visual novel runtime files were synchronized/.test(line)), false);
 });
@@ -3110,6 +3110,62 @@ test('PCE VN font config without a selection uses OS fonts only', () => {
   // No user font is prepended; candidates come from the OS font search only.
   const candidates = vnManager.fontCandidates(config, projectDir);
   assert.equal(candidates.includes(path.join(projectDir, 'assets', 'fonts')), false);
+});
+
+test('PCE HuCARD font generation batches message and spritetext glyphs without FFmpeg', () => {
+  const childProcess = require('node:child_process');
+  const originalSpawnSync = childProcess.spawnSync;
+  const renderedGlyphSets = [];
+  childProcess.spawnSync = (_command, _args, options = {}) => {
+    const payload = JSON.parse(String(options.input || '{}'));
+    const glyphs = Array.isArray(payload.glyphs) ? payload.glyphs : [];
+    renderedGlyphSets.push(glyphs);
+    const bitmaps = glyphs.map((glyph) => new Array(12 * 12).fill(glyph === ' ' ? 0 : 1));
+    return {
+      status: 0,
+      stdout: JSON.stringify({ ok: true, bitmaps, fontPath: payload.fontPaths?.[0] || '' }),
+      stderr: '',
+    };
+  };
+
+  try {
+    delete require.cache[require.resolve('../pce-vn-manager')];
+    const vnManager = require('../pce-vn-manager');
+    const projectDir = makeTempDir('pce-vn-font-batch-');
+    const fontPath = path.join(projectDir, 'assets', 'fonts', 'test.ttf');
+    fs.mkdirSync(path.dirname(fontPath), { recursive: true });
+    fs.writeFileSync(fontPath, Buffer.from('test-font'));
+    writeJson(path.join(projectDir, 'assets', 'pce-font.json'), {
+      fontPath: 'assets/fonts/test.ttf',
+      fonts: [],
+    });
+    writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+    writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+      version: 2,
+      startScene: 'opening',
+      scenes: [{
+        id: 'opening',
+        commands: [
+          { type: 'message', text: 'AB' },
+          { type: 'spritetext', text: 'BC', visible: true },
+        ],
+      }],
+    });
+
+    const generated = vnManager.generateVnSources(projectDir, { targetMedia: 'hucard' });
+    assert.equal(renderedGlyphSets.length, 1);
+    assert.equal(new Set(renderedGlyphSets[0]).size, renderedGlyphSets[0].length);
+    assert.ok(['A', 'B', 'C'].every((glyph) => renderedGlyphSets[0].includes(glyph)));
+    assert.ok(generated.fontByteSize > 0);
+    assert.ok(generated.fontSpriteByteSize > 0);
+    assert.equal(vnManager.vnGeneratedOutputsReady(projectDir, generated), true);
+    fs.unlinkSync(path.join(projectDir, vnManager.VN_FONT_SPRITE_DATA_FILE));
+    assert.equal(vnManager.vnGeneratedOutputsReady(projectDir, generated), false);
+    assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', 'pce-vn-manager.js'), 'utf-8'), /ffmpeg/i);
+  } finally {
+    childProcess.spawnSync = originalSpawnSync;
+    delete require.cache[require.resolve('../pce-vn-manager')];
+  }
 });
 
 test('PCE VN font preview uses Windows OS fonts without ffmpeg or Python', { skip: process.platform !== 'win32' }, () => {

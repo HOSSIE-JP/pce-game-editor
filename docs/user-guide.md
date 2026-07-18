@@ -13,7 +13,7 @@
 標準Test Playでは、EmulatorJSのbrowser loopとcore内VSyncが二重に待たないよう、内側VSyncを無効にしてPC Engine本来のframe rateを維持します。負荷が少し増えただけで約30fpsへ段落ちし、PSGを含む音声も遅くなる現象を防ぐための既定設定です。外部エミュレーターのVSync設定には影響しません。
 
 Windows で `llvm-mos linker を起動できません` または `Application Control policy has blocked this file` が出る場合は、プロジェクトや C ソースではなく Windows Application Control / Smart App Control / WDAC が `llvm-mos-sdk` の `ld.lld.exe` を拒否しています。`data/tools/llvm-mos-sdk/llvm-mos/bin/ld.lld.exe --version` が単体で起動できる状態にする必要があります。Windows 側でこのファイルを許可するか、SetUp で実行可能な `llvm-mos-sdk` を指定してください。
-PC Engine Core の SetUp には、ツールカードのほかに環境診断が表示されます。ZIP 展開、EmulatorJS CDN の `.7z` 展開、VN フォント描画 renderer（Windows System.Drawing / Python+Pillow / PATH 上の `ffmpeg`）の検出結果を確認できます。各ツールカードの手動パス欄には、既に別の場所へ入れてある `mos-pce-clang` や EmulatorJS runtime フォルダを指定できます。
+PC Engine Core の SetUp には、ツールカードのほかに環境診断が表示されます。ZIP 展開、EmulatorJS CDN の `.7z` 展開、VN フォント描画 renderer（Windows System.Drawing / Python+Pillow）の検出結果を確認できます。VNフォント生成はFFmpegへ依存しません。各ツールカードの手動パス欄には、既に別の場所へ入れてある `mos-pce-clang` や EmulatorJS runtime フォルダを指定できます。
 
 ## 新規プロジェクト
 

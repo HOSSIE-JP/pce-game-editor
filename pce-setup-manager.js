@@ -390,12 +390,10 @@ function windowsDrawingStatus() {
 }
 
 function fontRendererDiagnostic() {
-  const ffmpegPath = findExecutableOnPath(['ffmpeg']);
   const windowsDrawing = windowsDrawingStatus();
   const python = pythonPillowStatus();
-  const configured = Boolean(ffmpegPath) || windowsDrawing.configured || python.configured;
+  const configured = windowsDrawing.configured || python.configured;
   const renderers = [
-    ffmpegPath ? `ffmpeg on PATH (${ffmpegPath})` : '',
     windowsDrawing.configured ? `${windowsDrawing.detail} (${windowsDrawing.path})` : '',
     python.configured ? `Python/Pillow (${python.detail})` : '',
   ].filter(Boolean);
@@ -404,9 +402,9 @@ function fontRendererDiagnostic() {
     label: 'VN フォント描画',
     required: false,
     configured,
-    path: ffmpegPath || windowsDrawing.path || python.path || '',
+    path: windowsDrawing.path || python.path || '',
     purpose: 'フォントタブの preview と VN build の 12x12 glyph 生成に使います。',
-    detail: renderers.length ? renderers.join(' / ') : 'Windows System.Drawing、Python/Pillow、PATH 上の ffmpeg のいずれも未検出',
+    detail: renderers.length ? renderers.join(' / ') : 'Windows System.Drawing または Python/Pillow を検出できませんでした',
   };
 }
 

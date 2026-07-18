@@ -66,4 +66,6 @@ Spritetext font は message font と別枠です。最大 254 glyph、1 command 
 
 HuCARD VN build は `.pce` と `.map` を出力します。build log には HuCARD VN bank usage として bank0 payload、runtime code banks、data banks の使用量を出します。`rom_bank0` は linker の `.early_start` / `.vector` 予約で map 上は末尾まで埋まりますが、確認対象は `.text/.rodata/.data/.zp.data` の payload と banks 1..4 / 5..127 の各 8KB 超過です。
 
+HuCARDのmessage fontとspritetext fontは使用glyphの和集合を1回のbatchで描画し、FFmpegは使用しません。WindowsではSystem.Drawing、その他の環境では利用可能なPython/Pillowを使い、どちらも利用できない場合だけ内蔵fallback bitmapを生成します。scene/assets/font/runtimeの署名と必要な生成物が一致する場合、通常BuildでもVN生成を省略します。`skipClean`付きTest Play buildでは、これに加えて最終ROMの入力署名が一致すればcompile/linkも省略します。
+
 Test Play は通常の HuCARD ROM と同じく `.pce` を標準エミュレーターまたは外部エミュレーターへ渡します。標準EmulatorJSはbrowser側ですでにframe schedulingするため、内側のVSyncは既定で無効です。重いframeがpresentation deadlineを外したときに次の約30fps段へ固定されることと、それに伴うaudio slowdownを防ぎます。ADPCM、CD-DA、`message.voiceAssetId`、ADPCM cache command は silent no-op です。

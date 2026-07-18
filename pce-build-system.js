@@ -1337,12 +1337,15 @@ function buildProject(onLog, options = {}) {
     if (isVisualNovelProject(projectDir, config)) {
       const stage = stageStart('VN generation');
       try {
+        // Generated VN sources are content-addressed independently of the final
+        // ROM/ISO compile cache. Reuse them on every build; skipClean only
+        // controls whether the finished media itself may be reused.
         const prepared = isHuCardVisualNovelProject(projectDir, config)
           ? hucardVnManager.prepareHuCardVisualNovelBuild(projectDir, config, { info: (m) => log(m, 'info') }, {
-            incremental: Boolean(options.skipClean),
+            incremental: true,
           })
           : vnManager.prepareVisualNovelBuild(projectDir, config, setupManager.getLlvmMosPceCdPath(), { info: (m) => log(m, 'info') }, {
-            incremental: Boolean(options.skipClean),
+            incremental: true,
           });
         visualNovelStampInfo = prepared?.stampInfo || null;
         if (prepared?.generated) {

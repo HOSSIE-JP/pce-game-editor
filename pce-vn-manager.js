@@ -13,9 +13,8 @@ const systemCardFont = require('./pce-system-card-font');
 
 const VN_SCENE_FILE = path.join('assets', 'pce-vn-scenes.json');
 const VN_FONT_FILE = path.join('assets', 'pce-font.json');
-// Imported font files are copied here (project-relative) so rendering never
-// depends on an external absolute path that may contain non-ASCII / spaces that
-// break ffmpeg's `fontfile` argument on Windows.
+// Imported font files are copied here (project-relative) so builds do not
+// depend on an external absolute path that may move or become unavailable.
 const VN_FONT_DIR = path.join('assets', 'fonts');
 const FONT_FILE_EXTS = ['.ttf', '.otf', '.ttc'];
 const VN_BUILD_STAMP_FILE = path.join('assets', 'generated', 'vn', 'build-stamp.json');
@@ -459,7 +458,7 @@ function vnGeneratedOutputsReady(projectDir, generated = {}) {
     ...((generated.scenePackPaths || []).map((entry) => generatedDataFilePath(entry)).filter(Boolean)),
     ...((generated.extraDataFiles || []).map((entry) => generatedDataFilePath(entry)).filter(Boolean)),
   ];
-  if (generated.targetMedia === 'hucard' && (generated.fontSpriteBudget || {}).byteSize > 0) {
+  if (generated.targetMedia === 'hucard' && Number(generated.fontSpriteByteSize || 0) > 0) {
     required.push(VN_FONT_SPRITE_DATA_FILE);
   }
   return required.every((relativePath) => fs.existsSync(path.join(projectDir, relativePath)));
@@ -492,6 +491,17 @@ function copyIfChanged(sourcePath, targetPath) {
   if (current && Buffer.compare(source, current) === 0) return false;
   ensureDirSync(path.dirname(targetPath));
   fs.copyFileSync(sourcePath, targetPath);
+  return true;
+}
+
+function writeFileIfChanged(targetPath, content, encoding = undefined) {
+  const next = Buffer.isBuffer(content) ? content : Buffer.from(String(content), encoding || 'utf-8');
+  try {
+    const current = fs.readFileSync(targetPath);
+    if (current.length === next.length && current.equals(next)) return false;
+  } catch (_) { /* missing/unreadable output is rewritten below */ }
+  ensureDirSync(path.dirname(targetPath));
+  fs.writeFileSync(targetPath, next);
   return true;
 }
 
@@ -645,9 +655,8 @@ function fontFileSha1(filePath) {
   return crypto.createHash('sha1').update(fs.readFileSync(filePath)).digest('hex');
 }
 
-// Build an ASCII, space-free destination stem so the copied font lives at a path
-// ffmpeg can pass through reliably on Windows even when the source folder/name
-// contains Japanese characters or spaces.
+// Build a portable ASCII destination stem so project-local font paths are safe
+// across the supported host platforms and toolchains.
 function safeFontStem(sourceName) {
   const base = String(sourceName || '').replace(/\.[^.]+$/, '');
   const ascii = base.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
@@ -2188,70 +2197,6 @@ function fallbackGlyphBitmap(glyph, glyphIndex) {
   return bitmap;
 }
 
-function escapeFfmpegFilterValue(value) {
-  return String(value)
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'")
-    .replace(/:/g, '\\:');
-}
-
-function escapeFfmpegDrawText(value) {
-  return escapeFfmpegFilterValue(value)
-    .replace(/,/g, '\\,')
-    .replace(/%/g, '\\%')
-    .replace(/\[/g, '\\[')
-    .replace(/\]/g, '\\]');
-}
-
-function renderGlyphBitmapWithFfmpeg(glyph, fontPath, config = {}) {
-  const pixelCount = FONT_GLYPH_PX * FONT_GLYPH_PX;
-  if (glyph === ' ') return new Array(pixelCount).fill(0);
-  const normalized = normalizeFontConfig(config);
-  const filter = [
-    `drawtext=fontfile='${escapeFfmpegFilterValue(fontPath)}'`,
-    `text='${escapeFfmpegDrawText(glyph)}'`,
-    'fontcolor=white',
-    `fontsize=${normalized.fontSize}`,
-    `x=(w-text_w)/2+${normalized.xOffset}`,
-    `y=(h-text_h)/2+${normalized.yOffset}`,
-  ].join(':');
-  const proc = spawnSync('ffmpeg', [
-    '-v', 'error',
-    '-f', 'lavfi',
-    '-i', `color=c=black:s=${FONT_GLYPH_PX}x${FONT_GLYPH_PX}`,
-    '-vf', filter,
-    '-frames:v', '1',
-    '-f', 'rawvideo',
-    '-pix_fmt', 'gray',
-    '-',
-  ], { maxBuffer: 1024 * 64 });
-  if (proc.error || proc.status !== 0 || !Buffer.isBuffer(proc.stdout) || proc.stdout.length < pixelCount) {
-    return null;
-  }
-  return Array.from(proc.stdout.subarray(0, pixelCount), (value) => (value >= normalized.threshold ? 1 : 0));
-}
-
-function renderGlyphBitmapsWithFfmpeg(glyphs, config = {}, projectDir = '') {
-  const candidates = fontCandidates(config, projectDir);
-  if (!candidates.length) return null;
-  for (const fontPath of candidates) {
-    const bitmaps = [];
-    let visibleGlyph = false;
-    let ok = true;
-    for (const glyph of glyphs) {
-      const bitmap = renderGlyphBitmapWithFfmpeg(glyph, fontPath, config);
-      if (!bitmap) {
-        ok = false;
-        break;
-      }
-      if (glyph !== ' ' && bitmap.some(Boolean)) visibleGlyph = true;
-      bitmaps.push(bitmap);
-    }
-    if (ok && visibleGlyph) return { bitmaps, renderer: 'ffmpeg', fontPath };
-  }
-  return null;
-}
-
 function renderGlyphBitmapsWithPython(glyphs, config = {}, projectDir = '') {
   const candidates = fontCandidates(config, projectDir);
   const normalized = normalizeFontConfig(config);
@@ -2473,8 +2418,7 @@ function encodeGlyphSpriteData(bitmaps) {
 }
 
 function renderGlyphBitmaps(glyphs, config = {}, projectDir = '') {
-  return renderGlyphBitmapsWithFfmpeg(glyphs, config, projectDir)
-    || renderGlyphBitmapsWithWindowsDrawing(glyphs, config, projectDir)
+  return renderGlyphBitmapsWithWindowsDrawing(glyphs, config, projectDir)
     || renderGlyphBitmapsWithPython(glyphs, config, projectDir)
     || {
       bitmaps: glyphs.map((glyph, index) => fallbackGlyphBitmap(glyph, index)),
@@ -2696,8 +2640,7 @@ function buildScenePack(sceneBuild, hucardMode = false) {
 function writeScenePack(projectDir, sceneBuild) {
   const relativePath = sceneBuild.packPath;
   const absPath = path.join(projectDir, relativePath);
-  ensureDirSync(path.dirname(absPath));
-  fs.writeFileSync(absPath, sceneBuild.packBuffer);
+  writeFileIfChanged(absPath, sceneBuild.packBuffer);
   return relativePath;
 }
 
@@ -2726,8 +2669,7 @@ function writeHuCardPsgPatternFiles(projectDir, psgAssets = []) {
     const relativePath = hucardPsgPatternPath(asset, index);
     const absPath = path.join(projectDir, relativePath);
     const bytes = assetManager.serializePsgPattern(pattern);
-    ensureDirSync(path.dirname(absPath));
-    fs.writeFileSync(absPath, bytes);
+    writeFileIfChanged(absPath, bytes);
     entries.push({
       asset,
       options,
@@ -2879,23 +2821,34 @@ function generateVnSources(projectDir, options = {}) {
   if (fontBudget.errors.length) {
     throw new Error(fontBudget.errors.join(' '));
   }
-  const fontRender = hucardMode
-    ? renderGlyphBitmaps(glyphs, fontConfig, projectDir)
+
+  // HuCARD owns both the BG message font and the optional spritetext font.
+  // Render their union in one host call, then fan the bitmaps back out. The old
+  // path rendered each set independently, and some host renderers launched a
+  // process per glyph, making generation scale with process startup.
+  const spriteTextGlyphs = collectSpriteTextGlyphsRaw(doc).slice(0, VN_FONT_SPRITE_MAX_GLYPH_COUNT);
+  const spriteGlyphIndex = new Map(spriteTextGlyphs.map((glyph, index) => [glyph, index]));
+  const renderGlyphs = hucardMode ? Array.from(new Set([...glyphs, ...spriteTextGlyphs])) : [];
+  const combinedFontRender = hucardMode
+    ? renderGlyphBitmaps(renderGlyphs, fontConfig, projectDir)
     : { bitmaps: [], renderer: 'system-card-jp-v3', fontPath: '' };
+  const bitmapByGlyph = new Map(renderGlyphs.map((glyph, index) => [glyph, combinedFontRender.bitmaps[index]]));
+  const fontRender = {
+    bitmaps: glyphs.map((glyph) => bitmapByGlyph.get(glyph)),
+    renderer: combinedFontRender.renderer,
+    fontPath: combinedFontRender.fontPath,
+  };
   const fontTiles = hucardMode ? encodeGlyphMaskData(fontRender.bitmaps) : Buffer.alloc(0);
   const fontDataPath = normalizeRelativePath(VN_FONT_DATA_FILE);
   const fontDataAbsPath = path.join(projectDir, fontDataPath);
   if (hucardMode) {
-    ensureDirSync(path.dirname(fontDataAbsPath));
-    fs.writeFileSync(fontDataAbsPath, fontTiles);
+    writeFileIfChanged(fontDataAbsPath, fontTiles);
   } else if (fs.existsSync(fontDataAbsPath)) {
     fs.unlinkSync(fontDataAbsPath);
   }
 
   // Sprite-format font for `spritetext` overlays. Only the characters used by
   // spritetext are encoded, and only when at least one scene uses the command.
-  const spriteTextGlyphs = collectSpriteTextGlyphsRaw(doc).slice(0, VN_FONT_SPRITE_MAX_GLYPH_COUNT);
-  const spriteGlyphIndex = new Map(spriteTextGlyphs.map((glyph, index) => [glyph, index]));
   const fontSpriteDataPath = normalizeRelativePath(VN_FONT_SPRITE_DATA_FILE);
   const fontSpriteDataAbsPath = path.join(projectDir, fontSpriteDataPath);
   const fontSpriteWarnings = [];
@@ -2911,11 +2864,9 @@ function generateVnSources(projectDir, options = {}) {
     0, 15, DEFAULT_FONT_SPRITE_PALETTE_BANK,
   );
   if (hucardMode && spriteTextGlyphs.length) {
-    const fontSpriteRender = renderGlyphBitmaps(spriteTextGlyphs, fontConfig, projectDir);
-    fontSpriteRenderer = fontSpriteRender.renderer;
-    fontSpriteTiles = encodeGlyphSpriteData(fontSpriteRender.bitmaps);
-    ensureDirSync(path.dirname(fontSpriteDataAbsPath));
-    fs.writeFileSync(fontSpriteDataAbsPath, fontSpriteTiles);
+    fontSpriteRenderer = combinedFontRender.renderer;
+    fontSpriteTiles = encodeGlyphSpriteData(spriteTextGlyphs.map((glyph) => bitmapByGlyph.get(glyph)));
+    writeFileIfChanged(fontSpriteDataAbsPath, fontSpriteTiles);
     // Warn (non-fatal) when the sprite font would collide with sprite asset
     // patterns or run past the SATB. Author controls glyph count, so this is a
     // budget hint rather than a hard error.
@@ -4028,8 +3979,8 @@ function generateVnSources(projectDir, options = {}) {
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_start_scene = ${startScene}u;`,
     '',
   ];
-  fs.writeFileSync(headerPath, header.join('\n'), 'utf-8');
-  fs.writeFileSync(sourcePath, source.join('\n'), 'utf-8');
+  writeFileIfChanged(headerPath, header.join('\n'), 'utf-8');
+  writeFileIfChanged(sourcePath, source.join('\n'), 'utf-8');
   return {
     scenePath: getSceneFilePath(projectDir),
     headerPath,
