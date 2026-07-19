@@ -1018,7 +1018,7 @@ function collectCddaTracks(projectDir, cuePath) {
     return [];
   }
   const cueDir = path.dirname(cuePath);
-  return doc.assets
+  const tracks = doc.assets
     .filter((asset) => asset.type === 'cdda-track')
     .map((asset) => {
       const generated = asset.data?.generated || {};
@@ -1040,6 +1040,13 @@ function collectCddaTracks(projectDir, cuePath) {
     })
     .filter(Boolean)
     .sort((a, b) => a.track - b.track || a.id.localeCompare(b.id, 'ja'));
+  tracks.forEach((track, index) => {
+    const expectedTrack = index + 2;
+    if (track.track !== expectedTrack) {
+      throw new Error(`CD-DA track numbers must be contiguous from track 2 without gaps; expected track ${expectedTrack}, but "${track.id}" uses track ${track.track}. Reorder or resave the CD-DA tracks.`);
+    }
+  });
+  return tracks;
 }
 
 function writeCueFile(commandInfo) {

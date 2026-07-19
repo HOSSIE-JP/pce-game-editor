@@ -1288,9 +1288,10 @@ function previewRuntime() {
     + '<div id="pv-msg" class="pv-hidden"></div>'
     + '<div id="pv-choice" class="pv-hidden"></div>'
     + '<div id="pv-effect"></div>'
-    + '</div><aside id="pv-debug"><section><h2>Variables</h2><div id="pv-vars"></div></section><section><h2>Cache</h2><div id="pv-cache"></div></section></aside></div>'
+    + '</div><aside id="pv-debug" class="pv-hidden"><section><h2>Variables</h2><div id="pv-vars"></div></section><section><h2>Cache</h2><div id="pv-cache"></div></section></aside></div>'
     + '<div id="pv-bar"><button id="pv-restart">最初から</button><span id="pv-scene"></span>'
-    + '<label id="pv-debug-toggle" title="Preview debug"><input id="pv-debug-vars" type="checkbox" checked /><span>Debug</span></label>'
+    + '<label id="pv-fast-forward-toggle" title="メッセージを即時表示してページ送り"><input id="pv-fast-forward" type="checkbox" /><span>早送り</span></label>'
+    + '<label id="pv-debug-toggle" title="Preview debug"><input id="pv-debug-vars" type="checkbox" /><span>Debug</span></label>'
     + '<span id="pv-hint">クリック / Enter で進む ・ Esc で閉じる</span></div>';
   document.body.appendChild(root);
 
@@ -1319,6 +1320,8 @@ function previewRuntime() {
   let typeTimer = null;
   let waitTimer = null;
   let autoTimer = null;
+  let messageFastForward = false;
+  let activeMessageFastForward = null;
   const spriteMoveTimers = new Map();
   let spriteTextBlinkRaf = 0;
   let spriteTextBlinkPrev = 0;
@@ -1832,6 +1835,11 @@ function previewRuntime() {
   function setVarDebugVisible(visible) {
     if (debugBox) debugBox.classList.toggle('pv-hidden', !visible);
   }
+  function setMessageFastForward(enabled) {
+    messageFastForward = Boolean(enabled);
+    if (messageFastForward && typeof activeMessageFastForward === 'function') activeMessageFastForward();
+    updateAudioHint();
+  }
   function bgFadeFrames(value) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return 30;
@@ -1888,11 +1896,13 @@ function previewRuntime() {
   }
   function updateAudioHint() {
     const blocked = Object.keys(blockedAudio).filter((kind) => blockedAudio[kind]);
+    let hint = '';
     if (blocked.length) {
-      root.querySelector('#pv-hint').textContent = '音声開始待ち: クリック / Enter で再試行';
-      return;
+      hint = '音声開始待ち: クリック / Enter で再試行';
+    } else {
+      hint = 'クリック / Enter で進む ・ Esc で閉じる';
     }
-    root.querySelector('#pv-hint').textContent = 'クリック / Enter で進む ・ Esc で閉じる';
+    root.querySelector('#pv-hint').textContent = messageFastForward ? hint + ' ・ 早送り中' : hint;
   }
   function tryPlayAudio(kind) {
     const a = audio[kind];
@@ -2240,6 +2250,7 @@ function previewRuntime() {
     hideChoice();
     msgBox.classList.remove('pv-hidden');
     paintMsg('― END ―', '#fff');
+    activeMessageFastForward = null;
     pending = null;
   }
 
@@ -2254,9 +2265,15 @@ function previewRuntime() {
     paintMsg(parts.prefix, color);
     if (c.voiceAssetId) {
       recordAdpcmUse(c.voiceAssetId, 'Message voice');
-      playAudio('adpcm', c.voiceAssetId, false);
+      if (!messageFastForward) playAudio('adpcm', c.voiceAssetId, false);
     }
-    function next() { clearTimers(); pending = null; run(); }
+    function next() {
+      clearTimers();
+      if (messageFastForward && c.voiceAssetId) stopAudio('adpcm');
+      activeMessageFastForward = null;
+      pending = null;
+      run();
+    }
     function complete() {
       if (done) return;
       done = true;
@@ -2264,15 +2281,19 @@ function previewRuntime() {
       if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
       if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
       paintMsg(full, color, messageAdvanceMode === 'button');
-      if (messageAdvanceMode === 'auto') autoTimer = setTimeout(next, messageAutoWaitFrames * 1000 / 60);
+      if (messageAdvanceMode === 'auto') autoTimer = setTimeout(next, messageFastForward ? 0 : messageAutoWaitFrames * 1000 / 60);
     }
+    activeMessageFastForward = () => {
+      complete();
+      if (c.voiceAssetId) stopAudio('adpcm');
+    };
     pending = function () { if (!done) complete(); else { if (c.voiceAssetId) stopAudio('adpcm'); next(); } };
     const voiceMeta = c.voiceAssetId ? (data.meta[c.voiceAssetId] || {}) : {};
     const voiceSeconds = Number(voiceMeta.durationSeconds) || 0;
     const voiceFrames = voiceSeconds > 0 && !voiceMeta.loop ? Math.max(1, Math.ceil(voiceSeconds * 60)) : 0;
     const bodyDrawable = messageDrawableLength(parts.body);
     const voiceSpeed = voiceFrames && bodyDrawable ? Math.max(1, Math.ceil(voiceFrames / bodyDrawable)) * 1000 / 60 : 0;
-    const speed = voiceSpeed || (messageSpeedFrames * 1000 / 60);
+    const speed = messageFastForward ? 0 : (voiceSpeed || (messageSpeedFrames * 1000 / 60));
     function revealNextBodyGlyph() {
       if (done) return;
       while (shownBody < parts.body.length) {
@@ -2283,7 +2304,7 @@ function previewRuntime() {
       paintMsg(parts.prefix + parts.body.slice(0, shownBody), color);
       if (shownBody >= parts.body.length) complete();
     }
-    if (speed <= 0 || !parts.body) complete();
+    if (messageFastForward || speed <= 0 || !parts.body) complete();
     else {
       revealNextBodyGlyph();
       if (!done) typeTimer = setInterval(revealNextBodyGlyph, speed);
@@ -2420,6 +2441,7 @@ function previewRuntime() {
     vars = initialVars();
     resetPreviewCacheState();
     state = { background: null, sprites: {}, spriteTexts: {} };
+    activeMessageFastForward = null;
     pending = null;
     choiceState = null;
     renderStage();
@@ -2449,6 +2471,7 @@ function previewRuntime() {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (typeof pending === 'function') pending(); }
   });
   root.querySelector('#pv-restart').addEventListener('click', (e) => { e.stopPropagation(); start(); });
+  root.querySelector('#pv-fast-forward')?.addEventListener('change', (e) => { setMessageFastForward(e.currentTarget.checked); });
   debugToggle?.addEventListener('change', (e) => { setVarDebugVisible(e.currentTarget.checked); });
   window.addEventListener('beforeunload', () => {
     cancelAllSpriteMoves();
@@ -2457,7 +2480,7 @@ function previewRuntime() {
     stopAudio('psg');
     if (psgAudioContext && typeof psgAudioContext.close === 'function') void psgAudioContext.close().catch(() => {});
   });
-  setVarDebugVisible(!debugToggle || debugToggle.checked);
+  setVarDebugVisible(Boolean(debugToggle?.checked));
 
   fit();
   start();

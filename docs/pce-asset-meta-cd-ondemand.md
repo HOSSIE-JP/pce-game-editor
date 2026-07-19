@@ -40,7 +40,7 @@ ADPCMのmulti-byte fieldを構造体連続copyへ戻さず、offsetからscalar 
 ## Hard error
 
 - BG / Sprite / ADPCM / PSG参照数が各512件を超える。
-- CD-DAが98本を超える、trackが2..99外、またはtrackが重複する。
+- CD-DAが98本を超える、trackが2..99外、trackが重複する、またはtrack 2からの連番に欠番がある。
 - Sprite cell mapが256 cellを超える。
 - ADPCM 1 assetが`min(65535, 65536 - adpcmAddress)` bytesを超える。
 - System Card PSG packageがBGM 8156 bytes / SFX 8192 bytesを超える。

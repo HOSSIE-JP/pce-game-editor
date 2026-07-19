@@ -818,6 +818,23 @@ test('PCE VN VRAM layout reserves BG/message/sprite exclusively and rejects over
     spriteAssetIds: new Set(['slot0', 'slot1']),
     spriteSlotLayouts: [['slot0', 'slot1']],
   }), /VRAM/);
+  const repeatedOverflow = {
+    assets: [
+      { id: 'oversized-a', type: 'sprite', options: { tileBase: 704 }, data: { generated: { tileCount: 700 } } },
+      { id: 'oversized-b', type: 'sprite', options: { tileBase: 704 }, data: { generated: { tileCount: 700 } } },
+      { id: 'oversized-c', type: 'sprite', options: { tileBase: 704 }, data: { generated: { tileCount: 700 } } },
+    ],
+  };
+  assert.throws(() => vnManager.validateVnVramLayout(repeatedOverflow, fontBudget, fontSpritePatternBase, 0, {
+    spriteAssetIds: new Set(['oversized-a', 'oversized-b', 'oversized-c']),
+    spriteSlotLayouts: [['oversized-a'], ['oversized-b'], ['oversized-c']],
+  }), (error) => {
+    const satbCollisions = error.message.match(/「SATB」\(VRAM word/g) || [];
+    const endOverflows = error.message.match(/VRAM 末尾 \(word 32768\) を超えています/g) || [];
+    assert.equal(satbCollisions.length, 1);
+    assert.equal(endOverflows.length, 1);
+    return true;
+  });
   const duplicateSpriteSlots = {
     assets: [
       { id: 'hero', type: 'sprite', options: { tileBase: 704 }, data: { generated: { tileCount: 160 } } },
@@ -1987,16 +2004,22 @@ test('PCE VN manager encodes spritetext overlays for on-demand BIOS glyphs', () 
   assert.doesNotMatch(editorRenderer, /16px\/16px monospace/);
 });
 
-test('PCE CD SpriteText reserves only compiled glyph patterns beside three large sprite sheets', () => {
+test('PCE CD template font base leaves room for three large sprite sheets and compiled SpriteText glyphs', () => {
   const projectDir = makeTempDir('pce-vn-spritetext-vram-capacity-');
   const vnManager = loadVnManager();
-  writeJson(path.join(projectDir, 'assets', 'pce-font.json'), {
-    version: 1,
-    tileBase: 712,
-  });
+  const templateFontConfig = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'assets', 'pce-font.json'),
+    'utf-8',
+  ));
+  assert.equal(templateFontConfig.tileBase, vnManager.DEFAULT_FONT_TILE_BASE);
+  writeJson(path.join(projectDir, 'assets', 'pce-font.json'), templateFontConfig);
   writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
     version: 2,
-    assets: ['hero', 'friend', 'guest'].map((id) => ({
+    assets: [
+      ['hero', 80],
+      ['friend', 80],
+      ['guest', 104],
+    ].map(([id, tileCount]) => ({
       id,
       type: 'sprite',
       options: {
@@ -2007,7 +2030,7 @@ test('PCE CD SpriteText reserves only compiled glyph patterns beside three large
         tileBase: 704,
         paletteBank: 0,
       },
-      data: { generated: { tileCount: 80, vramBytes: 10240 } },
+      data: { generated: { tileCount, vramBytes: tileCount * 128 } },
     })),
   });
   writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
@@ -2027,8 +2050,8 @@ test('PCE CD SpriteText reserves only compiled glyph patterns beside three large
   const generated = vnManager.generateVnSources(projectDir);
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   assert.match(header, /#define PCE_VN_FONT_SPRITE_GLYPH_CAPACITY 10u/);
-  assert.match(header, /#define PCE_VN_FONT_SPRITE_PATTERN_BASE 462u/);
-  assert.match(header, /#define PCE_VN_SPRITE_PATTERN_BASE 482u/);
+  assert.match(header, /#define PCE_VN_FONT_SPRITE_PATTERN_BASE 376u/);
+  assert.match(header, /#define PCE_VN_SPRITE_PATTERN_BASE 396u/);
 });
 
 test('PCE VN manager omits the sprite font when no scene uses spritetext', () => {

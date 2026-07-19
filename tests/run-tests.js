@@ -23,6 +23,7 @@ loadAppConfig(require('../app.config'));
   'pce-asset-store.test.js',
   'pce-asset-ipc.test.js',
   'pce-cd-bundle.test.js',
+  'pce-cdda-cue.test.js',
   'pce-external-emulator.test.js',
   'pce-file-safety.test.js',
   'pce-ipl-extractor.test.js',

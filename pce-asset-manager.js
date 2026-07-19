@@ -2933,6 +2933,13 @@ function validateGeneratedAssetScale(projectDir, doc, assetIds = null) {
     }
     tracks.set(track, asset.id);
   });
+  const orderedTracks = Array.from(tracks.entries()).sort((a, b) => a[0] - b[0]);
+  orderedTracks.forEach(([track, assetId], index) => {
+    const expectedTrack = index + 2;
+    if (track !== expectedTrack) {
+      throw new Error(`CD-DA track numbers must be contiguous from track 2 without gaps; expected track ${expectedTrack}, but "${assetId}" uses track ${track}. Reorder or resave the CD-DA tracks.`);
+    }
+  });
 }
 
 // Write ASSET_META_FILE at its final (count-derived) size up front, BEFORE any

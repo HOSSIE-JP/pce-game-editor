@@ -2066,7 +2066,10 @@ function computeVnVramLayoutPacked(assetDoc, fontBudget, fontSpritePatternBase, 
 // the end of VRAM. The user-facing message names both regions and the overlap range.
 function validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphCount, options = {}) {
   const regions = computeVnVramLayoutPacked(assetDoc, fontBudget, fontSpritePatternBase, spriteTextGlyphCount, options);
-  const errors = [];
+  // Multiple scene paths can produce the same packed geometry. Report each
+  // actionable collision once instead of repeating an identical line for every
+  // scene/layout that reaches it.
+  const errors = new Set();
   for (let i = 0; i < regions.length; i++) {
     for (let j = i + 1; j < regions.length; j++) {
       const a = regions[i];
@@ -2075,19 +2078,19 @@ function validateVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, sprit
       const overlapEnd = Math.min(a.end, b.end);
       if (overlapEnd > overlapStart) {
         if (isAllowedVnVramOverlapPacked(a, b)) continue;
-        errors.push(`「${a.name}」(VRAM word ${a.start}–${a.end}) と 「${b.name}」(word ${b.start}–${b.end}) が word ${overlapStart}–${overlapEnd} で重複しています。`);
+        errors.add(`「${a.name}」(VRAM word ${a.start}–${a.end}) と 「${b.name}」(word ${b.start}–${b.end}) が word ${overlapStart}–${overlapEnd} で重複しています。`);
       }
     }
   }
   for (const r of regions) {
     if (r.end > VN_VRAM_TOTAL_WORDS) {
-      errors.push(`「${r.name}」が VRAM 末尾 (word ${VN_VRAM_TOTAL_WORDS}) を超えています (word ${r.start}–${r.end})。`);
+      errors.add(`「${r.name}」が VRAM 末尾 (word ${VN_VRAM_TOTAL_WORDS}) を超えています (word ${r.start}–${r.end})。`);
     }
   }
-  if (errors.length) {
+  if (errors.size) {
     throw new Error(
-      'VN VRAM 領域の排他予約に失敗しました。BG/スプライト/メッセージのいずれかを縮小するか tileBase を調整してください:\n  '
-      + errors.join('\n  '));
+      'VN VRAM 領域の排他予約に失敗しました。BG/スプライト/メッセージのいずれかを縮小するか font tileBase を調整してください:\n  '
+      + Array.from(errors).join('\n  '));
   }
   return regions;
 }

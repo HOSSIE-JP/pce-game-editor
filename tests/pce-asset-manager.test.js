@@ -2234,6 +2234,18 @@ test('PCE CD-DA validates track range, uniqueness, and physical track count', ()
 
   writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
     version: 2,
+    assets: [
+      { id: 'jazz09', type: 'cdda-track', options: { track: 3 } },
+      { id: 'wind04', type: 'cdda-track', options: { track: 4 } },
+    ],
+  }, null, 2));
+  assert.throws(
+    () => assetManager.generateAssetSources(projectDir),
+    /contiguous from track 2 without gaps; expected track 2, but "jazz09" uses track 3/,
+  );
+
+  writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
+    version: 2,
     assets: Array.from({ length: 99 }, (_unused, index) => ({
       id: `track_${index}`,
       type: 'cdda-track',
