@@ -1933,6 +1933,7 @@ test('PCE VN manager encodes spritetext overlays for on-demand BIOS glyphs', () 
   const spritePatternBaseMatch = header.match(/#define PCE_VN_FONT_SPRITE_PATTERN_BASE (\d+)u/);
   assert.ok(spritePatternBaseMatch);
   assert.equal(Number(spritePatternBaseMatch[1]) % 2, 0, '16x16 SpriteText patterns must start on an even pattern unit');
+  assert.match(header, /#define PCE_VN_FONT_SPRITE_GLYPH_CAPACITY 7u/);
   assert.match(header, /#define PCE_VN_FONT_SPRITE_PALETTE_BANK 15u/);
   assert.doesNotMatch(source, /pce_vn_font_sprite/);
   assert.equal(generated.fontSpriteGlyphCount, 0);
@@ -1965,7 +1966,8 @@ test('PCE VN manager encodes spritetext overlays for on-demand BIOS glyphs', () 
   assert.match(runtime, /vn_system_card_get_font\(sjis, 1u, vn_system_card_font_scratch\)/);
   assert.match(runtime, /#define VN_SPRITETEXT_PITCH_X VN_GLYPH_W/);
   assert.match(runtime, /x = \(int16_t\)\(x \+ VN_SPRITETEXT_PITCH_X\)/);
-  assert.match(runtime, /spritetext_glyph_cache_ids\[64\]/);
+  assert.match(runtime, /spritetext_glyph_cache_ids\[\s*\(PCE_VN_FONT_SPRITE_GLYPH_CAPACITY > 0u\) \? PCE_VN_FONT_SPRITE_GLYPH_CAPACITY : 1u\s*\]/);
+  assert.match(runtime, /spritetext_glyph_cache_count >= PCE_VN_FONT_SPRITE_GLYPH_CAPACITY/);
   assert.match(runtime, /static void tick_spritetext\(void\)/);
 
   const hucardRuntime = fs.readFileSync(
@@ -1983,6 +1985,50 @@ test('PCE VN manager encodes spritetext overlays for on-demand BIOS glyphs', () 
   assert.equal((editorRenderer.match(/renderSpriteTextCells\(node, st\.text\)/g) || []).length, 2);
   assert.match(editorRenderer, /SPRITETEXT_CELL = \{ width: 12, height: 16 \}/);
   assert.doesNotMatch(editorRenderer, /16px\/16px monospace/);
+});
+
+test('PCE CD SpriteText reserves only compiled glyph patterns beside three large sprite sheets', () => {
+  const projectDir = makeTempDir('pce-vn-spritetext-vram-capacity-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-font.json'), {
+    version: 1,
+    tileBase: 712,
+  });
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: ['hero', 'friend', 'guest'].map((id) => ({
+      id,
+      type: 'sprite',
+      options: {
+        width: 128,
+        height: 256,
+        cellWidth: 32,
+        cellHeight: 64,
+        tileBase: 704,
+        paletteBank: 0,
+      },
+      data: { generated: { tileCount: 80, vramBytes: 10240 } },
+    })),
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'sprite', slot: 0, assetId: 'hero', visible: true },
+        { type: 'sprite', slot: 1, assetId: 'friend', visible: true },
+        { type: 'sprite', slot: 2, assetId: 'guest', visible: true },
+        { type: 'spritetext', slot: 0, text: 'PRESS RUN BUTTON', visible: true },
+      ],
+    }],
+  });
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  assert.match(header, /#define PCE_VN_FONT_SPRITE_GLYPH_CAPACITY 10u/);
+  assert.match(header, /#define PCE_VN_FONT_SPRITE_PATTERN_BASE 462u/);
+  assert.match(header, /#define PCE_VN_SPRITE_PATTERN_BASE 482u/);
 });
 
 test('PCE VN manager omits the sprite font when no scene uses spritetext', () => {

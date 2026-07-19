@@ -260,7 +260,7 @@ static uint8_t VN_VISUAL_CACHE_CODE ensure_spritetext_glyph(uint16_t glyph)
     uint8_t i;
     for (i = 0u; i < spritetext_glyph_cache_count; i++)
         if (spritetext_glyph_cache_ids[i] == glyph) return i;
-    if (spritetext_glyph_cache_count >= 64u) return 0xffu;
+    if (spritetext_glyph_cache_count >= PCE_VN_FONT_SPRITE_GLYPH_CAPACITY) return 0xffu;
     i = spritetext_glyph_cache_count;
     if (!vn_system_card_font12_sprite_upload(glyph,
             (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE + ((uint16_t)i << 1)))) return 0xffu;

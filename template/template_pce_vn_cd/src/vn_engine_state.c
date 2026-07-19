@@ -179,7 +179,9 @@ typedef struct
 } vn_spritetext_slot_t;
 static vn_spritetext_slot_t spritetext_slots[VN_SPRITETEXT_SLOT_COUNT] __attribute__((section(".bss")));
 #if defined(__PCE_CD__)
-static uint16_t spritetext_glyph_cache_ids[64] __attribute__((section(".bss")));
+static uint16_t spritetext_glyph_cache_ids[
+    (PCE_VN_FONT_SPRITE_GLYPH_CAPACITY > 0u) ? PCE_VN_FONT_SPRITE_GLYPH_CAPACITY : 1u
+] __attribute__((section(".bss")));
 static uint8_t spritetext_glyph_cache_count __attribute__((section(".bss")));
 #endif
 #if defined(__PCE__)

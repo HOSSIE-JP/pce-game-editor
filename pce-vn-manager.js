@@ -226,6 +226,10 @@ const DEFAULT_FONT_SPRITE_PALETTE_BANK = 15;
 // Upper bound of drawable glyphs per spritetext command (matches the runtime
 // per-slot buffer). Newlines (0xfe) count toward this budget.
 const VN_SPRITETEXT_MAX_GLYPHS = 32;
+// CD builds convert SpriteText glyphs through EX_GETFNT on demand. The runtime
+// cache has a 64-glyph hard ceiling, but the VRAM reservation only needs the
+// distinct glyphs that the compiled scene document can actually request.
+const VN_CD_SPRITETEXT_CACHE_MAX_GLYPHS = 64;
 // Number of distinct sprite-font glyphs we will encode (index space 0..253,
 // 0xfe = newline marker in command glyph streams).
 const VN_FONT_SPRITE_MAX_GLYPH_COUNT = 254;
@@ -2884,7 +2888,9 @@ function generateVnSources(projectDir, options = {}) {
     byteSize: fontSpriteTiles.length,
     sectorCount: Math.max(1, Math.ceil(fontSpriteTiles.length / VN_CD_SECTOR_BYTES)),
   };
-  const systemSpriteGlyphCapacity = hucardMode ? spriteTextGlyphs.length : (spriteTextGlyphs.length ? 64 : 0);
+  const systemSpriteGlyphCapacity = hucardMode
+    ? spriteTextGlyphs.length
+    : Math.min(spriteTextGlyphs.length, VN_CD_SPRITETEXT_CACHE_MAX_GLYPHS);
   doc.scenes.forEach((scene) => validateFullScreenBgScene(scene, assetDoc));
   const visualAssetUsage = collectSceneVisualAssetUsage(doc);
 
@@ -3842,6 +3848,7 @@ function generateVnSources(projectDir, options = {}) {
     '#define PCE_VN_GLYPH_NEWLINE 0xfffeu',
     ...(hucardMode ? ['#define PCE_VN_GLYPH_ESCAPE 0xfdu'] : []),
     `#define PCE_VN_FONT_SPRITE_PATTERN_BASE ${fontSpritePatternBase}u`,
+    `#define PCE_VN_FONT_SPRITE_GLYPH_CAPACITY ${systemSpriteGlyphCapacity}u`,
     `#define PCE_VN_FONT_SPRITE_PALETTE_BANK ${fontSpritePaletteBank}u`,
     `#define PCE_VN_SPRITE_PATTERN_BASE ${spritePatternBase}u`,
     '',
