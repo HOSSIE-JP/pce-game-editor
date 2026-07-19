@@ -2198,7 +2198,13 @@ button.project-path-chip {
   outline: none;
 }
 .form-input:focus, .form-select:focus { border-color: var(--accent); }
-.form-input-mono { font-family: monospace; font-size: 12px; color: var(--muted); }
+.form-input-mono {
+  /* Chromium can clip the low underscore glyph from its generic monospace font in form controls. */
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
 .form-hint { font-size: 11px; color: var(--muted); }
 .form-hint code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
 .form-error { font-size: 11px; color: var(--red); min-height: 14px; }

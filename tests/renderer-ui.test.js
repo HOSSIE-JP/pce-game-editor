@@ -14,6 +14,12 @@ function readPluginManifest(pluginId) {
   return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'plugins', pluginId, 'manifest.json'), 'utf-8'));
 }
 
+test('monospace form inputs keep underscore glyphs visible', () => {
+  const css = readRendererFile('style.css');
+
+  assert.match(css, /\.form-input-mono\s*\{[\s\S]*font-family:\s*Consolas,\s*"Courier New",\s*monospace;[\s\S]*line-height:\s*1\.5;/);
+});
+
 test('settings page keeps project and export settings in two columns', () => {
   const html = readRendererFile('index.html');
   const css = readRendererFile('style.css');
