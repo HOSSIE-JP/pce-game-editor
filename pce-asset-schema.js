@@ -54,6 +54,7 @@ function normalizeGeneratedData(data = {}) {
   };
   if (raw.codec) generated.codec = String(raw.codec).trim();
   if (raw.encoderVersion != null) generated.encoderVersion = normalizedInt(raw.encoderVersion, 0, 0xffff);
+  if (raw.spriteColorConverterVersion != null) generated.spriteColorConverterVersion = normalizedInt(raw.spriteColorConverterVersion, 0, 0xffff);
   if (raw.nibbleOrder) generated.nibbleOrder = String(raw.nibbleOrder).trim();
   return {
     ...data,

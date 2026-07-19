@@ -1226,6 +1226,8 @@ PCE 用 indexed 画像を単に canvas へ描いて `canvas.toDataURL('image/png
 - indexed BMP は BMP ヘッダー、カラーテーブル、ピクセル index を直接読む
 - BMP を PNG 化する場合は、BMP の index 0 を PNG palette index 0 に固定する
 - 8bit BMP のようにカラーテーブルが256色でも、実使用 index が16色以内なら、使用 index だけを16色以内に remap して indexed PNG として保存できる
+- sprite の透明色を除く実使用色が15色以内なら、RGB各色を個別に3bitへ丸めて重複させない。元色と512個のVCE色の最小誤差割当を行い、実使用色へ互いに異なるVCE color wordを割り当てる。近接した灰色などはわずかな色ずれを許して階調を維持する
+- このsprite色割当を変更した場合は `data.generated.spriteColorConverterVersion` を上げ、`ensureVisualGeneratedAssets()` が既存の `palette.bin` / `patterns.bin` をbuild時に再生成できるようにする
 - 変換後に palette preview を見るだけでなく、保存されたファイルを再読込して `PLTE` / BMP カラーテーブルを確認する
 
 リサイズやクリッピングを実施した場合は canvas 経由を避けられないことがあります。その場合でも、元画像が indexed PNG / BMP なら元 palette を参照 palette として保持し、最終的に自前の indexed PNG encoder で保存してください。`imageDataToIndexedPng()` のように実ピクセルから palette を作り直す関数は、未使用 palette を落とすため「最適化してよい画像」にだけ使います。

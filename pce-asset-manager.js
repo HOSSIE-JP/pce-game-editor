@@ -18,6 +18,7 @@ const { decodePngImage, parsePngSize } = require('./pce-png-decoder');
 
 const ASSET_FILE = path.join('assets', 'pce-assets.json');
 const PCE_INTERNAL_IMAGE_CONVERTER = 'Internal PCE image converter';
+const PCE_SPRITE_COLOR_CONVERTER_VERSION = 1;
 const PCE_PSG_MIDI_IMPORTER = 'Internal MIDI -> PSG step importer';
 const PCE_PSG_VGM_IMPORTER = 'Internal VGM/VGZ -> PSG step importer';
 const PCE_PSG_QUANTIZER_VERSION = psgQuantize.PSG_QUANTIZER_VERSION || 2;
@@ -616,6 +617,91 @@ function pcePaletteWord(color = {}) {
   return (color.b & 7) | ((color.r & 7) << 3) | ((color.g & 7) << 6);
 }
 
+function rgbColorKey(color = {}) {
+  return `${color.r & 0xff},${color.g & 0xff},${color.b & 0xff}`;
+}
+
+function pceColorToRgb(color = {}) {
+  const to8 = (value) => Math.round(((value & 7) / 7) * 255);
+  return { r: to8(color.r), g: to8(color.g), b: to8(color.b) };
+}
+
+function sourceToPceColorDistanceSq(source = {}, candidate = {}) {
+  const rgb = pceColorToRgb(candidate);
+  const dr = (source.r & 0xff) - rgb.r;
+  const dg = (source.g & 0xff) - rgb.g;
+  const db = (source.b & 0xff) - rgb.b;
+  return (2 * dr * dr) + (4 * dg * dg) + (db * db);
+}
+
+function assignUniquePceColors(sourceColors = []) {
+  if (!sourceColors.length) return [];
+  const candidates = Array.from({ length: 512 }, (_unused, word) => ({
+    r: (word >> 3) & 7,
+    g: (word >> 6) & 7,
+    b: word & 7,
+  }));
+  const rowCount = sourceColors.length;
+  const columnCount = candidates.length;
+  const costs = sourceColors.map((source) => (
+    candidates.map((candidate) => sourceToPceColorDistanceSq(source, candidate))
+  ));
+  const rowPotential = new Array(rowCount + 1).fill(0);
+  const columnPotential = new Array(columnCount + 1).fill(0);
+  const matchedRow = new Array(columnCount + 1).fill(0);
+  const previousColumn = new Array(columnCount + 1).fill(0);
+
+  // Rectangular Hungarian assignment: every source color receives a distinct
+  // color from the full 512-color VCE master palette with minimum total error.
+  for (let row = 1; row <= rowCount; row += 1) {
+    matchedRow[0] = row;
+    let column = 0;
+    const minCost = new Array(columnCount + 1).fill(Infinity);
+    const used = new Array(columnCount + 1).fill(false);
+    do {
+      used[column] = true;
+      const currentRow = matchedRow[column];
+      let delta = Infinity;
+      let nextColumn = 0;
+      for (let candidateColumn = 1; candidateColumn <= columnCount; candidateColumn += 1) {
+        if (used[candidateColumn]) continue;
+        const reducedCost = costs[currentRow - 1][candidateColumn - 1]
+          - rowPotential[currentRow]
+          - columnPotential[candidateColumn];
+        if (reducedCost < minCost[candidateColumn]) {
+          minCost[candidateColumn] = reducedCost;
+          previousColumn[candidateColumn] = column;
+        }
+        if (minCost[candidateColumn] < delta) {
+          delta = minCost[candidateColumn];
+          nextColumn = candidateColumn;
+        }
+      }
+      for (let candidateColumn = 0; candidateColumn <= columnCount; candidateColumn += 1) {
+        if (used[candidateColumn]) {
+          rowPotential[matchedRow[candidateColumn]] += delta;
+          columnPotential[candidateColumn] -= delta;
+        } else {
+          minCost[candidateColumn] -= delta;
+        }
+      }
+      column = nextColumn;
+    } while (matchedRow[column] !== 0);
+
+    do {
+      const prior = previousColumn[column];
+      matchedRow[column] = matchedRow[prior];
+      column = prior;
+    } while (column !== 0);
+  }
+
+  const assigned = new Array(rowCount);
+  for (let column = 1; column <= columnCount; column += 1) {
+    if (matchedRow[column]) assigned[matchedRow[column] - 1] = candidates[column - 1];
+  }
+  return assigned;
+}
+
 function decodedPixelRgba(decoded, pixelIndex) {
   if (decoded.format === 'indexed') {
     const index = decoded.indices[pixelIndex] || 0;
@@ -670,12 +756,61 @@ function convertDecodedToIndexed16(decoded, options = {}) {
       decoded.palette[index] ? pceColorFromRgb(decoded.palette[index]) : { r: 0, g: 0, b: 0 }
     ));
     const indices = new Uint8Array(pixelCount);
+    const usedOpaqueIndexes = new Map();
     for (let i = 0; i < pixelCount; i += 1) {
       const sourceIndex = decoded.indices[i] || 0;
       const alpha = decoded.alphaTable[sourceIndex] ?? 255;
       indices[i] = alpha < 128 ? transparentIndex : (sourceIndex & 0x0f);
+      if (alpha >= 128 && sourceIndex !== transparentIndex && sourceIndex < 16) {
+        usedOpaqueIndexes.set(sourceIndex, (usedOpaqueIndexes.get(sourceIndex) || 0) + 1);
+      }
     }
+    const usedEntries = Array.from(usedOpaqueIndexes.keys()).sort((a, b) => a - b);
+    const assigned = assignUniquePceColors(usedEntries.map((index) => decoded.palette[index]));
+    usedEntries.forEach((index, assignedIndex) => {
+      palette[index] = assigned[assignedIndex];
+    });
     return { width, height, indices, palette, warnings };
+  }
+
+  if (!reserveBackdrop) {
+    const exactColors = new Map();
+    for (let i = 0; i < pixelCount; i += 1) {
+      const rgba = decodedPixelRgba(decoded, i);
+      if (rgba.a < 128) continue;
+      const color = { r: rgba.r, g: rgba.g, b: rgba.b };
+      const key = rgbColorKey(color);
+      const current = exactColors.get(key);
+      if (current) current.count += 1;
+      else exactColors.set(key, { key, color, count: 1 });
+    }
+    const capacity = 15;
+    if (exactColors.size <= capacity) {
+      const sortedExact = Array.from(exactColors.values()).sort((a, b) => b.count - a.count);
+      const assigned = assignUniquePceColors(sortedExact.map((entry) => entry.color));
+      const palette = Array.from({ length: 16 }, () => null);
+      palette[transparentIndex] = { r: 0, g: 0, b: 0 };
+      const paletteIndexByColor = new Map();
+      let cursor = 0;
+      sortedExact.forEach((entry, assignedIndex) => {
+        while (cursor < 16 && palette[cursor]) cursor += 1;
+        if (cursor >= 16) return;
+        palette[cursor] = assigned[assignedIndex];
+        paletteIndexByColor.set(entry.key, cursor);
+        cursor += 1;
+      });
+      for (let i = 0; i < 16; i += 1) {
+        if (!palette[i]) palette[i] = { r: 0, g: 0, b: 0 };
+      }
+      const indices = new Uint8Array(pixelCount);
+      for (let i = 0; i < pixelCount; i += 1) {
+        const rgba = decodedPixelRgba(decoded, i);
+        indices[i] = rgba.a < 128
+          ? transparentIndex
+          : (paletteIndexByColor.get(rgbColorKey(rgba)) ?? transparentIndex);
+      }
+      return { width, height, indices, palette, warnings };
+    }
   }
 
   const counts = new Map();
@@ -922,6 +1057,7 @@ function createGeneratedMetadata(projectDir, asset, plan, sourceRel, imageSize, 
     warnings: [],
     paletteColors: readPaletteColors(palette),
   };
+  if (isSprite) generated.spriteColorConverterVersion = PCE_SPRITE_COLOR_CONVERTER_VERSION;
   generated.warnings = uniqueWarnings([...extraWarnings, ...buildImageWarnings(asset, imageSize, generated)]);
   const preview = {
     source: sourceRel,
@@ -969,6 +1105,7 @@ function spriteGeneratedAssetNeedsRefresh(projectDir, asset) {
   if (!asset || asset.type !== 'sprite') return false;
   const options = normalizeImageOptions(asset);
   const generated = asset.data?.generated || {};
+  if (generated.spriteColorConverterVersion !== PCE_SPRITE_COLOR_CONVERTER_VERSION) return true;
   const patterns = readGeneratedBuffer(projectDir, generated.tilesFile);
   const cellWidth = clampPositiveInt(options.cellWidth, 16, 32, DEFAULT_SPRITE_OPTIONS.cellWidth);
   const cellHeight = clampPositiveInt(options.cellHeight, 16, 64, DEFAULT_SPRITE_OPTIONS.cellHeight);

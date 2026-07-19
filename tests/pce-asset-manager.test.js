@@ -157,6 +157,67 @@ function makeSolidPngDataUrl(width = 8, height = 8, rgba = [0, 146, 219, 255]) {
   return `data:image/png;base64,${png.toString('base64')}`;
 }
 
+function makeColorStripPngDataUrl(colors = []) {
+  const width = 16;
+  const height = 16;
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  const raw = Buffer.alloc((width * 4 + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * (width * 4 + 1);
+    for (let x = 0; x < width; x += 1) {
+      const offset = row + 1 + x * 4;
+      const rgba = colors[x] || [0, 0, 0, 0];
+      raw[offset] = rgba[0];
+      raw[offset + 1] = rgba[1];
+      raw[offset + 2] = rgba[2];
+      raw[offset + 3] = rgba[3];
+    }
+  }
+  const png = Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlib.deflateSync(raw)),
+    pngChunk('IEND'),
+  ]);
+  return `data:image/png;base64,${png.toString('base64')}`;
+}
+
+function makeIndexedColorStripPngDataUrl(colors = []) {
+  const width = 16;
+  const height = 16;
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 3;
+  const plte = Buffer.alloc(16 * 3);
+  colors.slice(0, 15).forEach((rgba, index) => {
+    plte[(index + 1) * 3] = rgba[0];
+    plte[((index + 1) * 3) + 1] = rgba[1];
+    plte[((index + 1) * 3) + 2] = rgba[2];
+  });
+  const alpha = Buffer.alloc(16, 255);
+  alpha[0] = 0;
+  const raw = Buffer.alloc((width + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * (width + 1);
+    for (let x = 0; x < width; x += 1) raw[row + 1 + x] = x;
+  }
+  const png = Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk('IHDR', ihdr),
+    pngChunk('PLTE', plte),
+    pngChunk('tRNS', alpha),
+    pngChunk('IDAT', zlib.deflateSync(raw)),
+    pngChunk('IEND'),
+  ]);
+  return `data:image/png;base64,${png.toString('base64')}`;
+}
+
 function makeWavBuffer(sampleRate = 8000, frames = 32) {
   const dataSize = frames * 2;
   const buffer = Buffer.alloc(44 + dataSize);
@@ -826,6 +887,67 @@ test('PCE sprite import writes VCE colors and sprite pattern words in hardware o
   assert.equal(imported.asset.data.generated.paletteColors[1], '#ff0000');
   assert.equal(patterns.readUInt16LE(0), 0x8000);
   assert.equal(patterns.subarray(2).every((byte) => byte === 0), true);
+});
+
+test('PCE sprite import preserves 15 close source colors with distinct VCE entries', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-sprite-close-colors-');
+  const sourceColors = [
+    [254, 252, 251, 255], [132, 132, 142, 255], [45, 49, 70, 255],
+    [32, 36, 55, 255], [112, 112, 119, 255], [244, 235, 228, 255],
+    [94, 92, 98, 255], [70, 70, 80, 255], [16, 19, 35, 255],
+    [220, 216, 215, 255], [198, 194, 193, 255], [155, 151, 153, 255],
+    [175, 171, 173, 255], [215, 152, 116, 255], [145, 109, 89, 255],
+  ];
+  const imported = assetManager.importImage(projectDir, {
+    sourceFileName: 'close-colors.png',
+    convertedDataUrl: makeColorStripPngDataUrl(sourceColors),
+    kind: 'sprite',
+    id: 'close_colors',
+    cellWidth: 16,
+    cellHeight: 16,
+  });
+
+  const palettePath = path.join(projectDir, imported.asset.data.generated.paletteFile);
+  let palette = fs.readFileSync(palettePath);
+  let opaqueWords = Array.from({ length: 15 }, (_unused, index) => palette.readUInt16LE((index + 1) * 2));
+  assert.equal(new Set(opaqueWords).size, 15);
+  opaqueWords.forEach((word, index) => {
+    const converted = [
+      Math.round((((word >> 3) & 7) / 7) * 255),
+      Math.round((((word >> 6) & 7) / 7) * 255),
+      Math.round(((word & 7) / 7) * 255),
+    ];
+    const error = Math.sqrt(sourceColors[index].slice(0, 3).reduce((sum, value, channel) => (
+      sum + ((value - converted[channel]) ** 2)
+    ), 0));
+    assert.ok(error < 40, `palette color ${index + 1} drifted by ${error}`);
+  });
+  assert.equal(imported.asset.data.generated.spriteColorConverterVersion, 1);
+
+  const staleDocument = assetManager.readAssetDocument(projectDir);
+  delete staleDocument.assets[0].data.generated.spriteColorConverterVersion;
+  assetManager.writeAssetDocument(projectDir, staleDocument);
+  fs.writeFileSync(palettePath, Buffer.alloc(32));
+  assetManager.generateAssetSources(projectDir);
+
+  const regenerated = assetManager.readAssetDocument(projectDir).assets[0];
+  palette = fs.readFileSync(palettePath);
+  opaqueWords = Array.from({ length: 15 }, (_unused, index) => palette.readUInt16LE((index + 1) * 2));
+  assert.equal(new Set(opaqueWords).size, 15);
+  assert.equal(regenerated.data.generated.spriteColorConverterVersion, 1);
+
+  const indexedImported = assetManager.importImage(projectDir, {
+    sourceFileName: 'close-colors-indexed.png',
+    convertedDataUrl: makeIndexedColorStripPngDataUrl(sourceColors),
+    kind: 'sprite',
+    id: 'close_colors_indexed',
+    cellWidth: 16,
+    cellHeight: 16,
+  });
+  const indexedPalette = fs.readFileSync(path.join(projectDir, indexedImported.asset.data.generated.paletteFile));
+  const indexedOpaqueWords = Array.from({ length: 15 }, (_unused, index) => indexedPalette.readUInt16LE((index + 1) * 2));
+  assert.equal(new Set(indexedOpaqueWords).size, 15);
 });
 
 test('PCE sprite import pads tall 16px cells for VDC sprite row pitch', () => {

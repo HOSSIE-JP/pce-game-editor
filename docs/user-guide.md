@@ -51,6 +51,8 @@ HuCARD ノベルの ROM 配置は固定です。runtime code は `rom_bank1..4` 
 
 `Image` の `BG` では PCE 背景画像を、`Sprites` では PCE sprite sheet を編集します。BG 追加時に指定する変換条件は出力幅/高さで、既定値は標準 BG サイズの 224×136px です。BG の `Palette bank` と `Transparent index` は実用上個別指定する場面が少ないため UI には表示せず、内部既定値 `0` で変換します。`Sprites` の追加時も通常表示は出力幅/高さだけにし、変換時だけ有効な `Cell size` は `アドバンス` に隠します。`Palette bank` / `Transparent index` は表示せず、`paletteBank: 0`、`transparentIndex: 0` で登録します。`tileBase`、`x`、`y` は低レベル既定値として `Properties` の `アドバンス` に隠し、通常は変更しません。追加直後の animation は `Frame W: 16`、`Frame H: 16`、`Frames: 1`、`Speed: 1` です。frame size、ROW ごとの frame 数、time は Sprites タブのエディタ本体で調整してください。変換後に生成済み tile / pattern と metadata がずれないよう、`Cell size` は詳細フォームでは直接編集しません。
 
+PC Engine の色は各チャンネル3bitの512色マスターパレットから選ばれ、1つのsprite paletteは透明色を含む16エントリです。Novelのスクリプトプレビューは保存されたPNGをそのまま描くため、実機表示ではマスターパレットへの変換による色差が残ります。ただし、透明＋15色以内のspriteは、元の別色が同じ9-bit色へ単純に丸め込まれないよう、内蔵変換が512色から重複しない色の組合せを選んで階調を維持します。元色への近さと色の区別を両立するため、実機色はPNGからわずかにずれることがあります。旧変換で生成済みのspriteも次回build時に一度だけ自動再生成され、登録し直す必要はありません。
+
 `Sprites` は sprite asset tree、Frame Preview、Sprite Sheet、Animation Rows、Properties を持つ編集画面です。フレーム幅・高さと ROW ごとの有効 frame 数 / time を編集すると、PCE VN runtime が参照する `options.animations` と、エディタ再表示用の `options.spriteEditor` metadata に保存されます。Time は 60fps 基準の frame 数で、各フレームごとの値をそのままプレビューと runtime の再生速度に使います。Frame Preview と Sprite Sheet のプレビュー領域はスクロールでき、マウスホイールで 10-500% の倍率を調整できます。中ボタンドラッグでは表示位置を移動できます。Sprite Sheet のセルをクリックすると、その ROW / Frame が Frame Preview（画面上部）に反映され、Animation Rows の対応 ROW がハイライトされます。Sprite Sheet の各フレーム右上には、その frame の Time（既定 time）が表示されます。保存される sprite metadata は frame / animation と PCE 変換に必要な現行フィールドだけです。
 
 `Palette` では手動 palette を追加、保存、削除できます。削除時は確認 modal が表示されます。
