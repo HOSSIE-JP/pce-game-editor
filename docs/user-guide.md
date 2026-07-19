@@ -65,6 +65,14 @@ PC Engine の色は各チャンネル3bitの512色マスターパレットから
 
 ChatGPT などでシナリオ、スクリプト JSON、画像・音声アセット案を作る場合は、`docs/pce-vn-chatgpt-authoring-guide.md` の制作ルールとプロンプト例を使ってください。
 
+スクリプト画面上部の **音声バッチ出力** は、全シーンの有効な `Message` を走査し、Irodori-TTS Batch Client へ読み込める話者別 CSV を ZIP で保存します。GUI / JSON の未保存編集も出力へ含みますが、`assets/pce-vn-scenes.json` 自体は保存せず、`voiceAssetId` も自動変更しません。スキップ指定または本文が空の Message は除外し、話者が空の Message は `narrator` バッチへ入ります。
+
+ZIP の `batches/speaker_001.csv`、`speaker_002.csv` などは話者ごとに分かれ、ナレーションは `batches/narrator.csv` です。各 CSV は UTF-8 BOM 付きの `id,text,output_dir` 形式で、`output_dir` は `/output/<話者名>`（ナレーションは `/output/narrator`）になります。ZIP 内の `manifest.csv` には、各行の scene ID、1 始まりの command index、話者、本文、元の `voiceAssetId`、出力 WAV パス、対応する話者別 CSV が記録されます。
+
+既存の `voiceAssetId` がある Message はその ID を WAV 名に使い、未指定なら既存 asset ID と衝突しない `voice_0001` 形式の ID を一時的に割り当てます。自動 ID は manifest にだけ記録されるため、生成 WAV を ADPCM asset として取り込んだ後の Message への割り当ては手動です。同じ既存 ID が同じ話者・同じ本文から複数回参照される場合は生成ジョブを1件にまとめます。話者または本文が異なる重複 ID、`[A-Za-z0-9_-]{1,48}` に合わない ID は、同名 WAV の上書きを避けるため出力エラーになります。
+
+Irodori-TTS は1回のバッチで参照話者が共通なので、キャラクターごとの CSV を個別に読み込み、対応する Speaker Embedding または Reference WAV を選んで生成してください。HuCARD プロジェクトでもリスト作成には利用できますが、生成した Message voice を `voiceAssetId` で実機再生できるのは CD-ROM2 VN だけです。
+
 Visual Novel CD テンプレートには、`BG` / `Sprite` / `Sprite Move` / `Message` / `Audio` / `Variable` / `Choice` / `IF` / `Switch` / `Label` / `GOTO` / `Input` / `Jump` / `Wait` / `Effect` / `SpriteText` を使うコマンド仕様サンプルシナリオが入っています。エディタではこれらに加えて `Cache` コマンドも追加できます。Akari / Mika の立ち絵は `default` / `blink` / `mouth` のアニメーションを持つスプライトシートになっており、`Message` の Mouth slot / Mouth animation の実例として確認できます。
 
 `システム設定` タブでは、ノベルエンジン全体のメッセージ速度と Advance を設定します。メッセージ速度は `速度1(速い)：0`、`速度2：10`、`速度3：20`、`速度4：30`、`速度5：40`、`速度6(遅い)：50` から選びます。Advance は既定が `button` で、`auto` にすると Auto wait のフレーム数経過後に次へ進みます。これらは全 `Message` command 共通で、Message のプロパティには表示されません。

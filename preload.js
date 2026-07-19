@@ -90,5 +90,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // --- エクスポート ---
   exportRom: () => ipcRenderer.invoke('export:rom'),
   exportHtml: () => ipcRenderer.invoke('export:html'),
+  exportVnIrodoriBatch: (payload) => ipcRenderer.invoke('vn:exportIrodoriBatch', payload || {}),
   quitApp: () => ipcRenderer.invoke('app:quit'),
 });

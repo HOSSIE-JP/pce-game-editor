@@ -2531,6 +2531,7 @@ export function activatePlugin({ root, api, registerCapability }) {
               <span>Full BG</span>
             </label>
             <button class="btn-sm" type="button" data-action="preview" title="シーンをプレビュー再生">▶ プレビュー</button>
+            <button class="btn-sm" type="button" data-action="export-irodori" title="全シーンのMessageをIrodori-TTS用の話者別CSVへ出力">音声バッチ出力</button>
             <button class="btn-primary" type="button" data-action="save">保存</button>
           </div>
         </div>
@@ -4299,6 +4300,32 @@ export function activatePlugin({ root, api, registerCapability }) {
     }
   }
 
+  async function exportIrodoriBatch() {
+    const exportButton = root.querySelector('[data-action="export-irodori"]');
+    try {
+      errorEl.textContent = '';
+      if (editorMode === 'json') {
+        if (!applyScriptJsonToDoc({ refreshText: true })) return;
+      } else {
+        commitCurrentUiToDoc();
+      }
+      const snapshot = normalizeDoc(doc, assets);
+      exportButton.disabled = true;
+      const result = await api.electronAPI.exportVnIrodoriBatch({
+        doc: snapshot,
+        assetIds: assets.map((asset) => asset?.id).filter(Boolean),
+      });
+      if (result?.canceled) return;
+      if (!result?.ok) throw new Error(result?.error || '音声バッチを出力できませんでした。');
+      errorEl.textContent = `音声バッチを出力しました: ${result.path} `
+        + `(話者 ${result.speakerCount} / Message ${result.messageCount} / ジョブ ${result.jobCount})`;
+    } catch (err) {
+      errorEl.textContent = `音声バッチ出力失敗: ${err?.message || err}`;
+    } finally {
+      exportButton.disabled = false;
+    }
+  }
+
   function insertCommand(type, rawIndex) {
     commitCurrentUiToDoc();
     const current = scene();
@@ -4793,6 +4820,7 @@ export function activatePlugin({ root, api, registerCapability }) {
   root.querySelector('[data-action="reload"]').addEventListener('click', () => { void load({ force: true }); });
   root.querySelector('[data-action="save"]').addEventListener('click', save);
   root.querySelector('[data-action="preview"]').addEventListener('click', () => { void openScenePreview(); });
+  root.querySelector('[data-action="export-irodori"]').addEventListener('click', () => { void exportIrodoriBatch(); });
   root.querySelectorAll('[data-script-mode]').forEach((button) => {
     button.addEventListener('click', () => setEditorMode(button.dataset.scriptMode));
   });

@@ -801,6 +801,14 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(index, /importFontFile/);
   assert.match(index, /deleteFontFile/);
 
+  const vnRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8');
+  assert.match(vnRenderer, /data-action="export-irodori"/);
+  assert.match(vnRenderer, /async function exportIrodoriBatch\(\)/);
+  assert.match(vnRenderer, /normalizeDoc\(doc, assets\)/);
+  assert.match(vnRenderer, /exportVnIrodoriBatch\(\{[\s\S]*doc: snapshot,[\s\S]*assetIds:/);
+  assert.match(main, /ipcMain\.handle\('vn:exportIrodoriBatch'/);
+
   const fontRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-font-editor', 'renderer.js'), 'utf-8');
   // Font editor manages a project font library (add / select / delete) instead
   // of a single external path.

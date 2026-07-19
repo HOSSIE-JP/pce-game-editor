@@ -684,6 +684,28 @@ await window.electronAPI.openPluginsFolder();
 const preview = await window.electronAPI.readTempFileAsDataUrl(tempWavPath, { deleteAfter: true });
 ```
 
+### VN Irodori-TTS バッチ出力 API
+
+組み込み Novel editor は、現在の正規化済み scene document と予約済み asset ID を専用 IPC へ渡し、Irodori-TTS 用の話者別 CSV と manifest を1つの ZIP に保存できます。保存先は main process のダイアログでユーザーが選び、renderer から任意パスを直接指定することはできません。
+
+```js
+const result = await window.electronAPI.exportVnIrodoriBatch({
+  doc: normalizedSceneDocument,
+  assetIds: assets.map((asset) => asset.id),
+});
+// {
+//   ok: boolean,
+//   canceled: boolean,
+//   path: string,
+//   speakerCount: number,
+//   messageCount: number,
+//   jobCount: number,
+//   error: string
+// }
+```
+
+IPC channel は `vn:exportIrodoriBatch` です。`doc` からはスキップされていない本文ありの `message` だけを抽出します。既存 `voiceAssetId` は `[A-Za-z0-9_-]{1,48}` を要求し、未指定行には `assetIds` と衝突しない `voice_NNNN` を割り当てます。この API は scene document や asset documentを書き換えません。
+
 ### PCE asset API
 
 PC Engine core のプロジェクトでは、PCE asset manager 用の安全な project-local IPC を利用できます。

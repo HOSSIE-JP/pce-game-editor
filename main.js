@@ -6,6 +6,7 @@ const { loadAppConfig, applyPortableMode } = require('./game-editor-common');
 const { spawn } = require('child_process');
 const cdBundle = require('./pce-cd-bundle');
 const pceExport = require('./pce-export');
+const { exportIrodoriBatchZip } = require('./pce-vn-irodori-export');
 const systemCardProfile = require('./pce-system-card-profile');
 const { resolveUnderRoot } = require('./pce-file-safety');
 const {
@@ -1856,6 +1857,32 @@ async function handleExportHtml() {
   return { ok: true, path: saveResult.filePath };
 }
 
+async function handleExportVnIrodoriBatch(payload = {}) {
+  let projectName = 'pce-vn';
+  try {
+    const cfg = buildSystem.loadProjectConfig();
+    projectName = cfg?.title || cfg?.romName || cfg?.name || buildSystem.getProjectInfo()?.projectName || projectName;
+  } catch (err) {
+    appDiagnostics.report({
+      source: 'export',
+      code: 'irodori-project-name-read-failed',
+      level: 'warn',
+      error: err,
+    });
+  }
+  const owner = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
+  const defaultPath = `${sanitizeExportFileName(projectName, 'pce-vn')}_irodori_voice_batches.zip`;
+  return exportIrodoriBatchZip({
+    doc: payload?.doc || {},
+    assetIds: Array.isArray(payload?.assetIds) ? payload.assetIds : [],
+    defaultPath,
+    owner,
+    showSaveDialog: (dialogOwner, options) => dialog.showSaveDialog(dialogOwner, options),
+    createStoredZipBuffer: (entries) => cdBundle.createStoredZipBuffer(entries),
+    writeFileSync: (filePath, data) => fs.writeFileSync(filePath, data),
+  });
+}
+
 ipcMain.handle('build:run', async (_event, options = {}) => {
   return runBuildFull({
     skipClean: Boolean(options?.skipClean),
@@ -1868,6 +1895,10 @@ ipcMain.handle('export:rom', async () => {
 
 ipcMain.handle('export:html', async () => {
   return handleExportHtml();
+});
+
+ipcMain.handle('vn:exportIrodoriBatch', async (_event, payload = {}) => {
+  return handleExportVnIrodoriBatch(payload);
 });
 
 ipcMain.handle('log:openWindow', async (_event, snapshot) => {

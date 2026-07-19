@@ -37,6 +37,7 @@ test('main preload exposes renderer API methods with the expected IPC channels',
   assert.equal(typeof api.appendLogWindowEntry, 'function');
   assert.equal(typeof api.onLogWindowClosed, 'function');
   assert.equal(typeof api.exportHtml, 'function');
+  assert.equal(typeof api.exportVnIrodoriBatch, 'function');
   assert.equal(typeof api.getProjectStartupState, 'function');
   assert.equal(typeof api.startAiControlServer, 'function');
   assert.equal(typeof api.getAiControlStatus, 'function');
@@ -63,6 +64,7 @@ test('main preload exposes renderer API methods with the expected IPC channels',
   await api.previewAssetMidi({ id: 'song', sourcePath: '/tmp/song.mid' });
   await api.previewAssetSource('assets/images/img.png');
   await api.reorderAssets(['img']);
+  await api.exportVnIrodoriBatch({ doc: { scenes: [] }, assetIds: ['voice'] });
   await api.invokePluginHook('pce-audio-converter', 'convertAudio', { sourcePath: 'in.wav' });
   await api.openLogWindow({ entries: [] });
   await api.appendLogWindowEntry({ source: 'app', text: 'hello' });
@@ -119,6 +121,10 @@ test('main preload exposes renderer API methods with the expected IPC channels',
   assert.deepEqual(invocations.find((entry) => entry.channel === 'assets:reorder'), {
     channel: 'assets:reorder',
     args: [{ ids: ['img'] }],
+  });
+  assert.deepEqual(invocations.find((entry) => entry.channel === 'vn:exportIrodoriBatch'), {
+    channel: 'vn:exportIrodoriBatch',
+    args: [{ doc: { scenes: [] }, assetIds: ['voice'] }],
   });
 
   let received = null;
