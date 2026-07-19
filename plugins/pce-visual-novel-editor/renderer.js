@@ -2472,7 +2472,7 @@ function buildPreviewHtml(payload) {
     + '</body></html>';
 }
 
-export function activatePlugin({ root, api, registerCapability }) {
+export function activatePlugin({ root, api, logger, registerCapability }) {
   root.innerHTML = `
     <div class="pce-vn-shell">
       <aside class="pce-vn-list">
@@ -4305,7 +4305,10 @@ export function activatePlugin({ root, api, registerCapability }) {
     try {
       errorEl.textContent = '';
       if (editorMode === 'json') {
-        if (!applyScriptJsonToDoc({ refreshText: true })) return;
+        if (!applyScriptJsonToDoc({ refreshText: true })) {
+          logger?.error?.(`音声バッチ出力失敗: ${errorEl.textContent || 'JSONを検証できませんでした。'}`);
+          return;
+        }
       } else {
         commitCurrentUiToDoc();
       }
@@ -4315,12 +4318,24 @@ export function activatePlugin({ root, api, registerCapability }) {
         doc: snapshot,
         assetIds: assets.map((asset) => asset?.id).filter(Boolean),
       });
-      if (result?.canceled) return;
-      if (!result?.ok) throw new Error(result?.error || '音声バッチを出力できませんでした。');
-      errorEl.textContent = `音声バッチを出力しました: ${result.path} `
+      if (result?.canceled) {
+        logger?.info?.('音声バッチ出力をキャンセルしました。');
+        return;
+      }
+      if (!result?.ok) {
+        const message = `音声バッチ出力失敗: ${result?.error || '音声バッチを出力できませんでした。'}`;
+        errorEl.textContent = message;
+        logger?.error?.(message);
+        return;
+      }
+      const message = `音声バッチを出力しました: ${result.path} `
         + `(話者 ${result.speakerCount} / Message ${result.messageCount} / ジョブ ${result.jobCount})`;
+      errorEl.textContent = message;
+      logger?.info?.(message);
     } catch (err) {
-      errorEl.textContent = `音声バッチ出力失敗: ${err?.message || err}`;
+      const message = `音声バッチ出力失敗: ${err?.message || err}`;
+      errorEl.textContent = message;
+      logger?.error?.(message);
     } finally {
       exportButton.disabled = false;
     }

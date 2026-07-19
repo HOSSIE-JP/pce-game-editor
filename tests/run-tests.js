@@ -18,6 +18,7 @@ loadAppConfig(require('../app.config'));
   'preload.test.js',
   'renderer-ui.test.js',
   'pce-app-separation.test.js',
+  'pce-adpcm-batch-csv.test.js',
   'pce-asset-manager.test.js',
   'pce-asset-store.test.js',
   'pce-asset-ipc.test.js',

@@ -420,6 +420,15 @@ interface Logger {
 
 `logger` で出力したメッセージは、エディタの **Build Log** パネルと **Plugin Log** パネルの両方に表示されます。
 
+### ユーザー向けメッセージの二重出力ルール
+
+Renderer プラグインのユーザー操作（保存、書き出し、インポートなど）が結果やエラーを表示する場合は、次の2経路へ同じ内容を出力します。
+
+1. 操作画面のプラグイン専用ステータス／エラー領域へ、ユーザーがその場で確認できる短いメッセージを表示する。
+2. `logger.info()`（成功・キャンセル）または `logger.error()` / `logger.warn()`（失敗・注意）へ、原因や修正箇所などの診断に必要な詳細を出力する。
+
+キャンセルはエラー扱いにせず `info` とし、エラー領域にもエラー表示を残しません。非同期操作では、成功・キャンセル・失敗のいずれでも操作中のUIを必ず復元します。ログにはシナリオ本文などの不要な大きなペイロードや秘密情報を含めません。
+
 ---
 
 ## 8. 依存関係の宣言
@@ -560,6 +569,9 @@ export function activatePlugin({ plugin, hostRoot, api, registerCapability }) {
 | `api.assets.deletePceAsset(id)` | PCE asset を削除し、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
 | `api.assets.importPceImage(payload)` | 画像 asset を取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
 | `api.assets.importPceAudio(payload)` | 音声 asset を取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
+| `api.assets.inspectPceAdpcmBatch({ csvPath })` | ADPCM batch CSV を読み、行ごとの検査結果、上書き対象、推定 part 数、警告を返す。asset は変更しない |
+| `api.assets.importPceAdpcmBatch({ csvPath, batchId })` | 検査をやり直して有効行を順次変換・保存する。完了時に共有ストアを1回更新し、`assets:pce:changed` を1回発行する |
+| `api.assets.cancelPceAdpcmBatch({ batchId })` | 実行中の ADPCM batch にキャンセルを要求する。現在行の変換・保存後に残りを未処理として終了する |
 | `api.assets.importPceVgm(payload)` | VGM / VGZ を PSG asset として取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
 | `api.assets.importPceMidi(payload)` | MIDI を PSG asset として取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
 | `api.assets.reorderPceAssets(ids)` | PCE asset の順序を保存し、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
@@ -768,6 +780,23 @@ const importedVoice = await window.electronAPI.importAssetAudio({
   sampleRate: processedVoice.processing.sampleRate,
 });
 
+// CSV を検査してから ADPCM を一括登録する
+const inspection = await window.electronAPI.inspectAssetAdpcmBatch({
+  csvPath: '/absolute/path/voices.csv',
+});
+const batchId = `voice-batch-${Date.now()}`;
+const offProgress = window.electronAPI.onAssetAdpcmBatchProgress((progress) => {
+  console.log(progress.batchId, progress.completed, progress.total, progress.status);
+});
+const batchPromise = window.electronAPI.importAssetAdpcmBatch({
+  csvPath: inspection.csvPath,
+  batchId,
+});
+// 別のUI eventから止める場合は、現在行の完了を待って残りが中止される。
+// await window.electronAPI.cancelAssetAdpcmBatch({ batchId });
+const batchResult = await batchPromise;
+offProgress();
+
 // MIDI を PSG pattern へ近似変換して登録する。midiOptions は省略可能。
 const importedPsg = await window.electronAPI.importAssetMidi({
   sourcePath: '/absolute/path/song.mid',
@@ -806,6 +835,31 @@ await window.electronAPI.reorderAssets(['title_bg', 'hero_sprite']);
 `previewAssetSource` と `reorderAssets` は絶対パス、`..`、symlink escape を拒否します。`importAssetImage` / `importAssetAudio` の `sourcePath` は読み取り元として dialog 由来の絶対パスを許可しますが、保存される `source` / generated file path は必ず project 相対です。BMP / WebP は renderer 側で PNG Data URL (`convertedDataUrl`) に変換してから import します。MP3 入力は renderer の `audio-convert-ui` で WAV Data URL へ加工してから `importAssetAudio({ dataUrl, sourceFileName, originalFileName, processing })` に渡します。
 
 ADPCM で `splitPolicy: "auto"` を指定すると、変換後の ADPCM が runtime 側の direct-buffered 安全上限を超える場合に `<id>_part01`, `<id>_part02`, ... の独立 asset として分割登録します。上限は `min(32767, 65536 - adpcmAddress)` bytes です。分割 asset は自動連続再生されないため、scene/message から必要な part を個別に参照してください。
+
+#### ADPCM batch CSV 契約
+
+Sound > ADPCM の `CSV一括` と統合 Assets の `AD CSV` は同じ batch importer を使います。CSV は UTF-8 または UTF-8 BOM の RFC 4180 形式で、CRLF / LF、引用符内のカンマ、`""` による引用符 escape に対応します。header 順は任意ですが、未知・重複 header は typo として CSV 全体のエラーになります。`source` の相対パスは CSV 自体の folder を基準に解決し、絶対パスも許可します。
+
+| 列 | 必須 | 契約 |
+|---|---:|---|
+| `source` | 必須 | PCM WAV (`.wav`)。mono / stereo、8 / 16 / 24 / 32-bit PCM。MP3 は不可 |
+| `id` | 必須 | `[A-Za-z0-9_-]{1,48}`。不正文字の暗黙置換はしない |
+| `name` | 任意 | 空なら WAV basename。`voice/chapter1/line001` のような `/` group 名を許可 |
+| `sampleRate` | 任意 | 既定 `8000`。`4000,4571,5333,6400,8000,10666,16000,32000` のいずれか |
+| `loop` | 任意 | 既定 `false`。`true` / `false` / `1` / `0` |
+| `splitPolicy` | 任意 | 既定 `auto`。`auto` は 32767-byte 単位で独立 part 化し、`error` は超過行を失敗にする |
+
+```csv
+source,id,name,sampleRate,loop,splitPolicy
+voices/akari/line001.wav,akari_001,voice/akari/line001,8000,false,auto
+"voices/mika/line,002.wav",mika_002,voice/mika/line002,10666,0,error
+```
+
+CSV 内で同じ `id` が複数行にある場合、または自動分割後の `<id>_partNN` が別行の出力 ID と衝突する場合は、順序に依存させず関係する行をすべてエラーにします。既存の同一 ID / group の ADPCM は確認なしで置換し、画像・sprite・PSG・CD-DA など非 ADPCM との ID 衝突はその行だけ失敗します。`type`、`adpcmAddress`、`divider`、`stream` は CSV 列にせず、address は `0`、divider は sample rate から自動計算します。trim、normalize、音量、fade 等は事前に WAV へ反映してください。
+
+検査結果にエラー行があっても、有効行が1件以上あれば実行できます。実行時は行順に変換し、成功行ごとに `assets/pce-assets.json` へ確定してから次へ進みます。失敗行やキャンセル以前の成功は保持されます。戻り値の `results[]` は `lineNumber`, `id`, `status`, `errors[]`, `warnings[]`, `assetIds[]` を持ち、`summary` は成功・失敗・未処理行数と登録 asset / part 数を持ちます。登録 metadata の `data.import.batchFileName` / `batchRow` には CSV basename と行番号だけを保存し、CSV 本体や絶対パスは project へ保存しません。取込後の ADPCM が512件を超えても登録は続行しますが、CD VN の標準上限を超える警告を返し、build 時の参照数制約は別途適用されます。
+
+公開境界は IPC `assets:inspectAdpcmBatch` / `assets:importAdpcmBatch` / `assets:cancelAdpcmBatch`、progress event `assets:adpcmBatchProgress`、preload `inspectAssetAdpcmBatch()` / `importAssetAdpcmBatch()` / `cancelAssetAdpcmBatch()` / `onAssetAdpcmBatchProgress()` です。renderer plugin は共有 cache と変更通知を保つため、取込には host の `api.assets.inspectPceAdpcmBatch()` / `importPceAdpcmBatch()` / `cancelPceAdpcmBatch()` を使ってください。
 
 ADPCM の `divider` は再生速度の rate code です。取り込み時は、`divider` 未指定なら `32000 / (16 - code)` が `sampleRate` に最も近い `0..15` の code を自動計算し、代表値は `32000Hz -> 15`, `16000Hz -> 14`, `8000Hz -> 12`, `4000Hz -> 8` です。エディターUIでは現行の入力範囲で実機rate codeに対応する `4000`, `4571`, `5333`, `6400`, `8000`, `10666`, `16000`, `32000` Hz から選択します。`divider` を明示した場合は保存値をそのまま使い、runtime 側でも旧式値としての補正は行いません。direct-buffered playback で安定して鳴らせる 1 asset / part の長さは `min(32767, 65536 - adpcmAddress)` bytes、つまり `bytes * 2 / sampleRate` 秒が目安です。`adpcmAddress: 0` なら 16000Hz で約 4.09 秒、8000Hz で約 8.19 秒です。`assets/generated/<id>/adpcm.bin` は OKI/MSM5205 互換 4-bit adaptive data を高位 nibble 先 (`msn-first`) で保存します。旧 `pce-cd-adpcm-experimental`、古い `lsn-first`、nibble order 未記録、または `encoderVersion` が古い generated file は、source WAV が残っていれば build/source 生成時に自動再生成されます。
 ADPCM の true CD streaming (`pce_cdb_adpcm_stream`) は VN runtime / editor 機能から削除しました。ADPCM は常に ADPCM RAM へ読み込んでから buffered direct playback します。長い音声は `splitPolicy: "auto"` で分割する、sample rate を下げる、または CD-DA を使ってください。安全上限を超える ADPCM asset は build error になります。

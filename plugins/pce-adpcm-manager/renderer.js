@@ -1,3 +1,5 @@
+import { createAdpcmBatchImporter } from './adpcm-batch-import.js';
+
 const AUDIO_EXTS = ['.wav', '.mp3'];
 const ADPCM_DEFAULT_SAMPLE_RATE = 8000;
 const ADPCM_SAMPLE_RATES = Object.freeze([4000, 4571, 5333, 6400, 8000, 10666, 16000, 32000]);
@@ -121,6 +123,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           </div>
           <div class="pce-adpcm-actions">
             <button class="icon-btn" type="button" data-action="add" title="追加" aria-label="追加">＋</button>
+            <button class="btn-sm" type="button" data-action="batch-import" title="CSVからADPCMを一括取込">CSV一括</button>
             <button class="icon-btn" type="button" data-action="refresh" title="更新" aria-label="更新">↻</button>
           </div>
         </div>
@@ -230,6 +233,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   const previewPceAssetSource = (relativePath) => assetApi.previewPceAssetSource
     ? assetApi.previewPceAssetSource(relativePath)
     : api.electronAPI.previewAssetSource(relativePath);
+  const batchImporter = createAdpcmBatchImporter({ plugin, api, logger });
 
   function setStatus(message = '', kind = '') {
     statusEl.textContent = message;
@@ -875,6 +879,13 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     });
   });
   root.querySelector('[data-action="add"]').addEventListener('click', () => { void importAdpcmAsset(); });
+  root.querySelector('[data-action="batch-import"]').addEventListener('click', () => {
+    void batchImporter.open().catch((error) => {
+      const message = error?.message || String(error);
+      logger.error(`ADPCM CSV batch open failed: ${message}`);
+      setStatus(message, 'error');
+    });
+  });
   root.querySelector('[data-action="refresh"]').addEventListener('click', () => { void reload({ force: true }); });
   root.querySelector('[data-action="play"]').addEventListener('click', () => {
     const asset = selectedAsset();
@@ -886,6 +897,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     pluginId: plugin.id,
     reload,
     importAdpcmAsset,
+    importAdpcmBatchCsv: batchImporter.open,
   });
   const teardownAssetRefreshEvents = setupAssetRefreshEvents();
   const teardownPaneResizer = setupPaneResizer();
@@ -894,6 +906,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     deactivate() {
       teardownAssetRefreshEvents();
       teardownPaneResizer();
+      batchImporter.destroy();
       clearPreview();
     },
   };

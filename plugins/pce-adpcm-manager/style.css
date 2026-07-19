@@ -1,3 +1,5 @@
+@import url("./adpcm-batch-import.css");
+
 .pce-adpcm-layout {
   display: grid;
   grid-template-columns: minmax(360px, 1fr) 6px minmax(320px, 420px);

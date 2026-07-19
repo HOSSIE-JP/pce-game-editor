@@ -69,6 +69,8 @@ ChatGPT などでシナリオ、スクリプト JSON、画像・音声アセッ�
 
 ZIP の `batches/speaker_001.csv`、`speaker_002.csv` などは話者ごとに分かれ、ナレーションは `batches/narrator.csv` です。各 CSV は UTF-8 BOM 付きの `id,text,output_dir` 形式で、`output_dir` は `/output/<話者名>`（ナレーションは `/output/narrator`）になります。ZIP 内の `manifest.csv` には、各行の scene ID、1 始まりの command index、話者、本文、元の `voiceAssetId`、出力 WAV パス、対応する話者別 CSV が記録されます。
 
+出力の成功・エラーは画面のメッセージ欄に表示され、成功・キャンセル・エラーの全結果は Plugin Log / Build Log にも記録されます。キャンセルはエラー表示を残しません。エラー時はログに表示された scene ID や command index を確認して修正してください。
+
 既存の `voiceAssetId` がある Message はその ID を WAV 名に使い、未指定なら既存 asset ID と衝突しない `voice_0001` 形式の ID を一時的に割り当てます。自動 ID は manifest にだけ記録されるため、生成 WAV を ADPCM asset として取り込んだ後の Message への割り当ては手動です。同じ既存 ID が同じ話者・同じ本文から複数回参照される場合は生成ジョブを1件にまとめます。話者または本文が異なる重複 ID、`[A-Za-z0-9_-]{1,48}` に合わない ID は、同名 WAV の上書きを避けるため出力エラーになります。
 
 Irodori-TTS は1回のバッチで参照話者が共通なので、キャラクターごとの CSV を個別に読み込み、対応する Speaker Embedding または Reference WAV を選んで生成してください。HuCARD プロジェクトでもリスト作成には利用できますが、生成した Message voice を `voiceAssetId` で実機再生できるのは CD-ROM2 VN だけです。
@@ -221,6 +223,15 @@ Super CD-ROM2 / ADPCM を含む project では、Geargrafx などの外部エミ
 ## アセットの登録と整理
 
 - **ADPCM は buffered direct playback 専用です。** Sound > ADPCM には Streaming 指定はありません。ADPCM asset は direct-buffered 安全上限（既定 address では 32767 bytes）以下に収めてください。新規取り込みの標準 sample rate は 8000Hz で、16000Hz の約半分のサイズになり CD 読み込み負荷を抑えます。音質を優先する声だけ Sample rate を 10666Hz や 16000Hz へ上げてください。長いボイスは `splitPolicy: "auto"`、sample rate 低下、または CD-DA 化を検討してください。ADPCM address と divider は通常編集する必要がないため Sound > ADPCM には表示せず、address は既定値、divider は sample rate からの自動値を使います。大量の音声素材は ADPCM asset として管理し、CD-DA は曲や長尺 BGM など少数の物理 track 用に残すのが安全です。
+- **多数の PCM WAV は CSV から一括登録できます。** `Sound > ADPCM > CSV一括` または統合 `Assets > AD CSV` を押し、UTF-8 の CSV を選びます。確認画面には行番号、ID、source、sample rate、予想 part 数、既存 ADPCM の置換対象、警告、エラーが表示されます。エラー行が混ざっていても有効行だけ実行でき、失敗した行の後も処理を続けます。キャンセルは現在処理中の1行を保存した後で残りを止め、それまでの成功を保持します。同じ ID の既存 ADPCM は置換されますが、画像・sprite・PSG・CD-DA など別種 asset は保護され、その行だけエラーになります。512件を超える登録も可能ですが、CD VN から参照できる標準上限は512件なので警告を確認してください。
+
+  ```csv
+  source,id,name,sampleRate,loop,splitPolicy
+  voices/akari/line001.wav,akari_001,voice/chapter1/akari001,8000,false,auto
+  "voices/mika/line,002.wav",mika_002,voice/chapter1/mika002,10666,0,error
+  ```
+
+  `source` と `id` は必須です。`source` は絶対パス、または CSV のある folder からの相対パスで、PCM WAV のみを指定します。`id` は英数字・`_`・`-` の1〜48文字です。`name` は省略時に WAV のファイル名になります。`sampleRate` は `4000, 4571, 5333, 6400, 8000, 10666, 16000, 32000` のいずれか（既定8000）、`loop` は `true/false/1/0`（既定false）、`splitPolicy` は `auto/error`（既定auto）です。`auto` は32767 bytesを超える音声を `<id>_part01`, `<id>_part02`, ... へ分割しますが、part は自動連続再生されません。MP3、trim、normalize、音量、fade は一括取込の対象外なので、必要な加工を事前に WAV へ焼き込んでください。
 - **アセットの Name に `/` を含めると、アセット一覧がフォルダーのようにグループ化されて表示**されます。例えば `voice/akari` `voice/mika` は「voice」グループにまとまり、`voice/chapter1/intro` のように複数の `/` を使えば入れ子のグループになります。グループ見出しをクリックすると開閉でき（親を閉じると配下のサブグループも畳まれます）、統合アセット一覧では検索中に一致が隠れないよう自動的に全展開します。`/` を含まない Name はそのまま一覧の最上位に並びます（グループ化は表示上の整理で、保存される Name やビルド結果は変わりません）。このグループ化と開閉は、統合アセット一覧だけでなく **背景（BG）/ スプライト / ADPCM / CD-DA の型別エディタの一覧でも同様**に使えます。
 - **統合アセット一覧は Type と Name の列見出しをクリックしてソート**できます。クリックするたびに 昇順 → 降順 → 手動（ドラッグ並び）の順で切り替わります。ソート中もグループ化は維持され、フォルダー内のアセットが選んだキーで並びます。型別エディタの一覧も各列見出しでソートできます。
 - **BG / Sprite の visual payload は raw で扱われます**。旧プロジェクトに残る圧縮メタは読み込み時に互換情報として扱われますが、現在の CD-ROM2 build は `tiles.bin` / `map_vram.bin` / `patterns.bin` を生成します。`Cache Load` の BG / Sprite は低位 System Card RAM の visual cache へ先読みし、表示 command 実行時に cache hit すれば CD read なしで VRAM / BAT へ転送します。cache miss または evict 済みの場合は、従来どおり CD から scratch buffer へ読みながら VRAM へ転送します。

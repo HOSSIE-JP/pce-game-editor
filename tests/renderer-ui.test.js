@@ -182,6 +182,7 @@ test('PCE asset manager uses plugin-owned panes and PCE IPC workflow', () => {
   const imageManifest = readPluginManifest('pce-image-converter');
   const audioManifest = readPluginManifest('pce-audio-converter');
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-asset-manager', 'renderer.js'), 'utf-8');
+  const batchImporter = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-adpcm-manager', 'adpcm-batch-import.js'), 'utf-8');
   const imageRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-image-converter', 'renderer.js'), 'utf-8');
   const audioRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-audio-converter', 'renderer.js'), 'utf-8');
   const html = readRendererFile('index.html');
@@ -216,6 +217,9 @@ test('PCE asset manager uses plugin-owned panes and PCE IPC workflow', () => {
   assert.match(renderer, /data-action="import-bg"[\s\S]*title="BGを追加"/);
   assert.match(renderer, /data-action="import-sprite"[\s\S]*title="スプライトを追加"/);
   assert.match(renderer, /data-action="import-adpcm"[\s\S]*title="ADPCMを追加"/);
+  assert.match(renderer, /data-action="import-adpcm-batch"[\s\S]*title="CSVからADPCMを一括取込"/);
+  assert.match(renderer, /createAdpcmBatchImporter/);
+  assert.match(renderer, /importAdpcmBatchCsv/);
   assert.match(renderer, /data-action="import-cdda"[\s\S]*title="CD-DAを追加"/);
   assert.match(renderer, /PCE_ADPCM_DEFAULT_SAMPLE_RATE\s*=\s*8000/);
   assert.match(renderer, /PCE_ADPCM_SAMPLE_RATES\s*=\s*Object\.freeze\(\[4000, 4571, 5333, 6400, 8000, 10666, 16000, 32000\]\)/);
@@ -258,6 +262,12 @@ test('PCE asset manager uses plugin-owned panes and PCE IPC workflow', () => {
   assert.match(renderer, /previewAssetSource/);
   assert.match(renderer, /reorderAssets/);
   assert.match(renderer, /asset-import-handler/);
+  assert.match(batchImporter, /inspectPceAdpcmBatch/);
+  assert.match(batchImporter, /importPceAdpcmBatch/);
+  assert.match(batchImporter, /cancelPceAdpcmBatch/);
+  assert.match(batchImporter, /onAssetAdpcmBatchProgress/);
+  assert.match(batchImporter, /有効な行/);
+  assert.match(batchImporter, /残りをキャンセル/);
   assert.match(renderer, /openImportWizard\('sprite'\)/);
   assert.match(renderer, /asset\.type === 'sprite'/);
   assert.doesNotMatch(renderer, /mini-btn|class="input"|class="select"|pane-header|confirm\(/);
@@ -804,9 +814,13 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   const vnRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8');
   assert.match(vnRenderer, /data-action="export-irodori"/);
+  assert.match(vnRenderer, /export function activatePlugin\(\{ root, api, logger, registerCapability \}\)/);
   assert.match(vnRenderer, /async function exportIrodoriBatch\(\)/);
   assert.match(vnRenderer, /normalizeDoc\(doc, assets\)/);
   assert.match(vnRenderer, /exportVnIrodoriBatch\(\{[\s\S]*doc: snapshot,[\s\S]*assetIds:/);
+  assert.match(vnRenderer, /logger\?\.info\?\./);
+  assert.match(vnRenderer, /logger\?\.error\?\./);
+  assert.match(vnRenderer, /音声バッチ出力をキャンセルしました/);
   assert.match(main, /ipcMain\.handle\('vn:exportIrodoriBatch'/);
 
   const fontRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-font-editor', 'renderer.js'), 'utf-8');
@@ -949,6 +963,10 @@ test('ADPCM manager module exposes sample-only import, property edit, preview, a
   assert.equal(manifest.renderer, undefined);
   assert.ok(manifest.dependencies.includes('pce-audio-converter'));
   assert.match(renderer, /ADPCM Samples/);
+  assert.match(renderer, /data-action="batch-import"/);
+  assert.match(renderer, /CSV一括/);
+  assert.match(renderer, /createAdpcmBatchImporter/);
+  assert.match(renderer, /importAdpcmBatchCsv/);
   assert.match(renderer, /ADPCM_DEFAULT_SAMPLE_RATE\s*=\s*8000/);
   assert.match(renderer, /ADPCM_SAMPLE_RATES\s*=\s*Object\.freeze\(\[4000, 4571, 5333, 6400, 8000, 10666, 16000, 32000\]\)/);
   assert.match(renderer, /<select class="form-select" name="sampleRate">\$\{adpcmSampleRateOptions\(\)\}<\/select>/);

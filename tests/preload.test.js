@@ -27,6 +27,10 @@ test('main preload exposes renderer API methods with the expected IPC channels',
   assert.equal(typeof api.deleteAsset, 'function');
   assert.equal(typeof api.importAssetImage, 'function');
   assert.equal(typeof api.importAssetAudio, 'function');
+  assert.equal(typeof api.inspectAssetAdpcmBatch, 'function');
+  assert.equal(typeof api.importAssetAdpcmBatch, 'function');
+  assert.equal(typeof api.cancelAssetAdpcmBatch, 'function');
+  assert.equal(typeof api.onAssetAdpcmBatchProgress, 'function');
   assert.equal(typeof api.importAssetVgm, 'function');
   assert.equal(typeof api.importAssetMidi, 'function');
   assert.equal(typeof api.previewAssetMidi, 'function');
@@ -59,6 +63,9 @@ test('main preload exposes renderer API methods with the expected IPC channels',
   await api.deleteAsset('img');
   await api.importAssetImage({ id: 'img', sourcePath: '/tmp/img.png' });
   await api.importAssetAudio({ id: 'voice', sourcePath: '/tmp/voice.wav' });
+  await api.inspectAssetAdpcmBatch({ csvPath: '/tmp/voices.csv' });
+  await api.importAssetAdpcmBatch({ csvPath: '/tmp/voices.csv', batchId: 'batch-1' });
+  await api.cancelAssetAdpcmBatch({ batchId: 'batch-1' });
   await api.importAssetVgm({ id: 'song', sourcePath: '/tmp/song.vgm' });
   await api.importAssetMidi({ id: 'song', sourcePath: '/tmp/song.mid' });
   await api.previewAssetMidi({ id: 'song', sourcePath: '/tmp/song.mid' });
@@ -122,6 +129,18 @@ test('main preload exposes renderer API methods with the expected IPC channels',
     channel: 'assets:reorder',
     args: [{ ids: ['img'] }],
   });
+  assert.deepEqual(invocations.find((entry) => entry.channel === 'assets:inspectAdpcmBatch'), {
+    channel: 'assets:inspectAdpcmBatch',
+    args: [{ csvPath: '/tmp/voices.csv' }],
+  });
+  assert.deepEqual(invocations.find((entry) => entry.channel === 'assets:importAdpcmBatch'), {
+    channel: 'assets:importAdpcmBatch',
+    args: [{ csvPath: '/tmp/voices.csv', batchId: 'batch-1' }],
+  });
+  assert.deepEqual(invocations.find((entry) => entry.channel === 'assets:cancelAdpcmBatch'), {
+    channel: 'assets:cancelAdpcmBatch',
+    args: [{ batchId: 'batch-1' }],
+  });
   assert.deepEqual(invocations.find((entry) => entry.channel === 'vn:exportIrodoriBatch'), {
     channel: 'vn:exportIrodoriBatch',
     args: [{ doc: { scenes: [] }, assetIds: ['voice'] }],
@@ -131,6 +150,11 @@ test('main preload exposes renderer API methods with the expected IPC channels',
   api.onBuildLog((payload) => { received = payload; });
   listeners.get('build-log')({}, { line: 'ok' });
   assert.deepEqual(received, { line: 'ok' });
+
+  let adpcmBatchProgress = null;
+  api.onAssetAdpcmBatchProgress((payload) => { adpcmBatchProgress = payload; });
+  listeners.get('assets:adpcmBatchProgress')({}, { batchId: 'batch-1', completedRows: 2 });
+  assert.deepEqual(adpcmBatchProgress, { batchId: 'batch-1', completedRows: 2 });
 
   let aiControlLog = null;
   api.onAiControlLog((payload) => { aiControlLog = payload; });

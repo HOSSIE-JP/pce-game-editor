@@ -1,0 +1,102 @@
+.adpcm-batch-panel {
+  width: min(1120px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+}
+
+.adpcm-batch-panel .modal-header code {
+  display: block;
+  max-width: 820px;
+  overflow: hidden;
+  color: var(--text-muted, #91a4b2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adpcm-batch-body {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px 16px 16px;
+}
+
+.adpcm-batch-summary {
+  color: var(--text-secondary, #bfd0da);
+}
+
+.adpcm-batch-warning,
+.adpcm-batch-status.warn {
+  color: var(--warning, #ffd166);
+}
+
+.adpcm-batch-table-wrap {
+  max-height: min(55vh, 560px);
+  overflow: auto;
+  border: 1px solid var(--border-color, #264153);
+  border-radius: 6px;
+}
+
+.adpcm-batch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.adpcm-batch-table th,
+.adpcm-batch-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border-color, #264153);
+  text-align: left;
+  vertical-align: top;
+}
+
+.adpcm-batch-table th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--panel-bg, #0a1a25);
+  color: var(--text-muted, #91a4b2);
+}
+
+.adpcm-batch-table td:nth-child(3) {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adpcm-batch-table tr.is-error {
+  background: color-mix(in srgb, var(--danger, #ff6b6b) 8%, transparent);
+}
+
+.adpcm-batch-table tr.is-success {
+  background: color-mix(in srgb, var(--success, #57d68d) 7%, transparent);
+}
+
+.adpcm-batch-status.error,
+.adpcm-batch-progress-row [data-kind="error"] {
+  color: var(--danger, #ff7b7b);
+}
+
+.adpcm-batch-status.ok,
+.adpcm-batch-progress-row [data-kind="ok"] {
+  color: var(--success, #57d68d);
+}
+
+.adpcm-batch-progress-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(240px, 2fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 24px;
+  font-size: 12px;
+}
+
+.adpcm-batch-progress-row progress {
+  width: 100%;
+}
+
+@media (max-width: 760px) {
+  .adpcm-batch-progress-row {
+    grid-template-columns: 1fr;
+  }
+}

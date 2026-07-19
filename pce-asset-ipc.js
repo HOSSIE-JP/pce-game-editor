@@ -3,9 +3,10 @@
 function registerPceAssetIpc({ ipcMain, assetManager, getProjectDir }) {
   const projectDir = () => getProjectDir();
   const handle = (channel, operation) => {
-    ipcMain.handle(channel, async (_event, payload) => {
+    ipcMain.handle(channel, async (event, payload) => {
       try {
-        return { ok: true, ...operation(payload) };
+        const result = await operation(payload, event);
+        return { ok: true, ...(result || {}) };
       } catch (error) {
         return { ok: false, error: String(error?.message || error) };
       }
@@ -17,6 +18,13 @@ function registerPceAssetIpc({ ipcMain, assetManager, getProjectDir }) {
   handle('assets:delete', (payload) => assetManager.deleteAsset(projectDir(), payload?.id || payload));
   handle('assets:importImage', (payload) => assetManager.importImage(projectDir(), payload || {}));
   handle('assets:importAudio', (payload) => assetManager.importAudio(projectDir(), payload || {}));
+  handle('assets:inspectAdpcmBatch', (payload) => assetManager.inspectAdpcmBatch(projectDir(), payload || {}));
+  handle('assets:importAdpcmBatch', (payload, event) => assetManager.importAdpcmBatch(projectDir(), payload || {}, {
+    onProgress(progress) {
+      if (!event?.sender?.isDestroyed?.()) event?.sender?.send?.('assets:adpcmBatchProgress', progress);
+    },
+  }));
+  handle('assets:cancelAdpcmBatch', (payload) => assetManager.cancelAdpcmBatch(projectDir(), payload || {}));
   handle('assets:importVgm', (payload) => assetManager.importVgm(projectDir(), payload || {}));
   handle('assets:importMidi', (payload) => assetManager.importMidi(projectDir(), payload || {}));
   handle('assets:previewMidi', (payload) => assetManager.previewMidi(projectDir(), payload || {}));

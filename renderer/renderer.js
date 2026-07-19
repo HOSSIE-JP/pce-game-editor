@@ -856,6 +856,13 @@ function createPceAssetApi() {
       window.electronAPI.importAssetAudio(payload || {}),
       { assetId: payload?.id || '', kind: payload?.kind || payload?.type || 'adpcm' },
     ),
+    inspectPceAdpcmBatch: (payload) => window.electronAPI.inspectAssetAdpcmBatch(payload || {}),
+    importPceAdpcmBatch: (payload) => mutatePceAssets(
+      'import-adpcm-batch',
+      window.electronAPI.importAssetAdpcmBatch(payload || {}),
+      { batchId: payload?.batchId || '', csvPath: payload?.csvPath || '' },
+    ),
+    cancelPceAdpcmBatch: (payload) => window.electronAPI.cancelAssetAdpcmBatch(payload || {}),
     importPceVgm: (payload) => mutatePceAssets(
       'import-vgm',
       window.electronAPI.importAssetVgm(payload || {}),

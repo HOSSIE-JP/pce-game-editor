@@ -82,6 +82,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteAsset: (id) => ipcRenderer.invoke('assets:delete', { id }),
   importAssetImage: (payload) => ipcRenderer.invoke('assets:importImage', payload || {}),
   importAssetAudio: (payload) => ipcRenderer.invoke('assets:importAudio', payload || {}),
+  inspectAssetAdpcmBatch: (payload) => ipcRenderer.invoke('assets:inspectAdpcmBatch', payload || {}),
+  importAssetAdpcmBatch: (payload) => ipcRenderer.invoke('assets:importAdpcmBatch', payload || {}),
+  cancelAssetAdpcmBatch: (payload) => ipcRenderer.invoke('assets:cancelAdpcmBatch', payload || {}),
+  onAssetAdpcmBatchProgress: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('assets:adpcmBatchProgress', listener);
+    return () => ipcRenderer.removeListener?.('assets:adpcmBatchProgress', listener);
+  },
   importAssetVgm: (payload) => ipcRenderer.invoke('assets:importVgm', payload || {}),
   importAssetMidi: (payload) => ipcRenderer.invoke('assets:importMidi', payload || {}),
   previewAssetMidi: (payload) => ipcRenderer.invoke('assets:previewMidi', payload || {}),

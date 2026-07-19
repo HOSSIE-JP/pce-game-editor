@@ -4,6 +4,7 @@ import {
   psgFrequencyFromPeriod,
   normalizePsgPreviewPattern,
 } from '../pce-music-editor/psg-preview.js';
+import { createAdpcmBatchImporter } from '../pce-adpcm-manager/adpcm-batch-import.js';
 
 const IMAGE_EXTS = ['.png', '.bmp', '.webp'];
 const AUDIO_EXTS = ['.wav', '.mp3'];
@@ -206,6 +207,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             <button class="icon-btn" data-action="import-bg" type="button" title="BGを追加" aria-label="BGを追加">BG+</button>
             <button class="icon-btn" data-action="import-sprite" type="button" title="スプライトを追加" aria-label="スプライトを追加">SPR+</button>
             <button class="icon-btn" data-action="import-adpcm" type="button" title="ADPCMを追加" aria-label="ADPCMを追加">AD+</button>
+            <button class="btn-sm" data-action="import-adpcm-batch" type="button" title="CSVからADPCMを一括取込">AD CSV</button>
             <button class="icon-btn" data-action="import-cdda" type="button" title="CD-DAを追加" aria-label="CD-DAを追加">CD+</button>
             <button class="icon-btn" data-action="new-psg" type="button" title="PSG SFX を追加" aria-label="PSG SFX を追加">♪+</button>
             <button class="icon-btn" data-action="new-palette" type="button" title="Palette を追加" aria-label="Palette を追加">▦</button>
@@ -428,6 +430,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   // Sort by Type or Name; 'manual' keeps the drag-and-drop order.
   let sortState = { key: 'manual', direction: 'asc' };
   const assetApi = api.assets || {};
+  const batchImporter = createAdpcmBatchImporter({ plugin, api, logger });
   const psgPreviewController = createPsgPreviewController({
     onStateChange: (playing) => {
       if (soundMeterBarEl) soundMeterBarEl.style.width = playing ? '100%' : '0%';
@@ -1633,6 +1636,14 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   root.querySelector('[data-action="import-bg"]').addEventListener('click', () => openImportWizard('background'));
   root.querySelector('[data-action="import-sprite"]').addEventListener('click', () => openImportWizard('sprite'));
   root.querySelector('[data-action="import-adpcm"]').addEventListener('click', () => openAudioImportWizard('adpcm'));
+  root.querySelector('[data-action="import-adpcm-batch"]').addEventListener('click', () => {
+    formErrorEl.textContent = '';
+    void batchImporter.open().catch((error) => {
+      const message = error?.message || String(error);
+      formErrorEl.textContent = message;
+      logger.error(`ADPCM CSV batch open failed: ${message}`);
+    });
+  });
   root.querySelector('[data-action="import-cdda"]').addEventListener('click', () => openAudioImportWizard('cdda-track'));
   root.querySelector('[data-action="new-psg"]').addEventListener('click', () => {
     const id = `beep_${Date.now()}`;
@@ -1667,7 +1678,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     fillForm(selectedAsset());
   });
 
-  registerCapability('asset-manager', { pluginId: plugin.id, reload, openImportWizard });
+  registerCapability('asset-manager', { pluginId: plugin.id, reload, openImportWizard, importAdpcmBatchCsv: batchImporter.open });
   registerCapability('asset-import-handler', {
     pluginId: plugin.id,
     convertImageToIndexed16,
@@ -1753,6 +1764,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   return {
     deactivate() {
       teardownAssetRefreshEvents();
+      batchImporter.destroy();
       psgPreviewController.close();
     },
   };

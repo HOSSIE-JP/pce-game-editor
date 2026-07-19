@@ -15,6 +15,7 @@ const midiImporter = require('./pce-midi-import');
 const { normalizeRelativePath, resolveUnderRoot } = require('./pce-file-safety');
 const { createPceAssetStore } = require('./pce-asset-store');
 const { decodePngImage, parsePngSize } = require('./pce-png-decoder');
+const adpcmBatchCsv = require('./pce-adpcm-batch-csv');
 
 const ASSET_FILE = path.join('assets', 'pce-assets.json');
 const PCE_INTERNAL_IMAGE_CONVERTER = 'Internal PCE image converter';
@@ -56,6 +57,7 @@ const PCE_ADPCM_NIBBLE_ORDER = audioConverter.PCE_ADPCM_NIBBLE_ORDER || 'msn-fir
 const PCE_ADPCM_MIN_SAMPLE_RATE = audioConverter.PCE_ADPCM_MIN_SAMPLE_RATE || 4000;
 const PCE_ADPCM_MAX_SAMPLE_RATE = audioConverter.PCE_ADPCM_MAX_SAMPLE_RATE || 32000;
 const PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES = 32767;
+const canceledAdpcmBatchIds = new Set();
 const DEFAULT_BG_OPTIONS = Object.freeze({
   kind: 'background',
   paletteBank: 0,
@@ -1262,17 +1264,19 @@ function importAudio(projectDir, payload = {}, options = {}) {
   const sourceSubdir = kind === 'cdda-track' ? 'assets/cdda' : 'assets/adpcm';
   const sourceRel = normalizeRelativePath(path.join(sourceSubdir, `${id}.wav`));
   const { absPath: destAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
-
-  ensureDirSync(path.dirname(destAbs));
+  let input = null;
   if (payload.dataUrl) {
     const decoded = decodeDataUrl(payload.dataUrl);
-    fs.writeFileSync(destAbs, decoded.buffer);
+    input = decoded.buffer;
   } else if (sourceAbs) {
-    fs.copyFileSync(sourceAbs, destAbs);
+    input = fs.readFileSync(sourceAbs);
   }
-
-  const input = fs.readFileSync(destAbs);
+  if (!Buffer.isBuffer(input)) throw new Error('音声ファイルを読み込めませんでした');
   const importedAt = new Date().toISOString();
+  const batchFileName = path.basename(String(payload.batchFileName || '').trim());
+  const batchRow = Number.isInteger(Number(payload.batchRow)) && Number(payload.batchRow) > 0
+    ? Math.trunc(Number(payload.batchRow))
+    : 0;
   const processing = payload.processing && typeof payload.processing === 'object'
     ? {
         trimStartSec: Number.isFinite(Number(payload.processing.trimStartSec)) ? Number(payload.processing.trimStartSec) : null,
@@ -1297,6 +1301,8 @@ function importAudio(projectDir, payload = {}, options = {}) {
     const { absPath: previewAbs } = resolveUnderRoot(projectDir, previewFile, 'project');
     ensureDirSync(path.dirname(outputAbs));
     const converted = audioConverter.convertWavForCdda(input);
+    ensureDirSync(path.dirname(destAbs));
+    fs.writeFileSync(destAbs, input);
     fs.writeFileSync(outputAbs, converted.output);
     fs.writeFileSync(previewAbs, JSON.stringify({
       source: sourceRel,
@@ -1339,6 +1345,7 @@ function importAudio(projectDir, payload = {}, options = {}) {
           importedAt,
           converter: 'Internal WAV/CD-DA normalizer',
           processing,
+          ...(batchFileName ? { batchFileName, batchRow } : {}),
         },
       },
     })];
@@ -1370,6 +1377,21 @@ function importAudio(projectDir, payload = {}, options = {}) {
           durationSeconds: converted.durationSeconds,
           waveform: converted.waveform,
         }];
+    if (payload.rejectOversize && parts.some((part) => part.output.length > maxAdpcmBytes)) {
+      throw new Error(`ADPCM: ${parts[0].output.length} bytes exceeds runtime-safe limit ${maxAdpcmBytes}`);
+    }
+    if (Array.isArray(payload.expectedOutputIds)) {
+      const expectedOutputIds = payload.expectedOutputIds.map((value) => String(value || ''));
+      const actualOutputIds = parts.map((_part, partIndex) => (
+        parts.length > 1 ? `${id}_part${String(partIndex + 1).padStart(2, '0')}` : id
+      ));
+      if (expectedOutputIds.length !== actualOutputIds.length
+        || expectedOutputIds.some((value, index) => value !== actualOutputIds[index])) {
+        throw new Error(`ADPCM split result changed for ${id}; inspect the CSV again`);
+      }
+    }
+    ensureDirSync(path.dirname(destAbs));
+    fs.writeFileSync(destAbs, input);
     const partCount = parts.length;
     assetsToWrite = parts.map((part, partIndex) => {
       const assetId = partCount > 1 ? `${id}_part${String(partIndex + 1).padStart(2, '0')}` : id;
@@ -1424,12 +1446,13 @@ function importAudio(projectDir, payload = {}, options = {}) {
             waveform: part.waveform,
             warnings,
           },
-        import: {
-          originalFileName,
-          importedAt,
-          converter: 'Internal WAV/ADPCM encoder',
-          encoderVersion: part.encoderVersion || PCE_ADPCM_ENCODER_VERSION,
-          processing,
+          import: {
+            originalFileName,
+            importedAt,
+            converter: 'Internal WAV/ADPCM encoder',
+            encoderVersion: part.encoderVersion || PCE_ADPCM_ENCODER_VERSION,
+            processing,
+            ...(batchFileName ? { batchFileName, batchRow } : {}),
             groupId: id,
             partIndex: partIndex + 1,
             partCount,
@@ -1468,6 +1491,206 @@ function importAudio(projectDir, payload = {}, options = {}) {
       partCount: assetsToWrite.length,
       dryRun: Boolean(options.dryRun),
     },
+  };
+}
+
+function inspectAdpcmBatch(projectDir, payload = {}) {
+  const csvPath = String(payload.csvPath || payload.sourcePath || '').trim();
+  const doc = readAssetDocument(projectDir);
+  return adpcmBatchCsv.inspectAdpcmBatchCsv(csvPath, doc.assets);
+}
+
+function cancelAdpcmBatch(_projectDir, payload = {}) {
+  const batchId = String(payload.batchId || '').trim();
+  if (!batchId) throw new Error('batchId is required');
+  canceledAdpcmBatchIds.add(batchId);
+  return { batchId, canceled: true };
+}
+
+function adpcmBatchRelatedAssets(assets = [], row = {}) {
+  const outputIds = new Set(Array.isArray(row.outputIds) ? row.outputIds : []);
+  return (assets || []).filter((asset) => (
+    asset?.type === 'adpcm'
+    && (
+      asset.id === row.id
+      || outputIds.has(asset.id)
+      || String(asset.data?.import?.groupId || '') === row.id
+    )
+  ));
+}
+
+function cleanupReplacedAdpcmGeneratedFiles(projectDir, previousAssets = [], currentAssets = []) {
+  const currentPaths = new Set();
+  for (const asset of currentAssets) {
+    const generated = asset?.data?.generated || {};
+    for (const value of [generated.outputFile, generated.previewFile]) {
+      const normalized = normalizeRelativePath(value || '');
+      if (normalized) currentPaths.add(normalized);
+    }
+  }
+  const removed = [];
+  const warnings = [];
+  for (const asset of previousAssets) {
+    const generated = asset?.data?.generated || {};
+    for (const value of [generated.outputFile, generated.previewFile]) {
+      const normalized = normalizeRelativePath(value || '');
+      if (!normalized || currentPaths.has(normalized) || !normalized.startsWith('assets/generated/')) continue;
+      try {
+        const { absPath } = resolveUnderRoot(projectDir, normalized, 'project');
+        if (fs.existsSync(absPath) && fs.statSync(absPath).isFile()) {
+          fs.unlinkSync(absPath);
+          removed.push(normalized);
+        }
+      } catch (error) {
+        warnings.push(`旧generated fileを削除できません: ${normalized}: ${error?.message || error}`);
+      }
+    }
+  }
+  return { removed, warnings };
+}
+
+function emitAdpcmBatchProgress(options, payload) {
+  if (typeof options?.onProgress === 'function') options.onProgress(payload);
+}
+
+async function importAdpcmBatch(projectDir, payload = {}, options = {}) {
+  const batchId = String(payload.batchId || `adpcm-${Date.now()}`).trim().slice(0, 120);
+  if (!batchId) throw new Error('batchId is required');
+  canceledAdpcmBatchIds.delete(batchId);
+  const inspection = inspectAdpcmBatch(projectDir, payload);
+  const results = [];
+  let succeededRows = 0;
+  let failedRows = 0;
+  let succeededAssetCount = 0;
+  let canceled = false;
+
+  for (let index = 0; index < inspection.rows.length; index += 1) {
+    const row = inspection.rows[index];
+    if (canceledAdpcmBatchIds.has(batchId)) {
+      canceled = true;
+      for (let rest = index; rest < inspection.rows.length; rest += 1) {
+        const pending = inspection.rows[rest];
+        results.push({
+          lineNumber: pending.lineNumber,
+          id: pending.id,
+          status: 'canceled',
+          errors: ['キャンセルにより未処理です'],
+          warnings: pending.warnings || [],
+          assetIds: [],
+        });
+      }
+      break;
+    }
+
+    emitAdpcmBatchProgress(options, {
+      batchId,
+      index,
+      completed: index,
+      total: inspection.rows.length,
+      lineNumber: row.lineNumber,
+      id: row.id,
+      status: row.valid ? 'processing' : 'failed',
+      message: row.valid ? 'ADPCMへ変換中' : row.errors.join(' / '),
+    });
+
+    if (!row.valid) {
+      failedRows += 1;
+      results.push({
+        lineNumber: row.lineNumber,
+        id: row.id,
+        status: 'failed',
+        errors: row.errors.slice(),
+        warnings: row.warnings.slice(),
+        assetIds: [],
+      });
+    } else {
+      const beforeDoc = readAssetDocument(projectDir);
+      const previousAssets = adpcmBatchRelatedAssets(beforeDoc.assets, row);
+      try {
+        const imported = importAudio(projectDir, {
+          sourcePath: row.resolvedSourcePath,
+          sourceFileName: path.basename(row.resolvedSourcePath),
+          originalFileName: path.basename(row.resolvedSourcePath),
+          kind: 'adpcm',
+          id: row.id,
+          name: row.name,
+          sampleRate: row.sampleRate,
+          loop: row.loop,
+          splitPolicy: row.splitPolicy === 'auto' ? 'auto' : '',
+          rejectOversize: row.splitPolicy === 'error',
+          expectedOutputIds: row.outputIds,
+          batchFileName: inspection.csvFileName,
+          batchRow: row.lineNumber,
+        });
+        const currentAssets = adpcmBatchRelatedAssets(imported.assets, row);
+        const cleanup = cleanupReplacedAdpcmGeneratedFiles(projectDir, previousAssets, currentAssets);
+        const assetIds = currentAssets.map((asset) => asset.id);
+        succeededRows += 1;
+        succeededAssetCount += assetIds.length;
+        results.push({
+          lineNumber: row.lineNumber,
+          id: row.id,
+          status: 'success',
+          errors: [],
+          warnings: [...row.warnings, ...cleanup.warnings],
+          assetIds,
+          removedFiles: cleanup.removed,
+        });
+      } catch (error) {
+        failedRows += 1;
+        results.push({
+          lineNumber: row.lineNumber,
+          id: row.id,
+          status: 'failed',
+          errors: [String(error?.message || error)],
+          warnings: row.warnings.slice(),
+          assetIds: [],
+        });
+      }
+    }
+
+    const latest = results[results.length - 1];
+    emitAdpcmBatchProgress(options, {
+      batchId,
+      index,
+      completed: index + 1,
+      total: inspection.rows.length,
+      lineNumber: row.lineNumber,
+      id: row.id,
+      status: latest.status,
+      message: latest.status === 'success' ? `${latest.assetIds.length} assetを登録` : latest.errors.join(' / '),
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  canceledAdpcmBatchIds.delete(batchId);
+  const listed = listAssets(projectDir);
+  const canceledRows = results.filter((result) => result.status === 'canceled').length;
+  const summary = {
+    totalRows: inspection.rows.length,
+    succeededRows,
+    failedRows,
+    canceledRows,
+    succeededAssetCount,
+    canceled,
+  };
+  emitAdpcmBatchProgress(options, {
+    batchId,
+    completed: inspection.rows.length - canceledRows,
+    total: inspection.rows.length,
+    status: canceled ? 'canceled' : 'complete',
+    message: `成功 ${succeededRows} / 失敗 ${failedRows}${canceledRows ? ` / 未処理 ${canceledRows}` : ''}`,
+    summary,
+  });
+  return {
+    batchId,
+    file: listed.file,
+    assets: listed.assets,
+    csvPath: inspection.csvPath,
+    csvFileName: inspection.csvFileName,
+    warnings: inspection.warnings,
+    summary,
+    results,
   };
 }
 
@@ -3677,6 +3900,9 @@ module.exports = {
   ensureAssetFile,
   generateAssetSources,
   getAssetFilePath,
+  inspectAdpcmBatch,
+  importAdpcmBatch,
+  cancelAdpcmBatch,
   importAudio,
   importImage,
   importVgm,

@@ -14,6 +14,12 @@ test('PCE asset IPC registers the raw asset manager contract', async () => {
     deleteAsset: (dir, id) => ({ assets: [], dir, id }),
     importImage: (dir, payload) => ({ asset: payload, dir }),
     importAudio: (dir, payload) => ({ asset: payload, dir }),
+    inspectAdpcmBatch: (dir, payload) => ({ rows: [payload], dir }),
+    importAdpcmBatch: async (dir, payload, options) => {
+      options.onProgress({ batchId: payload.batchId, status: 'complete' });
+      return { batchId: payload.batchId, assets: [], dir };
+    },
+    cancelAdpcmBatch: (dir, payload) => ({ batchId: payload.batchId, canceled: true, dir }),
     importVgm: (dir, payload) => ({ asset: payload, dir }),
     importMidi: (dir, payload) => ({ asset: payload, dir }),
     previewMidi: (dir, payload) => ({ preview: payload, dir }),
@@ -42,6 +48,9 @@ test('PCE asset IPC registers the raw asset manager contract', async () => {
     'assets:delete',
     'assets:importImage',
     'assets:importAudio',
+    'assets:inspectAdpcmBatch',
+    'assets:importAdpcmBatch',
+    'assets:cancelAdpcmBatch',
     'assets:importVgm',
     'assets:importMidi',
     'assets:previewMidi',
@@ -55,4 +64,12 @@ test('PCE asset IPC registers the raw asset manager contract', async () => {
     id: 'bg',
   });
   assert.deepEqual(calls[0], ['deleteAsset', 'project', 'bg']);
+
+  const sent = [];
+  const batch = await handlers.get('assets:importAdpcmBatch')({
+    sender: { isDestroyed: () => false, send: (...args) => sent.push(args) },
+  }, { batchId: 'batch-1' });
+  assert.equal(batch.ok, true);
+  assert.equal(batch.batchId, 'batch-1');
+  assert.deepEqual(sent, [['assets:adpcmBatchProgress', { batchId: 'batch-1', status: 'complete' }]]);
 });
