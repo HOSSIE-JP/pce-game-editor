@@ -74,6 +74,9 @@ function normalizeSpriteEditorMetadata(metadata) {
     rowDefaultTimes: Array.isArray(metadata.rowDefaultTimes)
       ? metadata.rowDefaultTimes.map((value) => String(value || '')).slice(0, 64)
       : [],
+    rowNames: Array.isArray(metadata.rowNames)
+      ? metadata.rowNames.map((value, index) => String(value || '').trim().slice(0, 48) || `ROW ${index}`).slice(0, 64)
+      : [],
     collision: String(metadata.collision || 'NONE'),
   };
 }

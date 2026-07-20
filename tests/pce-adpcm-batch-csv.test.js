@@ -6,6 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const batchCsv = require('../pce-adpcm-batch-csv');
+const { buildIrodoriBatchBundle } = require('../pce-vn-irodori-batch');
+const { inspectIrodoriVoiceAssignments } = require('../pce-vn-irodori-assign');
 const { loadWithMockedElectron } = require('./helpers/mock-electron');
 
 function makeTempDir(prefix) {
@@ -90,6 +92,43 @@ test('ADPCM batch CSV accepts UTF-8 BOM, CRLF, quoted commas, relative paths, an
   assert.equal(defaults.rows[0].sampleRate, 8000);
   assert.equal(defaults.rows[0].loop, false);
   assert.equal(defaults.rows[0].splitPolicy, 'auto');
+});
+
+test('ADPCM batch CSV resolves relative WAV files from an optional source root for inspection and import', async () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-adpcm-source-root-project-');
+  const csvDir = makeTempDir('pce-adpcm-source-root-csv-');
+  const wavRoot = makeTempDir('pce-adpcm-source-root-wav-');
+  const absoluteWav = writeFile(wavRoot, 'absolute.wav', makeWavBuffer(8000, 48));
+  writeFile(wavRoot, 'アカリ/voice_0001.wav', makeWavBuffer(16000, 80));
+  const csvPath = writeFile(csvDir, 'adpcm-import.csv', [
+    'source,id,name,sampleRate,loop,splitPolicy',
+    'アカリ/voice_0001.wav,voice_0001,voice/アカリ/voice_0001,8000,false,auto',
+    `${absoluteWav},absolute_voice,,8000,false,auto`,
+  ].join('\n'));
+
+  const csvRelative = batchCsv.inspectAdpcmBatchCsv(csvPath, []);
+  assert.equal(csvRelative.rows[0].valid, false);
+  assert.match(csvRelative.rows[0].errors.join(' '), /source が見つかりません/);
+
+  const rooted = batchCsv.inspectAdpcmBatchCsv(csvPath, [], { sourceRoot: wavRoot });
+  assert.equal(rooted.sourceRoot, path.resolve(wavRoot));
+  assert.equal(rooted.sourceBaseDir, path.resolve(wavRoot));
+  assert.equal(rooted.summary.validRows, 2);
+  assert.equal(rooted.rows[0].resolvedSourcePath, path.join(wavRoot, 'アカリ', 'voice_0001.wav'));
+  assert.equal(rooted.rows[1].resolvedSourcePath, path.resolve(absoluteWav));
+  assert.throws(
+    () => batchCsv.inspectAdpcmBatchCsv(csvPath, [], { sourceRoot: path.join(wavRoot, 'missing') }),
+    /WAVルートフォルダーが見つかりません/,
+  );
+
+  const imported = await assetManager.importAdpcmBatch(projectDir, {
+    csvPath,
+    sourceRoot: wavRoot,
+    batchId: 'source-root',
+  });
+  assert.equal(imported.summary.succeededRows, 2);
+  assert.deepEqual(imported.results.map((row) => row.assetIds[0]), ['voice_0001', 'absolute_voice']);
 });
 
 test('ADPCM batch CSV reports strict row validation, duplicate output IDs, and protected asset collisions', () => {
@@ -338,4 +377,55 @@ test('CD VN dry build catalogs a batch-imported ADPCM referenced by message voic
   assert.ok(result.commandInfo.mkcdArgs.some((entry) => /assets[\\/]generated[\\/]batch_voice[\\/]adpcm\.bin$/.test(entry)));
   assert.ok(result.commandInfo.mkcdArgs.some((entry) => /assets[\\/]generated[\\/]meta[\\/]asset_meta\.bin$/.test(entry)));
   assert.ok(fs.statSync(catalogPath).size > 0);
+});
+
+test('Irodori export to ADPCM CSV import and manifest assignment completes a CD VN dry build', async () => {
+  const assetManager = loadAssetManager();
+  const projectDir = path.join(makeTempDir('pce-irodori-workflow-project-'), 'project');
+  fs.cpSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd'), projectDir, { recursive: true });
+  const scenePath = path.join(projectDir, 'assets', 'pce-vn-scenes.json');
+  const sceneDoc = JSON.parse(fs.readFileSync(scenePath, 'utf8'));
+  sceneDoc.scenes[0].commands = [{
+    type: 'message',
+    speaker: 'Batch',
+    text: 'IRODORI WORKFLOW',
+    voiceAssetId: '',
+    mouthSlot: 0,
+    mouthAnimationId: '',
+  }];
+  sceneDoc.scenes[0].nextSceneId = '';
+  sceneDoc.scenes = [sceneDoc.scenes[0]];
+
+  const bundle = buildIrodoriBatchBundle({ doc: sceneDoc, assetIds: [] });
+  const packageDir = makeTempDir('pce-irodori-workflow-package-');
+  bundle.entries.forEach((entry) => writeFile(packageDir, entry.name, entry.data));
+  writeFile(packageDir, 'output/Batch/voice_0001.wav', makeWavBuffer(8000, 8000));
+
+  const batch = await assetManager.importAdpcmBatch(projectDir, {
+    csvPath: path.join(packageDir, 'output', 'adpcm-import.csv'),
+    batchId: 'irodori-workflow',
+  });
+  assert.equal(batch.summary.succeededRows, 1);
+  const assets = assetManager.listAssets(projectDir).assets;
+  const assignment = inspectIrodoriVoiceAssignments({
+    manifestPath: path.join(packageDir, 'manifest.csv'),
+    doc: sceneDoc,
+    assets,
+  });
+  assert.deepEqual(assignment.assignments.map((entry) => entry.id), ['voice_0001']);
+  assignment.assignments.forEach((entry) => {
+    sceneDoc.scenes.find((scene) => scene.id === entry.sceneId).commands[entry.commandIndex - 1].voiceAssetId = entry.id;
+  });
+  fs.writeFileSync(scenePath, JSON.stringify(sceneDoc, null, 2), 'utf8');
+
+  const buildSystem = loadBuildSystem();
+  buildSystem.openProject(projectDir);
+  const result = await buildSystem.buildProject(() => {}, {
+    dryRun: true,
+    allowMissingToolchain: true,
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.generated.visualNovel.messageCount, 1);
+  assert.ok(result.commandInfo.mkcdArgs.some((entry) => /assets[\\/]generated[\\/]voice_0001[\\/]adpcm\.bin$/.test(entry)));
+  assert.ok(result.commandInfo.mkcdArgs.some((entry) => /assets[\\/]generated[\\/]meta[\\/]asset_meta\.bin$/.test(entry)));
 });

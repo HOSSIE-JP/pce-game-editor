@@ -260,6 +260,11 @@ test('PCE asset manager uses plugin-owned panes and PCE IPC workflow', () => {
   assert.match(renderer, /dataUrlToPng\(workingDataUrl\)/);
   assert.match(renderer, /assets:pce:changed/);
   assert.match(renderer, /page:activated/);
+  assert.match(renderer, /data-sort-key="name">Name[\s\S]*data-sort-key="type">Type[\s\S]*<th>Source<\/th>/);
+  assert.match(renderer, /data-tree-depth="\$\{depth\}"/);
+  assert.match(renderer, /class="asset-tree-name-cell" style="padding-left:\$\{treeIndent\}px"/);
+  assert.match(renderer, /<td class="asset-drag-cell"><span[\s\S]*<td class="asset-tree-name-cell"[\s\S]*<td><span class="asset-type-pill[\s\S]*<td class="asset-path-cell"/);
+  assert.match(renderer, /<td class="asset-drag-cell"><\/td>\s*<td colspan="6" class="asset-group-cell"/);
   assert.match(renderer, /async function pickAudioInputFile\(\)/);
   assert.match(renderer, /const initialFile = importFile\?\.sourcePath[\s\S]*await pickAudioInputFile\(\)/);
   assert.match(renderer, /audio-convert-ui/);
@@ -272,6 +277,9 @@ test('PCE asset manager uses plugin-owned panes and PCE IPC workflow', () => {
   assert.match(batchImporter, /importPceAdpcmBatch/);
   assert.match(batchImporter, /cancelPceAdpcmBatch/);
   assert.match(batchImporter, /onAssetAdpcmBatchProgress/);
+  assert.match(batchImporter, /sourceRoot: inspection\.sourceRoot \|\| ''/);
+  assert.match(batchImporter, /properties: \['openDirectory'\]/);
+  assert.match(batchImporter, /WAVルート（任意）/);
   assert.match(batchImporter, /有効な行/);
   assert.match(batchImporter, /残りをキャンセル/);
   assert.match(renderer, /openImportWizard\('sprite'\)/);
@@ -512,6 +520,25 @@ test('PCE visual novel editor exposes synchronous and concurrent sprite movement
   assert.match(renderer, /if \(c\.async\)[\s\S]*startSpriteMove\(c, null\)/);
   assert.match(renderer, /startSpriteMove\(c, run\)/);
   assert.match(renderer, /cancelAllSpriteMoves\(\)/);
+});
+
+test('PCE visual novel editor previews hardware sprites and SpriteText in Full BG scenes', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+  const visualStateStart = renderer.indexOf('function computeVisualState(');
+  const previewRuntimeStart = renderer.indexOf('function previewRuntime()');
+  const visualStateSource = renderer.slice(visualStateStart, previewRuntimeStart);
+  assert.match(visualStateSource, /command\.type === 'sprite'\) \{/);
+  assert.match(visualStateSource, /command\.type === 'spritemove'\) \{/);
+  assert.match(visualStateSource, /command\.type === 'spritetext'\) \{/);
+  assert.doesNotMatch(visualStateSource, /command\.type === 'spritetext' && !fullScreenBg/);
+
+  const spriteRunStart = renderer.indexOf("      if (t === 'sprite') {", previewRuntimeStart);
+  const spriteTextRunStart = renderer.indexOf("      if (t === 'spritetext') {", spriteRunStart);
+  const spriteRunSource = renderer.slice(spriteRunStart, spriteTextRunStart);
+  assert.doesNotMatch(spriteRunSource, /scene\.fullScreenBg/);
+  assert.match(spriteRunSource, /if \(!state\.sprites\[c\.slot\]\) \{ pc \+= 1; continue; \}/);
+  const spriteTextRunEnd = renderer.indexOf("      if (t === 'audio') {", spriteTextRunStart);
+  assert.doesNotMatch(renderer.slice(spriteTextRunStart, spriteTextRunEnd), /scene\.fullScreenBg/);
 });
 
 test('PCE visual novel editor estimates the target-specific scene pack contract', () => {
@@ -826,6 +853,7 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   const vnRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8');
   assert.match(vnRenderer, /data-action="export-irodori"/);
+  assert.match(vnRenderer, /data-action="apply-irodori"/);
   assert.match(vnRenderer, /export function activatePlugin\(\{ root, api, logger, registerCapability \}\)/);
   assert.match(vnRenderer, /async function exportIrodoriBatch\(\)/);
   assert.match(vnRenderer, /normalizeDoc\(doc, assets\)/);
@@ -833,7 +861,14 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(vnRenderer, /logger\?\.info\?\./);
   assert.match(vnRenderer, /logger\?\.error\?\./);
   assert.match(vnRenderer, /音声バッチ出力をキャンセルしました/);
+  assert.match(vnRenderer, /音声バッチZIPは出力しましたが、シーンを保存できませんでした/);
+  assert.match(vnRenderer, /async function applyIrodoriVoiceBatch\(\)/);
+  assert.match(vnRenderer, /inspectVnIrodoriVoiceAssignments\(\{/);
+  assert.match(vnRenderer, /currentInspection\.inspectionSignature !== inspection\.inspectionSignature/);
+  assert.match(vnRenderer, /command\.voiceAssetId = assignment\.id/);
+  assert.match(vnRenderer, /有効な \$\{Number\(summary\.assignableRows\) \|\| 0\} 行を反映/);
   assert.match(main, /ipcMain\.handle\('vn:exportIrodoriBatch'/);
+  assert.match(main, /ipcMain\.handle\('vn:inspectIrodoriVoiceAssignments'/);
 
   const fontRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-font-editor', 'renderer.js'), 'utf-8');
   // Font editor manages a project font library (add / select / delete) instead
@@ -854,6 +889,7 @@ test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page
   const musicRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-music-editor', 'renderer.js'), 'utf-8');
   const psgPreview = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-music-editor', 'psg-preview.js'), 'utf-8');
   const musicCss = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-music-editor', 'style.css'), 'utf-8');
+  const hostRenderer = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'renderer.js'), 'utf-8');
 
   assert.equal(manifest.name, 'サウンド');
   assert.equal(manifest.tab.label, 'Sound');
@@ -879,6 +915,7 @@ test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page
   assert.match(musicRenderer, /function renderGroupedList\(list, itemRenderer\)/);
   assert.match(musicRenderer, /assetDisplayName\(asset\)/);
   assert.match(musicRenderer, /function psgImportFormat\(asset = \{\}\)/);
+  assert.match(musicRenderer, /return 'PSG JSON'/);
   assert.match(musicRenderer, /function psgAssetOriginTag\(asset = \{\}\)/);
   assert.match(musicRenderer, /label: 'エディタSFX'/);
   assert.match(musicRenderer, /data-kind="\$\{esc\(originTag\.kind\)\}"/);
@@ -887,12 +924,21 @@ test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page
   assert.match(musicCss, /\.pce-music-editor-shell \.pce-plugin-group/);
   assert.match(musicCss, /\.pce-music-origin-tag\[data-kind="import"\]/);
   assert.match(musicCss, /\.pce-music-origin-tag\[data-kind="designer"\]/);
-  // PSG can register an existing VGM/VGZ/MIDI file in addition to creating a new asset.
+  // PSG can register import-ready PSG JSON as well as VGM/VGZ/MIDI sources.
   assert.match(musicRenderer, /data-import/);
+  assert.match(musicRenderer, /inspectPcePsgJson/);
+  assert.match(musicRenderer, /importPcePsgJson/);
   assert.match(musicRenderer, /importPceVgm/);
   assert.match(musicRenderer, /importPceMidi/);
   assert.match(musicRenderer, /previewPceMidi/);
-  assert.match(musicRenderer, /'vgm', 'vgz', 'mid', 'midi'/);
+  assert.match(musicRenderer, /'json', 'vgm', 'vgz', 'mid', 'midi'/);
+  assert.match(musicRenderer, /format = ext === 'json'/);
+  assert.match(musicRenderer, /data-replace-row/);
+  assert.match(musicRenderer, /同じIDのPSG assetを置換する/);
+  assert.match(musicRenderer, /summary\.sections/);
+  assert.match(hostRenderer, /inspectPcePsgJson/);
+  assert.match(hostRenderer, /importPcePsgJson/);
+  assert.match(hostRenderer, /import-psg-json/);
   assert.match(musicRenderer, /maxToneVoices/);
   assert.match(musicRenderer, /drumMode/);
   assert.match(musicRenderer, /toneVolumeScale/);
@@ -1012,6 +1058,9 @@ test('ADPCM manager module exposes sample-only import, property edit, preview, a
   assert.match(renderer, /data-sort-key="id"/);
   assert.match(renderer, /function sortedAdpcmAssets\(\)/);
   assert.match(renderer, /function renderGroupedRows\(list, colSpan, rowRenderer\)/);
+  assert.match(renderer, /rowRenderer\(asset, group\.length\)/);
+  assert.match(renderer, /data-tree-depth="\$\{depth\}"/);
+  assert.match(renderer, /pce-adpcm-name-cell" style="--asset-tree-indent:\$\{depth \* 14\}px"/);
   assert.match(renderer, /assetDisplayName\(displayAsset\)/);
   assert.match(renderer, /pce-adpcm-id-cell/);
   assert.match(renderer, /data-role="pane-resizer"/);
@@ -1025,6 +1074,7 @@ test('ADPCM manager module exposes sample-only import, property edit, preview, a
   assert.match(css, /\.pce-adpcm-sort/);
   assert.match(css, /\.pce-adpcm-id-cell/);
   assert.match(css, /\.pce-adpcm-group-row/);
+  assert.match(css, /\.pce-adpcm-table td\.pce-adpcm-name-cell\s*\{[\s\S]*padding-left:\s*calc\(10px \+ var\(--asset-tree-indent,\s*0px\)\)/);
   assert.match(css, /\.pce-adpcm-row-actions\s*\{[\s\S]*white-space:\s*nowrap/);
   assert.match(css, /\.pce-adpcm-row-actions \.icon-btn-xs\s*\{[\s\S]*display:\s*inline-flex/);
   assert.match(css, /\.pce-adpcm-table/);

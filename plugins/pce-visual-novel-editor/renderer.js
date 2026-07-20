@@ -7,6 +7,7 @@ import { psgNoiseHzFromValue } from '../pce-music-editor/psg-sfx-synth.mjs';
 const SCENE_FILE = 'assets/pce-vn-scenes.json';
 const PCE_SCREEN_WIDTH = 256;
 const PCE_SCREEN_HEIGHT = 224;
+const MAX_SPRITE_FRAME_DELAY = 0xffff;
 // ゲーム側 runtime のメッセージ領域に一致させる。
 // 256x224 画面、メッセージ窓 208x64px を下部中央から1タイル上 (x=24,y=152) に配置。
 // 1 文字 12×12px を 12px 横ピッチで 17 文字、16px 行ピッチで 4 行。
@@ -671,7 +672,7 @@ function spriteFrameGeometry(source, animationId) {
   const frameCount = Math.max(1, Math.min(64, Number(anim.frameCount) || 1));
   const stride = Math.max(1, Number(anim.frameStrideCells) || 1);
   const firstCell = Math.max(0, Number(anim.firstCell) || 0);
-  const frameDelay = Math.max(1, Math.min(60, Number(anim.frameDelay) || 8));
+  const frameDelay = Math.max(1, Math.min(MAX_SPRITE_FRAME_DELAY, Number(anim.frameDelay) || 8));
   const rawFrameDelays = Array.isArray(anim.frameDelays) ? anim.frameDelays : [];
   const loop = anim.loop !== false;
   const frames = [];
@@ -685,7 +686,7 @@ function spriteFrameGeometry(source, animationId) {
   if (!frames.length) frames.push({ x: 0, y: 0 });
   const frameDelays = frames.map((_, frameIndex) => {
     const value = Number(rawFrameDelays[frameIndex]);
-    return Math.max(1, Math.min(60, Number.isFinite(value) && value > 0 ? value : frameDelay));
+    return Math.max(1, Math.min(MAX_SPRITE_FRAME_DELAY, Number.isFinite(value) && value > 0 ? value : frameDelay));
   });
   return { sheetW, sheetH, frameW, frameH, frames, frameDelay, frameDelays, loop };
 }
@@ -712,7 +713,7 @@ function applySpriteFrame(node, url, geo, flipX, flipY) {
   if (geo.frames.length <= 1) return;
   const frameDelayAt = (i) => {
     const value = Array.isArray(geo.frameDelays) ? Number(geo.frameDelays[i]) : 0;
-    return Math.max(1, Math.min(60, Number.isFinite(value) && value > 0 ? value : geo.frameDelay || 8));
+    return Math.max(1, Math.min(MAX_SPRITE_FRAME_DELAY, Number.isFinite(value) && value > 0 ? value : geo.frameDelay || 8));
   };
   const frameMsAt = (i) => frameDelayAt(i) * (1000 / 60);
   const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
@@ -743,7 +744,7 @@ function computeVisualState(commands = [], uptoIndex = -1, fullScreenBg = false)
     if (!command || isCommandSkipped(command)) continue;
     if (command.type === 'background') {
       state.background = { assetId: command.assetId, x: command.x, y: command.y };
-    } else if (command.type === 'sprite' && !fullScreenBg) {
+    } else if (command.type === 'sprite') {
       if (command.visible === false) {
         delete state.sprites[command.slot];
       } else {
@@ -757,7 +758,7 @@ function computeVisualState(commands = [], uptoIndex = -1, fullScreenBg = false)
           animationId: command.animationId,
         };
       }
-    } else if (command.type === 'spritemove' && !fullScreenBg) {
+    } else if (command.type === 'spritemove') {
       const sprite = state.sprites[command.slot];
       if (sprite) {
         sprite.x = command.x;
@@ -766,7 +767,7 @@ function computeVisualState(commands = [], uptoIndex = -1, fullScreenBg = false)
           sprite.animationId = command.animationId;
         }
       }
-    } else if (command.type === 'spritetext' && !fullScreenBg) {
+    } else if (command.type === 'spritetext') {
       if (command.visible === false) {
         delete state.spriteTexts[command.slot];
       } else {
@@ -2365,7 +2366,6 @@ function previewRuntime() {
       const t = c.type;
       if (t === 'background') { pc += 1; recordVisualDisplay(c.assetId, 'bg', 'BG'); applyBackground(c); return; }
       if (t === 'sprite') {
-        if (scene.fullScreenBg) { pc += 1; continue; }
         cancelSpriteMove(c.slot);
         if (c.visible === false) delete state.sprites[c.slot];
         else {
@@ -2377,7 +2377,7 @@ function previewRuntime() {
         continue;
       }
       if (t === 'spritemove') {
-        if (scene.fullScreenBg || !state.sprites[c.slot]) { pc += 1; continue; }
+        if (!state.sprites[c.slot]) { pc += 1; continue; }
         pc += 1;
         if (c.async) {
           startSpriteMove(c, null);
@@ -2387,7 +2387,6 @@ function previewRuntime() {
         return;
       }
       if (t === 'spritetext') {
-        if (scene.fullScreenBg) { pc += 1; continue; }
         if (c.visible === false) delete state.spriteTexts[c.slot];
         else state.spriteTexts[c.slot] = { slot: c.slot, text: c.text, x: c.x, y: c.y, color: c.color, blinkFrames: c.blinkFrames || 0, blinkTimer: 0, blinkOn: true };
         renderStage();
@@ -2555,6 +2554,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
             </label>
             <button class="btn-sm" type="button" data-action="preview" title="シーンをプレビュー再生">▶ プレビュー</button>
             <button class="btn-sm" type="button" data-action="export-irodori" title="全シーンのMessageをIrodori-TTS用の話者別CSVへ出力">音声バッチ出力</button>
+            <button class="btn-sm" type="button" data-action="apply-irodori" title="manifest.csvから登録済みADPCMをMessageへ一括設定">音声バッチ反映</button>
             <button class="btn-primary" type="button" data-action="save">保存</button>
           </div>
         </div>
@@ -4351,6 +4351,19 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
         logger?.error?.(message);
         return;
       }
+      const saved = await api.electronAPI.writeCodeFile({
+        path: SCENE_FILE,
+        content: JSON.stringify(snapshot, null, 2),
+        encoding: 'utf8',
+      });
+      if (!saved?.ok) {
+        const message = `音声バッチZIPは出力しましたが、シーンを保存できませんでした: ${saved?.error || 'unknown'}`;
+        errorEl.textContent = message;
+        logger?.error?.(message);
+        return;
+      }
+      doc = snapshot;
+      render();
       const message = `音声バッチを出力しました: ${result.path} `
         + `(話者 ${result.speakerCount} / Message ${result.messageCount} / ジョブ ${result.jobCount})`;
       errorEl.textContent = message;
@@ -4361,6 +4374,159 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
       logger?.error?.(message);
     } finally {
       exportButton.disabled = false;
+    }
+  }
+
+  async function normalizedVoiceBatchSnapshot({ refreshAssets = false } = {}) {
+    if (editorMode === 'json') {
+      if (!applyScriptJsonToDoc({ refreshText: true })) {
+        throw new Error(errorEl.textContent || 'JSONを検証できませんでした。');
+      }
+    } else {
+      commitCurrentUiToDoc();
+    }
+    if (refreshAssets) {
+      const assetResult = await listPceAssets({ force: true });
+      if (!assetResult?.ok) throw new Error(assetResult?.error || 'asset一覧を更新できませんでした');
+      assets = Array.isArray(assetResult.assets) ? assetResult.assets : [];
+    }
+    return normalizeDoc(doc, assets);
+  }
+
+  function voiceAssignmentStatus(row = {}) {
+    if (row.status === 'new') return { label: '新規設定', kind: 'ok' };
+    if (row.status === 'replace') return { label: '置換', kind: 'warn' };
+    if (row.status === 'already_set') return { label: '設定済み', kind: 'muted' };
+    if (row.status === 'error') return { label: 'エラー', kind: 'error' };
+    return { label: 'スキップ', kind: 'muted' };
+  }
+
+  function confirmIrodoriVoiceAssignments(inspection = {}) {
+    return new Promise((resolve) => {
+      const summary = inspection.summary || {};
+      const rows = Array.isArray(inspection.rows) ? inspection.rows : [];
+      const modal = api.createModal({
+        id: `pce-vn-irodori-assign-${Date.now()}`,
+        panelClassName: 'app-panel pce-vn-voice-assign-panel',
+        html: `
+          <div class="page-header modal-header">
+            <div>
+              <h2>音声バッチ反映</h2>
+              <code>${esc(inspection.manifestPath || '')}</code>
+            </div>
+            <button class="icon-btn" type="button" data-voice-assign-cancel>✕</button>
+          </div>
+          <div class="pce-vn-voice-assign-body">
+            <div class="pce-vn-voice-assign-summary">
+              全 ${Number(summary.totalRows) || 0} 行 / 新規 <strong>${Number(summary.newRows) || 0}</strong>
+              / 置換 <strong>${Number(summary.replaceRows) || 0}</strong>
+              / 設定済み ${Number(summary.alreadySetRows) || 0}
+              / スキップ ${Number(summary.skippedRows) || 0}
+              / エラー ${Number(summary.errorRows) || 0}
+            </div>
+            <div class="form-hint">scene・command位置・話者・本文が出力時と一致し、同じIDの単一ADPCMが登録済みの行だけを反映します。</div>
+            <div class="pce-vn-voice-assign-table-wrap">
+              <table class="pce-vn-voice-assign-table">
+                <thead><tr><th>行</th><th>Scene / Command</th><th>ID</th><th>話者</th><th>状態</th></tr></thead>
+                <tbody>
+                  ${rows.map((row) => {
+                    const status = voiceAssignmentStatus(row);
+                    const speaker = row.speakerKind === 'narration' ? 'narrator' : (row.speaker || '-');
+                    return `<tr data-kind="${status.kind}">
+                      <td>${Number(row.lineNumber) || '-'}</td>
+                      <td><code>${esc(row.sceneId || '-')} #${Number(row.commandIndex) || '-'}</code></td>
+                      <td><code>${esc(row.id || '-')}</code></td>
+                      <td>${esc(speaker)}</td>
+                      <td><span class="pce-vn-voice-assign-status">${status.label}</span><small>${esc(row.reason || '')}</small></td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+            <div class="form-actions-inline modal-actions-end">
+              <button class="btn-sm" type="button" data-voice-assign-cancel>閉じる</button>
+              <button class="btn-primary" type="button" data-voice-assign-confirm ${summary.assignableRows > 0 ? '' : 'disabled'}>有効な ${Number(summary.assignableRows) || 0} 行を反映</button>
+            </div>
+          </div>
+        `,
+      });
+      let settled = false;
+      const finish = (confirmed) => {
+        if (settled) return;
+        settled = true;
+        modal.close();
+        modal.destroy?.();
+        resolve(confirmed);
+      };
+      modal.panel.querySelectorAll('[data-voice-assign-cancel]').forEach((button) => {
+        button.addEventListener('click', () => finish(false), { once: true });
+      });
+      modal.panel.querySelector('[data-voice-assign-confirm]').addEventListener('click', () => finish(true), { once: true });
+      modal.open();
+    });
+  }
+
+  async function inspectIrodoriVoiceAssignments(manifestPath, snapshot) {
+    const result = await api.electronAPI.inspectVnIrodoriVoiceAssignments({
+      manifestPath,
+      doc: snapshot,
+      assets: assets.map((asset) => ({ id: asset?.id || '', type: asset?.type || '' })),
+    });
+    if (!result?.ok) throw new Error(result?.error || 'manifest.csvを検査できませんでした');
+    return result;
+  }
+
+  async function applyIrodoriVoiceBatch() {
+    const applyButton = root.querySelector('[data-action="apply-irodori"]');
+    try {
+      errorEl.textContent = '';
+      const picked = await api.electronAPI.pickFile({
+        title: 'Irodori-TTS manifest.csvを選択',
+        properties: ['openFile'],
+        filters: [{ name: 'CSV', extensions: ['csv'] }],
+      });
+      const manifestPath = picked?.sourcePath || picked?.filePaths?.[0] || '';
+      if (picked?.canceled || !manifestPath) return;
+      applyButton.disabled = true;
+
+      let snapshot = await normalizedVoiceBatchSnapshot({ refreshAssets: true });
+      let inspection = await inspectIrodoriVoiceAssignments(manifestPath, snapshot);
+      while (await confirmIrodoriVoiceAssignments(inspection)) {
+        snapshot = await normalizedVoiceBatchSnapshot({ refreshAssets: true });
+        const currentInspection = await inspectIrodoriVoiceAssignments(manifestPath, snapshot);
+        if (currentInspection.inspectionSignature !== inspection.inspectionSignature) {
+          inspection = currentInspection;
+          errorEl.textContent = 'シーン・manifest・assetが確認後に変わったため、最新結果を再表示しました。';
+          continue;
+        }
+
+        const patched = JSON.parse(JSON.stringify(snapshot));
+        for (const assignment of currentInspection.assignments || []) {
+          const targetScene = patched.scenes.find((item) => item.id === assignment.sceneId);
+          const command = targetScene?.commands?.[assignment.commandIndex - 1];
+          if (command?.type === 'message') command.voiceAssetId = assignment.id;
+        }
+        doc = normalizeDoc(patched, assets);
+        const saved = await api.electronAPI.writeCodeFile({
+          path: SCENE_FILE,
+          content: JSON.stringify(doc, null, 2),
+          encoding: 'utf8',
+        });
+        if (!saved?.ok) throw new Error(saved?.error || 'シーンを保存できませんでした');
+        render();
+        const summary = currentInspection.summary || {};
+        const message = `音声バッチを反映しました: 新規 ${summary.newRows || 0} / 置換 ${summary.replaceRows || 0}`
+          + ` / スキップ ${summary.skippedRows || 0} / エラー ${summary.errorRows || 0}`;
+        errorEl.textContent = message;
+        logger?.info?.(message);
+        return;
+      }
+    } catch (error) {
+      const message = `音声バッチ反映失敗: ${error?.message || error}`;
+      errorEl.textContent = message;
+      logger?.error?.(message);
+    } finally {
+      applyButton.disabled = false;
     }
   }
 
@@ -4859,6 +5025,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
   root.querySelector('[data-action="save"]').addEventListener('click', save);
   root.querySelector('[data-action="preview"]').addEventListener('click', () => { void openScenePreview(); });
   root.querySelector('[data-action="export-irodori"]').addEventListener('click', () => { void exportIrodoriBatch(); });
+  root.querySelector('[data-action="apply-irodori"]').addEventListener('click', () => { void applyIrodoriVoiceBatch(); });
   root.querySelectorAll('[data-script-mode]').forEach((button) => {
     button.addEventListener('click', () => setEditorMode(button.dataset.scriptMode));
   });

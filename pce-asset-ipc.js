@@ -25,6 +25,8 @@ function registerPceAssetIpc({ ipcMain, assetManager, getProjectDir }) {
     },
   }));
   handle('assets:cancelAdpcmBatch', (payload) => assetManager.cancelAdpcmBatch(projectDir(), payload || {}));
+  handle('assets:inspectPsgJson', (payload) => assetManager.inspectPsgJson(projectDir(), payload || {}));
+  handle('assets:importPsgJson', (payload) => assetManager.importPsgJson(projectDir(), payload || {}));
   handle('assets:importVgm', (payload) => assetManager.importVgm(projectDir(), payload || {}));
   handle('assets:importMidi', (payload) => assetManager.importMidi(projectDir(), payload || {}));
   handle('assets:previewMidi', (payload) => assetManager.previewMidi(projectDir(), payload || {}));

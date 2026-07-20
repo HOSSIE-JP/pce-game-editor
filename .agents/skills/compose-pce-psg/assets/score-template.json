@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "metadata": {
+    "id": "clubroom_day",
+    "name": "放課後の部室",
+    "type": "psg-song",
+    "bpm": 72,
+    "timeSignature": "4/4",
+    "bars": 16,
+    "stepsPerBar": 16,
+    "volume": 100,
+    "loop": true,
+    "sections": [
+      { "name": "メロ", "startBar": 1, "endBar": 8 },
+      { "name": "サビ", "startBar": 9, "endBar": 16 }
+    ]
+  },
+  "tracks": [
+    {
+      "role": "lead",
+      "channel": 0,
+      "wave": 22,
+      "events": [
+        { "bar": 1, "offset": 0, "duration": 8, "note": "E4", "volume": 18 },
+        { "bar": 1, "offset": 8, "duration": 4, "note": "G4", "volume": 18 },
+        { "bar": 1, "offset": 12, "duration": 4, "note": "A4", "volume": 18 },
+        { "bar": 2, "offset": 0, "duration": 8, "note": "G4", "volume": 18 },
+        { "bar": 2, "offset": 8, "duration": 4, "note": "E4", "volume": 18 },
+        { "bar": 2, "offset": 12, "duration": 4, "note": "D4", "volume": 18 },
+        { "bar": 3, "offset": 0, "duration": 8, "note": "C4", "volume": 18, "repeatEvery": 32, "repeatCount": 3 },
+        { "bar": 3, "offset": 8, "duration": 8, "note": "E4", "volume": 18, "repeatEvery": 32, "repeatCount": 3 },
+        { "bar": 9, "offset": 0, "duration": 4, "note": "C5", "volume": 20 },
+        { "bar": 9, "offset": 4, "duration": 4, "note": "E5", "volume": 20 },
+        { "bar": 9, "offset": 8, "duration": 4, "note": "G5", "volume": 20 },
+        { "bar": 9, "offset": 12, "duration": 4, "note": "E5", "volume": 20, "repeatEvery": 32, "repeatCount": 4 },
+        { "bar": 10, "offset": 0, "duration": 4, "note": "D5", "volume": 20, "repeatEvery": 32, "repeatCount": 4 },
+        { "bar": 10, "offset": 4, "duration": 4, "note": "F5", "volume": 20, "repeatEvery": 32, "repeatCount": 4 },
+        { "bar": 10, "offset": 8, "duration": 4, "note": "A5", "volume": 20, "repeatEvery": 32, "repeatCount": 4 }
+      ]
+    },
+    {
+      "role": "pad",
+      "channel": 1,
+      "wave": 8,
+      "events": [
+        { "bar": 1, "offset": 0, "duration": 16, "note": "G3", "volume": 8, "repeatEvery": 16, "repeatCount": 8 },
+        { "bar": 9, "offset": 0, "duration": 8, "note": "G4", "volume": 10, "repeatEvery": 16, "repeatCount": 8 },
+        { "bar": 9, "offset": 8, "duration": 8, "note": "E4", "volume": 10, "repeatEvery": 16, "repeatCount": 8 }
+      ]
+    },
+    {
+      "role": "arpeggio",
+      "channel": 2,
+      "wave": 35,
+      "events": [
+        { "bar": 1, "offset": 0, "duration": 2, "note": "C4", "volume": 6, "repeatEvery": 8, "repeatCount": 32 },
+        { "bar": 1, "offset": 2, "duration": 2, "note": "E4", "volume": 6, "repeatEvery": 8, "repeatCount": 32 },
+        { "bar": 1, "offset": 4, "duration": 2, "note": "G4", "volume": 6, "repeatEvery": 8, "repeatCount": 32 },
+        { "bar": 1, "offset": 6, "duration": 2, "note": "E4", "volume": 6, "repeatEvery": 8, "repeatCount": 32 }
+      ]
+    },
+    {
+      "role": "bass",
+      "channel": 3,
+      "wave": 20,
+      "events": [
+        { "bar": 1, "offset": 0, "duration": 8, "note": "C3", "volume": 11, "repeatEvery": 16, "repeatCount": 8 },
+        { "bar": 1, "offset": 8, "duration": 8, "note": "G2", "volume": 10, "repeatEvery": 16, "repeatCount": 8 },
+        { "bar": 9, "offset": 0, "duration": 4, "note": "C3", "volume": 12, "repeatEvery": 8, "repeatCount": 16 },
+        { "bar": 9, "offset": 4, "duration": 4, "note": "G3", "volume": 11, "repeatEvery": 8, "repeatCount": 16 }
+      ]
+    },
+    {
+      "role": "kick-snare",
+      "channel": 4,
+      "events": [
+        { "bar": 1, "offset": 0, "duration": 1, "noise": 2, "volume": 6, "repeatEvery": 8, "repeatCount": 32 },
+        { "bar": 1, "offset": 4, "duration": 1, "noise": 18, "volume": 5, "repeatEvery": 8, "repeatCount": 32 }
+      ]
+    },
+    {
+      "role": "hat",
+      "channel": 5,
+      "events": [
+        { "bar": 1, "offset": 2, "duration": 1, "noise": 30, "volume": 3, "repeatEvery": 4, "repeatCount": 64 }
+      ]
+    }
+  ]
+}

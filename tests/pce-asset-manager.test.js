@@ -628,6 +628,45 @@ test('PCE ADPCM import ignores legacy stream flag and still auto-splits', () => 
   assert.equal(meta[14], 64); // adpcm cd sector lo
 });
 
+test('PCE sprite asset keeps custom ROW names and 16-bit frame delays', () => {
+  const assetManager = loadAssetManager();
+  const sprite = assetManager.normalizeAsset({
+    id: 'hero-long-delay',
+    type: 'sprite',
+    source: 'assets/sprites/hero.png',
+    options: {
+      width: 32,
+      height: 16,
+      cellWidth: 16,
+      cellHeight: 16,
+      animations: [{
+        id: 'default',
+        name: '待機アニメ',
+        frameWidth: 16,
+        frameHeight: 16,
+        firstCell: 0,
+        frameCount: 2,
+        frameDelay: 1000,
+        frameDelays: [1000, 70000],
+        frameStrideCells: 1,
+      }],
+      spriteEditor: {
+        frameWidth: 16,
+        frameHeight: 16,
+        time: '[[1000,70000]]',
+        rowFrameCounts: [2],
+        rowDefaultTimes: ['1000'],
+        rowNames: ['待機アニメ'],
+      },
+    },
+  });
+
+  assert.equal(sprite.options.animations[0].name, '待機アニメ');
+  assert.equal(sprite.options.animations[0].frameDelay, 1000);
+  assert.deepEqual(sprite.options.animations[0].frameDelays, [1000, 65535]);
+  assert.deepEqual(sprite.options.spriteEditor.rowNames, ['待機アニメ']);
+});
+
 test('PCE ADPCM loop flag edited after import updates CD catalog metadata', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-adpcm-edit-flags-');
@@ -1892,6 +1931,173 @@ test('PCE importMidi converts a MIDI file into a PSG song asset with noise drums
   assert.ok(!preview.preview.options.pattern.some((e) => e.noise === 1));
   assert.equal(preview.conversion.stats.midiOptions.drumMode, 'off');
   assert.ok(preview.preview.options.pattern.some((entry) => entry.volume > 0 && entry.wave === 45));
+});
+
+test('PCE PSG JSON inspection and import preserve the source and compile for HuCARD and CD', () => {
+  const assetManager = loadAssetManager();
+  const systemCardPsg = require('../pce-system-card-psg');
+  const projectDir = makeTempDir('pce-assets-psg-json-project-');
+  const sourceDir = makeTempDir('pce-assets-psg-json-source-');
+  const sourcePath = path.join(sourceDir, 'clubroom_day.psg.json');
+  const sourceDocument = {
+    version: 2,
+    assets: [{
+      id: 'clubroom_day',
+      type: 'psg-song',
+      name: 'Clubroom Day',
+      source: '',
+      options: {
+        kind: 'song',
+        bpm: 72,
+        speed: 6,
+        period: 428,
+        wave: 22,
+        channels: 6,
+        steps: 32,
+        volume: 100,
+        loop: true,
+        timeSignature: '4/4',
+        bars: 2,
+        stepsPerBar: 16,
+        sections: [
+          { name: 'メロ', startBar: 1, endBar: 1, startStep: 0 },
+          { name: 'サビ', startBar: 2, endBar: 2, startStep: 16 },
+        ],
+        pattern: [
+          { step: 0, channel: 0, period: 428, volume: 18, wave: 22, note: 'C4' },
+          { step: 1, channel: 0, period: 428, volume: 0, wave: 22 },
+          { step: 0, channel: 4, period: 2, volume: 6, noise: 1 },
+          { step: 1, channel: 4, period: 2, volume: 0, noise: 1 },
+          { step: 16, channel: 0, period: 214, volume: 20, wave: 22, note: 'C5' },
+        ],
+      },
+    }],
+  };
+  const sourceText = `${JSON.stringify(sourceDocument, null, 2)}\n`;
+  fs.writeFileSync(sourcePath, sourceText, 'utf-8');
+
+  const inspection = assetManager.inspectPsgJson(projectDir, { sourcePath });
+  assert.equal(inspection.summary.bpm, 72);
+  assert.equal(inspection.summary.bars, 2);
+  assert.equal(inspection.summary.eventCount, 5);
+  assert.equal(inspection.summary.sections[1].name, 'サビ');
+  assert.deepEqual(inspection.collisionIds, []);
+  assert.equal(inspection.previewAsset.options.pattern[0].note, 'C4');
+  assert.equal(fs.existsSync(path.join(projectDir, 'assets', 'pce-assets.json')), false);
+
+  const imported = assetManager.importPsgJson(projectDir, {
+    sourcePath,
+    id: 'clubroom_day_imported',
+    name: '放課後の部室',
+    type: 'psg-song',
+    volume: 80,
+  });
+  assert.equal(imported.asset.id, 'clubroom_day_imported');
+  assert.equal(imported.asset.name, '放課後の部室');
+  assert.equal(imported.asset.options.volume, 80);
+  assert.equal(imported.asset.source, 'assets/psg/clubroom_day_imported.psg.json');
+  assert.equal(imported.asset.data.import.converter, 'PCE PSG JSON importer');
+  assert.equal(imported.asset.data.import.psgJson.version, 2);
+  assert.equal(imported.asset.data.import.quantizerVersion, undefined);
+  assert.equal(imported.asset.data.import.midi, undefined);
+  assert.equal(imported.asset.data.import.vgm, undefined);
+  assert.equal(
+    fs.readFileSync(path.join(projectDir, imported.asset.source), 'utf-8'),
+    sourceText,
+  );
+
+  const huCardBytes = assetManager.psgPatternBytes(imported.asset);
+  const cdPackage = systemCardPsg.compileSystemCardPsgPackage(imported.asset);
+  assert.equal(huCardBytes.length, sourceDocument.assets[0].options.pattern.length * 8);
+  assert.ok(cdPackage.bytes.length > 0);
+  assert.equal(cdPackage.bus, 'bgm');
+});
+
+test('PCE PSG JSON import rejects malformed documents, invalid events, and unconfirmed replacement', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-psg-json-invalid-project-');
+  const sourceDir = makeTempDir('pce-assets-psg-json-invalid-source-');
+  const valid = {
+    version: 2,
+    assets: [{
+      id: 'strict_song',
+      type: 'psg-song',
+      name: 'Strict Song',
+      options: {
+        bpm: 120,
+        steps: 16,
+        channels: 6,
+        period: 512,
+        wave: 45,
+        volume: 100,
+        pattern: [{ step: 0, channel: 0, period: 512, volume: 16, wave: 45 }],
+      },
+    }],
+  };
+  const writeCase = (name, document) => {
+    const filePath = path.join(sourceDir, `${name}.psg.json`);
+    fs.writeFileSync(filePath, typeof document === 'string' ? document : JSON.stringify(document), 'utf-8');
+    return filePath;
+  };
+  const clone = () => JSON.parse(JSON.stringify(valid));
+
+  assert.throws(
+    () => assetManager.inspectPsgJson(projectDir, { sourcePath: writeCase('malformed', '{') }),
+    /parse failed/,
+  );
+  const multiple = clone();
+  multiple.assets.push(clone().assets[0]);
+  assert.throws(
+    () => assetManager.inspectPsgJson(projectDir, { sourcePath: writeCase('multiple', multiple) }),
+    /exactly one asset/,
+  );
+  const wrongType = clone();
+  wrongType.assets[0].type = 'image';
+  assert.throws(
+    () => assetManager.inspectPsgJson(projectDir, { sourcePath: writeCase('type', wrongType) }),
+    /psg-song or psg-sfx/,
+  );
+
+  const invalidCases = [
+    ['bpm', (doc) => { doc.assets[0].options.bpm = 301; }, /options\.bpm/],
+    ['steps', (doc) => { doc.assets[0].options.steps = 4097; }, /options\.steps/],
+    ['channel', (doc) => { doc.assets[0].options.pattern[0].channel = 6; }, /\.channel/],
+    ['period', (doc) => { doc.assets[0].options.pattern[0].period = 0; }, /\.period/],
+    ['volume', (doc) => { doc.assets[0].options.pattern[0].volume = 32; }, /\.volume/],
+    ['wave', (doc) => { doc.assets[0].options.pattern[0].wave = 46; }, /\.wave/],
+    ['kind', (doc) => { doc.assets[0].options.kind = 'sfx'; }, /options\.kind/],
+    ['loop', (doc) => { doc.assets[0].options.loop = 'yes'; }, /options\.loop/],
+    ['past-end', (doc) => { doc.assets[0].options.pattern[0].step = 16; }, /less than options\.steps/],
+    ['noise-channel', (doc) => { doc.assets[0].options.pattern[0].noise = 1; }, /only valid on channel 4 or 5/],
+    ['duplicate', (doc) => { doc.assets[0].options.pattern.push({ ...doc.assets[0].options.pattern[0] }); }, /duplicates step 0, channel 0/],
+  ];
+  invalidCases.forEach(([name, mutate, expected]) => {
+    const document = clone();
+    mutate(document);
+    assert.throws(
+      () => assetManager.inspectPsgJson(projectDir, { sourcePath: writeCase(name, document) }),
+      expected,
+      name,
+    );
+  });
+
+  const sourcePath = writeCase('collision', valid);
+  assetManager.importPsgJson(projectDir, { sourcePath });
+  assert.deepEqual(assetManager.inspectPsgJson(projectDir, { sourcePath }).collisionIds, ['strict_song']);
+  assert.throws(
+    () => assetManager.importPsgJson(projectDir, { sourcePath }),
+    /置換を明示/,
+  );
+  const replaced = assetManager.importPsgJson(projectDir, { sourcePath, name: 'Replaced', replace: true });
+  assert.equal(replaced.replaced, true);
+  assert.equal(replaced.asset.name, 'Replaced');
+  const sfx = assetManager.importPsgJson(projectDir, {
+    sourcePath,
+    id: 'strict_sfx',
+    type: 'psg-sfx',
+  });
+  assert.equal(sfx.asset.options.kind, 'sfx');
+  assert.equal(sfx.asset.options.loop, false);
 });
 
 test('PCE source generation refreshes stale imported PSG timing before build', () => {

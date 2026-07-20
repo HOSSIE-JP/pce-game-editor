@@ -11,6 +11,7 @@ const DEFAULT_IMPORT_FRAME_WIDTH = 16;
 const DEFAULT_IMPORT_FRAME_HEIGHT = 16;
 const DEFAULT_IMPORT_FRAME_COUNT = 1;
 const DEFAULT_IMPORT_FRAME_DELAY = 1;
+const MAX_SPRITE_FRAME_DELAY = 0xffff;
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -219,7 +220,7 @@ function normalizeAnimationForPreview(animation = {}, asset = {}, index = 0) {
   const maxFrames = Math.max(1, Math.floor((metrics.totalCells - firstCell - frameCells) / frameStrideCells) + 1);
   const id = safeId(raw.id, index === 0 ? 'default' : `anim_${index + 1}`).slice(0, 32);
   const frameCount = Math.min(clampInt(raw.frameCount, 1, 64, fallback.frameCount), maxFrames);
-  const frameDelay = clampInt(raw.frameDelay, 1, 60, fallback.frameDelay);
+  const frameDelay = clampInt(raw.frameDelay, 1, MAX_SPRITE_FRAME_DELAY, fallback.frameDelay);
   const rawFrameDelays = Array.isArray(raw.frameDelays) ? raw.frameDelays : [];
   return {
     id,
@@ -229,7 +230,7 @@ function normalizeAnimationForPreview(animation = {}, asset = {}, index = 0) {
     firstCell,
     frameCount,
     frameDelay,
-    frameDelays: Array.from({ length: frameCount }, (_, frameIndex) => clampInt(rawFrameDelays[frameIndex], 1, 60, frameDelay)),
+    frameDelays: Array.from({ length: frameCount }, (_, frameIndex) => clampInt(rawFrameDelays[frameIndex], 1, MAX_SPRITE_FRAME_DELAY, frameDelay)),
     frameStrideCells,
     loop: raw.loop !== false,
   };
@@ -953,7 +954,7 @@ export function createImageAssetManagerPlugin(config = {}) {
             </label>
             <label class="form-group">
               <span class="form-label">Speed</span>
-              <input class="form-input" data-animation-field="frameDelay" type="number" min="1" max="60" value="${esc(item.frameDelay)}" />
+              <input class="form-input" data-animation-field="frameDelay" type="number" min="1" max="${MAX_SPRITE_FRAME_DELAY}" value="${esc(item.frameDelay)}" />
             </label>
             <label class="form-group">
               <span class="form-label">Stride</span>

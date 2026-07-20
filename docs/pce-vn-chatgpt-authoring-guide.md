@@ -26,7 +26,7 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 - `background` は BG asset を 32x32 BAT 上の tile 座標 `x`, `y` に配置します。通常は `x: 0..63`, `y: 0..31`、標準 224x136 BG では `x: 2`, `y: 1` を使います。
 - BG 切替は fade 前提です。`transition` は `"fade"`、`fadeOutFrames` / `fadeInFrames` は `10`, `20`, `30`, `40`, `50`, `60` のいずれかにしてください。既定は `30`。
 - 通常 BG 画像は 256px 幅以下にしてください。画面は 256x224 px です。
-- `fullScreenBg: true` の scene は 256x224 px の全画面 BG 専用です。この scene では `message`, `choice`, visible な `sprite`, visible な `spritetext` を置かないでください。`background` は `x: 0`, `y: 0` にしてください。
+- `fullScreenBg: true` の scene は 256x224 px の全画面 BG用です。`message`, `choice` は置けませんが、`sprite` / `spritemove` / `spritetext` は使用できます。前sceneのspriteとSpriteTextは消去されるため、このscene内で表示してください。`background` は `x: 0`, `y: 0` にしてください。
 - `sprite` は立ち絵 slot 0..3 の表示・差し替え・非表示です。複数人を出す場合は別 slot を使ってください。
 - `sprite.x` は 0..319、`sprite.y` は 0..223 の pixel 座標です。立ち絵の標準 y は 24 付近です。
 - `message.mouthSlot` / `message.mouthAnimationId` を使う場合、その message より前に同じ slot へ visible な `sprite` を表示してください。
@@ -99,7 +99,7 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 
 - `id`: scene 参照用の安定 ID。
 - `name`: エディタ表示名。省略可。
-- `fullScreenBg`: 全画面 BG 専用 scene なら true。
+- `fullScreenBg`: 全画面 BG（必要ならhardware sprite併用）sceneならtrue。
 - `nextSceneId`: scene 終了後の自動遷移先。空文字なら遷移しません。
 - `commands`: 実行する command 配列。
 
@@ -463,7 +463,7 @@ PCE VN engine 用の短編シナリオ、スクリプト JSON、画像生成プ�
 
 スクリプトルール:
 - message は短く、改行を使う
-- Full BG scene は必要な場合だけ使い、message / choice / visible sprite / visible spritetext を置かない
+- Full BG scene は必要な場合だけ使い、message / choice を置かない。sprite / spritetextは同じscene内で表示して使う
 - CD-DA は画像ロード後に開始する
 - JSON は valid JSON、コメントなし
 
@@ -480,7 +480,7 @@ PCE VN engine 用の短編シナリオ、スクリプト JSON、画像生成プ�
 - すべての assetId / voiceAssetId が asset plan または既存 asset にある。
 - message は読みやすく分割されている。
 - choice は 4 個以下。
-- Full BG scene に message / choice / visible sprite / visible spritetext がない。
+- Full BG scene に message / choice がなく、sprite / spritetextは同じscene内で表示されている。
 - CD-DA を流したい scene では、BG / Sprite command が CD-DA play より前にある。
 - voice 付き message の前に mouth slot の sprite が表示済み。
 - mouth animation 後に必要なら idle animation へ戻している。

@@ -149,7 +149,7 @@ typedef struct
     uint16_t y;
     uint8_t flags;
     uint8_t frame;
-    uint8_t timer;
+    uint16_t timer;
     uint8_t satb_count;
     uint8_t visible;
 } vn_sprite_slot_t;
@@ -1337,15 +1337,6 @@ static uint16_t VN_HUCARD_CODE_SPRITE_STATE sprite_pattern_units_for_ref(const p
     return (uint16_t)((patterns->size + 63u) / 64u);
 }
 
-static uint16_t VN_HUCARD_CODE_SPRITE_STATE align_sprite_pattern_base(uint16_t pattern_base, uint8_t cell_width, uint8_t cell_height)
-{
-    uint16_t alignment = 2u;
-    if (cell_width >= 32u) alignment = 4u;
-    if (cell_height >= 64u) alignment = 16u;
-    else if (cell_height >= 32u && alignment < 8u) alignment = 8u;
-    return (uint16_t)(((pattern_base + alignment - 1u) / alignment) * alignment);
-}
-
 static void VN_HUCARD_CODE_VIDEO clear_sprites(void)
 {
     uint8_t i;
@@ -1413,16 +1404,14 @@ static void VN_HUCARD_CODE_SPRITE_STATE hide_sprite_slot(uint8_t slot)
 static void VN_HUCARD_CODE_SPRITE_STATE plan_sprite_layout(void)
 {
     uint8_t slot;
-    uint8_t next_palette_bank = 0u;
-    uint8_t palette_valid = 0u;
-    uint16_t next_pattern_base = PCE_VN_SPRITE_PATTERN_BASE;
     for (slot = 0u; slot < VN_SPRITE_SLOT_COUNT; slot++)
     {
         const vn_sprite_slot_t *state = &sprite_slots[slot];
         const pce_editor_sprite_asset_t *sprite;
         uint16_t pattern_units;
         uint16_t pattern_base;
-        uint8_t previous;
+        uint16_t pattern_capacity;
+        uint8_t palette_bank;
         sprite_slot_pattern_base[slot] = 0u;
         sprite_slot_palette_bank[slot] = 0u;
         sprite_slot_pattern_valid[slot] = 0u;
@@ -1430,30 +1419,32 @@ static void VN_HUCARD_CODE_SPRITE_STATE plan_sprite_layout(void)
         sprite = &pce_editor_sprite_assets[state->asset_index];
         pattern_units = sprite_pattern_units_for_ref(&sprite->patterns);
         if (!pattern_units) continue;
-        for (previous = 0u; previous < slot; previous++)
+        if (slot == 1u)
         {
-            const vn_sprite_slot_t *previous_state = &sprite_slots[previous];
-            if (!sprite_slot_pattern_valid[previous]) continue;
-            if (!previous_state->visible || previous_state->asset_index != state->asset_index) continue;
-            sprite_slot_pattern_base[slot] = sprite_slot_pattern_base[previous];
-            sprite_slot_palette_bank[slot] = sprite_slot_palette_bank[previous];
-            sprite_slot_pattern_valid[slot] = 1u;
-            break;
+            pattern_base = PCE_VN_SPRITE_SLOT1_PATTERN_BASE;
+            pattern_capacity = PCE_VN_SPRITE_SLOT1_PATTERN_CAPACITY;
         }
-        if (sprite_slot_pattern_valid[slot]) continue;
-        if (!palette_valid)
+        else if (slot == 2u)
         {
-            next_palette_bank = sprite->palette_bank;
-            palette_valid = 1u;
+            pattern_base = PCE_VN_SPRITE_SLOT2_PATTERN_BASE;
+            pattern_capacity = PCE_VN_SPRITE_SLOT2_PATTERN_CAPACITY;
         }
-        if (next_palette_bank >= PCE_VN_FONT_SPRITE_PALETTE_BANK) continue;
-        pattern_base = align_sprite_pattern_base(next_pattern_base, sprite->cell_width, sprite->cell_height);
-        if ((uint16_t)(pattern_base + pattern_units) > VN_SPRITE_PATTERN_END_BASE) continue;
+        else if (slot == 3u)
+        {
+            pattern_base = PCE_VN_SPRITE_SLOT3_PATTERN_BASE;
+            pattern_capacity = PCE_VN_SPRITE_SLOT3_PATTERN_CAPACITY;
+        }
+        else
+        {
+            pattern_base = PCE_VN_SPRITE_SLOT0_PATTERN_BASE;
+            pattern_capacity = PCE_VN_SPRITE_SLOT0_PATTERN_CAPACITY;
+        }
+        if (pattern_units > pattern_capacity) continue;
+        palette_bank = (uint8_t)(sprite->palette_bank + slot);
+        if (palette_bank >= PCE_VN_FONT_SPRITE_PALETTE_BANK) continue;
         sprite_slot_pattern_base[slot] = pattern_base;
-        sprite_slot_palette_bank[slot] = next_palette_bank;
+        sprite_slot_palette_bank[slot] = palette_bank;
         sprite_slot_pattern_valid[slot] = 1u;
-        next_pattern_base = (uint16_t)(pattern_base + pattern_units);
-        next_palette_bank++;
     }
 }
 
@@ -1543,14 +1534,14 @@ static void VN_HUCARD_CODE_VIDEO draw_sprite_slot(uint8_t slot, uint8_t upload_p
     state->satb_count = written;
 }
 
-static void VN_HUCARD_CODE_VIDEO refresh_scene_sprites(uint8_t upload_patterns)
+static void VN_HUCARD_CODE_VIDEO refresh_scene_sprites(uint8_t upload_pattern_mask)
 {
     uint8_t slot;
     plan_sprite_layout();
     clear_character_sprite_shadow();
     for (slot = 0u; slot < VN_SPRITE_SLOT_COUNT; slot++)
     {
-        draw_sprite_slot(slot, upload_patterns);
+        draw_sprite_slot(slot, (uint8_t)(upload_pattern_mask & (uint8_t)(1u << slot)));
     }
     upload_sprite_table();
 }
@@ -1623,8 +1614,11 @@ static uint8_t VN_HUCARD_CODE_SPRITE_STATE start_sprite_move(const pce_vn_comman
 static void VN_HUCARD_CODE_SPRITE_STATE set_sprite(const pce_vn_command_t *command)
 {
     uint8_t slot;
+    uint8_t upload_pattern_mask;
+    vn_sprite_slot_t *state;
     if (!command) return;
     slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
+    state = &sprite_slots[slot];
     cancel_sprite_move(slot);
     if (!(command->flags & PCE_VN_SPRITE_VISIBLE) || command->asset_index < 0)
     {
@@ -1632,15 +1626,22 @@ static void VN_HUCARD_CODE_SPRITE_STATE set_sprite(const pce_vn_command_t *comma
         refresh_scene_sprites(0u);
         return;
     }
-    sprite_slots[slot].asset_index = command->asset_index;
-    sprite_slots[slot].animation_index = command->animation_index;
-    sprite_slots[slot].x = command->x;
-    sprite_slots[slot].y = command->y;
-    sprite_slots[slot].flags = command->flags;
-    sprite_slots[slot].frame = 0u;
-    sprite_slots[slot].timer = 0u;
-    sprite_slots[slot].visible = 1u;
-    refresh_scene_sprites(1u);
+    upload_pattern_mask = (uint8_t)((!state->visible || state->asset_index != command->asset_index)
+        ? (uint8_t)(1u << slot) : 0u);
+    if (state->visible && state->satb_count && state->asset_index != command->asset_index)
+    {
+        clear_sprite_slot_shadow(slot);
+        upload_sprite_table();
+    }
+    state->asset_index = command->asset_index;
+    state->animation_index = command->animation_index;
+    state->x = command->x;
+    state->y = command->y;
+    state->flags = command->flags;
+    state->frame = 0u;
+    state->timer = 0u;
+    state->visible = 1u;
+    refresh_scene_sprites(upload_pattern_mask);
 }
 
 static void VN_HUCARD_CODE_SPRITE_STATE tick_sprites(void)
@@ -1651,7 +1652,7 @@ static void VN_HUCARD_CODE_SPRITE_STATE tick_sprites(void)
     {
         vn_sprite_slot_t *state = &sprite_slots[slot];
         const pce_vn_sprite_anim_t *anim;
-        uint8_t delay;
+        unsigned int delay;
         uint8_t slot_dirty = 0u;
         if (state->visible && state->animation_index >= 0 && (uint16_t)state->animation_index < pce_vn_sprite_animation_count)
         {

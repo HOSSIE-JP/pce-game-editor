@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 const cdBundle = require('./pce-cd-bundle');
 const pceExport = require('./pce-export');
 const { exportIrodoriBatchZip } = require('./pce-vn-irodori-export');
+const { inspectIrodoriVoiceAssignments } = require('./pce-vn-irodori-assign');
 const systemCardProfile = require('./pce-system-card-profile');
 const { resolveUnderRoot } = require('./pce-file-safety');
 const {
@@ -1899,6 +1900,21 @@ ipcMain.handle('export:html', async () => {
 
 ipcMain.handle('vn:exportIrodoriBatch', async (_event, payload = {}) => {
   return handleExportVnIrodoriBatch(payload);
+});
+
+ipcMain.handle('vn:inspectIrodoriVoiceAssignments', async (_event, payload = {}) => {
+  try {
+    return {
+      ok: true,
+      ...inspectIrodoriVoiceAssignments({
+        manifestPath: payload?.manifestPath || payload?.sourcePath || '',
+        doc: payload?.doc || {},
+        assets: Array.isArray(payload?.assets) ? payload.assets : [],
+      }),
+    };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
 });
 
 ipcMain.handle('log:openWindow', async (_event, snapshot) => {

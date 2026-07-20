@@ -41,6 +41,7 @@ loadAppConfig(require('../app.config'));
   'pce-system-card-profile.test.js',
   'pce-build-memory-gate.test.js',
   'pce-vn-manager.test.js',
+  'pce-vn-irodori-assign.test.js',
   'pce-vn-irodori-batch.test.js',
   'pce-vn-cd-data-files.test.js',
   'pce-vn-cd-catalog.test.js',

@@ -781,11 +781,18 @@
 
 .pce-sprite-editor-animation-row {
   display: grid;
-  grid-template-columns: 90px 1fr 1fr minmax(56px, 80px);
+  grid-template-columns: minmax(160px, 2fr) 1fr 1fr minmax(56px, 80px);
   align-items: center;
   gap: 8px;
   padding: 4px 6px;
   border-radius: 5px;
+}
+
+.pce-sprite-editor-row-name {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 5px;
+  min-width: 0;
 }
 
 .pce-sprite-editor-animation-row.is-selected {

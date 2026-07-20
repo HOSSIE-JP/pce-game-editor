@@ -1,4 +1,6 @@
 export const SPRITE_CELL_SIZES = ['16x16', '16x32', '16x64', '32x16', '32x32', '32x64'];
+export const MAX_SPRITE_FRAME_DELAY = 0xffff;
+export const MAX_SPRITE_ROW_NAME_LENGTH = 48;
 
 const CELL_SIZE_SET = new Set(SPRITE_CELL_SIZES);
 
@@ -201,11 +203,11 @@ export function timeMatrixFromAnimations(asset = {}, grid = null, frameWidth = 1
     const row = animationRowIndex(raw, index, metrics, resolvedGrid);
     if (row < 0 || row >= resolvedGrid.rows) return;
     const frameCount = clampInt(raw.frameCount, 1, resolvedGrid.columns, 1);
-    const delay = String(clampInt(raw.frameDelay, 1, 60, 8));
+    const delay = String(clampInt(raw.frameDelay, 1, MAX_SPRITE_FRAME_DELAY, 8));
     const frameDelays = Array.isArray(raw.frameDelays) ? raw.frameDelays : [];
     counts[row] = Math.max(counts[row] || 0, frameCount);
     for (let frame = 0; frame < frameCount; frame += 1) {
-      matrix[row][frame] = String(clampInt(frameDelays[frame], 1, 60, Number(delay) || 8));
+      matrix[row][frame] = String(clampInt(frameDelays[frame], 1, MAX_SPRITE_FRAME_DELAY, Number(delay) || 8));
     }
   });
   return {
@@ -213,6 +215,18 @@ export function timeMatrixFromAnimations(asset = {}, grid = null, frameWidth = 1
     rowFrameCounts: counts.map((count) => Math.max(1, count || 1)),
     rowDefaultTimes: matrix.map((row, rowIndex) => firstUsableTime(row.slice(0, Math.max(1, counts[rowIndex] || 1)), '4')),
   };
+}
+
+function rowNamesFromAnimations(asset = {}, metrics, grid) {
+  const names = Array.from({ length: grid.rows }, (_, row) => `ROW ${row}`);
+  const animations = Array.isArray(asset.options?.animations) ? asset.options.animations : [];
+  animations.forEach((animation, index) => {
+    const raw = animation && typeof animation === 'object' ? animation : {};
+    const row = animationRowIndex(raw, index, metrics, grid);
+    if (row < 0 || row >= grid.rows) return;
+    names[row] = normalizeRowName(raw.name, row);
+  });
+  return names;
 }
 
 export function editorStateFromAsset(asset = {}, image = null) {
@@ -232,6 +246,7 @@ export function editorStateFromAsset(asset = {}, image = null) {
     firstAnimation?.frameHeight ?? metrics.height,
   );
   const grid = computeFrameGrid(metrics.width, metrics.height, frameWidth, frameHeight, metrics.cellWidth, metrics.cellHeight);
+  const animationRowNames = rowNamesFromAnimations(asset, metrics, grid);
   const animationState = metadata.time
     ? {
         time: serializeSpriteTime(parseSpriteTime(metadata.time, grid.rows, grid.columns)),
@@ -245,6 +260,7 @@ export function editorStateFromAsset(asset = {}, image = null) {
     time: animationState.time,
     rowFrameCounts: normalizeRowCounts(animationState.rowFrameCounts, grid.rows, grid.columns),
     rowDefaultTimes: normalizeDefaultTimes(animationState.rowDefaultTimes, grid.rows, '4'),
+    rowNames: normalizeRowNames(metadata.rowNames, grid.rows, animationRowNames),
     collision: normalizeOption(metadata.collision, ['NONE', 'CIRCLE', 'BOX'], 'NONE'),
   };
 }
@@ -257,6 +273,7 @@ export function buildAnimationsFromEditorState({
   time,
   rowFrameCounts,
   rowDefaultTimes,
+  rowNames,
 } = {}) {
   const metrics = spriteSheetMetrics(asset, image);
   const safeFrameWidth = snapToCell(frameWidth, metrics.cellWidth, metrics.width);
@@ -265,6 +282,7 @@ export function buildAnimationsFromEditorState({
   const matrix = parseSpriteTime(time, grid.rows, grid.columns);
   const counts = normalizeRowCounts(rowFrameCounts, grid.rows, grid.columns, deriveRowFrameCounts(time, grid.rows, grid.columns));
   const defaults = normalizeDefaultTimes(rowDefaultTimes, grid.rows, '4');
+  const names = normalizeRowNames(rowNames, grid.rows, rowNamesFromAnimations(asset, metrics, grid));
   const sheetCellColumns = Math.max(1, Math.floor(metrics.width / metrics.cellWidth));
   const frameWidthCells = Math.max(1, Math.ceil(safeFrameWidth / metrics.cellWidth));
   const frameHeightCells = Math.max(1, Math.ceil(safeFrameHeight / metrics.cellHeight));
@@ -273,19 +291,19 @@ export function buildAnimationsFromEditorState({
     const frameCount = clampInt(counts[row], 0, grid.columns, row === 0 ? 1 : 0);
     if (frameCount <= 0) continue;
     const rowTimes = (matrix[row] || []).slice(0, frameCount);
-    const frameDelay = clampInt(firstUsableTime(rowTimes, defaults[row] || '4'), 1, 60, 4);
+    const frameDelay = clampInt(firstUsableTime(rowTimes, defaults[row] || '4'), 1, MAX_SPRITE_FRAME_DELAY, 4);
     // Per-frame display times: one entry per frame, falling back to the row's
     // representative delay when a cell is empty/zero. This is what lets each
     // frame run for its own duration instead of a single uniform delay.
     const frameDelays = Array.from({ length: frameCount }, (_, frameIndex) => {
-      const value = clampInt(rowTimes[frameIndex], 1, 60, 0);
+      const value = clampInt(rowTimes[frameIndex], 1, MAX_SPRITE_FRAME_DELAY, 0);
       return value > 0 ? value : frameDelay;
     });
     const firstCell = row * frameHeightCells * sheetCellColumns;
     if (firstCell >= metrics.totalCells) continue;
     animations.push({
       id: row === 0 ? 'default' : `row_${row}`,
-      name: `ROW ${row}`,
+      name: names[row],
       frameWidth: safeFrameWidth,
       frameHeight: safeFrameHeight,
       firstCell,
@@ -298,7 +316,7 @@ export function buildAnimationsFromEditorState({
   }
   return animations.length ? animations : [{
     id: 'default',
-    name: 'ROW 0',
+    name: names[0],
     frameWidth: safeFrameWidth,
     frameHeight: safeFrameHeight,
     firstCell: 0,
@@ -346,6 +364,18 @@ function normalizeRowCounts(value, rows, columns, fallback = []) {
 function normalizeDefaultTimes(value, rows, fallback = '4') {
   const source = Array.isArray(value) ? value : [];
   return Array.from({ length: normalizeCount(rows, 1) }, (_, index) => normalizeTimeCell(source[index] ?? (fallback || '4')) || '4');
+}
+
+function normalizeRowNames(value, rows, fallback = []) {
+  const source = Array.isArray(value) ? value : [];
+  return Array.from({ length: normalizeCount(rows, 1) }, (_, index) => (
+    normalizeRowName(source[index] ?? fallback[index], index)
+  ));
+}
+
+function normalizeRowName(value, index) {
+  const name = String(value == null ? '' : value).trim().slice(0, MAX_SPRITE_ROW_NAME_LENGTH);
+  return name || `ROW ${index}`;
 }
 
 function firstUsableTime(row, fallback = '4') {

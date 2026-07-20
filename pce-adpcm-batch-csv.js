@@ -157,7 +157,7 @@ function inspectWavRow(row) {
   }
 }
 
-function inspectAdpcmBatchCsv(csvPath, existingAssets = []) {
+function inspectAdpcmBatchCsv(csvPath, existingAssets = [], options = {}) {
   const absoluteCsvPath = path.resolve(String(csvPath || ''));
   if (!csvPath || !fs.existsSync(absoluteCsvPath) || !fs.statSync(absoluteCsvPath).isFile()) {
     throw new Error('ADPCM batch CSV が見つかりません');
@@ -170,6 +170,12 @@ function inspectAdpcmBatchCsv(csvPath, existingAssets = []) {
   if (parsedRows.length === 0) throw new Error('CSV が空です');
   const headers = normalizeHeaders(parsedRows[0].values);
   const csvDir = path.dirname(absoluteCsvPath);
+  const requestedSourceRoot = String(options?.sourceRoot || '').trim();
+  const sourceRoot = requestedSourceRoot ? path.resolve(requestedSourceRoot) : '';
+  if (sourceRoot && (!fs.existsSync(sourceRoot) || !fs.statSync(sourceRoot).isDirectory())) {
+    throw new Error('WAVルートフォルダーが見つかりません');
+  }
+  const sourceBaseDir = sourceRoot || csvDir;
   const rows = parsedRows.slice(1).map((record, rowIndex) => {
     const values = {};
     headers.forEach((header, index) => {
@@ -202,7 +208,7 @@ function inspectAdpcmBatchCsv(csvPath, existingAssets = []) {
     if (!row.source) {
       addRowError(row, 'source は必須です');
     } else {
-      row.resolvedSourcePath = path.isAbsolute(row.source) ? path.resolve(row.source) : path.resolve(csvDir, row.source);
+      row.resolvedSourcePath = path.isAbsolute(row.source) ? path.resolve(row.source) : path.resolve(sourceBaseDir, row.source);
       if (path.extname(row.resolvedSourcePath).toLowerCase() !== '.wav') {
         addRowError(row, 'source は PCM WAV (.wav) を指定してください');
       } else if (!fs.existsSync(row.resolvedSourcePath) || !fs.statSync(row.resolvedSourcePath).isFile()) {
@@ -281,6 +287,8 @@ function inspectAdpcmBatchCsv(csvPath, existingAssets = []) {
   return {
     csvPath: absoluteCsvPath,
     csvFileName: path.basename(absoluteCsvPath),
+    sourceRoot,
+    sourceBaseDir,
     headers,
     rows,
     warnings,

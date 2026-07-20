@@ -1025,3 +1025,75 @@
 .pce-vn-shell .form-error {
   padding: 0 14px 14px;
 }
+
+.pce-vn-voice-assign-panel {
+  width: min(1040px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+}
+
+.pce-vn-voice-assign-panel .modal-header code {
+  display: block;
+  max-width: 760px;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pce-vn-voice-assign-body {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px 16px 16px;
+}
+
+.pce-vn-voice-assign-table-wrap {
+  max-height: min(58vh, 560px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.pce-vn-voice-assign-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.pce-vn-voice-assign-table th,
+.pce-vn-voice-assign-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.pce-vn-voice-assign-table th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--panel-bg, #0a1a25);
+  color: var(--muted);
+}
+
+.pce-vn-voice-assign-table td:last-child small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.pce-vn-voice-assign-table tr[data-kind="ok"] .pce-vn-voice-assign-status {
+  color: var(--success, #57d68d);
+}
+
+.pce-vn-voice-assign-table tr[data-kind="warn"] .pce-vn-voice-assign-status {
+  color: var(--warning, #ffd166);
+}
+
+.pce-vn-voice-assign-table tr[data-kind="error"] {
+  background: color-mix(in srgb, var(--danger, #ff6b6b) 8%, transparent);
+}
+
+.pce-vn-voice-assign-table tr[data-kind="error"] .pce-vn-voice-assign-status {
+  color: var(--danger, #ff7b7b);
+}

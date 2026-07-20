@@ -24,19 +24,41 @@ test('PCE sprite editor maps animation rows to PCE sprite cell metadata', async 
     time: '[[4,4,4][6,6]]',
     rowFrameCounts: [3, 2],
     rowDefaultTimes: ['4', '6'],
+    rowNames: ['待機', '走る'],
   });
 
   assert.deepEqual(animations.map((animation) => ({
     id: animation.id,
+    name: animation.name,
     firstCell: animation.firstCell,
     frameCount: animation.frameCount,
     frameDelay: animation.frameDelay,
     frameDelays: animation.frameDelays,
     frameStrideCells: animation.frameStrideCells,
   })), [
-    { id: 'default', firstCell: 0, frameCount: 3, frameDelay: 4, frameDelays: [4, 4, 4], frameStrideCells: 1 },
-    { id: 'row_1', firstCell: 3, frameCount: 2, frameDelay: 6, frameDelays: [6, 6], frameStrideCells: 1 },
+    { id: 'default', name: '待機', firstCell: 0, frameCount: 3, frameDelay: 4, frameDelays: [4, 4, 4], frameStrideCells: 1 },
+    { id: 'row_1', name: '走る', firstCell: 3, frameCount: 2, frameDelay: 6, frameDelays: [6, 6], frameStrideCells: 1 },
   ]);
+});
+
+test('PCE sprite editor preserves 16-bit frame delays and clamps only above 65535', async () => {
+  const utils = await import('../plugins/pce-sprite-manager/sprite-editor-utils.mjs');
+  const animations = utils.buildAnimationsFromEditorState({
+    asset: {
+      id: 'hero',
+      type: 'sprite',
+      options: { kind: 'sprite', width: 48, height: 16, cellWidth: 16, cellHeight: 16 },
+    },
+    frameWidth: 16,
+    frameHeight: 16,
+    time: '[[1000,65535,70000]]',
+    rowFrameCounts: [3],
+    rowDefaultTimes: ['1000'],
+  });
+
+  assert.equal(utils.MAX_SPRITE_FRAME_DELAY, 65535);
+  assert.equal(animations[0].frameDelay, 1000);
+  assert.deepEqual(animations[0].frameDelays, [1000, 65535, 65535]);
 });
 
 test('PCE sprite editor restores per-frame animation delays from assets', async () => {
@@ -79,6 +101,7 @@ test('PCE sprite editor preserves editor metadata shape from assets', async () =
         time: '[[5,5][7]]',
         rowFrameCounts: [2, 1],
         rowDefaultTimes: ['5', '7'],
+        rowNames: ['待機', 'まばたき'],
         compression: 'FAST',
         collision: 'BOX',
         optType: 'SPRITE',
@@ -93,6 +116,7 @@ test('PCE sprite editor preserves editor metadata shape from assets', async () =
   assert.equal(state.frameHeight, 16);
   assert.deepEqual(state.rowFrameCounts, [2, 1]);
   assert.deepEqual(state.rowDefaultTimes, ['5', '7']);
+  assert.deepEqual(state.rowNames, ['待機', 'まばたき']);
   // RLE removed: the sprite editor no longer carries a compression field.
   assert.equal(state.compression, undefined);
   assert.equal(state.collision, 'BOX');

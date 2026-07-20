@@ -195,7 +195,7 @@ Image プラグインの BG 追加 UI では、作者が指定する変換条件
 | `vramBytes` | tiles + map の概算 VRAM byte 数 |
 | `warnings` | VRAM overlap やサイズ警告 |
 
-VN scene の `fullScreenBg: true` で使う 256x224 BG asset は、Full BG 専用で参照される場合に限り message/font/spritetext/sprite pattern 用 VRAM との重なりを build error にしません。runtime は Full BG 読み込み後に text/spritetext/blank 用 VRAM と sprite pattern cache を dirty 扱いし、通常 scene へ戻る前または次の `message` / `choice` / `spritetext` 直前に復元します。同じ BG asset を通常 scene の `background` でも参照する場合は、通常 BG と同じ排他予約チェックが適用されます。
+VN scene の `fullScreenBg: true` で使う 256x224 BG asset は、Full BG 専用で参照される場合に限り message/font用 VRAM との重なりを build error にしません。Full BG sceneでhardware spriteまたは`spritetext`を使う場合、buildはそのsceneで同時表示する固定SLOTのsprite pattern予約またはspritetext fontをFull BG tile末尾より後ろへ移動し、重なりを許可しません。通常sceneだけで使うsprite patternは低位へ残せるため、spritetext fontとの前後2順序を比較してSATB手前へpackします。runtimeはscene入場時に前sceneのsprite / SpriteText slotを消去し、そのscene内の`sprite` / `spritemove` / `spritetext`を通常どおり実行します。Full BG読み込み後はmessage/blank用VRAMをdirty扱いし、通常sceneへ戻る前または次の`message` / `choice`直前に復元します。同じBG assetを通常sceneの`background`でも参照する場合は、通常BGと同じ排他予約チェックが適用されます。
 
 CD-ROM2 VN build の runtime asset metadata は scene command から参照された asset だけを `assets.c` へ出します。未使用 asset は Asset 一覧と generated file には残せますが、VRAM 排他予約、scene command index、resident bank128 予算には入りません。追加した素材を runtime で使うには、`background` / `sprite` / `message.voiceAssetId` / `audio` command などから参照してください。
 
@@ -225,7 +225,7 @@ Image プラグインの Sprites 追加 UI では、低レベルの `paletteBank
     "animations": [
       {
         "id": "default",
-        "name": "Default",
+        "name": "待機",
         "frameWidth": 16,
         "frameHeight": 16,
         "firstCell": 0,
@@ -241,8 +241,8 @@ Image プラグインの Sprites 追加 UI では、低レベルの `paletteBank
 
 | option | 範囲/既定 | 説明 |
 |---|---:|---|
-| `paletteBank` | 既定 `0` | sprite palette bank。同時表示時は最初の visible slot の開始bankとして使い、以降の visible slot は runtime がSLOT順に `+1` しながら非重複配置する。Sprites 追加 UI では編集しない |
-| `tileBase` | 既定 `704` | C 生成後は `pattern_base`(32-word 単位)。非VN用途の低レベル既定値。VN runtime では生成された `PCE_VN_SPRITE_PATTERN_BASE`（BG→メッセージ→spritetext の直後）からSLOT順に非重複配置する。合計 pattern が `0x7f00` を超える構成は build error。通常 UI では隠し、Sprites Properties の `アドバンス` でのみ編集する |
+| `paletteBank` | 既定 `0` | sprite palette bankの基準値。VN runtimeは`paletteBank + SLOT番号`をそのSLOTのpalette bankとして使い、別SLOTの差し替えで移動しない。Sprites追加UIでは編集しない |
+| `tileBase` | 既定 `704` | C 生成後は `pattern_base`(32-word 単位)。非VN用途の低レベル既定値。VN runtime ではscene pathから各SLOTの最大容量を求め、`PCE_VN_SPRITE_SLOT0_PATTERN_BASE/CAPACITY`〜`SLOT3`の専用領域へ配置する。SLOT別最大容量の合計が`0x7f00`を超える構成はbuild error。通常 UI では隠し、Sprites Properties の `アドバンス` でのみ編集する |
 | `x`, `y` | 既定 `144`, `104` | asset metadata 上の既定表示位置。scene command の `x`, `y` が実表示に使われる。通常 UI では隠し、Sprites Properties の `アドバンス` でのみ編集する |
 | `width`, `height` | `0..1024` | sheet 全体サイズ |
 | `cellWidth`, `cellHeight` | `16x16`, `16x32`, `16x64`, `32x16`, `32x32`, `32x64` | PCE sprite cell size。変換時の条件なので追加 modal の `アドバンス` だけで指定し、生成後は通常の Properties から編集しない |
@@ -252,11 +252,12 @@ Image プラグインの Sprites 追加 UI では、低レベルの `paletteBank
 | animation field | 説明 |
 |---|---|
 | `id` | scene command の `animationId` で参照する ID |
+| `name` | Animation Rows に表示する任意名（最大48文字）。変更しても `id` は変わらない |
 | `frameWidth`, `frameHeight` | 1 frame の表示サイズ。cell size の倍数へ正規化 |
 | `firstCell` | sheet 左上から数えた開始 cell index |
 | `frameCount` | frame 数。最大 64 |
-| `frameDelay` | 全 frame 共通の既定表示フレーム数 |
-| `frameDelays` | 各 frame の表示フレーム数（長さ `frameCount`）。runtime は `frame_delays[frame]` で frame ごとに送る。空/未指定セルは `frameDelay` にフォールバック。スプライトエディタの time フィールド（`spriteEditor.time` 行列、1 行 = 1 animation）から保存・移行 |
+| `frameDelay` | 全 frame 共通の既定表示フレーム数。60fps基準で `1..65535` |
+| `frameDelays` | 各 frame の表示フレーム数（長さ `frameCount`、各値 `1..65535`）。runtime は16-bitの `frame_delays[frame]` で frame ごとに送る。CD-ROM2ではtableをgenerated-data bank132に置き、tick直前にmapするため、animation数がbank128常駐領域を消費しない。空/未指定セルは `frameDelay` にフォールバック。スプライトエディタの time フィールド（`spriteEditor.time` 行列、1 行 = 1 animation）から保存・移行。`1000` は約16.67秒、上限は約18分12.25秒 |
 | `frameStrideCells` | 次 frame まで何 cell 進むか |
 | `loop` | 最終 frame 後に先頭へ戻すか |
 
@@ -387,7 +388,7 @@ CD-ROM2 VN runtime の `background` command は同期 command です。BG 切替
 | `flipX`, `flipY` | `boolean` | sprite pattern の描画向きを水平/垂直反転する |
 | `visible` | `boolean` | `false` なら slot を非表示にする |
 
-`sprite` command も同期 command です。表示・差し替え・非表示は指定座標へ即時反映されます。旧 `durationFrames` / `moveFrames` は読み込み時に破棄され、生成には使われません。立ち絵SLOTは `0`, `1`, `2`, `3` の順に詰めて使ってください。同時表示中の sprite pattern と sprite palette bank は、生成された `PCE_VN_SPRITE_PATTERN_BASE` / 最初の visible slot の `paletteBank` からSLOT順に非重複で配置されるため、SLOT1のロードでSLOT0の pattern や palette を上書きしません。通常BG 224x136px の場合、BG tile 64〜539 の直後にメッセージ strip / blank / glyph mask / spritetext font を詰め、その直後から SATB 手前までを連続した sprite pattern 領域として使います。追加SLOTのロードが既存SLOTのpattern/palette範囲に触れない場合は、表示中のSLOTを隠さずに転送します。同一 slot に別 asset をロードする場合など、表示中の範囲を上書きする場合だけ sprite layer を無効化して画面外 SATB を反映し、転送後に SATB と sprite layer を再有効化してから次 command へ進みます。VRAM 書き換え中の中間表示は見せません。同じ asset 内の目パチ・口パク frame 更新は pattern を再転送せず、既存 SATB layout の pattern word だけを差分更新します。
+`sprite` command も同期 command です。表示・差し替え・非表示は指定座標へ即時反映されます。旧 `durationFrames` / `moveFrames` は読み込み時に破棄され、生成には使われません。立ち絵SLOTは`0`〜`3`を使用でき、各SLOTのsprite patternはscene path解析で求めた最大容量の専用VRAM範囲、paletteは`asset paletteBank + SLOT番号`へ固定されます。通常はBG tile 64〜539 の直後にメッセージstrip / blank / glyph mask / spritetext fontを詰め、その後ろからSATB手前までをSLOT別pattern領域として使います。Full BG上でSpriteTextだけを使う構成では、通常scene用sprite patternを先、Full BG末尾以降のspritetext fontを後にする順序も比較し、より低いhigh-water markへ自動packします。同一SLOTを別assetへ切り替えるときは、そのSLOTの旧SATB entryだけを一時的に画面外へ退避して専用pattern/paletteを更新します。sprite layer全体や別SLOTのSATB/pattern/paletteには触れないため、操作対象外の表示は維持されます。同じasset内の目パチ・口パクframe更新はpatternを再転送せず、既存SATB layoutのpattern wordだけを差分更新します。
 
 ### スプライト移動 command (`spritemove`)
 
@@ -405,7 +406,7 @@ CD-ROM2 VN runtime の `background` command は同期 command です。BG 切替
 | `async` | `boolean` | `false`（既定）は完了までscriptを停止。`true`は後続を実行し、別slotと同時移動可能 |
 | `animationAssetId`, `animationId` | sprite ID / animation ID | 任意。移動開始時に同じ表示assetのanimationへ変更。asset不一致・未定義animationは位置付きbuild error |
 
-command recordは19 bytesのままです。`frames`を`arg0/arg1`、移動先を`x/y`、非同期を`flags bit0`、任意animationを`asset_index/animation_index`へ格納します。runtimeは座標差と方向を保持する除算不要の整数DDAで補間します。CD版は最大4slot分のSATB entryを更新してから1回だけVBlankを待ち、System Card PSGのIRQ駆動を止めません。HuCard版も同じscene command契約です。同じslotへの新しい移動/表示、scene切替、`blank`で先行移動を中止します。Full BG sceneではbuild errorです。
+command recordは19 bytesのままです。`frames`を`arg0/arg1`、移動先を`x/y`、非同期を`flags bit0`、任意animationを`asset_index/animation_index`へ格納します。runtimeは座標差と方向を保持する除算不要の整数DDAで補間します。CD版は最大4slot分のSATB entryを更新してから1回だけVBlankを待ち、System Card PSGのIRQ駆動を止めません。HuCard版も同じscene command契約です。同じslotへの新しい移動/表示、scene切替、`blank`で先行移動を中止します。Full BG sceneでも、そのscene内で表示したspriteへ使用できます。
 
 ### 演出 command
 
@@ -729,7 +730,7 @@ sequenceDiagram
   RT->>SATB: upload_sprite_table()
 ```
 
-runtime は 4 つの論理 sprite slot を持ちます。1 slot の animation frame は `frameWidth` / `frameHeight` に応じて複数の hardware sprite entry を消費します。SATB 全体は 64 entry です。visible slot はSLOT番号の小さい順に pattern VRAM と sprite palette bank へ詰め、各SLOTのSATBはその実配置 base/bank を参照します。通常BGが 224x136px 以内に収まる VN scene では、VRAM は BG(64〜539) → message/spritetext → sprite patterns の順に詰めます。作者側の運用ルールとして、SLOTは `0` から順に使ってください。build は scene 中の同時表示SLOTを追跡し、この連続配置でも合計 pattern がSATB領域へ食い込む場合や palette bank が予約bankへ届く場合は error にします。
+runtime は 4 つの論理 sprite slot を持ちます。1 slot の animation frame は `frameWidth` / `frameHeight` に応じて複数の hardware sprite entry を消費します。SATB 全体は 64 entry です。buildはscene path全体を解析し、各SLOTに登場する最大asset容量をそのSLOT専用のpattern VRAMとして固定予約します。palette bankも`asset paletteBank + SLOT番号`へ固定され、各SLOTのSATBはその専用base/bankを参照します。通常BGが224x136px以内に収まるVN sceneでは、VRAMはBG(64〜539) → message/spritetext → SLOT0〜SLOT3のsprite patternsの順に配置します。SLOTに空きがあっても後続SLOTのbase/bankは切替時に移動しません。buildはSLOT別最大pattern容量の合計がSATB領域へ食い込む場合やpalette bankが予約bankへ届く場合はerrorにします。
 
 ### ADPCM
 
@@ -841,7 +842,7 @@ ADPCM の `divider` は再生周波数/速度側の値で、音量ではあり�
 | Sprite cell size | `16x16`, `16x32`, `16x64`, `32x16`, `32x32`, `32x64` のみ |
 | VN sprite slot | 論理 slot は 4。hardware SATB は 64 entry |
 | spritetext オーバーレイ | 論理 slot 4、1 command 最大 32 グリフ。12×12字形を横12px・縦16pxピッチで配置し、character sprite と SATB(64)/16-per-line を共有。CD VNは`EX_GETFNT` 12×12をon-demand 4bpp化し、`font_sprite.bin`を生成しない |
-| Sprite pattern / palette | 同時表示SLOTを `0` から順に使う。runtime は `PCE_VN_SPRITE_PATTERN_BASE` からSLOT順に非重複配置する。build は同時表示分の配置結果がSATBや予約palette bankへ食い込む構成を error にする |
+| Sprite pattern / palette | build時に各SLOTの最大pattern容量を専用VRAM範囲として固定し、paletteは`asset paletteBank + SLOT番号`を使う。runtimeのSLOT差し替えは対象SLOTだけを退避・更新する。buildはSLOT別最大容量の合計がSATBや予約palette bankへ食い込む構成をerrorにする |
 | VN sprite 表示 | `sprite` command は指定座標へ即時表示・差し替え・非表示する。移動演出は未実装 |
 | VN screen shake | `effect: "shake"` は BG scroll と sprite SATB 座標を同じ offset で揺らす |
 | ADPCM loop | `adpcm.options.loop` は runtime 再生に反映される |

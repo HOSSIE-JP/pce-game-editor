@@ -16,7 +16,7 @@
 | 129 | MPR3 | resident code | `VN_BANKED_CODE`。overlayから呼び得るhelperを優先 |
 | 130 | MPR4 | resident code | `VN_BANKED_CODE2`。bank133/121/122と時分割 |
 | 131 | MPR5 | System Card | code/dataを配置しない |
-| 132 | MPR6 | generated data/scratch/cache | metadata、CD scratch、message glyph mask cache |
+| 132 | MPR6 | generated data/scratch/cache | metadata、sprite per-frame delay table、CD scratch、message glyph mask cache |
 | 133 | MPR4 | code overlay | `overlay.bin`、`VN_OVERLAY_CODE`。bank130と時分割 |
 | 134 | PSG MPR4 | waveform/index/BGM | `$8000-$801F` wave 45、`$8020-$8023` index、`$8024-` BGM |
 | 135 | PSG MPR5 | SFX | `$A000-` SFX package |
@@ -57,6 +57,8 @@ package loaderは対象busを停止してstatusを確認し、宣言byte数だ�
 ## code配置
 
 - bank128は起動、BIOS境界、IRQ handler、薄いdispatchに残します。無属性helperはbank128へ入りやすいため、追加前に配置属性を決めます。
+- sprite animationの16-bit per-frame delay tableはプロジェクトのanimation数に応じて増えるためbank128 resident rodataへ置かず、`PCE_VN_DATA_SECTION`でbank132へ置きます。bank121 visual helperのanimation tickへ入るresident wrapperは、MPR4を切り替える前にMPR6をbank132へmapします。
+- BG行転送後の左右margin clear (`clear_bg_map_side_margins`) はbank129へ置きます。Full BG対応コードが有効なprojectでもbank128のload imageを8KB未満に保つためで、呼出先のresident VDC helperはslot2から利用できます。
 - overlay実行中はbank130が見えません。`VN_OVERLAY_CODE`から呼ぶhelperはbank129か本当に必要な最小bank128へ置き、bank130へ置きません。
 - visual/async helperは`.vn_visual_code`/`.vn_cd_async_code`としてlink後に抽出し、対応する`PT_LOAD`を`PT_NULL`化します。これを怠ると`pce-mkcd`の初期load imageが壊れます。
 - bank133 overlayは`.vn_overlay`を抽出し、residentからは`vn_overlay_entry`の固定address dispatchだけで呼びます。
@@ -78,6 +80,7 @@ CD VN link後にELF sectionとmapを読み、次をhard errorにします。
 | visual/async helper | 各予約8KB未満 |
 
 境界を「予約済み」とみなしてgateを緩めてはいけません。NOLOADでない8KB bankはBIOS/user RAM初期化契約を壊すため失敗です。
+bank128/129/130/132/133は、上限未満でも空きが256 bytesを切った時点でbuild logへ低headroom warningを出します。これはhard errorではありませんが、次のruntime/generated-data変更前に配置を測り直す合図です。
 
 ## CD data file
 

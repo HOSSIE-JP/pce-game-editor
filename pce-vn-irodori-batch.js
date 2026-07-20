@@ -15,6 +15,14 @@ const MANIFEST_HEADER = [
   'output_dir',
   'output_wav',
 ];
+const ADPCM_IMPORT_HEADER = [
+  'source',
+  'id',
+  'name',
+  'sampleRate',
+  'loop',
+  'splitPolicy',
+];
 
 function normalizeBatchText(value) {
   return String(value == null ? '' : value).replace(/\r\n?/g, '\n').trim();
@@ -134,6 +142,7 @@ function buildIrodoriBatchBundle({ doc = {}, assetIds = [] } = {}) {
         key,
         speakerKind: 'narration',
         speaker: '',
+        outputFolder: 'narrator',
         batchCsv: 'batches/narrator.csv',
         outputDir: '/output/narrator',
         jobs: [],
@@ -146,6 +155,7 @@ function buildIrodoriBatchBundle({ doc = {}, assetIds = [] } = {}) {
         key,
         speakerKind: 'character',
         speaker: message.speaker,
+        outputFolder: folder,
         batchCsv: `batches/speaker_${String(characterNumber).padStart(3, '0')}.csv`,
         outputDir: `/output/${folder}`,
         jobs: [],
@@ -193,6 +203,7 @@ function buildIrodoriBatchBundle({ doc = {}, assetIds = [] } = {}) {
         ...job,
         speakerKind: message.speakerKind,
         speaker: message.speaker,
+        outputFolder: group.outputFolder,
         message,
       });
     }
@@ -218,11 +229,24 @@ function buildIrodoriBatchBundle({ doc = {}, assetIds = [] } = {}) {
     data: encodeCsv(['id', 'text', 'output_dir'], group.jobs),
   }));
   entries.push({ name: 'manifest.csv', data: encodeCsv(MANIFEST_HEADER, manifestRows) });
+  const adpcmRows = Array.from(jobById.values()).map((job) => ({
+    source: `${job.outputFolder}/${job.id}.wav`,
+    id: job.id,
+    name: `voice/${job.outputFolder}/${job.id}`,
+    sampleRate: 8000,
+    loop: false,
+    splitPolicy: 'auto',
+  }));
+  entries.push({
+    name: 'output/adpcm-import.csv',
+    data: encodeCsv(ADPCM_IMPORT_HEADER, adpcmRows),
+  });
 
   return {
     entries,
     groups,
     manifestRows,
+    adpcmRows,
     speakerCount: groups.length,
     messageCount: messages.length,
     jobCount: jobById.size,
@@ -230,6 +254,7 @@ function buildIrodoriBatchBundle({ doc = {}, assetIds = [] } = {}) {
 }
 
 module.exports = {
+  ADPCM_IMPORT_HEADER,
   MANIFEST_HEADER,
   VOICE_ID_RE,
   baseSpeakerFolder,

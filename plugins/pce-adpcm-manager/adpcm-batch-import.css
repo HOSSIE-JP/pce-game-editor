@@ -23,6 +23,17 @@
   color: var(--text-secondary, #bfd0da);
 }
 
+.adpcm-batch-source-root-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.adpcm-batch-source-root-row .form-group {
+  margin: 0;
+}
+
 .adpcm-batch-warning,
 .adpcm-batch-status.warn {
   color: var(--warning, #ffd166);
@@ -96,6 +107,10 @@
 }
 
 @media (max-width: 760px) {
+  .adpcm-batch-source-root-row {
+    grid-template-columns: 1fr;
+  }
+
   .adpcm-batch-progress-row {
     grid-template-columns: 1fr;
   }

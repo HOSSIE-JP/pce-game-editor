@@ -788,7 +788,11 @@ test('PCE VN VRAM layout reserves BG/message/sprite exclusively and rejects over
       ],
     }],
   });
-  assert.deepEqual(usage.spriteSlotLayouts, [['slot1'], ['slot0', 'slot1'], ['slot0']]);
+  assert.deepEqual(usage.spriteSlotLayouts, [
+    ['', 'slot1', '', ''],
+    ['slot0', 'slot1', '', ''],
+    ['slot0', '', '', ''],
+  ]);
   const crossSceneUsage = vnManager.collectSceneVisualAssetUsage({
     startScene: 'opening',
     scenes: [
@@ -807,7 +811,11 @@ test('PCE VN VRAM layout reserves BG/message/sprite exclusively and rejects over
       },
     ],
   });
-  assert.deepEqual(crossSceneUsage.spriteSlotLayouts, [['slot0'], ['slot0', 'slot1'], ['slot1']]);
+  assert.deepEqual(crossSceneUsage.spriteSlotLayouts, [
+    ['slot0', '', '', ''],
+    ['slot0', 'slot1', '', ''],
+    ['', 'slot1', '', ''],
+  ]);
   const simultaneousSprites = {
     assets: [
       { id: 'slot0', type: 'sprite', options: { tileBase: 704 }, data: { generated: { tileCount: 200 } } },
@@ -837,15 +845,15 @@ test('PCE VN VRAM layout reserves BG/message/sprite exclusively and rejects over
   });
   const duplicateSpriteSlots = {
     assets: [
-      { id: 'hero', type: 'sprite', options: { tileBase: 704 }, data: { generated: { tileCount: 160 } } },
+      { id: 'hero', type: 'sprite', options: { tileBase: 704 }, data: { generated: { tileCount: 40 } } },
     ],
   };
   const duplicateSlotRegions = vnManager.computeVnVramLayout(duplicateSpriteSlots, fontBudget, fontSpritePatternBase, 0, {
     spriteAssetIds: new Set(['hero']),
     spriteSlotLayouts: [['hero', 'hero', 'hero']],
   }).filter((region) => region.name === 'sprite patterns');
-  assert.equal(duplicateSlotRegions.length, 1);
-  assert.equal(duplicateSlotRegions[0].end - duplicateSlotRegions[0].start, 160 * 64);
+  assert.equal(duplicateSlotRegions.length, 3);
+  assert.deepEqual(duplicateSlotRegions.map((region) => region.end - region.start), [40 * 64, 40 * 64, 40 * 64]);
   assert.doesNotThrow(() => vnManager.validateVnVramLayout(duplicateSpriteSlots, fontBudget, fontSpritePatternBase, 0, {
     spriteAssetIds: new Set(['hero']),
     spriteSlotLayouts: [['hero', 'hero', 'hero']],
@@ -887,7 +895,7 @@ test('PCE VN VRAM layout reserves BG/message/sprite exclusively and rejects over
   }));
   assert.doesNotThrow(() => vnManager.validateVnSpritePaletteLayout({
     assets: [
-      { id: 'hero', type: 'sprite', options: { paletteBank: 14 } },
+      { id: 'hero', type: 'sprite', options: { paletteBank: 0 } },
     ],
   }, 15, {
     spriteAssetIds: new Set(['hero']),
@@ -912,6 +920,43 @@ test('PCE VN VRAM layout reserves BG/message/sprite exclusively and rejects over
     assets: [{ type: 'sprite', options: { tileBase: 1010 }, data: { generated: { tileCount: 700 } } }],
   };
   assert.throws(() => vnManager.validateVnVramLayout(spriteOverlap, fontBudget, fontSpritePatternBase, 0), /VRAM/);
+});
+
+test('PCE VN packs Full BG SpriteText after ordinary sprite slots when that avoids SATB overflow', () => {
+  const vnManager = loadVnManager();
+  const fontBudget = vnManager.computeFontBudget(0, vnManager.DEFAULT_FONT_TILE_BASE);
+  const assetDoc = {
+    assets: [
+      { id: 'full_bg', type: 'image', options: { tileBase: 64 }, data: { generated: { tileCount: 896 } } },
+      { id: 'slot0', type: 'sprite', data: { generated: { tileCount: 80 } } },
+      { id: 'slot1', type: 'sprite', data: { generated: { tileCount: 80 } } },
+      { id: 'slot2', type: 'sprite', data: { generated: { tileCount: 104 } } },
+    ],
+  };
+  const usage = {
+    imageAssetIds: new Set(['full_bg']),
+    spriteAssetIds: new Set(['slot0', 'slot1', 'slot2']),
+    spriteSlotLayouts: [['slot0', 'slot1', 'slot2', '']],
+    fullScreenBgAssetIds: new Set(['full_bg']),
+    fullScreenBgUsesSprites: false,
+    fullScreenBgUsesSpriteText: true,
+  };
+  const packed = vnManager.computeVnHardwareSpriteLayout(assetDoc, fontBudget, 10, usage);
+  const spriteEnd = packed.spriteSlotPatternLayout.reduce(
+    (end, slot) => Math.max(end, slot.base + slot.capacity),
+    packed.spritePatternBase,
+  );
+
+  assert.ok(packed.spritePatternBase < 480, 'ordinary-scene sprites should remain below the Full BG end');
+  assert.ok(packed.fontSpritePatternBase >= 480, 'Full BG SpriteText font must follow the Full BG tiles');
+  assert.ok(packed.fontSpritePatternBase >= spriteEnd, 'SpriteText font should follow the packed ordinary sprite slots');
+  assert.equal(packed.fontSpritePatternBase % 2, 0);
+  assert.ok(packed.fontSpritePatternBase + 20 < 0x7f00 / 32);
+  assert.doesNotThrow(() => vnManager.validateVnVramLayout(assetDoc, fontBudget, packed.fontSpritePatternBase, 10, {
+    ...usage,
+    spritePatternBase: packed.spritePatternBase,
+    spriteSlotPatternLayout: packed.spriteSlotPatternLayout,
+  }));
 });
 
 test('PCE VN manager default scene does not auto-play the first CD-DA asset', () => {
@@ -968,7 +1013,7 @@ test('PCE VN manager forces BG commands to Fade speed presets', () => {
   ]);
 });
 
-test('PCE VN manager encodes full-screen BG scene mode and rejects UI commands', () => {
+test('PCE VN manager encodes full-screen BG scene mode, allows hardware sprites and SpriteText, and rejects message UI', () => {
   const projectDir = makeTempDir('pce-vn-fullscreen-bg-');
   const vnManager = loadVnManager();
   const makeFile = (relativePath, size) => {
@@ -978,6 +1023,7 @@ test('PCE VN manager encodes full-screen BG scene mode and rejects UI commands',
   };
   makeFile('assets/generated/full_bg/tiles.bin', 28672);
   makeFile('assets/generated/full_bg/map_vram.bin', 1792);
+  makeFile('assets/generated/hero/patterns.bin', 128);
   writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
     version: 2,
     assets: [{
@@ -1002,6 +1048,24 @@ test('PCE VN manager encodes full-screen BG scene mode and rejects UI commands',
         tilesFile: 'assets/generated/full_bg/tiles.bin',
         mapVramFile: 'assets/generated/full_bg/map_vram.bin',
       } },
+    }, {
+      id: 'hero',
+      type: 'sprite',
+      options: {
+        width: 16,
+        height: 16,
+        cellWidth: 16,
+        cellHeight: 16,
+        paletteBank: 0,
+      },
+      data: { generated: {
+        width: 16,
+        height: 16,
+        tileCount: 1,
+        cellColumns: 1,
+        cellRows: 1,
+        tilesFile: 'assets/generated/hero/patterns.bin',
+      } },
     }],
   });
   writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
@@ -1012,6 +1076,9 @@ test('PCE VN manager encodes full-screen BG scene mode and rejects UI commands',
       fullScreenBg: true,
       commands: [
         { type: 'background', assetId: 'full_bg', x: 0, y: 0 },
+        { type: 'spritetext', slot: 0, text: 'GO', x: 112, y: 184, visible: true },
+        { type: 'sprite', assetId: 'hero', slot: 0, x: 120, y: 120, visible: true },
+        { type: 'spritemove', slot: 0, x: 128, y: 120, frames: 8 },
         { type: 'wait', frames: 60 },
       ],
     }, {
@@ -1024,16 +1091,36 @@ test('PCE VN manager encodes full-screen BG scene mode and rejects UI commands',
 
   const normalized = vnManager.readSceneDocument(projectDir);
   assert.equal(normalized.scenes[0].fullScreenBg, true);
+  const visualUsage = vnManager.collectSceneVisualAssetUsage(normalized);
+  assert.equal(visualUsage.fullScreenBgUsesSprites, true);
+  assert.equal(visualUsage.fullScreenBgUsesSpriteText, true);
+  assert.deepEqual(visualUsage.spriteSlotLayouts, [['hero', '', '', '']]);
 
   const generated = vnManager.generateVnSources(projectDir);
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const pack = readPack(projectDir, generated.scenePackPaths[0]);
   assert.match(header, /PCE_VN_SCENE_FLAG_FULL_SCREEN_BG 1u/);
   assert.match(header, /PCE_VN_HAS_FULL_SCREEN_BG 1u/);
-  assert.equal(pack[5], 2);
+  const spriteTextPatternBase = Number(header.match(/PCE_VN_FONT_SPRITE_PATTERN_BASE (\d+)u/)[1]);
+  const slot0PatternBase = Number(header.match(/PCE_VN_SPRITE_SLOT0_PATTERN_BASE (\d+)u/)[1]);
+  assert.ok(spriteTextPatternBase >= 480, `Full BG SpriteText pattern base must be after tile word 15360; got ${spriteTextPatternBase}`);
+  assert.equal(spriteTextPatternBase % 2, 0);
+  assert.ok(slot0PatternBase >= spriteTextPatternBase + 4,
+    `Full BG sprite pattern base must follow the two SpriteText glyphs; got ${slot0PatternBase}`);
+  assert.equal(pack[5], 5);
   assert.equal(pack[9], vnManager.VN_SCENE_FLAG_FULL_SCREEN_BG);
   assert.equal(commandRecord(pack, 0).x, 0);
   assert.equal(commandRecord(pack, 0).y, 0);
+  const cdSceneRuntime = fs.readFileSync(path.join(TEMPLATE_VN_SRC_DIR, 'vn_port_scene.c'), 'utf-8');
+  const spriteCommandStart = cdSceneRuntime.indexOf('command->type == PCE_VN_COMMAND_SPRITE)');
+  const audioCommandStart = cdSceneRuntime.indexOf('command->type == PCE_VN_COMMAND_AUDIO)', spriteCommandStart);
+  assert.doesNotMatch(cdSceneRuntime.slice(spriteCommandStart, audioCommandStart), /current_scene_full_screen_bg/);
+  const spriteTextCommandStart = cdSceneRuntime.indexOf('command->type == PCE_VN_COMMAND_SPRITETEXT)');
+  const spriteTextCommandEnd = cdSceneRuntime.indexOf('return VN_EXEC_CONTINUE;', spriteTextCommandStart);
+  const spriteTextCommandSource = cdSceneRuntime.slice(spriteTextCommandStart, spriteTextCommandEnd);
+  assert.doesNotMatch(spriteTextCommandSource, /current_scene_full_screen_bg/);
+  assert.doesNotMatch(spriteTextCommandSource, /restore_text_vram_after_full_screen_bg/);
+  assert.match(cdSceneRuntime, /static void VN_BANKED_CODE clear_bg_map_side_margins/);
 
   writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
     version: 2,
@@ -2052,6 +2139,46 @@ test('PCE CD template font base leaves room for three large sprite sheets and co
   assert.match(header, /#define PCE_VN_FONT_SPRITE_GLYPH_CAPACITY 10u/);
   assert.match(header, /#define PCE_VN_FONT_SPRITE_PATTERN_BASE 376u/);
   assert.match(header, /#define PCE_VN_SPRITE_PATTERN_BASE 396u/);
+  assert.match(header, /#define PCE_VN_SPRITE_SLOT0_PATTERN_BASE 400u/);
+  assert.match(header, /#define PCE_VN_SPRITE_SLOT0_PATTERN_CAPACITY 160u/);
+  assert.match(header, /#define PCE_VN_SPRITE_SLOT1_PATTERN_BASE 560u/);
+  assert.match(header, /#define PCE_VN_SPRITE_SLOT1_PATTERN_CAPACITY 160u/);
+  assert.match(header, /#define PCE_VN_SPRITE_SLOT2_PATTERN_BASE 720u/);
+  assert.match(header, /#define PCE_VN_SPRITE_SLOT2_PATTERN_CAPACITY 208u/);
+  assert.match(header, /#define PCE_VN_SPRITE_SLOT3_PATTERN_BASE 928u/);
+  assert.match(header, /#define PCE_VN_SPRITE_SLOT3_PATTERN_CAPACITY 0u/);
+});
+
+test('PCE VN Sprite replacement isolates pattern, palette, and temporary SATB hiding to its target SLOT', () => {
+  const runtime = readRuntimeSource().replace(/\r\n/g, '\n');
+  const planStart = runtime.indexOf('static uint8_t VN_BANKED_CODE plan_scene_sprite_layout(void)');
+  const uploadStart = runtime.indexOf('static uint8_t VN_BANKED_CODE refresh_scene_sprite_slot_upload', planStart);
+  const refreshStart = runtime.indexOf('static void VN_BANKED_CODE refresh_scene_sprites(void)', uploadStart);
+  const refreshEnd = runtime.indexOf('static void VN_OVERLAY_CODE cache_sprite_animation_impl', refreshStart);
+  assert.notEqual(planStart, -1);
+  assert.notEqual(uploadStart, -1);
+  assert.notEqual(refreshStart, -1);
+  assert.notEqual(refreshEnd, -1);
+  const plan = runtime.slice(planStart, uploadStart);
+  const refresh = runtime.slice(refreshStart, refreshEnd);
+  assert.match(plan, /PCE_VN_SPRITE_SLOT0_PATTERN_BASE/);
+  assert.match(plan, /PCE_VN_SPRITE_SLOT3_PATTERN_CAPACITY/);
+  assert.match(plan, /palette_bank = \(uint8_t\)\(sprite->palette_bank \+ i\)/);
+  assert.match(plan, /safe_hide_mask \|= \(uint8_t\)\(1u << i\)/);
+  assert.match(refresh, /safe_hide_mask & \(uint8_t\)\(1u << i\)[\s\S]*hide_sprite_shadow_range\(sprite_satb_slot_start\[i\], sprite_satb_slot_count\[i\]\)/);
+  assert.doesNotMatch(refresh, /sprite_layer_disable\(\)|sprite_layer_enable\(\)/);
+
+  const hucardRuntime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_hucard', 'src', 'pce_vn_hucard_runtime.c'),
+    'utf-8',
+  ).replace(/\r\n/g, '\n');
+  const hucardSetStart = hucardRuntime.indexOf('static void VN_HUCARD_CODE_SPRITE_STATE set_sprite');
+  const hucardSetEnd = hucardRuntime.indexOf('static void VN_HUCARD_CODE_SPRITE_STATE tick_sprites', hucardSetStart);
+  const hucardSet = hucardRuntime.slice(hucardSetStart, hucardSetEnd);
+  assert.match(hucardRuntime, /PCE_VN_SPRITE_SLOT0_PATTERN_BASE/);
+  assert.match(hucardRuntime, /palette_bank = \(uint8_t\)\(sprite->palette_bank \+ slot\)/);
+  assert.match(hucardSet, /clear_sprite_slot_shadow\(slot\);\s*upload_sprite_table\(\);/);
+  assert.match(hucardSet, /refresh_scene_sprites\(upload_pattern_mask\)/);
 });
 
 test('PCE VN manager omits the sprite font when no scene uses spritetext', () => {
@@ -2248,7 +2375,7 @@ test('PCE VN manager emits per-frame sprite delays and the runtime honors them',
           cellHeight: 16,
           // Per-row time matrix saved by the sprite editor: row 0 has distinct
           // per-frame times, row 1 is uniform.
-          spriteEditor: { time: '[[10,20,30,40][6,6,6,6]]' },
+          spriteEditor: { time: '[[10,1000,65535,40][6,6,6,6]]' },
           animations: [
             { id: 'default', frameWidth: 64, frameHeight: 16, firstCell: 0, frameCount: 4, frameDelay: 8, frameStrideCells: 1 },
             { id: 'row_1', frameWidth: 64, frameHeight: 16, firstCell: 4, frameCount: 4, frameDelay: 6, frameStrideCells: 1 },
@@ -2271,16 +2398,36 @@ test('PCE VN manager emits per-frame sprite delays and the runtime honors them',
 
   const generated = vnManager.generateVnSources(projectDir);
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
-  // Per-frame times are migrated from spriteEditor.time into a resident table the
-  // animation record points at. Uniform rows use frame_delay directly and do not
-  // spend resident rodata on a redundant table.
-  assert.match(source, /pce_vn_sprite_anim_delays_0\[\] = \{ 10u, 20u, 30u, 40u \}/);
+  // Per-frame times are migrated from spriteEditor.time into a 16-bit table the
+  // animation record points at. CD tables belong to generated-data bank132 so
+  // project animation count cannot consume fixed resident bank128 rodata.
+  // Uniform rows use frame_delay directly and do not emit a redundant table.
+  assert.match(source, /static const unsigned int PCE_VN_DATA_SECTION pce_vn_sprite_anim_delays_0\[\] = \{ 10u, 1000u, 65535u, 40u \}/);
   assert.doesNotMatch(source, /pce_vn_sprite_anim_delays_1/);
-  assert.match(source, /\{ \d+u, 4u, 4u, 6u, 4u, 1u, 1u, 1u, \(const unsigned char \*\)0 \}/);
+  assert.match(source, /\{ \d+u, 4u, 4u, 6u, 4u, 1u, 1u, 1u, \(const unsigned int \*\)0 \}/);
+
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  assert.match(header, /unsigned int frame_delay;/);
+  assert.match(header, /const unsigned int \*frame_delays;/);
 
   const runtime = readRuntimeSource();
   // The animation tick must index the per-frame table by the current frame.
   assert.match(runtime, /slot->anim_frame_delays\[slot->frame\]/);
+  assert.match(runtime, /static void VN_RESIDENT_CODE tick_sprite_animations\(void\)[\s\S]*map_vn_data\(\);[\s\S]*visual_cache_call\(VN_VISUAL_CACHE_OP_TICK_SPRITE_ANIMATIONS\)/);
+  assert.match(runtime, /uint16_t timer;/);
+  assert.match(runtime, /unsigned int frame_delay;/);
+
+  const hucardRuntime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_hucard', 'src', 'pce_vn_hucard_runtime.c'),
+    'utf-8',
+  );
+  assert.match(hucardRuntime, /uint16_t timer;/);
+  assert.match(hucardRuntime, /unsigned int delay;/);
+
+  const hucardGenerated = vnManager.generateVnSources(projectDir, { targetMedia: 'hucard' });
+  const hucardSource = fs.readFileSync(hucardGenerated.sourcePath, 'utf-8');
+  assert.match(hucardSource, /static const unsigned int pce_vn_sprite_anim_delays_0\[\] = \{ 10u, 1000u, 65535u, 40u \}/);
+  assert.doesNotMatch(hucardSource, /PCE_VN_DATA_SECTION pce_vn_sprite_anim_delays_0/);
 });
 
 test('PCE VN runtime owns only the System Card user VSync vector', () => {
@@ -2415,7 +2562,7 @@ test('PCE VN manager emits synchronous and asynchronous sprite movement in the f
   assert.match(huCard, /upload_sprite_table_now\(\)/);
 });
 
-test('PCE VN manager rejects sprite movement in full-screen BG scenes and reports invalid animation locations', () => {
+test('PCE VN manager reports invalid sprite movement animation locations', () => {
   const projectDir = makeTempDir('pce-vn-sprite-move-invalid-');
   const vnManager = loadVnManager();
   writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
@@ -2427,13 +2574,6 @@ test('PCE VN manager rejects sprite movement in full-screen BG scenes and report
       data: { generated: { width: 16, height: 16, cellColumns: 1, cellRows: 1 } },
     }],
   });
-  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
-    version: 2,
-    startScene: 'opening',
-    scenes: [{ id: 'opening', fullScreenBg: true, commands: [{ type: 'spritemove', slot: 0, x: 10, y: 20, frames: 1 }] }],
-  });
-  assert.throws(() => vnManager.generateVnSources(projectDir), /fullScreenBg and cannot move sprites/);
-
   writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
     version: 2,
     startScene: 'opening',

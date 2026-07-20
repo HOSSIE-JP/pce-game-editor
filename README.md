@@ -8,6 +8,7 @@ Electron ベースの PC Engine / Super CD-ROM2 向けゲームエディター�
 
 ```text
 pce-game-editor/
+├── .agents/skills/
 ├── app.config.js
 ├── main.js
 ├── pce-*.js
@@ -23,6 +24,12 @@ pce-game-editor/
 ```sh
 npm install
 ```
+
+## Codex共有スキル
+
+PCE PSG作曲用の`compose-pce-psg`スキルを[`.agents/skills/compose-pce-psg`](.agents/skills/compose-pce-psg/SKILL.md)へ同梱しています。このリポジトリ内でCodexを起動するとプロジェクトスキルとして検出され、個人のskillsディレクトリへコピーする必要はありません。表示されない場合はCodexを再起動してください。
+
+プロンプトで`$compose-pce-psg`を指定し、用途、雰囲気、テンポ、長さと構成、ループ有無を伝えると、PCE Game Editorへ取り込める`*.psg.json`を1ファイル生成します。ROM/CUE生成、プロジェクトへの組み込み、エミュレーターまたは実機での確認はスキルの対象外です。
 
 ## 起動
 

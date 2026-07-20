@@ -111,6 +111,7 @@ function psgImportFormat(asset = {}) {
   const imported = asset.data?.import || {};
   const source = String(asset.source || imported.originalFileName || '').toLowerCase();
   const converter = String(imported.converter || '').toLowerCase();
+  if (source.endsWith('.psg.json') || converter.includes('psg json')) return 'PSG JSON';
   if (/\.(mid|midi)$/.test(source) || converter.includes('midi')) return 'MIDI';
   if (/\.(vgm|vgz)$/.test(source) || converter.includes('vgm')) return 'VGM';
   return imported && Object.keys(imported).length ? '取込' : '';
@@ -203,6 +204,12 @@ export function activatePlugin({ root, api, registerCapability }) {
   const previewPceMidi = (payload) => assetApi.previewPceMidi
     ? assetApi.previewPceMidi(payload)
     : api.electronAPI.previewAssetMidi(payload);
+  const inspectPcePsgJson = (payload) => assetApi.inspectPcePsgJson
+    ? assetApi.inspectPcePsgJson(payload)
+    : api.electronAPI.inspectAssetPsgJson(payload);
+  const importPcePsgJson = (payload) => assetApi.importPcePsgJson
+    ? assetApi.importPcePsgJson(payload)
+    : api.electronAPI.importAssetPsgJson(payload);
   let importBusy = false;
   const previewController = createPsgPreviewController({
     onStateChange: (playing) => {
@@ -595,13 +602,15 @@ export function activatePlugin({ root, api, registerCapability }) {
   async function pickImportFile() {
     const picked = await api.electronAPI.pickFile({
       properties: ['openFile'],
-      filters: [{ name: 'PSG ソース (VGM/VGZ/MIDI)', extensions: ['vgm', 'vgz', 'mid', 'midi'] }],
+      filters: [{ name: 'PSG ソース (*.psg.json/VGM/VGZ/MIDI)', extensions: ['json', 'vgm', 'vgz', 'mid', 'midi'] }],
     });
     const sourcePath = picked?.sourcePath || picked?.filePath || picked?.filePaths?.[0] || '';
     if (picked?.canceled || !sourcePath) return null;
     const fileName = String(sourcePath).split(/[\\/]/).pop() || '';
     const ext = (fileName.split('.').pop() || '').toLowerCase();
-    const format = ext === 'mid' || ext === 'midi' ? 'midi' : 'vgm';
+    const format = ext === 'json'
+      ? 'psg-json'
+      : (ext === 'mid' || ext === 'midi' ? 'midi' : 'vgm');
     return { sourcePath, fileName, ext, format };
   }
 
@@ -765,13 +774,140 @@ export function activatePlugin({ root, api, registerCapability }) {
     });
   }
 
+  async function openPsgJsonImportModal(picked) {
+    error.textContent = 'PSG JSONを検査中...';
+    const inspection = await inspectPcePsgJson({ sourcePath: picked.sourcePath });
+    if (!inspection?.ok) {
+      error.textContent = inspection?.error || 'PSG JSONを検査できませんでした';
+      return null;
+    }
+    error.textContent = '';
+    const sourceAsset = inspection.previewAsset || inspection.asset;
+    const summary = inspection.summary || {};
+    const sectionText = (summary.sections || [])
+      .map((section) => section.startBar && section.endBar
+        ? `${section.name || 'section'} ${section.startBar}–${section.endBar}小節`
+        : (section.name || 'section'))
+      .join(' → ') || '指定なし';
+    return new Promise((resolve) => {
+      const modal = api.createModal({
+        id: `pce-music-psg-json-import-${Date.now()}`,
+        panelClassName: 'app-panel app-panel-sm',
+        html: `
+          <div class="page-header modal-header">
+            <h2>PSG JSON 取込</h2>
+            <button class="icon-btn" type="button" data-cancel>✕</button>
+          </div>
+          <form class="settings-form compact-form pce-music-vgm-form">
+            <code class="pce-music-vgm-file">${esc(picked.sourcePath)}</code>
+            <div class="pce-form-grid">
+              <label class="form-group"><span class="form-label">ID</span><input class="form-input" name="id" value="${esc(sourceAsset.id)}" /></label>
+              <label class="form-group"><span class="form-label">Name</span><input class="form-input" name="name" value="${esc(sourceAsset.name || sourceAsset.id)}" /></label>
+              <label class="form-group"><span class="form-label">Type</span><select class="form-select" name="type"><option value="psg-song"${sourceAsset.type === 'psg-song' ? ' selected' : ''}>Song</option><option value="psg-sfx"${sourceAsset.type === 'psg-sfx' ? ' selected' : ''}>SFX</option></select></label>
+              <label class="form-group"><span class="form-label">Master volume</span><input class="form-input" name="volume" type="number" min="0" max="100" value="${esc(sourceAsset.options?.volume ?? 100)}" /></label>
+            </div>
+            <dl class="pce-music-import-summary">
+              <div><dt>BPM / 長さ</dt><dd>${esc(summary.bpm)} BPM・${esc(summary.bars)}小節・約${esc(summary.durationSeconds)}秒</dd></div>
+              <div><dt>構成</dt><dd>${esc(sectionText)}</dd></div>
+              <div><dt>データ</dt><dd>${esc(summary.channels)} ch・${esc(summary.steps)} steps・${esc(summary.eventCount)} events・${summary.loop ? 'loop' : 'one-shot'}</dd></div>
+            </dl>
+            <label class="form-group pce-music-replace-confirm" data-replace-row hidden><input name="replace" type="checkbox" /> 同じIDのPSG assetを置換する</label>
+            <p class="pce-music-vgm-note">version 2の1曲JSONをそのまま保存し、再量子化せずHuCARD / Super CD-ROM2共通PSGとして登録します。</p>
+            <div class="form-error" data-modal-error></div>
+            <div class="form-actions-inline modal-actions-end">
+              <button class="btn-sm" type="button" data-preview-json>▶ 試聴</button>
+              <button class="btn-sm" type="button" data-cancel>キャンセル</button>
+              <button class="btn-primary" type="submit">取込</button>
+            </div>
+          </form>
+        `,
+      });
+      const modalForm = modal.panel.querySelector('form');
+      const modalError = modal.panel.querySelector('[data-modal-error]');
+      const previewButton = modal.panel.querySelector('[data-preview-json]');
+      const replaceRow = modal.panel.querySelector('[data-replace-row]');
+      const replaceInput = modalForm.elements.replace;
+      const modalPreviewController = createPsgPreviewController({
+        onStateChange: (playing) => {
+          previewButton.textContent = playing ? '■ 停止' : '▶ 試聴';
+          previewButton.classList.toggle('is-active', playing);
+        },
+        onError: (message) => { modalError.textContent = message; },
+      });
+      let busy = false;
+      const hasCollision = () => assets.some((asset) => asset.id === String(modalForm.elements.id.value || '').trim());
+      const syncCollision = () => {
+        const collision = hasCollision();
+        replaceRow.hidden = !collision;
+        if (!collision) replaceInput.checked = false;
+      };
+      const close = (value) => {
+        modalPreviewController.close();
+        modal.close();
+        modal.destroy?.();
+        resolve(value);
+      };
+      modal.panel.querySelectorAll('[data-cancel]').forEach((button) => {
+        button.addEventListener('click', () => close(null), { once: true });
+      });
+      modalForm.elements.id.addEventListener('input', syncCollision);
+      syncCollision();
+      previewButton.addEventListener('click', async () => {
+        if (modalPreviewController.isPlaying) {
+          modalPreviewController.stop();
+          return;
+        }
+        const previewType = modalForm.elements.type.value;
+        await modalPreviewController.play({
+          ...sourceAsset,
+          type: previewType,
+          options: {
+            ...(sourceAsset.options || {}),
+            kind: previewType === 'psg-song' ? 'song' : 'sfx',
+            loop: previewType === 'psg-song',
+            volume: asNumber(modalForm.elements.volume.value, 100),
+          },
+        }, { loop: previewType === 'psg-song' });
+      });
+      modalForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (busy) return;
+        if (hasCollision() && !replaceInput.checked) {
+          modalError.textContent = '同じIDが存在します。置換する場合は確認欄をチェックしてください';
+          return;
+        }
+        busy = true;
+        modalPreviewController.stop();
+        modalError.textContent = '取込中...';
+        const result = await importPcePsgJson({
+          sourcePath: picked.sourcePath,
+          id: String(modalForm.elements.id.value || '').trim(),
+          name: String(modalForm.elements.name.value || '').trim(),
+          type: modalForm.elements.type.value,
+          volume: asNumber(modalForm.elements.volume.value, 100),
+          replace: replaceInput.checked,
+        });
+        if (!result?.ok) {
+          busy = false;
+          modalError.textContent = result?.error || 'PSG JSONを取り込めませんでした';
+          syncCollision();
+          return;
+        }
+        close({ asset: result.asset, warnings: [] });
+      });
+      modal.open();
+    });
+  }
+
   async function runImport() {
     if (importBusy) return;
     importBusy = true;
     try {
       const picked = await pickImportFile();
       if (!picked) return;
-      const outcome = await openImportModal(picked);
+      const outcome = picked.format === 'psg-json'
+        ? await openPsgJsonImportModal(picked)
+        : await openImportModal(picked);
       if (!outcome) return;
       selectedId = outcome.asset?.id || '';
       await reload({ force: true });

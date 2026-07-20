@@ -20,12 +20,12 @@ void pce_vn_data_map(void)
 }
 
 const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations[] = {
-  { 0u, 0u, 1u, 8u, 4u, 8u, 4u, 1u, (const unsigned char *)0 },
-  { 0u, 0u, 2u, 14u, 4u, 8u, 4u, 1u, (const unsigned char *)0 },
-  { 0u, 8u, 2u, 4u, 4u, 8u, 4u, 1u, (const unsigned char *)0 },
-  { 1u, 0u, 1u, 8u, 4u, 8u, 4u, 1u, (const unsigned char *)0 },
-  { 1u, 0u, 2u, 14u, 4u, 8u, 4u, 1u, (const unsigned char *)0 },
-  { 1u, 8u, 2u, 4u, 4u, 8u, 4u, 1u, (const unsigned char *)0 }
+  { 0u, 0u, 1u, 8u, 4u, 8u, 4u, 1u, (const unsigned int *)0 },
+  { 0u, 0u, 2u, 14u, 4u, 8u, 4u, 1u, (const unsigned int *)0 },
+  { 0u, 8u, 2u, 4u, 4u, 8u, 4u, 1u, (const unsigned int *)0 },
+  { 1u, 0u, 1u, 8u, 4u, 8u, 4u, 1u, (const unsigned int *)0 },
+  { 1u, 0u, 2u, 14u, 4u, 8u, 4u, 1u, (const unsigned int *)0 },
+  { 1u, 8u, 2u, 4u, 4u, 8u, 4u, 1u, (const unsigned int *)0 }
 };
 const unsigned int PCE_VN_DATA_SECTION pce_vn_sprite_animation_count = 6;
 

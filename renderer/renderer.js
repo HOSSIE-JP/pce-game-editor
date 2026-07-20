@@ -874,6 +874,12 @@ function createPceAssetApi() {
       { assetId: payload?.id || '', kind: payload?.kind || payload?.type || 'psg' },
     ),
     previewPceMidi: (payload) => window.electronAPI.previewAssetMidi(payload || {}),
+    inspectPcePsgJson: (payload) => window.electronAPI.inspectAssetPsgJson(payload || {}),
+    importPcePsgJson: (payload) => mutatePceAssets(
+      'import-psg-json',
+      window.electronAPI.importAssetPsgJson(payload || {}),
+      { assetId: payload?.id || '', kind: payload?.type || 'psg' },
+    ),
     reorderPceAssets: (ids) => mutatePceAssets(
       'reorder',
       window.electronAPI.reorderAssets(ids || []),

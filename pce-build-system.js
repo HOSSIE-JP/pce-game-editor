@@ -20,6 +20,7 @@ const DEFAULT_EXTERNAL_EMULATOR_PATH = process.platform === 'darwin'
 const PCE_CD_SECTOR_BYTES = 2048;
 const PCE_CD_IPL_PROGRAM_SECTORS = 20;
 const PCE_CD_DATA_BASE_SECTOR = 64;
+const PCE_CD_VN_BANK_HEADROOM_WARN_BYTES = 256;
 const PCE_INCREMENTAL_BUILD_STAMP_VERSION = 1;
 const PCE_INCREMENTAL_BUILD_STAMP_FILE = path.join('out', 'build-stamp.json');
 const PCE_SLIDESHOW_BUILDER_ID = 'pce-slideshow-builder';
@@ -1318,6 +1319,15 @@ function formatPceCdVnLinkGate(report) {
   return `${banks}; console ${report.consoleUsed}/4608 (free ${report.consoleFree}); ZP end $${report.zpEnd.toString(16)}`;
 }
 
+function formatPceCdVnHeadroomWarning(report) {
+  const lowBanks = [128, 129, 130, 132, 133]
+    .map((bank) => ({ bank, free: 0x2000 - Number(report?.usage?.[bank] || 0) }))
+    .filter((entry) => entry.free < PCE_CD_VN_BANK_HEADROOM_WARN_BYTES)
+    .map((entry) => `bank${entry.bank} free ${entry.free} bytes`);
+  if (!lowBanks.length) return '';
+  return `PCE-CD VN low memory headroom (${PCE_CD_VN_BANK_HEADROOM_WARN_BYTES}-byte warning threshold): ${lowBanks.join(', ')}`;
+}
+
 function buildProject(onLog, options = {}) {
   return new Promise((resolve) => {
     const buildStartedAt = Date.now();
@@ -1520,6 +1530,8 @@ function buildProject(onLog, options = {}) {
         if (commandInfo.targetMedia === 'cd' && isVisualNovelProject(projectDir, config)) {
           const linkGate = validatePceCdVnLinkMap(commandInfo.mapPath, commandInfo.elfPath);
           log(`PCE-CD VN memory gate: ${formatPceCdVnLinkGate(linkGate)}`);
+          const headroomWarning = formatPceCdVnHeadroomWarning(linkGate);
+          if (headroomWarning) log(headroomWarning, 'warn');
         }
         if (commandInfo.toolchain === 'cc65') {
           romInfo = postprocessCc65PceRom(commandInfo.binPath, commandInfo.romPath);
@@ -1672,6 +1684,7 @@ module.exports = {
   readElf32Sections,
   validatePceCdVnLinkMap,
   formatPceCdVnLinkGate,
+  formatPceCdVnHeadroomWarning,
   repairHuCardSlideshowMainIfNeeded,
   resolveCc65Home,
   saveProjectConfig,

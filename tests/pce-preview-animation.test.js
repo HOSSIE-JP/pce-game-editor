@@ -29,6 +29,8 @@ test('PCE VN preview plays sprite frameDelays per frame', () => {
   assert.match(renderer, /const rawFrameDelays = Array\.isArray\(anim\.frameDelays\) \? anim\.frameDelays : \[\];/);
   assert.match(renderer, /return \{ sheetW, sheetH, frameW, frameH, frames, frameDelay, frameDelays, loop \};/);
   assert.match(renderer, /while \(acc >= frameMsAt\(idx\)\)/);
+  assert.match(renderer, /const MAX_SPRITE_FRAME_DELAY = 0xffff;/);
+  assert.doesNotMatch(renderer, /Math\.min\(60, Number\(anim\.frameDelay\)/);
   assert.doesNotMatch(renderer, /const frameMs = geo\.frameDelay \* \(1000 \/ 60\);/);
 });
 
@@ -38,6 +40,8 @@ test('PCE image sprite preview keeps per-frame delays', () => {
   assert.match(renderer, /frameDelays:\s*Array\.from\(\{ length: frameCount \}/);
   assert.match(renderer, /Array\.isArray\(animation\.frameDelays\)/);
   assert.match(renderer, /animation\.frameDelays\[clampInt\(spritePreviewState\.frameIndex/);
+  assert.match(renderer, /const MAX_SPRITE_FRAME_DELAY = 0xffff;/);
+  assert.match(renderer, /data-animation-field="frameDelay" type="number" min="1" max="\$\{MAX_SPRITE_FRAME_DELAY\}"/);
 });
 
 test('PCE image import uses simplified BG and sprite defaults', () => {
@@ -101,4 +105,7 @@ test('PCE sprite editor import modal keeps animation fields in the editor', () =
   assert.match(submit, /frameHeight,/);
   assert.match(submit, /frameCount:\s*DEFAULT_IMPORT_FRAME_COUNT/);
   assert.match(submit, /frameDelay:\s*DEFAULT_IMPORT_FRAME_DELAY/);
+  assert.match(spritePage, /data-row-name="\$\{row\}"/);
+  assert.match(spritePage, /rowNames:\s*\['ROW 0'\]/);
+  assert.match(spritePage, /min="1" max="\$\{MAX_SPRITE_FRAME_DELAY\}" value="4" data-role="preview-time"/);
 });

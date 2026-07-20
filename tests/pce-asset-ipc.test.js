@@ -20,6 +20,8 @@ test('PCE asset IPC registers the raw asset manager contract', async () => {
       return { batchId: payload.batchId, assets: [], dir };
     },
     cancelAdpcmBatch: (dir, payload) => ({ batchId: payload.batchId, canceled: true, dir }),
+    inspectPsgJson: (dir, payload) => ({ previewAsset: payload, dir }),
+    importPsgJson: (dir, payload) => ({ asset: payload, assets: [payload], dir }),
     importVgm: (dir, payload) => ({ asset: payload, dir }),
     importMidi: (dir, payload) => ({ asset: payload, dir }),
     previewMidi: (dir, payload) => ({ preview: payload, dir }),
@@ -51,6 +53,8 @@ test('PCE asset IPC registers the raw asset manager contract', async () => {
     'assets:inspectAdpcmBatch',
     'assets:importAdpcmBatch',
     'assets:cancelAdpcmBatch',
+    'assets:inspectPsgJson',
+    'assets:importPsgJson',
     'assets:importVgm',
     'assets:importMidi',
     'assets:previewMidi',
@@ -65,11 +69,26 @@ test('PCE asset IPC registers the raw asset manager contract', async () => {
   });
   assert.deepEqual(calls[0], ['deleteAsset', 'project', 'bg']);
 
+  const inspected = await handlers.get('assets:inspectPsgJson')({}, { sourcePath: 'song.psg.json' });
+  assert.equal(inspected.ok, true);
+  assert.equal(inspected.previewAsset.sourcePath, 'song.psg.json');
+  const imported = await handlers.get('assets:importPsgJson')({}, { id: 'song', replace: true });
+  assert.equal(imported.ok, true);
+  assert.equal(imported.asset.id, 'song');
+
+  const inspectedBatch = await handlers.get('assets:inspectAdpcmBatch')({}, {
+    csvPath: 'voices.csv',
+    sourceRoot: 'output',
+  });
+  assert.equal(inspectedBatch.ok, true);
+  assert.equal(inspectedBatch.rows[0].sourceRoot, 'output');
+
   const sent = [];
   const batch = await handlers.get('assets:importAdpcmBatch')({
     sender: { isDestroyed: () => false, send: (...args) => sent.push(args) },
-  }, { batchId: 'batch-1' });
+  }, { batchId: 'batch-1', sourceRoot: 'output' });
   assert.equal(batch.ok, true);
   assert.equal(batch.batchId, 'batch-1');
+  assert.equal(calls.find((entry) => entry[0] === 'importAdpcmBatch')[2].sourceRoot, 'output');
   assert.deepEqual(sent, [['assets:adpcmBatchProgress', { batchId: 'batch-1', status: 'complete' }]]);
 });

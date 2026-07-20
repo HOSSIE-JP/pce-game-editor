@@ -403,7 +403,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       }
       previousGroup = group;
       // Hide an asset row when any of its ancestor groups is collapsed.
-      return html + (ancestorCollapsed ? '' : rowRenderer(asset));
+      return html + (ancestorCollapsed ? '' : rowRenderer(asset, group.length));
     });
   }
 
@@ -533,12 +533,12 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       rowsEl.innerHTML = '<tr><td colspan="7" class="pce-adpcm-empty">ADPCM アセットがありません</td></tr>';
       return;
     }
-    rowsEl.innerHTML = renderGroupedRows(samples, 7, (asset) => {
+    rowsEl.innerHTML = renderGroupedRows(samples, 7, (asset, depth = 0) => {
       const displayAsset = displayAssetForRow(asset);
       const { sampleRate, byteLength, estimatedSeconds } = adpcmListMetrics(displayAsset);
       return `
-        <tr class="pce-adpcm-row ${asset.id === selectedId ? 'active' : ''}" data-id="${esc(asset.id)}">
-          <td class="pce-adpcm-name-cell"><span>${esc(assetDisplayName(displayAsset))}</span></td>
+        <tr class="pce-adpcm-row ${asset.id === selectedId ? 'active' : ''}" data-id="${esc(asset.id)}" data-tree-depth="${depth}">
+          <td class="pce-adpcm-name-cell" style="--asset-tree-indent:${depth * 14}px"><span>${esc(assetDisplayName(displayAsset))}</span></td>
           <td class="pce-adpcm-id-cell"><code>${esc(displayAsset.id)}</code></td>
           <td>${esc(sampleRate)} Hz</td>
           <td>${esc(formatSeconds(estimatedSeconds))}</td>

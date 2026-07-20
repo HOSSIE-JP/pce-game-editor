@@ -22,12 +22,14 @@ const PCE_INTERNAL_IMAGE_CONVERTER = 'Internal PCE image converter';
 const PCE_SPRITE_COLOR_CONVERTER_VERSION = 1;
 const PCE_PSG_MIDI_IMPORTER = 'Internal MIDI -> PSG step importer';
 const PCE_PSG_VGM_IMPORTER = 'Internal VGM/VGZ -> PSG step importer';
+const PCE_PSG_JSON_IMPORTER = 'PCE PSG JSON importer';
 const PCE_PSG_QUANTIZER_VERSION = psgQuantize.PSG_QUANTIZER_VERSION || 2;
 const SUPPORTED_TYPES = new Set(['image', 'sprite', 'psg-sequence', 'psg-song', 'psg-sfx', 'adpcm', 'cdda-track', 'tileset', 'tilemap', 'palette']);
 const IMAGE_EXTENSIONS = new Set(['.png', '.bmp', '.webp']);
 const AUDIO_EXTENSIONS = new Set(['.wav', '.mp3']);
 const VGM_EXTENSIONS = new Set(['.vgm', '.vgz']);
 const MIDI_EXTENSIONS = new Set(['.mid', '.midi']);
+const PSG_JSON_SUFFIX = '.psg.json';
 const SPRITE_CELL_SIZES = new Set(['16x16', '16x32', '16x64', '32x16', '32x32', '32x64']);
 const ROM_BANKED_CHUNK_SIZE = 8192;
 const BANKED_DATA_THRESHOLD = 1024;
@@ -118,6 +120,7 @@ const DEFAULT_PSG_OPTIONS = Object.freeze({
 const PCE_PSG_MAX_STEPS = 4096;
 const PCE_PSG_MAX_PATTERN_ENTRIES = 2048;
 const PCE_PSG_SERIALIZED_STEP_BYTES = 8;
+const PCE_SPRITE_FRAME_DELAY_MAX = 0xffff;
 const DEFAULT_ADPCM_OPTIONS = Object.freeze({
   sampleRate: 8000,
   loop: false,
@@ -203,7 +206,7 @@ function normalizeSpriteAnimations(options = {}, asset = {}) {
     const frameCount = clampPositiveInt(raw.frameCount, 1, 64, Math.min(1, maxFrames));
     const frameStrideCells = clampPositiveInt(raw.frameStrideCells, 1, totalCells, frameCells);
     const resolvedFrameCount = Math.min(frameCount, Math.max(1, Math.floor((totalCells - firstCell + frameStrideCells - 1) / frameStrideCells)));
-    const frameDelay = clampInt(raw.frameDelay, 1, 60, DEFAULT_SPRITE_ANIMATION.frameDelay);
+    const frameDelay = clampInt(raw.frameDelay, 1, PCE_SPRITE_FRAME_DELAY_MAX, DEFAULT_SPRITE_ANIMATION.frameDelay);
     // Preserve the per-frame display times so each frame keeps its own duration
     // through normalization. Prefer explicit per-animation frameDelays; otherwise
     // migrate from the sprite editor's per-row time matrix. Missing/invalid
@@ -211,7 +214,7 @@ function normalizeSpriteAnimations(options = {}, asset = {}) {
     const rawFrameDelays = Array.isArray(raw.frameDelays) && raw.frameDelays.length
       ? raw.frameDelays
       : (spriteTimeRows[index] || []);
-    const frameDelays = Array.from({ length: resolvedFrameCount }, (_, frameIndex) => clampInt(rawFrameDelays[frameIndex], 1, 60, frameDelay));
+    const frameDelays = Array.from({ length: resolvedFrameCount }, (_, frameIndex) => clampInt(rawFrameDelays[frameIndex], 1, PCE_SPRITE_FRAME_DELAY_MAX, frameDelay));
     return {
       id: sanitizeAssetId(raw.id, index === 0 ? 'default' : `anim_${index + 1}`).slice(0, 32),
       name: String(raw.name || raw.id || (index === 0 ? 'Default' : `Animation ${index + 1}`)).trim().slice(0, 48),
@@ -617,6 +620,226 @@ function pceColorDistanceSq(a = {}, b = {}) {
 
 function pcePaletteWord(color = {}) {
   return (color.b & 7) | ((color.r & 7) << 3) | ((color.g & 7) << 6);
+}
+
+function requirePsgJsonInteger(value, min, max, label) {
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${label} must be an integer from ${min} to ${max}`);
+  }
+  return value;
+}
+
+function readPsgJsonImport(projectDir, payload = {}) {
+  const sourceAbs = sourcePathForImport(payload);
+  if (!sourceAbs) throw new Error('PSG JSON ファイルを選択してください');
+  const originalFileName = path.basename(sourceAbs);
+  if (!originalFileName.toLowerCase().endsWith(PSG_JSON_SUFFIX)) {
+    throw new Error('*.psg.json ファイルを選択してください');
+  }
+
+  let document;
+  try {
+    document = JSON.parse(fs.readFileSync(sourceAbs, 'utf-8'));
+  } catch (error) {
+    throw new Error(`PSG JSON parse failed: ${error?.message || error}`);
+  }
+  if (!document || typeof document !== 'object' || Array.isArray(document)) {
+    throw new Error('PSG JSON root must be an object');
+  }
+  if (document.version !== 2) throw new Error('PSG JSON version must be 2');
+  if (!Array.isArray(document.assets) || document.assets.length !== 1) {
+    throw new Error('PSG JSON assets must contain exactly one asset');
+  }
+
+  const rawAsset = document.assets[0];
+  if (!rawAsset || typeof rawAsset !== 'object' || Array.isArray(rawAsset)) {
+    throw new Error('PSG JSON asset must be an object');
+  }
+  if (rawAsset.type !== 'psg-song' && rawAsset.type !== 'psg-sfx') {
+    throw new Error('PSG JSON asset type must be psg-song or psg-sfx');
+  }
+  const rawId = String(rawAsset.id || '').trim();
+  if (!rawId) throw new Error('PSG JSON asset id is required');
+  const id = sanitizeAssetId(rawId, '');
+  if (!id || id !== rawId) {
+    throw new Error('PSG JSON asset id must use only letters, numbers, _ or - (maximum 48 characters)');
+  }
+
+  const options = rawAsset.options;
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    throw new Error('PSG JSON asset options must be an object');
+  }
+  const expectedKind = rawAsset.type === 'psg-song' ? 'song' : 'sfx';
+  if (options.kind != null && options.kind !== expectedKind) {
+    throw new Error(`options.kind must be ${expectedKind} for ${rawAsset.type}`);
+  }
+  if (options.loop != null && typeof options.loop !== 'boolean') {
+    throw new Error('options.loop must be a boolean');
+  }
+  requirePsgJsonInteger(options.bpm, 30, 300, 'options.bpm');
+  requirePsgJsonInteger(options.steps, 1, PCE_PSG_MAX_STEPS, 'options.steps');
+  requirePsgJsonInteger(options.channels, 1, 6, 'options.channels');
+  if (options.speed != null) requirePsgJsonInteger(options.speed, 1, 16, 'options.speed');
+  if (options.period != null) requirePsgJsonInteger(options.period, 1, 4095, 'options.period');
+  if (options.volume != null) requirePsgJsonInteger(options.volume, 0, 100, 'options.volume');
+  if (options.wave != null) requirePsgJsonInteger(options.wave, 0, 45, 'options.wave');
+  if (!Array.isArray(options.pattern)) throw new Error('options.pattern must be an array');
+  if (options.pattern.length > PCE_PSG_MAX_PATTERN_ENTRIES) {
+    throw new Error(`options.pattern must contain at most ${PCE_PSG_MAX_PATTERN_ENTRIES} events`);
+  }
+
+  const occupied = new Set();
+  options.pattern.forEach((event, index) => {
+    const label = `options.pattern[${index}]`;
+    if (!event || typeof event !== 'object' || Array.isArray(event)) {
+      throw new Error(`${label} must be an object`);
+    }
+    const step = requirePsgJsonInteger(event.step, 0, PCE_PSG_MAX_STEPS - 1, `${label}.step`);
+    const channel = requirePsgJsonInteger(event.channel, 0, 5, `${label}.channel`);
+    requirePsgJsonInteger(event.period, 1, 4095, `${label}.period`);
+    requirePsgJsonInteger(event.volume, 0, 31, `${label}.volume`);
+    if (event.wave != null) requirePsgJsonInteger(event.wave, 0, 45, `${label}.wave`);
+    if (event.noise != null) {
+      requirePsgJsonInteger(event.noise, 0, 1, `${label}.noise`);
+      if (event.noise !== 0 && channel !== 4 && channel !== 5) {
+        throw new Error(`${label}.noise is only valid on channel 4 or 5`);
+      }
+    }
+    if (step >= options.steps) throw new Error(`${label}.step must be less than options.steps`);
+    if (channel >= options.channels) throw new Error(`${label}.channel must be less than options.channels`);
+    const key = `${step}:${channel}`;
+    if (occupied.has(key)) throw new Error(`${label} duplicates step ${step}, channel ${channel}`);
+    occupied.add(key);
+  });
+
+  const asset = normalizeAsset({
+    ...rawAsset,
+    source: '',
+    options: {
+      ...options,
+      pattern: options.pattern.map((event) => ({ ...event })),
+    },
+  });
+  const current = fs.existsSync(getAssetFilePath(projectDir))
+    ? readAssetDocument(projectDir)
+    : defaultAssets();
+  const collisionIds = current.assets.some((entry) => entry.id === asset.id) ? [asset.id] : [];
+  const stepsPerBar = Number.isInteger(options.stepsPerBar) && options.stepsPerBar > 0
+    ? options.stepsPerBar
+    : 16;
+  const bars = Number.isInteger(options.bars) && options.bars > 0
+    ? options.bars
+    : Math.ceil(options.steps / stepsPerBar);
+  const sections = Array.isArray(options.sections)
+    ? options.sections.filter((section) => section && typeof section === 'object').map((section) => ({
+        name: String(section.name || '').trim(),
+        startBar: Number.isInteger(section.startBar) ? section.startBar : null,
+        endBar: Number.isInteger(section.endBar) ? section.endBar : null,
+        startStep: Number.isInteger(section.startStep) ? section.startStep : null,
+      }))
+    : [];
+  return {
+    sourceAbs,
+    originalFileName,
+    document,
+    asset,
+    collisionIds,
+    summary: {
+      id: asset.id,
+      name: asset.name,
+      type: asset.type,
+      bpm: options.bpm,
+      steps: options.steps,
+      bars,
+      stepsPerBar,
+      timeSignature: String(options.timeSignature || '4/4'),
+      durationSeconds: Number(((options.steps * 15) / options.bpm).toFixed(3)),
+      channels: options.channels,
+      eventCount: options.pattern.length,
+      sections,
+      loop: options.loop !== false && asset.type === 'psg-song',
+    },
+  };
+}
+
+function inspectPsgJson(projectDir, payload = {}) {
+  const inspected = readPsgJsonImport(projectDir, payload);
+  return {
+    sourcePath: inspected.sourceAbs,
+    originalFileName: inspected.originalFileName,
+    asset: inspected.asset,
+    previewAsset: inspected.asset,
+    collisionIds: inspected.collisionIds,
+    summary: inspected.summary,
+  };
+}
+
+function importPsgJson(projectDir, payload = {}) {
+  const inspected = readPsgJsonImport(projectDir, payload);
+  const requestedId = String(payload.id == null ? inspected.asset.id : payload.id).trim();
+  const id = sanitizeAssetId(requestedId, '');
+  if (!id || id !== requestedId) {
+    throw new Error('IDは半角英数字、_、-のみ（最大48文字）で指定してください');
+  }
+  const requestedType = String(payload.type || inspected.asset.type).trim();
+  if (requestedType !== 'psg-song' && requestedType !== 'psg-sfx') {
+    throw new Error('Typeはpsg-songまたはpsg-sfxを指定してください');
+  }
+  const masterVolume = payload.volume == null || payload.volume === ''
+    ? inspected.asset.options.volume
+    : Number(payload.volume);
+  requirePsgJsonInteger(masterVolume, 0, 100, 'volume');
+
+  const doc = readAssetDocument(projectDir);
+  const collisionIndex = doc.assets.findIndex((entry) => entry.id === id);
+  if (collisionIndex >= 0 && payload.replace !== true) {
+    throw new Error(`PSG asset ID「${id}」は既に存在します。置換を明示してください`);
+  }
+
+  const sourceRel = normalizeRelativePath(path.join('assets/psg', `${id}${PSG_JSON_SUFFIX}`));
+  const { absPath: destAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
+  ensureDirSync(path.dirname(destAbs));
+  if (path.resolve(inspected.sourceAbs) !== path.resolve(destAbs)) {
+    fs.copyFileSync(inspected.sourceAbs, destAbs);
+  }
+  const asset = normalizeAsset({
+    ...inspected.asset,
+    id,
+    type: requestedType,
+    name: String(payload.name == null ? inspected.asset.name : payload.name).trim() || id,
+    source: sourceRel,
+    options: {
+      ...inspected.asset.options,
+      kind: requestedType === 'psg-song' ? 'song' : 'sfx',
+      loop: requestedType === 'psg-song',
+      volume: masterVolume,
+    },
+    data: {
+      ...(inspected.asset.data || {}),
+      import: {
+        ...(inspected.asset.data?.import || {}),
+        originalFileName: inspected.originalFileName,
+        importedAt: new Date().toISOString(),
+        converter: PCE_PSG_JSON_IMPORTER,
+        psgJson: { version: 2 },
+      },
+    },
+  });
+  if (collisionIndex >= 0) doc.assets[collisionIndex] = asset;
+  else doc.assets.push(asset);
+  const saved = writeAssetDocument(projectDir, doc);
+  return {
+    asset,
+    assets: saved.assets,
+    sourceFile: sourceRel,
+    summary: {
+      ...inspected.summary,
+      id: asset.id,
+      name: asset.name,
+      type: asset.type,
+    },
+    replaced: collisionIndex >= 0,
+  };
 }
 
 function rgbColorKey(color = {}) {
@@ -1497,7 +1720,9 @@ function importAudio(projectDir, payload = {}, options = {}) {
 function inspectAdpcmBatch(projectDir, payload = {}) {
   const csvPath = String(payload.csvPath || payload.sourcePath || '').trim();
   const doc = readAssetDocument(projectDir);
-  return adpcmBatchCsv.inspectAdpcmBatchCsv(csvPath, doc.assets);
+  return adpcmBatchCsv.inspectAdpcmBatchCsv(csvPath, doc.assets, {
+    sourceRoot: payload.sourceRoot,
+  });
 }
 
 function cancelAdpcmBatch(_projectDir, payload = {}) {
@@ -3912,6 +4137,8 @@ module.exports = {
   cancelAdpcmBatch,
   importAudio,
   importImage,
+  inspectPsgJson,
+  importPsgJson,
   importVgm,
   importMidi,
   previewMidi,

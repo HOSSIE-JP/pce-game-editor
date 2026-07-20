@@ -239,8 +239,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             <thead>
               <tr>
                 <th class="asset-drag-th"></th>
-                <th><button class="asset-sort-th" type="button" data-sort-key="type">Type <span data-sort-indicator>↕</span></button></th>
                 <th><button class="asset-sort-th" type="button" data-sort-key="name">Name <span data-sort-indicator>↕</span></button></th>
+                <th><button class="asset-sort-th" type="button" data-sort-key="type">Type <span data-sort-indicator>↕</span></button></th>
                 <th>Source</th>
                 <th>Tiles</th>
                 <th>Warn</th>
@@ -550,12 +550,12 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
           : isAudioAsset(asset) ? `${generated.sampleRate || asset.options?.sampleRate || 0} Hz`
             : asset.type === 'palette' ? `${asset.options?.colors?.length || generated.paletteColors?.length || 0} colors`
               : '-';
-      const indent = depth > 0 ? ` style="padding-left:${12 + depth * 16}px"` : '';
+      const treeIndent = 12 + depth * 16;
       return `
-        <tr class="asset-row ${asset.id === selectedId ? 'active' : ''}" data-id="${esc(asset.id)}" draggable="true">
+        <tr class="asset-row ${asset.id === selectedId ? 'active' : ''}" data-id="${esc(asset.id)}" data-tree-depth="${depth}" draggable="true">
           <td class="asset-drag-cell"><span class="drag-handle" title="並び替え">&#8942;&#8942;</span></td>
+          <td class="asset-tree-name-cell" style="padding-left:${treeIndent}px"><strong>${esc(leaf || asset.name || asset.id)}</strong><div class="pce-assets-muted">${esc(asset.id)}</div></td>
           <td><span class="asset-type-pill type-${esc(asset.type)}">${esc(typeLabel(asset))}</span></td>
-          <td${indent}><strong>${esc(leaf || asset.name || asset.id)}</strong><div class="pce-assets-muted">${esc(asset.id)}</div></td>
           <td class="asset-path-cell">${esc(asset.source || '(generated)')}</td>
           <td>${esc(tileText)}</td>
           <td>${warnings.length ? `<span class="asset-warning">${warnings.length}</span>` : '<span class="pce-assets-muted">0</span>'}</td>
@@ -569,8 +569,8 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
       const collapsed = !expandAll && collapsedGroups.has(node.path);
       const indent = 12 + depth * 16;
       return `
-        <tr class="asset-group-row" data-group-path="${esc(node.path)}">
-          <td></td>
+        <tr class="asset-group-row" data-group-path="${esc(node.path)}" data-tree-depth="${depth}">
+          <td class="asset-drag-cell"></td>
           <td colspan="6" class="asset-group-cell" style="padding-left:${indent}px">
             <span class="asset-group-toggle">${collapsed ? '▸' : '▾'}</span>
             <span class="asset-group-name">${esc(node.name)}</span>

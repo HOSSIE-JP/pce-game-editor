@@ -93,11 +93,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   importAssetVgm: (payload) => ipcRenderer.invoke('assets:importVgm', payload || {}),
   importAssetMidi: (payload) => ipcRenderer.invoke('assets:importMidi', payload || {}),
   previewAssetMidi: (payload) => ipcRenderer.invoke('assets:previewMidi', payload || {}),
+  inspectAssetPsgJson: (payload) => ipcRenderer.invoke('assets:inspectPsgJson', payload || {}),
+  importAssetPsgJson: (payload) => ipcRenderer.invoke('assets:importPsgJson', payload || {}),
   previewAssetSource: (relativePath) => ipcRenderer.invoke('assets:previewSource', { relativePath }),
   reorderAssets: (ids) => ipcRenderer.invoke('assets:reorder', { ids }),
   // --- エクスポート ---
   exportRom: () => ipcRenderer.invoke('export:rom'),
   exportHtml: () => ipcRenderer.invoke('export:html'),
   exportVnIrodoriBatch: (payload) => ipcRenderer.invoke('vn:exportIrodoriBatch', payload || {}),
+  inspectVnIrodoriVoiceAssignments: (payload) => ipcRenderer.invoke('vn:inspectIrodoriVoiceAssignments', payload || {}),
   quitApp: () => ipcRenderer.invoke('app:quit'),
 });

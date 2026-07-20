@@ -150,6 +150,10 @@
   overflow: hidden;
 }
 
+.pce-adpcm-table td.pce-adpcm-name-cell {
+  padding-left: calc(10px + var(--asset-tree-indent, 0px));
+}
+
 .pce-adpcm-name-cell span,
 .pce-adpcm-id-cell code {
   display: block;

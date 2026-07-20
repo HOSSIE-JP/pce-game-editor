@@ -1,5 +1,7 @@
 import {
   SPRITE_CELL_SIZES,
+  MAX_SPRITE_FRAME_DELAY,
+  MAX_SPRITE_ROW_NAME_LENGTH,
   applyDefaultTimeToRow,
   asNumber,
   assetDisplayName,
@@ -162,8 +164,8 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
               <input class="form-input" type="number" min="0" value="0" data-role="preview-frame" />
             </label>
             <label class="pce-sprite-editor-time-field">
-              <span>Time</span>
-              <input class="form-input" type="number" min="0" max="60" value="4" data-role="preview-time" />
+              <span>Time (frames)</span>
+              <input class="form-input" type="number" min="1" max="${MAX_SPRITE_FRAME_DELAY}" value="4" data-role="preview-time" />
             </label>
             <label class="pce-sprite-editor-check-toggle" title="Grid overlay">
               <input type="checkbox" data-role="show-grid" checked />
@@ -441,7 +443,14 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
   function readRowDefaultTimes(grid) {
     return Array.from({ length: grid.rows }, (_, row) => {
       const input = els.animationRows.querySelector(`[data-row-default-time="${row}"]`);
-      return String(clampInt(input?.value, 0, 60, 4));
+      return String(clampInt(input?.value, 1, MAX_SPRITE_FRAME_DELAY, 4));
+    });
+  }
+
+  function readRowNames(grid) {
+    return Array.from({ length: grid.rows }, (_, row) => {
+      const input = els.animationRows.querySelector(`[data-row-name="${row}"]`);
+      return String(input?.value || '').trim().slice(0, MAX_SPRITE_ROW_NAME_LENGTH) || `ROW ${row}`;
     });
   }
 
@@ -499,7 +508,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
       <span>Tiles <strong>${asset.data?.generated?.tileCount || '-'}</strong></span>
       <span>VRAM <strong>${asset.data?.generated?.vramBytes || '-'}</strong></span>
     `;
-    renderAnimationRows(editorState.rowFrameCounts, editorState.rowDefaultTimes);
+    renderAnimationRows(editorState.rowFrameCounts, editorState.rowDefaultTimes, editorState.rowNames);
     loadSelectedImage(asset);
   }
 
@@ -527,15 +536,16 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     }
   }
 
-  function renderAnimationRows(rowFrameCounts = null, rowDefaultTimes = null) {
+  function renderAnimationRows(rowFrameCounts = null, rowDefaultTimes = null, rowNames = null) {
     const { grid } = readFrameConfig();
     const fallbackCounts = rowFrameCounts || readRowFrameCounts(grid);
     const fallbackTimes = rowDefaultTimes || readRowDefaultTimes(grid);
+    const fallbackNames = rowNames || readRowNames(grid);
     els.animationSummary.textContent = `${grid.rows} rows / ${grid.columns} frames`;
     const rows = [];
     rows.push(`
       <div class="pce-sprite-editor-animation-row pce-sprite-editor-animation-row-head">
-        <span>ROW</span>
+        <span>ROW名</span>
         <span>有効</span>
         <span>既定 time</span>
         <span>状態</span>
@@ -543,13 +553,17 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     `);
     for (let row = 0; row < grid.rows; row += 1) {
       const count = clampInt(fallbackCounts[row], 0, grid.columns, row === 0 ? 1 : 0);
-      const time = clampInt(fallbackTimes[row], 0, 60, 4);
+      const time = clampInt(fallbackTimes[row], 1, MAX_SPRITE_FRAME_DELAY, 4);
+      const name = String(fallbackNames[row] || `ROW ${row}`).trim().slice(0, MAX_SPRITE_ROW_NAME_LENGTH) || `ROW ${row}`;
       const active = row === clampInt(els.previewRow.value, 0, Math.max(0, grid.rows - 1), 0);
       rows.push(`
         <div class="pce-sprite-editor-animation-row${active ? ' is-selected' : ''}" data-animation-row="${row}">
-          <button class="btn-sm" type="button" data-pick-row="${row}">ROW ${row}</button>
+          <div class="pce-sprite-editor-row-name">
+            <button class="btn-sm" type="button" title="ROW ${row}を選択" data-pick-row="${row}">${row}</button>
+            <input class="form-input" type="text" maxlength="${MAX_SPRITE_ROW_NAME_LENGTH}" value="${esc(name)}" data-row-name="${row}" />
+          </div>
           <input class="form-input" type="number" min="0" max="${grid.columns}" value="${count}" data-row-frame-count="${row}" />
-          <input class="form-input" type="number" min="0" max="60" value="${time}" data-row-default-time="${row}" />
+          <input class="form-input" type="number" min="1" max="${MAX_SPRITE_FRAME_DELAY}" value="${time}" data-row-default-time="${row}" />
           <span>${count > 0 ? '編集中' : '-'}</span>
         </div>
       `);
@@ -763,7 +777,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
       return;
     }
     const matrix = parseSpriteTime(els.form.elements.time.value, grid.rows, grid.columns);
-    const nextTime = clampInt(matrix[row]?.[clampInt(els.previewFrame.value, 0, count - 1, 0)], 1, 60, 4);
+    const nextTime = clampInt(matrix[row]?.[clampInt(els.previewFrame.value, 0, count - 1, 0)], 1, MAX_SPRITE_FRAME_DELAY, 4);
     drawFramePreview();
     drawSheetPreview();
     playbackTimer = window.setTimeout(advanceFrame, nextTime * 1000 / 60);
@@ -773,7 +787,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     if (playing) return;
     playing = true;
     root.querySelector('[data-action="play"]').textContent = 'Ⅱ';
-    const time = clampInt(els.previewTime.value, 1, 60, 4);
+    const time = clampInt(els.previewTime.value, 1, MAX_SPRITE_FRAME_DELAY, 4);
     playbackTimer = window.setTimeout(advanceFrame, time * 1000 / 60);
   }
 
@@ -835,6 +849,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     const { grid, frameWidth, frameHeight } = readFrameConfig();
     const rowFrameCounts = readRowFrameCounts(grid);
     const rowDefaultTimes = readRowDefaultTimes(grid);
+    const rowNames = readRowNames(grid);
     const id = safeId(els.form.elements.id.value, current.id || 'sprite_asset');
     const animations = buildAnimationsFromEditorState({
       asset: draftForMetrics,
@@ -844,6 +859,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
       time: els.form.elements.time.value,
       rowFrameCounts,
       rowDefaultTimes,
+      rowNames,
     });
     return {
       ...current,
@@ -867,6 +883,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
           time: serializeSpriteTime(parseSpriteTime(els.form.elements.time.value, grid.rows, grid.columns)),
           rowFrameCounts,
           rowDefaultTimes,
+          rowNames,
           collision: els.form.elements.collision.value,
         },
       },
@@ -1111,6 +1128,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
             time: `[[${Array.from({ length: details.frameCount }, () => String(details.frameDelay)).join(',')}]]`,
             rowFrameCounts: [details.frameCount],
             rowDefaultTimes: [String(details.frameDelay)],
+            rowNames: ['ROW 0'],
             collision: 'NONE',
           },
         },

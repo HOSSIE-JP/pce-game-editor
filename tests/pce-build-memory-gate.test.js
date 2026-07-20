@@ -99,6 +99,20 @@ test('PCE-CD VN link gate accepts exact scene/console/ZP boundaries and NOLOAD b
   assert.equal(report.consoleFree, 2026);
   assert.equal(report.zpEnd, 0x20e6);
   assert.match(buildSystem.formatPceCdVnLinkGate(report), /bank123 8192\/8192/);
+  assert.match(buildSystem.formatPceCdVnHeadroomWarning(report), /bank130 free 1 bytes/);
+});
+
+test('PCE-CD VN link gate warns before resident banks overflow', () => {
+  const buildSystem = loadBuildSystem();
+  const warning = buildSystem.formatPceCdVnHeadroomWarning({
+    usage: { 128: 8151, 129: 7971, 130: 8173, 132: 8152, 133: 7499 },
+  });
+  assert.match(warning, /256-byte warning threshold/);
+  assert.match(warning, /bank128 free 41 bytes/);
+  assert.match(warning, /bank129 free 221 bytes/);
+  assert.match(warning, /bank130 free 19 bytes/);
+  assert.match(warning, /bank132 free 40 bytes/);
+  assert.doesNotMatch(warning, /bank133/);
 });
 
 test('PCE-CD VN link gate rejects bank overflow, missing reservations, and loadable reserved banks', () => {

@@ -569,9 +569,11 @@ export function activatePlugin({ plugin, hostRoot, api, registerCapability }) {
 | `api.assets.deletePceAsset(id)` | PCE asset を削除し、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
 | `api.assets.importPceImage(payload)` | 画像 asset を取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
 | `api.assets.importPceAudio(payload)` | 音声 asset を取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
-| `api.assets.inspectPceAdpcmBatch({ csvPath })` | ADPCM batch CSV を読み、行ごとの検査結果、上書き対象、推定 part 数、警告を返す。asset は変更しない |
-| `api.assets.importPceAdpcmBatch({ csvPath, batchId })` | 検査をやり直して有効行を順次変換・保存する。完了時に共有ストアを1回更新し、`assets:pce:changed` を1回発行する |
+| `api.assets.inspectPceAdpcmBatch({ csvPath, sourceRoot? })` | ADPCM batch CSV を読み、行ごとの検査結果、上書き対象、推定 part 数、警告を返す。相対 `source` は任意の WAV root へ切替可能。asset は変更しない |
+| `api.assets.importPceAdpcmBatch({ csvPath, sourceRoot?, batchId })` | 同じ WAV root で検査をやり直して有効行を順次変換・保存する。完了時に共有ストアを1回更新し、`assets:pce:changed` を1回発行する |
 | `api.assets.cancelPceAdpcmBatch({ batchId })` | 実行中の ADPCM batch にキャンセルを要求する。現在行の変換・保存後に残りを未処理として終了する |
+| `api.assets.inspectPcePsgJson({ sourcePath })` | `*.psg.json`を読み取り専用で厳格検査し、曲情報、構成、衝突ID、試聴用assetを返す |
+| `api.assets.importPcePsgJson(payload)` | 検査を再実行し、ID・Name・Song/SFX・master volumeを反映して登録する。同一IDは`replace: true`が必須 |
 | `api.assets.importPceVgm(payload)` | VGM / VGZ を PSG asset として取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
 | `api.assets.importPceMidi(payload)` | MIDI を PSG asset として取り込み、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
 | `api.assets.reorderPceAssets(ids)` | PCE asset の順序を保存し、成功時に共有ストアを更新して `assets:pce:changed` を発行する |
@@ -698,7 +700,7 @@ const preview = await window.electronAPI.readTempFileAsDataUrl(tempWavPath, { de
 
 ### VN Irodori-TTS バッチ出力 API
 
-組み込み Novel editor は、現在の正規化済み scene document と予約済み asset ID を専用 IPC へ渡し、Irodori-TTS 用の話者別 CSV と manifest を1つの ZIP に保存できます。保存先は main process のダイアログでユーザーが選び、renderer から任意パスを直接指定することはできません。
+組み込み Novel editor は、現在の正規化済み scene document と予約済み asset ID を専用 IPC へ渡し、Irodori-TTS 用の話者別 CSV、Message対応表、ADPCM一括取込CSVを1つの ZIP に保存できます。保存先は main process のダイアログでユーザーが選び、renderer から任意パスを直接指定することはできません。
 
 ```js
 const result = await window.electronAPI.exportVnIrodoriBatch({
@@ -716,7 +718,21 @@ const result = await window.electronAPI.exportVnIrodoriBatch({
 // }
 ```
 
-IPC channel は `vn:exportIrodoriBatch` です。`doc` からはスキップされていない本文ありの `message` だけを抽出します。既存 `voiceAssetId` は `[A-Za-z0-9_-]{1,48}` を要求し、未指定行には `assetIds` と衝突しない `voice_NNNN` を割り当てます。この API は scene document や asset documentを書き換えません。
+IPC channel は `vn:exportIrodoriBatch` です。`doc` からはスキップされていない本文ありの `message` だけを抽出します。既存 `voiceAssetId` は `[A-Za-z0-9_-]{1,48}` を要求し、未指定行には `assetIds` と衝突しない `voice_NNNN` を割り当てます。ZIP は `batches/*.csv`、`manifest.csv`、`output/adpcm-import.csv` を含みます。ADPCM CSV は一意なTTSジョブごとに `source,id,name,sampleRate,loop,splitPolicy` を持ち、相対 `source` は `<speaker-folder>/<id>.wav`、既定変換値は `8000,false,auto` です。低レベルexport API自体はscene documentやasset documentを書き換えませんが、Novel editorの「音声バッチ出力」はZIP保存成功後に、渡した同じscene snapshotを `assets/pce-vn-scenes.json` へ保存します。
+
+生成済みADPCMをMessageへ戻す検査APIは次のとおりです。ファイル読込とCSV検査はmain processで行い、sceneの変更・保存はrendererが確認後に行います。
+
+```js
+const assignmentInspection = await window.electronAPI.inspectVnIrodoriVoiceAssignments({
+  manifestPath: '/absolute/path/manifest.csv',
+  doc: normalizedSceneDocument,
+  assets: assets.map(({ id, type }) => ({ id, type })),
+});
+// IPC: vn:inspectIrodoriVoiceAssignments
+// => { ok, rows, assignments, summary, inspectionSignature, ... }
+```
+
+`manifest.csv` は `id,speaker_kind,speaker,scene_id,command_index,text` を必須とし、追加列を許可します。各行は scene ID、1-based command index、Message種別、skip状態、正規化済み話者・本文、asset ID/typeを厳密照合します。同一位置・同一内容の重複は集約し、異なる内容は関係行をすべてerrorにします。完全一致する単一ADPCMだけを `assignments` に含め、`<id>_partNN` だけがある分割音声、欠落asset、移動・編集されたMessageはskip、非ADPCM同名assetはerrorです。rendererは確認後に同じmanifest/doc/assetsを再検査し、`inspectionSignature`が変わった場合は適用せず最新一覧を再表示します。
 
 ### PCE asset API
 
@@ -783,6 +799,7 @@ const importedVoice = await window.electronAPI.importAssetAudio({
 // CSV を検査してから ADPCM を一括登録する
 const inspection = await window.electronAPI.inspectAssetAdpcmBatch({
   csvPath: '/absolute/path/voices.csv',
+  sourceRoot: '/absolute/path/irodori-output', // 省略時はCSV所在folder
 });
 const batchId = `voice-batch-${Date.now()}`;
 const offProgress = window.electronAPI.onAssetAdpcmBatchProgress((progress) => {
@@ -790,12 +807,26 @@ const offProgress = window.electronAPI.onAssetAdpcmBatchProgress((progress) => {
 });
 const batchPromise = window.electronAPI.importAssetAdpcmBatch({
   csvPath: inspection.csvPath,
+  sourceRoot: inspection.sourceRoot,
   batchId,
 });
 // 別のUI eventから止める場合は、現在行の完了を待って残りが中止される。
 // await window.electronAPI.cancelAssetAdpcmBatch({ batchId });
 const batchResult = await batchPromise;
 offProgress();
+
+// 1曲入りの手作りPSG JSONを検査し、必要なら明示的に置換して登録する。
+const psgJsonInspection = await window.electronAPI.inspectAssetPsgJson({
+  sourcePath: '/absolute/path/clubroom_day.psg.json',
+});
+const importedPsgJson = await window.electronAPI.importAssetPsgJson({
+  sourcePath: psgJsonInspection.sourcePath,
+  id: psgJsonInspection.asset.id,
+  name: psgJsonInspection.asset.name,
+  type: psgJsonInspection.asset.type,
+  volume: psgJsonInspection.asset.options.volume,
+  replace: psgJsonInspection.collisionIds.includes(psgJsonInspection.asset.id),
+});
 
 // MIDI を PSG pattern へ近似変換して登録する。midiOptions は省略可能。
 const importedPsg = await window.electronAPI.importAssetMidi({
@@ -832,13 +863,13 @@ const preview = await window.electronAPI.previewAssetSource('assets/images/title
 await window.electronAPI.reorderAssets(['title_bg', 'hero_sprite']);
 ```
 
-`previewAssetSource` と `reorderAssets` は絶対パス、`..`、symlink escape を拒否します。`importAssetImage` / `importAssetAudio` の `sourcePath` は読み取り元として dialog 由来の絶対パスを許可しますが、保存される `source` / generated file path は必ず project 相対です。BMP / WebP は renderer 側で PNG Data URL (`convertedDataUrl`) に変換してから import します。MP3 入力は renderer の `audio-convert-ui` で WAV Data URL へ加工してから `importAssetAudio({ dataUrl, sourceFileName, originalFileName, processing })` に渡します。
+`previewAssetSource` と `reorderAssets` は絶対パス、`..`、symlink escape を拒否します。`importAssetImage` / `importAssetAudio` / `inspectAssetPsgJson` / `importAssetPsgJson` の `sourcePath` は読み取り元として dialog 由来の絶対パスを許可しますが、保存される `source` / generated file path は必ず project 相対です。BMP / WebP は renderer 側で PNG Data URL (`convertedDataUrl`) に変換してから import します。MP3 入力は renderer の `audio-convert-ui` で WAV Data URL へ加工してから `importAssetAudio({ dataUrl, sourceFileName, originalFileName, processing })` に渡します。
 
 ADPCM で `splitPolicy: "auto"` を指定すると、変換後の ADPCM が runtime 側の direct-buffered 安全上限を超える場合に `<id>_part01`, `<id>_part02`, ... の独立 asset として分割登録します。上限は `min(32767, 65536 - adpcmAddress)` bytes です。分割 asset は自動連続再生されないため、scene/message から必要な part を個別に参照してください。
 
 #### ADPCM batch CSV 契約
 
-Sound > ADPCM の `CSV一括` と統合 Assets の `AD CSV` は同じ batch importer を使います。CSV は UTF-8 または UTF-8 BOM の RFC 4180 形式で、CRLF / LF、引用符内のカンマ、`""` による引用符 escape に対応します。header 順は任意ですが、未知・重複 header は typo として CSV 全体のエラーになります。`source` の相対パスは CSV 自体の folder を基準に解決し、絶対パスも許可します。
+Sound > ADPCM の `CSV一括` と統合 Assets の `AD CSV` は同じ batch importer を使います。CSV は UTF-8 または UTF-8 BOM の RFC 4180 形式で、CRLF / LF、引用符内のカンマ、`""` による引用符 escape に対応します。header 順は任意ですが、未知・重複 header は typo として CSV 全体のエラーになります。`source` の相対パスは既定でCSV自体のfolder、`sourceRoot`指定時はそのWAV rootを基準に解決し、絶対パスは常にそのまま使います。確認画面の「WAVルート（任意）」からfolderを選び直すと、同じCSVを新しいrootで再検査します。
 
 | 列 | 必須 | 契約 |
 |---|---:|---|
@@ -859,7 +890,7 @@ CSV 内で同じ `id` が複数行にある場合、または自動分割後の 
 
 検査結果にエラー行があっても、有効行が1件以上あれば実行できます。実行時は行順に変換し、成功行ごとに `assets/pce-assets.json` へ確定してから次へ進みます。失敗行やキャンセル以前の成功は保持されます。戻り値の `results[]` は `lineNumber`, `id`, `status`, `errors[]`, `warnings[]`, `assetIds[]` を持ち、`summary` は成功・失敗・未処理行数と登録 asset / part 数を持ちます。登録 metadata の `data.import.batchFileName` / `batchRow` には CSV basename と行番号だけを保存し、CSV 本体や絶対パスは project へ保存しません。取込後の ADPCM が512件を超えても登録は続行しますが、CD VN の標準上限を超える警告を返し、build 時の参照数制約は別途適用されます。
 
-公開境界は IPC `assets:inspectAdpcmBatch` / `assets:importAdpcmBatch` / `assets:cancelAdpcmBatch`、progress event `assets:adpcmBatchProgress`、preload `inspectAssetAdpcmBatch()` / `importAssetAdpcmBatch()` / `cancelAssetAdpcmBatch()` / `onAssetAdpcmBatchProgress()` です。renderer plugin は共有 cache と変更通知を保つため、取込には host の `api.assets.inspectPceAdpcmBatch()` / `importPceAdpcmBatch()` / `cancelPceAdpcmBatch()` を使ってください。
+公開境界は IPC `assets:inspectAdpcmBatch` / `assets:importAdpcmBatch` / `assets:cancelAdpcmBatch`、progress event `assets:adpcmBatchProgress`、preload `inspectAssetAdpcmBatch()` / `importAssetAdpcmBatch()` / `cancelAssetAdpcmBatch()` / `onAssetAdpcmBatchProgress()` です。inspect/import payloadの任意 `sourceRoot` は必ず対で渡してください。renderer plugin は共有 cache と変更通知を保つため、取込には host の `api.assets.inspectPceAdpcmBatch()` / `importPceAdpcmBatch()` / `cancelPceAdpcmBatch()` を使ってください。
 
 ADPCM の `divider` は再生速度の rate code です。取り込み時は、`divider` 未指定なら `32000 / (16 - code)` が `sampleRate` に最も近い `0..15` の code を自動計算し、代表値は `32000Hz -> 15`, `16000Hz -> 14`, `8000Hz -> 12`, `4000Hz -> 8` です。エディターUIでは現行の入力範囲で実機rate codeに対応する `4000`, `4571`, `5333`, `6400`, `8000`, `10666`, `16000`, `32000` Hz から選択します。`divider` を明示した場合は保存値をそのまま使い、runtime 側でも旧式値としての補正は行いません。direct-buffered playback で安定して鳴らせる 1 asset / part の長さは `min(32767, 65536 - adpcmAddress)` bytes、つまり `bytes * 2 / sampleRate` 秒が目安です。`adpcmAddress: 0` なら 16000Hz で約 4.09 秒、8000Hz で約 8.19 秒です。`assets/generated/<id>/adpcm.bin` は OKI/MSM5205 互換 4-bit adaptive data を高位 nibble 先 (`msn-first`) で保存します。旧 `pce-cd-adpcm-experimental`、古い `lsn-first`、nibble order 未記録、または `encoderVersion` が古い generated file は、source WAV が残っていれば build/source 生成時に自動再生成されます。
 ADPCM の true CD streaming (`pce_cdb_adpcm_stream`) は VN runtime / editor 機能から削除しました。ADPCM は常に ADPCM RAM へ読み込んでから buffered direct playback します。長い音声は `splitPolicy: "auto"` で分割する、sample rate を下げる、または CD-DA を使ってください。安全上限を超える ADPCM asset は build error になります。
@@ -892,7 +923,7 @@ VN scene commandは`cache`を持てます。`clear`はruntimeの読み込み済�
 
 **Windows 固有: `ld.lld.exe` が Application Control に拒否される場合があります。** `clang.exe` は起動できても、linker の `ld.lld.exe` だけが Windows Application Control / Smart App Control / WDAC により `Application Control policy has blocked this file` で停止することがあります。この場合は HuCARD / CD-ROM2 どちらの build も link できません。build は compile 前に `ld.lld.exe --version` を preflight し、起動できない場合は project / C source のエラーと区別して `llvm-mos linker を起動できません` を返します。対処は Windows 側でその `ld.lld.exe` を許可するか、SetUp で実行可能な `llvm-mos-sdk` を指定することです。
 
-**VRAM 領域の排他予約（VN build）。** PCE VRAM は 32768 word の単一空間で、BAT(0–1024)、BG タイル、メッセージフォント/グリフマスク、spritetext フォント、スプライト pattern、SATB(0x7f00–) を各々独立規則で配置します。これらが重なるとレイアウトが破壊されるため、`generateVnSources()` は `validateVnVramLayout()`（[pce-vn-manager.js](pce-vn-manager.js)）で全領域を word range に展開し、**異なるカテゴリ間の重なりを検出したら build error**で停止します（どの 2 領域が word いくつで重なるかを表示し、同じ配置形状へ至る複数scene pathの同文は1件にまとめます）。BG 同士は `background` ごとに差し替えるため同カテゴリ内の重なりを許容し、BG カテゴリは所属 asset の union extent で判定します。CDのspritetextフォントは固定64 glyph分ではなく、compiled sceneが参照する固有glyph数（runtime上限64）だけを予約し、generated `PCE_VN_FONT_SPRITE_GLYPH_CAPACITY`をruntime cacheの上限にも使います。スプライトpatternはメッセージ/spritetext領域の直後をgenerated `PCE_VN_SPRITE_PATTERN_BASE`として、SLOT0→SLOT1→SLOT2→SLOT3の順にcell size alignmentを保って非重複配置し、最大同時表示rangeを判定します。sprite palette bankは最初のvisible SLOTの`paletteBank`からSLOT順に`+1`して割り当て、spritetext予約bankへ届く構成はbuild errorにします。重なった場合はBG/スプライト/メッセージのいずれかを縮小するかfont tileBase/paletteBankを調整してください。
+**VRAM 領域の排他予約（VN build）。** PCE VRAM は 32768 word の単一空間で、BAT(0–1024)、BG タイル、メッセージフォント/グリフマスク、spritetext フォント、スプライト pattern、SATB(0x7f00–) を各々独立規則で配置します。これらが重なるとレイアウトが破壊されるため、`generateVnSources()` は `validateVnVramLayout()`（[pce-vn-manager.js](pce-vn-manager.js)）で全領域を word range に展開し、**異なるカテゴリ間の重なりを検出したら build error**で停止します（どの 2 領域が word いくつで重なるかを表示し、同じ配置形状へ至る複数scene pathの同文は1件にまとめます）。BG 同士は `background` ごとに差し替えるため同カテゴリ内の重なりを許容し、BG カテゴリは所属 asset の union extent で判定します。CDのspritetextフォントは固定64 glyph分ではなく、compiled sceneが参照する固有glyph数（runtime上限64）だけを予約し、generated `PCE_VN_FONT_SPRITE_GLYPH_CAPACITY`をruntime cacheの上限にも使います。spritetext fontとSLOT別sprite patternは、同時表示時に重ならない2通りの並びをbuild時に比較し、VRAM high-water markが低い順序へpackします。scene path解析で各SLOTに登場する最大asset容量を`PCE_VN_SPRITE_SLOT0_PATTERN_BASE/CAPACITY`〜`SLOT3`として固定予約し、sprite palette bankもassetの`paletteBank + SLOT番号`へ固定するため、別SLOTの差し替えでpattern/palette配置を移動しません。SLOT別最大容量の合計がSATBへ届く構成、またはpalette bankがspritetext予約bankへ届く構成はbuild errorです。重なった場合はBG/スプライト/メッセージのいずれかを縮小するかfont tileBase/paletteBankを調整してください。
 
 **BG/Sprite の visual payload は常に無圧縮（raw）です。** 以前あった RLE 圧縮（`tiles.rle` / `map_vram.rle` / `patterns.rle` sidecar）と `options.compression` オプション/UI は撤去しました。RLE streaming デコーダが VDC の書き込みアドレスを CD 読み込みを跨いで保持して BG 破壊の原因になり、かつ bank133 overlay の約 87% を占めていたためです（dithered 写真 BG では RLE が ~13% しか効かず CD 増分も軽微）。変換は raw の `tiles.bin` / `map_vram.bin` / `patterns.bin` だけを生成し、`cd.dataFiles` と generated C metadata は常にこの raw を参照します（`pce_editor_cd_data_ref_t.compression` は常に `0`=NONE）。runtime は CD sector を `cd_transfer_scratch` へ 1 セクタずつ読み、resident/noinline かつ IRQ guard 付きの `pce_editor_vram_copy()` で VRAM へ転送します（MAWR を CD 読み込みを跨いで保持せず、MAWR 設定から VRAM data 転送までは IRQ を mask）。CD-ROM2 ではこの helper が HuC6280 の TIA block transfer で `cd_transfer_scratch` / generated data から VDC data port へ送ります。PSG 再生中は従来どおり約32 byte sliceで cooperative service を挟み、PSG が鳴っていない場面は最大 1 sector の大きい slice と full-width BG map の連続 BAT copy で Image command 反映を短縮します。この helper は SDK の `pce_vdc_set_copy_word()` を使わず、R5 high byte の DRAM refresh / VBlank status latch bit を維持します。`write_map_words()` の BAT 行更新も同じ helper を通ります。`pce_editor_cd_data_ref_t` は bank128 の常駐 `.rodata` を圧迫しないよう bank132 に置きます。旧プロジェクトに残る `.rle` / `compression: "auto"` メタは無視され（raw を使用）、再生成時に NONE へ正規化されます。
 
@@ -902,9 +933,9 @@ ADPCM のデータ/再生経路切り分けには `samples/pce-adpcm-diagnostic`
 
 CD-ROM2 RAM bankの標準ルールは`docs/pce-memory-bank-strategy.md`を正とします。bank123/MPR6は8192-byte active scene pack、bank128/129/130はresident codeとSystem Card adapter、bank132はgenerated metadata/CD scratch/変換済みglyph cache、bank133はPath B overlay、bank134はSystem Card main/BGM、bank135はsub/SFXです。bank124-127は未使用、bank131はSystem Cardがslot5で使うため使用禁止です。bank121のvisual helper、bank122のdirect async helper、bank104-119のvisual payload cacheは既存配置を維持します。CD VNは`font.bin`/`font_sprite.bin`/旧PSG patternを生成せず、scene pack・画像/sprite/ADPCM・System Card PSG packageをCD data fileとして扱います。link後はbank123/134/135の8KB NOLOAD、console RAM`<=0x1200`、空き`>=2026` bytes、ZP`<=$20E6`、各code bank`<0x2000`をhard gateで検査します。
 
-PCE background conversion は、入力画像の各 8x8 cell を表示順の tile としてそのまま出力します。同一内容の tile を dedupe しないため、VN の背景切替では絵が過度に共通タイル化されず、raw の `tiles.bin` は `width / 8 * height / 8 * 32` bytes を基準に扱われます。CD-ROM2 でも visual payload は raw の `tiles.bin` / `map_vram.bin` / `patterns.bin` を使い、表示 command 実行時に CD→scratch→VRAM へ chunked 転送します。同一 slot へ別 sprite asset をロードする場合は、runtime が sprite layer を一度無効化して未使用 entry を画面外へ逃がした SATB を反映し、pattern VRAM を転送してから SATB と sprite layer を戻します（PCE ではゼロ SATB entry も実 sprite なので、無効化には使いません）。**sprite pattern は background tile と違い、同一内容の表示 cell block を dedupe します。** 変換時に sheet の `cellWidth` × `cellHeight` cell を比較し、ユニークな block だけを `patterns.bin`（= VRAM 転送本体）へ詰めます。16×16 cell は 128 byte の pattern 1 個、32×64 cell は 16×16 pattern 8 個が連続した block になります。各 positional display cell → ユニーク block slot の対応表を `cellmap.bin`（1 byte/cell）として出力します。`generated.tileCount` / `vramBytes` は dedupe 後の 16×16 pattern 数 / byte 数で算出し、`pce_editor_sprite_asset_t.cell_map` に `cellmap.bin` を resident 配列として埋め込みます。runtime の `show_character_sprite_frame()` は positional display cell を `cell_map[]` 経由で VRAM slot へ解決するため、目パチ・口パクなど frame 間で共通する cell block が 1 枚に畳まれ、VN の VRAM 予算（message tile・font mask・SATB を除いた残り）に大きな多 frame sheet を収められます。ユニーク block が 256 を超える sheet は build error（cell map は 1 byte index 上限）。
+PCE background conversion は、入力画像の各 8x8 cell を表示順の tile としてそのまま出力します。同一内容の tile を dedupe しないため、VN の背景切替では絵が過度に共通タイル化されず、raw の `tiles.bin` は `width / 8 * height / 8 * 32` bytes を基準に扱われます。CD-ROM2 でも visual payload は raw の `tiles.bin` / `map_vram.bin` / `patterns.bin` を使い、表示 command 実行時に CD→scratch→VRAM へ chunked 転送します。同一SLOTへ別sprite assetをロードする場合は、runtimeがそのSLOTの旧SATB entryだけを画面外へ逃がしてから、SLOT専用pattern VRAMとpaletteを転送し、完成したSATBを反映します（PCEではゼロSATB entryも実spriteなので、無効化には使いません）。**sprite pattern は background tile と違い、同一内容の表示 cell block を dedupe します。** 変換時に sheet の `cellWidth` × `cellHeight` cell を比較し、ユニークな block だけを `patterns.bin`（= VRAM 転送本体）へ詰めます。16×16 cell は 128 byte の pattern 1 個、32×64 cell は 16×16 pattern 8 個が連続した block になります。各 positional display cell → ユニーク block slot の対応表を `cellmap.bin`（1 byte/cell）として出力します。`generated.tileCount` / `vramBytes` は dedupe 後の 16×16 pattern 数 / byte 数で算出し、`pce_editor_sprite_asset_t.cell_map` に `cellmap.bin` を resident 配列として埋め込みます。runtime の `show_character_sprite_frame()` は positional display cell を `cell_map[]` 経由で VRAM slot へ解決するため、目パチ・口パクなど frame 間で共通する cell block が 1 枚に畳まれ、VN の VRAM 予算（message tile・font mask・SATB を除いた残り）に大きな多 frame sheet を収められます。ユニーク block が 256 を超える sheet は build error（cell map は 1 byte index 上限）。
 
-sprite pattern 領域は SATB (`0x7f00`) より手前に収めます。asset metadataの`tileBase`（既定`704`）は単体変換用の低レベル値ですが、VN runtimeの実配置開始位置はメッセージフォントとspritetextフォントの直後からbuildごとに算出する`PCE_VN_SPRITE_PATTERN_BASE`です。CD VNテンプレートのmessage font `tileBase`は`540`で、BGタイル末尾から連続して空き領域を利用します。複数SLOTを同時表示するときはSLOT0から順に各`patterns.bin`をcell size境界へalignして詰め、sprite paletteも最初のvisible SLOTの`paletteBank`からSLOT順に割り当てて、SLOT1以降のロードで先行SLOTのpattern / paletteを上書きしないようにします。**同時表示SLOTの合計patternが`0x7f00`を超える場合、またはpalette bankが予約bankへ届く場合はbuild error（旧実装のwarning止まりをやめ、壊れたROMの生成を防止）**。message fontのtileBaseを必要以上に高くすると後続pattern領域を圧迫するため、現行テンプレート値を基準にし、large sheetはdedupe + build時の安全な自動配置を使います。同一 sprite sheet 内の目パチ・口パク frame 変更では pattern を再転送せず、SATB の frame 参照だけを更新します。別 sprite asset への差し替えや既存SLOTの実配置範囲を上書きする場合は、表示無効化 → VRAM/palette 転送 → SATB/display 有効化の順で同期し、pattern 書き換え中の中間表示を出しません。追加SLOTの転送が既存SLOTのpattern/palette範囲に触れない場合は、表示中のSLOTを隠さずに転送します。
+sprite pattern 領域は SATB (`0x7f00`) より手前に収めます。asset metadataの`tileBase`（既定`704`）は単体変換用の低レベル値ですが、VN runtimeの実配置開始位置`PCE_VN_SPRITE_PATTERN_BASE`とspritetext font開始位置はbuildごとに同時算出します。通常はメッセージ/spritetext領域の後ろにsprite patternを置きますが、Full BG上のSpriteTextによってfontだけを高位へ置く必要がある場合は、通常scene用sprite patternを先に置く順序も比較してSATB手前へpackします。CD VNテンプレートのmessage font `tileBase`は`540`で、BGタイル末尾から連続して空き領域を利用します。各SLOTはscene全体でそのSLOTに登場する最大`patterns.bin`を収める専用範囲を持ち、paletteも`asset paletteBank + SLOT番号`を使います。**SLOT別最大pattern容量の合計が`0x7f00`を超える場合、またはpalette bankが予約bankへ届く場合はbuild error**です。message fontのtileBaseを必要以上に高くすると後続pattern領域を圧迫するため、現行テンプレート値を基準にし、large sheetはdedupe + build時の安全な自動配置を使います。同一 sprite sheet 内の目パチ・口パク frame 変更では pattern を再転送せず、SATB の frame 参照だけを更新します。指定SLOTを別assetへ差し替える場合は、そのSLOTの旧SATB entryだけを画面外へ退避してから専用pattern/palette範囲を書き換え、完成したSATBを反映します。VDCのsprite layer全体は無効化しないため、操作対象外SLOTの表示は維持されます。
 
 PCE background conversion は、入力画像の各 8x8 cell を表示順の tile としてそのまま出力します（sprite と異なり dedupe しません）。VN の背景切替では絵が過度に共通タイル化されず、raw の `tiles.bin` は `width / 8 * height / 8 * 32` bytes を基準に扱われます。CD-ROM2 でも `tiles.bin` / `map_vram.bin` を raw のまま使い、`cache load bg` は tiles と map を visual RAM cache へ先読みします。実際の VRAM/BAT 反映は `background` command 実行時だけです。
 
@@ -912,9 +943,11 @@ VN sprite runtime は sprite asset descriptor の cell size、sheet cell 数と�
 
 CD-ROM2 VN runtime では `map_vram.bin` を `mapBase` から一括転送しません。raw `map_vram.bin`（無圧縮）は `VN_MAP_WIDTH`(=32)タイル幅のソース行として読み、各行の `width_tiles` 分だけを `mapBase + command.y * 32 + command.x + row * 32` へコピーします。これにより、224px背景を256px画面へ配置したときの左右余白は blank tile のまま残り、CD上の0埋めpaddingや古いVRAM tileが縦枠として表示されません。BG 画像は 256px(32 タイル)以下にしてください（`encodePceBackground` が超過時にビルドエラー）。BG command の切替は Fade 前提で、エディタは `cut` を表示しません。`fadeOutFrames` / `fadeInFrames` は速度プリセット `10 / 20 / 30 / 40 / 50 / 60` から選び、未指定時は速度3の `30` です。保存済みの旧 `transition: "cut"` は読み込み時に `transition: "fade"` へ正規化されます。fade は BG palette bank だけを段階変更し、display layer 全体を落とさないため、下部メッセージ領域や UI palette まで暗転させません。BG の VRAM/BAT 転送と fade 完了まで次 command へ進みません。
 
-Sprite asset は `options.animations` で VN runtime 向けの差分アニメーションを定義できます。各 entry は `id`, `name`, `frameWidth`, `frameHeight`, `firstCell`, `frameCount`, `frameDelay`, `frameDelays`, `frameStrideCells`, `loop` を持ちます。未指定時は sprite sheet 全体を 1 frame とする `default` animation が生成時に補われます。`firstCell` と `frameStrideCells` は、PCE 16x16/16x32/32x32 などの sprite cell を左上から数えた index です。
+Sprite asset は `options.animations` で VN runtime 向けの差分アニメーションを定義できます。各 entry は `id`, `name`, `frameWidth`, `frameHeight`, `firstCell`, `frameCount`, `frameDelay`, `frameDelays`, `frameStrideCells`, `loop` を持ちます。Animation Rows の `name` は任意文字列（最大48文字）として編集でき、表示名を変えても scene command が参照する `id`（`default` / `row_N`）は変えません。全ROWの編集名は `spriteEditor.rowNames` にも保存するため、無効ROWを含めて再表示できます。未指定時は sprite sheet 全体を 1 frame とする `default` animation が生成時に補われます。`firstCell` と `frameStrideCells` は、PCE 16x16/16x32/32x32 などの sprite cell を左上から数えた index です。
 
-**各フレームの表示時間（per-frame display time）**: `frameDelay` は全フレーム共通の既定値、`frameDelays`（長さ `frameCount` の配列）は **1 フレームごとの表示フレーム数**です。スプライトエディタの time フィールド（`spriteEditor.time` = `[[行0…][行1…]]` 行列、1 行 = 1 animation）から保存され、build 時に各 animation の per-frame テーブルとして `vn.c` に出力されます（`pce_vn_sprite_anim_delays_N[]`、resident rodata）。`pce_vn_sprite_anim_t.frame_delays` がこのテーブルを指し、runtime の `tick_sprite_animations()` は **現在フレームの `frame_delays[frame]`** で各フレームを送ります（空セルや legacy data で `frame_delays` が無い場合は `frame_delay` にフォールバック）。`frameDelays` を持たない旧 asset でも、`spriteEditor.time` 行列があれば正規化時に per-frame 値へ移行します。time フィールドは右ペインから直接編集でき、上部の Time フィールド（ROW/Frame 選択）でセル単位の編集も可能です。
+**各フレームの表示時間（per-frame display time）**: `frameDelay` は全フレーム共通の既定値、`frameDelays`（長さ `frameCount` の配列）は **1 フレームごとの表示フレーム数**です。値は60fps基準の `1..65535` で、`1000` は約16.67秒、`65535` は約18分12.25秒です。スプライトエディタの time フィールド（`spriteEditor.time` = `[[行0…][行1…]]` 行列、1 行 = 1 animation）から保存され、build 時に各 animation の16-bit per-frameテーブルとして `vn.c` に出力されます（`pce_vn_sprite_anim_delays_N[]`）。CD-ROM2ではプロジェクト依存で増えるテーブルを固定常駐bank128へ置かず、animation metadataと同じgenerated-data bank132へ配置し、animation tickの直前にMPR6をbank132へmapします。HuCARDではgenerated ROM dataとして配置します。`pce_vn_sprite_anim_t.frame_delays` がこのテーブルを指し、CD-ROM2 / HuCARD runtime の16-bit timerは **現在フレームの `frame_delays[frame]`** で各フレームを送ります（空セルや legacy data で `frame_delays` が無い場合は `frame_delay` にフォールバック）。`frameDelays` を持たない旧 asset でも、`spriteEditor.time` 行列があれば正規化時に per-frame 値へ移行します。time フィールドは右ペインから直接編集でき、上部の Time フィールド（ROW/Frame 選択）でセル単位の編集も可能です。
+
+CD-ROM2 VNのlink gateはbank128/129/130/132/133の空きが256 bytes未満になると、buildを成功させたまま低headroom警告を出します。上限到達時のhard errorに先立ち、次のruntime変更で溢れる可能性をbuild logから把握できます。
 
 CD-ROM2 VN templateはbuilder roleに`pce-visual-novel-builder`を使い、`targetMedia: "cd"`、`toolchain: "llvm-mos"`を使用します。`cd.systemCardProfile`はbuilderが固定値`"jp-v3"`へ正規化する生成契約であり、ユーザー設定ではありません。VN runtimeは`template/template_pce_vn_cd/src/pce_vn_runtime.c`を共通実体とし、build前にcurrent runtime/generated filesを同期します。CD scene pack v2は16-bit Shift-JIS、最大8192 bytesで、旧pack/font/PSG生成物を読む互換layerはありません。version 4 generation stampと必要なmanaged outputが一致する場合は通常BuildでもVN生成を省略し、`skipClean` buildでは最終mediaの入力署名も一致すればcompile/linkを省略します。System Card ROM、PSG driver bytes、抽出glyphは生成物へ含めず、ROM本体はTest Play／HTML Export時だけSetup設定から検証・使用します。
 
@@ -973,11 +1006,11 @@ CD VNの`audio kind: "psg"`は`psg-song`をmain/BGM、`psg-sfx`をsub/SFXへ割�
 
 CD message/choice/spritetextはlength付き16-bit Shift-JIS列です。printable ASCIIは全角JISへ正規化し、改行は`0xFFFE`、終端は`0xFFFF`です。日本版v3の非漢字領域+JIS第一水準以外はscene/command位置付きbuild errorです。CD scene pack上限は8192 bytes、HuCard上限は4096 bytesです。
 
-`spritemove`はCD/HuCard共通commandです。`slot: 0..3`の表示中spriteを`x: 0..319`, `y: 0..223`へ`frames: 1..65535` VBlankで整数DDA移動します。`async`未指定/`false`は完了までscriptを停止し、`true`は後続を実行するため別slotを最大4枚同時に動かせます。任意の`animationAssetId`/`animationId`は移動開始時に同じassetのanimationへ切り替えます。command recordは19 bytesを維持し、durationは`arg0/arg1`、非同期は`flags bit0`、animationは`asset_index/animation_index`です。同じslotへの新しいmove/sprite、scene切替、`blank`は先行移動を中止します。Full BG sceneの`spritemove`と、未定義/asset不一致animationは位置付きbuild errorです。
+`spritemove`はCD/HuCard共通commandです。`slot: 0..3`の表示中spriteを`x: 0..319`, `y: 0..223`へ`frames: 1..65535` VBlankで整数DDA移動します。`async`未指定/`false`は完了までscriptを停止し、`true`は後続を実行するため別slotを最大4枚同時に動かせます。任意の`animationAssetId`/`animationId`は移動開始時に同じassetのanimationへ切り替えます。command recordは19 bytesを維持し、durationは`arg0/arg1`、非同期は`flags bit0`、animationは`asset_index/animation_index`です。同じslotへの新しいmove/sprite、scene切替、`blank`は先行移動を中止します。Full BG sceneでもsprite表示後の`spritemove`を使用でき、未定義/asset不一致animationは位置付きbuild errorです。
 
 scene の `name` はエディタ表示用の任意名です。`chapter1/opening` のように `/` で区切ると Novel > スクリプトの Scenes 一覧ではグループ見出しと leaf 名に分けて表示します。scene pack の生成順は `scenes` 配列順で、Scenes 一覧のドラッグ＆ドロップ並び替えはこの配列順を更新します。`Jump` / `Choice.targetSceneId` / `startScene` は `id` を参照するため、`name` を変更しても遷移先は変わりません。GUI ではヘッダの `ID` で scene `id` を変更でき、`Start` で `startScene` を選べます。`ID` 変更時は `Jump` / `Choice.targetSceneId` / `nextSceneId` / `startScene` の参照を同時に更新し、重複 ID は自動で suffix を付けて回避します。
 
-scene の `fullScreenBg` を `true` にすると、その scene は 256x224 の全画面 BG 専用になります。`background` command は 256x224px の BG asset を `x: 0`, `y: 0` に置く必要があり、`message` / `choice` / 表示中の `sprite` / 表示中の `spritetext` を含めると build error になります。256x224 BG は `tileBase` 次第で message/font/spritetext/sprite pattern 用 VRAM と重なるため、VN build はその BG asset が Full BG 専用のときだけ重なりを許可します（同じ asset を通常 scene の `background` でも使う場合は通常どおり build error）。runtime は Full BG 読み込み後に text/spritetext/blank 用 VRAM と sprite pattern cache を dirty 扱いし、通常 scene へ戻る前または `message` / `choice` / `spritetext` の直前に必要領域を再転送します。runtime も scene pack flag を見てこれらの表示 command を無視するため、前後 scene の UI や sprite が全画面 BG を上書きしません。
+scene の `fullScreenBg` を `true` にすると、その scene は 256x224 の全画面 BG とhardware spriteを表示するモードになります。`background` command は 256x224px の BG asset を `x: 0`, `y: 0` に置く必要があり、`message` / `choice` を含めると build error になります。`sprite` / `spritemove` / `spritetext` は使用できますが、scene入場時に前sceneから引き継いだsprite slotとSpriteText slotは消去されるため、そのscene内で表示commandを置いてください。256x224 BG は `tileBase` 次第で message/font/spritetext/sprite pattern 用 VRAM と重なるため、VN build はFull BGで使用するspritetext fontとsprite pattern予約をFull BG tile末尾より後ろへ自動配置し、SATBまでに収まらなければbuild errorにします。Full BG読み込み後はmessage/blank用VRAMをdirty扱いし、通常sceneへ戻る前または`message` / `choice`の直前に再転送します。同じBG assetを通常sceneの`background`でも使う場合は通常どおり排他予約errorです。
 
 VN build が generated `assets.c` / runtime asset index へ出すのは、scene command から参照される BG / sprite / audio asset だけです。未使用の大きな BG や sprite は Asset 一覧には残せますが、VRAM 排他予約、runtime metadata、resident bank128 予算、scene command の index には入りません。未使用 asset を scene から参照した時点で通常のサイズ・VRAM・bank 予算チェック対象になります。
 
@@ -1077,7 +1110,7 @@ window.electronAPI.onPluginLog((payload) => {
 | `pce-audio-converter` | 音声コンバーター | `converter` | 表示 | WAV / MP3 の trim / rate / mono / normalize など共通音声 import UI |
 | `pce-adpcm-manager` | ADPCM 管理 | `editor`, `asset` | 内部 | `sound-editor` の ADPCM タブ用モジュール |
 | `pce-cdda-manager` | CD-DA 管理 | `editor`, `asset` | 内部 | `sound-editor` の CD-DA タブ用モジュール |
-| `pce-music-editor` | ミュージックエディター | `editor`, `asset` | 内部 | `sound-editor` の PSG タブ用モジュール（`新規`＝効果音デザイナーで step pattern を生成 / `取込`＝VGM・MIDI 量子化）。デザイナーの合成ロジックは `psg-sfx-synth.mjs` |
+| `pce-music-editor` | ミュージックエディター | `editor`, `asset` | 内部 | `sound-editor` の PSG タブ用モジュール（`新規`＝効果音デザイナーで step pattern を生成 / `取込`＝PSG JSON登録またはVGM・MIDI量子化）。デザイナーの合成ロジックは `psg-sfx-synth.mjs` |
 | `pce-background-manager` | 背景管理 | `editor`, `asset` | 内部 | `image-editor` の BG タブ用モジュール |
 | `pce-sprite-manager` | スプライト管理 | `editor`, `asset` | 内部 | `image-editor` の Sprites タブ用モジュール |
 | `pce-palette-editor` | パレットエディター | `editor`, `asset` | 内部 | `image-editor` の Palette タブ用モジュール |
@@ -1092,7 +1125,7 @@ window.electronAPI.onPluginLog((payload) => {
 
 ### Sound / Novel 統合 UI
 
-`sound-editor`はADPCM / CD-DA / PSGを1つのsidebarタブに統合します。PSGタブのstep編集、VGM/VGZ/MIDI取込、SFXデザイナー、WebAudio previewは共通source形式を維持します。HuCard buildは既存`pce_editor_psg_step_t`/banked patternを使い、optionalな`wave`は無視します。CD VN buildだけは`pce-system-card-psg.js`でmain/sub track bytecodeへ変換し、旧PSG C struct/catalog record/`assets/generated/psg/<id>.bin`を出しません。実際に参照された`(assetId, channel)` variantを`assets/generated/vn/system-card-psg/`へ生成し、BGMはbank134最大8156 bytes、SFXはbank135最大8192 bytesです。duration split/tie、loop/end、period+detune、発音ごとのSystem Card `WAVE`（内蔵0..44/user 45）、ch4/ch5 mode-2 noiseをcompileし、表現不能値と容量超過は位置付きerrorにします。user waveformは45の32-byte squareだけを登録し、外部envelope/FMは使いません。
+`sound-editor`はADPCM / CD-DA / PSGを1つのsidebarタブに統合します。PSGタブのstep編集、`*.psg.json`/VGM/VGZ/MIDI取込、SFXデザイナー、WebAudio previewは共通source形式を維持します。PSG JSONの正式入力は`version: 2`かつ`assets`が1件だけの文書で、typeは`psg-song`または`psg-sfx`です。BPM 30–300、steps 1–4096、pattern最大2048 events、channel 0–5、period 1–4095、event volume 0–31、wave 0–45を厳格検査し、noiseはch4/5だけを許可します。同一step/channel、曲長以上のstep、範囲外値は切り詰めずerrorです。取込元は`assets/psg/<id>.psg.json`へ元のbytesのまま保存し、MIDI/VGMの`quantizerVersion`を付けないため再量子化されません。同一IDの登録には取込画面またはAPIの明示的な置換確認が必要です。HuCard buildは既存`pce_editor_psg_step_t`/banked patternを使い、optionalな`wave`は無視します。CD VN buildだけは`pce-system-card-psg.js`でmain/sub track bytecodeへ変換し、旧PSG C struct/catalog record/`assets/generated/psg/<id>.bin`を出しません。実際に参照された`(assetId, channel)` variantを`assets/generated/vn/system-card-psg/`へ生成し、BGMはbank134最大8156 bytes、SFXはbank135最大8192 bytesです。duration split/tie、loop/end、period+detune、発音ごとのSystem Card `WAVE`（内蔵0..44/user 45）、ch4/ch5 mode-2 noiseをcompileし、表現不能値と容量超過は位置付きerrorにします。user waveformは45の32-byte squareだけを登録し、外部envelope/FMは使いません。
 
 Sound > ADPCM の詳細フォームと取込ダイアログは、通常編集する ID / Name / Sample rate / Loop / Split だけを表示します。新規取り込みの標準 sample rate は 8000Hz です。Streaming 再生指定は削除済みです。低レベルの `adpcmAddress` と `divider` は UI には出さず、address は既定値、divider は `sampleRate` からの自動値を使います。
 
@@ -1286,7 +1319,7 @@ Image / Sprite / Sound / Novel のような editor plugin は、画面を開い�
 
 PCE sprite asset は単なる画像ファイルではなく、`data.options.animations`、`spriteEditor`、cell size、collision などを含む定義です。preview ではスプライトシート全体を cover 表示せず、定義された frame size と ROW ごとの animation を使って再生確認できるようにします。canvas 描画では `imageSmoothingEnabled = false` を指定し、pixel art をぼかさないでください。
 
-ROW ごとの有効フレーム数は `spriteEditor.time` 行列と `options.animations[]` に保存します。現行 runtime が直接使う値は `animations[].frameDelays` です。UI 編集後は両者を同期し、preview も各 frame の delay を使います。
+ROW ごとの名前は `spriteEditor.rowNames` と `options.animations[].name`、有効フレーム数とTimeは `spriteEditor.time` 行列と `options.animations[]` に保存します。現行 runtime が直接使う値は `animations[].frameDelays` です。UI 編集後は両者を同期し、preview も各 frame の16-bit delayを使います。
 
 Sprite Sheet には cell grid、選択 frame、無効 frame の overlay、各 frame の time 値を重ねて表示します。シートクリックは ROW / frame 選択だけを行い、自動再生は開始しません。Frame Preview / Sprite Sheet の canvas は preview 領域内でスクロールでき、中央ボタンドラッグでも scroll 位置を移動できます。倍率入力は 10-500% の percentage として扱い、mouse wheel で滑らかに変化させます。import が受理する cell size は manifest/UI にある `16x16`、`16x32`、`16x64`、`32x16`、`32x32`、`32x64` です。最終的な pattern VRAM / SATB 境界は build 時に検査されます。
 

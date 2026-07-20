@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compose PCE PSG"
+  short_description: "Compose one import-ready PCE PSG JSON music file"
+  default_prompt: "Use $compose-pce-psg to compose an original PCE PSG track and create one import-ready PSG JSON file."

@@ -55,6 +55,7 @@ test('Irodori batch groups all active messages by speaker and keeps narration', 
     'batches/narrator.csv',
     'batches/speaker_002.csv',
     'manifest.csv',
+    'output/adpcm-import.csv',
   ]);
   assert.equal(
     entryText(bundle, 'batches/speaker_001.csv'),
@@ -85,6 +86,39 @@ test('Irodori batch groups all active messages by speaker and keeps narration', 
   });
   assert.equal(bundle.manifestRows[3].id, 'akari_voice_001');
   assert.match(entryText(bundle, 'manifest.csv'), /^\ufeffid,speaker_kind,speaker,scene_id,/);
+  assert.deepEqual(bundle.adpcmRows, [
+    {
+      source: 'アカリ/akari_voice_001.wav',
+      id: 'akari_voice_001',
+      name: 'voice/アカリ/akari_voice_001',
+      sampleRate: 8000,
+      loop: false,
+      splitPolicy: 'auto',
+    },
+    {
+      source: 'narrator/voice_0001.wav',
+      id: 'voice_0001',
+      name: 'voice/narrator/voice_0001',
+      sampleRate: 8000,
+      loop: false,
+      splitPolicy: 'auto',
+    },
+    {
+      source: 'ミカ/voice_0002.wav',
+      id: 'voice_0002',
+      name: 'voice/ミカ/voice_0002',
+      sampleRate: 8000,
+      loop: false,
+      splitPolicy: 'auto',
+    },
+  ]);
+  assert.equal(
+    entryText(bundle, 'output/adpcm-import.csv'),
+    '\ufeffsource,id,name,sampleRate,loop,splitPolicy\r\n'
+      + 'アカリ/akari_voice_001.wav,akari_voice_001,voice/アカリ/akari_voice_001,8000,false,auto\r\n'
+      + 'narrator/voice_0001.wav,voice_0001,voice/narrator/voice_0001,8000,false,auto\r\n'
+      + 'ミカ/voice_0002.wav,voice_0002,voice/ミカ/voice_0002,8000,false,auto\r\n',
+  );
 });
 
 test('Irodori batch allocates collision-free generated IDs and safe unique speaker folders', () => {
@@ -196,7 +230,11 @@ test('Irodori ZIP exporter handles success, cancel, validation, and write failur
     error: '',
   });
   assert.equal(dialogOptions.defaultPath, 'game_irodori_voice_batches.zip');
-  assert.deepEqual(zippedEntries.map((entry) => entry.name), ['batches/speaker_001.csv', 'manifest.csv']);
+  assert.deepEqual(zippedEntries.map((entry) => entry.name), [
+    'batches/speaker_001.csv',
+    'manifest.csv',
+    'output/adpcm-import.csv',
+  ]);
   assert.deepEqual(writes, [{ filePath: 'C:/out/game.zip', data: 'zip' }]);
 
   let canceledWrite = false;

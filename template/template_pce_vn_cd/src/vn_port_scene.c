@@ -422,7 +422,7 @@ static void clear_current_bg_map_region(void)
     );
 }
 
-static void clear_bg_map_side_margins(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles)
+static void VN_BANKED_CODE clear_bg_map_side_margins(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles)
 {
     uint8_t x;
     uint8_t y;
@@ -601,7 +601,7 @@ static void show_scene(uint8_t scene_index)
             sprite_slots[i].anim_frame_width_cells = 0u;
             sprite_slots[i].anim_frame_height_cells = 0u;
             sprite_slots[i].anim_frame_stride_cells = 0u;
-            sprite_slots[i].anim_frame_delays = (const uint8_t *)0;
+            sprite_slots[i].anim_frame_delays = (const unsigned int *)0;
         }
     }
 #endif
@@ -913,9 +913,6 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
     }
     else if (command->type == PCE_VN_COMMAND_SPRITE)
     {
-#if PCE_VN_HAS_FULL_SCREEN_BG
-        if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
-#endif
         slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
         VN_MAP_BANK130_FOR_CODE();
         cancel_sprite_move(slot);
@@ -933,9 +930,6 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
     }
     else if (command->type == PCE_VN_COMMAND_SPRITE_MOVE)
     {
-#if PCE_VN_HAS_FULL_SCREEN_BG
-        if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
-#endif
         VN_MAP_BANK130_FOR_CODE();
         return start_sprite_move(command) ? VN_EXEC_WAIT : VN_EXEC_CONTINUE;
     }
@@ -1040,10 +1034,6 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
 #if PCE_VN_HAS_SPRITETEXT
     else if (command->type == PCE_VN_COMMAND_SPRITETEXT)
     {
-#if PCE_VN_HAS_FULL_SCREEN_BG
-        if (current_scene_full_screen_bg) return VN_EXEC_CONTINUE;
-        restore_text_vram_after_full_screen_bg();
-#endif
         slot = command->slot < VN_SPRITETEXT_SLOT_COUNT ? command->slot : 0u;
         if (command->flags & PCE_VN_SPRITE_VISIBLE)
         {

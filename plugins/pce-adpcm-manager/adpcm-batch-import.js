@@ -155,6 +155,7 @@ export function createAdpcmBatchImporter({ plugin, api, logger }) {
     try {
       const result = await assetApi.importPceAdpcmBatch({
         csvPath: inspection.csvPath,
+        sourceRoot: inspection.sourceRoot || '',
         batchId: activeBatchId,
       });
       if (!result?.ok) throw new Error(result?.error || 'ADPCM batch importに失敗しました');
@@ -178,6 +179,37 @@ export function createAdpcmBatchImporter({ plugin, api, logger }) {
     }
   }
 
+  async function reinspectWithSourceRoot(sourceRoot = '') {
+    if (running || !inspection) return;
+    const label = modal?.panel?.querySelector?.('[data-batch-source-root-error]');
+    if (label) label.textContent = '';
+    try {
+      const inspected = await assetApi.inspectPceAdpcmBatch({
+        csvPath: inspection.csvPath,
+        sourceRoot,
+      });
+      if (!inspected?.ok) throw new Error(inspected?.error || 'CSVを再検査できませんでした');
+      modal?.close?.();
+      modal?.destroy?.();
+      modal = null;
+      inspection = inspected;
+      openInspectionModal();
+    } catch (error) {
+      if (label) label.textContent = error?.message || String(error);
+      logger.error(`ADPCM CSV source root failed: ${error?.message || error}`);
+    }
+  }
+
+  async function chooseSourceRoot() {
+    const picked = await api.electronAPI.pickFile({
+      title: 'ADPCM WAVルートフォルダーを選択',
+      properties: ['openDirectory'],
+    });
+    const sourceRoot = picked?.sourcePath || picked?.filePaths?.[0] || '';
+    if (picked?.canceled || !sourceRoot) return;
+    await reinspectWithSourceRoot(sourceRoot);
+  }
+
   function openInspectionModal() {
     const summary = inspection.summary || {};
     const globalWarnings = (inspection.warnings || []).map((warning) => `<div class="form-hint adpcm-batch-warning">${esc(warning)}</div>`).join('');
@@ -197,6 +229,15 @@ export function createAdpcmBatchImporter({ plugin, api, logger }) {
             全 ${summary.totalRows || 0} 行 / 取込可能 <strong>${summary.validRows || 0}</strong> / エラー <strong>${summary.invalidRows || 0}</strong> / 生成予定 <strong>${summary.estimatedAssetCount || 0}</strong> asset
           </div>
           <div class="form-hint">既存の同一ID ADPCMは常に置換します。非ADPCMとの衝突は行エラーになります。</div>
+          <div class="adpcm-batch-source-root-row">
+            <label class="form-group">
+              <span class="form-label">WAVルート（任意）</span>
+              <input class="form-input" data-batch-source-root value="${esc(inspection.sourceRoot || '')}" readonly placeholder="未指定: CSV所在フォルダー" />
+            </label>
+            <button class="btn-sm" type="button" data-batch-select-source-root>フォルダー選択</button>
+            <button class="btn-sm" type="button" data-batch-clear-source-root ${inspection.sourceRoot ? '' : 'disabled'}>CSV基準へ戻す</button>
+          </div>
+          <div class="form-error" data-batch-source-root-error></div>
           ${globalWarnings}
           <div class="adpcm-batch-table-wrap">
             <table class="adpcm-batch-table">
@@ -222,6 +263,8 @@ export function createAdpcmBatchImporter({ plugin, api, logger }) {
     });
     modal.panel.querySelector('[data-batch-import]').addEventListener('click', () => { void runImport(); });
     modal.panel.querySelector('[data-batch-cancel-run]').addEventListener('click', () => { void requestCancel(); });
+    modal.panel.querySelector('[data-batch-select-source-root]').addEventListener('click', () => { void chooseSourceRoot(); });
+    modal.panel.querySelector('[data-batch-clear-source-root]').addEventListener('click', () => { void reinspectWithSourceRoot(''); });
     modal.open();
   }
 

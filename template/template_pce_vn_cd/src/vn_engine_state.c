@@ -114,15 +114,15 @@ typedef struct
     uint8_t visible;
     uint8_t flags;
     uint8_t frame;
-    uint8_t timer;
+    uint16_t timer;
     uint8_t anim_frame_count;
-    uint8_t anim_frame_delay;
+    unsigned int anim_frame_delay;
     uint8_t anim_loop;
     uint8_t anim_first_cell;
     uint8_t anim_frame_width_cells;
     uint8_t anim_frame_height_cells;
     uint8_t anim_frame_stride_cells;
-    const uint8_t *anim_frame_delays;
+    const unsigned int *anim_frame_delays;
 } vn_sprite_slot_t;
 static vn_sprite_slot_t sprite_slots_storage[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 #define sprite_slots sprite_slots_storage

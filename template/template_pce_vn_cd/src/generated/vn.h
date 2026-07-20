@@ -84,12 +84,12 @@ typedef struct {
   unsigned int sprite_index;
   unsigned char first_cell;
   unsigned char frame_count;
-  unsigned char frame_delay;
+  unsigned int frame_delay;
   unsigned char frame_width_cells;
   unsigned char frame_height_cells;
   unsigned char frame_stride_cells;
   unsigned char loop;
-  const unsigned char *frame_delays;
+  const unsigned int *frame_delays;
 } pce_vn_sprite_anim_t;
 
 typedef struct {
@@ -178,6 +178,14 @@ typedef struct {
 #define PCE_VN_FONT_SPRITE_GLYPH_CAPACITY 10u
 #define PCE_VN_FONT_SPRITE_PALETTE_BANK 15u
 #define PCE_VN_SPRITE_PATTERN_BASE 396u
+#define PCE_VN_SPRITE_SLOT0_PATTERN_BASE 396u
+#define PCE_VN_SPRITE_SLOT0_PATTERN_CAPACITY 86u
+#define PCE_VN_SPRITE_SLOT1_PATTERN_BASE 482u
+#define PCE_VN_SPRITE_SLOT1_PATTERN_CAPACITY 0u
+#define PCE_VN_SPRITE_SLOT2_PATTERN_BASE 482u
+#define PCE_VN_SPRITE_SLOT2_PATTERN_CAPACITY 0u
+#define PCE_VN_SPRITE_SLOT3_PATTERN_BASE 482u
+#define PCE_VN_SPRITE_SLOT3_PATTERN_CAPACITY 0u
 
 #if defined(__PCE_CD__)
 #define PCE_VN_OVERLAY_LOAD_ADDR 32768u
