@@ -2672,7 +2672,7 @@ test('PCE VN runtime cache clear only invalidates non-destructive cache flags', 
   const source = readRuntimeSource().replace(/\r\n/g, '\n');
   const helperStart = source.indexOf('static void VN_BANKED_CODE2 load_bg_cache_asset(signed int bg_index, uint8_t tile_x, uint8_t tile_y)\n{');
   const bgWrapperStart = helperStart;
-  const spriteWrapperStart = source.indexOf('static void VN_BANKED_CODE load_sprite_pattern_cache_asset(signed int sprite_index, uint8_t slot_index)', bgWrapperStart);
+  const spriteWrapperStart = source.indexOf('static void VN_RESIDENT_CODE load_sprite_pattern_cache_asset(signed int sprite_index, uint8_t slot_index)', bgWrapperStart);
   const clearImplStart = source.indexOf('static void VN_VISUAL_CACHE_CODE clear_runtime_cache_impl(uint8_t scope)\n{', helperStart);
   const clearHelperStart = source.indexOf('static void VN_BANKED_CODE2 clear_runtime_cache(uint8_t scope)', clearImplStart);
   const executeStart = source.indexOf('static uint8_t VN_BANKED_CODE execute_command', helperStart);

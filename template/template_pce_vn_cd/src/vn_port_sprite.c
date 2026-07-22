@@ -60,13 +60,14 @@ static void VN_BANKED_CODE hide_sprite_shadow_range(uint8_t satb_index, uint8_t 
 #endif
 }
 
-static void VN_RESIDENT_CODE upload_sprite_table(void)
+static void VN_CD_ASYNC_CODE upload_sprite_table_impl(void)
 {
 #if defined(__PCE__)
     uint8_t irq;
     /* Full SATB upload (also runs when sprites are re-shown after a BG change). The
        set-table / VRAM blit / SATB-DMA pokes are the non-reentrant VDC sequence, so
-       mask IRQs across them. Resident so the guard is not duplicated into callers. */
+       mask IRQs across them. On CD this runtime-support work lives in bank122 so
+       it does not consume any of the three co-resident play-code banks. */
 #if defined(__PCE_CD__)
     if (!pending_display_enable)
     {
@@ -365,6 +366,15 @@ static uint8_t VN_OVERLAY_CODE refresh_scene_sprite_patterns_impl(void)
     return 1u;
 #else
     return 1u;
+#endif
+}
+
+static void upload_sprite_table(void)
+{
+#if defined(__PCE_CD__)
+    (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_UPLOAD_SPRITE_TABLE);
+#else
+    upload_sprite_table_impl();
 #endif
 }
 

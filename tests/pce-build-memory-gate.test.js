@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 function loadBuildSystem() {
   const electronPath = require.resolve('electron');
@@ -33,11 +34,12 @@ function validMapLines() {
     mapLine(bankOrigin(129, 0x6000), 0x0100, '.ram_bank129'),
     mapLine(bankOrigin(130, 0x8000), 0x0100, '.ram_bank130'),
     mapLine(bankOrigin(132, 0xc000), 0x0100, '.ram_bank132'),
+    mapLine(0xd078, 0x0f60, '.ram_bank132_tail'),
     mapLine(bankOrigin(133, 0x8000), 0x0100, '.vn_overlay'),
     mapLine(bankOrigin(134, 0xc000), 0x2000, '.ram_bank134'),
     mapLine(bankOrigin(135, 0xc000), 0x2000, '.ram_bank135'),
-    mapLine(0x01818000, 0x1fff, '.vn_visual_code'),
-    mapLine(0x01828000, 0x1fff, '.vn_cd_async_code'),
+    mapLine(0x01798000, 0x1fff, '.vn_visual_code'),
+    mapLine(0x017a8000, 0x1fff, '.vn_cd_async_code'),
     mapLine(0x2616, 0x1200, '.bss'),
     mapLine(0x2020, 0x00c6, '.zp.bss'),
   ];
@@ -95,11 +97,14 @@ test('PCE-CD VN link gate accepts exact scene/console/ZP boundaries and NOLOAD b
   const report = buildSystem.validatePceCdVnLinkMap(mapPath, elfPath);
   assert.equal(report.usage[123], 8192);
   assert.equal(report.usage[128], 256);
+  assert.equal(report.usage[132], 8152);
+  assert.equal(report.headroom[132], 3960);
   assert.equal(report.consoleUsed, 0x1200);
   assert.equal(report.consoleFree, 2026);
   assert.equal(report.zpEnd, 0x20e6);
   assert.match(buildSystem.formatPceCdVnLinkGate(report), /bank123 8192\/8192/);
-  assert.match(buildSystem.formatPceCdVnHeadroomWarning(report), /bank130 free 1 bytes/);
+  assert.match(buildSystem.formatPceCdVnLinkGate(report), /bank132 8152\/8192 \(data gap 3960\)/);
+  assert.equal(buildSystem.formatPceCdVnHeadroomWarning(report), '');
 });
 
 test('PCE-CD VN link gate warns before resident banks overflow', () => {
@@ -132,6 +137,21 @@ test('PCE-CD VN link gate rejects bank overflow, missing reservations, and loada
   assert.throws(() => buildSystem.validatePceCdVnLinkMap(inputs.mapPath, inputs.elfPath), /.ram_bank134 must be an ELF SHT_NOBITS\/NOLOAD/);
 });
 
+test('PCE-CD VN link gate reserves 512 bytes in every co-resident runtime bank', () => {
+  const buildSystem = loadBuildSystem();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-link-gate-resident-headroom-'));
+  const inputs = writeGateInputs(dir, validMapLines().map((line) => (
+    line.endsWith(' .ram_bank129')
+      ? mapLine(bankOrigin(129, 0x6000), 0x1e01, '.ram_bank129')
+      : line
+  )));
+  assert.equal(buildSystem.PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES, 512);
+  assert.throws(
+    () => buildSystem.validatePceCdVnLinkMap(inputs.mapPath, inputs.elfPath),
+    /bank129 resident headroom 511 bytes is below required 512 bytes/
+  );
+});
+
 test('PCE-CD VN link gate rejects console margin, ZP end, and overlay helper size', () => {
   const buildSystem = loadBuildSystem();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-link-gate-ram-'));
@@ -147,4 +167,64 @@ test('PCE-CD VN link gate rejects console margin, ZP end, and overlay helper siz
 
   inputs = writeGateInputs(dir, mutate('.vn_visual_code', 0x2000));
   assert.throws(() => buildSystem.validatePceCdVnLinkMap(inputs.mapPath, inputs.elfPath), /.vn_visual_code 8192\/8192 must be below/);
+});
+
+const llvmMosBin = path.join(__dirname, '..', 'data', 'tools', 'llvm-mos-sdk', 'llvm-mos', 'bin');
+const llvmMosClang = path.join(llvmMosBin, process.platform === 'win32' ? 'clang.exe' : 'clang');
+const llvmMosPceCdCfg = path.join(llvmMosBin, 'mos-pce-cd.cfg');
+const llvmMosObjcopy = path.join(llvmMosBin, process.platform === 'win32' ? 'llvm-objcopy.exe' : 'llvm-objcopy');
+
+test('PCE-CD VN maximal rendering runtime links with reserved resident headroom', {
+  skip: fs.existsSync(llvmMosClang) && fs.existsSync(llvmMosPceCdCfg) && fs.existsSync(llvmMosObjcopy)
+    ? false
+    : 'local llvm-mos PCE-CD toolchain is not installed',
+}, () => {
+  const buildSystem = loadBuildSystem();
+  const sourceDir = path.join(__dirname, '..', 'template', 'template_pce_vn_cd');
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-vn-max-runtime-link-'));
+  fs.cpSync(sourceDir, projectDir, { recursive: true });
+
+  const generatedHeaderPath = path.join(projectDir, 'src', 'generated', 'vn.h');
+  const generatedHeader = fs.readFileSync(generatedHeaderPath, 'utf8')
+    .replace('#define PCE_VN_HAS_FULL_SCREEN_BG 0u', '#define PCE_VN_HAS_FULL_SCREEN_BG 1u')
+    .replace(/#define PCE_VN_VARIABLE_STORAGE_COUNT \d+u/, '#define PCE_VN_VARIABLE_STORAGE_COUNT 16u');
+  assert.match(generatedHeader, /#define PCE_VN_HAS_FULL_SCREEN_BG 1u/);
+  assert.match(generatedHeader, /#define PCE_VN_HAS_SPRITE_ANIMATIONS 1u/);
+  assert.match(generatedHeader, /#define PCE_VN_HAS_SPRITETEXT 1u/);
+  fs.writeFileSync(generatedHeaderPath, generatedHeader, 'utf8');
+
+  const outDir = path.join(projectDir, 'out');
+  const elfPath = path.join(outDir, 'max-runtime.elf');
+  const mapPath = path.join(outDir, 'max-runtime.map');
+  fs.mkdirSync(outDir, { recursive: true });
+  const result = spawnSync(llvmMosClang, [
+    '--config', llvmMosPceCdCfg,
+    '-Oz',
+    '-DPCE_EDITOR_TARGET_CD=1',
+    `-Wl,-Map=${mapPath}`,
+    `-Wl,-T,${path.join(projectDir, 'src', 'generated', 'overlay_insert.ld')}`,
+    '-o', elfPath,
+    path.join(projectDir, 'src', 'main.c'),
+    path.join(projectDir, 'src', 'generated', 'assets.c'),
+    path.join(projectDir, 'src', 'generated', 'vn.c'),
+  ], { cwd: projectDir, encoding: 'utf8', windowsHide: true });
+  assert.equal(result.status, 0, `${result.stdout || ''}\n${result.stderr || ''}`);
+
+  const report = buildSystem.validatePceCdVnLinkMap(mapPath, elfPath);
+  [128, 129, 130].forEach((bank) => {
+    assert.ok(
+      0x2000 - report.usage[bank] >= buildSystem.PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES,
+      `bank${bank} has only ${0x2000 - report.usage[bank]} free bytes`
+    );
+  });
+
+  const strippedElfPath = path.join(outDir, 'max-runtime-stripped.elf');
+  const stripResult = spawnSync(llvmMosObjcopy, [
+    '--remove-section', '.rela.vn_overlay', '--remove-section', '.vn_overlay',
+    '--remove-section', '.rela.vn_visual_code', '--remove-section', '.vn_visual_code',
+    '--remove-section', '.rela.vn_cd_async_code', '--remove-section', '.vn_cd_async_code',
+    elfPath, strippedElfPath,
+  ], { encoding: 'utf8', windowsHide: true });
+  assert.equal(stripResult.status, 0, `${stripResult.stdout || ''}\n${stripResult.stderr || ''}`);
+  assert.ok(fs.statSync(strippedElfPath).size > 0);
 });

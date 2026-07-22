@@ -240,7 +240,7 @@ static const uint8_t *data_ref_ptr(const pce_editor_data_ref_t *ref)
     __asm__ volatile("" ::: "memory"); \
 } while (0)
 
-static void upload_palette(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t fallback_dark)
+static void VN_CD_ASYNC_CODE upload_palette_impl(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t fallback_dark)
 {
     uint16_t i;
     uint16_t color_count;
@@ -259,6 +259,18 @@ static void upload_palette(const pce_editor_data_ref_t *palette, uint16_t base_i
     {
         vce_write_color((uint16_t)(base_index + i), fallback_dark ? 0x0000u : 0x01ffu);
     }
+}
+
+static void upload_palette(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t fallback_dark)
+{
+#if defined(__PCE_CD__)
+    vn_visual_cache_arg_ref = palette;
+    vn_visual_cache_arg_dest = base_index;
+    vn_visual_cache_arg_x = fallback_dark;
+    (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_UPLOAD_PALETTE);
+#else
+    upload_palette_impl(palette, base_index, fallback_dark);
+#endif
 }
 
 static uint16_t scale_vce_color(uint16_t raw, uint8_t step, uint8_t frames)
@@ -285,7 +297,7 @@ static uint16_t VN_VISUAL_CACHE_CODE mix_vce_color(uint16_t from, uint16_t to, u
     return (uint16_t)(g | r | b);
 }
 
-static void fade_palette(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t frames, uint8_t fade_in)
+static void VN_CD_ASYNC_CODE fade_palette_impl(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t frames, uint8_t fade_in)
 {
     uint16_t step;
     uint8_t i;
@@ -304,8 +316,26 @@ static void fade_palette(const pce_editor_data_ref_t *palette, uint16_t base_ind
             const uint16_t raw = (uint16_t)(data[i * 2u] | ((uint16_t)data[(i * 2u) + 1u] << 8));
             vce_write_color((uint16_t)(base_index + i), scale_vce_color(raw, scale, frames));
         }
+#if defined(__PCE_CD__)
+        vn_wait_next_vblank();
+        engine_service();
+#else
         delay_frame();
+#endif
     }
+}
+
+static void fade_palette(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t frames, uint8_t fade_in)
+{
+#if defined(__PCE_CD__)
+    vn_visual_cache_arg_ref = palette;
+    vn_visual_cache_arg_dest = base_index;
+    vn_visual_cache_arg_x = frames;
+    vn_visual_cache_arg_y = fade_in;
+    (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_FADE_PALETTE);
+#else
+    fade_palette_impl(palette, base_index, frames, fade_in);
+#endif
 }
 
 static uint16_t ui_text_color_word(uint16_t color)
@@ -465,7 +495,7 @@ static void clear_screen_map(void)
     }
 }
 
-static void clear_map_rect_at_dest(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles)
+static void VN_CD_ASYNC_CODE clear_map_rect_at_dest_impl(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles)
 {
     uint8_t row;
     uint8_t col;
@@ -491,5 +521,17 @@ static void clear_map_rect_at_dest(uint16_t map_dest, uint8_t width_tiles, uint8
         write_map_words((uint16_t)(map_dest + ((uint16_t)row * VN_MAP_WIDTH)), clear_line, copy_width);
         engine_service();
     }
+}
+
+static void clear_map_rect_at_dest(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles)
+{
+#if defined(__PCE_CD__)
+    vn_visual_cache_arg_dest = map_dest;
+    vn_visual_cache_arg_x = width_tiles;
+    vn_visual_cache_arg_y = height_tiles;
+    (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_CLEAR_MAP_RECT);
+#else
+    clear_map_rect_at_dest_impl(map_dest, width_tiles, height_tiles);
+#endif
 }
 

@@ -291,7 +291,7 @@ static void VN_BANKED_CODE quiet_cd_unit_irqs(void);
 #endif
 static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset_index, uint8_t arg);
 static uint8_t VN_BANKED_CODE2 load_psg_cache_asset(signed int asset_index);
-static uint8_t VN_BANKED_CODE vn_system_card_init_psg(void);
+static uint8_t VN_RESIDENT_CODE vn_system_card_init_psg(void);
 static void VN_RESIDENT_CODE vn_system_card_irq_rearm(void);
 static void VN_RESIDENT_CODE service_adpcm_during_blocking_frames(uint8_t frames, uint8_t restore_visual_cache);
 /* Main-thread service consumes the IRQ epoch only for ADPCM and cooperative
@@ -308,6 +308,11 @@ static void VN_VISUAL_CACHE_CODE flash_screen_color_impl(uint16_t color, uint8_t
 static void load_overlay_code(void);
 static void VN_BANKED_CODE load_visual_cache_code(void);
 static void VN_BANKED_CODE load_cd_async_code(void);
+static void VN_CD_ASYNC_CODE upload_palette_impl(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t fallback_dark);
+static void VN_CD_ASYNC_CODE fade_palette_impl(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t frames, uint8_t fade_in);
+static void VN_CD_ASYNC_CODE clear_map_rect_at_dest_impl(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles);
+static uint8_t VN_CD_ASYNC_CODE adpcm_voice_fits_buffer_impl(void);
+static void VN_CD_ASYNC_CODE upload_sprite_table_impl(void);
 static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_data_read(pce_sector_t sector, uint8_t dest_kind, uint8_t dest_bank, uint16_t dest_addr, uint16_t byte_count);
 static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_scene_pack_read(pce_sector_t sector, uint16_t dest_addr, uint16_t byte_count);
 static void VN_BANKED_CODE2 vn_cd_async_service_frame(void);

@@ -21,6 +21,7 @@ const PCE_CD_SECTOR_BYTES = 2048;
 const PCE_CD_IPL_PROGRAM_SECTORS = 20;
 const PCE_CD_DATA_BASE_SECTOR = 64;
 const PCE_CD_VN_BANK_HEADROOM_WARN_BYTES = 256;
+const PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES = 512;
 const PCE_INCREMENTAL_BUILD_STAMP_VERSION = 1;
 const PCE_INCREMENTAL_BUILD_STAMP_FILE = path.join('out', 'build-stamp.json');
 const PCE_SLIDESHOW_BUILDER_ID = 'pce-slideshow-builder';
@@ -1273,10 +1274,21 @@ function validatePceCdVnLinkMap(mapPath, elfPath) {
     134: maxEndInRange(bankOrigin(134, 0xc000), 0x2000),
     135: maxEndInRange(bankOrigin(135, 0xc000), 0x2000),
   };
+  const bank132DataUsage = usage[132];
   const bank132Tail = sections.find((section) => section.name === '.ram_bank132_tail');
   if (bank132Tail) usage[132] = Math.max(usage[132], ((bank132Tail.vma & 0xffff) - 0xc000) + bank132Tail.size);
+  const headroom = Object.fromEntries([128, 129, 130, 132, 133].map((bank) => [bank, 0x2000 - usage[bank]]));
+  if (bank132Tail) {
+    headroom[132] = Math.max(0, ((bank132Tail.vma & 0xffff) - 0xc000) - bank132DataUsage);
+  }
   [128, 129, 130, 132, 133].forEach((bank) => {
     if (usage[bank] >= 0x2000) errors.push(`bank${bank} usage ${usage[bank]}/8192 must be below 8192`);
+  });
+  [128, 129, 130].forEach((bank) => {
+    const free = 0x2000 - usage[bank];
+    if (free < PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES) {
+      errors.push(`bank${bank} resident headroom ${free} bytes is below required ${PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES} bytes`);
+    }
   });
   [123, 134, 135].forEach((bank) => {
     if (usage[bank] !== 0x2000) errors.push(`bank${bank} reservation ${usage[bank]}/8192 must equal 8192`);
@@ -1310,18 +1322,28 @@ function validatePceCdVnLinkMap(mapPath, elfPath) {
   }
   if (zpEnd > PCE_CD_VN_ZP_MAX_END) errors.push(`ZP end $${zpEnd.toString(16)} exceeds $20e6`);
   if (errors.length) throw new Error(`PCE-CD VN link-map gate failed: ${errors.join('; ')}`);
-  return { usage, consoleUsed, consoleFree, consoleEnd, zpEnd };
+  return { usage, headroom, consoleUsed, consoleFree, consoleEnd, zpEnd };
 }
 
 function formatPceCdVnLinkGate(report) {
   const banks = [123, 128, 129, 130, 132, 133, 134, 135]
-    .map((bank) => `bank${bank} ${report.usage[bank]}/8192`).join(', ');
+    .map((bank) => {
+      const gap = bank === 132 && Number.isFinite(report?.headroom?.[132])
+        ? ` (data gap ${report.headroom[132]})`
+        : '';
+      return `bank${bank} ${report.usage[bank]}/8192${gap}`;
+    }).join(', ');
   return `${banks}; console ${report.consoleUsed}/4608 (free ${report.consoleFree}); ZP end $${report.zpEnd.toString(16)}`;
 }
 
 function formatPceCdVnHeadroomWarning(report) {
   const lowBanks = [128, 129, 130, 132, 133]
-    .map((bank) => ({ bank, free: 0x2000 - Number(report?.usage?.[bank] || 0) }))
+    .map((bank) => ({
+      bank,
+      free: Number.isFinite(report?.headroom?.[bank])
+        ? report.headroom[bank]
+        : 0x2000 - Number(report?.usage?.[bank] || 0),
+    }))
     .filter((entry) => entry.free < PCE_CD_VN_BANK_HEADROOM_WARN_BYTES)
     .map((entry) => `bank${entry.bank} free ${entry.free} bytes`);
   if (!lowBanks.length) return '';
@@ -1641,6 +1663,7 @@ module.exports = {
   PCE_CD_VN_CONSOLE_RAM_MAX_USED,
   PCE_CD_VN_CONSOLE_RAM_MIN_FREE,
   PCE_CD_VN_ZP_MAX_END,
+  PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES,
   parseMkcdFirstDataSector,
   findLlvmMosLinkerPath,
   formatLlvmMosLinkerPreflightFailure,

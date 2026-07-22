@@ -533,6 +533,32 @@ static uint8_t VN_CD_ASYNC_ENTRY_CODE vn_cd_async_entry(uint8_t op)
         vn_cd_async_status = VN_CD_ASYNC_STATUS_ERROR;
         return vn_cd_async_status;
     }
+    if (op == VN_CD_ASYNC_OP_UPLOAD_PALETTE)
+    {
+        upload_palette_impl(vn_visual_cache_arg_ref, vn_visual_cache_arg_dest, vn_visual_cache_arg_x);
+        return 1u;
+    }
+    if (op == VN_CD_ASYNC_OP_FADE_PALETTE)
+    {
+        fade_palette_impl(vn_visual_cache_arg_ref, vn_visual_cache_arg_dest,
+            vn_visual_cache_arg_x, vn_visual_cache_arg_y);
+        return 1u;
+    }
+    if (op == VN_CD_ASYNC_OP_CLEAR_MAP_RECT)
+    {
+        clear_map_rect_at_dest_impl(vn_visual_cache_arg_dest,
+            vn_visual_cache_arg_x, vn_visual_cache_arg_y);
+        return 1u;
+    }
+    if (op == VN_CD_ASYNC_OP_ADPCM_FITS_BUFFER)
+    {
+        return adpcm_voice_fits_buffer_impl();
+    }
+    if (op == VN_CD_ASYNC_OP_UPLOAD_SPRITE_TABLE)
+    {
+        upload_sprite_table_impl();
+        return 1u;
+    }
     return vn_cd_async_status;
 }
 
@@ -595,10 +621,20 @@ static void VN_BANKED_CODE load_cd_async_code(void)
 static uint8_t VN_BANKED_CODE vn_cd_async_call_bank122(uint8_t op)
 {
     uint8_t result;
+    uint8_t restore_mpr6;
+    const uint8_t slot4_bank = vn_slot4_current_bank();
+    if (op <= VN_CD_ASYNC_OP_CANCEL)
+    {
+        restore_mpr6 = vn_cd_async_saved_mpr6;
+    }
+    else
+    {
+        __asm__ volatile("tma #$40" : "=a"(restore_mpr6));
+    }
     pce_ram_bank122_map();
     result = VN_CD_ASYNC_CALL(op);
-    __asm__ volatile("tam #$40" : : "a"(vn_cd_async_saved_mpr6));
-    pce_ram_bank130_map();
+    __asm__ volatile("tam #$40" : : "a"(restore_mpr6));
+    vn_slot4_map_bank(slot4_bank);
     return result;
 }
 

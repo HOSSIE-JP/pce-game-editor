@@ -29,7 +29,7 @@ test('PCE VN preview plays sprite frameDelays per frame', () => {
   assert.match(renderer, /const rawFrameDelays = Array\.isArray\(anim\.frameDelays\) \? anim\.frameDelays : \[\];/);
   assert.match(renderer, /return \{ sheetW, sheetH, frameW, frameH, frames, frameDelay, frameDelays, loop \};/);
   assert.match(renderer, /while \(acc >= frameMsAt\(idx\)\)/);
-  assert.match(renderer, /const MAX_SPRITE_FRAME_DELAY = 0xffff;/);
+  assert.equal((renderer.match(/const maxSpriteFrameDelay = 0xffff;/g) || []).length, 2);
   assert.doesNotMatch(renderer, /Math\.min\(60, Number\(anim\.frameDelay\)/);
   assert.doesNotMatch(renderer, /const frameMs = geo\.frameDelay \* \(1000 \/ 60\);/);
 });

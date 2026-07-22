@@ -182,6 +182,14 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_CD_ASYNC_OP_BEGIN 1u
 #define VN_CD_ASYNC_OP_SERVICE 2u
 #define VN_CD_ASYNC_OP_CANCEL 3u
+/* Keep runtime-support op values sparse. Dense values let -Oz lower the entry
+   chain into a jump table in resident .rodata; that cross-section relocation
+   makes llvm-objcopy unable to extract/remove the bank122 code blob. */
+#define VN_CD_ASYNC_OP_UPLOAD_PALETTE 16u
+#define VN_CD_ASYNC_OP_FADE_PALETTE 24u
+#define VN_CD_ASYNC_OP_CLEAR_MAP_RECT 32u
+#define VN_CD_ASYNC_OP_ADPCM_FITS_BUFFER 40u
+#define VN_CD_ASYNC_OP_UPLOAD_SPRITE_TABLE 48u
 #ifndef VN_CD_ASYNC_BYTES_PER_FRAME
 #define VN_CD_ASYNC_BYTES_PER_FRAME 256u
 #endif

@@ -2,16 +2,16 @@ import {
   createPsgPreviewController,
   psgPreviewStats,
 } from '../pce-music-editor/psg-preview.js';
-import { psgNoiseHzFromValue } from '../pce-music-editor/psg-sfx-synth.mjs';
+import { pcePreviewBgmConflict } from './preview-audio.mjs';
 import {
   PREVIEW_KEYBOARD_BUTTON_BY_CODE,
   pcePreviewButtonForKeyboardEvent,
+  pcePreviewInputMatch,
 } from './preview-input.mjs';
 
 const SCENE_FILE = 'assets/pce-vn-scenes.json';
 const PCE_SCREEN_WIDTH = 256;
 const PCE_SCREEN_HEIGHT = 224;
-const MAX_SPRITE_FRAME_DELAY = 0xffff;
 // ゲーム側 runtime のメッセージ領域に一致させる。
 // 256x224 画面、メッセージ窓 208x64px を下部中央から1タイル上 (x=24,y=152) に配置。
 // 1 文字 12×12px を 12px 横ピッチで 17 文字、16px 行ピッチで 4 行。
@@ -100,30 +100,41 @@ function snapHexToPce(value) {
 // monospace run would still render ASCII at about half the width of Japanese
 // glyphs, while both CD and HuCARD runtimes advance every glyph by 12 pixels.
 function renderSpriteTextCells(node, text) {
+  // This helper is serialized into the standalone preview window. Keep its
+  // layout constants local so the serialized function has no module globals.
+  const cellWidth = 12;
+  const cellHeight = 16;
   node.replaceChildren();
   let row = document.createElement('span');
   row.style.display = 'block';
-  row.style.height = `${SPRITETEXT_CELL.height}px`;
+  row.style.height = `${cellHeight}px`;
   node.appendChild(row);
   for (const glyph of String(text || '')) {
     if (glyph === '\r') continue;
     if (glyph === '\n') {
       row = document.createElement('span');
       row.style.display = 'block';
-      row.style.height = `${SPRITETEXT_CELL.height}px`;
+      row.style.height = `${cellHeight}px`;
       node.appendChild(row);
       continue;
     }
     const cell = document.createElement('span');
     cell.style.display = 'inline-block';
-    cell.style.width = `${SPRITETEXT_CELL.width}px`;
-    cell.style.height = `${SPRITETEXT_CELL.height}px`;
+    cell.style.width = `${cellWidth}px`;
+    cell.style.height = `${cellHeight}px`;
     cell.style.overflow = 'hidden';
     cell.style.textAlign = 'center';
     cell.style.verticalAlign = 'top';
     cell.textContent = glyph;
     row.appendChild(cell);
   }
+}
+
+function psgPreviewNoiseHz(value) {
+  // Standalone preview copy of the HuC6280 noise divider calculation.
+  const psgNoiseClock = 3579545 / 64;
+  const v = (Number(value) | 0) & 0x1f;
+  return psgNoiseClock / (32 - v);
 }
 
 // 編集専用のコメント色は PCE 表示色へスナップせず、自由な "#rrggbb" を許容する。
@@ -658,6 +669,8 @@ function psgPatternPreviewBytes(asset = {}) {
 // 1 フレームはシート上の連続した frameW×frameH 矩形になる（行ストライド = シート幅）。
 // アニメ情報が無い asset では null を返し、呼び出し側はシート全体表示にフォールバックする。
 function spriteFrameGeometry(source, animationId) {
+  // This function is also serialized into the preview window.
+  const maxSpriteFrameDelay = 0xffff;
   const src = source || {};
   const sheetW = Number(src.width) || 0;
   const sheetH = Number(src.height) || 0;
@@ -676,7 +689,7 @@ function spriteFrameGeometry(source, animationId) {
   const frameCount = Math.max(1, Math.min(64, Number(anim.frameCount) || 1));
   const stride = Math.max(1, Number(anim.frameStrideCells) || 1);
   const firstCell = Math.max(0, Number(anim.firstCell) || 0);
-  const frameDelay = Math.max(1, Math.min(MAX_SPRITE_FRAME_DELAY, Number(anim.frameDelay) || 8));
+  const frameDelay = Math.max(1, Math.min(maxSpriteFrameDelay, Number(anim.frameDelay) || 8));
   const rawFrameDelays = Array.isArray(anim.frameDelays) ? anim.frameDelays : [];
   const loop = anim.loop !== false;
   const frames = [];
@@ -690,7 +703,7 @@ function spriteFrameGeometry(source, animationId) {
   if (!frames.length) frames.push({ x: 0, y: 0 });
   const frameDelays = frames.map((_, frameIndex) => {
     const value = Number(rawFrameDelays[frameIndex]);
-    return Math.max(1, Math.min(MAX_SPRITE_FRAME_DELAY, Number.isFinite(value) && value > 0 ? value : frameDelay));
+    return Math.max(1, Math.min(maxSpriteFrameDelay, Number.isFinite(value) && value > 0 ? value : frameDelay));
   });
   return { sheetW, sheetH, frameW, frameH, frames, frameDelay, frameDelays, loop };
 }
@@ -698,6 +711,8 @@ function spriteFrameGeometry(source, animationId) {
 // 切り出し矩形を背景画像として div に適用し、複数フレームなら requestAnimationFrame で
 // runtime と同じ 60fps frameDelay 間隔で巡回させる。DOM から外れたら自動停止する。
 function applySpriteFrame(node, url, geo, flipX, flipY) {
+  // This function is also serialized into the preview window.
+  const maxSpriteFrameDelay = 0xffff;
   node.style.backgroundImage = 'url("' + url + '")';
   node.style.backgroundRepeat = 'no-repeat';
   node.style.backgroundSize = geo.sheetW + 'px ' + geo.sheetH + 'px';
@@ -717,7 +732,7 @@ function applySpriteFrame(node, url, geo, flipX, flipY) {
   if (geo.frames.length <= 1) return;
   const frameDelayAt = (i) => {
     const value = Array.isArray(geo.frameDelays) ? Number(geo.frameDelays[i]) : 0;
-    return Math.max(1, Math.min(MAX_SPRITE_FRAME_DELAY, Number.isFinite(value) && value > 0 ? value : geo.frameDelay || 8));
+    return Math.max(1, Math.min(maxSpriteFrameDelay, Number.isFinite(value) && value > 0 ? value : geo.frameDelay || 8));
   };
   const frameMsAt = (i) => frameDelayAt(i) * (1000 / 60);
   const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
@@ -1441,7 +1456,7 @@ function previewRuntime() {
     const length = Math.max(1, Math.floor(sampleRate * playDuration));
     const buffer = psgAudioContext.createBuffer(1, length, sampleRate);
     const samples = buffer.getChannelData(0);
-    const noiseHz = psgNoiseHzFromValue(cell.period & 0x1f);
+    const noiseHz = psgPreviewNoiseHz(cell.period & 0x1f);
     const holdSamples = Math.max(1, Math.round(sampleRate / noiseHz));
     let lfsr = 0x7fff;
     let out = 1;
@@ -1486,28 +1501,34 @@ function previewRuntime() {
     }, Math.max(20, stateRef.stepSeconds * 1000));
     stateRef.timers.push(timer);
   }
-  function stopPsgPreview() {
+  function stopPsgPreview(target = 'all') {
     const stateRef = psgState;
+    if (!stateRef) return false;
+    const normalizedTarget = target === 'bgm' || target === 'sfx' ? target : 'all';
+    if (normalizedTarget !== 'all' && stateRef.bus !== normalizedTarget) return false;
     psgState = null;
-    if (!stateRef) return;
     stateRef.timers.forEach((timer) => clearTimeout(timer));
     stateRef.nodes.forEach((node) => {
       try { node.stop?.(); } catch (_) {}
       try { node.disconnect?.(); } catch (_) {}
     });
+    return true;
   }
   async function playPsgPreview(assetId, loop) {
     if (!assetId || !data.meta[assetId]) return;
-    stopPsgPreview();
+    const meta = data.meta[assetId] || {};
+    const bus = meta.type === 'psg-song' ? 'bgm' : 'sfx';
     const rows = expandPsgRows(assetId);
     if (!rows.some((row) => row.some((cell) => cell.volume > 0 && cell.period > 0))) return;
     const AudioCtor = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtor) return;
+    const conflict = pcePreviewBgmConflict('psg', meta.type);
+    if (conflict) stopAudio(conflict.kind, conflict.target);
+    stopPsgPreview();
     psgAudioContext = psgAudioContext || new AudioCtor();
-    if (psgAudioContext.state === 'suspended') await psgAudioContext.resume();
-    const meta = data.meta[assetId] || {};
     const options = meta.psgOptions || {};
-    psgState = {
+    const nextState = {
+      bus,
       rows,
       step: 0,
       loop: loop != null ? Boolean(loop) : meta.type === 'psg-song',
@@ -1515,6 +1536,14 @@ function previewRuntime() {
       timers: [],
       nodes: [],
     };
+    psgState = nextState;
+    try {
+      if (psgAudioContext.state === 'suspended') await psgAudioContext.resume();
+    } catch (err) {
+      if (psgState === nextState) stopPsgPreview(bus);
+      throw err;
+    }
+    if (psgState !== nextState) return;
     schedulePsgStep();
   }
 
@@ -1933,9 +1962,9 @@ function previewRuntime() {
     tryPlayAudio('cdda');
     tryPlayAudio('adpcm');
   }
-  function stopAudio(kind) {
+  function stopAudio(kind, target = 'all') {
     if (kind === 'psg') {
-      stopPsgPreview();
+      stopPsgPreview(target);
       updateAudioHint();
       return;
     }
@@ -1947,6 +1976,8 @@ function previewRuntime() {
   }
   function playAudio(kind, assetId, loop) {
     if (!assetId || !data.urls[assetId]) return;
+    const conflict = pcePreviewBgmConflict(kind, data.meta[assetId]?.type);
+    if (conflict) stopAudio(conflict.kind, conflict.target);
     stopAudio(kind);
     const a = new Audio(data.urls[assetId]);
     a.loop = Boolean(loop);
@@ -2068,9 +2099,6 @@ function previewRuntime() {
       targetLabel: String(command?.targetLabel || ''),
     };
   }
-  function inputWatcherMatches(watcher, button) {
-    return Boolean(watcher && button && watcher.buttons.includes(button));
-  }
   function interruptForAsyncInputJump() {
     clearTimers();
     cancelAllSpriteMoves();
@@ -2080,22 +2108,19 @@ function previewRuntime() {
     hideMsg();
   }
   function handleInputButton(button) {
-    if (inputWatcherMatches(asyncInputWatcher, button)) {
-      const watcher = asyncInputWatcher;
+    const match = pcePreviewInputMatch(syncInputWatcher, asyncInputWatcher, button);
+    if (!match) return false;
+    if (match.mode === 'async') {
       asyncInputWatcher = null;
       interruptForAsyncInputJump();
-      jumpLabel(watcher.targetLabel);
+      jumpLabel(match.targetLabel);
       run();
       return true;
     }
-    if (inputWatcherMatches(syncInputWatcher, button)) {
-      const watcher = syncInputWatcher;
-      syncInputWatcher = null;
-      jumpLabel(watcher.targetLabel);
-      run();
-      return true;
-    }
-    return false;
+    syncInputWatcher = null;
+    jumpLabel(match.targetLabel);
+    run();
+    return true;
   }
   function setScene(id) {
     cancelAllSpriteMoves();
@@ -2137,7 +2162,7 @@ function previewRuntime() {
   }
   function handleAudio(c) {
     const kind = c.kind === 'adpcm' ? 'adpcm' : (c.kind === 'psg' ? 'psg' : 'cdda');
-    if (c.action === 'stop') { stopAudio(kind); return; }
+    if (c.action === 'stop') { stopAudio(kind, c.target); return; }
     if (kind === 'psg') {
       const meta = data.meta[c.assetId] || {};
       void playPsgPreview(c.assetId, meta.type === 'psg-song' || meta.psgOptions?.loop === true).catch(() => {});
@@ -2556,8 +2581,10 @@ function buildPreviewHtml(payload) {
   return '<!doctype html><html lang="ja"><head><meta charset="utf-8" /><title>VN プレビュー</title></head><body>'
     + '<scr' + 'ipt>window.__PCE_VN_PREVIEW__=' + json + ';</scr' + 'ipt>'
     + '<scr' + 'ipt>const PREVIEW_KEYBOARD_BUTTON_BY_CODE=' + JSON.stringify(PREVIEW_KEYBOARD_BUTTON_BY_CODE) + ';'
-    + pcePreviewButtonForKeyboardEvent.toString() + '</scr' + 'ipt>'
-    + '<scr' + 'ipt>' + spriteFrameGeometry.toString() + '\n' + applySpriteFrame.toString() + '</scr' + 'ipt>'
+    + pcePreviewButtonForKeyboardEvent.toString() + '\n' + pcePreviewInputMatch.toString() + '\n'
+    + pcePreviewBgmConflict.toString() + '</scr' + 'ipt>'
+    + '<scr' + 'ipt>' + renderSpriteTextCells.toString() + '\n' + psgPreviewNoiseHz.toString() + '\n'
+    + spriteFrameGeometry.toString() + '\n' + applySpriteFrame.toString() + '</scr' + 'ipt>'
     + '<scr' + 'ipt>(' + previewRuntime.toString() + ')();</scr' + 'ipt>'
     + '</body></html>';
 }

@@ -9,7 +9,7 @@
 | 104-119 | MPR6 | visual payload cache | 8KB×16 page。BG/spriteの低位RAM cache |
 | 120 | — | 未使用 | 将来用 |
 | 121 | MPR4 | visual helper overlay | `visual_code.bin`をCDからロード。固定entry経由 |
-| 122 | MPR4 | direct CD/SCSI async helper | `cd_async_code.bin`をCDからロード。固定entry経由 |
+| 122 | MPR4 | CD async / runtime support overlay | `cd_async_code.bin`をCDからロード。固定entry経由。palette、部分BAT clear、SATB upload、ADPCM容量判定も担当 |
 | 123 | MPR6 | active scene pack | 8KB `NOLOAD`。最大8192 bytes |
 | 124-127 | — | 未使用 | 将来用。新用途を割り当てる前に文書とgateを更新 |
 | 128 | MPR2 | resident code | 起動、薄いdispatch、System Card adapter、小さいmetadata |
@@ -59,6 +59,9 @@ package loaderは対象busを停止してstatusを確認し、宣言byte数だ�
 - bank128は起動、BIOS境界、IRQ handler、薄いdispatchに残します。無属性helperはbank128へ入りやすいため、追加前に配置属性を決めます。
 - sprite animationの16-bit per-frame delay tableはプロジェクトのanimation数に応じて増えるためbank128 resident rodataへ置かず、`PCE_VN_DATA_SECTION`でbank132へ置きます。bank121 visual helperのanimation tickへ入るresident wrapperは、MPR4を切り替える前にMPR6をbank132へmapします。
 - BG行転送後の左右margin clear (`clear_bg_map_side_margins`) はbank129へ置きます。Full BG対応コードが有効なprojectでもbank128のload imageを8KB未満に保つためで、呼出先のresident VDC helperはslot2から利用できます。
+- bank122はdirect CD/SCSI処理だけでなく、palette upload/fade、部分BAT clear、SATB upload、ADPCM buffered容量判定を担うruntime support overlayです。dispatcherは呼出元のMPR4とMPR6を保存・復元するためbank121 visual helperからも呼べますが、bank122実行中にbank130へmapするhelperは呼びません。
+- bank122のruntime-support op番号は疎に保ちます。連番へ詰めるとLLVM-MOSがresident `.rodata`にcross-section jump tableを生成し、`llvm-objcopy`が`.vn_cd_async_code`を抽出・除去できなくなります。
+- sprite pattern cache loadの調停は、CD metadata accessとbank121 visual cache呼出を橋渡しするためbank128の薄いresident wrapperに置きます。大きな転送本体をresidentへ戻してはいけません。
 - overlay実行中はbank130が見えません。`VN_OVERLAY_CODE`から呼ぶhelperはbank129か本当に必要な最小bank128へ置き、bank130へ置きません。
 - visual/async helperは`.vn_visual_code`/`.vn_cd_async_code`としてlink後に抽出し、対応する`PT_LOAD`を`PT_NULL`化します。これを怠ると`pce-mkcd`の初期load imageが壊れます。
 - bank133 overlayは`.vn_overlay`を抽出し、residentからは`vn_overlay_entry`の固定address dispatchだけで呼びます。
@@ -76,11 +79,12 @@ CD VN link後にELF sectionとmapを読み、次をhard errorにします。
 | ZP終端 | `<= $20E6` |
 | bank123 | `== 0x2000`かつ`SHT_NOBITS/NOLOAD` |
 | bank134/135 | 各`== 0x2000`かつ`SHT_NOBITS/NOLOAD` |
-| bank128/129/130/132/133 | 各`< 0x2000` |
+| bank128/129/130 | 各`< 0x2000`かつ空き`>= 512` bytes |
+| bank132/133 | 各`< 0x2000` |
 | visual/async helper | 各予約8KB未満 |
 
 境界を「予約済み」とみなしてgateを緩めてはいけません。NOLOADでない8KB bankはBIOS/user RAM初期化契約を壊すため失敗です。
-bank128/129/130/132/133は、上限未満でも空きが256 bytesを切った時点でbuild logへ低headroom warningを出します。これはhard errorではありませんが、次のruntime/generated-data変更前に配置を測り直す合図です。
+常駐3バンク(bank128/129/130)は空き512 bytesをhard gateで予約します。これにより、小さなruntime追加を繰り返してリンカが突然溢れる前に回帰テストとbuildを止めます。bank128/129/130/132/133は、上限未満でも空きが256 bytesを切った時点でbuild logへ低headroom warningも出します。bank132は末尾に固定scratch tailがあるため、単純なbank終端high-waterではなく、generated data終端からtail開始までの実際の割当可能gapをheadroomとして表示します。
 
 ## CD data file
 

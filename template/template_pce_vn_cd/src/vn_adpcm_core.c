@@ -58,7 +58,7 @@ static void VN_RESIDENT_CODE stop_buffered_adpcm_playback_direct(void)
 }
 
 #endif /* PHASE_A_SPLIT */
-static unsigned int VN_BANKED_CODE adpcm_voice_buffer_size(void)
+static unsigned int VN_CD_ASYNC_CODE adpcm_voice_buffer_size_impl(void)
 {
 #if defined(__PCE_CD__)
     unsigned int size = 0u;
@@ -72,10 +72,10 @@ static unsigned int VN_BANKED_CODE adpcm_voice_buffer_size(void)
 #endif
 }
 
-static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer(void)
+static uint8_t VN_CD_ASYNC_CODE adpcm_voice_fits_buffer_impl(void)
 {
 #if defined(__PCE_CD__)
-    const unsigned int size = adpcm_voice_buffer_size();
+    const unsigned int size = adpcm_voice_buffer_size_impl();
     unsigned long end;
     if (!size) return 0u;
     if (size > VN_ADPCM_BUFFERED_SAFE_BYTES) return 0u;
@@ -83,6 +83,15 @@ static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer(void)
     if ((unsigned long)adpcm_voice_snapshot.adpcm_address >= 65536ul) return 0u;
     end = (unsigned long)adpcm_voice_snapshot.adpcm_address + (unsigned long)size;
     return end <= 65536ul ? 1u : 0u;
+#else
+    return 0u;
+#endif
+}
+
+static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer(void)
+{
+#if defined(__PCE_CD__)
+    return vn_cd_async_call_bank122(VN_CD_ASYNC_OP_ADPCM_FITS_BUFFER);
 #else
     return 0u;
 #endif

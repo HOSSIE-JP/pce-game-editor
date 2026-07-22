@@ -155,7 +155,7 @@ static uint8_t read_pad_raw(void)
 }
 
 #if defined(__PCE_CD__)
-static uint8_t VN_BANKED_CODE2 vn_system_card_diagnostic_char(uint8_t index)
+static uint8_t VN_RESIDENT_CODE vn_system_card_diagnostic_char(uint8_t index)
 {
     if (index == 0u) return 'S';
     if (index == 1u) return 'C';
@@ -165,7 +165,7 @@ static uint8_t VN_BANKED_CODE2 vn_system_card_diagnostic_char(uint8_t index)
     return ' ';
 }
 
-static uint8_t VN_BANKED_CODE2 vn_system_card_diagnostic_row(uint8_t ch, uint8_t row)
+static uint8_t VN_RESIDENT_CODE vn_system_card_diagnostic_row(uint8_t ch, uint8_t row)
 {
     if (ch == 'S')
     {
@@ -188,7 +188,7 @@ static uint8_t VN_BANKED_CODE2 vn_system_card_diagnostic_row(uint8_t ch, uint8_t
 
 /* This tiny fixed ASCII renderer is deliberately not a general font fallback.
    It exists only to make an unsupported System Card/font probe diagnosable. */
-static void VN_BANKED_CODE2 __attribute__((noreturn)) vn_system_card_show_failure(void)
+static void VN_RESIDENT_CODE __attribute__((noreturn)) vn_system_card_show_failure(void)
 {
     uint8_t diagnostic_tile[32];
     uint16_t diagnostic_map[7];

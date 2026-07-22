@@ -170,20 +170,14 @@ static uint8_t VN_RESIDENT_CODE vn_system_card_font12_sprite_upload(uint16_t sji
     return 1u;
 }
 
-static void VN_BANKED_CODE vn_system_card_prepare_psg_banks(void)
+static void VN_RESIDENT_CODE vn_system_card_prepare_psg_banks(void)
 {
     uint8_t saved_mpr6;
     uint8_t i;
     volatile uint8_t *bank = (volatile uint8_t *)0xc000;
-    static const uint8_t square_wave[32] = {
-        31u, 31u, 31u, 31u, 31u, 31u, 31u, 31u,
-        31u, 31u, 31u, 31u, 31u, 31u, 31u, 31u,
-        0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
-        0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u
-    };
     __asm__ volatile("tma #$40" : "=a"(saved_mpr6));
     pce_ram_bank134_map();
-    for (i = 0u; i < 32u; i++) bank[i] = square_wave[i];
+    for (i = 0u; i < 32u; i++) bank[i] = i < 16u ? 31u : 0u;
     /* Track index at $8020 after the driver maps bank134 into MPR4:
        sound 0 -> BGM header $8024, sound 1 -> SFX header $A000. */
     bank[32] = 0x24u;
@@ -193,7 +187,7 @@ static void VN_BANKED_CODE vn_system_card_prepare_psg_banks(void)
     __asm__ volatile("tam #$40" : : "a"(saved_mpr6));
 }
 
-static uint8_t VN_BANKED_CODE vn_system_card_init_psg(void)
+static uint8_t VN_RESIDENT_CODE vn_system_card_init_psg(void)
 {
     uint8_t i;
     uint8_t nonzero = 0u;

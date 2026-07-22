@@ -893,7 +893,7 @@ static void VN_BANKED_CODE2 load_bg_cache_asset(signed int bg_index, uint8_t til
     preloaded_scene_visual_valid = 0u;
 }
 
-static void VN_BANKED_CODE load_sprite_pattern_cache_asset(signed int sprite_index, uint8_t slot_index)
+static void VN_RESIDENT_CODE load_sprite_pattern_cache_asset(signed int sprite_index, uint8_t slot_index)
 {
     const pce_editor_sprite_asset_t *sprite;
     if (sprite_index < 0 || (unsigned int)sprite_index >= pce_editor_sprite_asset_count) return;
@@ -912,7 +912,7 @@ static void VN_BANKED_CODE load_bg_cache_asset(signed int bg_index, uint8_t tile
     preloaded_scene_visual_valid = 0u;
 }
 
-static void VN_BANKED_CODE load_sprite_pattern_cache_asset(signed int sprite_index, uint8_t slot_index)
+static void VN_RESIDENT_CODE load_sprite_pattern_cache_asset(signed int sprite_index, uint8_t slot_index)
 {
     (void)sprite_index;
     (void)slot_index;
