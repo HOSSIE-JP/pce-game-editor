@@ -17,6 +17,7 @@ loadAppConfig(require('../app.config'));
   'project-settings.test.js',
   'preload.test.js',
   'renderer-ui.test.js',
+  'pce-vn-preview-input.test.js',
   'pce-app-separation.test.js',
   'pce-adpcm-batch-csv.test.js',
   'pce-asset-manager.test.js',

@@ -3,6 +3,10 @@ import {
   psgPreviewStats,
 } from '../pce-music-editor/psg-preview.js';
 import { psgNoiseHzFromValue } from '../pce-music-editor/psg-sfx-synth.mjs';
+import {
+  PREVIEW_KEYBOARD_BUTTON_BY_CODE,
+  pcePreviewButtonForKeyboardEvent,
+} from './preview-input.mjs';
 
 const SCENE_FILE = 'assets/pce-vn-scenes.json';
 const PCE_SCREEN_WIDTH = 256;
@@ -1224,6 +1228,7 @@ function previewRuntime() {
   const messageAdvanceMode = settings.messageAdvanceMode === 'auto' ? 'auto' : 'button';
   const rawMessageAutoWaitFrames = Number(settings.messageAutoWaitFrames);
   const messageAutoWaitFrames = Number.isFinite(rawMessageAutoWaitFrames) ? Math.max(0, Math.min(255, rawMessageAutoWaitFrames | 0)) : 60;
+  const controllerKeyboardHint = 'クリック / RUN=SPACE・ENTER・S / SELECT=Shift・A / I=Z / II=X / 方向=↑↓←→ ・ Escで閉じる';
   const SCREEN_W = (data.screen && data.screen.w) || 256;
   const SCREEN_H = (data.screen && data.screen.h) || 224;
   const MSG = data.message || { x: 24, y: 152, cols: 17, rows: 4, cellW: 12, cellH: 16 };
@@ -1293,7 +1298,7 @@ function previewRuntime() {
     + '<div id="pv-bar"><button id="pv-restart">最初から</button><span id="pv-scene"></span>'
     + '<label id="pv-fast-forward-toggle" title="メッセージを即時表示してページ送り"><input id="pv-fast-forward" type="checkbox" /><span>早送り</span></label>'
     + '<label id="pv-debug-toggle" title="Preview debug"><input id="pv-debug-vars" type="checkbox" /><span>Debug</span></label>'
-    + '<span id="pv-hint">クリック / Enter で進む ・ Esc で閉じる</span></div>';
+    + '<span id="pv-hint">' + controllerKeyboardHint + '</span></div>';
   document.body.appendChild(root);
 
   const stage = root.querySelector('#pv-stage');
@@ -1329,6 +1334,8 @@ function previewRuntime() {
   let spriteTextBlinkAcc = 0;
   let pending = null;
   let choiceState = null;
+  let syncInputWatcher = null;
+  let asyncInputWatcher = null;
   const audio = { cdda: null, adpcm: null };
   const blockedAudio = { cdda: false, adpcm: false };
   const PSG_CLOCK = 3579545;
@@ -1899,9 +1906,9 @@ function previewRuntime() {
     const blocked = Object.keys(blockedAudio).filter((kind) => blockedAudio[kind]);
     let hint = '';
     if (blocked.length) {
-      hint = '音声開始待ち: クリック / Enter で再試行';
+      hint = '音声開始待ち: クリック / SPACE・ENTER・S・Z・X で再試行';
     } else {
-      hint = 'クリック / Enter で進む ・ Esc で閉じる';
+      hint = controllerKeyboardHint;
     }
     root.querySelector('#pv-hint').textContent = messageFastForward ? hint + ' ・ 早送り中' : hint;
   }
@@ -2055,8 +2062,45 @@ function previewRuntime() {
     const i = labelIndex(name);
     pc = i >= 0 ? i : pc + 1;
   }
+  function inputWatcher(command) {
+    return {
+      buttons: Array.isArray(command?.buttons) ? command.buttons.slice() : [],
+      targetLabel: String(command?.targetLabel || ''),
+    };
+  }
+  function inputWatcherMatches(watcher, button) {
+    return Boolean(watcher && button && watcher.buttons.includes(button));
+  }
+  function interruptForAsyncInputJump() {
+    clearTimers();
+    cancelAllSpriteMoves();
+    activeMessageFastForward = null;
+    pending = null;
+    hideChoice();
+    hideMsg();
+  }
+  function handleInputButton(button) {
+    if (inputWatcherMatches(asyncInputWatcher, button)) {
+      const watcher = asyncInputWatcher;
+      asyncInputWatcher = null;
+      interruptForAsyncInputJump();
+      jumpLabel(watcher.targetLabel);
+      run();
+      return true;
+    }
+    if (inputWatcherMatches(syncInputWatcher, button)) {
+      const watcher = syncInputWatcher;
+      syncInputWatcher = null;
+      jumpLabel(watcher.targetLabel);
+      run();
+      return true;
+    }
+    return false;
+  }
   function setScene(id) {
     cancelAllSpriteMoves();
+    syncInputWatcher = null;
+    asyncInputWatcher = null;
     scene = scenesById[id] || null;
     sceneId = id;
     pc = 0;
@@ -2398,6 +2442,20 @@ function previewRuntime() {
       if (t === 'effect') { applyEffect(c); pc += 1; continue; }
       if (t === 'cache') { handleCacheCommand(c); pc += 1; continue; }
       if (t === 'label') { pc += 1; continue; }
+      if (t === 'inputcheck') {
+        if (c.mode === 'cancel') {
+          asyncInputWatcher = null;
+          pc += 1;
+          continue;
+        }
+        if (c.mode === 'async') {
+          asyncInputWatcher = inputWatcher(c);
+          pc += 1;
+          continue;
+        }
+        syncInputWatcher = inputWatcher(c);
+        return;
+      }
       if (t === 'goto') { jumpLabel(c.targetLabel); continue; }
       if (t === 'if') {
         const ok = compare(getVar(c.variableName), c.operator, c.value);
@@ -2443,6 +2501,8 @@ function previewRuntime() {
     activeMessageFastForward = null;
     pending = null;
     choiceState = null;
+    syncInputWatcher = null;
+    asyncInputWatcher = null;
     renderStage();
     updateVarDebug();
     updateCacheDebug();
@@ -2460,14 +2520,20 @@ function previewRuntime() {
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { window.close(); return; }
-    if (e.key === 'Enter' || e.key === ' ') retryAudioPlayback();
-    if (choiceState) {
-      if (e.key === 'ArrowUp') { e.preventDefault(); choiceState.move(-1); }
-      else if (e.key === 'ArrowDown') { e.preventDefault(); choiceState.move(1); }
-      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choiceState.confirm(); }
+    const controllerButton = pcePreviewButtonForKeyboardEvent(e);
+    if (controllerButton && !e.repeat && handleInputButton(controllerButton)) {
+      e.preventDefault();
       return;
     }
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (typeof pending === 'function') pending(); }
+    const confirmButton = controllerButton === 'run' || controllerButton === 'i' || controllerButton === 'ii';
+    if (confirmButton) retryAudioPlayback();
+    if (choiceState) {
+      if (controllerButton === 'up') { e.preventDefault(); choiceState.move(-1); }
+      else if (controllerButton === 'down') { e.preventDefault(); choiceState.move(1); }
+      else if (confirmButton) { e.preventDefault(); choiceState.confirm(); }
+      return;
+    }
+    if (confirmButton) { e.preventDefault(); if (typeof pending === 'function') pending(); }
   });
   root.querySelector('#pv-restart').addEventListener('click', (e) => { e.stopPropagation(); start(); });
   root.querySelector('#pv-fast-forward')?.addEventListener('change', (e) => { setMessageFastForward(e.currentTarget.checked); });
@@ -2489,6 +2555,8 @@ function buildPreviewHtml(payload) {
   const json = JSON.stringify(payload).replace(/</g, '\\u003c');
   return '<!doctype html><html lang="ja"><head><meta charset="utf-8" /><title>VN プレビュー</title></head><body>'
     + '<scr' + 'ipt>window.__PCE_VN_PREVIEW__=' + json + ';</scr' + 'ipt>'
+    + '<scr' + 'ipt>const PREVIEW_KEYBOARD_BUTTON_BY_CODE=' + JSON.stringify(PREVIEW_KEYBOARD_BUTTON_BY_CODE) + ';'
+    + pcePreviewButtonForKeyboardEvent.toString() + '</scr' + 'ipt>'
     + '<scr' + 'ipt>' + spriteFrameGeometry.toString() + '\n' + applySpriteFrame.toString() + '</scr' + 'ipt>'
     + '<scr' + 'ipt>(' + previewRuntime.toString() + ')();</scr' + 'ipt>'
     + '</body></html>';

@@ -545,8 +545,7 @@ static void show_scene(uint8_t scene_index)
     previous_full_screen_bg = current_scene_full_screen_bg;
     current_scene_full_screen_bg = scene_pack_full_screen_bg(&active_scene_pack);
     keep_display_for_transition = (uint8_t)(current_bg_index >= 0
-        && !pending_display_enable
-        && !(previous_full_screen_bg && !current_scene_full_screen_bg));
+        && !pending_display_enable);
 #else
     keep_display_for_transition = (uint8_t)(current_bg_index >= 0 && !pending_display_enable);
 #endif
@@ -720,6 +719,15 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
         VN_BG_UPLOAD_DISPLAY_DISABLE();
         pending_display_enable = 1u;
     }
+#if PCE_VN_HAS_FULL_SCREEN_BG
+    if (!current_scene_full_screen_bg && full_screen_bg_text_vram_dirty)
+    {
+        /* Keep the outgoing Full BG visible through its palette fade. Restore
+           the normal-scene blank/message VRAM only after the display is dark. */
+        VN_MAP_BANK130_FOR_CODE();
+        restore_text_vram_after_full_screen_bg();
+    }
+#endif
     if (pending_scene_sprite_clear)
     {
         clear_sprites();

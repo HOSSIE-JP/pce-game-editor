@@ -33,18 +33,34 @@ static uint8_t message_glyph_cache_count __attribute__((section(".bss")));
 static uint8_t message_glyph_cache_valid __attribute__((section(".bss")));
 #endif
 
-static void VN_BANKED_CODE2 restore_text_vram_after_full_screen_bg(void)
+/* Resident because Full BG builds leave almost no bank130 headroom. The only
+   bank130 call is explicitly mapped before display_disable(). */
+static void VN_RESIDENT_CODE restore_text_vram_after_full_screen_bg(void)
 {
 #if !PCE_VN_HAS_FULL_SCREEN_BG
     return;
 #else
+    uint8_t clear_visible_full_bg = 0u;
     if (!full_screen_bg_text_vram_dirty) return;
+    if (!current_scene_full_screen_bg && !pending_display_enable)
+    {
+        /* A normal scene without a replacement BG still needs the previous
+           Full BG removed before message/choice UI becomes visible. */
+        VN_MAP_BANK130_FOR_CODE();
+        display_disable();
+        pending_display_enable = 1u;
+        clear_visible_full_bg = 1u;
+    }
     upload_blank_tile();
 #if defined(__PCE_CD__)
     message_glyph_cache_valid = 0u;
     spritetext_glyph_cache_count = 0u;
 #endif
     full_screen_bg_text_vram_dirty = 0u;
+    if (clear_visible_full_bg)
+    {
+        clear_screen_map();
+    }
 #endif
 }
 

@@ -1112,6 +1112,31 @@ test('PCE VN manager encodes full-screen BG scene mode, allows hardware sprites 
   assert.equal(commandRecord(pack, 0).x, 0);
   assert.equal(commandRecord(pack, 0).y, 0);
   const cdSceneRuntime = fs.readFileSync(path.join(TEMPLATE_VN_SRC_DIR, 'vn_port_scene.c'), 'utf-8');
+  const showSceneStart = cdSceneRuntime.indexOf('static void show_scene(uint8_t scene_index)');
+  const setBackgroundStart = cdSceneRuntime.indexOf('static void set_background(', showSceneStart);
+  const executeControlStart = cdSceneRuntime.indexOf('static uint8_t VN_BANKED_CODE2 execute_control_command', setBackgroundStart);
+  assert.notEqual(showSceneStart, -1);
+  assert.notEqual(setBackgroundStart, -1);
+  assert.notEqual(executeControlStart, -1);
+  const showSceneSource = cdSceneRuntime.slice(showSceneStart, setBackgroundStart);
+  const setBackgroundSource = cdSceneRuntime.slice(setBackgroundStart, executeControlStart);
+  assert.match(showSceneSource, /keep_display_for_transition = \(uint8_t\)\(current_bg_index >= 0\s*&& !pending_display_enable\);/);
+  const fadeOutOffset = setBackgroundSource.indexOf('fade_palette(&ref, current_bg_palette_base, bg_fade_out_frames, 0u);');
+  const restoreTextOffset = setBackgroundSource.indexOf('restore_text_vram_after_full_screen_bg();');
+  const uploadBgOffset = setBackgroundSource.indexOf('upload_bg_graphics(next_bg');
+  assert.ok(fadeOutOffset >= 0 && restoreTextOffset > fadeOutOffset,
+    'Full BG text VRAM restore must run after the outgoing palette fade');
+  assert.ok(uploadBgOffset > restoreTextOffset,
+    'normal BG upload must run after Full BG text VRAM restore');
+  const cdMessageRuntime = fs.readFileSync(path.join(TEMPLATE_VN_SRC_DIR, 'vn_msg_core.c'), 'utf-8');
+  const restoreTextStart = cdMessageRuntime.indexOf('static void VN_RESIDENT_CODE restore_text_vram_after_full_screen_bg(void)');
+  const restoreTextEnd = cdMessageRuntime.indexOf('/* Build a PCE 4bpp 8x8 tile', restoreTextStart);
+  const restoreTextSource = cdMessageRuntime.slice(restoreTextStart, restoreTextEnd);
+  assert.notEqual(restoreTextStart, -1);
+  assert.match(restoreTextSource, /if \(!current_scene_full_screen_bg && !pending_display_enable\)/);
+  assert.match(restoreTextSource, /VN_MAP_BANK130_FOR_CODE\(\);[\s\S]*display_disable\(\);[\s\S]*pending_display_enable = 1u;[\s\S]*clear_screen_map\(\);/);
+  assert.doesNotMatch(restoreTextSource, /display_enable\(\);/,
+    'the command loop must reveal the restored normal scene only after message/choice drawing completes');
   const spriteCommandStart = cdSceneRuntime.indexOf('command->type == PCE_VN_COMMAND_SPRITE)');
   const audioCommandStart = cdSceneRuntime.indexOf('command->type == PCE_VN_COMMAND_AUDIO)', spriteCommandStart);
   assert.doesNotMatch(cdSceneRuntime.slice(spriteCommandStart, audioCommandStart), /current_scene_full_screen_bg/);
