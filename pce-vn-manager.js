@@ -235,10 +235,10 @@ const VN_CD_SPRITETEXT_CACHE_MAX_GLYPHS = 64;
 // 0xfe = newline marker in command glyph streams).
 const VN_FONT_SPRITE_MAX_GLYPH_COUNT = 254;
 // HuCard message glyphs are 12x12 px. font.bin stores one 12x12 1bpp mask per
-// glyph (12 words = 24 bytes; per row the high byte = pixels 0..7, low byte high nibble
-// = pixels 8..11, so VRAM word bit 0x8000 = leftmost pixel). The runtime streams
-// the masks to VRAM and composites them into the message strip at a 12px pitch
-// via pce_vdc_copy_from_vram. (Was 16x16 pre-baked as 4 BG tiles = 128 bytes.)
+// glyph (12 words = 24 bytes; per row the high byte = pixels 0..7, low byte high
+// nibble = pixels 8..11). The HuCARD runtime reads each mask directly from its
+// banked ROM data_ref and composites it into the fixed message strip; the masks
+// themselves are never resident in VRAM. (Was 16x16 pre-baked as 4 BG tiles.)
 const FONT_GLYPH_PX = 12;
 const FONT_GLYPH_MASK_WORDS = 12;
 const FONT_BYTES_PER_GLYPH = FONT_GLYPH_MASK_WORDS * 2; // 24
@@ -247,11 +247,9 @@ const FONT_BYTES_PER_GLYPH = FONT_GLYPH_MASK_WORDS * 2; // 24
 const VN_MSG_STRIP_TILES = 208;
 const VN_SATB_VRAM_WORD = 0x7f00;
 // BG message/choice glyph index space is 16-bit (0..0xfffd drawable, 0xfffe =
-// newline, 0xffff = end). The binding limit is no longer the index width but the
-// VRAM the 12-word glyph masks occupy below the SATB; computeFontBudget() does the
-// precise per-tileBase check. VN_MAX_GLYPH_COUNT is the headline cap we slice to
-// and surface in the editor: at the default tileBase it stays clear of both the
-// VRAM soft ceiling and the sprite pattern region.
+// newline, 0xffff = end). VN_MAX_GLYPH_COUNT is the practical project cap we
+// slice to and surface in the editor; glyph count consumes banked ROM and scene
+// pack bytes, but not additional VRAM.
 const VN_MAX_GLYPH_COUNT = 1000;
 // VRAM is 0x8000 words; SATB sits at 0x7f00 (tile 0x7f00/16 = 2032). Font tiles
 // must end strictly below that. Sprite patterns are auto-placed above the font
@@ -1634,23 +1632,20 @@ function collectSpriteTextGlyphsRaw(doc) {
   return used ? glyphs : [];
 }
 
-// Build-time budget report for the glyph font. Masks stream to VRAM (after the
-// 208-tile strip + blank tile), so with the 16-bit glyph index the binding limit
-// is the VRAM the mask region occupies below the SATB (the index width no longer
-// caps it). VN_MAX_GLYPH_COUNT is a headline slice; the VRAM check below is the
-// real guard. Returns the byte/sector footprint plus warnings/errors.
+// Build-time budget report for the glyph font. HuCARD keeps the mask payload in
+// banked ROM and reads it through pce_vn_font_data_ref while composing a glyph.
+// Only the fixed 208-tile message strip and one blank tile occupy VRAM, so glyph
+// count affects ROM/scene-pack budgets but must not move the sprite VRAM layout.
 function computeFontBudget(rawGlyphCount, tileBase) {
   const usedGlyphCount = Math.min(rawGlyphCount, VN_MAX_GLYPH_COUNT);
   const droppedGlyphCount = Math.max(0, rawGlyphCount - VN_MAX_GLYPH_COUNT);
   const byteSize = usedGlyphCount * FONT_BYTES_PER_GLYPH;
   const sectorCount = Math.max(1, Math.ceil(byteSize / VN_CD_SECTOR_BYTES));
-  // VRAM layout: [strip 208 tiles][blank tile][glyph masks: glyphs*12 words]. The
-  // blank tile sits at (tileBase + 208); the mask region starts one tile later. The
-  // runtime derives the same addresses from PCE_VN_FONT_TILE_BASE.
+  // VRAM layout: [strip 208 tiles][blank tile]. The runtime derives the same
+  // addresses from PCE_VN_FONT_TILE_BASE. Glyph masks remain in banked ROM.
   const blankTile = tileBase + VN_MSG_STRIP_TILES; // dedicated blank tile
-  const maskBaseWord = (blankTile + 1) * 16;
-  const maskEndWord = maskBaseWord + (usedGlyphCount * FONT_GLYPH_MASK_WORDS);
-  const endTile = Math.ceil(maskEndWord / 16); // tile-aligned end (spritetext font + reporting)
+  const vramEndWord = (blankTile + 1) * 16;
+  const endTile = Math.ceil(vramEndWord / 16); // spritetext placement + reporting
   const warnings = [];
   const errors = [];
   if (droppedGlyphCount > 0) {
@@ -1659,16 +1654,16 @@ function computeFontBudget(rawGlyphCount, tileBase) {
   } else if (usedGlyphCount >= VN_GLYPH_COUNT_SOFT_WARN) {
     warnings.push(`フォント: 使用文字が ${usedGlyphCount} 種類で上限 ${VN_MAX_GLYPH_COUNT} に近づいています。`);
   }
-  if (maskEndWord > VN_SATB_VRAM_WORD) {
-    errors.push(`フォント: グリフマスク領域 (tileBase ${tileBase} + 208タイル + ${usedGlyphCount} グリフ) が VRAM 末尾 (SATB word 0x7f00) を超えます。tileBase を下げるか文字種を減らしてください。`);
+  if (vramEndWord > VN_SATB_VRAM_WORD) {
+    errors.push(`メッセージ表示領域 (tileBase ${tileBase} + 208タイル + blank 1タイル) が VRAM 末尾 (SATB word 0x7f00) を超えます。tileBase を下げてください。`);
   } else if (endTile > VN_FONT_VRAM_TILE_SOFT_CEILING) {
-    warnings.push(`フォント: グリフマスク末尾が tile ${endTile} でスプライトパターン領域に接近しています (推奨上限 ${VN_FONT_VRAM_TILE_SOFT_CEILING})。`);
+    warnings.push(`メッセージ表示タイル末尾が tile ${endTile} でスプライトパターン領域に接近しています (推奨上限 ${VN_FONT_VRAM_TILE_SOFT_CEILING})。`);
   }
-  return { usedGlyphCount, rawGlyphCount, droppedGlyphCount, byteSize, sectorCount, tileBase, blankTile, maskBaseWord, maskEndWord, endTile, warnings, errors };
+  return { usedGlyphCount, rawGlyphCount, droppedGlyphCount, byteSize, sectorCount, tileBase, blankTile, vramEndWord, endTile, warnings, errors };
 }
 
 // PCE VRAM is one shared 32768-word space (0x0000..0x7FFF). The BAT, BG tiles, the
-// message font/glyph strip, the spritetext font, sprite patterns, and the SATB are
+// message display strip, the spritetext font, sprite patterns, and the SATB are
 // each placed by independent rules, so a large asset in one category can silently
 // overwrite a neighbour's VRAM -- the "layout breaks down" corruption. This is the
 // single authoritative reservation check: it lays every category out as a word range
@@ -1845,7 +1840,7 @@ function computeVnSpritePatternBanks(assetDoc, fontBudget, options = {}) {
 
 function computeVnSpritePatternBase(fontBudget, fontSpritePatternBase, spriteTextGlyphCount) {
   const fontEndWord = Math.max(
-    Number(fontBudget?.maskEndWord) || 0,
+    Number(fontBudget?.vramEndWord) || 0,
     (fontSpritePatternBase + (spriteTextGlyphCount * 2)) * 32,
   );
   return Math.ceil(fontEndWord / 32);
@@ -1963,7 +1958,7 @@ function computeVnSpriteSlotPatternLayout(assetDoc, spritePatternBase, options =
 function computeVnHardwareSpriteLayout(assetDoc, fontBudget, spriteTextGlyphCount, options = {}) {
   const glyphPatternUnits = Math.max(0, Number(spriteTextGlyphCount) || 0) * 2;
   const normalFontBase = Math.ceil((Number(fontBudget?.endTile) * 16) / 64) * 2;
-  const messageEndPatternBase = Math.ceil((Number(fontBudget?.maskEndWord) || 0) / 32);
+  const messageEndPatternBase = Math.ceil((Number(fontBudget?.vramEndWord) || 0) / 32);
   const fullBgSpriteFloor = computeVnFullScreenBgSpritePatternBase(assetDoc, options);
   const fullBgSpriteTextFloor = computeVnFullScreenBgSpriteTextPatternBase(assetDoc, options);
   const layoutEnd = (layout, fallback) => layout.reduce(
@@ -2031,8 +2026,8 @@ function computeVnVramLayout(assetDoc, fontBudget, fontSpritePatternBase, sprite
   }
   addRegion('BAT (BGマップ)', 0, VN_BAT_VRAM_WORDS);
   addRegion('SATB (スプライト属性)', VN_SATB_VRAM_WORD, VN_VRAM_TOTAL_WORDS);
-  // Message: font strip + blank tile + 12-word glyph masks.
-  addRegion('メッセージフォント', fontBudget.tileBase * 16, fontBudget.maskEndWord);
+  // Message: fixed compositor strip + blank tile. Glyph masks stay in ROM.
+  addRegion('メッセージ表示タイル', fontBudget.tileBase * 16, fontBudget.vramEndWord);
   if (spriteTextGlyphCount > 0) {
     addRegion('spritetextフォント', fontSpritePatternBase * 32, (fontSpritePatternBase + (spriteTextGlyphCount * 2)) * 32);
   }
@@ -2145,7 +2140,7 @@ function computeVnVramLayoutPacked(assetDoc, fontBudget, fontSpritePatternBase, 
   );
   addRegion('BAT', 0, VN_BAT_VRAM_WORDS);
   addRegion('SATB', VN_SATB_VRAM_WORD, VN_VRAM_TOTAL_WORDS);
-  addRegion('message font', fontBudget.tileBase * 16, fontBudget.maskEndWord);
+  addRegion('message display tiles', fontBudget.tileBase * 16, fontBudget.vramEndWord);
   if (spriteTextGlyphCount > 0) {
     addRegion('spritetext font', fontSpritePatternBase * 32, (fontSpritePatternBase + (spriteTextGlyphCount * 2)) * 32);
   }
@@ -3030,7 +3025,7 @@ function generateVnSources(projectDir, options = {}) {
   doc.scenes.forEach((scene) => validateFullScreenBgScene(scene, assetDoc));
 
   // Single authoritative VRAM reservation check: reject any overlap between BG,
-  // message font, spritetext font, sprite patterns, BAT, and SATB (build error).
+  // message display tiles, spritetext font, sprite patterns, BAT, and SATB.
   const packedVisualUsage = {
     ...visualAssetUsage,
     spritePatternBase: hardwareSpriteLayout.spritePatternBase,

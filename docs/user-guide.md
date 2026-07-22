@@ -45,7 +45,7 @@ Settings > Plugins は、有効なプラグインに加えて、不正な manife
 
 HuCARD ノベルテンプレートは `template_pce_vn_hucard` / builder `pce-visual-novel-hucard-builder` を使います。Novel のシーン編集 UI と script command は CD-ROM2 VN と同じですが、ビルド結果は `.pce` のみで、IPL / System Card / `pce-mkcd` / CD data file は使いません。BG、Sprite、Message、Choice、Variable、IF/Switch/GOTO、InputCheck、Effect、SpriteText、PSG は HuCARD runtime で処理します。ADPCM、CD-DA、`message.voiceAssetId`、ADPCM cache load は HuCARD では無音の no-op になり、ADPCM / CD-DA asset metadata も ROM に出力されません。PSG song / SFX は HuCARD 用の ROM bank data として入り、song はループ、SFX はワンショットで再生されます。BGM と SFX は別々に管理され、SFX が使う channel だけを一時的に優先し、終了後はその channel の BGM を復元します。MIDIのwave IDも保持しますが、System Cardを持たないHuCARDでは内蔵波形をそのまま使えないため、sine / saw / triangle / square の32-sample波形へ近似します。font mask、scene pack、spritetext font、PSG pattern、画像/sprite payload は同じ HuCARD ROM bank allocator を共有するため、127 ROM bank を超える場合はビルドエラーになります。Test Play は通常の HuCARD ROM と同じく標準エミュレーターまたは外部エミュレーターへ `.pce` を渡します。
 
-HuCARD ノベルの ROM 配置は固定です。runtime code は `rom_bank1..4` を予約し、font mask / scene pack / spritetext font / PSG pattern / 画像 payload は `rom_bank5..127` の data bank に置かれます。BG / Sprite の generated visual payload は、小さい palette / map も含めて data bank に置かれ、bank0 `.rodata` には置きません。message font は 12x12 mask、1 glyph = 24 bytes なので、使用グリフ数が増えても bank0 ではなく data bank と VRAM の制約として扱われます。scene pack は 4096 bytes cache 上限を維持し、超過時は scene 分割を促す build error になります。詳細は [HuCARD VN bank layout](pce-vn-hucard-bank-layout.md) を参照してください。
+HuCARD ノベルの ROM 配置は固定です。runtime code は `rom_bank1..4` を予約し、font mask / scene pack / spritetext font / PSG pattern / 画像 payload は `rom_bank5..127` の data bank に置かれます。BG / Sprite の generated visual payload は、小さい palette / map も含めて data bank に置かれ、bank0 `.rodata` には置きません。message font は 12x12 mask、1 glyph = 24 bytes で、使用グリフ数に応じて data bank を消費します。マスクは描画時にROMから直接読まれるためVRAMに常駐せず、VRAMは文字種数にかかわらずメッセージ表示帯208タイルとblank 1タイルだけを予約します。scene pack は 4096 bytes cache 上限を維持し、超過時は scene 分割を促す build error になります。詳細は [HuCARD VN bank layout](pce-vn-hucard-bank-layout.md) を参照してください。
 
 ## Image / Sprites
 
@@ -119,6 +119,8 @@ CD-ROM2 VNのビルドは、ランタイム常駐bank128/129/130にそれぞれ�
 
 `Message` コマンドを選ぶと、同じゲーム画面上にメッセージ領域（17 文字 × 4 行、画面下部から 1 タイル上のゲーム実機と同じ位置）を重ねて表示します。ボタン送り待ちでは 4 行目の最後の 1 文字を `▼` の点滅カーソルとして使うため、本文として使える文字数は 1〜3 行目が 17 文字、4 行目が 16 文字です。話者を指定した場合は `話者：` を 1 行目に即時表示し、次の行から本文を表示します。**▶ 再生** ボタンで設定した表示速度（typewriter）で再生し、`ADPCM` ボイスがセットされていれば同時に再生して確認できます。本文に改行を入れると、ゲーム実機と同じく強制改行されます（1〜3 行目は 17 文字、4 行目は 16 文字での自動折り返しと併用）。
 
+`Choice` の上下移動は、CD-ROM2版とHuCARD版のどちらも矢印カーソルだけを更新します。表示済みの選択肢文字列やメッセージ領域全体は描き直さないため、文字欠けや全体再描画のちらつきなしに選択できます。
+
 `Message` コマンドには次の設定もあります。
 
 - **文字色**: 「指定」チェックを入れると本文（と話者名）の色を変更できます。カラーピッカーまたは `#rrggbb` の hex で指定でき、入力した色は PCE で表示可能な色（各色 8 段階）へ自動的に丸められます。未指定のときは既定の白で表示します。
@@ -136,7 +138,7 @@ Message voice は buffered ADPCM 専用です。ADPCM は direct-buffered 安全
 
 `Input` コマンドは、指定したコントローラー入力があったときに指定ラベルへ `GOTO` する分岐です。**ボタン**は 上下左右・SELECT・RUN・I・II をトグルで複数選べ（OR 条件）、**Mode** で動作を選びます。
 
-- **sync（同期待機）**: 条件の入力があるまでその場で待ち、入力されたらラベルへ移動します。
+- **sync（同期待機）**: 条件の入力があるまでその場で待ち、入力されたらラベルへ移動します。遷移先ラベルを空にした場合は、入力後に次のコマンドへ進みます。
 - **async（待機開始/次へ）**: 入力待ちを保持したまま次のコマンドへ進み、以降どのタイミングでも条件入力があればラベルへ移動します。
 - **cancel（待機終了）**: 保持中の async 入力待ちを終了します。
 
@@ -144,7 +146,7 @@ Message voice は buffered ADPCM 専用です。ADPCM は direct-buffered 安全
 
 - **文字 / Slot / X / Y**: 表示する文字列（最大 32 グリフ、`\n` で改行）と、4 つあるオーバーレイスロットのどれを使うか、左上の画面座標（ピクセル）です。同じスロットへ別の `SpriteText` を置くと差し替え、**visible のチェックを外すとそのスロットを消去**します。
 - **文字色**: カラーピッカー / `#rrggbb` で指定（PCE 表示色へ自動丸め）。**同時表示するときは 1 色**（後から描いた色が優先）になります。
-- **Blink**: `0` で常時表示、`1` 以上で指定フレームごとに点滅します。
+- **Blink**: `0` で常時表示、`1` 以上で指定フレームごとに点滅します。CD-ROM2 / HuCARDのどちらでも同じVBlank単位で動作します。
 
 SpriteTextの見える字形は本文と同じ12×12pxで、横12px・縦16pxピッチです。PCEの最小スプライトセルは16×16なので、字形を2pxの透明余白で中央に置き、隣の文字を12px間隔で重ねて配置します。ハードウェアの制約として、スプライト文字は立ち絵と同じ **SATB（最大64個）/ 1走査線16個**を共有します。CD VNは表示時にSystem Card `EX_GETFNT`の12×12 glyphを取得して4bpp化し、必要なpatternだけをVRAMへuploadします。VRAMはシナリオ内のSpriteTextが実際に使う固有glyph数（最大64）だけを予約するため、未使用分が立ち絵pattern領域を圧迫しません。`font_sprite.bin`や起動時一括転送はありません。
 

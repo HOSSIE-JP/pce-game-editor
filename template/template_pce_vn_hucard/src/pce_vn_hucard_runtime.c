@@ -41,6 +41,7 @@
 #define VN_SPRITE_SATB_PER_SLOT 12u
 #define VN_SPRITETEXT_SATB_BASE 48u
 #define VN_SPRITETEXT_MAX_GLYPHS 32u
+#define VN_SPRITETEXT_HIDDEN_Y_DELTA 256u
 #define VN_SPRITETEXT_PITCH_X VN_GLYPH_W
 #define VN_SPRITETEXT_PITCH_Y 16u
 #define VN_SPRITE_HIDDEN_Y 240u
@@ -212,9 +213,16 @@ static uint8_t message_wait_indicator_state;
 static uint8_t message_text_speed;
 static int16_t active_choice_index = -1;
 static uint8_t choice_selected_index;
+static uint8_t choice_cursor_pattern_row __attribute__((section(".bss")));
 static uint16_t wait_frames_remaining;
+static uint8_t sync_input_mask;
+static uint16_t sync_input_target = PCE_VN_NO_COMMAND;
 static uint8_t async_input_mask;
 static uint16_t async_input_target = PCE_VN_NO_COMMAND;
+static uint8_t spritetext_glyph_count;
+static uint8_t spritetext_blink_frames;
+static uint8_t spritetext_blink_timer;
+static uint8_t spritetext_blink_on = 1u;
 static uint16_t vdc_control_shadow = VN_VDC_CONTROL_BASE;
 static vn_psg_player_t psg_song __attribute__((section(".bss")));
 static vn_psg_player_t psg_sfx __attribute__((section(".bss")));
@@ -554,6 +562,26 @@ static void VN_HUCARD_CODE_TEXT map_message_window_cells(uint8_t blank)
     wait_vblank();
     map_message_window_cells_now(blank);
     service_psg();
+}
+
+/* Keep the arrow glyph in the strip row where the choice was first drawn and
+   move only its 2x2 BAT cells. Choice text starts at logical column 2, so these
+   cells never share a tile with the first option glyph. */
+static void VN_HUCARD_CODE_TEXT map_choice_cursor_cells_now(uint8_t row, uint8_t visible)
+{
+    uint8_t sub;
+    const uint8_t tc0 = (uint8_t)(((uint16_t)VN_CHOICE_CURSOR_COL * VN_GLYPH_W) >> 3);
+    const uint8_t source_row = choice_cursor_pattern_row < VN_TEXT_ROWS ? choice_cursor_pattern_row : 0u;
+    if (row >= VN_TEXT_ROWS) return;
+    for (sub = 0u; sub < 2u; sub++)
+    {
+        const uint16_t strip_tile = (uint16_t)(VN_MSG_STRIP_TILE_BASE
+            + ((uint16_t)(((source_row * 2u) + sub) * VN_MSG_TILE_COLS)) + tc0);
+        msg_bat_row[0] = ui_tile(visible ? strip_tile : VN_UI_BLANK_TILE);
+        msg_bat_row[1] = ui_tile(visible ? (uint16_t)(strip_tile + 1u) : VN_UI_BLANK_TILE);
+        vn_vram_copy((uint16_t)(((VN_TEXT_Y + (row * 2u) + sub) * VN_MAP_WIDTH) + VN_TEXT_X + tc0),
+            msg_bat_row, 4u);
+    }
 }
 
 static void VN_HUCARD_CODE_TEXT clear_window_tile_pixels(void)
@@ -1392,6 +1420,25 @@ static void VN_HUCARD_CODE_VIDEO upload_sprite_table(void)
     service_psg();
 }
 
+/* SpriteText uses the SATB tail. Move its live entries outside the visible
+   range for blink-off frames while retaining their exact layout in shadow. */
+static uint8_t VN_HUCARD_CODE_SPRITE_STATE tick_spritetext(void)
+{
+    uint8_t i;
+    if (!spritetext_glyph_count || !spritetext_blink_frames) return 0u;
+    spritetext_blink_timer++;
+    if (spritetext_blink_timer < spritetext_blink_frames) return 0u;
+    spritetext_blink_timer = 0u;
+    spritetext_blink_on = (uint8_t)(spritetext_blink_on ? 0u : 1u);
+    for (i = 0u; i < spritetext_glyph_count; i++)
+    {
+        vdc_sprite_t *entry = &sprite_shadow[(uint8_t)(VN_SPRITETEXT_SATB_BASE + i)];
+        if (spritetext_blink_on) entry->y = (uint16_t)(entry->y - VN_SPRITETEXT_HIDDEN_Y_DELTA);
+        else entry->y = (uint16_t)(entry->y + VN_SPRITETEXT_HIDDEN_Y_DELTA);
+    }
+    return 1u;
+}
+
 static void VN_HUCARD_CODE_SPRITE_STATE hide_sprite_slot(uint8_t slot)
 {
     if (slot >= VN_SPRITE_SLOT_COUNT) return;
@@ -1647,7 +1694,7 @@ static void VN_HUCARD_CODE_SPRITE_STATE set_sprite(const pce_vn_command_t *comma
 static void VN_HUCARD_CODE_SPRITE_STATE tick_sprites(void)
 {
     uint8_t slot;
-    uint8_t dirty = 0u;
+    uint8_t dirty = tick_spritetext();
     for (slot = 0u; slot < VN_SPRITE_SLOT_COUNT; slot++)
     {
         vn_sprite_slot_t *state = &sprite_slots[slot];
@@ -1740,6 +1787,10 @@ static void VN_HUCARD_CODE_TEXT upload_font_sprite_patterns(void)
 static void VN_HUCARD_CODE_TEXT clear_spritetext(void)
 {
     uint8_t i;
+    spritetext_glyph_count = 0u;
+    spritetext_blink_frames = 0u;
+    spritetext_blink_timer = 0u;
+    spritetext_blink_on = 1u;
     for (i = VN_SPRITETEXT_SATB_BASE; i < 64u; i++)
     {
         sprite_shadow[i].y = VN_SPRITE_HIDDEN_Y;
@@ -1769,7 +1820,11 @@ static void VN_HUCARD_CODE_TEXT draw_spritetext(const pce_vn_command_t *command)
     }
     set_spritetext_color((uint16_t)command->message_index);
     offset = (uint16_t)command->asset_index;
-    for (i = 0u; i < command->arg1 && written < VN_SPRITETEXT_MAX_GLYPHS; i++)
+    for (i = 0u;
+         i < command->arg1
+            && written < VN_SPRITETEXT_MAX_GLYPHS
+            && (uint8_t)(VN_SPRITETEXT_SATB_BASE + written) < 64u;
+         i++)
     {
         const uint8_t glyph = scene_pack_u8(&active_scene_pack, (uint16_t)(offset + i));
         vdc_sprite_t *entry;
@@ -1787,6 +1842,8 @@ static void VN_HUCARD_CODE_TEXT draw_spritetext(const pce_vn_command_t *command)
         col++;
         written++;
     }
+    spritetext_glyph_count = written;
+    spritetext_blink_frames = command->arg0;
     upload_sprite_table();
 #else
     (void)command;
@@ -1962,6 +2019,7 @@ static void VN_HUCARD_CODE_TEXT draw_choice_options(void)
     if (active_choice_index < 0) return;
     if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, &choice)) return;
     write_ui_text_palette(ui_text_color_word(PCE_VN_MESSAGE_COLOR_NONE));
+    choice_cursor_pattern_row = choice_selected_index;
     restore_window_display = begin_message_window_vram_update();
     clear_window_tile_pixels();
     for (row = 0u; row < choice.option_count && row < VN_TEXT_ROWS; row++)
@@ -1983,38 +2041,16 @@ static void VN_HUCARD_CODE_TEXT draw_choice_options(void)
     end_message_window_vram_update(restore_window_display);
 }
 
-static void VN_HUCARD_CODE_TEXT draw_choice_cursor_row(const vn_choice_ref_t *choice, uint8_t row, uint8_t selected)
-{
-    uint16_t pos = 0u;
-    uint16_t glyph = PCE_VN_GLYPH_END;
-    pce_vn_choice_option_t option;
-    if (!choice || row >= choice->option_count || row >= VN_TEXT_ROWS) return;
-    if (!scene_pack_read_choice_option(&active_scene_pack, choice, row, &option)) return;
-    composer_prev_valid = 0u;
-    clear_message_glyph_area(VN_CHOICE_CURSOR_COL, row);
-    clear_message_glyph_area((uint8_t)(VN_CHOICE_CURSOR_COL + 1u), row);
-    if (selected)
-    {
-        draw_message_glyph_at(PCE_VN_CHOICE_CURSOR_GLYPH, VN_CHOICE_CURSOR_COL, row);
-    }
-    if (option.glyph_count)
-    {
-        glyph = vn_glyph_decode(option.glyphs, pos);
-    }
-    if (glyph != PCE_VN_GLYPH_END && glyph != PCE_VN_GLYPH_NEWLINE)
-    {
-        draw_message_glyph_at(glyph, VN_CHOICE_TEXT_COL, row);
-    }
-    composer_prev_valid = 0u;
-}
-
 static void VN_HUCARD_CODE_TEXT update_choice_cursor(uint8_t old_index, uint8_t new_index)
 {
-    vn_choice_ref_t choice;
     if (active_choice_index < 0 || old_index == new_index) return;
-    if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, &choice)) return;
-    if (old_index < choice.option_count) draw_choice_cursor_row(&choice, old_index, 0u);
-    if (new_index < choice.option_count) draw_choice_cursor_row(&choice, new_index, 1u);
+    /* main() has already entered this frame's VBlank. Updating only BAT cells
+       keeps every composited option glyph untouched and changes both rows in
+       the same frame. handle_choice_input already bounded both indices against
+       the active choice; the BAT helper also rejects rows outside the window,
+       so do not re-enter the scene-pack decoder from this text-bank helper. */
+    map_choice_cursor_cells_now(old_index, 0u);
+    map_choice_cursor_cells_now(new_index, 1u);
 }
 
 static void VN_HUCARD_CODE_TEXT start_choice(uint8_t choice_index)
@@ -2075,6 +2111,8 @@ static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index)
     active_message_index = -1;
     active_choice_index = -1;
     wait_frames_remaining = 0u;
+    sync_input_mask = 0u;
+    sync_input_target = PCE_VN_NO_COMMAND;
     async_input_mask = 0u;
     async_input_target = PCE_VN_NO_COMMAND;
 }
@@ -2176,8 +2214,8 @@ static void VN_HUCARD_CODE_SCRIPT advance_story(void)
             }
             else
             {
-                async_input_mask = command.arg0;
-                async_input_target = command.x;
+                sync_input_mask = command.arg0;
+                sync_input_target = command.x;
                 return;
             }
         }
@@ -2274,11 +2312,12 @@ int main(void)
         pad = pce_joypad_read();
         pressed = (uint8_t)(pad & (uint8_t)~last_pad);
         last_pad = pad;
-        if (async_input_mask && (pressed & async_input_mask) && async_input_target != PCE_VN_NO_COMMAND)
+        if (async_input_mask && (pressed & async_input_mask))
         {
-            current_command = async_input_target;
+            const uint16_t target = async_input_target;
             async_input_mask = 0u;
             async_input_target = PCE_VN_NO_COMMAND;
+            if (target != PCE_VN_NO_COMMAND) current_command = target;
             reset_message_wait_indicator_state();
             active_message_index = -1;
             active_choice_index = -1;
@@ -2300,6 +2339,18 @@ int main(void)
         if (active_choice_index >= 0)
         {
             handle_choice_input(pressed);
+            goto frame_end;
+        }
+        if (sync_input_mask)
+        {
+            if (pressed & sync_input_mask)
+            {
+                const uint16_t target = sync_input_target;
+                sync_input_mask = 0u;
+                sync_input_target = PCE_VN_NO_COMMAND;
+                if (target != PCE_VN_NO_COMMAND) current_command = target;
+                advance_story();
+            }
             goto frame_end;
         }
         if (active_message_index >= 0)
@@ -2333,17 +2384,6 @@ int main(void)
         {
             wait_frames_remaining--;
             if (!wait_frames_remaining) advance_story();
-            goto frame_end;
-        }
-        if (async_input_mask)
-        {
-            if (pressed & async_input_mask)
-            {
-                current_command = async_input_target;
-                async_input_mask = 0u;
-                async_input_target = PCE_VN_NO_COMMAND;
-                advance_story();
-            }
             goto frame_end;
         }
         advance_story();

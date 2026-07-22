@@ -104,6 +104,13 @@ addressは対象jp-v3 ROMの公開ABI/trace gateです。違うprofileへ流用�
 - message glyphは12×12→24-byte mask cache、SpriteTextは12×12→透明余白付き16×16 hardware sprite patternへ4bpp化し、横12pxピッチでVRAM uploadされる。16×16 patternは2 pattern unitを使うため、`PCE_VN_FONT_SPRITE_PATTERN_BASE`は必ず偶数境界に置く（VDCはSATB pattern値の下位bitを無視する）。
 - JIS第一水準以外はruntime化する前にbuild errorになる。
 
+## HuCARD SpriteText / Input
+
+- `SpriteText.blinkFrames > 0`では、指定フレームごとにSATB末尾の文字が表示／非表示へ切り替わる。
+- 点滅と立ち絵アニメーション／移動が同じフレームに重なっても、SATB全体のVRAM転送は1回にまとまる。
+- 遷移先ラベルなしのsync `Input`は入力まで待機し、入力後は直後のcommandから続行する。`PCE_VN_NO_COMMAND`を`current_command`へ代入しない。
+- async `Input`は後続commandを実行しながら監視し、sync待機状態と共有しない。
+
 ## VDC/SATB
 
 VDCのselect/data interfaceは再入不可です。VDC書込、SATB DMA、overlay/bank switch、BIOS callのIRQ lock範囲を確認します。
@@ -113,6 +120,7 @@ VDCのselect/data interfaceは再入不可です。VDC書込、SATB DMA、overla
 - `VN_VDC_MEMORY_CONTROL`のsprite cycle bitを落とさない。
 - BG `map_vram.bin`は32-tile source rowとして`width_tiles`分だけコピーし、余白のblank tileを残す。
 - 未使用SATB entryはhidden Yへ逃がす。zero entryを無効spriteとみなさない。
+- choice表示中に上下を連打し、CD-ROM2/HuCARDとも選択肢本文のpixelが変化しないことを確認する。カーソル移動は旧行/新行の2×2 BATセルだけを同一VBlank内で差し替え、208-tile message stripのclear、全option glyphの再描画、window BATのhide/restoreを行わない。
 
 ## ADPCMと標準WASM
 

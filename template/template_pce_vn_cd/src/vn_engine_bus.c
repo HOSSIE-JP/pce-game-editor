@@ -559,6 +559,12 @@ static uint8_t VN_CD_ASYNC_ENTRY_CODE vn_cd_async_entry(uint8_t op)
         upload_sprite_table_impl();
         return 1u;
     }
+    if (op == VN_CD_ASYNC_OP_MAP_CHOICE_CURSOR)
+    {
+        map_choice_cursor_cells_impl(vn_visual_cache_arg_x, 0u);
+        map_choice_cursor_cells_impl(vn_visual_cache_arg_y, 1u);
+        return 1u;
+    }
     return vn_cd_async_status;
 }
 

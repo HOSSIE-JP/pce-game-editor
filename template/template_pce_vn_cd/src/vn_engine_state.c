@@ -38,6 +38,7 @@ static signed char screen_shake_y = 0;
 static signed int active_message_index;
 static signed int active_choice_index;
 static uint8_t choice_selected_index = 0;
+static uint8_t choice_cursor_pattern_row __attribute__((section(".bss")));
 static uint16_t wait_frames_remaining = 0;
 static uint8_t message_glyph_pos = 0;   /* entry index into the current message (0..glyph_count) */
 static uint16_t message_glyph_byte = 0;  /* byte cursor into the variable-length glyph stream */
@@ -313,6 +314,7 @@ static void VN_CD_ASYNC_CODE fade_palette_impl(const pce_editor_data_ref_t *pale
 static void VN_CD_ASYNC_CODE clear_map_rect_at_dest_impl(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles);
 static uint8_t VN_CD_ASYNC_CODE adpcm_voice_fits_buffer_impl(void);
 static void VN_CD_ASYNC_CODE upload_sprite_table_impl(void);
+static void VN_CD_ASYNC_CODE map_choice_cursor_cells_impl(uint8_t row, uint8_t visible);
 static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_data_read(pce_sector_t sector, uint8_t dest_kind, uint8_t dest_bank, uint16_t dest_addr, uint16_t byte_count);
 static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_scene_pack_read(pce_sector_t sector, uint16_t dest_addr, uint16_t byte_count);
 static void VN_BANKED_CODE2 vn_cd_async_service_frame(void);

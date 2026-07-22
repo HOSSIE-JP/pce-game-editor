@@ -56,6 +56,8 @@ HuCARD VN の `extraDataFiles` は、8KB 未満でも必ず banked `pce_editor_d
 
 Message font は 12x12 1bpp mask で、1 glyph = 24 bytes です。1000 glyph でも約 24000 bytes の data bank 消費になり、bank0 `.rodata` は増えません。8KB chunk 境界をまたぐ glyph mask は `data_ref_byte_at()` が byte 単位で bank を map し直して読みます。
 
+Message glyph mask はVRAMへ一括転送しません。runtimeは文字を合成するたびに `pce_vn_font_data_ref` から12 wordを直接読み、26x8タイルのメッセージ表示帯へ書き込みます。このためVRAM予約は表示帯208タイル＋blank 1タイルの固定量で、使用glyph数はROM data bankとscene packだけを増やします。
+
 Glyph stream は CD-ROM2 VN と同じ binary layout です。glyph index 0..252 は 1 byte、253 以上は `0xfd` + 16-bit little-endian で escape encode します。`0xfe` は newline、`0xff` は end marker です。
 
 Scene pack は現行 runtime cache の 4096 bytes 上限を維持します。glyph index 253 以上が多い scene は glyph stream が増えやすいため、4096 bytes を超えた場合は scene を分割してください。build は scene 名と byte size を含む error で停止します。

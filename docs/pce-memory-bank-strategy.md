@@ -60,6 +60,7 @@ package loaderは対象busを停止してstatusを確認し、宣言byte数だ�
 - sprite animationの16-bit per-frame delay tableはプロジェクトのanimation数に応じて増えるためbank128 resident rodataへ置かず、`PCE_VN_DATA_SECTION`でbank132へ置きます。bank121 visual helperのanimation tickへ入るresident wrapperは、MPR4を切り替える前にMPR6をbank132へmapします。
 - BG行転送後の左右margin clear (`clear_bg_map_side_margins`) はbank129へ置きます。Full BG対応コードが有効なprojectでもbank128のload imageを8KB未満に保つためで、呼出先のresident VDC helperはslot2から利用できます。
 - bank122はdirect CD/SCSI処理だけでなく、palette upload/fade、部分BAT clear、SATB upload、ADPCM buffered容量判定を担うruntime support overlayです。dispatcherは呼出元のMPR4とMPR6を保存・復元するためbank121 visual helperからも呼べますが、bank122実行中にbank130へmapするhelperは呼びません。
+- choiceカーソル移動の2×2 BAT差分更新本体もbank122 runtime supportへ置きます。上下入力側はbank128の薄いdispatchとし、bank130の常駐512-byte余白を消費せず、同一VBlank内で旧行をblank、新行を初期描画済みarrow patternへ差し替えます。
 - bank122のruntime-support op番号は疎に保ちます。連番へ詰めるとLLVM-MOSがresident `.rodata`にcross-section jump tableを生成し、`llvm-objcopy`が`.vn_cd_async_code`を抽出・除去できなくなります。
 - sprite pattern cache loadの調停は、CD metadata accessとbank121 visual cache呼出を橋渡しするためbank128の薄いresident wrapperに置きます。大きな転送本体をresidentへ戻してはいけません。
 - overlay実行中はbank130が見えません。`VN_OVERLAY_CODE`から呼ぶhelperはbank129か本当に必要な最小bank128へ置き、bank130へ置きません。

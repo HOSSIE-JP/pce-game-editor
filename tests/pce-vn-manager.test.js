@@ -736,7 +736,7 @@ test('PCE VN manager escape-encodes glyph indices past 252', () => {
   assert.match(hucardRuntime, /active_scene_pack\.data = scene_pack_storage;/);
 });
 
-test('PCE VN font budget raises the glyph cap well past the old 254 limit', () => {
+test('PCE VN font budget keeps glyph masks in ROM and reserves only message tiles in VRAM', () => {
   const vnManager = loadVnManager();
   const tileBase = vnManager.DEFAULT_FONT_TILE_BASE;
   // 300 distinct glyphs (impossible under the old 254 cap) build with no drops.
@@ -744,15 +744,20 @@ test('PCE VN font budget raises the glyph cap well past the old 254 limit', () =
   assert.equal(wide.usedGlyphCount, 300);
   assert.equal(wide.droppedGlyphCount, 0);
   assert.equal(wide.errors.length, 0);
-  // The headline cap is far above 254 but still finite (VRAM-bound).
+  assert.equal(wide.vramEndWord, (tileBase + 209) * 16);
+  // More mask data consumes ROM, but must not move the sprite VRAM boundary.
+  const narrow = vnManager.computeFontBudget(1, tileBase);
+  assert.ok(wide.byteSize > narrow.byteSize);
+  assert.equal(wide.vramEndWord, narrow.vramEndWord);
+  // The headline cap is far above 254 but remains finite for ROM/scene budgets.
   assert.ok(vnManager.VN_MAX_GLYPH_COUNT > 254);
   // Beyond the headline cap, the extra glyphs are dropped with a warning.
   const dropped = vnManager.computeFontBudget(4000, tileBase);
   assert.equal(dropped.usedGlyphCount, vnManager.VN_MAX_GLYPH_COUNT);
   assert.equal(dropped.droppedGlyphCount, 4000 - vnManager.VN_MAX_GLYPH_COUNT);
   assert.ok(dropped.warnings.length > 0);
-  // A high tileBase pushes even the capped mask region past the SATB: build error.
-  const overflow = vnManager.computeFontBudget(vnManager.VN_MAX_GLYPH_COUNT, 1500);
+  // A high tileBase can still push the fixed message strip past the SATB.
+  const overflow = vnManager.computeFontBudget(vnManager.VN_MAX_GLYPH_COUNT, 1900);
   assert.ok(overflow.errors.length > 0, 'expected a VRAM-overflow build error');
 });
 
@@ -878,7 +883,7 @@ test('PCE VN VRAM layout reserves BG/message/sprite exclusively and rejects over
         { id: 'small', type: 'sprite', options: { cellWidth: 16, cellHeight: 16 }, data: { generated: { tileCount: 1 } } },
         { id: 'tall', type: 'sprite', options: { cellWidth: 32, cellHeight: 64 }, data: { generated: { tileCount: 8 } } },
       ],
-    }, { tileBase: 540, maskEndWord: 0 }, 705, 0, {
+    }, { tileBase: 540, vramEndWord: 0 }, 705, 0, {
       spriteAssetIds: new Set(['small', 'tall']),
       spriteSlotLayouts: [['small', 'tall']],
     }).filter((region) => region.name === 'sprite patterns');
@@ -957,6 +962,36 @@ test('PCE VN packs Full BG SpriteText after ordinary sprite slots when that avoi
     spritePatternBase: packed.spritePatternBase,
     spriteSlotPatternLayout: packed.spriteSlotPatternLayout,
   }));
+});
+
+test('PCE VN HuCARD layout does not reserve banked message glyph masks in VRAM', () => {
+  const vnManager = loadVnManager();
+  const fontBudget = vnManager.computeFontBudget(451, vnManager.DEFAULT_FONT_TILE_BASE);
+  const assetDoc = {
+    assets: [
+      { id: 'full_bg', type: 'image', options: { tileBase: 64 }, data: { generated: { tileCount: 896 } } },
+      { id: 'slot0', type: 'sprite', data: { generated: { tileCount: 80 } } },
+      { id: 'slot1', type: 'sprite', data: { generated: { tileCount: 80 } } },
+      { id: 'slot2', type: 'sprite', data: { generated: { tileCount: 104 } } },
+    ],
+  };
+  const usage = {
+    imageAssetIds: new Set(['full_bg']),
+    spriteAssetIds: new Set(['slot0', 'slot1', 'slot2']),
+    spriteSlotLayouts: [['slot0', 'slot1', 'slot2', '']],
+    fullScreenBgAssetIds: new Set(['full_bg']),
+    fullScreenBgUsesSprites: false,
+    fullScreenBgUsesSpriteText: true,
+  };
+  const packed = vnManager.computeVnHardwareSpriteLayout(assetDoc, fontBudget, 17, usage);
+
+  assert.equal(fontBudget.vramEndWord, (vnManager.DEFAULT_FONT_TILE_BASE + 209) * 16);
+  assert.doesNotThrow(() => vnManager.validateVnVramLayout(assetDoc, fontBudget, packed.fontSpritePatternBase, 17, {
+    ...usage,
+    spritePatternBase: packed.spritePatternBase,
+    spriteSlotPatternLayout: packed.spriteSlotPatternLayout,
+  }));
+  assert.ok(packed.endPatternBase <= 0x7f00 / 32);
 });
 
 test('PCE VN manager default scene does not auto-play the first CD-DA asset', () => {
@@ -2206,6 +2241,76 @@ test('PCE VN Sprite replacement isolates pattern, palette, and temporary SATB hi
   assert.match(hucardSet, /refresh_scene_sprites\(upload_pattern_mask\)/);
 });
 
+test('PCE VN choice cursor movement remaps only BAT cells on CD and HuCARD', () => {
+  const cdRuntime = readRuntimeSource().replace(/\r\n/g, '\n');
+  const cdConfig = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'vn_engine_config.h'),
+    'utf-8',
+  ).replace(/\r\n/g, '\n');
+  const hucardRuntime = fs.readFileSync(
+    path.join(__dirname, '..', 'template', 'template_pce_vn_hucard', 'src', 'pce_vn_hucard_runtime.c'),
+    'utf-8',
+  ).replace(/\r\n/g, '\n');
+  const sliceFunction = (source, startMarker, endMarker) => {
+    const start = source.indexOf(startMarker);
+    const end = source.indexOf(endMarker, start);
+    assert.notEqual(start, -1, `missing function marker: ${startMarker}`);
+    assert.notEqual(end, -1, `missing function end marker: ${endMarker}`);
+    return source.slice(start, end);
+  };
+
+  assert.match(cdConfig, /#define VN_CHOICE_CURSOR_COL 0u/);
+  assert.match(cdConfig, /#define VN_CHOICE_TEXT_COL 2u/);
+  const cdMapCursor = sliceFunction(
+    cdRuntime,
+    'static void VN_CD_ASYNC_CODE map_choice_cursor_cells_impl',
+    'static void VN_BANKED_CODE2 clear_window_tile_pixels',
+  );
+  assert.match(cdMapCursor, /choice_cursor_pattern_row/);
+  assert.match(cdMapCursor, /write_map_words\([\s\S]*msg_bat_row, 2u\);/);
+  const cdUpdateCursor = sliceFunction(
+    cdRuntime,
+    'static void VN_RESIDENT_CODE update_choice_cursor',
+    'static void start_choice',
+  );
+  assert.match(cdUpdateCursor, /vn_wait_next_vblank\(\);/);
+  assert.match(cdUpdateCursor, /vn_visual_cache_arg_x = old_index;/);
+  assert.match(cdUpdateCursor, /vn_visual_cache_arg_y = new_index;/);
+  assert.match(cdUpdateCursor, /vn_cd_async_call_bank122\(VN_CD_ASYNC_OP_MAP_CHOICE_CURSOR\);/);
+  assert.doesNotMatch(cdUpdateCursor, /draw_choice_options|clear_window_tile_pixels|begin_message_window_vram_update|call_overlay_draw_message_glyph_at/);
+  assert.match(cdRuntime, /if \(op == VN_CD_ASYNC_OP_MAP_CHOICE_CURSOR\)[\s\S]*map_choice_cursor_cells_impl\(vn_visual_cache_arg_x, 0u\);[\s\S]*map_choice_cursor_cells_impl\(vn_visual_cache_arg_y, 1u\);/);
+  const cdChoiceInput = sliceFunction(
+    cdRuntime,
+    'static uint8_t handle_choice_input',
+    'static void set_background',
+  );
+  assert.match(cdChoiceInput, /update_choice_cursor\(old_index, choice_selected_index\);/);
+  assert.doesNotMatch(cdChoiceInput, /draw_choice_options\(\);/);
+
+  const hucardMapCursor = sliceFunction(
+    hucardRuntime,
+    'static void VN_HUCARD_CODE_TEXT map_choice_cursor_cells_now',
+    'static void VN_HUCARD_CODE_TEXT clear_window_tile_pixels',
+  );
+  assert.match(hucardMapCursor, /choice_cursor_pattern_row/);
+  assert.match(hucardMapCursor, /vn_vram_copy\([\s\S]*msg_bat_row, 4u\);/);
+  const hucardUpdateCursor = sliceFunction(
+    hucardRuntime,
+    'static void VN_HUCARD_CODE_TEXT update_choice_cursor',
+    'static void VN_HUCARD_CODE_TEXT start_choice',
+  );
+  assert.match(hucardUpdateCursor, /map_choice_cursor_cells_now\(old_index, 0u\);/);
+  assert.match(hucardUpdateCursor, /map_choice_cursor_cells_now\(new_index, 1u\);/);
+  assert.doesNotMatch(hucardUpdateCursor, /clear_message_glyph_area|draw_message_glyph_at|scene_pack_read_choice|draw_choice_options/);
+  const hucardChoiceInput = sliceFunction(
+    hucardRuntime,
+    'static uint8_t VN_HUCARD_CODE_TEXT handle_choice_input',
+    'static void VN_HUCARD_CODE_SCRIPT show_scene',
+  );
+  assert.match(hucardChoiceInput, /update_choice_cursor\(old_index, choice_selected_index\);/);
+  assert.doesNotMatch(hucardChoiceInput, /draw_choice_options\(\);/);
+});
+
 test('PCE VN manager omits the sprite font when no scene uses spritetext', () => {
   const projectDir = makeTempDir('pce-vn-no-spritetext-');
   const vnManager = loadVnManager();
@@ -2925,6 +3030,10 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.match(runtime, /static void VN_HUCARD_CODE_SPRITE_STATE plan_sprite_layout\(void\)/);
   assert.match(runtime, /static uint8_t VN_HUCARD_CODE_SPRITE_STATE start_sprite_move\(const pce_vn_command_t \*command\)/);
   assert.match(runtime, /static void VN_HUCARD_CODE_SPRITE_STATE tick_sprites\(void\)/);
+  assert.match(runtime, /static uint8_t VN_HUCARD_CODE_SPRITE_STATE tick_spritetext\(void\)/);
+  assert.match(runtime, /uint8_t dirty = tick_spritetext\(\);/);
+  assert.match(runtime, /spritetext_blink_frames = command->arg0;/);
+  assert.match(runtime, /VN_SPRITETEXT_HIDDEN_Y_DELTA/);
   assert.match(runtime, /static void VN_HUCARD_CODE_VIDEO draw_sprite_slot\(uint8_t slot, uint8_t upload_patterns\)/);
   assert.match(runtime, /static void VN_HUCARD_CODE_VIDEO upload_sprite_table_now\(void\)/);
   assert.match(runtime, /pce_vn_hucard_map_runtime_banks\(\);/);
@@ -2983,6 +3092,18 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.match(hucardUploadSatbSource, /wait_vblank\(\);[\s\S]*upload_sprite_table_now\(\);[\s\S]*service_psg\(\);/);
   assert.match(runtime, /static void VN_HUCARD_CODE_VIDEO upload_sprite_table_now\(void\)[\s\S]*pce_vdc_poke\(VDC_REG_SATB_START, VN_SATB_ADDR\);/);
   assert.match(runtime, /pce_vdc_poke\(VDC_REG_BG_SCROLL_X, 0u\);[\s\S]*pce_vdc_poke\(VDC_REG_BG_SCROLL_Y, 0u\);[\s\S]*clear_sprites\(\);/);
+  assert.match(runtime, /static uint8_t sync_input_mask;/);
+  assert.match(runtime, /static uint16_t sync_input_target = PCE_VN_NO_COMMAND;/);
+  const hucardAdvanceStart = runtime.lastIndexOf('static void VN_HUCARD_CODE_SCRIPT advance_story(void)');
+  const hucardMainStart = runtime.indexOf('int main(void)');
+  assert.notEqual(hucardAdvanceStart, -1);
+  assert.notEqual(hucardMainStart, -1);
+  const hucardAdvanceSource = runtime.slice(hucardAdvanceStart, hucardMainStart);
+  const hucardMainSource = runtime.slice(hucardMainStart);
+  assert.match(hucardAdvanceSource, /command\.flags == PCE_VN_INPUT_MODE_ASYNC[\s\S]*async_input_mask = command\.arg0;[\s\S]*else[\s\S]*sync_input_mask = command\.arg0;/);
+  assert.match(hucardMainSource, /if \(sync_input_mask\)[\s\S]*const uint16_t target = sync_input_target;[\s\S]*if \(target != PCE_VN_NO_COMMAND\) current_command = target;[\s\S]*advance_story\(\);/);
+  assert.doesNotMatch(hucardMainSource, /current_command = async_input_target;/);
+  assert.equal((hucardMainSource.match(/if \(async_input_mask/g) || []).length, 1);
   assert.match(runtime, /"csl\\n"[\s\S]*vn_hu_wait_vblank_start_outer[\s\S]*"csh\\n"/);
   assert.match(runtime, /copy_data_ref_to_vram_guarded/);
   assert.match(runtime, /service_psg_during_blocking_work/);
@@ -3052,7 +3173,7 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   const hucardUpdateChoiceEnd = runtime.indexOf('static void VN_HUCARD_CODE_TEXT start_choice', hucardUpdateChoiceStart);
   assert.doesNotMatch(runtime.slice(hucardUpdateChoiceStart, hucardUpdateChoiceEnd), /service_psg\(\);/);
   const hucardChoiceDrawStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT draw_choice_options');
-  const hucardChoiceDrawEnd = runtime.indexOf('static void VN_HUCARD_CODE_TEXT draw_choice_cursor_row', hucardChoiceDrawStart);
+  const hucardChoiceDrawEnd = runtime.indexOf('static void VN_HUCARD_CODE_TEXT update_choice_cursor', hucardChoiceDrawStart);
   assert.notEqual(hucardChoiceDrawStart, -1);
   assert.notEqual(hucardChoiceDrawEnd, -1);
   const hucardChoiceDrawSource = runtime.slice(hucardChoiceDrawStart, hucardChoiceDrawEnd);

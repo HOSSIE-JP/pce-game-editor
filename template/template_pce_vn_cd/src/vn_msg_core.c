@@ -155,6 +155,37 @@ static void VN_BANKED_CODE2 map_message_window_cells(uint8_t blank)
     }
 }
 
+/* The arrow pattern remains in the strip row where draw_choice_options first
+   rendered it. Cursor movement remaps only its 2x2 BAT cells; option glyph
+   patterns are never cleared or redrawn. The VDC body belongs to the existing
+   bank122 runtime-support overlay so this UI delta does not consume bank130's
+   guarded resident headroom. */
+static void VN_CD_ASYNC_CODE map_choice_cursor_cells_impl(uint8_t row, uint8_t visible)
+{
+    uint8_t sub;
+    const uint8_t tc0 = (uint8_t)(((uint16_t)VN_CHOICE_CURSOR_COL * VN_GLYPH_W) >> 3);
+    const uint8_t source_row = choice_cursor_pattern_row < VN_TEXT_ROWS ? choice_cursor_pattern_row : 0u;
+#if defined(__PCE_CD__)
+    uint8_t irq;
+#endif
+    if (row >= VN_TEXT_ROWS) return;
+#if defined(__PCE_CD__)
+    irq = vn_vdc_irq_lock();
+#endif
+    for (sub = 0u; sub < 2u; sub++)
+    {
+        const uint16_t strip_tile = (uint16_t)(VN_MSG_STRIP_TILE_BASE
+            + ((uint16_t)(((source_row * 2u) + sub) * VN_MSG_TILE_COLS)) + tc0);
+        msg_bat_row[0] = ui_tile(visible ? strip_tile : PCE_VN_BLANK_TILE);
+        msg_bat_row[1] = ui_tile(visible ? (uint16_t)(strip_tile + 1u) : PCE_VN_BLANK_TILE);
+        write_map_words((uint16_t)(((VN_TEXT_Y + (row * 2u) + sub) * VN_MAP_WIDTH) + VN_TEXT_X + tc0),
+            msg_bat_row, 2u);
+    }
+#if defined(__PCE_CD__)
+    vn_vdc_irq_unlock(irq);
+#endif
+}
+
 static void VN_BANKED_CODE2 clear_window_tile_pixels(void)
 {
     uint8_t tr;
@@ -634,6 +665,7 @@ static void VN_BANKED_CODE2 draw_choice_options(void)
     if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, choice)) return;
     /* Choices always use the default UI text color, not a prior message's tint. */
     apply_message_text_color(PCE_VN_MESSAGE_COLOR_NONE);
+    choice_cursor_pattern_row = choice_selected_index;
     restore_window_display = begin_message_window_vram_update();
     clear_window_tile_pixels();
     for (row = 0u; row < choice->option_count && row < VN_TEXT_ROWS; row++)
@@ -642,13 +674,13 @@ static void VN_BANKED_CODE2 draw_choice_options(void)
         uint16_t pos = 0u;
         pce_vn_choice_option_t *option = VN_CHOICE_OPTION_SCRATCH;
         if (!scene_pack_read_choice_option(&active_scene_pack, choice, row, option)) continue;
-        call_overlay_draw_message_glyph_at(row == choice_selected_index ? PCE_VN_CHOICE_CURSOR_GLYPH : 0u, 0u, row);
-        for (col = 0u; col < option->glyph_count && col + 1u < VN_TEXT_COLS; col++)
+        call_overlay_draw_message_glyph_at(row == choice_selected_index ? PCE_VN_CHOICE_CURSOR_GLYPH : 0u, VN_CHOICE_CURSOR_COL, row);
+        for (col = 0u; col < option->glyph_count && (uint8_t)(col + VN_CHOICE_TEXT_COL) < VN_TEXT_COLS; col++)
         {
             const uint16_t glyph = vn_glyph_decode(option->glyphs, pos);
             pos = (uint16_t)(pos + vn_glyph_stride(option->glyphs, pos));
             if (glyph == PCE_VN_GLYPH_END) break;
-            call_overlay_draw_message_glyph_at(glyph, (uint8_t)(col + 1u), row);
+            call_overlay_draw_message_glyph_at(glyph, (uint8_t)(col + VN_CHOICE_TEXT_COL), row);
         }
         engine_service();
     }
@@ -657,5 +689,16 @@ static void VN_BANKED_CODE2 draw_choice_options(void)
     {
         delay_frame();
     }
+}
+
+static void VN_RESIDENT_CODE update_choice_cursor(uint8_t old_index, uint8_t new_index)
+{
+    if (old_index == new_index) return;
+    /* Land both BAT deltas in one VBlank without hiding or rebuilding the
+       choice window. */
+    vn_visual_cache_arg_x = old_index;
+    vn_visual_cache_arg_y = new_index;
+    vn_wait_next_vblank();
+    (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_MAP_CHOICE_CURSOR);
 }
 

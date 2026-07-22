@@ -646,18 +646,20 @@ static uint8_t handle_choice_input(uint8_t pressed)
     if (!choice->option_count) return 0u;
     if (pressed & PAD_UP)
     {
+        const uint8_t old_index = choice_selected_index;
         if (choice_selected_index) choice_selected_index--;
         else choice_selected_index = (uint8_t)(choice->option_count - 1u);
         VN_MAP_BANK130_FOR_CODE();
-        draw_choice_options();
+        update_choice_cursor(old_index, choice_selected_index);
         return 1u;
     }
     if (pressed & PAD_DOWN)
     {
+        const uint8_t old_index = choice_selected_index;
         choice_selected_index++;
         if (choice_selected_index >= choice->option_count) choice_selected_index = 0u;
         VN_MAP_BANK130_FOR_CODE();
-        draw_choice_options();
+        update_choice_cursor(old_index, choice_selected_index);
         return 1u;
     }
     if (pressed & (PAD_I | PAD_II | PAD_RUN))

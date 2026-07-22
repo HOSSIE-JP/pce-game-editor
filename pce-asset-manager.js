@@ -2474,7 +2474,7 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
       const paletteBank = numeric(options.paletteBank, 0, 15, 0);
       // Hard error (not just a warning) when the deduplicated sprite patterns
       // still overrun the SATB VRAM area: shipping this silently corrupts the
-      // sprite attribute table and the VN message/glyph VRAM below it.
+      // sprite attribute table and the VN message display VRAM below it.
       const patternWords = Math.ceil(tiles.length / 2);
       if (patternWords && (patternBase * 32) + patternWords > PCE_SATB_VRAM_WORD) {
         throw new Error(`Sprite "${asset.id}" patterns (${patternWords} words from VRAM word ${patternBase * 32}) overrun the SATB at 0x${PCE_SATB_VRAM_WORD.toString(16)}. Lower the sprite tileBase or reduce the sheet (unique cells: ${Math.floor(tiles.length / 128)}).`);
