@@ -24,6 +24,7 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_impl(const vn_scene_pack_c
 static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_case_impl(const vn_scene_pack_cache_t *cache, const vn_switch_ref_t *branch, uint8_t case_index, pce_vn_switch_case_t *branch_case);
 static void VN_OVERLAY_CODE set_variable_value_impl(signed int variable_index, signed int value);
 static uint8_t VN_OVERLAY_CODE copy_adpcm_voice_impl(signed int voice_index);
+static void VN_OVERLAY_CODE cdda_command_impl(signed int asset_index);
 #endif
 /* PHASE_A_SPLIT:END */
 #if defined(__PCE_CD__)
@@ -312,10 +313,9 @@ static void VN_BANKED_CODE resume_cdda_after_cd_data_access(void)
     const uint8_t restore_display_after_cdda = (uint8_t)!pending_display_enable;
     if (!(cdda_state & VN_CDDA_STATE_RESUME_PENDING)) return;
     if (cdda_resume_defer_depth) return;
-    pce_sector_t end = {0};
     map_vn_data();
     vn_cd_bios_irq_open();
-    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_UNTIL_END, end, VN_CDDA_PLAY_MODE());
+    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_start, PCE_CDB_LOCATION_TYPE_SECTOR, cdda_resume_end, VN_CDDA_PLAY_MODE());
     cdda_state = (uint8_t)((cdda_state | VN_CDDA_STATE_ACTIVE) & (uint8_t)~VN_CDDA_STATE_RESUME_PENDING);
     sync_cd_external_irq_after_bios_call();
     restore_video_after_cdb_call(restore_display_after_cdda);
@@ -400,6 +400,7 @@ static uint8_t VN_OVERLAY_ENTRY_CODE vn_overlay_entry(uint8_t op, uint16_t a0, u
     if (o == VN_OVERLAY_OP_READ_SWITCH) return scene_pack_read_switch_impl(&active_scene_pack, a2, (vn_switch_ref_t *)(uintptr_t)a0);
     if (o == VN_OVERLAY_OP_READ_SWITCH_CASE) return scene_pack_read_switch_case_impl(&active_scene_pack, (const vn_switch_ref_t *)(uintptr_t)a1, a2, (pce_vn_switch_case_t *)(uintptr_t)a0);
     if (o == VN_OVERLAY_OP_CACHE_SPRITE_ANIM) { cache_sprite_animation_impl(a2); return 0u; }
+    if (o == VN_OVERLAY_OP_CDDA_COMMAND) { cdda_command_impl((signed int)(int16_t)a0); return 0u; }
     if (o == VN_OVERLAY_OP_MAP_WAIT_CELL) { map_message_wait_indicator_cell_impl((uint8_t)a2); return 0u; }
     if (o == VN_OVERLAY_OP_SET_VARIABLE) { set_variable_value_impl((signed int)(int16_t)a0, (signed int)(int16_t)a1); return 0u; }
     if (o == VN_OVERLAY_OP_COPY_ADPCM_VOICE) return copy_adpcm_voice_impl((signed int)(int16_t)a0);

@@ -211,6 +211,7 @@ static uint8_t vn_scene_text_buffer[VN_MESSAGE_GLYPH_CACHE_COUNT * 2u] __attribu
 static uint8_t cdda_state = 0;
 #if VN_CDDA_RESUME_AFTER_DATA_READ
 static pce_sector_t cdda_resume_start __attribute__((section(".ram_bank132_tail")));
+static pce_sector_t cdda_resume_end __attribute__((section(".ram_bank132_tail")));
 static uint8_t cdda_resume_defer_depth = 0;
 #endif
 static uint8_t adpcm_play_active = 0;
@@ -283,7 +284,7 @@ static uint8_t VN_BANKED_CODE2 start_sprite_move(const pce_vn_command_t *command
 static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache);
 static uint8_t scene_pack_command_count(const vn_scene_pack_cache_t *cache);
 #if defined(__PCE_CD__)
-static void VN_VISUAL_CACHE_CODE cdda_command_impl(signed int asset_index);
+static void VN_OVERLAY_CODE cdda_command_impl(signed int asset_index);
 static void VN_BANKED_CODE2 service_adpcm_playback(void);
 static void VN_BANKED_CODE stop_adpcm_voice(void);
 static void VN_BANKED_CODE quiet_cd_unit_irqs(void);
@@ -298,7 +299,6 @@ static void VN_RESIDENT_CODE service_adpcm_during_blocking_frames(uint8_t frames
 static void VN_RESIDENT_CODE engine_service(void);
 static void VN_RESIDENT_CODE engine_service_blocking(uint16_t iterations);
 #if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
-static void VN_VISUAL_CACHE_CODE cdda_command_impl(signed int asset_index);
 static uint8_t VN_VISUAL_CACHE_CODE draw_spritetext_slots_impl(uint8_t satb_index);
 static void VN_VISUAL_CACHE_CODE clear_runtime_cache_impl(uint8_t scope);
 static void VN_VISUAL_CACHE_CODE tick_sprite_animations_impl(void);

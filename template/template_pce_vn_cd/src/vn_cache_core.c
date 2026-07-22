@@ -434,11 +434,6 @@ static uint8_t VN_VISUAL_CACHE_ENTRY_CODE visual_cache_entry(uint8_t op)
         flash_screen_color_impl(vn_visual_cache_arg_dest, vn_visual_cache_arg_x);
         return 0u;
     }
-    if (visual_op == VN_VISUAL_CACHE_OP_CDDA_COMMAND)
-    {
-        cdda_command_impl((signed int)(int16_t)vn_visual_cache_arg_asset);
-        return 0u;
-    }
     return 0u;
 }
 

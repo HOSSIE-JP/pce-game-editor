@@ -524,7 +524,7 @@ HuCARD VN build は System Card package へは変換しませんが、共通の 
 | `action` | `"play"` / `"stop"` | `play` は track 再生、`stop` は pause |
 | `assetId` | `cdda-track` asset ID | `play` のとき `options.track` が runtime へ渡る |
 
-現行 VN runtime の CD-DA 再生は、明示的な audio command がある場合だけ開始します。開始位置は `cdda-track.options.track` から生成した `start_sector`、終了位置は `PCE_CDB_LOCATION_TYPE_UNTIL_END` として `pce_cdb_cdda_play()` を呼びます。track 境界はWAV長から生成した`play_frames`をVSync IRQ epochごとに減算して管理します。CD VNはgraphics/full VBlank handlerを使わず、generic IRQ user vectorでVDC statusをackして`PSG_DRIVE`を1回実行します。CD/ADPCM/CD-DA BIOS helper後はadapterがuser vector、IRQ mask、R5を再確立します。`cdda-track.options.loop` が `true` の場合は境界直前で同じ asset の開始 sector へ再生命令を再発行し、`false` の場合は `pce_cdb_cdda_pause()` で停止します。
+現行 VN runtime の CD-DA 再生は、明示的な audio command がある場合だけ開始します。asset 生成時に `start_sector` と、次track先頭（最終trackではlead-out）を指す排他的 `end_sector` をcatalogへ保存し、両方を `PCE_CDB_LOCATION_TYPE_SECTOR` として `pce_cdb_cdda_play()` へ渡します。`cdda-track.options.loop` が `true` ならこの範囲へ `PCE_CDB_CDDA_PLAY_REPEAT`、`false` なら `PCE_CDB_CDDA_PLAY_ONE_SHOT` を指定するため、選択trackを越えて後続trackへ流れません。CD VNはgraphics/full VBlank handlerを使わず、generic IRQ user vectorでVDC statusをackして`PSG_DRIVE`を1回実行します。CD-DA play後はCD/IRQ stateだけを同期し、VDC/VCEを再初期化しません。CD data / ADPCM BIOS helper後にfull video復元が必要な場合は、まずR5とuser IRQを再設定して次VBlankを待ち、blank中にVCE・R9〜R14・R19・scrollを復元してから表示を再開します。可視走査中に同じtiming値を書き直して1frameの同期崩れを起こさないための順序です。
 
 ### 読み込みと cache
 
@@ -773,20 +773,23 @@ sequenceDiagram
   participant RT as pce_vn_runtime.c
   participant CDB as CD block
   Scene->>RT: kind=cdda, action=play, asset_index
-  RT->>RT: visual_code cdda_command_impl decodes catalog record
-  RT->>CDB: pce_cdb_cdda_play(start_sector, UNTIL_END, ONE_SHOT or REPEAT)
+  RT->>RT: bank129 dispatches bank133 cdda_command_impl
   alt loop
-    CDB->>CDB: System Card repeat mode restarts track range
-  else CD data read starts
+    RT->>CDB: pce_cdb_cdda_play(start, end, REPEAT)
+    CDB->>CDB: repeat only the bounded asset range
+  else one-shot
+    RT->>CDB: pce_cdb_cdda_play(start, end, ONE_SHOT)
+  end
+  alt CD data read starts
     CDB->>CDB: CD-DA cannot continue while drive reads data sectors
   end
   Scene->>RT: kind=cdda, action=stop
   RT->>CDB: pce_cdb_cdda_pause()
 ```
 
-CD-DA は `cdda-track.options.track` 順で CUE に並べられ、asset 生成時に各 track の開始 sector が catalog record へ保存されます。現行 runtime では track が 2 未満なら再生しません。再生開始時に古い CD-DA があれば `pce_cdb_cdda_pause()` で止め、`PCE_CDB_LOCATION_TYPE_SECTOR` と `PCE_CDB_LOCATION_TYPE_UNTIL_END` を指定して `pce_cdb_cdda_play()` を呼びます。BIOS へ track 番号や sector/time 終端を渡す形は、track 3 指定時に track 2 から流れたり GearGrafx 上で PLAYING へ遷移しなかったりするケースがあったため使っていません。また SubQ polling は再生を IRQ stop させることがあったため使いません。
+CD-DA は `cdda-track.options.track` 順で CUE に並べられ、asset 生成時に各trackの絶対開始sectorと排他的終了sectorがcatalog recordへ保存されます。現行 runtime では track が 2 未満なら再生しません。再生開始時に古い CD-DA があれば `pce_cdb_cdda_pause()` で止め、開始・終了とも `PCE_CDB_LOCATION_TYPE_SECTOR` を指定して `pce_cdb_cdda_play()` を呼びます。track番号やtime addressingは、track 3指定時にtrack 2から流れたりGearGrafx上でPLAYINGへ遷移しなかったりするケースがあったため使いません。また `UNTIL_END` は選択track以後の全audio trackを範囲に含めるため使わず、SubQ pollingも再生をIRQ stopさせることがあったため使いません。CD-DA BIOS playはVDC/VCE stateを変更しないため、play直後に`pce_vdc_set_resolution()`を呼びません。同値でも可視走査中のVCE/R9〜R14再書込みは内部sync phaseを乱すためです。
 
-CD-DA の play/stop 本体は bank121 の visual-code command (`VN_VISUAL_CACHE_OP_CDDA_COMMAND`) に置き、bank130 には小さい dispatch wrapper だけを残します。loop は System Card の `PCE_CDB_CDDA_PLAY_REPEAT` に任せます。CD-DA は data read と同じ CD drive を使うため、BG / sprite / ADPCM / scene pack などの CD data file 読み込み中に継続再生はできません。現行既定では `VN_CDDA_RESUME_AFTER_DATA_READ 0` として、CD data read 前にCD-DAをpauseして停止扱いにしますが、自動resume管理は常駐 bank へ載せません。ロード中にも音楽を維持したい場合は PSG BGM を使います。
+CD-DA の play/stop command 本体はbank133 overlayに置き、bank129には薄いdispatchだけを残します。System Card repeat modeは範囲指定なしの `UNTIL_END` と組み合わせるとディスク末尾までを繰り返しますが、現行runtimeはgeneratedの排他的end sectorを渡すため、同じmodeで選択assetだけを反復できます。境界でpause/playを再発行するVBlank serviceは使いません。CD-DA は data read と同じ CD drive を使うため、BG / sprite / ADPCM / scene pack などの CD data file 読み込み中に継続再生はできません。現行既定では `VN_CDDA_RESUME_AFTER_DATA_READ 0` として、CD data read 前にCD-DAをpauseして停止扱いにしますが、自動resume管理は常駐 bank へ載せません。ロード中にも音楽を維持したい場合は PSG BGM を使います。
 
 ## 音量とフェード
 
@@ -850,8 +853,8 @@ ADPCM の `divider` は再生周波数/速度側の値で、音量ではあり�
 | ADPCM format | generated `adpcm.bin` は OKI/MSM5205 互換 4-bit adaptive data の高位 nibble 先 (`msn-first`)。旧 `pce-cd-adpcm-experimental`、`lsn-first`、未記録/古い `encoderVersion` など古い generated file は source WAV があれば build/source 生成時に再生成する |
 | ADPCM playback | VN runtime / editor は buffered direct playback 専用。true CD streaming オプションはない |
 | ADPCM preload | scene 入場時の内部 preload、`cache load`、実再生時の読み込みが ADPCM cache を管理する。再生制御は `audio` command または `message.voiceAssetId` を主 API にする |
-| CD-DA loop | `cdda-track.options.loop` は generated `play_frames` 到達時の再発行 / pause に反映される |
-| CD-DA and data read | CD-DA 再生中に ADPCM/BG/sprite などの CD data file を読む場合、runtime は data read の間だけ CD-DA を pause する。raw BG/sprite は sector read 後の VRAM/BAT copy では再開済み。標準 runtime では BG/Sprite visual RAM cache は無効 |
+| CD-DA loop | generatedの絶対開始sectorから排他的終了sectorまでを、loopならSystem Card `REPEAT`、非loopなら`ONE_SHOT`で再生する |
+| CD-DA and data read | CD-DA 再生中に ADPCM/BG/sprite などの CD data file を読む場合、runtime はCD-DAを停止して自動再開しない。継続したいsceneではCD data load commandをCD-DA playより前へ置く |
 | ADPCM/CD-DA volume | runtime の任意 volume API は未実装。import 時の volume/normalize/fade は音声データへ焼き込む |
 | Sprite fade | 現行背景 fade は BG palette のみ。sprite palette fade は実装可能だが scene API は未定義 |
 | CD data sector | VN build は visual/audio data file を CD sector 64 以降へ配置する |

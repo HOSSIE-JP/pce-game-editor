@@ -2958,7 +2958,9 @@ function buildCddaTrackLayout(projectDir, cddaAssets, cdLayout) {
     const nominalFrames = Math.ceil((sectorCount * 60) / CDDA_SECTORS_PER_SECOND);
     layout.set(asset.id, {
       startSector: sector,
-      endSector: sector + sectorCount - 1,
+      // CD BIOS play ranges end at the first sector not played, matching the
+      // next track's start (or lead-out for the final track).
+      endSector: sector + sectorCount,
       sectorCount,
       playFrames: Math.max(1, nominalFrames - CDDA_PLAYBACK_GUARD_FRAMES),
     });

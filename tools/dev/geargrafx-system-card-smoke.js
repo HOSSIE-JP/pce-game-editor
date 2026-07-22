@@ -9,7 +9,7 @@ const readline = require('node:readline');
 const DEFAULT_EXE = 'C:\\homebrew\\emulator\\Geargrafx\\Geargrafx.exe';
 
 function parseArgs(argv) {
-  const result = { exe: DEFAULT_EXE, cue: '', frames: 6000, exercise: false, inspectCommand: false, inspectCount: false, inspectSpriteMove: false, presses: 180, settle: 0, skipPsgCheck: false, skipForbiddenCheck: false, list: false, search: '', info: '' };
+  const result = { exe: DEFAULT_EXE, cue: '', frames: 6000, exercise: false, inspectCommand: false, inspectCount: false, inspectSpriteMove: false, inspectCdda: false, inspectCddaStart: false, presses: 180, settle: 0, skipPsgCheck: false, skipForbiddenCheck: false, list: false, search: '', info: '' };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--list') result.list = true;
@@ -22,6 +22,8 @@ function parseArgs(argv) {
     else if (arg === '--inspect-command') { result.exercise = true; result.inspectCommand = true; }
     else if (arg === '--inspect-count') { result.exercise = true; result.inspectCount = true; }
     else if (arg === '--inspect-sprite-move') result.inspectSpriteMove = true;
+    else if (arg === '--inspect-cdda') result.inspectCdda = true;
+    else if (arg === '--inspect-cdda-start') result.inspectCddaStart = true;
     else if (arg === '--presses') result.presses = Math.max(1, Number(argv[++i]) || 180);
     else if (arg === '--settle') result.settle = Math.max(0, Number(argv[++i]) || 0);
     else if (arg === '--skip-psg-check') result.skipPsgCheck = true;
@@ -85,11 +87,49 @@ function vdcSnapshot(vdc) {
     ?? registers[`R${index}`]
     ?? registers[`r${index}`]
     ?? registers[`0x${index.toString(16).padStart(2, '0')}`];
-  return { r5: get(5), r7: get(7), r8: get(8), r13: get(13), r19: get(19) };
+  return {
+    r5: get(5),
+    r7: get(7),
+    r8: get(8),
+    r9: get(9),
+    r10: get(10),
+    r11: get(11),
+    r12: get(12),
+    r13: get(13),
+    r14: get(14),
+    r15: get(15),
+    r16: get(16),
+    r17: get(17),
+    r18: get(18),
+    r19: get(19),
+  };
+}
+
+function vdcRegisterValue(value) {
+  const raw = Array.isArray(value) ? value[value.length - 1] : value;
+  return String(raw ?? '').replace(/^0x|^\$/i, '').toUpperCase().padStart(4, '0');
+}
+
+function vceSnapshot(vce) {
+  return {
+    blackWhite: Boolean(vce?.black_white),
+    blur: Boolean(vce?.blur),
+    control: String(vce?.control_reg ?? ''),
+    lines: Number(vce?.lines ?? 0),
+    speed: String(vce?.speed ?? ''),
+  };
 }
 
 function digestBytes(bytes) {
   return crypto.createHash('sha256').update(Buffer.from(bytes)).digest('hex');
+}
+
+function screenshotDigest(result) {
+  const block = Array.isArray(result?.content)
+    ? result.content.find((item) => item?.type === 'image' && typeof item.data === 'string')
+    : null;
+  if (!block) throw new Error(`Geargrafx screenshot returned no image: ${JSON.stringify(result)}`);
+  return digestBytes(Buffer.from(block.data, 'base64'));
 }
 
 class McpClient {
@@ -183,13 +223,30 @@ async function main() {
     const spriteMovesAddress = optionalSymbolCpuAddress(mapPath, 'sprite_moves');
     const spriteSlotsAddress = optionalSymbolCpuAddress(mapPath, 'sprite_slots_storage');
     const spriteSatbStartsAddress = optionalSymbolCpuAddress(mapPath, 'sprite_satb_slot_start');
+    const spriteSatbCountsAddress = optionalSymbolCpuAddress(mapPath, 'sprite_satb_slot_count');
+    const spritetextSlotsAddress = optionalSymbolCpuAddress(mapPath, 'spritetext_slots');
     const syncSpriteMoveAddress = optionalSymbolCpuAddress(mapPath, 'sync_sprite_move_slot');
+    const cddaStateAddress = optionalSymbolCpuAddress(mapPath, 'cdda_state');
+    const cddaCommandImplAddress = optionalSymbolCpuAddress(mapPath, 'cdda_command_impl');
+    const cddaAudioCommandAddress = optionalSymbolCpuAddress(mapPath, 'cdda_audio_command');
+    const cddaCommandAddress = cddaCommandImplAddress || cddaAudioCommandAddress;
+    const cddaCommandBank = cddaCommandImplAddress ? 133 : 129;
+    const cddaSyncAddress = optionalSymbolCpuAddress(mapPath, 'sync_cd_external_irq_after_bios_call');
     const spriteMoveBreakpoint = {
       address: (((130 - 128) * 0x2000) + (spriteMoveStartAddress & 0x1fff)).toString(16),
       memory_area: 'cd_ram',
       execute: true,
     };
-
+    const cddaCommandBreakpoint = {
+      address: (((cddaCommandBank - 128) * 0x2000) + (cddaCommandAddress & 0x1fff)).toString(16),
+      memory_area: 'cd_ram',
+      execute: true,
+    };
+    const cddaSyncBreakpoint = {
+      address: (((129 - 128) * 0x2000) + (cddaSyncAddress & 0x1fff)).toString(16),
+      memory_area: 'cd_ram',
+      execute: true,
+    };
     const loadResult = contentPayload(await client.tool('load_media', { file_path: cuePath }));
     if (options.inspectSpriteMove) {
       if (!spriteMoveStartAddress || !spriteMovesAddress || !spriteSlotsAddress
@@ -198,11 +255,17 @@ async function main() {
       }
       await client.tool('set_breakpoint', spriteMoveBreakpoint);
     }
+    if (options.inspectCddaStart) {
+      if (!cddaCommandAddress || !cddaSyncAddress || !cddaStateAddress) {
+        throw new Error('CD-DA command/BIOS-sync/state inspection symbols are missing');
+      }
+      await client.tool('set_breakpoint', cddaCommandBreakpoint);
+    }
     await client.tool('debug_continue');
     await sleep(1200);
     await client.tool('controller_button', { player: 1, button: 'run', action: 'press_and_release' });
-    if (options.inspectSpriteMove) {
-      const bootDeadline = Date.now() + 15000;
+    if (options.inspectSpriteMove || options.inspectCddaStart) {
+      const bootDeadline = Date.now() + (options.inspectCddaStart ? 30000 : 15000);
       let bootStatus = {};
       while (Date.now() < bootDeadline) {
         bootStatus = contentPayload(await client.routed('debug_get_status'));
@@ -282,6 +345,23 @@ async function main() {
       }
       return bytes;
     };
+    const readCddaState = async () => ({
+      state: await readWramByte(cddaStateAddress),
+      drive: contentPayload(await client.routed('get_cdrom_status')),
+    });
+    const readDynamicSatbEntryLimit = async () => {
+      if (!spriteSatbStartsAddress || !spriteSatbCountsAddress || !spritetextSlotsAddress) return 64;
+      const starts = await readWramBytes(spriteSatbStartsAddress, 4);
+      const counts = await readWramBytes(spriteSatbCountsAddress, 4);
+      const slots = await readWramBytes(spritetextSlotsAddress, 300);
+      let limit = 0;
+      for (let i = 0; i < 4; i += 1) limit = Math.max(limit, starts[i] + counts[i]);
+      for (let i = 0; i < 4; i += 1) {
+        const slotOffset = i * 75;
+        if (slots[slotOffset + 74]) limit += slots[slotOffset + 64];
+      }
+      return Math.min(64, limit);
+    };
     const assertReached = async (address) => {
       await client.tool('set_breakpoint', { address, memory_area: 'cpu_addr', execute: true });
       await client.tool('debug_continue');
@@ -348,6 +428,128 @@ async function main() {
       await client.tool('debug_pause');
       throw new Error(`Geargrafx frame step timed out: ${JSON.stringify({ frames, start, current, status, stepResults })}`);
     };
+
+    if (options.inspectCddaStart) {
+      const status = contentPayload(await client.routed('debug_get_status'));
+      const pc = String(status?.pc ?? status?.PC ?? status?.current_pc ?? '').replace(/^0x|^\$/i, '').toLowerCase();
+      const expectedPc = cddaCommandAddress.toString(16).toLowerCase();
+      if (!status?.paused || !pc.endsWith(expectedPc)) {
+        throw new Error(`CD-DA command entry was not reached: ${JSON.stringify(status)}`);
+      }
+      const beforeVdc = vdcSnapshot(contentPayload(await client.routed('get_huc6270_registers', { vdc: 1 })));
+      const beforeVce = contentPayload(await client.routed('get_huc6260_status'));
+      const beforeScreen = screenshotDigest(await client.tool('get_screenshot'));
+      await client.routed('remove_breakpoint', cddaCommandBreakpoint);
+
+      await client.tool('set_breakpoint', cddaSyncBreakpoint);
+      const biosDeadline = Date.now() + 20000;
+      let biosStatus = status;
+      let biosState = 0;
+      let biosSyncHits = 0;
+      const expectedBiosPc = cddaSyncAddress.toString(16).toLowerCase();
+      while (Date.now() < biosDeadline) {
+        await client.tool('debug_continue');
+        while (Date.now() < biosDeadline) {
+          biosStatus = contentPayload(await client.routed('debug_get_status'));
+          const currentPc = String(biosStatus?.pc ?? biosStatus?.PC ?? biosStatus?.current_pc ?? '')
+            .replace(/^0x|^\$/i, '').toLowerCase();
+          if (biosStatus?.paused && currentPc.endsWith(expectedBiosPc)) break;
+          await sleep(10);
+        }
+        const currentPc = String(biosStatus?.pc ?? biosStatus?.PC ?? biosStatus?.current_pc ?? '')
+          .replace(/^0x|^\$/i, '').toLowerCase();
+        if (!biosStatus?.paused || !currentPc.endsWith(expectedBiosPc)) break;
+        biosSyncHits += 1;
+        biosState = await readWramByte(cddaStateAddress);
+        /* The command first reads its metadata sector, which also passes this
+           generic BIOS sync point.  Only the hit after cdda_state becomes
+           active is the actual CD-DA play return. */
+        if (biosState & 0x01) break;
+      }
+      const biosPc = String(biosStatus?.pc ?? biosStatus?.PC ?? biosStatus?.current_pc ?? '')
+        .replace(/^0x|^\$/i, '').toLowerCase();
+      if (!biosStatus?.paused || !biosPc.endsWith(expectedBiosPc) || !(biosState & 0x01)) {
+        throw new Error(`Actual CD-DA BIOS return checkpoint was not reached: ${JSON.stringify({ biosStatus, biosState, biosSyncHits })}`);
+      }
+      const biosVdc = vdcSnapshot(contentPayload(await client.routed('get_huc6270_registers', { vdc: 1 })));
+      const biosVce = contentPayload(await client.routed('get_huc6260_status'));
+      const biosScreen = screenshotDigest(await client.tool('get_screenshot'));
+      await client.routed('remove_breakpoint', cddaSyncBreakpoint);
+
+      /* A same-value write to R10-R14 during active display resets internal
+         video timing even though a later register read looks unchanged.  Arm
+         R10 before leaving the real CD-DA BIOS return and require one complete
+         frame without a timing write. */
+      const timingBreakpoint = { address: 'a', memory_area: 'huc6270_reg', write: true };
+      const timingStartEpoch = await readEpoch();
+      await client.tool('set_breakpoint', timingBreakpoint);
+      await client.routed('debug_step_frame', { frames: 1 });
+      const timingDeadline = Date.now() + 3000;
+      let timingStatus = biosStatus;
+      let timingEpoch = timingStartEpoch;
+      while (Date.now() < timingDeadline) {
+        timingStatus = contentPayload(await client.routed('debug_get_status'));
+        timingEpoch = await readEpoch();
+        const timingPc = String(timingStatus?.pc ?? timingStatus?.PC ?? timingStatus?.current_pc ?? '')
+          .replace(/^0x|^\$/i, '').toLowerCase();
+        if (timingStatus?.paused && !timingPc.endsWith(expectedBiosPc)) break;
+        await sleep(2);
+      }
+      const timingDelta = (timingEpoch - timingStartEpoch) & 0xffff;
+      if (timingStatus?.paused && timingDelta === 0) {
+        const timingWrite = {
+          status: timingStatus,
+          vdc: vdcSnapshot(contentPayload(await client.routed('get_huc6270_registers', { vdc: 1 }))),
+          vce: contentPayload(await client.routed('get_huc6260_status')),
+          screen: screenshotDigest(await client.tool('get_screenshot')),
+        };
+        await client.routed('remove_breakpoint', timingBreakpoint);
+        throw new Error(`CD-DA start wrote VDC R10 during the visible frame: ${JSON.stringify(timingWrite)}`);
+      }
+      if (!timingStatus?.paused) await client.tool('debug_pause');
+      await client.routed('remove_breakpoint', timingBreakpoint);
+      if (timingDelta < 1) {
+        throw new Error(`CD-DA start did not complete the guarded frame: ${JSON.stringify({ timingStatus, timingStartEpoch, timingEpoch })}`);
+      }
+
+      const frames = [];
+      for (let index = 0; index < 3; index += 1) {
+        if (index) await stepFramesAndWait(1);
+        frames.push({
+          vdc: vdcSnapshot(contentPayload(await client.routed('get_huc6270_registers', { vdc: 1 }))),
+          vce: contentPayload(await client.routed('get_huc6260_status')),
+          screen: screenshotDigest(await client.tool('get_screenshot')),
+        });
+      }
+      const stableVce = vceSnapshot(beforeVce);
+      const vdcRestored = JSON.stringify(beforeVdc) === JSON.stringify(biosVdc)
+        && frames.every((frame) => JSON.stringify(frame.vdc) === JSON.stringify(beforeVdc));
+      const vceRestored = JSON.stringify(vceSnapshot(biosVce)) === JSON.stringify(stableVce)
+        && frames.every((frame) => JSON.stringify(vceSnapshot(frame.vce)) === JSON.stringify(stableVce));
+      const screenStable = biosScreen === beforeScreen && frames.every((frame) => frame.screen === beforeScreen);
+      if (!vdcRestored || !vceRestored || !screenStable) {
+        throw new Error(`CD-DA start changed video state or a completed frame: ${JSON.stringify({ beforeVdc, beforeVce, beforeScreen, biosVdc, biosVce, biosScreen, frames })}`);
+      }
+      process.stdout.write(`${JSON.stringify({
+        ok: true,
+        mode: 'inspect-cdda-start',
+        cue: cuePath,
+        media,
+        command: {
+          address: `0x${cddaCommandAddress.toString(16)}`,
+          bank: cddaCommandBank,
+          biosSyncAddress: `0x${cddaSyncAddress.toString(16)}`,
+          biosSyncHits,
+          cddaState: biosState,
+        },
+        frame: { before: beforeScreen, after: frames.map((frame) => frame.screen), stable: screenStable },
+        biosReturn: { status: biosStatus, vdc: biosVdc, vce: biosVce, screen: biosScreen },
+        vdc: { before: beforeVdc, after: frames.map((frame) => frame.vdc), restored: vdcRestored },
+        vce: { before: beforeVce, after: frames.map((frame) => frame.vce), restored: vceRestored },
+        visibleTimingWrites: 0,
+      }, null, 2)}\n`);
+      return;
+    }
 
     if (options.inspectSpriteMove) {
       const status = contentPayload(await client.routed('debug_get_status'));
@@ -634,14 +836,42 @@ async function main() {
     const beforeBiosIrqMask = await readWramByte(0x20f5);
     const beforeBat = await readVram(0x0000, 2048);
     const beforeSatb = await readVram(0x7f00, 512);
+    const dynamicSatbEntryLimit = options.inspectCdda ? await readDynamicSatbEntryLimit() : 0;
+    let beforeCdda = null;
+    if (options.inspectCdda) {
+      if (!cddaStateAddress) {
+        throw new Error('CD-DA inspection symbols are missing');
+      }
+      beforeCdda = await readCddaState();
+      if ((beforeCdda.state & 0x05) !== 0x05) {
+        throw new Error(`Looping CD-DA is not active before inspection: ${JSON.stringify(beforeCdda)}`);
+      }
+    }
 
     let remaining = options.frames;
+    let cddaRealTimeWaitMs = 0;
     const batchStatuses = [];
-    while (remaining > 0) {
-      const batch = Math.min(1000, remaining);
-      const batchStatus = await stepFramesAndWait(batch, 'e873');
-      batchStatuses.push(batchStatus);
-      remaining -= batch;
+    if (options.inspectCdda) {
+      /* CD playback and repeat are drive-time operations. Continue in real time
+         for the requested duration, matching the emulator validation guidance
+         instead of trying to advance the CD unit with frame-step calls. */
+      cddaRealTimeWaitMs = Math.ceil((options.frames * 1000) / 60);
+      await client.tool('debug_continue');
+      await sleep(cddaRealTimeWaitMs);
+      const cddaRunStatus = contentPayload(await client.routed('debug_get_status'));
+      const cddaRunPc = String(cddaRunStatus?.pc ?? cddaRunStatus?.PC ?? cddaRunStatus?.current_pc ?? '')
+        .replace(/^0x|^\$/i, '').toLowerCase();
+      if (cddaRunStatus?.breakpoint_hit || cddaRunStatus?.breakpoint || cddaRunPc.endsWith('e873')) {
+        throw new Error(`Forbidden System Card full handler $E873 executed during CD-DA inspection: ${JSON.stringify(cddaRunStatus)}`);
+      }
+      if (!cddaRunStatus?.paused) await client.tool('debug_pause');
+    } else {
+      while (remaining > 0) {
+        const batch = Math.min(1000, remaining);
+        const batchStatus = await stepFramesAndWait(batch, 'e873');
+        batchStatuses.push(batchStatus);
+        remaining -= batch;
+      }
     }
     await client.routed('remove_breakpoint', { address: 'e873', memory_area: 'cpu_addr' });
 
@@ -652,16 +882,24 @@ async function main() {
     const afterBiosIrqMask = await readWramByte(0x20f5);
     const afterBat = await readVram(0x0000, 2048);
     const afterSatb = await readVram(0x7f00, 512);
+    const afterCdda = options.inspectCdda ? await readCddaState() : null;
     const epochDelta = (afterEpoch - beforeEpoch) & 0xffff;
     const beforeMpr = mprSnapshot(beforeCpu);
     const afterMpr = mprSnapshot(afterCpu);
     const beforeVdcKey = vdcSnapshot(beforeVdc);
     const afterVdcKey = vdcSnapshot(afterVdc);
-    const vdcStable = JSON.stringify(beforeVdcKey) === JSON.stringify(afterVdcKey);
+    const vdcStable = options.inspectCdda
+      ? vdcRegisterValue(afterVdcKey.r5) === '04C8'
+        && vdcRegisterValue(afterVdcKey.r19) === '7F00'
+        && JSON.stringify({ r7: beforeVdcKey.r7, r8: beforeVdcKey.r8, r13: beforeVdcKey.r13 })
+          === JSON.stringify({ r7: afterVdcKey.r7, r8: afterVdcKey.r8, r13: afterVdcKey.r13 })
+      : JSON.stringify(beforeVdcKey) === JSON.stringify(afterVdcKey);
     const mprStable = JSON.stringify(beforeMpr) === JSON.stringify(afterMpr);
     const batStable = Buffer.from(beforeBat).equals(Buffer.from(afterBat));
-    const satbStable = Buffer.from(beforeSatb).equals(Buffer.from(afterSatb));
-    if (epochDelta !== options.frames) {
+    const satbStable = Buffer.from(beforeSatb).equals(Buffer.from(afterSatb))
+      || (options.inspectCdda && Buffer.from(beforeSatb.slice(dynamicSatbEntryLimit * 8))
+        .equals(Buffer.from(afterSatb.slice(dynamicSatbEntryLimit * 8))));
+    if (!options.inspectCdda && epochDelta !== options.frames) {
       throw new Error(`VSync epoch delta ${epochDelta} != requested ${options.frames}: ${JSON.stringify({
         beforeEpoch,
         afterEpoch,
@@ -680,6 +918,13 @@ async function main() {
     if (!vdcStable) throw new Error(`VDC R5/R7/R8/R13 changed: ${JSON.stringify({ beforeVdcKey, afterVdcKey })}`);
     if (!batStable) throw new Error(`BG BAT changed: ${JSON.stringify({ before: digestBytes(beforeBat), after: digestBytes(afterBat) })}`);
     if (!satbStable) throw new Error(`SATB changed: ${JSON.stringify({ before: digestBytes(beforeSatb), after: digestBytes(afterSatb) })}`);
+    if (options.inspectCdda) {
+      if (epochDelta < Math.floor(options.frames * 0.9)
+          || (afterCdda.state & 0x05) !== 0x05
+          || /"(?:scsi_)?phase"\s*:\s*"?command/i.test(JSON.stringify(afterCdda.drive))) {
+        throw new Error(`Bounded looping CD-DA did not remain healthy for the requested duration: ${JSON.stringify({ epochDelta, requestedFrames: options.frames, beforeCdda, afterCdda })}`);
+      }
+    }
 
     process.stdout.write(`${JSON.stringify({
       ok: true,
@@ -690,15 +935,16 @@ async function main() {
       addresses: { driveDispatch: '$E86D', psgDrive: '$E6CF', forbiddenFullHandler: '$E873' },
       breakpointHits: { driveDispatchHit, psgDriveHit, forbiddenFullHandler: 0 },
       settle: { frames: 600, epochDelta: settleStatus.delta },
-      frames: options.frames,
+      frames: options.inspectCdda ? epochDelta : options.frames,
       epoch: { address: `0x${epochAddress.toString(16)}`, before: beforeEpoch, after: afterEpoch, delta: epochDelta },
       mpr456: { before: beforeMpr, after: afterMpr, stable: mprStable },
       vdc: { before: beforeVdcKey, after: afterVdcKey, stable: vdcStable },
       biosIrqMask: { before: beforeBiosIrqMask, after: afterBiosIrqMask },
       vram: {
         bgBat: { before: digestBytes(beforeBat), after: digestBytes(afterBat), stable: batStable },
-        satb: { before: digestBytes(beforeSatb), after: digestBytes(afterSatb), stable: satbStable },
+        satb: { before: digestBytes(beforeSatb), after: digestBytes(afterSatb), stable: satbStable, dynamicEntryLimit: dynamicSatbEntryLimit },
       },
+      cdda: options.inspectCdda ? { before: beforeCdda, after: afterCdda, durationCompleted: true, realTimeWaitMs: cddaRealTimeWaitMs } : null,
       psg: { before: beforePsg, after: afterPsg },
     }, null, 2)}\n`);
   } finally {

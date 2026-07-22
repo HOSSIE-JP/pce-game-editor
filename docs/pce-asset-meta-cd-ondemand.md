@@ -25,7 +25,7 @@ System Card BIOS化後のPSGはこのcatalogの対象外です。CD VNは`pce_ed
 | BG | 128B | descriptor、palette 32B、tile/map CD ref |
 | Sprite | 512B | descriptor、palette 32B、pattern CD ref、最大256-cell map |
 | ADPCM | 32B | size/rate/address/divider/loop/play_frames、CD ref |
-| CD-DA | 32B | track、loop、start/end sector、end time、play_frames |
+| CD-DA | 32B | track、loop、start sector、排他的end sector、end time、duration用play_frames |
 
 record Nは`region.sector + N / (2048 / slot)`、sector内offsetは`(N % (2048 / slot)) * slot`です。generated header offsetとruntime `_Static_assert`を同時に更新し、layout driftをbuild errorにします。
 

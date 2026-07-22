@@ -222,7 +222,6 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_VISUAL_CACHE_OP_FADE_SCREEN 10u
 #define VN_VISUAL_CACHE_OP_RESTORE_SCREEN_PALETTE 11u
 #define VN_VISUAL_CACHE_OP_FLASH_SCREEN 12u
-#define VN_VISUAL_CACHE_OP_CDDA_COMMAND 13u
 #define VN_CDDA_STATE_ACTIVE 0x01u
 #define VN_CDDA_STATE_RESUME_PENDING 0x02u
 #define VN_CDDA_STATE_REPEAT 0x04u
@@ -330,8 +329,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_OVERLAY_OP_READ_SWITCH_CASE 13u
 /* a2 = sprite slot index. */
 #define VN_OVERLAY_OP_CACHE_SPRITE_ANIM 14u
-/* a0 = cdda asset pointer (always-mapped snapshot). */
-#define VN_OVERLAY_OP_CDDA_SECTOR 15u
+/* a0 = signed CD-DA asset index. */
+#define VN_OVERLAY_OP_CDDA_COMMAND 15u
 /* a2 = blank flag. VDC を触る(BAT 書き込み)ので locked dispatch。 */
 #define VN_OVERLAY_OP_MAP_WAIT_CELL 16u
 /* a0 = variable index, a1 = value（共に 16bit signed を uint16 で運ぶ）。純粋(bss 書き込み)。 */

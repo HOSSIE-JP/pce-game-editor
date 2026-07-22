@@ -2,7 +2,7 @@
    metadata read and play/stop helpers. The pause/deferred-resume bracket lives
    in vn_engine_bus.c. PHASE_A_SPLIT:END */
 
-static void VN_VISUAL_CACHE_CODE cdda_command_impl(signed int asset_index)
+static void VN_OVERLAY_CODE cdda_command_impl(signed int asset_index)
 {
 #if defined(__PCE_CD__)
     const uint8_t *p;
@@ -30,9 +30,13 @@ static void VN_VISUAL_CACHE_CODE cdda_command_impl(signed int asset_index)
     start.lo = p[PCE_EDITOR_META_CDDA_START_SECTOR];
     start.md = p[PCE_EDITOR_META_CDDA_START_SECTOR + 1u];
     start.hi = p[PCE_EDITOR_META_CDDA_START_SECTOR + 2u];
+    end.lo = p[PCE_EDITOR_META_CDDA_END_SECTOR];
+    end.md = p[PCE_EDITOR_META_CDDA_END_SECTOR + 1u];
+    end.hi = p[PCE_EDITOR_META_CDDA_END_SECTOR + 2u];
 #if VN_CDDA_RESUME_AFTER_DATA_READ
     map_vn_data();
     cdda_resume_start = start;
+    cdda_resume_end = end;
 #endif
     if (p[PCE_EDITOR_META_CDDA_LOOP]) cdda_state |= VN_CDDA_STATE_REPEAT;
     else cdda_state &= (uint8_t)~VN_CDDA_STATE_REPEAT;
@@ -42,10 +46,13 @@ static void VN_VISUAL_CACHE_CODE cdda_command_impl(signed int asset_index)
         (void)pce_cdb_cdda_pause();
         cdda_state &= (uint8_t)~VN_CDDA_STATE_ACTIVE;
     }
-    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, start, PCE_CDB_LOCATION_TYPE_UNTIL_END, end, VN_CDDA_PLAY_MODE());
+    /* The generated end is the next track's first sector (or lead-out), so BIOS
+       repeat is constrained to this asset instead of running to disc end. */
+    (void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, start, PCE_CDB_LOCATION_TYPE_SECTOR, end, VN_CDDA_PLAY_MODE());
     cdda_state = (uint8_t)((cdda_state | VN_CDDA_STATE_ACTIVE) & (uint8_t)~VN_CDDA_STATE_RESUME_PENDING);
     sync_cd_external_irq_after_bios_call();
-    restore_video_after_cdb_call(restore_display_after_cdda);
+    /* CD-DA play leaves VDC/VCE state intact.  A full resolution restore here
+       would rewrite VCE and R9-R14 in the visible scan and shear one frame. */
     }
 #else
     (void)asset_index;
@@ -54,13 +61,8 @@ static void VN_VISUAL_CACHE_CODE cdda_command_impl(signed int asset_index)
 
 static void VN_BANKED_CODE cdda_audio_command(signed int asset_index)
 {
-#if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
-    vn_visual_cache_arg_asset = (uint16_t)(int16_t)asset_index;
-    if (!vn_visual_cache_code_loaded) load_visual_cache_code();
-    if (!vn_visual_cache_code_loaded) return;
-    (void)visual_cache_call(VN_VISUAL_CACHE_OP_CDDA_COMMAND);
-#elif defined(__PCE_CD__)
-    cdda_command_impl(asset_index);
+#if defined(__PCE_CD__)
+    (void)vn_overlay_dispatch(VN_OVERLAY_OP_CDDA_COMMAND, (uint16_t)(int16_t)asset_index, 0u, 0u);
 #else
     (void)asset_index;
 #endif

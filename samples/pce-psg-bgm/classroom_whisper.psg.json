@@ -1,0 +1,4963 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "classroom_whisper",
+      "type": "psg-song",
+      "name": "授業中のひそひそ話",
+      "source": "",
+      "options": {
+        "kind": "song",
+        "bpm": 130,
+        "speed": 6,
+        "period": 254,
+        "wave": 12,
+        "channels": 6,
+        "steps": 256,
+        "volume": 92,
+        "loop": true,
+        "timeSignature": "4/4",
+        "bars": 16,
+        "stepsPerBar": 16,
+        "sections": [
+          {
+            "name": "眠い黒板",
+            "startBar": 1,
+            "endBar": 8,
+            "startStep": 0
+          },
+          {
+            "name": "こっそりひそひそ",
+            "startBar": 9,
+            "endBar": 16,
+            "startStep": 128
+          }
+        ],
+        "pattern": [
+          {
+            "step": 0,
+            "channel": 0,
+            "period": 254,
+            "volume": 17,
+            "note": "A4",
+            "wave": 12
+          },
+          {
+            "step": 0,
+            "channel": 3,
+            "period": 1281,
+            "volume": 10,
+            "note": "F2",
+            "wave": 20
+          },
+          {
+            "step": 0,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 1,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 3,
+            "channel": 0,
+            "period": 254,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 3,
+            "channel": 2,
+            "period": 320,
+            "volume": 5,
+            "note": "F4",
+            "wave": 35
+          },
+          {
+            "step": 3,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 4,
+            "channel": 0,
+            "period": 214,
+            "volume": 16,
+            "note": "C5",
+            "wave": 12
+          },
+          {
+            "step": 4,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 4,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 5,
+            "channel": 0,
+            "period": 214,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 5,
+            "channel": 2,
+            "period": 320,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 5,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 6,
+            "channel": 0,
+            "period": 190,
+            "volume": 17,
+            "note": "D5",
+            "wave": 12
+          },
+          {
+            "step": 6,
+            "channel": 3,
+            "period": 1281,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 8,
+            "channel": 0,
+            "period": 190,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 8,
+            "channel": 1,
+            "period": 428,
+            "volume": 6,
+            "note": "C4",
+            "wave": 8
+          },
+          {
+            "step": 8,
+            "channel": 3,
+            "period": 855,
+            "volume": 9,
+            "note": "C3",
+            "wave": 20
+          },
+          {
+            "step": 8,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 9,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 10,
+            "channel": 0,
+            "period": 214,
+            "volume": 16,
+            "note": "C5",
+            "wave": 12
+          },
+          {
+            "step": 11,
+            "channel": 2,
+            "period": 254,
+            "volume": 5,
+            "note": "A4",
+            "wave": 35
+          },
+          {
+            "step": 11,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 12,
+            "channel": 0,
+            "period": 214,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 12,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 12,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 13,
+            "channel": 0,
+            "period": 254,
+            "volume": 17,
+            "note": "A4",
+            "wave": 12
+          },
+          {
+            "step": 13,
+            "channel": 2,
+            "period": 254,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 13,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 14,
+            "channel": 1,
+            "period": 428,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 14,
+            "channel": 3,
+            "period": 855,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 16,
+            "channel": 0,
+            "period": 285,
+            "volume": 17,
+            "note": "G4",
+            "wave": 12
+          },
+          {
+            "step": 16,
+            "channel": 3,
+            "period": 1357,
+            "volume": 10,
+            "note": "E2",
+            "wave": 20
+          },
+          {
+            "step": 16,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 17,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 18,
+            "channel": 0,
+            "period": 285,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 19,
+            "channel": 0,
+            "period": 214,
+            "volume": 16,
+            "note": "C5",
+            "wave": 12
+          },
+          {
+            "step": 19,
+            "channel": 2,
+            "period": 428,
+            "volume": 5,
+            "note": "C4",
+            "wave": 35
+          },
+          {
+            "step": 19,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 20,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 20,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 21,
+            "channel": 0,
+            "period": 214,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 21,
+            "channel": 2,
+            "period": 428,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 21,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 22,
+            "channel": 0,
+            "period": 170,
+            "volume": 17,
+            "note": "E5",
+            "wave": 12
+          },
+          {
+            "step": 22,
+            "channel": 3,
+            "period": 1357,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 24,
+            "channel": 1,
+            "period": 571,
+            "volume": 6,
+            "note": "G3",
+            "wave": 8
+          },
+          {
+            "step": 24,
+            "channel": 3,
+            "period": 855,
+            "volume": 9,
+            "note": "C3",
+            "wave": 20
+          },
+          {
+            "step": 24,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 25,
+            "channel": 0,
+            "period": 170,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 25,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 26,
+            "channel": 0,
+            "period": 190,
+            "volume": 16,
+            "note": "D5",
+            "wave": 12
+          },
+          {
+            "step": 27,
+            "channel": 2,
+            "period": 285,
+            "volume": 5,
+            "note": "G4",
+            "wave": 35
+          },
+          {
+            "step": 27,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 28,
+            "channel": 0,
+            "period": 190,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 28,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 28,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 29,
+            "channel": 0,
+            "period": 214,
+            "volume": 17,
+            "note": "C5",
+            "wave": 12
+          },
+          {
+            "step": 29,
+            "channel": 2,
+            "period": 285,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 29,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 30,
+            "channel": 1,
+            "period": 571,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 30,
+            "channel": 3,
+            "period": 855,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 32,
+            "channel": 0,
+            "period": 320,
+            "volume": 17,
+            "note": "F4",
+            "wave": 12
+          },
+          {
+            "step": 32,
+            "channel": 3,
+            "period": 1524,
+            "volume": 10,
+            "note": "D2",
+            "wave": 20
+          },
+          {
+            "step": 32,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 33,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 35,
+            "channel": 0,
+            "period": 320,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 35,
+            "channel": 2,
+            "period": 381,
+            "volume": 5,
+            "note": "D4",
+            "wave": 35
+          },
+          {
+            "step": 35,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 36,
+            "channel": 0,
+            "period": 254,
+            "volume": 16,
+            "note": "A4",
+            "wave": 12
+          },
+          {
+            "step": 36,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 36,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 37,
+            "channel": 0,
+            "period": 254,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 37,
+            "channel": 2,
+            "period": 381,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 37,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 38,
+            "channel": 0,
+            "period": 214,
+            "volume": 17,
+            "note": "C5",
+            "wave": 12
+          },
+          {
+            "step": 38,
+            "channel": 3,
+            "period": 1524,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 40,
+            "channel": 0,
+            "period": 214,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 40,
+            "channel": 1,
+            "period": 508,
+            "volume": 6,
+            "note": "A3",
+            "wave": 8
+          },
+          {
+            "step": 40,
+            "channel": 3,
+            "period": 1017,
+            "volume": 9,
+            "note": "A2",
+            "wave": 20
+          },
+          {
+            "step": 40,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 41,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 42,
+            "channel": 0,
+            "period": 254,
+            "volume": 16,
+            "note": "A4",
+            "wave": 12
+          },
+          {
+            "step": 43,
+            "channel": 2,
+            "period": 254,
+            "volume": 5,
+            "note": "A4",
+            "wave": 35
+          },
+          {
+            "step": 43,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 44,
+            "channel": 0,
+            "period": 254,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 44,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 44,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 45,
+            "channel": 0,
+            "period": 320,
+            "volume": 17,
+            "note": "F4",
+            "wave": 12
+          },
+          {
+            "step": 45,
+            "channel": 2,
+            "period": 254,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 45,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 46,
+            "channel": 1,
+            "period": 508,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 46,
+            "channel": 3,
+            "period": 1017,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 48,
+            "channel": 0,
+            "period": 214,
+            "volume": 17,
+            "note": "C5",
+            "wave": 12
+          },
+          {
+            "step": 48,
+            "channel": 3,
+            "period": 1017,
+            "volume": 10,
+            "note": "A2",
+            "wave": 20
+          },
+          {
+            "step": 48,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 49,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 51,
+            "channel": 0,
+            "period": 214,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 51,
+            "channel": 2,
+            "period": 508,
+            "volume": 5,
+            "note": "A3",
+            "wave": 35
+          },
+          {
+            "step": 51,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 52,
+            "channel": 0,
+            "period": 170,
+            "volume": 16,
+            "note": "E5",
+            "wave": 12
+          },
+          {
+            "step": 52,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 52,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 53,
+            "channel": 0,
+            "period": 170,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 53,
+            "channel": 2,
+            "period": 508,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 53,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 54,
+            "channel": 0,
+            "period": 143,
+            "volume": 17,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 54,
+            "channel": 3,
+            "period": 1017,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 56,
+            "channel": 0,
+            "period": 143,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 56,
+            "channel": 1,
+            "period": 571,
+            "volume": 6,
+            "note": "G3",
+            "wave": 8
+          },
+          {
+            "step": 56,
+            "channel": 3,
+            "period": 679,
+            "volume": 9,
+            "note": "E3",
+            "wave": 20
+          },
+          {
+            "step": 56,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 57,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 58,
+            "channel": 0,
+            "period": 170,
+            "volume": 16,
+            "note": "E5",
+            "wave": 12
+          },
+          {
+            "step": 59,
+            "channel": 2,
+            "period": 339,
+            "volume": 5,
+            "note": "E4",
+            "wave": 35
+          },
+          {
+            "step": 59,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 60,
+            "channel": 0,
+            "period": 170,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 60,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 60,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 61,
+            "channel": 0,
+            "period": 214,
+            "volume": 17,
+            "note": "C5",
+            "wave": 12
+          },
+          {
+            "step": 61,
+            "channel": 2,
+            "period": 339,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 61,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 62,
+            "channel": 1,
+            "period": 571,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 62,
+            "channel": 3,
+            "period": 679,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 64,
+            "channel": 0,
+            "period": 190,
+            "volume": 17,
+            "note": "D5",
+            "wave": 12
+          },
+          {
+            "step": 64,
+            "channel": 3,
+            "period": 960,
+            "volume": 10,
+            "note": "Bb2",
+            "wave": 20
+          },
+          {
+            "step": 64,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 65,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 67,
+            "channel": 0,
+            "period": 190,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 67,
+            "channel": 2,
+            "period": 480,
+            "volume": 5,
+            "note": "Bb3",
+            "wave": 35
+          },
+          {
+            "step": 67,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 68,
+            "channel": 0,
+            "period": 160,
+            "volume": 16,
+            "note": "F5",
+            "wave": 12
+          },
+          {
+            "step": 68,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 68,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 69,
+            "channel": 0,
+            "period": 160,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 69,
+            "channel": 2,
+            "period": 480,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 69,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 70,
+            "channel": 0,
+            "period": 127,
+            "volume": 17,
+            "note": "A5",
+            "wave": 12
+          },
+          {
+            "step": 70,
+            "channel": 3,
+            "period": 960,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 72,
+            "channel": 0,
+            "period": 127,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 72,
+            "channel": 1,
+            "period": 320,
+            "volume": 6,
+            "note": "F4",
+            "wave": 8
+          },
+          {
+            "step": 72,
+            "channel": 3,
+            "period": 641,
+            "volume": 9,
+            "note": "F3",
+            "wave": 20
+          },
+          {
+            "step": 72,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 73,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 74,
+            "channel": 0,
+            "period": 143,
+            "volume": 16,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 75,
+            "channel": 2,
+            "period": 320,
+            "volume": 5,
+            "note": "F4",
+            "wave": 35
+          },
+          {
+            "step": 75,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 76,
+            "channel": 0,
+            "period": 143,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 76,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 76,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 77,
+            "channel": 0,
+            "period": 160,
+            "volume": 17,
+            "note": "F5",
+            "wave": 12
+          },
+          {
+            "step": 77,
+            "channel": 2,
+            "period": 320,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 77,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 78,
+            "channel": 1,
+            "period": 320,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 78,
+            "channel": 3,
+            "period": 641,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 80,
+            "channel": 0,
+            "period": 214,
+            "volume": 17,
+            "note": "C5",
+            "wave": 12
+          },
+          {
+            "step": 80,
+            "channel": 3,
+            "period": 1017,
+            "volume": 10,
+            "note": "A2",
+            "wave": 20
+          },
+          {
+            "step": 80,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 81,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 82,
+            "channel": 0,
+            "period": 214,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 83,
+            "channel": 0,
+            "period": 160,
+            "volume": 16,
+            "note": "F5",
+            "wave": 12
+          },
+          {
+            "step": 83,
+            "channel": 2,
+            "period": 320,
+            "volume": 5,
+            "note": "F4",
+            "wave": 35
+          },
+          {
+            "step": 83,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 84,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 84,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 85,
+            "channel": 0,
+            "period": 160,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 85,
+            "channel": 2,
+            "period": 320,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 85,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 86,
+            "channel": 0,
+            "period": 127,
+            "volume": 17,
+            "note": "A5",
+            "wave": 12
+          },
+          {
+            "step": 86,
+            "channel": 3,
+            "period": 1017,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 88,
+            "channel": 1,
+            "period": 428,
+            "volume": 6,
+            "note": "C4",
+            "wave": 8
+          },
+          {
+            "step": 88,
+            "channel": 3,
+            "period": 855,
+            "volume": 9,
+            "note": "C3",
+            "wave": 20
+          },
+          {
+            "step": 88,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 89,
+            "channel": 0,
+            "period": 127,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 89,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 90,
+            "channel": 0,
+            "period": 143,
+            "volume": 16,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 91,
+            "channel": 2,
+            "period": 254,
+            "volume": 5,
+            "note": "A4",
+            "wave": 35
+          },
+          {
+            "step": 91,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 92,
+            "channel": 0,
+            "period": 143,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 92,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 92,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 93,
+            "channel": 0,
+            "period": 214,
+            "volume": 17,
+            "note": "C5",
+            "wave": 12
+          },
+          {
+            "step": 93,
+            "channel": 2,
+            "period": 254,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 93,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 94,
+            "channel": 1,
+            "period": 428,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 94,
+            "channel": 3,
+            "period": 855,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 96,
+            "channel": 0,
+            "period": 240,
+            "volume": 17,
+            "note": "Bb4",
+            "wave": 12
+          },
+          {
+            "step": 96,
+            "channel": 3,
+            "period": 1141,
+            "volume": 10,
+            "note": "G2",
+            "wave": 20
+          },
+          {
+            "step": 96,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 97,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 99,
+            "channel": 0,
+            "period": 240,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 99,
+            "channel": 2,
+            "period": 571,
+            "volume": 5,
+            "note": "G3",
+            "wave": 35
+          },
+          {
+            "step": 99,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 100,
+            "channel": 0,
+            "period": 190,
+            "volume": 16,
+            "note": "D5",
+            "wave": 12
+          },
+          {
+            "step": 100,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 100,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 101,
+            "channel": 0,
+            "period": 190,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 101,
+            "channel": 2,
+            "period": 571,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 101,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 102,
+            "channel": 0,
+            "period": 160,
+            "volume": 17,
+            "note": "F5",
+            "wave": 12
+          },
+          {
+            "step": 102,
+            "channel": 3,
+            "period": 1141,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 104,
+            "channel": 0,
+            "period": 160,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 104,
+            "channel": 1,
+            "period": 381,
+            "volume": 6,
+            "note": "D4",
+            "wave": 8
+          },
+          {
+            "step": 104,
+            "channel": 3,
+            "period": 762,
+            "volume": 9,
+            "note": "D3",
+            "wave": 20
+          },
+          {
+            "step": 104,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 105,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 106,
+            "channel": 0,
+            "period": 190,
+            "volume": 16,
+            "note": "D5",
+            "wave": 12
+          },
+          {
+            "step": 107,
+            "channel": 2,
+            "period": 381,
+            "volume": 5,
+            "note": "D4",
+            "wave": 35
+          },
+          {
+            "step": 107,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 108,
+            "channel": 0,
+            "period": 190,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 108,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 108,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 109,
+            "channel": 0,
+            "period": 240,
+            "volume": 17,
+            "note": "Bb4",
+            "wave": 12
+          },
+          {
+            "step": 109,
+            "channel": 2,
+            "period": 381,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 109,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 110,
+            "channel": 1,
+            "period": 381,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 110,
+            "channel": 3,
+            "period": 762,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 112,
+            "channel": 0,
+            "period": 170,
+            "volume": 17,
+            "note": "E5",
+            "wave": 12
+          },
+          {
+            "step": 112,
+            "channel": 3,
+            "period": 855,
+            "volume": 10,
+            "note": "C3",
+            "wave": 20
+          },
+          {
+            "step": 112,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 113,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 115,
+            "channel": 0,
+            "period": 170,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 115,
+            "channel": 2,
+            "period": 428,
+            "volume": 5,
+            "note": "C4",
+            "wave": 35
+          },
+          {
+            "step": 115,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 116,
+            "channel": 0,
+            "period": 143,
+            "volume": 16,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 116,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 116,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 117,
+            "channel": 0,
+            "period": 143,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 117,
+            "channel": 2,
+            "period": 428,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 117,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 118,
+            "channel": 0,
+            "period": 120,
+            "volume": 17,
+            "note": "Bb5",
+            "wave": 12
+          },
+          {
+            "step": 118,
+            "channel": 3,
+            "period": 855,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 120,
+            "channel": 0,
+            "period": 120,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 120,
+            "channel": 1,
+            "period": 480,
+            "volume": 6,
+            "note": "Bb3",
+            "wave": 8
+          },
+          {
+            "step": 120,
+            "channel": 3,
+            "period": 1141,
+            "volume": 9,
+            "note": "G2",
+            "wave": 20
+          },
+          {
+            "step": 120,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 121,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 122,
+            "channel": 0,
+            "period": 143,
+            "volume": 16,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 123,
+            "channel": 2,
+            "period": 240,
+            "volume": 5,
+            "note": "Bb4",
+            "wave": 35
+          },
+          {
+            "step": 123,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 124,
+            "channel": 0,
+            "period": 143,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 124,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 124,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 125,
+            "channel": 0,
+            "period": 170,
+            "volume": 17,
+            "note": "E5",
+            "wave": 12
+          },
+          {
+            "step": 125,
+            "channel": 2,
+            "period": 240,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 125,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 126,
+            "channel": 1,
+            "period": 480,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 126,
+            "channel": 3,
+            "period": 1141,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 128,
+            "channel": 0,
+            "period": 127,
+            "volume": 19,
+            "note": "A5",
+            "wave": 12
+          },
+          {
+            "step": 128,
+            "channel": 3,
+            "period": 1524,
+            "volume": 11,
+            "note": "D2",
+            "wave": 20
+          },
+          {
+            "step": 128,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 129,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 130,
+            "channel": 1,
+            "period": 320,
+            "volume": 8,
+            "note": "F4",
+            "wave": 8
+          },
+          {
+            "step": 130,
+            "channel": 2,
+            "period": 381,
+            "volume": 6,
+            "note": "D4",
+            "wave": 35
+          },
+          {
+            "step": 130,
+            "channel": 3,
+            "period": 1524,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 131,
+            "channel": 2,
+            "period": 381,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 131,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 132,
+            "channel": 0,
+            "period": 127,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 132,
+            "channel": 3,
+            "period": 1017,
+            "volume": 10,
+            "note": "A2",
+            "wave": 20
+          },
+          {
+            "step": 132,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 132,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 133,
+            "channel": 0,
+            "period": 160,
+            "volume": 18,
+            "note": "F5",
+            "wave": 12
+          },
+          {
+            "step": 133,
+            "channel": 1,
+            "period": 320,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 133,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 134,
+            "channel": 1,
+            "period": 254,
+            "volume": 8,
+            "note": "A4",
+            "wave": 8
+          },
+          {
+            "step": 134,
+            "channel": 2,
+            "period": 320,
+            "volume": 6,
+            "note": "F4",
+            "wave": 35
+          },
+          {
+            "step": 134,
+            "channel": 3,
+            "period": 1017,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 134,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 135,
+            "channel": 0,
+            "period": 160,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 135,
+            "channel": 2,
+            "period": 320,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 135,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 135,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 136,
+            "channel": 0,
+            "period": 190,
+            "volume": 19,
+            "note": "D5",
+            "wave": 12
+          },
+          {
+            "step": 136,
+            "channel": 3,
+            "period": 762,
+            "volume": 11,
+            "note": "D3",
+            "wave": 20
+          },
+          {
+            "step": 136,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 136,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 137,
+            "channel": 1,
+            "period": 254,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 137,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 138,
+            "channel": 1,
+            "period": 214,
+            "volume": 8,
+            "note": "C5",
+            "wave": 8
+          },
+          {
+            "step": 138,
+            "channel": 2,
+            "period": 254,
+            "volume": 6,
+            "note": "A4",
+            "wave": 35
+          },
+          {
+            "step": 138,
+            "channel": 3,
+            "period": 762,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 139,
+            "channel": 0,
+            "period": 190,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 139,
+            "channel": 2,
+            "period": 254,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 139,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 140,
+            "channel": 0,
+            "period": 214,
+            "volume": 17,
+            "note": "C5",
+            "wave": 12
+          },
+          {
+            "step": 140,
+            "channel": 3,
+            "period": 855,
+            "volume": 10,
+            "note": "C3",
+            "wave": 20
+          },
+          {
+            "step": 140,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 140,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 141,
+            "channel": 0,
+            "period": 214,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 141,
+            "channel": 1,
+            "period": 214,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 141,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 142,
+            "channel": 0,
+            "period": 190,
+            "volume": 18,
+            "note": "D5",
+            "wave": 12
+          },
+          {
+            "step": 142,
+            "channel": 1,
+            "period": 254,
+            "volume": 8,
+            "note": "A4",
+            "wave": 8
+          },
+          {
+            "step": 142,
+            "channel": 2,
+            "period": 214,
+            "volume": 6,
+            "note": "C5",
+            "wave": 35
+          },
+          {
+            "step": 142,
+            "channel": 3,
+            "period": 855,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 142,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 143,
+            "channel": 2,
+            "period": 214,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 143,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 143,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 144,
+            "channel": 0,
+            "period": 143,
+            "volume": 19,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 144,
+            "channel": 1,
+            "period": 254,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 144,
+            "channel": 3,
+            "period": 1141,
+            "volume": 11,
+            "note": "G2",
+            "wave": 20
+          },
+          {
+            "step": 144,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 144,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 145,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 146,
+            "channel": 1,
+            "period": 285,
+            "volume": 8,
+            "note": "G4",
+            "wave": 8
+          },
+          {
+            "step": 146,
+            "channel": 2,
+            "period": 571,
+            "volume": 6,
+            "note": "G3",
+            "wave": 35
+          },
+          {
+            "step": 146,
+            "channel": 3,
+            "period": 1141,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 147,
+            "channel": 0,
+            "period": 143,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 147,
+            "channel": 2,
+            "period": 571,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 147,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 148,
+            "channel": 0,
+            "period": 120,
+            "volume": 18,
+            "note": "Bb5",
+            "wave": 12
+          },
+          {
+            "step": 148,
+            "channel": 3,
+            "period": 762,
+            "volume": 10,
+            "note": "D3",
+            "wave": 20
+          },
+          {
+            "step": 148,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 148,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 149,
+            "channel": 1,
+            "period": 285,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 149,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 150,
+            "channel": 0,
+            "period": 120,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 150,
+            "channel": 1,
+            "period": 240,
+            "volume": 8,
+            "note": "Bb4",
+            "wave": 8
+          },
+          {
+            "step": 150,
+            "channel": 2,
+            "period": 480,
+            "volume": 6,
+            "note": "Bb3",
+            "wave": 35
+          },
+          {
+            "step": 150,
+            "channel": 3,
+            "period": 762,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 150,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 151,
+            "channel": 0,
+            "period": 95,
+            "volume": 19,
+            "note": "D6",
+            "wave": 12
+          },
+          {
+            "step": 151,
+            "channel": 2,
+            "period": 480,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 151,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 151,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 152,
+            "channel": 3,
+            "period": 641,
+            "volume": 11,
+            "note": "F3",
+            "wave": 20
+          },
+          {
+            "step": 152,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 152,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 153,
+            "channel": 1,
+            "period": 240,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 153,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 154,
+            "channel": 0,
+            "period": 95,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 154,
+            "channel": 1,
+            "period": 190,
+            "volume": 8,
+            "note": "D5",
+            "wave": 8
+          },
+          {
+            "step": 154,
+            "channel": 2,
+            "period": 381,
+            "volume": 6,
+            "note": "D4",
+            "wave": 35
+          },
+          {
+            "step": 154,
+            "channel": 3,
+            "period": 641,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 155,
+            "channel": 0,
+            "period": 160,
+            "volume": 17,
+            "note": "F5",
+            "wave": 12
+          },
+          {
+            "step": 155,
+            "channel": 2,
+            "period": 381,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 155,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 156,
+            "channel": 3,
+            "period": 762,
+            "volume": 10,
+            "note": "D3",
+            "wave": 20
+          },
+          {
+            "step": 156,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 156,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 157,
+            "channel": 0,
+            "period": 160,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 157,
+            "channel": 1,
+            "period": 190,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 157,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 158,
+            "channel": 0,
+            "period": 143,
+            "volume": 18,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 158,
+            "channel": 1,
+            "period": 240,
+            "volume": 8,
+            "note": "Bb4",
+            "wave": 8
+          },
+          {
+            "step": 158,
+            "channel": 2,
+            "period": 320,
+            "volume": 6,
+            "note": "F4",
+            "wave": 35
+          },
+          {
+            "step": 158,
+            "channel": 3,
+            "period": 762,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 158,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 159,
+            "channel": 2,
+            "period": 320,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 159,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 159,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 160,
+            "channel": 0,
+            "period": 170,
+            "volume": 19,
+            "note": "E5",
+            "wave": 12
+          },
+          {
+            "step": 160,
+            "channel": 1,
+            "period": 240,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 160,
+            "channel": 3,
+            "period": 855,
+            "volume": 11,
+            "note": "C3",
+            "wave": 20
+          },
+          {
+            "step": 160,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 160,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 161,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 162,
+            "channel": 0,
+            "period": 170,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 162,
+            "channel": 1,
+            "period": 285,
+            "volume": 8,
+            "note": "G4",
+            "wave": 8
+          },
+          {
+            "step": 162,
+            "channel": 2,
+            "period": 428,
+            "volume": 6,
+            "note": "C4",
+            "wave": 35
+          },
+          {
+            "step": 162,
+            "channel": 3,
+            "period": 855,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 163,
+            "channel": 0,
+            "period": 143,
+            "volume": 18,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 163,
+            "channel": 2,
+            "period": 428,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 163,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 164,
+            "channel": 3,
+            "period": 1141,
+            "volume": 10,
+            "note": "G2",
+            "wave": 20
+          },
+          {
+            "step": 164,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 164,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 165,
+            "channel": 0,
+            "period": 143,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 165,
+            "channel": 1,
+            "period": 285,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 165,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 166,
+            "channel": 0,
+            "period": 107,
+            "volume": 19,
+            "note": "C6",
+            "wave": 12
+          },
+          {
+            "step": 166,
+            "channel": 1,
+            "period": 240,
+            "volume": 8,
+            "note": "Bb4",
+            "wave": 8
+          },
+          {
+            "step": 166,
+            "channel": 2,
+            "period": 339,
+            "volume": 6,
+            "note": "E4",
+            "wave": 35
+          },
+          {
+            "step": 166,
+            "channel": 3,
+            "period": 1141,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 166,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 167,
+            "channel": 2,
+            "period": 339,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 167,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 167,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 168,
+            "channel": 3,
+            "period": 960,
+            "volume": 11,
+            "note": "Bb2",
+            "wave": 20
+          },
+          {
+            "step": 168,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 168,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 169,
+            "channel": 0,
+            "period": 107,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 169,
+            "channel": 1,
+            "period": 240,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 169,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 170,
+            "channel": 0,
+            "period": 120,
+            "volume": 17,
+            "note": "Bb5",
+            "wave": 12
+          },
+          {
+            "step": 170,
+            "channel": 1,
+            "period": 170,
+            "volume": 8,
+            "note": "E5",
+            "wave": 8
+          },
+          {
+            "step": 170,
+            "channel": 2,
+            "period": 285,
+            "volume": 6,
+            "note": "G4",
+            "wave": 35
+          },
+          {
+            "step": 170,
+            "channel": 3,
+            "period": 960,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 171,
+            "channel": 2,
+            "period": 285,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 171,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 172,
+            "channel": 0,
+            "period": 120,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 172,
+            "channel": 3,
+            "period": 679,
+            "volume": 10,
+            "note": "E3",
+            "wave": 20
+          },
+          {
+            "step": 172,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 172,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 173,
+            "channel": 0,
+            "period": 143,
+            "volume": 18,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 173,
+            "channel": 1,
+            "period": 170,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 173,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 174,
+            "channel": 1,
+            "period": 240,
+            "volume": 8,
+            "note": "Bb4",
+            "wave": 8
+          },
+          {
+            "step": 174,
+            "channel": 2,
+            "period": 240,
+            "volume": 6,
+            "note": "Bb4",
+            "wave": 35
+          },
+          {
+            "step": 174,
+            "channel": 3,
+            "period": 679,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 174,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 175,
+            "channel": 2,
+            "period": 240,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 175,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 175,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 176,
+            "channel": 0,
+            "period": 127,
+            "volume": 19,
+            "note": "A5",
+            "wave": 12
+          },
+          {
+            "step": 176,
+            "channel": 1,
+            "period": 240,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 176,
+            "channel": 3,
+            "period": 1281,
+            "volume": 11,
+            "note": "F2",
+            "wave": 20
+          },
+          {
+            "step": 176,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 176,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 177,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 178,
+            "channel": 1,
+            "period": 320,
+            "volume": 8,
+            "note": "F4",
+            "wave": 8
+          },
+          {
+            "step": 178,
+            "channel": 2,
+            "period": 641,
+            "volume": 6,
+            "note": "F3",
+            "wave": 35
+          },
+          {
+            "step": 178,
+            "channel": 3,
+            "period": 1281,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 179,
+            "channel": 2,
+            "period": 641,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 179,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 180,
+            "channel": 0,
+            "period": 127,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 180,
+            "channel": 3,
+            "period": 855,
+            "volume": 10,
+            "note": "C3",
+            "wave": 20
+          },
+          {
+            "step": 180,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 180,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 181,
+            "channel": 0,
+            "period": 160,
+            "volume": 18,
+            "note": "F5",
+            "wave": 12
+          },
+          {
+            "step": 181,
+            "channel": 1,
+            "period": 320,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 181,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 182,
+            "channel": 1,
+            "period": 254,
+            "volume": 8,
+            "note": "A4",
+            "wave": 8
+          },
+          {
+            "step": 182,
+            "channel": 2,
+            "period": 508,
+            "volume": 6,
+            "note": "A3",
+            "wave": 35
+          },
+          {
+            "step": 182,
+            "channel": 3,
+            "period": 855,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 182,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 183,
+            "channel": 0,
+            "period": 160,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 183,
+            "channel": 2,
+            "period": 508,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 183,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 183,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 184,
+            "channel": 0,
+            "period": 107,
+            "volume": 19,
+            "note": "C6",
+            "wave": 12
+          },
+          {
+            "step": 184,
+            "channel": 3,
+            "period": 679,
+            "volume": 11,
+            "note": "E3",
+            "wave": 20
+          },
+          {
+            "step": 184,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 184,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 185,
+            "channel": 1,
+            "period": 254,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 185,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 186,
+            "channel": 1,
+            "period": 214,
+            "volume": 8,
+            "note": "C5",
+            "wave": 8
+          },
+          {
+            "step": 186,
+            "channel": 2,
+            "period": 428,
+            "volume": 6,
+            "note": "C4",
+            "wave": 35
+          },
+          {
+            "step": 186,
+            "channel": 3,
+            "period": 679,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 187,
+            "channel": 0,
+            "period": 107,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 187,
+            "channel": 2,
+            "period": 428,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 187,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 188,
+            "channel": 0,
+            "period": 127,
+            "volume": 17,
+            "note": "A5",
+            "wave": 12
+          },
+          {
+            "step": 188,
+            "channel": 3,
+            "period": 855,
+            "volume": 10,
+            "note": "C3",
+            "wave": 20
+          },
+          {
+            "step": 188,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 188,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 189,
+            "channel": 0,
+            "period": 127,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 189,
+            "channel": 1,
+            "period": 214,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 189,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 190,
+            "channel": 0,
+            "period": 160,
+            "volume": 18,
+            "note": "F5",
+            "wave": 12
+          },
+          {
+            "step": 190,
+            "channel": 1,
+            "period": 254,
+            "volume": 8,
+            "note": "A4",
+            "wave": 8
+          },
+          {
+            "step": 190,
+            "channel": 2,
+            "period": 339,
+            "volume": 6,
+            "note": "E4",
+            "wave": 35
+          },
+          {
+            "step": 190,
+            "channel": 3,
+            "period": 855,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 190,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 191,
+            "channel": 2,
+            "period": 339,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 191,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 191,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 192,
+            "channel": 0,
+            "period": 120,
+            "volume": 19,
+            "note": "Bb5",
+            "wave": 12
+          },
+          {
+            "step": 192,
+            "channel": 1,
+            "period": 254,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 192,
+            "channel": 3,
+            "period": 960,
+            "volume": 11,
+            "note": "Bb2",
+            "wave": 20
+          },
+          {
+            "step": 192,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 192,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 193,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 194,
+            "channel": 1,
+            "period": 480,
+            "volume": 8,
+            "note": "Bb3",
+            "wave": 8
+          },
+          {
+            "step": 194,
+            "channel": 2,
+            "period": 480,
+            "volume": 6,
+            "note": "Bb3",
+            "wave": 35
+          },
+          {
+            "step": 194,
+            "channel": 3,
+            "period": 960,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 195,
+            "channel": 0,
+            "period": 120,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 195,
+            "channel": 2,
+            "period": 480,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 195,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 196,
+            "channel": 0,
+            "period": 127,
+            "volume": 18,
+            "note": "A5",
+            "wave": 12
+          },
+          {
+            "step": 196,
+            "channel": 3,
+            "period": 641,
+            "volume": 10,
+            "note": "F3",
+            "wave": 20
+          },
+          {
+            "step": 196,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 196,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 197,
+            "channel": 1,
+            "period": 480,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 197,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 198,
+            "channel": 0,
+            "period": 127,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 198,
+            "channel": 1,
+            "period": 381,
+            "volume": 8,
+            "note": "D4",
+            "wave": 8
+          },
+          {
+            "step": 198,
+            "channel": 2,
+            "period": 381,
+            "volume": 6,
+            "note": "D4",
+            "wave": 35
+          },
+          {
+            "step": 198,
+            "channel": 3,
+            "period": 641,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 198,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 199,
+            "channel": 0,
+            "period": 160,
+            "volume": 19,
+            "note": "F5",
+            "wave": 12
+          },
+          {
+            "step": 199,
+            "channel": 2,
+            "period": 381,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 199,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 199,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 200,
+            "channel": 3,
+            "period": 508,
+            "volume": 11,
+            "note": "A3",
+            "wave": 20
+          },
+          {
+            "step": 200,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 200,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 201,
+            "channel": 1,
+            "period": 381,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 201,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 202,
+            "channel": 0,
+            "period": 160,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 202,
+            "channel": 1,
+            "period": 320,
+            "volume": 8,
+            "note": "F4",
+            "wave": 8
+          },
+          {
+            "step": 202,
+            "channel": 2,
+            "period": 320,
+            "volume": 6,
+            "note": "F4",
+            "wave": 35
+          },
+          {
+            "step": 202,
+            "channel": 3,
+            "period": 508,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 203,
+            "channel": 0,
+            "period": 190,
+            "volume": 17,
+            "note": "D5",
+            "wave": 12
+          },
+          {
+            "step": 203,
+            "channel": 2,
+            "period": 320,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 203,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 204,
+            "channel": 3,
+            "period": 641,
+            "volume": 10,
+            "note": "F3",
+            "wave": 20
+          },
+          {
+            "step": 204,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 204,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 205,
+            "channel": 0,
+            "period": 190,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 205,
+            "channel": 1,
+            "period": 320,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 205,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 206,
+            "channel": 0,
+            "period": 160,
+            "volume": 18,
+            "note": "F5",
+            "wave": 12
+          },
+          {
+            "step": 206,
+            "channel": 1,
+            "period": 254,
+            "volume": 8,
+            "note": "A4",
+            "wave": 8
+          },
+          {
+            "step": 206,
+            "channel": 2,
+            "period": 254,
+            "volume": 6,
+            "note": "A4",
+            "wave": 35
+          },
+          {
+            "step": 206,
+            "channel": 3,
+            "period": 641,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 206,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 207,
+            "channel": 2,
+            "period": 254,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 207,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 207,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 208,
+            "channel": 0,
+            "period": 190,
+            "volume": 19,
+            "note": "D5",
+            "wave": 12
+          },
+          {
+            "step": 208,
+            "channel": 1,
+            "period": 254,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 208,
+            "channel": 3,
+            "period": 906,
+            "volume": 11,
+            "note": "B2",
+            "wave": 20
+          },
+          {
+            "step": 208,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 208,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 209,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 210,
+            "channel": 0,
+            "period": 190,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 210,
+            "channel": 1,
+            "period": 453,
+            "volume": 8,
+            "note": "B3",
+            "wave": 8
+          },
+          {
+            "step": 210,
+            "channel": 2,
+            "period": 453,
+            "volume": 6,
+            "note": "B3",
+            "wave": 35
+          },
+          {
+            "step": 210,
+            "channel": 3,
+            "period": 906,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 211,
+            "channel": 0,
+            "period": 160,
+            "volume": 18,
+            "note": "F5",
+            "wave": 12
+          },
+          {
+            "step": 211,
+            "channel": 2,
+            "period": 453,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 211,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 212,
+            "channel": 3,
+            "period": 641,
+            "volume": 10,
+            "note": "F3",
+            "wave": 20
+          },
+          {
+            "step": 212,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 212,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 213,
+            "channel": 0,
+            "period": 160,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 213,
+            "channel": 1,
+            "period": 453,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 213,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 214,
+            "channel": 0,
+            "period": 113,
+            "volume": 19,
+            "note": "B5",
+            "wave": 12
+          },
+          {
+            "step": 214,
+            "channel": 1,
+            "period": 381,
+            "volume": 8,
+            "note": "D4",
+            "wave": 8
+          },
+          {
+            "step": 214,
+            "channel": 2,
+            "period": 381,
+            "volume": 6,
+            "note": "D4",
+            "wave": 35
+          },
+          {
+            "step": 214,
+            "channel": 3,
+            "period": 641,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 214,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 215,
+            "channel": 2,
+            "period": 381,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 215,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 215,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 216,
+            "channel": 0,
+            "period": 170,
+            "volume": 18,
+            "note": "E5",
+            "wave": 12
+          },
+          {
+            "step": 216,
+            "channel": 3,
+            "period": 855,
+            "volume": 11,
+            "note": "C3",
+            "wave": 20
+          },
+          {
+            "step": 216,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 216,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 217,
+            "channel": 1,
+            "period": 381,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 217,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 218,
+            "channel": 0,
+            "period": 170,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 218,
+            "channel": 1,
+            "period": 339,
+            "volume": 8,
+            "note": "E4",
+            "wave": 8
+          },
+          {
+            "step": 218,
+            "channel": 2,
+            "period": 428,
+            "volume": 6,
+            "note": "C4",
+            "wave": 35
+          },
+          {
+            "step": 218,
+            "channel": 3,
+            "period": 855,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 219,
+            "channel": 0,
+            "period": 143,
+            "volume": 17,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 219,
+            "channel": 2,
+            "period": 428,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 219,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 220,
+            "channel": 3,
+            "period": 1141,
+            "volume": 10,
+            "note": "G2",
+            "wave": 20
+          },
+          {
+            "step": 220,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 220,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 221,
+            "channel": 0,
+            "period": 143,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 221,
+            "channel": 1,
+            "period": 339,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 221,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 222,
+            "channel": 0,
+            "period": 120,
+            "volume": 18,
+            "note": "Bb5",
+            "wave": 12
+          },
+          {
+            "step": 222,
+            "channel": 1,
+            "period": 285,
+            "volume": 8,
+            "note": "G4",
+            "wave": 8
+          },
+          {
+            "step": 222,
+            "channel": 2,
+            "period": 285,
+            "volume": 6,
+            "note": "G4",
+            "wave": 35
+          },
+          {
+            "step": 222,
+            "channel": 3,
+            "period": 1141,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 222,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 223,
+            "channel": 2,
+            "period": 285,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 223,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 223,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 224,
+            "channel": 0,
+            "period": 143,
+            "volume": 19,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 224,
+            "channel": 1,
+            "period": 285,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 224,
+            "channel": 3,
+            "period": 1141,
+            "volume": 11,
+            "note": "G2",
+            "wave": 20
+          },
+          {
+            "step": 224,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 224,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 225,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 226,
+            "channel": 0,
+            "period": 143,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 226,
+            "channel": 1,
+            "period": 381,
+            "volume": 8,
+            "note": "D4",
+            "wave": 8
+          },
+          {
+            "step": 226,
+            "channel": 2,
+            "period": 571,
+            "volume": 6,
+            "note": "G3",
+            "wave": 35
+          },
+          {
+            "step": 226,
+            "channel": 3,
+            "period": 1141,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 227,
+            "channel": 0,
+            "period": 120,
+            "volume": 18,
+            "note": "Bb5",
+            "wave": 12
+          },
+          {
+            "step": 227,
+            "channel": 2,
+            "period": 571,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 227,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 228,
+            "channel": 3,
+            "period": 762,
+            "volume": 10,
+            "note": "D3",
+            "wave": 20
+          },
+          {
+            "step": 228,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 228,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 229,
+            "channel": 0,
+            "period": 120,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 229,
+            "channel": 1,
+            "period": 381,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 229,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 230,
+            "channel": 0,
+            "period": 95,
+            "volume": 19,
+            "note": "D6",
+            "wave": 12
+          },
+          {
+            "step": 230,
+            "channel": 1,
+            "period": 320,
+            "volume": 8,
+            "note": "F4",
+            "wave": 8
+          },
+          {
+            "step": 230,
+            "channel": 2,
+            "period": 480,
+            "volume": 6,
+            "note": "Bb3",
+            "wave": 35
+          },
+          {
+            "step": 230,
+            "channel": 3,
+            "period": 762,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 230,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 231,
+            "channel": 2,
+            "period": 480,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 231,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 231,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 232,
+            "channel": 0,
+            "period": 170,
+            "volume": 18,
+            "note": "E5",
+            "wave": 12
+          },
+          {
+            "step": 232,
+            "channel": 3,
+            "period": 855,
+            "volume": 11,
+            "note": "C3",
+            "wave": 20
+          },
+          {
+            "step": 232,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 232,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 233,
+            "channel": 1,
+            "period": 320,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 233,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 234,
+            "channel": 0,
+            "period": 170,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 234,
+            "channel": 1,
+            "period": 339,
+            "volume": 8,
+            "note": "E4",
+            "wave": 8
+          },
+          {
+            "step": 234,
+            "channel": 2,
+            "period": 428,
+            "volume": 6,
+            "note": "C4",
+            "wave": 35
+          },
+          {
+            "step": 234,
+            "channel": 3,
+            "period": 855,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 235,
+            "channel": 0,
+            "period": 143,
+            "volume": 17,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 235,
+            "channel": 2,
+            "period": 428,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 235,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 236,
+            "channel": 3,
+            "period": 1141,
+            "volume": 10,
+            "note": "G2",
+            "wave": 20
+          },
+          {
+            "step": 236,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 236,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 237,
+            "channel": 0,
+            "period": 143,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 237,
+            "channel": 1,
+            "period": 339,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 237,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 238,
+            "channel": 0,
+            "period": 120,
+            "volume": 18,
+            "note": "Bb5",
+            "wave": 12
+          },
+          {
+            "step": 238,
+            "channel": 1,
+            "period": 285,
+            "volume": 8,
+            "note": "G4",
+            "wave": 8
+          },
+          {
+            "step": 238,
+            "channel": 2,
+            "period": 339,
+            "volume": 6,
+            "note": "E4",
+            "wave": 35
+          },
+          {
+            "step": 238,
+            "channel": 3,
+            "period": 1141,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 238,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 239,
+            "channel": 2,
+            "period": 339,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 239,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 239,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 240,
+            "channel": 0,
+            "period": 170,
+            "volume": 19,
+            "note": "E5",
+            "wave": 12
+          },
+          {
+            "step": 240,
+            "channel": 1,
+            "period": 285,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 240,
+            "channel": 3,
+            "period": 855,
+            "volume": 11,
+            "note": "C3",
+            "wave": 20
+          },
+          {
+            "step": 240,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 240,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 241,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 242,
+            "channel": 1,
+            "period": 480,
+            "volume": 8,
+            "note": "Bb3",
+            "wave": 8
+          },
+          {
+            "step": 242,
+            "channel": 2,
+            "period": 428,
+            "volume": 6,
+            "note": "C4",
+            "wave": 35
+          },
+          {
+            "step": 242,
+            "channel": 3,
+            "period": 855,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 243,
+            "channel": 0,
+            "period": 170,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 243,
+            "channel": 2,
+            "period": 428,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 243,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 244,
+            "channel": 0,
+            "period": 143,
+            "volume": 18,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 244,
+            "channel": 3,
+            "period": 1141,
+            "volume": 10,
+            "note": "G2",
+            "wave": 20
+          },
+          {
+            "step": 244,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 244,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 245,
+            "channel": 0,
+            "period": 143,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 245,
+            "channel": 1,
+            "period": 480,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 245,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 246,
+            "channel": 0,
+            "period": 120,
+            "volume": 19,
+            "note": "Bb5",
+            "wave": 12
+          },
+          {
+            "step": 246,
+            "channel": 1,
+            "period": 339,
+            "volume": 8,
+            "note": "E4",
+            "wave": 8
+          },
+          {
+            "step": 246,
+            "channel": 2,
+            "period": 339,
+            "volume": 6,
+            "note": "E4",
+            "wave": 35
+          },
+          {
+            "step": 246,
+            "channel": 3,
+            "period": 1141,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 246,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 247,
+            "channel": 2,
+            "period": 339,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 247,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 247,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 248,
+            "channel": 0,
+            "period": 120,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 248,
+            "channel": 3,
+            "period": 960,
+            "volume": 11,
+            "note": "Bb2",
+            "wave": 20
+          },
+          {
+            "step": 248,
+            "channel": 4,
+            "period": 3,
+            "volume": 4,
+            "noise": 1
+          },
+          {
+            "step": 248,
+            "channel": 5,
+            "period": 29,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 249,
+            "channel": 1,
+            "period": 339,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 249,
+            "channel": 4,
+            "period": 3,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 250,
+            "channel": 0,
+            "period": 143,
+            "volume": 17,
+            "note": "G5",
+            "wave": 12
+          },
+          {
+            "step": 250,
+            "channel": 1,
+            "period": 285,
+            "volume": 8,
+            "note": "G4",
+            "wave": 8
+          },
+          {
+            "step": 250,
+            "channel": 2,
+            "period": 285,
+            "volume": 6,
+            "note": "G4",
+            "wave": 35
+          },
+          {
+            "step": 250,
+            "channel": 3,
+            "period": 960,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 251,
+            "channel": 2,
+            "period": 285,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 251,
+            "channel": 5,
+            "period": 31,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 252,
+            "channel": 0,
+            "period": 143,
+            "volume": 0,
+            "wave": 12
+          },
+          {
+            "step": 252,
+            "channel": 3,
+            "period": 679,
+            "volume": 10,
+            "note": "E3",
+            "wave": 20
+          },
+          {
+            "step": 252,
+            "channel": 4,
+            "period": 20,
+            "volume": 3,
+            "noise": 1
+          },
+          {
+            "step": 252,
+            "channel": 5,
+            "period": 31,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 253,
+            "channel": 0,
+            "period": 170,
+            "volume": 18,
+            "note": "E5",
+            "wave": 12
+          },
+          {
+            "step": 253,
+            "channel": 1,
+            "period": 285,
+            "volume": 0,
+            "wave": 8
+          },
+          {
+            "step": 253,
+            "channel": 4,
+            "period": 20,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 254,
+            "channel": 1,
+            "period": 240,
+            "volume": 8,
+            "note": "Bb4",
+            "wave": 8
+          },
+          {
+            "step": 254,
+            "channel": 2,
+            "period": 240,
+            "volume": 6,
+            "note": "Bb4",
+            "wave": 35
+          },
+          {
+            "step": 254,
+            "channel": 3,
+            "period": 679,
+            "volume": 0,
+            "wave": 20
+          },
+          {
+            "step": 254,
+            "channel": 4,
+            "period": 24,
+            "volume": 2,
+            "noise": 1
+          },
+          {
+            "step": 255,
+            "channel": 2,
+            "period": 240,
+            "volume": 0,
+            "wave": 35
+          },
+          {
+            "step": 255,
+            "channel": 4,
+            "period": 24,
+            "volume": 0,
+            "noise": 1
+          },
+          {
+            "step": 255,
+            "channel": 5,
+            "period": 29,
+            "volume": 2,
+            "noise": 1
+          }
+        ]
+      }
+    }
+  ]
+}

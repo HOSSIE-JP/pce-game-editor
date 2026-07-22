@@ -108,12 +108,17 @@ static void VN_BANKED_CODE restore_video_after_cdb_call(uint8_t restore_display)
 #if defined(__PCE_CD__)
     uint8_t irq;
     uint8_t slot4_bank = vn_slot4_current_bank();
-    if (restore_display)
-    {
-        vn_wait_next_vblank();
-        engine_service();
-    }
+    /* BIOS helpers can leave the user VBlank contract disabled.  Restore only
+       R5 and the IRQ first so the epoch can advance; rewriting VCE/R9-R14 in
+       the visible scan corrupts one completed frame even when values match. */
     irq = vn_vdc_irq_lock();
+    set_vdc_control(restore_display ? VN_VDC_DISPLAY_CONTROL : VN_VDC_BLANK_CONTROL);
+    vn_system_card_irq_rearm();
+    vn_vdc_irq_unlock(irq);
+    if (restore_display) vn_wait_next_vblank();
+
+    irq = vn_vdc_irq_lock();
+    if (restore_display) set_vdc_control(VN_VDC_BLANK_CONTROL);
     pce_vdc_set_resolution(256, 224, VCE_COLORBURST_ON);
     pce_vdc_bg_set_size(VDC_BG_SIZE_32_32);
     pce_vdc_poke(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL);
@@ -123,11 +128,9 @@ static void VN_BANKED_CODE restore_video_after_cdb_call(uint8_t restore_display)
     apply_screen_offset();
     vn_slot4_map_bank(slot4_bank);
     set_vdc_control(restore_display ? VN_VDC_DISPLAY_CONTROL : VN_VDC_BLANK_CONTROL);
-    /* BIOS video helpers may rewrite $20F5 and the CPU IRQ mask.  The VN no
-       longer polls VDC status, so leaving IRQ1 disabled here permanently
-       stalls both the frame epoch and PSG_DRIVE after the first CD payload. */
     vn_system_card_irq_rearm();
     vn_vdc_irq_unlock(irq);
+    if (restore_display) engine_service();
 #else
     (void)restore_display;
 #endif

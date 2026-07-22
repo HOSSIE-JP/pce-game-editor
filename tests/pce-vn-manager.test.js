@@ -2478,6 +2478,42 @@ test('PCE VN runtime owns only the System Card user VSync vector', () => {
   assert.doesNotMatch(source, /service_adpcm_playback[\s\S]{0,500}pce_cdb_adpcm_stop\(\)/);
 });
 
+test('PCE VN CD-DA bounds the track and never rewrites display timing in the visible scan', () => {
+  const source = readRuntimeSource().replace(/\r\n/g, '\n');
+  const commandStart = source.indexOf('static void VN_OVERLAY_CODE cdda_command_impl(signed int asset_index)\n{');
+  const commandEnd = source.indexOf('\nstatic void VN_BANKED_CODE cdda_audio_command', commandStart);
+  const restoreStart = source.indexOf('static void VN_BANKED_CODE restore_video_after_cdb_call(uint8_t restore_display)\n{');
+  const restoreEnd = source.indexOf('\nstatic void enable_display_if_pending', restoreStart);
+  assert.notEqual(commandStart, -1);
+  assert.notEqual(commandEnd, -1);
+  assert.notEqual(restoreStart, -1);
+  assert.notEqual(restoreEnd, -1);
+
+  const command = source.slice(commandStart, commandEnd);
+  const restore = source.slice(restoreStart, restoreEnd);
+  const playStart = command.indexOf('(void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, start');
+  const playTail = command.slice(playStart);
+  assert.match(command, /end\.lo = p\[PCE_EDITOR_META_CDDA_END_SECTOR\];[\s\S]*end\.hi = p\[PCE_EDITOR_META_CDDA_END_SECTOR \+ 2u\];/);
+  assert.match(command, /pce_cdb_cdda_play\(PCE_CDB_LOCATION_TYPE_SECTOR, start, PCE_CDB_LOCATION_TYPE_SECTOR, end, VN_CDDA_PLAY_MODE\(\)\)/);
+  assert.match(source, /#define VN_CDDA_PLAY_MODE\(\) \(\(cdda_state & VN_CDDA_STATE_REPEAT\) \? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT\)/);
+  assert.doesNotMatch(source, /service_cdda_playback|cdda_frames_remaining|cdda_play_start/);
+  assert.doesNotMatch(source, /VN_VISUAL_CACHE_OP_CDDA_COMMAND/);
+  assert.match(source, /VN_OVERLAY_OP_CDDA_COMMAND/);
+  assert.match(source, /cdda_audio_command\(signed int asset_index\)[\s\S]*vn_overlay_dispatch\(VN_OVERLAY_OP_CDDA_COMMAND/);
+  assert.match(command, /if \(asset_index < 0\)[\s\S]*pce_cdb_cdda_pause\(\);[\s\S]*cdda_state = 0u;/);
+  assert.notEqual(playStart, -1);
+  assert.doesNotMatch(playTail, /restore_video_after_cdb_call|pce_vdc_set_resolution/);
+
+  assert.match(restore, /pce_vdc_poke\(VDC_REG_MEMORY, VN_VDC_MEMORY_CONTROL\);/);
+  assert.ok(restore.indexOf('set_vdc_control(restore_display ? VN_VDC_DISPLAY_CONTROL : VN_VDC_BLANK_CONTROL);')
+    < restore.indexOf('if (restore_display) vn_wait_next_vblank();'));
+  assert.ok(restore.indexOf('if (restore_display) vn_wait_next_vblank();')
+    < restore.indexOf('if (restore_display) set_vdc_control(VN_VDC_BLANK_CONTROL);'));
+  assert.ok(restore.indexOf('if (restore_display) set_vdc_control(VN_VDC_BLANK_CONTROL);')
+    < restore.indexOf('pce_vdc_set_resolution(256, 224, VCE_COLORBURST_ON);'));
+  assert.match(restore, /pce_vdc_sprite_set_table_start\(VN_SATB_ADDR\);[\s\S]*set_vdc_control\(restore_display \? VN_VDC_DISPLAY_CONTROL : VN_VDC_BLANK_CONTROL\);[\s\S]*vn_system_card_irq_rearm\(\);[\s\S]*vn_vdc_irq_unlock\(irq\);[\s\S]*engine_service\(\);/);
+});
+
 test('PCE VN manager emits synchronous and asynchronous sprite movement in the fixed command record', () => {
   const projectDir = makeTempDir('pce-vn-sprite-move-');
   const vnManager = loadVnManager();

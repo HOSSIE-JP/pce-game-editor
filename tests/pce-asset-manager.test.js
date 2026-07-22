@@ -1360,12 +1360,13 @@ test('PCE CD VN asset source generation streams large payloads through cd.dataFi
   const cddaBase = 3 * 2048;
   assert.equal(meta[cddaBase + 0], 3); // ending track
   assert.equal(meta[cddaBase + 2], 13); // ending start sector lo (525)
-  assert.equal(meta[cddaBase + 5], 162); // ending end sector lo (674)
-  assert.equal(meta[cddaBase + 8], 74); // ending end frame
+  assert.equal(meta.readUIntLE(cddaBase + 5, 3), 675); // ending exclusive end sector
+  assert.equal(meta[cddaBase + 8], 0); // ending exclusive end frame
   assert.equal(meta.readUInt16LE(cddaBase + 11), 118); // ending play_frames
   assert.equal(meta[cddaBase + 32], 2); // opening track
   assert.equal(meta[cddaBase + 33], 1); // opening loop
   assert.equal(meta[cddaBase + 34], 194); // opening start sector lo (450)
+  assert.equal(meta.readUIntLE(cddaBase + 37, 3), 525); // opening exclusive end = ending start
   assert.equal(meta.readUInt16LE(cddaBase + 43), 58); // opening play_frames
 });
 
