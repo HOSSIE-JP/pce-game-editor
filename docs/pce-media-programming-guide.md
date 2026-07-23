@@ -484,7 +484,11 @@ CD VNの`spritetext`文字列はscene pack v2へ16-bit Shift-JISで格納され�
 
 `message.textColor` は本文色です。build 時に PCE 9bit GRB へ丸めた値を scene pack へ保存し、runtime は message 表示開始時に UI palette の前景色を書き換えます。エディタの VN プレビューも同じ `textColor` をメッセージ描画へ反映します。
 
-`settings.messageSpeedFrames` は全 message 共通の文字送り速度で、`0 / 10 / 20 / 30 / 40 / 50` のプリセット値へ正規化されます。`settings.messageAdvanceMode` は既定 `"button"` で、`"auto"` の場合は `settings.messageAutoWaitFrames` 経過後に次 command へ進みます。個々の `message` command の旧 `textSpeedFrames` / `advanceMode` / `autoWaitFrames` は読み込み時に破棄され、生成には使われません。`voiceAssetId` に ADPCM が指定されている場合、VN source 生成時に ADPCM の再生長から文字送り速度を自動算出し、scene pack の `text_speed_frames` に焼き込みます。runtime はゲーム中に再計算せず、この保存済み値をそのまま使います。これにより本文が最後まで表示されるタイミングと音声終了がほぼ同期します。再生長を確認できない asset の場合は同期せず `settings.messageSpeedFrames` を使います。システム設定の `messageAdvanceMode: "button"` で typewriter をボタンスキップ（即時全文表示）した後は、4 行目末尾の予約セルへ `▼` を点滅表示してページ送り待ちを示します（本文は 1〜3 行目 17 文字、4 行目 16 文字で折り返し）。さらにボタンで次ページへ送ると、まだ再生中の ADPCM は `stop_adpcm_voice()` で停止します。`messageAdvanceMode: "auto"` では待ちカーソルを表示しません。
+`settings.messageSpeedFrames` は予約変数`MSG_SPEED=0`時の文字送り速度で、`0 / 10 / 20 / 30 / 40 / 50` のプリセット値へ正規化されます。`settings.messageAdvanceMode` は予約変数`AUTO_ENABLE`の初期値（`button=0`, `auto=1`）、`settings.messageAutoWaitFrames`は音声なしAUTOなどの待機時間です。個々の`message` commandの旧`textSpeedFrames` / `advanceMode` / `autoWaitFrames`は読み込み時に破棄されます。
+
+`AUTO_ENABLE`と`MSG_SPEED`はCD-ROM2 / HuCARD共通の大文字・完全一致の予約変数で、Variable / Choice / IF / Switchから通常変数と同じように扱えます。`AUTO_ENABLE`は`0..1`、`MSG_SPEED`は`0..6`へ書き込み時にクランプされます。SELECTのpressed edgeはInput監視より先に消費して`AUTO_ENABLE`を反転し、SELECTはInput commandの対象外です。`MSG_SPEED=1..6`はメッセージ開始時に`0 / 10 / 20 / 30 / 40 / 50` frame/文字へスナップショットされ、表示中の変更は次のメッセージから反映されます。
+
+`MSG_SPEED=0`かつ`voiceAssetId`にADPCMがある場合、VN source生成時に再生長から算出したscene packの`text_speed_frames`を使用します。再生長を確認できなければ`settings.messageSpeedFrames`へfallbackします。AUTOの音声なしMessageは本文完了後に`messageAutoWaitFrames`を待ちます。CD one-shot Message voiceは本文とADPCM自然終了の両方が完了した時点で追加待機なしに進み、自然終了時にstop/resetを追加しません。開始失敗とloop voiceはAuto waitを使い、loopは遷移時に明示停止します。独立Audio commandとHuCARDのPSGはAUTO完了条件へ含めません。`AUTO_ENABLE=0`で全文表示後は4行目末尾へ`▼`を点滅表示し、手動送りでは再生中voiceを停止します。
 
 ### PSG 再生 command
 
@@ -592,7 +596,7 @@ HuCARD VN では HuC6280 TIMER IRQ を PSG の時間源にしません。TIMER c
 { "type": "inputcheck", "mode": "cancel" }
 ```
 
-`inputcheck` は指定ボタンの入力で同一 scene 内の `targetLabel` へ GOTO する分岐 command です。`buttons` は `up` / `down` / `left` / `right` / `select` / `run` / `i` / `ii` の OR 条件（コンパクトなトグル UI で指定）。`mode` は 3 種です。
+`inputcheck` は指定ボタンの入力で同一 scene 内の `targetLabel` へ GOTO する分岐 command です。`buttons` は `up` / `down` / `left` / `right` / `run` / `i` / `ii` の OR 条件（コンパクトなトグル UI で指定）。SELECTは`AUTO_ENABLE`切り替え専用です。`mode` は 3 種です。
 
 | mode | 動作 |
 |---|---|

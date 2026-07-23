@@ -9,7 +9,7 @@
    later-included module files; clear_runtime_cache touches their cache keys. */
 static uint8_t VN_BANKED_CODE2 load_psg_cache_asset(signed int asset_index);
 static uint8_t VN_BANKED_CODE2 load_adpcm_voice(signed int voice_index, uint8_t allow_stop_playback, uint8_t chunk_sectors);
-static uint8_t VN_RESIDENT_CODE adpcm_playback_active(void);
+static uint8_t VN_BANKED_CODE adpcm_playback_active(void);
 #if defined(__PCE_CD__)
 static uint8_t message_glyph_cache_valid __attribute__((section(".bss")));
 #endif

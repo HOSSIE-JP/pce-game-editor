@@ -43,6 +43,12 @@ const MIN_ZOOM_PERCENT = 10;
 const MAX_ZOOM_PERCENT = 500;
 const DEFAULT_ZOOM_PERCENT = 400;
 const PREVIEW_CANVAS_PADDING = 12;
+const MIN_PREVIEW_HEIGHT = 180;
+const MAX_PREVIEW_HEIGHT = 520;
+const MIN_SHEET_HEIGHT = 180;
+const MIN_ANIMATION_ROWS_HEIGHT = 112;
+const MAX_ANIMATION_ROWS_HEIGHT = 520;
+const ROW_RESIZER_SIZE = 6;
 
 function loadImageFromDataUrl(dataUrl) {
   return new Promise((resolve, reject) => {
@@ -66,10 +72,11 @@ function layoutDefaults() {
     return {
       left: clampInt(stored.left, 220, 520, 270),
       right: clampInt(stored.right, 260, 520, 310),
-      preview: clampInt(stored.preview, 180, 520, 290),
+      preview: clampInt(stored.preview, MIN_PREVIEW_HEIGHT, MAX_PREVIEW_HEIGHT, 290),
+      animation: clampInt(stored.animation, MIN_ANIMATION_ROWS_HEIGHT, MAX_ANIMATION_ROWS_HEIGHT, 210),
     };
   } catch (_err) {
-    return { left: 270, right: 310, preview: 290 };
+    return { left: 270, right: 310, preview: 290, animation: 210 };
   }
 }
 
@@ -121,7 +128,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     <div
       class="pce-sprite-editor-root"
       data-plugin-root="${esc(plugin.id)}"
-      style="--sprite-left-width:${layout.left}px; --sprite-right-width:${layout.right}px; --sprite-preview-height:${layout.preview}px;"
+      style="--sprite-left-width:${layout.left}px; --sprite-right-width:${layout.right}px; --sprite-preview-height:${layout.preview}px; --sprite-animation-height:${layout.animation}px;"
     >
       <aside class="pce-sprite-editor-sidebar">
         <header class="pce-sprite-editor-panel-header">
@@ -183,7 +190,14 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
             <canvas data-role="preview-canvas"></canvas>
           </div>
         </section>
-        <div class="pce-sprite-editor-row-resizer" data-row-resizer role="separator" aria-label="Resize preview"></div>
+        <div
+          class="pce-sprite-editor-row-resizer"
+          data-row-resizer="preview"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Frame Preview の高さを変更"
+          title="ドラッグして Frame Preview の高さを変更"
+        ></div>
         <section class="pce-sprite-editor-sheet-panel">
           <header class="pce-sprite-editor-toolbar">
             <div>
@@ -207,6 +221,14 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
             <canvas data-role="sheet-canvas"></canvas>
           </div>
         </section>
+        <div
+          class="pce-sprite-editor-row-resizer"
+          data-row-resizer="animation"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Animation Rows の高さを変更"
+          title="ドラッグして Animation Rows の高さを変更"
+        ></div>
         <section class="pce-sprite-editor-animation-rows">
           <header class="pce-sprite-editor-animation-header">
             <strong>ANIMATION ROWS</strong>
@@ -295,6 +317,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     sourceFilter: root.querySelector('[data-role="source-filter"]'),
     keyword: root.querySelector('[data-role="keyword"]'),
     status: root.querySelector('[data-role="status"]'),
+    workbench: root.querySelector('.pce-sprite-editor-workbench'),
     previewStage: root.querySelector('[data-role="preview-stage"]'),
     previewCanvas: root.querySelector('[data-role="preview-canvas"]'),
     sheetStage: root.querySelector('[data-role="sheet-stage"]'),
@@ -1229,30 +1252,70 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
     return () => cleanup.forEach((fn) => fn());
   }
 
-  function setupRowResizer() {
-    const resizer = root.querySelector('[data-row-resizer]');
-    if (!resizer) return () => {};
-    const onPointerDown = (event) => {
-      event.preventDefault();
-      const startY = event.clientY;
-      const startHeight = clampInt(getComputedStyle(els.shell).getPropertyValue('--sprite-preview-height'), 180, 520, layout.preview);
-      resizer.classList.add('is-dragging');
-      const onMove = (moveEvent) => {
-        layout.preview = clampInt(startHeight + (moveEvent.clientY - startY), 180, 520, startHeight);
-        els.shell.style.setProperty('--sprite-preview-height', `${layout.preview}px`);
-        drawFramePreview();
-      };
-      const onUp = () => {
-        resizer.classList.remove('is-dragging');
-        saveLayout(layout);
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-      };
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp, { once: true });
+  function setupRowResizers() {
+    const cleanup = [];
+    const availableMaximum = (reservedHeight, minimum, maximum) => {
+      const workbenchHeight = els.workbench?.clientHeight || 0;
+      if (workbenchHeight <= 0) return maximum;
+      return Math.max(
+        minimum,
+        Math.min(
+          maximum,
+          workbenchHeight - reservedHeight - MIN_SHEET_HEIGHT - (ROW_RESIZER_SIZE * 2),
+        ),
+      );
     };
-    resizer.addEventListener('pointerdown', onPointerDown);
-    return () => resizer.removeEventListener('pointerdown', onPointerDown);
+
+    root.querySelectorAll('[data-row-resizer]').forEach((resizer) => {
+      const target = resizer.dataset.rowResizer;
+      const onPointerDown = (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        const startY = event.clientY;
+        const isAnimation = target === 'animation';
+        const cssProperty = isAnimation ? '--sprite-animation-height' : '--sprite-preview-height';
+        const minimum = isAnimation ? MIN_ANIMATION_ROWS_HEIGHT : MIN_PREVIEW_HEIGHT;
+        const maximum = isAnimation ? MAX_ANIMATION_ROWS_HEIGHT : MAX_PREVIEW_HEIGHT;
+        const fallback = isAnimation ? layout.animation : layout.preview;
+        const startHeight = clampInt(
+          getComputedStyle(els.shell).getPropertyValue(cssProperty),
+          minimum,
+          maximum,
+          fallback,
+        );
+        resizer.classList.add('is-dragging');
+        resizer.setPointerCapture?.(event.pointerId);
+
+        const onMove = (moveEvent) => {
+          const deltaY = moveEvent.clientY - startY;
+          if (isAnimation) {
+            const dragMaximum = availableMaximum(layout.preview, minimum, maximum);
+            layout.animation = clampInt(startHeight - deltaY, minimum, dragMaximum, startHeight);
+            els.shell.style.setProperty(cssProperty, `${layout.animation}px`);
+          } else {
+            const dragMaximum = availableMaximum(layout.animation, minimum, maximum);
+            layout.preview = clampInt(startHeight + deltaY, minimum, dragMaximum, startHeight);
+            els.shell.style.setProperty(cssProperty, `${layout.preview}px`);
+            drawFramePreview();
+          }
+        };
+        const onUp = (upEvent) => {
+          resizer.classList.remove('is-dragging');
+          resizer.releasePointerCapture?.(upEvent.pointerId);
+          saveLayout(layout);
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
+          window.removeEventListener('pointercancel', onUp);
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp, { once: true });
+        window.addEventListener('pointercancel', onUp, { once: true });
+      };
+      resizer.addEventListener('pointerdown', onPointerDown);
+      cleanup.push(() => resizer.removeEventListener('pointerdown', onPointerDown));
+    });
+
+    return () => cleanup.forEach((fn) => fn());
   }
 
   function setupStagePanning(stage) {
@@ -1381,7 +1444,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
 
   const teardownAssetRefreshEvents = setupAssetRefreshEvents();
   const teardownColumnResizers = setupColumnResizers();
-  const teardownRowResizer = setupRowResizer();
+  const teardownRowResizers = setupRowResizers();
   const teardownFramePan = setupStagePanning(els.previewStage);
   const teardownSheetPan = setupStagePanning(els.sheetStage);
   await reload();
@@ -1390,7 +1453,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
       stopPlayback();
       teardownAssetRefreshEvents();
       teardownColumnResizers();
-      teardownRowResizer();
+      teardownRowResizers();
       teardownFramePan();
       teardownSheetPan();
       window.removeEventListener('resize', drawFramePreview);

@@ -58,7 +58,6 @@ const INPUT_BUTTONS = [
   { key: 'down', label: '↓' },
   { key: 'left', label: '←' },
   { key: 'right', label: '→' },
-  { key: 'select', label: 'SEL' },
   { key: 'run', label: 'RUN' },
   { key: 'i', label: 'I' },
   { key: 'ii', label: 'II' },
@@ -1348,6 +1347,7 @@ function previewRuntime() {
   let spriteTextBlinkPrev = 0;
   let spriteTextBlinkAcc = 0;
   let pending = null;
+  let activeMessageAutoToggle = null;
   let choiceState = null;
   let syncInputWatcher = null;
   let asyncInputWatcher = null;
@@ -1357,8 +1357,11 @@ function previewRuntime() {
   const PSG_CHANNEL_COUNT = 6;
   let psgAudioContext = null;
   let psgState = null;
-  const variableInitialValues = {};
-  const variableNames = [];
+  const variableInitialValues = {
+    AUTO_ENABLE: messageAdvanceMode === 'auto' ? 1 : 0,
+    MSG_SPEED: 0,
+  };
+  const variableNames = ['AUTO_ENABLE', 'MSG_SPEED'];
 
   function psgClampInt(value, min, max, fallback) {
     const parsed = Number(value);
@@ -1550,11 +1553,12 @@ function previewRuntime() {
   function rememberVariable(name, initialValue, isDefinition) {
     const key = String(name || '').trim();
     if (!key) return;
+    const reserved = key === 'AUTO_ENABLE' || key === 'MSG_SPEED';
     if (!Object.prototype.hasOwnProperty.call(variableInitialValues, key)) {
       variableNames.push(key);
       variableInitialValues[key] = 0;
     }
-    if (isDefinition) variableInitialValues[key] = s16(initialValue);
+    if (isDefinition && !reserved) variableInitialValues[key] = s16(initialValue);
   }
 
   (data.doc.scenes || []).forEach((item) => {
@@ -1571,10 +1575,23 @@ function previewRuntime() {
     v = ((v + 32768) & 0xffff) - 32768;
     return v;
   }
+  function clampReservedVar(name, value) {
+    const normalized = s16(value);
+    if (name === 'AUTO_ENABLE') return Math.max(0, Math.min(1, normalized));
+    if (name === 'MSG_SPEED') return Math.max(0, Math.min(6, normalized));
+    return normalized;
+  }
+  function setVar(name, value) {
+    const key = String(name || '').trim();
+    if (!key) return 0;
+    const normalized = clampReservedVar(key, value);
+    vars[key] = normalized;
+    return normalized;
+  }
   function getVar(name) { return vars[name] || 0; }
   function initialVars() {
     const result = {};
-    variableNames.forEach((name) => { result[name] = s16(variableInitialValues[name]); });
+    variableNames.forEach((name) => { result[name] = clampReservedVar(name, variableInitialValues[name]); });
     return result;
   }
   const runtimeCache = data.runtimeCache || {};
@@ -1950,8 +1967,17 @@ function previewRuntime() {
       result.then(() => {
         blockedAudio[kind] = false;
         updateAudioHint();
-      }).catch(() => {
+      }).catch((err) => {
         if (audio[kind] === a) {
+          if (err?.name !== 'NotAllowedError' && typeof a.__pcePreviewOnError === 'function') {
+            const onError = a.__pcePreviewOnError;
+            a.__pcePreviewOnError = null;
+            audio[kind] = null;
+            blockedAudio[kind] = false;
+            onError();
+            updateAudioHint();
+            return;
+          }
           blockedAudio[kind] = true;
           updateAudioHint();
         }
@@ -1974,22 +2000,36 @@ function previewRuntime() {
     blockedAudio[kind] = false;
     updateAudioHint();
   }
-  function playAudio(kind, assetId, loop) {
-    if (!assetId || !data.urls[assetId]) return;
+  function playAudio(kind, assetId, loop, onEnded, onError) {
+    if (!assetId || !data.urls[assetId]) return null;
     const conflict = pcePreviewBgmConflict(kind, data.meta[assetId]?.type);
     if (conflict) stopAudio(conflict.kind, conflict.target);
     stopAudio(kind);
     const a = new Audio(data.urls[assetId]);
     a.loop = Boolean(loop);
+    a.__pcePreviewOnError = typeof onError === 'function' ? onError : null;
     a.addEventListener('ended', () => {
-      if (audio[kind] === a) {
-        audio[kind] = null;
-        blockedAudio[kind] = false;
-        updateAudioHint();
+      if (audio[kind] !== a) return;
+      audio[kind] = null;
+      blockedAudio[kind] = false;
+      a.__pcePreviewOnError = null;
+      updateAudioHint();
+      if (typeof onEnded === 'function') onEnded();
+    });
+    a.addEventListener('error', () => {
+      if (audio[kind] !== a) return;
+      audio[kind] = null;
+      blockedAudio[kind] = false;
+      updateAudioHint();
+      if (typeof a.__pcePreviewOnError === 'function') {
+        const callback = a.__pcePreviewOnError;
+        a.__pcePreviewOnError = null;
+        callback();
       }
     });
     audio[kind] = a;
     tryPlayAudio(kind);
+    return a;
   }
   function hideMsg() { msgBox.classList.add('pv-hidden'); }
   function hideChoice() { choiceBox.classList.add('pv-hidden'); choiceBox.innerHTML = ''; choiceState = null; }
@@ -2103,6 +2143,7 @@ function previewRuntime() {
     clearTimers();
     cancelAllSpriteMoves();
     activeMessageFastForward = null;
+    activeMessageAutoToggle = null;
     pending = null;
     hideChoice();
     hideMsg();
@@ -2121,6 +2162,11 @@ function previewRuntime() {
     jumpLabel(match.targetLabel);
     run();
     return true;
+  }
+  function toggleAutoEnable() {
+    setVar('AUTO_ENABLE', getVar('AUTO_ENABLE') === 1 ? 0 : 1);
+    updateVarDebug();
+    if (typeof activeMessageAutoToggle === 'function') activeMessageAutoToggle();
   }
   function setScene(id) {
     cancelAllSpriteMoves();
@@ -2141,13 +2187,13 @@ function previewRuntime() {
   function applyVar(c) {
     const n = c.variableName;
     if (!n) return;
-    if (c.operation === 'define' || c.operation === 'set') vars[n] = s16(c.value);
-    else if (c.operation === 'add') vars[n] = s16(getVar(n) + Number(c.value || 0));
-    else if (c.operation === 'sub') vars[n] = s16(getVar(n) - Number(c.value || 0));
+    if (c.operation === 'define' || c.operation === 'set') setVar(n, c.value);
+    else if (c.operation === 'add') setVar(n, getVar(n) + Number(c.value || 0));
+    else if (c.operation === 'sub') setVar(n, getVar(n) - Number(c.value || 0));
     else if (c.operation === 'random') {
       const lo = Math.min(c.min, c.max);
       const hi = Math.max(c.min, c.max);
-      vars[n] = s16(lo + Math.floor(Math.random() * (hi - lo + 1)));
+      setVar(n, lo + Math.floor(Math.random() * (hi - lo + 1)));
     }
     updateVarDebug();
   }
@@ -2321,6 +2367,7 @@ function previewRuntime() {
     msgBox.classList.remove('pv-hidden');
     paintMsg('― END ―', '#fff');
     activeMessageFastForward = null;
+    activeMessageAutoToggle = null;
     pending = null;
   }
 
@@ -2332,17 +2379,45 @@ function previewRuntime() {
     const color = messageColor(c);
     let shownBody = 0;
     let done = false;
+    const voiceMeta = c.voiceAssetId ? (data.meta[c.voiceAssetId] || {}) : {};
+    const voiceLoop = Boolean(voiceMeta.loop);
+    let voiceStarted = false;
+    let voiceComplete = !c.voiceAssetId;
+    let voiceFailed = false;
     paintMsg(parts.prefix, color);
-    if (c.voiceAssetId) {
-      recordAdpcmUse(c.voiceAssetId, 'Message voice');
-      if (!messageFastForward) playAudio('adpcm', c.voiceAssetId, false);
-    }
-    function next() {
+    function next(stopVoice = false) {
       clearTimers();
-      if (messageFastForward && c.voiceAssetId) stopAudio('adpcm');
+      if (stopVoice && c.voiceAssetId) stopAudio('adpcm');
       activeMessageFastForward = null;
+      activeMessageAutoToggle = null;
       pending = null;
       run();
+    }
+    function scheduleAuto(resetWait = false) {
+      if (autoTimer && resetWait) {
+        clearTimeout(autoTimer);
+        autoTimer = null;
+      }
+      if (!done) return;
+      const autoEnabled = getVar('AUTO_ENABLE') === 1;
+      paintMsg(full, color, !autoEnabled);
+      if (!autoEnabled) {
+        if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+        return;
+      }
+      if (messageFastForward) {
+        autoTimer = setTimeout(() => next(Boolean(c.voiceAssetId)), 0);
+        return;
+      }
+      if (!c.voiceAssetId || voiceFailed || voiceLoop || !voiceStarted) {
+        if (autoTimer) return;
+        autoTimer = setTimeout(() => {
+          autoTimer = null;
+          next(voiceLoop && voiceStarted);
+        }, messageAutoWaitFrames * 1000 / 60);
+        return;
+      }
+      if (voiceComplete) next(false);
     }
     function complete() {
       if (done) return;
@@ -2350,20 +2425,45 @@ function previewRuntime() {
       shownBody = parts.body.length;
       if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
       if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
-      paintMsg(full, color, messageAdvanceMode === 'button');
-      if (messageAdvanceMode === 'auto') autoTimer = setTimeout(next, messageFastForward ? 0 : messageAutoWaitFrames * 1000 / 60);
+      scheduleAuto(true);
     }
     activeMessageFastForward = () => {
-      complete();
-      if (c.voiceAssetId) stopAudio('adpcm');
+      if (c.voiceAssetId) {
+        stopAudio('adpcm');
+        voiceComplete = true;
+        voiceFailed = true;
+      }
+      if (!done) complete();
+      else scheduleAuto(true);
     };
-    pending = function () { if (!done) complete(); else { if (c.voiceAssetId) stopAudio('adpcm'); next(); } };
-    const voiceMeta = c.voiceAssetId ? (data.meta[c.voiceAssetId] || {}) : {};
+    activeMessageAutoToggle = () => scheduleAuto(true);
+    pending = function () { if (!done) complete(); else next(Boolean(c.voiceAssetId)); };
+    if (c.voiceAssetId) {
+      recordAdpcmUse(c.voiceAssetId, 'Message voice');
+      if (!messageFastForward) {
+        voiceStarted = Boolean(playAudio('adpcm', c.voiceAssetId, voiceLoop, () => {
+          voiceComplete = true;
+          scheduleAuto(false);
+        }, () => {
+          voiceFailed = true;
+          voiceComplete = true;
+          scheduleAuto(true);
+        }));
+        if (!voiceStarted) {
+          voiceFailed = true;
+          voiceComplete = true;
+        }
+      }
+    }
     const voiceSeconds = Number(voiceMeta.durationSeconds) || 0;
     const voiceFrames = voiceSeconds > 0 && !voiceMeta.loop ? Math.max(1, Math.ceil(voiceSeconds * 60)) : 0;
     const bodyDrawable = messageDrawableLength(parts.body);
     const voiceSpeed = voiceFrames && bodyDrawable ? Math.max(1, Math.ceil(voiceFrames / bodyDrawable)) * 1000 / 60 : 0;
-    const speed = messageFastForward ? 0 : (voiceSpeed || (messageSpeedFrames * 1000 / 60));
+    const speedLevel = getVar('MSG_SPEED');
+    const speedFrames = speedLevel === 0
+      ? (voiceSpeed ? voiceSpeed * 60 / 1000 : messageSpeedFrames)
+      : messageSpeedFrameOptions[speedLevel - 1];
+    const speed = messageFastForward ? 0 : speedFrames * 1000 / 60;
     function revealNextBodyGlyph() {
       if (done) return;
       while (shownBody < parts.body.length) {
@@ -2407,7 +2507,7 @@ function previewRuntime() {
       hideChoice();
       if (!ch) { pc += 1; run(); return; }
       if (c.variableName) {
-        vars[c.variableName] = s16(ch.value);
+        setVar(c.variableName, ch.value);
         updateVarDebug();
       }
       pc += 1;
@@ -2524,6 +2624,7 @@ function previewRuntime() {
     resetPreviewCacheState();
     state = { background: null, sprites: {}, spriteTexts: {} };
     activeMessageFastForward = null;
+    activeMessageAutoToggle = null;
     pending = null;
     choiceState = null;
     syncInputWatcher = null;
@@ -2546,6 +2647,11 @@ function previewRuntime() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { window.close(); return; }
     const controllerButton = pcePreviewButtonForKeyboardEvent(e);
+    if (controllerButton === 'select') {
+      e.preventDefault();
+      if (!e.repeat) toggleAutoEnable();
+      return;
+    }
     if (controllerButton && !e.repeat && handleInputButton(controllerButton)) {
       e.preventDefault();
       return;
@@ -3875,7 +3981,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
     if (command.type === 'variable') {
       return `
         <div class="pce-vn-grid">
-          <label class="form-group"><span class="form-label">Variable</span><input class="form-input form-input-mono" name="variableName" value="${esc(command.variableName || '')}" /></label>
+          <label class="form-group"><span class="form-label">Variable</span><input class="form-input form-input-mono" name="variableName" list="pce-vn-reserved-variable-names" value="${esc(command.variableName || '')}" /></label>
           <label class="form-group"><span class="form-label">Operation</span><select class="form-select" name="operation"><option value="define" ${command.operation === 'define' ? 'selected' : ''}>define</option><option value="set" ${command.operation === 'set' ? 'selected' : ''}>set</option><option value="add" ${command.operation === 'add' ? 'selected' : ''}>add</option><option value="sub" ${command.operation === 'sub' ? 'selected' : ''}>sub</option><option value="random" ${command.operation === 'random' ? 'selected' : ''}>random</option></select></label>
         </div>
         <div class="pce-vn-grid tight">
@@ -3883,6 +3989,8 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
           <label class="form-group"><span class="form-label">Random min</span><input class="form-input" name="min" type="number" min="-32768" max="32767" value="${esc(command.min)}" /></label>
           <label class="form-group"><span class="form-label">Random max</span><input class="form-input" name="max" type="number" min="-32768" max="32767" value="${esc(command.max)}" /></label>
         </div>
+        <datalist id="pce-vn-reserved-variable-names"><option value="AUTO_ENABLE"></option><option value="MSG_SPEED"></option></datalist>
+        <small class="pce-vn-hint">予約変数（大文字・完全一致）: AUTO_ENABLE は0..1、MSG_SPEED は0..6へ書き込み時にクランプされます。</small>
       `;
     }
     if (command.type === 'if') {

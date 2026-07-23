@@ -37,7 +37,7 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 - `psg`は`psg-song`（BGM）または`psg-sfx`（SFX）を再生します。`channel`は0..5です。stopは`target: "bgm" | "sfx" | "all"`を指定でき、未指定は`all`です。
 - `variable` は `define`, `set`, `add`, `sub`, `random` を使えます。値は signed 16-bit 範囲にしてください。
 - `if`, `switch`, `goto`, `inputcheck` の移動先は同一 scene 内の `label.name` です。別 scene へ行くときは `jump` または `choice.choices[].targetSceneId` を使ってください。
-- `inputcheck.buttons` は `up`, `down`, `left`, `right`, `select`, `run`, `i`, `ii` から選びます。複数指定は OR 条件です。
+- `inputcheck.buttons` は `up`, `down`, `left`, `right`, `run`, `i`, `ii` から選びます。複数指定は OR 条件です。`select` は `AUTO_ENABLE` 切り替え専用なので指定しません。
 - `effect.effect` は `fadeOut`, `fadeIn`, `blank`, `shake`, `flash` です。`frames` は 0..255、`shake` の `intensity` は 1..16。
 - 色は `#rrggbb` 形式で指定します。PCE 表示可能色へ丸められるため、細かい色差に依存しないでください。
 - 画像・音声などの asset ID は、最終的な `assets/pce-assets.json` に登録される ID と一致させる必要があります。未登録 ID を使うとエディタ保存時に空参照へ正規化されることがあります。
@@ -81,9 +81,17 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 
 ### settings
 
-- `messageSpeedFrames`: `0`, `10`, `20`, `30`, `40`, `50` のいずれか。0 が最速。
-- `messageAdvanceMode`: `"button"` または `"auto"`。
-- `messageAutoWaitFrames`: auto advance 時に待つ frame 数。60fps 基準。
+- `messageSpeedFrames`: `MSG_SPEED=0`時に使う既定値。`0`, `10`, `20`, `30`, `40`, `50` のいずれか。0 が最速。
+- `messageAdvanceMode`: `AUTO_ENABLE`の初期値。`"button"`は0、`"auto"`は1。
+- `messageAutoWaitFrames`: 音声なしAUTO、音声開始失敗、loop voiceで待つ frame 数。60fps 基準。
+
+### 予約変数
+
+- `AUTO_ENABLE`: `0=OFF`, `1=ON`。SELECTでも切り替えられる。SELECTはInput commandには指定しない。
+- `MSG_SPEED`: `0`はsettings／CD音声同期速度、`1..6`は`0 / 10 / 20 / 30 / 40 / 50` frame/文字。
+- 名前は大文字・完全一致で使用する。Variable / Choiceで代入でき、IF / Switchで参照できる。
+- 範囲外への代入は`AUTO_ENABLE=0..1`、`MSG_SPEED=0..6`へクランプされる。予約変数を`define`しても起動時初期値は変更せず、そのcommand実行時の代入として扱う。
+- AUTO時、音声なしMessageは本文完了後にAuto wait、CDのone-shot Message voiceは本文と音声の両方が終了した時点で遷移する。loop voiceと音声開始失敗はAuto waitを使う。HuCARDのPSGと単独Audio commandは待たない。
 
 ### scene
 

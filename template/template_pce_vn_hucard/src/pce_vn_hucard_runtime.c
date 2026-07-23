@@ -878,7 +878,7 @@ static void VN_HUCARD_CODE_TEXT refresh_message_wait_indicator(void)
 {
     if (active_message_index < 0
         || !message_complete
-        || active_message_state.advance_mode != PCE_VN_ADVANCE_BUTTON)
+        || variable_values[PCE_VN_VARIABLE_AUTO_ENABLE_INDEX] != 0u)
     {
         hide_message_wait_indicator();
         return;
@@ -890,7 +890,7 @@ static void VN_HUCARD_CODE_TEXT tick_message_wait_indicator(void)
 {
     if (active_message_index < 0
         || !message_complete
-        || active_message_state.advance_mode != PCE_VN_ADVANCE_BUTTON)
+        || variable_values[PCE_VN_VARIABLE_AUTO_ENABLE_INDEX] != 0u)
     {
         hide_message_wait_indicator();
         return;
@@ -1853,6 +1853,16 @@ static void VN_HUCARD_CODE_TEXT draw_spritetext(const pce_vn_command_t *command)
 static void VN_HUCARD_CODE_SCRIPT set_variable_value(int16_t index, int16_t value)
 {
     if (index < 0 || (uint16_t)index >= PCE_VN_VARIABLE_STORAGE_COUNT) return;
+    if (index == PCE_VN_VARIABLE_AUTO_ENABLE_INDEX)
+    {
+        if (value < 0) value = 0;
+        else if (value > 1) value = 1;
+    }
+    else if (index == PCE_VN_VARIABLE_MSG_SPEED_INDEX)
+    {
+        if (value < 0) value = 0;
+        else if (value > 6) value = 6;
+    }
     variable_values[index] = (uint16_t)value;
 }
 
@@ -1948,6 +1958,7 @@ static void VN_HUCARD_CODE_TEXT start_message(uint8_t message_index)
     pce_vn_message_t message;
     uint8_t restore_window_display;
     uint8_t instant_glyph_count;
+    int16_t message_speed_level;
     if (!scene_pack_read_message(&active_scene_pack, message_index, &message)) return;
     active_message_state = message;
     active_message_index = message_index;
@@ -1962,6 +1973,11 @@ static void VN_HUCARD_CODE_TEXT start_message(uint8_t message_index)
     message_auto_wait = message.auto_wait_frames;
     message_wait_indicator_state = 0u;
     message_text_speed = message.text_speed_frames;
+    message_speed_level = get_variable_value(PCE_VN_VARIABLE_MSG_SPEED_INDEX);
+    if (message_speed_level > 0)
+    {
+        message_text_speed = (uint8_t)((message_speed_level - 1) * 10);
+    }
     instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT(message.mouth_slot);
     write_ui_text_palette(ui_text_color_word(message.text_color));
     restore_window_display = begin_message_window_vram_update();
@@ -2237,10 +2253,10 @@ static void VN_HUCARD_CODE_SCRIPT advance_story(void)
 
 static void VN_HUCARD_CODE_SCRIPT init_variables(void)
 {
-    uint8_t i;
+    uint16_t i;
     for (i = 0u; i < PCE_VN_VARIABLE_STORAGE_COUNT; i++)
     {
-        variable_values[i] = (uint16_t)pce_vn_variable_initial_values[i];
+        set_variable_value((int16_t)i, pce_vn_variable_initial_values[i]);
     }
 }
 
@@ -2312,6 +2328,25 @@ int main(void)
         pad = pce_joypad_read();
         pressed = (uint8_t)(pad & (uint8_t)~last_pad);
         last_pad = pad;
+        if (pressed & PAD_SELECT)
+        {
+            const uint8_t auto_enable =
+                (uint8_t)(get_variable_value(PCE_VN_VARIABLE_AUTO_ENABLE_INDEX) == 0);
+            set_variable_value(PCE_VN_VARIABLE_AUTO_ENABLE_INDEX, auto_enable);
+            pressed = (uint8_t)(pressed & (uint8_t)~PAD_SELECT);
+            if (active_message_index >= 0 && message_complete)
+            {
+                if (auto_enable)
+                {
+                    message_auto_wait = active_message_state.auto_wait_frames;
+                    hide_message_wait_indicator();
+                }
+                else
+                {
+                    refresh_message_wait_indicator();
+                }
+            }
+        }
         if (async_input_mask && (pressed & async_input_mask))
         {
             const uint16_t target = async_input_target;
@@ -2356,9 +2391,9 @@ int main(void)
         if (active_message_index >= 0)
         {
             if (!message_ticked && !message_complete) tick_active_message();
-            if (message_complete && active_message_state.advance_mode == PCE_VN_ADVANCE_AUTO)
+            if (pressed & (PAD_I | PAD_II | PAD_RUN))
             {
-                if (message_auto_wait) message_auto_wait--;
+                if (!message_complete) finish_active_message();
                 else
                 {
                     reset_message_wait_indicator_state();
@@ -2367,9 +2402,10 @@ int main(void)
                     advance_story();
                 }
             }
-            else if (pressed & (PAD_I | PAD_II | PAD_RUN))
+            else if (message_complete
+                && get_variable_value(PCE_VN_VARIABLE_AUTO_ENABLE_INDEX) != 0)
             {
-                if (!message_complete) finish_active_message();
+                if (message_auto_wait) message_auto_wait--;
                 else
                 {
                     reset_message_wait_indicator_state();

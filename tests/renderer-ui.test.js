@@ -369,7 +369,11 @@ test('Image manager modules expose file-first image import, asset list editing, 
   assert.match(spritePage, /data-role="sheet-canvas"/);
   assert.match(spritePage, /data-column-resizer="left"/);
   assert.match(spritePage, /data-column-resizer="right"/);
-  assert.match(spritePage, /data-row-resizer/);
+  assert.match(spritePage, /data-row-resizer="preview"/);
+  assert.match(spritePage, /data-row-resizer="animation"/);
+  assert.match(spritePage, /--sprite-animation-height:\$\{layout\.animation\}px/);
+  assert.match(spritePage, /layout\.animation = clampInt\(startHeight - deltaY/);
+  assert.match(spritePage, /function setupRowResizers\(\)/);
   assert.match(spritePage, /function setupStagePanning/);
   assert.match(spritePage, /event\.button !== 1/);
   assert.match(spritePage, /function renderAnimationRows/);
@@ -476,7 +480,9 @@ test('Image manager modules expose file-first image import, asset list editing, 
   assert.match(spriteCss, /\.pce-image-manager-sprite-preview/);
   assert.match(spriteCss, /\.pce-sprite-editor-root/);
   assert.match(spriteCss, /grid-template-columns:\s*var\(--sprite-left-width\)\s*6px\s*minmax\(320px,\s*1fr\)\s*6px\s*var\(--sprite-right-width\)/);
+  assert.match(spriteCss, /grid-template-rows:\s*var\(--sprite-preview-height\)\s*6px\s*minmax\(180px,\s*1fr\)\s*6px\s*var\(--sprite-animation-height\)/);
   assert.match(spriteCss, /\.pce-sprite-editor-column-resizer/);
+  assert.match(spriteCss, /\.pce-sprite-editor-row-resizer/);
   assert.match(spriteCss, /\.pce-sprite-editor-preview-stage canvas/);
   assert.match(spriteCss, /\.pce-sprite-editor-sheet-stage canvas/);
   assert.match(spriteCss, /\.pce-sprite-editor-check-toggle/);
@@ -576,9 +582,34 @@ test('PCE visual novel preview message skip completes the typewriter page', () =
   assert.match(previewRuntimeSource, /cursor\.textContent = messageWaitGlyph;/);
   assert.match(showMessageSource, /function complete\(\) \{\r?\n\s+if \(done\) return;\r?\n\s+done = true;\r?\n\s+shownBody = parts\.body\.length;/);
   assert.match(showMessageSource, /if \(typeTimer\) \{ clearInterval\(typeTimer\); typeTimer = null; \}/);
-  assert.match(showMessageSource, /paintMsg\(full, color, messageAdvanceMode === 'button'\);/);
+  assert.match(showMessageSource, /const autoEnabled = getVar\('AUTO_ENABLE'\) === 1;/);
+  assert.match(showMessageSource, /paintMsg\(full, color, !autoEnabled\);/);
   assert.match(showMessageSource, /function revealNextBodyGlyph\(\) \{\r?\n\s+if \(done\) return;/);
-  assert.match(showMessageSource, /pending = function \(\) \{ if \(!done\) complete\(\); else \{ if \(c\.voiceAssetId\) stopAudio\('adpcm'\); next\(\); \} \};/);
+  assert.match(showMessageSource, /pending = function \(\) \{ if \(!done\) complete\(\); else next\(Boolean\(c\.voiceAssetId\)\); \};/);
+});
+
+test('PCE visual novel preview exposes reserved AUTO and message-speed variables', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+  const systemSettings = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-vn-system-settings', 'renderer.js'), 'utf-8');
+
+  assert.match(renderer, /const variableInitialValues = \{\s*AUTO_ENABLE: messageAdvanceMode === 'auto' \? 1 : 0,\s*MSG_SPEED: 0,/);
+  assert.match(renderer, /const variableNames = \['AUTO_ENABLE', 'MSG_SPEED'\];/);
+  assert.match(renderer, /if \(name === 'AUTO_ENABLE'\) return Math\.max\(0, Math\.min\(1, normalized\)\);/);
+  assert.match(renderer, /if \(name === 'MSG_SPEED'\) return Math\.max\(0, Math\.min\(6, normalized\)\);/);
+  assert.match(renderer, /if \(isDefinition && !reserved\) variableInitialValues\[key\] = s16\(initialValue\);/);
+  assert.match(renderer, /if \(c\.operation === 'define' \|\| c\.operation === 'set'\) setVar\(n, c\.value\);/);
+  assert.match(renderer, /setVar\(c\.variableName, ch\.value\);/);
+  assert.match(renderer, /const speedLevel = getVar\('MSG_SPEED'\);/);
+  assert.match(renderer, /messageSpeedFrameOptions\[speedLevel - 1\]/);
+  assert.match(renderer, /if \(controllerButton === 'select'\) \{[\s\S]*if \(!e\.repeat\) toggleAutoEnable\(\);[\s\S]*return;/);
+  assert.doesNotMatch(renderer.slice(renderer.indexOf('const INPUT_BUTTONS = ['), renderer.indexOf('const INPUT_BUTTON_KEYS')), /key: 'select'/);
+  assert.match(renderer, /list="pce-vn-reserved-variable-names"/);
+  assert.match(renderer, /予約変数（大文字・完全一致）: AUTO_ENABLE は0\.\.1、MSG_SPEED は0\.\.6/);
+  assert.match(renderer, /a\.addEventListener\('ended', \(\) => \{\s*if \(audio\[kind\] !== a\) return;/);
+  assert.match(renderer, /a\.addEventListener\('error', \(\) => \{\s*if \(audio\[kind\] !== a\) return;/);
+  assert.match(systemSettings, /メッセージ速度（MSG_SPEED=0時）/);
+  assert.match(systemSettings, /Advance（AUTO_ENABLE初期値）/);
+  assert.doesNotMatch(systemSettings, /messageAutoWaitFrames\.disabled/);
 });
 
 test('PCE visual novel editor exposes resizable panes, command palette, detail editor, and drag ordering', () => {
@@ -753,7 +784,7 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /type === 'goto'/);
   assert.match(renderer, /type === 'jump'/);
   assert.match(renderer, /type === 'wait'/);
-  assert.match(renderer, /function playAudio\(kind, assetId, loop\)[\s\S]*new Audio\(data\.urls\[assetId\]\)/);
+  assert.match(renderer, /function playAudio\(kind, assetId, loop, onEnded, onError\)[\s\S]*new Audio\(data\.urls\[assetId\]\)/);
   assert.match(renderer, /function applyBackground\(c\)/);
   assert.match(renderer, /if \(t === 'background'\) \{ pc \+= 1; recordVisualDisplay\(c\.assetId, 'bg', 'BG'\); applyBackground\(c\); return; \}/);
   assert.match(renderer, /<aside id="pv-debug" class="pv-hidden"><section><h2>Variables<\/h2><div id="pv-vars"><\/div><\/section><section><h2>Cache<\/h2><div id="pv-cache"><\/div><\/section><\/aside>/);
@@ -764,11 +795,12 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /setVarDebugVisible\(Boolean\(debugToggle\?\.checked\)\)/);
   assert.match(renderer, /let messageFastForward = false;/);
   assert.match(renderer, /function setMessageFastForward\(enabled\)/);
-  assert.match(renderer, /if \(!messageFastForward\) playAudio\('adpcm', c\.voiceAssetId, false\);/);
-  assert.match(renderer, /const speed = messageFastForward \? 0 : \(voiceSpeed \|\| \(messageSpeedFrames \* 1000 \/ 60\)\);/);
+  assert.match(renderer, /voiceStarted = Boolean\(playAudio\('adpcm', c\.voiceAssetId, voiceLoop,/);
+  assert.match(renderer, /const speedLevel = getVar\('MSG_SPEED'\);/);
+  assert.match(renderer, /const speed = messageFastForward \? 0 : speedFrames \* 1000 \/ 60;/);
   assert.match(renderer, /if \(messageFastForward \|\| speed <= 0 \|\| !parts\.body\) complete\(\);/);
   assert.match(renderer, /function updateVarDebug\(\)/);
-  assert.match(renderer, /if \(c\.voiceAssetId\) \{[\s\S]*recordAdpcmUse\(c\.voiceAssetId, 'Message voice'\);[\s\S]*playAudio\('adpcm', c\.voiceAssetId, false\);[\s\S]*\}/);
+  assert.match(renderer, /if \(c\.voiceAssetId\) \{[\s\S]*recordAdpcmUse\(c\.voiceAssetId, 'Message voice'\);[\s\S]*voiceStarted = Boolean\(playAudio\('adpcm', c\.voiceAssetId, voiceLoop,/);
   assert.match(renderer, /const voiceSeconds = Number\(voiceMeta\.durationSeconds\) \|\| 0;/);
   assert.match(renderer, /retryAudioPlayback\(\);[\s\S]*if \(e\.target\.closest\('#pv-bar'\)\) return;/);
   assert.match(renderer, /durationSeconds: audioDurationSeconds\(asset\)/);

@@ -104,15 +104,17 @@ export async function activatePlugin({ root, api, registerCapability }) {
           <h3>メッセージ</h3>
           <div class="pce-vn-system-grid">
             <label class="form-group">
-              <span class="form-label">メッセージ速度</span>
+              <span class="form-label">メッセージ速度（MSG_SPEED=0時）</span>
               <select class="form-select" name="messageSpeedFrames"></select>
+              <small>予約変数 MSG_SPEED の初期値は0です。1〜6では速度1〜6を直接指定します。</small>
             </label>
             <label class="form-group">
-              <span class="form-label">Advance</span>
+              <span class="form-label">Advance（AUTO_ENABLE初期値）</span>
               <select class="form-select" name="messageAdvanceMode">
                 <option value="button">button</option>
                 <option value="auto">auto</option>
               </select>
+              <small>SELECTまたは予約変数 AUTO_ENABLE（0/1）で再生中に切り替えられます。</small>
             </label>
             <label class="form-group">
               <span class="form-label">Auto wait</span>
@@ -134,7 +136,6 @@ export async function activatePlugin({ root, api, registerCapability }) {
     form.elements.messageSpeedFrames.innerHTML = speedOptions(settings.messageSpeedFrames);
     form.elements.messageAdvanceMode.value = settings.messageAdvanceMode;
     form.elements.messageAutoWaitFrames.value = settings.messageAutoWaitFrames;
-    form.elements.messageAutoWaitFrames.disabled = settings.messageAdvanceMode !== 'auto';
   }
 
   function settingsFromForm() {

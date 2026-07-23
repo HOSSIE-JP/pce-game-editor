@@ -53,7 +53,7 @@ HuCARD ノベルの ROM 配置は固定です。runtime code は `rom_bank1..4` 
 
 PC Engine の色は各チャンネル3bitの512色マスターパレットから選ばれ、1つのsprite paletteは透明色を含む16エントリです。Novelのスクリプトプレビューは保存されたPNGをそのまま描くため、実機表示ではマスターパレットへの変換による色差が残ります。ただし、透明＋15色以内のspriteは、元の別色が同じ9-bit色へ単純に丸め込まれないよう、内蔵変換が512色から重複しない色の組合せを選んで階調を維持します。元色への近さと色の区別を両立するため、実機色はPNGからわずかにずれることがあります。旧変換で生成済みのspriteも次回build時に一度だけ自動再生成され、登録し直す必要はありません。
 
-`Sprites` は sprite asset tree、Frame Preview、Sprite Sheet、Animation Rows、Properties を持つ編集画面です。フレーム幅・高さと ROW ごとの名前・有効 frame 数・time を編集すると、PCE VN runtime が参照する `options.animations` と、エディタ再表示用の `options.spriteEditor` metadata に保存されます。ROW名は日本語を含む任意の文字列を48文字まで入力できます。表示名だけが変わり、sceneから参照する内部ID（`default` / `row_N`）は変わりません。Time は 60fps 基準の frame 数で、有効範囲は `1..65535` です。各フレームごとの値をそのままプレビューと CD-ROM2 / HuCARD runtime の再生速度に使い、`1000` は約16.67秒、最大 `65535` は約18分12.25秒です。Frame Preview と Sprite Sheet のプレビュー領域はスクロールでき、マウスホイールで 10-500% の倍率を調整できます。中ボタンドラッグでは表示位置を移動できます。Sprite Sheet のセルをクリックすると、その ROW / Frame が Frame Preview（画面上部）に反映され、Animation Rows の対応 ROW がハイライトされます。Sprite Sheet の各フレーム右上には、その frame の Time（既定 time）が表示されます。保存される sprite metadata は frame / animation と PCE 変換に必要な現行フィールドだけです。
+`Sprites` は sprite asset tree、Frame Preview、Sprite Sheet、Animation Rows、Properties を持つ編集画面です。フレーム幅・高さと ROW ごとの名前・有効 frame 数・time を編集すると、PCE VN runtime が参照する `options.animations` と、エディタ再表示用の `options.spriteEditor` metadata に保存されます。ROW名は日本語を含む任意の文字列を48文字まで入力できます。表示名だけが変わり、sceneから参照する内部ID（`default` / `row_N`）は変わりません。Time は 60fps 基準の frame 数で、有効範囲は `1..65535` です。各フレームごとの値をそのままプレビューと CD-ROM2 / HuCARD runtime の再生速度に使い、`1000` は約16.67秒、最大 `65535` は約18分12.25秒です。Frame Preview と Sprite Sheet の境界、および Sprite Sheet と Animation Rows の境界は上下にドラッグして高さを変更でき、設定したレイアウトは次回表示時も維持されます。Frame Preview と Sprite Sheet のプレビュー領域はスクロールでき、マウスホイールで 10-500% の倍率を調整できます。中ボタンドラッグでは表示位置を移動できます。Sprite Sheet のセルをクリックすると、その ROW / Frame が Frame Preview（画面上部）に反映され、Animation Rows の対応 ROW がハイライトされます。Sprite Sheet の各フレーム右上には、その frame の Time（既定 time）が表示されます。保存される sprite metadata は frame / animation と PCE 変換に必要な現行フィールドだけです。
 
 `Palette` では手動 palette を追加、保存、削除できます。削除時は確認 modal が表示されます。
 
@@ -86,7 +86,11 @@ Irodori-TTSは1回のバッチで参照話者が共通なので、キャラク�
 
 Visual Novel CD テンプレートには、`BG` / `Sprite` / `Sprite Move` / `Message` / `Audio` / `Variable` / `Choice` / `IF` / `Switch` / `Label` / `GOTO` / `Input` / `Jump` / `Wait` / `Effect` / `SpriteText` を使うコマンド仕様サンプルシナリオが入っています。エディタではこれらに加えて `Cache` コマンドも追加できます。Akari / Mika の立ち絵は `default` / `blink` / `mouth` のアニメーションを持つスプライトシートになっており、`Message` の Mouth slot / Mouth animation の実例として確認できます。
 
-`システム設定` タブでは、ノベルエンジン全体のメッセージ速度と Advance を設定します。メッセージ速度は `速度1(速い)：0`、`速度2：10`、`速度3：20`、`速度4：30`、`速度5：40`、`速度6(遅い)：50` から選びます。Advance は既定が `button` で、`auto` にすると Auto wait のフレーム数経過後に次へ進みます。これらは全 `Message` command 共通で、Message のプロパティには表示されません。
+`システム設定` タブでは、ノベルエンジン全体のメッセージ速度と Advance の初期値を設定します。メッセージ速度は `速度1(速い)：0`、`速度2：10`、`速度3：20`、`速度4：30`、`速度5：40`、`速度6(遅い)：50` から選びます。Advance は既定が `button` で、`auto` にすると Auto wait のフレーム数を使います。これらは全 `Message` command 共通で、Message のプロパティには表示されません。Auto wait はAdvanceの初期値がbuttonでも編集できます。
+
+CD-ROM2 / HuCARD 共通の予約変数として `AUTO_ENABLE` と `MSG_SPEED` を使用できます。`AUTO_ENABLE` は `0=OFF`、`1=ON` で、初期値はAdvanceから決まります。SELECTを押すたびにON/OFFが切り替わり、SELECTはこの切り替え専用です。`MSG_SPEED` の初期値は0で、`0`はシステム設定（CDの音声付きMessageでは音声同期速度）、`1..6`は速度1〜6（`0 / 10 / 20 / 30 / 40 / 50` frame/文字）を指定します。Variable / Choiceで書き込み、IF / Switchで参照でき、範囲外の値はそれぞれ`0..1`、`0..6`へ丸められます。速度はMessage開始時に確定するため、表示中に変更しても次のMessageから反映されます。
+
+AUTOがONの音声なしMessageは、本文表示完了後にAuto waitを経て進みます。CDのone-shot Message voiceは本文表示とADPCM自然終了の両方が完了した時点で進み、追加のAuto waitは入りません。音声開始に失敗した場合とloop音声はAuto waitを使い、loop音声は遷移時に停止します。HuCARDのPSGと独立したAudioコマンドはAUTO待機の対象ではありません。
 
 BG / Sprite / ADPCM / PSGなどの読み込みはruntimeがscene入場時と各表示・再生命令で管理します。CD scene pack v2は最大8192 bytesでbank123へ読み込み、message開始時に最大68 glyphをconsole RAMへ切り離します。BG / Spriteは`Cache Load`でvisual cacheへ、PSGは`(assetId, channel)`単位のSystem Card packageをBGM=bank134、SFX=bank135へ先読みできます。実際のVRAM / BAT / SATB反映は`background` / `sprite` command実行時だけです。
 
@@ -125,7 +129,7 @@ CD-ROM2 VNのビルドは、ランタイム常駐bank128/129/130にそれぞれ�
 
 - **文字色**: 「指定」チェックを入れると本文（と話者名）の色を変更できます。カラーピッカーまたは `#rrggbb` の hex で指定でき、入力した色は PCE で表示可能な色（各色 8 段階）へ自動的に丸められます。未指定のときは既定の白で表示します。
 - **本文を空にする**: 本文を空欄にすると、メッセージ領域をクリアした空ページになります（先頭メッセージだけは新規作成時にサンプル文言が入りますが、消せば空のまま保持します）。
-- **ADPCM 同期の文字送り**: `ADPCM` ボイスをセットすると、文字送り速度はボイスの再生時間に合わせて自動計算され、本文を出し終わるタイミングと音声の終わりがほぼ揃います（このとき手動の **Speed** は無視されます）。話者行は同期計算に含めず、本文部分の文字数だけを使います。
+- **ADPCM 同期の文字送り**: `ADPCM` ボイスをセットし、`MSG_SPEED=0`のときは、文字送り速度がボイスの再生時間に合わせて自動計算され、本文を出し終わるタイミングと音声の終わりがほぼ揃います。`MSG_SPEED=1..6`では予約変数の速度を優先します。話者行は同期計算に含めず、本文部分の文字数だけを使います。
 - **ボタンでのウェイトスキップ**: `Advance` が `button` のとき、表示途中にボタンを押すと、表示済みの文字は消さずに残りの本文だけを追加描画してページ送り待ちにできます。ページ送り待ち中は 4 行目末尾の `▼` が点滅します。さらにボタンを押して次ページへ送ると、まだ鳴っている ADPCM ボイスは停止します。
 
 `Audio`コマンドの**Kind**には`CD-DA` / `ADPCM` / `PSG`を選べます。CD VNのPSGはSystem Card driverを使い、songはmain track/BGM、SFXはsub track/SFXとして同時再生できます。HuCARD VNもBGM/SFXを別busとして扱い、同じ物理channelではSFXを一時優先して、SFX終了後にBGMを復元します。**基準 ch**（0〜5）はbuild時にshift/clamp済みpackage variantへ変換されます。`stop`では**停止対象**を`all` / `BGM` / `SFX`から選べ、未指定は`all`です。新しい再生は同じbusだけを置換します。
@@ -136,7 +140,7 @@ Message voice は buffered ADPCM 専用です。ADPCM は direct-buffered 安全
 
 `Effect` コマンドでは `fadeOut` / `fadeIn` / `blank` / `shake` / `flash` を選べます。`fadeOut` と `flash` は **色** をカラーピッカーまたは `#rrggbb` で指定でき、入力した色は PCE 表示可能色へ自動的に丸められます。`fadeOut` は指定色へ画面をフェードアウトし、`flash` は指定色で一瞬画面をフラッシュして元のパレットへ戻します。未指定時は `fadeOut` が黒、`flash` が白です。
 
-`Input` コマンドは、指定したコントローラー入力があったときに指定ラベルへ `GOTO` する分岐です。**ボタン**は 上下左右・SELECT・RUN・I・II をトグルで複数選べ（OR 条件）、**Mode** で動作を選びます。
+`Input` コマンドは、指定したコントローラー入力があったときに指定ラベルへ `GOTO` する分岐です。**ボタン**は 上下左右・RUN・I・II をトグルで複数選べ（OR 条件）、**Mode** で動作を選びます。SELECTはAUTO切り替え専用なのでInputでは選べません。旧データのSELECTのみのInputは読み込み時に既定のI入力へ正規化されます。
 
 - **sync（同期待機）**: 条件の入力があるまでその場で待ち、入力されたらラベルへ移動します。遷移先ラベルを空にした場合は、入力後に次のコマンドへ進みます。
 - **async（待機開始/次へ）**: 入力待ちを保持したまま次のコマンドへ進み、以降どのタイミングでも条件入力があればラベルへ移動します。
@@ -181,7 +185,7 @@ CD VNの本文はlength付き16-bit Shift-JISでscene pack v2へ保存され、p
 
 **`Comment`（コメント）コマンド**は、スクリプトに**エディタ専用のメモ**を残すためのコマンドです。ビルドやプレビュー実行には一切含まれず（シーンメモリも消費しません）、プロジェクトファイルには保存されて次回も残ります。コメントには**メッセージ文**を設定でき、スクリプトコマンド一覧では「メモ」分類の**固定色**（文字色は自動で読みやすい黒/白を選択）で表示されるので、章の区切りや作業メモを視覚的に目立たせられます。以前は任意の背景色を指定できましたが、分類ごとの色分けに統一したため、背景色は固定になりました。
 
-シーン編集画面右上の **▶ プレビュー** ボタンで、表示中のシーンを起点に疑似ゲーム画面を別ウィンドウで再生できます。プレビュー画面にはメニューバーがなく、キーボードを **方向＝↑↓←→、RUN＝SPACE / ENTER / S、SELECT＝Shift / A、I＝Z、II＝X** としてコントローラー入力の代わりに使えます。`Input` コマンドの sync / async 判定もこの割り当てを使い、async は実機と同じく次のコマンドへ進みながら入力を監視します。メッセージ送りと選択肢の決定は RUN / I / II の各代替キーまたはクリック、選択肢の移動は上下キー、Esc でプレビューを閉じます。メッセージは実機と同じ 17 文字 × 4 行レイアウト（画面 `y=152px`、4 行目末尾はボタン送り待ちの `▼` 用に予約、改行・折り返し対応）で表示し、Message の **Text color** もプレビューに反映します。背景・立ち絵・メッセージ・選択肢・変数・分岐（IF / Switch / GOTO / Label / Jump）・Wait・音声・演出・スプライト文字（SpriteText、位置確認用にテキストで近似表示）を簡易再生します。Skip チェック済みコマンドはこの再生からも除外されます。立ち絵は `Sprite` コマンドで指定した **Animation** を実機同様にコマ送り再生します（口パク用の **Mouth animation** も同様）。下部バーの **早送り** を ON にすると、メッセージ本文を表示速度設定や ADPCM ボイスの再生時間に関係なく即時表示し、次のクリックまたは RUN / I / II の代替キーで次のシーンコマンドへ進みます。早送りはこのプレビューだけの機能で、実機向けビルドには出力されません。Debug 表示は既定で OFF で、必要な時だけ下部バーの **Debug** チェックで表示できます。Debug の Cache 欄はプレビュー内の簡易シミュレーションで、`Cache Load` / `Cache Clear` / `BG` / `Sprite` / ADPCM / PSG 再生命令の順序から visual RAM cache、ADPCM RAM、PSG pattern buffer の状態や、表示 command の RAM cache hit / CD fallback を推定します。実機 RAM を読み返すものではありませんが、CD load タイミングを寄せるシーン設計の確認に使えます。
+シーン編集画面右上の **▶ プレビュー** ボタンで、表示中のシーンを起点に疑似ゲーム画面を別ウィンドウで再生できます。プレビュー画面にはメニューバーがなく、キーボードを **方向＝↑↓←→、RUN＝SPACE / ENTER / S、SELECT＝Shift / A、I＝Z、II＝X** としてコントローラー入力の代わりに使えます。SELECTはAUTOのON/OFF切り替え専用です。`Input` コマンドの sync / async 判定は方向・RUN・I・IIの割り当てを使い、async は実機と同じく次のコマンドへ進みながら入力を監視します。メッセージ送りと選択肢の決定は RUN / I / II の各代替キーまたはクリック、選択肢の移動は上下キー、Esc でプレビューを閉じます。メッセージは実機と同じ 17 文字 × 4 行レイアウト（画面 `y=152px`、4 行目末尾はボタン送り待ちの `▼` 用に予約、改行・折り返し対応）で表示し、Message の **Text color** もプレビューに反映します。背景・立ち絵・メッセージ・選択肢・予約変数を含む変数・分岐（IF / Switch / GOTO / Label / Jump）・Wait・音声・演出・スプライト文字（SpriteText、位置確認用にテキストで近似表示）を簡易再生します。Skip チェック済みコマンドはこの再生からも除外されます。立ち絵は `Sprite` コマンドで指定した **Animation** を実機同様にコマ送り再生します（口パク用の **Mouth animation** も同様）。下部バーの **早送り** を ON にすると、メッセージ本文を表示速度設定や ADPCM ボイスの再生時間に関係なく即時表示し、次のクリックまたは RUN / I / II の代替キーで次のシーンコマンドへ進みます。早送りはこのプレビューだけの機能で、実機向けビルドには出力されません。Debug 表示は既定で OFF で、必要な時だけ下部バーの **Debug** チェックで表示できます。Debug の Variables欄には`AUTO_ENABLE` / `MSG_SPEED`も表示します。Cache 欄はプレビュー内の簡易シミュレーションで、`Cache Load` / `Cache Clear` / `BG` / `Sprite` / ADPCM / PSG 再生命令の順序から visual RAM cache、ADPCM RAM、PSG pattern buffer の状態や、表示 command の RAM cache hit / CD fallback を推定します。実機 RAM を読み返すものではありませんが、CD load タイミングを寄せるシーン設計の確認に使えます。
 
 プレビュー内では実機ランタイムに合わせ、CD-DA と PSG BGM（`psg-song`）を排他再生します。PSG BGMを開始すると再生中のCD-DAを停止し、CD-DAを開始すると再生中のPSG BGMを停止します。PSG SFXはこのBGM排他の対象外です。
 

@@ -4,7 +4,7 @@
    PHASE_A_SPLIT:END */
 static void init_runtime_state(void)
 {
-    uint8_t i;
+    uint16_t i;
     current_scene = 0u;
     current_command = 0u;
     pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
@@ -57,6 +57,7 @@ static void init_runtime_state(void)
     message_row = 0u;
     message_complete = 1u;
     message_auto_wait = 0u;
+    message_voice_mode = VN_MESSAGE_VOICE_NONE;
     ui_text_color = PCE_VN_MESSAGE_COLOR_NONE;
     sync_input_active = 0u;
     sync_input_mask = 0u;
@@ -104,6 +105,8 @@ static void init_runtime_state(void)
         vn_variable_lo[i] = 0u;
         vn_variable_hi[i] = 0u;
     }
+    vn_auto_enable = vn_variable_lo[PCE_VN_VARIABLE_AUTO_ENABLE_INDEX];
+    vn_msg_speed = vn_variable_lo[PCE_VN_VARIABLE_MSG_SPEED_INDEX];
     VN_MAP_BANK130_FOR_CODE();
     cancel_all_sprite_moves();
     clear_spritetext_slots();
@@ -292,6 +295,17 @@ int main(void)
         }
 #endif
         pressed = (uint8_t)(pad & (uint8_t)~last_pad);
+        if (pressed & PAD_SEL)
+        {
+            const uint8_t auto_enabled = vn_auto_enable;
+            set_variable_value((signed int)PCE_VN_VARIABLE_AUTO_ENABLE_INDEX, auto_enabled ? 0 : 1);
+            pressed = (uint8_t)(pressed & (uint8_t)~PAD_SEL);
+            if (!auto_enabled && active_message_index >= 0 && message_complete)
+            {
+                message_auto_wait = active_message_state.auto_wait_frames;
+            }
+            refresh_message_wait_indicator();
+        }
         if (async_input_active && (pressed & async_input_mask))
         {
             /* Background watcher matched: jump to its label and resume there. */
@@ -356,11 +370,26 @@ int main(void)
         tick_message_wait_indicator();
         if (active_message_index >= 0 && message_complete)
         {
-            if (active_message_state.advance_mode == PCE_VN_ADVANCE_AUTO)
+            if (vn_auto_enable)
             {
-                if (message_auto_wait) message_auto_wait--;
+                if (message_voice_mode == VN_MESSAGE_VOICE_ONESHOT)
+                {
+                    if (!adpcm_playback_active())
+                    {
+                        hide_message_wait_indicator();
+                        advance_story();
+                    }
+                }
+                else if (message_auto_wait)
+                {
+                    message_auto_wait--;
+                }
                 else
                 {
+                    if (message_voice_mode == VN_MESSAGE_VOICE_LOOP && adpcm_playback_active())
+                    {
+                        stop_adpcm_voice();
+                    }
                     hide_message_wait_indicator();
                     advance_story();
                 }

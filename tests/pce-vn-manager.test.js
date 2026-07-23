@@ -571,10 +571,86 @@ test('PCE VN manager applies global message settings to message records', () => 
   assert.equal(normalized.scenes[0].commands[0].autoWaitFrames, undefined);
 
   const generated = vnManager.generateVnSources(projectDir);
-  const message = messageRecord(readPack(projectDir, generated.scenePackPaths[0]), 0);
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+  const message = messageRecord(pack, 0);
   assert.equal(message.textSpeedFrames, 50);
   assert.equal(message.advanceMode, vnManager.VN_ADVANCE_AUTO);
   assert.equal(message.autoWaitFrames, 90);
+  assert.equal(u16(pack, 14) - u16(pack, 12), 13);
+});
+
+test('PCE VN manager reserves AUTO_ENABLE and MSG_SPEED at fixed indices', () => {
+  const projectDir = makeTempDir('pce-vn-reserved-variables-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    settings: {
+      messageAdvanceMode: 'auto',
+      messageSpeedFrames: 40,
+    },
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'variable', variableName: 'AUTO_ENABLE', operation: 'define', value: 0 },
+        { type: 'variable', variableName: 'MSG_SPEED', operation: 'set', value: 6 },
+        { type: 'choice', variableName: 'AUTO_ENABLE', choices: [{ label: 'A', value: 1 }] },
+        { type: 'if', variableName: 'MSG_SPEED', operator: 'eq', value: 6 },
+        { type: 'switch', variableName: 'AUTO_ENABLE', cases: [{ value: 1 }] },
+        { type: 'variable', variableName: 'auto_enable', operation: 'define', value: 9 },
+      ],
+    }],
+  });
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const header = fs.readFileSync(generated.headerPath, 'utf-8');
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+
+  assert.equal(generated.variableCount, 3);
+  assert.match(header, /PCE_VN_VARIABLE_AUTO_ENABLE_INDEX 0u/);
+  assert.match(header, /PCE_VN_VARIABLE_MSG_SPEED_INDEX 1u/);
+  assert.match(header, /PCE_VN_VARIABLE_STORAGE_COUNT 3u/);
+  assert.match(source, /pce_vn_variable_initial_values\[\] = \{\n  1,\n  0,\n  9\n\};/);
+  assert.equal(commandRecord(pack, 0).assetIndex, 0);
+  assert.equal(commandRecord(pack, 1).assetIndex, 1);
+  assert.equal(choiceRecord(pack, 0).variableIndex, 0);
+  assert.equal(commandRecord(pack, 3).assetIndex, 1);
+  assert.equal(commandRecord(pack, 4).assetIndex, 0);
+  assert.equal(commandRecord(pack, 5).assetIndex, 2);
+  assert.equal(u16(pack, 12) - u16(pack, 10), 6 * 19);
+});
+
+test('PCE VN manager limits user variables to 253 after reserved variables', () => {
+  const projectDir = makeTempDir('pce-vn-reserved-variable-limit-');
+  const vnManager = loadVnManager();
+  const scenePath = path.join(projectDir, vnManager.VN_SCENE_FILE);
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+  const documentWithUserVariables = (count) => ({
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: Array.from({ length: count }, (_, index) => ({
+        type: 'variable',
+        variableName: `user_${index}`,
+        operation: 'define',
+        value: index,
+      })),
+    }],
+  });
+
+  writeJson(scenePath, documentWithUserVariables(253));
+  const generated = vnManager.generateVnSources(projectDir);
+  assert.equal(generated.variableCount, 255);
+  assert.match(fs.readFileSync(generated.headerPath, 'utf-8'), /PCE_VN_VARIABLE_STORAGE_COUNT 255u/);
+
+  writeJson(scenePath, documentWithUserVariables(254));
+  assert.throws(
+    () => vnManager.generateVnSources(projectDir),
+    /supports up to 255 variables/
+  );
 });
 
 test('PCE VN manager excludes newlines from the ADPCM-synced text speed', () => {
@@ -1812,7 +1888,7 @@ test('PCE VN manager emits variable, branch, switch, label, and goto commands', 
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
   const pack = readPack(projectDir, generated.scenePackPaths[0]);
-  assert.equal(generated.variableCount, 3);
+  assert.equal(generated.variableCount, 5);
   assert.equal(generated.choiceCount, 1);
   assert.equal(generated.switchCount, 1);
   assert.equal(generated.commandCount, 13);
@@ -1821,7 +1897,10 @@ test('PCE VN manager emits variable, branch, switch, label, and goto commands', 
   assert.match(header, /PCE_VN_COMMAND_SWITCH 10u/);
   assert.match(header, /PCE_VN_COMMAND_LABEL 11u/);
   assert.match(header, /PCE_VN_COMMAND_GOTO 12u/);
-  assert.match(header, /PCE_VN_VARIABLE_STORAGE_COUNT 3u/);
+  assert.match(header, /PCE_VN_VARIABLE_AUTO_ENABLE_INDEX 0u/);
+  assert.match(header, /PCE_VN_VARIABLE_MSG_SPEED_INDEX 1u/);
+  assert.match(header, /PCE_VN_VARIABLE_USER_BASE_INDEX 2u/);
+  assert.match(header, /PCE_VN_VARIABLE_STORAGE_COUNT 5u/);
   assert.match(header, /signed int voice_index;/);
   assert.match(header, /signed int mouth_animation_index;/);
   assert.match(header, /signed int target_scene;/);
@@ -1835,19 +1914,19 @@ test('PCE VN manager emits variable, branch, switch, label, and goto commands', 
   assert.match(header, /typedef struct \{\n  signed int value;\n  unsigned int command;\n\} pce_vn_switch_case_t;/);
   assert.match(header, /unsigned int options_offset;/);
   assert.match(header, /unsigned int cases_offset;/);
-  assert.match(source, /const signed int PCE_VN_DATA_SECTION pce_vn_variable_initial_values\[\] = \{\n  2,\n  0,\n  0\n\};/);
+  assert.match(source, /const signed int PCE_VN_DATA_SECTION pce_vn_variable_initial_values\[\] = \{\n  0,\n  0,\n  2,\n  0,\n  0\n\};/);
   assert.equal(pack[5], 13);
   assert.equal(pack[7], 1);
   assert.equal(pack[8], 1);
   assert.equal(commandRecord(pack, 0).type, vnManager.VN_COMMAND_VARIABLE);
-  assert.equal(commandRecord(pack, 0).assetIndex, 0);
+  assert.equal(commandRecord(pack, 0).assetIndex, 2);
   assert.equal(commandRecord(pack, 0).arg0, 2);
   assert.equal(commandRecord(pack, 3).type, vnManager.VN_COMMAND_IF);
   assert.equal(commandRecord(pack, 3).flags, 5);
   assert.equal(commandRecord(pack, 3).x, 4);
   assert.equal(commandRecord(pack, 3).y, 9);
   const choice = choiceRecord(pack, 0);
-  assert.equal(choice.variableIndex, 1);
+  assert.equal(choice.variableIndex, 3);
   assert.equal(choiceOptionRecord(pack, choice, 0).value, 7);
   const branch = switchRecord(pack, 0);
   assert.equal(branch.caseCount, 2);
@@ -1857,7 +1936,7 @@ test('PCE VN manager emits variable, branch, switch, label, and goto commands', 
   assert.equal(commandRecord(pack, 8).type, vnManager.VN_COMMAND_GOTO);
   assert.equal(commandRecord(pack, 8).x, 11);
   assert.equal(commandRecord(pack, 10).type, vnManager.VN_COMMAND_VARIABLE);
-  assert.equal(commandRecord(pack, 10).assetIndex, 2);
+  assert.equal(commandRecord(pack, 10).assetIndex, 4);
   assert.equal(commandRecord(pack, 10).flags, 4);
   assert.equal(commandRecord(pack, 10).x, 1);
   assert.equal(commandRecord(pack, 10).y, 6);
@@ -2031,6 +2110,7 @@ test('PCE VN manager encodes the input check command with button mask and modes'
         { type: 'inputcheck', mode: 'sync', buttons: ['i', 'right'], targetLabel: 'go' },
         { type: 'inputcheck', mode: 'async', buttons: ['ii'], targetLabel: 'go' },
         { type: 'inputcheck', mode: 'cancel' },
+        { type: 'inputcheck', mode: 'sync', buttons: ['select'], targetLabel: 'go' },
         { type: 'label', name: 'go' },
         { type: 'wait', frames: 1 },
       ],
@@ -2041,6 +2121,7 @@ test('PCE VN manager encodes the input check command with button mask and modes'
   assert.deepEqual(normalized.scenes[0].commands[0].buttons, ['right', 'i']);
   assert.equal(normalized.scenes[0].commands[2].mode, 'cancel');
   assert.deepEqual(normalized.scenes[0].commands[2].buttons, []);
+  assert.deepEqual(normalized.scenes[0].commands[3].buttons, ['i']);
 
   const generated = vnManager.generateVnSources(projectDir);
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
@@ -2049,7 +2130,7 @@ test('PCE VN manager encodes the input check command with button mask and modes'
   assert.match(header, /PCE_VN_INPUT_MODE_SYNC 0u/);
   assert.match(header, /PCE_VN_INPUT_MODE_ASYNC 1u/);
   assert.match(header, /PCE_VN_INPUT_MODE_CANCEL 2u/);
-  const labelIndex = 3; // 'go' label is the 4th command
+  const labelIndex = 4; // 'go' label follows the four Input commands
   const sync = commandRecord(pack, 0);
   assert.equal(sync.type, vnManager.VN_COMMAND_INPUTCHECK);
   assert.equal(sync.flags, vnManager.VN_INPUT_MODE_SYNC);
@@ -2060,6 +2141,9 @@ test('PCE VN manager encodes the input check command with button mask and modes'
   const cancel = commandRecord(pack, 2);
   assert.equal(cancel.flags, vnManager.VN_INPUT_MODE_CANCEL);
   assert.equal(cancel.x, 0xffff); // no target for cancel
+  const selectOnly = commandRecord(pack, 3);
+  assert.equal(selectOnly.arg0, vnManager.inputButtonsMask(['i']));
+  assert.equal(vnManager.inputButtonsMask(['select']), 0);
 
   const runtime = readRuntimeSource();
   assert.match(runtime, /command->type == PCE_VN_COMMAND_INPUTCHECK/);
@@ -2922,6 +3006,7 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.equal(result.success, true);
   assert.equal(buildSystem.loadProjectConfigFromDir(projectDir).cd.systemCardProfile, 'jp-v3');
   assert.equal(result.commandInfo.targetMedia, 'cd');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(projectDir, 'assets', 'generated', 'vn', 'build-stamp.json'), 'utf-8')).version, 5);
   assert.ok(result.commandInfo.mkcdArgs.some((arg) => /pce_cd_data_padding\.bin$/.test(arg)));
   assert.equal(result.generated.visualNovel.messageCount, 1);
   assert.deepEqual(result.generated.visualNovel.scenePackPaths, ['assets/generated/vn/scenes/000_opening.bin']);

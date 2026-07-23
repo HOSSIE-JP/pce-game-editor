@@ -486,7 +486,7 @@ static void VN_BANKED_CODE refresh_message_wait_indicator(void)
 {
     if (active_message_index < 0
         || !message_complete
-        || active_message_state.advance_mode != PCE_VN_ADVANCE_BUTTON)
+        || vn_auto_enable)
     {
         hide_message_wait_indicator();
         return;
@@ -494,11 +494,11 @@ static void VN_BANKED_CODE refresh_message_wait_indicator(void)
     if (!message_wait_indicator_state) show_message_wait_indicator();
 }
 
-static void VN_BANKED_CODE tick_message_wait_indicator(void)
+static void VN_RESIDENT_CODE tick_message_wait_indicator(void)
 {
     if (active_message_index < 0
         || !message_complete
-        || active_message_state.advance_mode != PCE_VN_ADVANCE_BUTTON)
+        || vn_auto_enable)
     {
         hide_message_wait_indicator();
         return;
@@ -592,6 +592,7 @@ static void start_message(uint8_t message_index)
         message_complete = 0u;
         message_auto_wait = message->auto_wait_frames;
         message_wait_indicator_state = 0u;
+        message_voice_mode = VN_MESSAGE_VOICE_NONE;
         apply_message_text_color(message->text_color);
         if (message->mouth_animation_index >= 0 && mouth_slot < VN_SPRITE_SLOT_COUNT)
         {
@@ -601,12 +602,19 @@ static void start_message(uint8_t message_index)
             cache_sprite_animation(mouth_slot);
             REQUEST_SPRITE_REFRESH_FULL();
         }
-        message_text_speed = message->text_speed_frames;
+        message_text_speed = (vn_msg_speed >= 1u && vn_msg_speed <= 6u)
+            ? (uint8_t)((vn_msg_speed - 1u) * 10u)
+            : message->text_speed_frames;
         restore_window_display = begin_message_window_vram_update();
         clear_window_tile_pixels();
         call_overlay_preload_message_glyph_masks(message);
         engine_service();
-        (void)play_adpcm_message_voice(message->voice_index);
+        if (play_adpcm_message_voice(message->voice_index))
+        {
+            message_voice_mode = adpcm_play_looping
+                ? VN_MESSAGE_VOICE_LOOP
+                : VN_MESSAGE_VOICE_ONESHOT;
+        }
         if (instant_glyph_count)
         {
             VN_MAP_BANK130_FOR_CODE();

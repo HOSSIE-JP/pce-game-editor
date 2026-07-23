@@ -453,6 +453,7 @@
   --sprite-left-width: 270px;
   --sprite-right-width: 310px;
   --sprite-preview-height: 290px;
+  --sprite-animation-height: 210px;
   display: grid;
   grid-template-columns: var(--sprite-left-width) 6px minmax(320px, 1fr) 6px var(--sprite-right-width);
   height: 100%;
@@ -477,7 +478,7 @@
 
 .pce-sprite-editor-workbench {
   display: grid;
-  grid-template-rows: var(--sprite-preview-height) 6px minmax(180px, 1fr) auto;
+  grid-template-rows: var(--sprite-preview-height) 6px minmax(180px, 1fr) 6px var(--sprite-animation-height);
   overflow: hidden;
 }
 
@@ -761,10 +762,8 @@
 }
 
 .pce-sprite-editor-animation-rows {
-  min-height: 112px;
-  max-height: 210px;
+  min-height: 0;
   overflow: auto;
-  border-top: 1px solid var(--border);
 }
 
 .pce-sprite-editor-animation-header {

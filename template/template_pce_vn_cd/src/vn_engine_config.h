@@ -50,6 +50,15 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #include "generated/assets.h"
 #include "generated/vn.h"
 
+/* Generated VN headers reserve these exact slots. Defaults keep the template's
+   standalone/maximal-runtime compile probes buildable before regeneration. */
+#ifndef PCE_VN_VARIABLE_AUTO_ENABLE_INDEX
+#define PCE_VN_VARIABLE_AUTO_ENABLE_INDEX 0u
+#endif
+#ifndef PCE_VN_VARIABLE_MSG_SPEED_INDEX
+#define PCE_VN_VARIABLE_MSG_SPEED_INDEX 1u
+#endif
+
 #define PAD_I 0x01u
 #define PAD_II 0x02u
 #define PAD_SEL 0x04u

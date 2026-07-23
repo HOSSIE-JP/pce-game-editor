@@ -48,6 +48,12 @@ static uint8_t message_row = 0;
 static uint8_t message_complete = 0;
 static uint8_t message_auto_wait = 0;
 static uint8_t message_wait_indicator_state = 0;
+/* Message-local ADPCM outcome. Keep this after a one-shot naturally finishes so
+   AUTO can distinguish "voice completed" from "voice absent/start failed". */
+#define VN_MESSAGE_VOICE_NONE 0u
+#define VN_MESSAGE_VOICE_ONESHOT 1u
+#define VN_MESSAGE_VOICE_LOOP 2u
+static uint8_t message_voice_mode = VN_MESSAGE_VOICE_NONE;
 /* Effective per-character reveal frames for the active message (after ADPCM sync). */
 static uint8_t message_text_speed = 0;
 static pce_vn_message_t active_message_state __attribute__((section(".bss")));
@@ -106,6 +112,10 @@ static uint16_t vn_cd_async_wire_remaining = 0u;
 static uint16_t vn_rng_state;
 static uint8_t vn_variable_lo[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
 static uint8_t vn_variable_hi[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
+/* Hot mirrors of the two reserved variables avoid mapping bank130 just to read
+   AUTO every frame. All runtime writes still pass through the central setter. */
+static uint8_t vn_auto_enable = 0u;
+static uint8_t vn_msg_speed = 0u;
 typedef struct
 {
     signed int sprite_index;

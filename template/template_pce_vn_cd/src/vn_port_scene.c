@@ -21,7 +21,9 @@ static signed int clamp_variable_value(int32_t value)
     return (signed int)value;
 }
 
-static signed int VN_BANKED_CODE2 variable_value(signed int variable_index)
+/* Tiny hot getter: execute-control and IF/Switch use it frequently, and keeping
+   it resident preserves the 512-byte bank130 link margin. */
+static signed int VN_RESIDENT_CODE variable_value(signed int variable_index)
 {
     uint8_t index;
     uint16_t value;
@@ -39,6 +41,18 @@ static void VN_OVERLAY_CODE set_variable_value_impl(signed int variable_index, s
     uint16_t raw;
     if (variable_index < 0 || (uint8_t)variable_index >= pce_vn_variable_count) return;
     if ((uint8_t)variable_index >= PCE_VN_VARIABLE_STORAGE_COUNT) return;
+    if (variable_index == (signed int)PCE_VN_VARIABLE_AUTO_ENABLE_INDEX)
+    {
+        if (value < 0) value = 0;
+        else if (value > 1) value = 1;
+        vn_auto_enable = (uint8_t)value;
+    }
+    else if (variable_index == (signed int)PCE_VN_VARIABLE_MSG_SPEED_INDEX)
+    {
+        if (value < 0) value = 0;
+        else if (value > 6) value = 6;
+        vn_msg_speed = (uint8_t)value;
+    }
     index = (uint8_t)variable_index;
     raw = (uint16_t)(int16_t)value;
     vn_variable_lo[index] = (uint8_t)(raw & 0xffu);
@@ -572,6 +586,7 @@ static void show_scene(uint8_t scene_index)
     current_scene = scene_index;
     current_command = 0;
     active_message_index = -1;
+    message_voice_mode = VN_MESSAGE_VOICE_NONE;
     active_choice_index = -1;
     wait_frames_remaining = 0u;
     message_complete = 1u;
@@ -629,6 +644,7 @@ static void start_choice(uint8_t choice_index)
     if (!scene_pack_read_choice(&active_scene_pack, choice_index, choice)) return;
     if (!choice->option_count) return;
     active_message_index = -1;
+    message_voice_mode = VN_MESSAGE_VOICE_NONE;
     message_complete = 1u;
     wait_frames_remaining = 0u;
     active_choice_index = choice_index;
@@ -1084,6 +1100,7 @@ static uint8_t VN_BANKED_CODE run_commands_until_wait(void)
     uint16_t guard = VN_COMMAND_STEP_GUARD;
     uint8_t command_count;
     active_message_index = -1;
+    message_voice_mode = VN_MESSAGE_VOICE_NONE;
     message_complete = 1u;
     message_wait_indicator_state = 0u;
     active_choice_index = -1;

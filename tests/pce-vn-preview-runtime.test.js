@@ -110,6 +110,30 @@ test('PCE VN preview keeps CD-DA and PSG BGM mutually exclusive', async () => {
   assert.equal(pcePreviewBgmConflict('adpcm', 'adpcm'), null);
 });
 
+test('PCE VN preview clamps reserved variable writes', () => {
+  const variableRuntimeSource = sourceBetween(
+    'function s16(value)',
+    'const runtimeCache = data.runtimeCache || {};',
+  );
+  const context = {};
+  vm.runInNewContext(`
+    let vars = {};
+    const variableNames = ['AUTO_ENABLE', 'MSG_SPEED', 'user_flag'];
+    const variableInitialValues = { AUTO_ENABLE: 1, MSG_SPEED: 0, user_flag: -12 };
+    ${variableRuntimeSource}
+    const initial = initialVars();
+    setVar('AUTO_ENABLE', 8);
+    setVar('MSG_SPEED', -4);
+    setVar('user_flag', 40000);
+    result = JSON.stringify({ initial, vars });
+  `, context);
+
+  assert.deepEqual(JSON.parse(context.result), {
+    initial: { AUTO_ENABLE: 1, MSG_SPEED: 0, user_flag: -12 },
+    vars: { AUTO_ENABLE: 1, MSG_SPEED: 0, user_flag: -25536 },
+  });
+});
+
 test('PCE VN preview HTML injects every standalone runtime dependency', async () => {
   const renderSpriteTextSource = sourceBetween(
     'function renderSpriteTextCells(node, text)',

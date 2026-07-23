@@ -162,7 +162,7 @@ static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
 #endif
 }
 
-static uint8_t VN_RESIDENT_CODE adpcm_playback_active(void)
+static uint8_t VN_BANKED_CODE adpcm_playback_active(void)
 {
 #if defined(__PCE_CD__)
     return adpcm_play_active;

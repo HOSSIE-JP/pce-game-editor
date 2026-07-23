@@ -18,7 +18,7 @@ const VN_FONT_FILE = path.join('assets', 'pce-font.json');
 const VN_FONT_DIR = path.join('assets', 'fonts');
 const FONT_FILE_EXTS = ['.ttf', '.otf', '.ttc'];
 const VN_BUILD_STAMP_FILE = path.join('assets', 'generated', 'vn', 'build-stamp.json');
-const VN_BUILD_STAMP_VERSION = 4;
+const VN_BUILD_STAMP_VERSION = 5;
 const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
 // BG message / choice glyph streams stay byte-oriented so the common case costs
 // one byte per glyph, but a 0xfd escape prefix lets the project-wide font exceed
@@ -87,6 +87,11 @@ const VN_BG_DEFAULT_FADE_FRAMES = 30;
 const VN_MESSAGE_SPEED_FRAME_OPTIONS = [0, 10, 20, 30, 40, 50];
 const VN_DEFAULT_MESSAGE_SPEED_FRAMES = 10;
 const VN_DEFAULT_MESSAGE_AUTO_WAIT_FRAMES = 60;
+const VN_VARIABLE_AUTO_ENABLE_NAME = 'AUTO_ENABLE';
+const VN_VARIABLE_MSG_SPEED_NAME = 'MSG_SPEED';
+const VN_VARIABLE_AUTO_ENABLE_INDEX = 0;
+const VN_VARIABLE_MSG_SPEED_INDEX = 1;
+const VN_RESERVED_VARIABLE_COUNT = 2;
 const VN_SPRITE_VISIBLE = 1;
 const VN_SPRITE_FLIP_X = 2;
 const VN_SPRITE_FLIP_Y = 4;
@@ -105,7 +110,6 @@ const VN_INPUT_MODE_CANCEL = 2;
 // Joypad button bits, matching the VN runtime PAD_* constants.
 const VN_PAD_I = 0x01;
 const VN_PAD_II = 0x02;
-const VN_PAD_SELECT = 0x04;
 const VN_PAD_RUN = 0x08;
 const VN_PAD_UP = 0x10;
 const VN_PAD_RIGHT = 0x20;
@@ -116,12 +120,11 @@ const VN_INPUT_BUTTON_BITS = {
   down: VN_PAD_DOWN,
   left: VN_PAD_LEFT,
   right: VN_PAD_RIGHT,
-  select: VN_PAD_SELECT,
   run: VN_PAD_RUN,
   i: VN_PAD_I,
   ii: VN_PAD_II,
 };
-const VN_INPUT_BUTTON_KEYS = ['up', 'down', 'left', 'right', 'select', 'run', 'i', 'ii'];
+const VN_INPUT_BUTTON_KEYS = ['up', 'down', 'left', 'right', 'run', 'i', 'ii'];
 // Sentinel meaning "no text color override" in a message record (use default UI white).
 const VN_MESSAGE_COLOR_NONE = 0xffff;
 const VN_EFFECT_FADE_OUT = 0;
@@ -2658,10 +2661,19 @@ function buildSpriteAnimationIndex(assetDoc = { assets: [] }, spriteIndex = new 
   return { index, meta };
 }
 
-function collectVariableDefinitions(doc = {}) {
-  const index = new Map();
-  const initialValues = [];
-  const defined = new Set();
+function collectVariableDefinitions(doc = {}, systemSettings = normalizeVnSystemSettings(doc.settings)) {
+  const index = new Map([
+    [VN_VARIABLE_AUTO_ENABLE_NAME, VN_VARIABLE_AUTO_ENABLE_INDEX],
+    [VN_VARIABLE_MSG_SPEED_NAME, VN_VARIABLE_MSG_SPEED_INDEX],
+  ]);
+  const initialValues = [
+    systemSettings.messageAdvanceMode === 'auto' ? 1 : 0,
+    0,
+  ];
+  const defined = new Set([
+    VN_VARIABLE_AUTO_ENABLE_NAME,
+    VN_VARIABLE_MSG_SPEED_NAME,
+  ]);
   const add = (name, initialValue = 0, isDefinition = false) => {
     const key = normalizeVariableName(name || '');
     if (!index.has(key)) {
@@ -3046,7 +3058,7 @@ function generateVnSources(projectDir, options = {}) {
     throw new Error(`PCE VN supports up to ${VN_MAX_SPRITE_ANIMATION_COUNT} sprite animations`);
   }
   const sceneIndex = new Map(doc.scenes.map((scene, index) => [scene.id, index]));
-  const variables = collectVariableDefinitions(doc);
+  const variables = collectVariableDefinitions(doc, systemSettings);
   if (variables.initialValues.length > VN_MAX_U8_COUNT) {
     throw new Error(`PCE VN supports up to ${VN_MAX_U8_COUNT} variables`);
   }
@@ -3858,6 +3870,13 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_HAS_FULL_SCREEN_BG ${hasFullScreenBg ? 1 : 0}u`,
     `#define PCE_VN_HAS_SPRITE_ANIMATIONS ${spriteAnimations.meta.length ? 1 : 0}u`,
     `#define PCE_VN_HAS_SPRITETEXT ${spriteTextGlyphs.length ? 1 : 0}u`,
+    `#define PCE_VN_VARIABLE_AUTO_ENABLE_INDEX ${VN_VARIABLE_AUTO_ENABLE_INDEX}u`,
+    `#define PCE_VN_VARIABLE_MSG_SPEED_INDEX ${VN_VARIABLE_MSG_SPEED_INDEX}u`,
+    `#define PCE_VN_VARIABLE_USER_BASE_INDEX ${VN_RESERVED_VARIABLE_COUNT}u`,
+    '#define PCE_VN_AUTO_ENABLE_OFF 0u',
+    '#define PCE_VN_AUTO_ENABLE_ON 1u',
+    '#define PCE_VN_MSG_SPEED_DEFAULT 0u',
+    '#define PCE_VN_MSG_SPEED_MAX 6u',
     `#define PCE_VN_VARIABLE_STORAGE_COUNT ${Math.max(1, variables.initialValues.length)}u`,
     `#define PCE_VN_SCENE_PACK_CACHE_BYTES ${hucardMode ? VN_HUCARD_SCENE_PACK_CACHE_BYTES : VN_SCENE_PACK_CACHE_BYTES}u`,
     `#define PCE_VN_SCENE_PACK_VERSION ${hucardMode ? VN_HUCARD_SCENE_PACK_VERSION : VN_SCENE_PACK_VERSION}u`,
