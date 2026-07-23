@@ -372,6 +372,18 @@ test('PCE asset schema supports BG image, sprite, generated metadata, and text f
     source: 'assets/sprites/hero.png',
     options: { cellWidth: 32, cellHeight: 64, paletteBank: 1 },
   });
+  const tallSprite = assetManager.normalizeAsset({
+    id: 'tall-hero',
+    type: 'sprite',
+    source: 'assets/sprites/tall-hero.png',
+    options: { width: 4096, height: 4096, cellWidth: 16, cellHeight: 16 },
+  });
+  const oversizedBg = assetManager.normalizeAsset({
+    id: 'oversized-bg',
+    type: 'image',
+    source: 'assets/images/oversized-bg.png',
+    options: { width: 4096, height: 4096 },
+  });
   const satbOverlapSprite = assetManager.normalizeAsset({
     id: 'talking-hero',
     type: 'sprite',
@@ -395,6 +407,10 @@ test('PCE asset schema supports BG image, sprite, generated metadata, and text f
   assert.equal(sprite.options.kind, 'sprite');
   assert.equal(sprite.options.cellWidth, 32);
   assert.equal(sprite.options.cellHeight, 64);
+  assert.equal(tallSprite.options.width, 1024);
+  assert.equal(tallSprite.options.height, 2048);
+  assert.equal(oversizedBg.options.width, 1024);
+  assert.equal(oversizedBg.options.height, 1024);
   assert.match(satbOverlapSprite.data.generated.warnings.join('\n'), /Sprite patterns overlap the SATB VRAM area/);
   assert.equal(psg.type, 'psg-sfx');
   assert.equal(psg.options.period, 384);
@@ -926,6 +942,39 @@ test('PCE sprite import writes VCE colors and sprite pattern words in hardware o
   assert.equal(imported.asset.data.generated.paletteColors[1], '#ff0000');
   assert.equal(patterns.readUInt16LE(0), 0x8000);
   assert.equal(patterns.subarray(2).every((byte) => byte === 0), true);
+});
+
+test('PCE sprite import and runtime metadata preserve sheets up to 2048px high', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-sprite-2048-');
+  const imported = assetManager.importImage(projectDir, {
+    sourceFileName: 'tall-strip.png',
+    convertedDataUrl: makePngDataUrl(16, 2048),
+    kind: 'sprite',
+    id: 'tall_strip',
+    cellWidth: 16,
+    cellHeight: 16,
+  });
+
+  assert.equal(imported.asset.options.width, 16);
+  assert.equal(imported.asset.options.height, 2048);
+  const cellMap = fs.readFileSync(path.join(projectDir, imported.asset.data.generated.cellMapFile));
+  assert.equal(cellMap.length, 128);
+
+  const resident = assetManager.generateAssetSources(projectDir);
+  const residentSource = fs.readFileSync(resident.sourcePath, 'utf-8');
+  assert.match(
+    residentSource,
+    /const pce_editor_sprite_draw_meta_t pce_editor_sprite_draw_meta\[\] PCE_EDITOR_RODATA_SECTION = \{\n  \{ 16u, 16u, 1u, 128u, 704u, 0u \}/,
+  );
+
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({ scenes: [{ id: 's0', commands: [] }] }, null, 2));
+  const catalog = assetManager.generateAssetSources(projectDir);
+  const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
+  assert.equal(catalog.assetCatalogMode, 'cd');
+  assert.equal(meta[20], 1);
+  assert.equal(meta[21], 128);
 });
 
 test('PCE sprite import preserves 15 close source colors with distinct VCE entries', () => {

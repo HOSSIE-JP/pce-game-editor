@@ -204,7 +204,7 @@ CD-ROM2 VN build の runtime asset metadata は scene command から参照され
 スプライトは PCE sprite pattern と sprite palette に変換されます。表示は VN scene の `sprite` command で行います。
 Image プラグインの Sprites 追加 UI では、低レベルの `paletteBank` / `tileBase` / `x` / `y` / `transparentIndex` と初期 animation 設定は通常表示しません。追加時は `paletteBank: 0`、`tileBase: 704`、`x: 144`、`y: 104`、`transparentIndex: 0`、初期 animation `16x16` / `1 frame` / `1 frame delay` で登録し、frame size や ROW ごとの frame 数/time は Sprites タブのエディタ本体で編集します。変換時だけ有効な `cellWidth` / `cellHeight` は追加 modal の `アドバンス` に隠し、既存 asset では生成済み pattern とずれないよう通常の Properties からは編集しません。`tileBase` / `x` / `y` は有効な低レベル既定値として Properties の `アドバンス` に隠します。
 
-> **重複セルの圧縮 (cell dedup)**: 変換時に sheet の表示 cell (`cellWidth` × `cellHeight`) を比較し、ユニークな cell block だけを `patterns.bin` へ出力します。16×16 cell は 128 byte の pattern 1 個、32×64 cell は 16×16 pattern 8 個が連続した block になります。positional display cell → ユニーク block slot の対応表を `cellmap.bin`(1 byte/cell) として生成し、`pce_editor_sprite_asset_t.cell_map` に resident 配列として埋め込みます。runtime の `show_character_sprite_frame()` がこの map 経由で frame の cell を VRAM slot へ解決するため、目パチ・口パクなど frame 間で共通する cell が 1 枚に畳まれ、多 frame の大きな sheet も VN の VRAM 予算に収まります。`tileCount` / `vramBytes` は dedupe 後の 16×16 pattern 数 / byte 数です。ユニーク block が 256 を超える sheet は build error。
+> **重複セルの圧縮 (cell dedup)**: 変換時に sheet の表示 cell (`cellWidth` × `cellHeight`) を比較し、ユニークな cell block だけを `patterns.bin` へ出力します。16×16 cell は 128 byte の pattern 1 個、32×64 cell は 16×16 pattern 8 個が連続した block になります。positional display cell → ユニーク block slot の対応表を `cellmap.bin`(1 byte/cell) として生成し、`pce_editor_sprite_asset_t.cell_map` に resident 配列として埋め込みます。runtime の `show_character_sprite_frame()` がこの map 経由で frame の cell を VRAM slot へ解決するため、目パチ・口パクなど frame 間で共通する cell が 1 枚に畳まれ、多 frame の大きな sheet も VN の VRAM 予算に収まります。`tileCount` / `vramBytes` は dedupe 後の 16×16 pattern 数 / byte 数です。ユニーク block が 256 を超える sheet は build errorです。CD-ROM2 VN catalog は positional display cell も最大256件なので、幅×高さをcell単位へ換算した列数×行数が256を超えるsheetは分割するか、より大きいcell sizeを指定してください。
 
 ```jsonc
 {
@@ -244,7 +244,8 @@ Image プラグインの Sprites 追加 UI では、低レベルの `paletteBank
 | `paletteBank` | 既定 `0` | sprite palette bankの基準値。VN runtimeは`paletteBank + SLOT番号`をそのSLOTのpalette bankとして使い、別SLOTの差し替えで移動しない。Sprites追加UIでは編集しない |
 | `tileBase` | 既定 `704` | C 生成後は `pattern_base`(32-word 単位)。非VN用途の低レベル既定値。VN runtime ではscene pathから各SLOTの最大容量を求め、`PCE_VN_SPRITE_SLOT0_PATTERN_BASE/CAPACITY`〜`SLOT3`の専用領域へ配置する。SLOT別最大容量の合計が`0x7f00`を超える構成はbuild error。通常 UI では隠し、Sprites Properties の `アドバンス` でのみ編集する |
 | `x`, `y` | 既定 `144`, `104` | asset metadata 上の既定表示位置。scene command の `x`, `y` が実表示に使われる。通常 UI では隠し、Sprites Properties の `アドバンス` でのみ編集する |
-| `width`, `height` | `0..1024` | sheet 全体サイズ |
+| `width` | `0..1024` | sheet 全体の幅 |
+| `height` | `0..2048` | sheet 全体の高さ |
 | `cellWidth`, `cellHeight` | `16x16`, `16x32`, `16x64`, `32x16`, `32x32`, `32x64` | PCE sprite cell size。変換時の条件なので追加 modal の `アドバンス` だけで指定し、生成後は通常の Properties から編集しない |
 | `transparentIndex` | 既定 `0` | 透明 index。追加 UI では編集しない |
 | `animations` | 最大 16 件 | VN runtime 用 animation 定義 |

@@ -36,6 +36,8 @@ const DEFAULT_IMPORT_FRAME_WIDTH = 16;
 const DEFAULT_IMPORT_FRAME_HEIGHT = 16;
 const DEFAULT_IMPORT_FRAME_COUNT = 1;
 const DEFAULT_IMPORT_FRAME_DELAY = 1;
+const MAX_SPRITE_OUTPUT_WIDTH = 1024;
+const MAX_SPRITE_OUTPUT_HEIGHT = 2048;
 const STORAGE_KEY = 'pce.spriteEditor.layout.v1';
 const MIN_ZOOM_PERCENT = 10;
 const MAX_ZOOM_PERCENT = 500;
@@ -1006,8 +1008,8 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
             <div class="pce-sprite-editor-import-grid">
               <label class="form-group"><span class="form-label">ID</span><input class="form-input form-input-mono" name="id" value="${esc(defaultId)}" /></label>
               <label class="form-group"><span class="form-label">Name</span><input class="form-input" name="name" value="${esc(baseName)}" /></label>
-              <label class="form-group"><span class="form-label">Output width</span><input class="form-input" name="outputWidth" type="number" min="16" max="1024" step="16" value="${DEFAULT_WIDTH}" /></label>
-              <label class="form-group"><span class="form-label">Output height</span><input class="form-input" name="outputHeight" type="number" min="16" max="1024" step="16" value="${DEFAULT_HEIGHT}" /></label>
+              <label class="form-group"><span class="form-label">Output width</span><input class="form-input" name="outputWidth" type="number" min="16" max="${MAX_SPRITE_OUTPUT_WIDTH}" step="16" value="${DEFAULT_WIDTH}" /></label>
+              <label class="form-group"><span class="form-label">Output height</span><input class="form-input" name="outputHeight" type="number" min="16" max="${MAX_SPRITE_OUTPUT_HEIGHT}" step="16" value="${DEFAULT_HEIGHT}" /></label>
               <details class="pce-sprite-editor-advanced pce-sprite-editor-import-advanced">
                 <summary>アドバンス</summary>
                 <label class="form-group"><span class="form-label">Cell size</span><select class="form-select" name="cellSize">${SPRITE_CELL_SIZES.map((size) => `<option value="${size}">${size}</option>`).join('')}</select></label>
@@ -1054,8 +1056,8 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
           y: DEFAULT_SPRITE_Y,
           cellWidth,
           cellHeight,
-          outputWidth: clampInt(form.elements.outputWidth.value, 16, 1024, DEFAULT_WIDTH),
-          outputHeight: clampInt(form.elements.outputHeight.value, 16, 1024, DEFAULT_HEIGHT),
+          outputWidth: clampInt(form.elements.outputWidth.value, 16, MAX_SPRITE_OUTPUT_WIDTH, DEFAULT_WIDTH),
+          outputHeight: clampInt(form.elements.outputHeight.value, 16, MAX_SPRITE_OUTPUT_HEIGHT, DEFAULT_HEIGHT),
           transparentIndex: DEFAULT_SPRITE_TRANSPARENT_INDEX,
           frameWidth,
           frameHeight,

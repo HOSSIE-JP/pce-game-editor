@@ -45,6 +45,10 @@ const PCE_BG_MAP_WIDTH_TILES = 32;
 const PCE_BG_MAP_HEIGHT_TILES = 32;
 const PCE_BG_AUTO_MAP_BASE = 0;
 const PCE_BG_AUTO_TILE_BASE = Math.ceil((PCE_BG_MAP_WIDTH_TILES * PCE_BG_MAP_HEIGHT_TILES) / 16);
+const PCE_IMAGE_MAX_WIDTH = 1024;
+const PCE_BG_MAX_HEIGHT = 1024;
+const PCE_SPRITE_MAX_HEIGHT = 2048;
+const PCE_SPRITE_MAX_CELL_ROWS = Math.floor(PCE_SPRITE_MAX_HEIGHT / 16);
 const PCE_SATB_VRAM_WORD = 0x7f00;
 const PCE_HUCARD_ROM_BANK_COUNT = 127;
 const PCE_SLIDESHOW_ID_PATTERN = /^slide_([0-9]{3})(?:_[a-zA-Z0-9_-]+)?$/;
@@ -181,12 +185,12 @@ function normalizeSpriteAnimations(options = {}, asset = {}) {
   const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
   const cellWidth = clampPositiveInt(options.cellWidth ?? generated.cellWidth, 16, 32, DEFAULT_SPRITE_OPTIONS.cellWidth);
   const cellHeight = clampPositiveInt(options.cellHeight ?? generated.cellHeight, 16, 64, DEFAULT_SPRITE_OPTIONS.cellHeight);
-  const generatedColumns = clampPositiveInt(generated.cellColumns ?? generated.columns, 1, 64, 0);
-  const generatedRows = clampPositiveInt(generated.cellRows ?? generated.rows, 1, 64, 0);
-  const generatedWidth = clampPositiveInt(generated.width, cellWidth, 1024, generatedColumns ? generatedColumns * cellWidth : 0);
-  const generatedHeight = clampPositiveInt(generated.height, cellHeight, 1024, generatedRows ? generatedRows * cellHeight : 0);
-  const width = clampPositiveInt(options.width, cellWidth, 1024, generatedWidth || cellWidth);
-  const height = clampPositiveInt(options.height, cellHeight, 1024, generatedHeight || cellHeight);
+  const generatedColumns = clampPositiveInt(generated.cellColumns ?? generated.columns, 1, PCE_IMAGE_MAX_WIDTH / 16, 0);
+  const generatedRows = clampPositiveInt(generated.cellRows ?? generated.rows, 1, PCE_SPRITE_MAX_CELL_ROWS, 0);
+  const generatedWidth = clampPositiveInt(generated.width, cellWidth, PCE_IMAGE_MAX_WIDTH, generatedColumns ? generatedColumns * cellWidth : 0);
+  const generatedHeight = clampPositiveInt(generated.height, cellHeight, PCE_SPRITE_MAX_HEIGHT, generatedRows ? generatedRows * cellHeight : 0);
+  const width = clampPositiveInt(options.width, cellWidth, PCE_IMAGE_MAX_WIDTH, generatedWidth || cellWidth);
+  const height = clampPositiveInt(options.height, cellHeight, PCE_SPRITE_MAX_HEIGHT, generatedHeight || cellHeight);
   const sheetColumns = Math.max(1, Math.ceil(width / cellWidth));
   const sheetRows = Math.max(1, Math.ceil(height / cellHeight));
   const totalCells = Math.max(1, sheetColumns * sheetRows);
@@ -263,8 +267,13 @@ function normalizeImageOptions(asset = {}) {
   options.mapBase = clampInt(options.mapBase, 0, 2047, defaults.mapBase);
   options.x = clampInt(options.x, 0, 255, defaults.x);
   options.y = clampInt(options.y, 0, 255, defaults.y);
-  options.width = clampInt(options.width, 0, 1024, defaults.width);
-  options.height = clampInt(options.height, 0, 1024, defaults.height);
+  options.width = clampInt(options.width, 0, PCE_IMAGE_MAX_WIDTH, defaults.width);
+  options.height = clampInt(
+    options.height,
+    0,
+    isSprite ? PCE_SPRITE_MAX_HEIGHT : PCE_BG_MAX_HEIGHT,
+    defaults.height,
+  );
   options.transparentIndex = clampInt(options.transparentIndex, 0, 15, defaults.transparentIndex);
   if (isSprite) {
     let cellWidth = clampInt(options.cellWidth, 16, 32, defaults.cellWidth);
@@ -2468,8 +2477,8 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
     if (isSprite) {
       const cellWidth = numeric(options.cellWidth, 16, 32, 16);
       const cellHeight = numeric(options.cellHeight, 16, 64, 16);
-      const cellColumns = Math.max(1, Math.ceil(numeric(options.width, 0, 1024, cellWidth) / cellWidth));
-      const cellRows = Math.max(1, Math.ceil(numeric(options.height, 0, 1024, cellHeight) / cellHeight));
+      const cellColumns = Math.max(1, Math.ceil(numeric(options.width, 0, PCE_IMAGE_MAX_WIDTH, cellWidth) / cellWidth));
+      const cellRows = Math.max(1, Math.ceil(numeric(options.height, 0, PCE_SPRITE_MAX_HEIGHT, cellHeight) / cellHeight));
       const patternBase = numeric(options.tileBase, 0, 2047, 704);
       const paletteBank = numeric(options.paletteBank, 0, 15, 0);
       // Hard error (not just a warning) when the deduplicated sprite patterns
@@ -2483,8 +2492,8 @@ function generateConvertedAssetArrays(projectDir, assets, type, bankAllocator, g
       metaLines.push(`  { ${dataRefLiteral(paletteRef)}, ${dataRefLiteral(tilesRef)}, ${cellWidth}u, ${cellHeight}u, ${cellColumns}u, ${cellRows}u, ${patternBase}u, ${paletteBank}u, ${numeric(options.x, 0, 255, 144)}u, ${numeric(options.y, 0, 255, 104)}u, ${cellMapPointer} }${index + 1 < converted.length ? ',' : ''}`);
       drawMetaLines.push(`  { ${cellWidth}u, ${cellHeight}u, ${cellColumns}u, ${cellRows}u, ${patternBase}u, ${paletteBank}u }${index + 1 < converted.length ? ',' : ''}`);
     } else {
-      const widthTiles = Math.max(1, Math.ceil(numeric(options.width, 0, 1024, 0) / 8));
-      const heightTiles = Math.max(1, Math.ceil(numeric(options.height, 0, 1024, 0) / 8));
+      const widthTiles = Math.max(1, Math.ceil(numeric(options.width, 0, PCE_IMAGE_MAX_WIDTH, 0) / 8));
+      const heightTiles = Math.max(1, Math.ceil(numeric(options.height, 0, PCE_BG_MAX_HEIGHT, 0) / 8));
       metaLines.push(`  { ${dataRefLiteral(paletteRef)}, ${dataRefLiteral(tilesRef)}, ${dataRefLiteral(mapRef)}, ${widthTiles}u, ${heightTiles}u, ${numeric(options.tileBase, 0, 2047, 32)}u, ${numeric(options.mapBase, 0, 2047, 0)}u, ${numeric(options.paletteBank, 0, 15, 0)}u }${index + 1 < converted.length ? ',' : ''}`);
     }
   });
@@ -3271,8 +3280,8 @@ function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout) {
     buf.writeUInt16LE(Math.min(palette.length, 32) & 0xffff, base + META_BG_PALETTE_SIZE);
     buf.writeUInt16LE((tilesPayload.uncompressedSize || 0) & 0xffff, base + META_BG_TILES_SIZE);
     buf.writeUInt16LE((mapPayload.uncompressedSize || 0) & 0xffff, base + META_BG_MAP_SIZE);
-    buf[base + META_BG_WIDTH] = Math.max(1, Math.ceil(numeric(options.width, 0, 1024, 0) / 8)) & 0xff;
-    buf[base + META_BG_HEIGHT] = Math.max(1, Math.ceil(numeric(options.height, 0, 1024, 0) / 8)) & 0xff;
+    buf[base + META_BG_WIDTH] = Math.max(1, Math.ceil(numeric(options.width, 0, PCE_IMAGE_MAX_WIDTH, 0) / 8)) & 0xff;
+    buf[base + META_BG_HEIGHT] = Math.max(1, Math.ceil(numeric(options.height, 0, PCE_BG_MAX_HEIGHT, 0) / 8)) & 0xff;
     buf.writeUInt16LE(numeric(options.tileBase, 0, 2047, 32) & 0xffff, base + META_BG_TILE_BASE);
     buf.writeUInt16LE(numeric(options.mapBase, 0, 2047, 0) & 0xffff, base + META_BG_MAP_BASE);
     buf[base + META_BG_PALETTE_BANK] = numeric(options.paletteBank, 0, 15, 0) & 0xff;
@@ -3301,8 +3310,8 @@ function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout) {
     buf.writeUInt16LE((patternsPayload.uncompressedSize || 0) & 0xffff, base + META_SPR_PATTERNS_SIZE);
     buf[base + META_SPR_CELL_WIDTH] = cellWidth & 0xff;
     buf[base + META_SPR_CELL_HEIGHT] = cellHeight & 0xff;
-    buf[base + META_SPR_CELL_COLUMNS] = Math.max(1, Math.ceil(numeric(options.width, 0, 1024, cellWidth) / cellWidth)) & 0xff;
-    buf[base + META_SPR_CELL_ROWS] = Math.max(1, Math.ceil(numeric(options.height, 0, 1024, cellHeight) / cellHeight)) & 0xff;
+    buf[base + META_SPR_CELL_COLUMNS] = Math.max(1, Math.ceil(numeric(options.width, 0, PCE_IMAGE_MAX_WIDTH, cellWidth) / cellWidth)) & 0xff;
+    buf[base + META_SPR_CELL_ROWS] = Math.max(1, Math.ceil(numeric(options.height, 0, PCE_SPRITE_MAX_HEIGHT, cellHeight) / cellHeight)) & 0xff;
     buf.writeUInt16LE(numeric(options.tileBase, 0, 2047, 704) & 0xffff, base + META_SPR_PATTERN_BASE);
     buf[base + META_SPR_PALETTE_BANK] = numeric(options.paletteBank, 0, 15, 0) & 0xff;
     buf[base + META_SPR_X] = numeric(options.x, 0, 255, 144) & 0xff;
@@ -4109,6 +4118,8 @@ module.exports = {
   DEFAULT_PSG_OPTIONS,
   DEFAULT_SPRITE_OPTIONS,
   DEFAULT_SPRITE_ANIMATION,
+  PCE_IMAGE_MAX_WIDTH,
+  PCE_SPRITE_MAX_HEIGHT,
   SPRITE_CELL_SIZES,
   SUPPORTED_TYPES,
   buildInternalPceConversionPlan,

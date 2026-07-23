@@ -2601,12 +2601,12 @@ function buildSpriteAnimationIndex(assetDoc = { assets: [] }, spriteIndex = new 
       const generated = asset.data?.generated && typeof asset.data.generated === 'object' ? asset.data.generated : {};
       const cellWidth = clampPositiveInt(options.cellWidth ?? generated.cellWidth, 16, 32, 16);
       const cellHeight = clampPositiveInt(options.cellHeight ?? generated.cellHeight, 16, 64, 16);
-      const generatedColumns = clampPositiveInt(generated.cellColumns ?? generated.columns, 1, 64, 0);
-      const generatedRows = clampPositiveInt(generated.cellRows ?? generated.rows, 1, 64, 0);
-      const generatedWidth = clampPositiveInt(generated.width, cellWidth, 1024, generatedColumns ? generatedColumns * cellWidth : 0);
-      const generatedHeight = clampPositiveInt(generated.height, cellHeight, 1024, generatedRows ? generatedRows * cellHeight : 0);
-      const width = clampPositiveInt(options.width, cellWidth, 1024, generatedWidth || cellWidth);
-      const height = clampPositiveInt(options.height, cellHeight, 1024, generatedHeight || cellHeight);
+      const generatedColumns = clampPositiveInt(generated.cellColumns ?? generated.columns, 1, assetManager.PCE_IMAGE_MAX_WIDTH / 16, 0);
+      const generatedRows = clampPositiveInt(generated.cellRows ?? generated.rows, 1, assetManager.PCE_SPRITE_MAX_HEIGHT / 16, 0);
+      const generatedWidth = clampPositiveInt(generated.width, cellWidth, assetManager.PCE_IMAGE_MAX_WIDTH, generatedColumns ? generatedColumns * cellWidth : 0);
+      const generatedHeight = clampPositiveInt(generated.height, cellHeight, assetManager.PCE_SPRITE_MAX_HEIGHT, generatedRows ? generatedRows * cellHeight : 0);
+      const width = clampPositiveInt(options.width, cellWidth, assetManager.PCE_IMAGE_MAX_WIDTH, generatedWidth || cellWidth);
+      const height = clampPositiveInt(options.height, cellHeight, assetManager.PCE_SPRITE_MAX_HEIGHT, generatedHeight || cellHeight);
       const defaultAnimation = {
         id: 'default',
         frameWidth: width,

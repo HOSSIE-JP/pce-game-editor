@@ -51,6 +51,10 @@ test('PCE image import uses simplified BG and sprite defaults', () => {
 
   assert.match(renderer, /const defaultWidth = kind === 'sprite' \? 64 : 224;/);
   assert.match(renderer, /const defaultHeight = kind === 'sprite' \? 128 : 136;/);
+  assert.match(renderer, /const MAX_IMAGE_OUTPUT_WIDTH = 1024;/);
+  assert.match(renderer, /const MAX_BG_OUTPUT_HEIGHT = 1024;/);
+  assert.match(renderer, /const MAX_SPRITE_OUTPUT_HEIGHT = 2048;/);
+  assert.match(renderer, /const maxOutputHeight = kind === 'sprite' \? MAX_SPRITE_OUTPUT_HEIGHT : MAX_BG_OUTPUT_HEIGHT;/);
   [
     'Palette bank',
     'Tile base',
@@ -64,6 +68,8 @@ test('PCE image import uses simplified BG and sprite defaults', () => {
     'Speed',
   ].forEach((label) => assert.doesNotMatch(modal, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
   assert.match(modal, /<span class="form-label">Cell size<\/span>/);
+  assert.match(modal, /name="outputHeight"[^>]*max="\$\{maxOutputHeight\}"/);
+  assert.match(submit, /const outputHeight = clampInt\(form\.elements\.outputHeight\.value, 8, maxOutputHeight, defaultHeight\);/);
   assert.match(submit, /paletteBank:\s*kind === 'sprite' \? DEFAULT_SPRITE_PALETTE_BANK : 0/);
   assert.match(submit, /tileBase:\s*kind === 'sprite' \? DEFAULT_SPRITE_TILE_BASE : PCE_BG_AUTO_TILE_BASE/);
   assert.match(submit, /x:\s*kind === 'sprite' \? DEFAULT_SPRITE_X : 0/);
@@ -94,6 +100,10 @@ test('PCE sprite editor import modal keeps animation fields in the editor', () =
   assert.match(modal, /<span class="form-label">Cell size<\/span>/);
   assert.match(modal, /<span class="form-label">Output width<\/span>/);
   assert.match(modal, /<span class="form-label">Output height<\/span>/);
+  assert.match(spritePage, /const MAX_SPRITE_OUTPUT_WIDTH = 1024;/);
+  assert.match(spritePage, /const MAX_SPRITE_OUTPUT_HEIGHT = 2048;/);
+  assert.match(modal, /name="outputHeight"[^>]*max="\$\{MAX_SPRITE_OUTPUT_HEIGHT\}"/);
+  assert.match(submit, /outputHeight:\s*clampInt\(form\.elements\.outputHeight\.value, 16, MAX_SPRITE_OUTPUT_HEIGHT, DEFAULT_HEIGHT\)/);
   assert.match(submit, /paletteBank:\s*DEFAULT_SPRITE_PALETTE_BANK/);
   assert.match(submit, /tileBase:\s*DEFAULT_TILE_BASE/);
   assert.match(submit, /x:\s*DEFAULT_SPRITE_X/);

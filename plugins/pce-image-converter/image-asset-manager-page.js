@@ -12,6 +12,9 @@ const DEFAULT_IMPORT_FRAME_HEIGHT = 16;
 const DEFAULT_IMPORT_FRAME_COUNT = 1;
 const DEFAULT_IMPORT_FRAME_DELAY = 1;
 const MAX_SPRITE_FRAME_DELAY = 0xffff;
+const MAX_IMAGE_OUTPUT_WIDTH = 1024;
+const MAX_BG_OUTPUT_HEIGHT = 1024;
+const MAX_SPRITE_OUTPUT_HEIGHT = 2048;
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -283,6 +286,7 @@ export function createImageAssetManagerPlugin(config = {}) {
   const defaultTileBase = kind === 'sprite' ? DEFAULT_SPRITE_TILE_BASE : PCE_BG_AUTO_TILE_BASE;
   const defaultWidth = kind === 'sprite' ? 64 : 224;
   const defaultHeight = kind === 'sprite' ? 128 : 136;
+  const maxOutputHeight = kind === 'sprite' ? MAX_SPRITE_OUTPUT_HEIGHT : MAX_BG_OUTPUT_HEIGHT;
   const fallbackId = kind === 'sprite' ? 'sprite_asset' : 'bg_asset';
 
   return function activatePlugin({ plugin, root, api, logger, registerCapability }) {
@@ -1292,11 +1296,11 @@ export function createImageAssetManagerPlugin(config = {}) {
                 `}
                 <label class="form-group">
                   <span class="form-label">Output width</span>
-                  <input class="form-input" name="outputWidth" type="number" min="8" max="1024" step="8" value="${defaultWidth}" />
+                  <input class="form-input" name="outputWidth" type="number" min="8" max="${MAX_IMAGE_OUTPUT_WIDTH}" step="8" value="${defaultWidth}" />
                 </label>
                 <label class="form-group">
                   <span class="form-label">Output height</span>
-                  <input class="form-input" name="outputHeight" type="number" min="8" max="1024" step="8" value="${defaultHeight}" />
+                  <input class="form-input" name="outputHeight" type="number" min="8" max="${maxOutputHeight}" step="8" value="${defaultHeight}" />
                 </label>
               </div>
               <div class="form-error" data-import-error></div>
@@ -1325,8 +1329,8 @@ export function createImageAssetManagerPlugin(config = {}) {
             error.textContent = '同じ ID のアセットが既にあります';
             return;
           }
-          const outputWidth = clampInt(form.elements.outputWidth.value, 8, 1024, defaultWidth);
-          const outputHeight = clampInt(form.elements.outputHeight.value, 8, 1024, defaultHeight);
+          const outputWidth = clampInt(form.elements.outputWidth.value, 8, MAX_IMAGE_OUTPUT_WIDTH, defaultWidth);
+          const outputHeight = clampInt(form.elements.outputHeight.value, 8, maxOutputHeight, defaultHeight);
           const [cellWidth, cellHeight] = kind === 'sprite'
             ? String(form.elements.cellSize.value || '16x16').split('x').map((value) => asNumber(value, 16))
             : [8, 8];
