@@ -174,7 +174,7 @@ const llvmMosClang = path.join(llvmMosBin, process.platform === 'win32' ? 'clang
 const llvmMosPceCdCfg = path.join(llvmMosBin, 'mos-pce-cd.cfg');
 const llvmMosObjcopy = path.join(llvmMosBin, process.platform === 'win32' ? 'llvm-objcopy.exe' : 'llvm-objcopy');
 
-test('PCE-CD VN maximal rendering runtime links with reserved resident headroom', {
+test('PCE-CD VN maximal rendering runtime with a large asset catalog links with reserved resident headroom', {
   skip: fs.existsSync(llvmMosClang) && fs.existsSync(llvmMosPceCdCfg) && fs.existsSync(llvmMosObjcopy)
     ? false
     : 'local llvm-mos PCE-CD toolchain is not installed',
@@ -187,11 +187,39 @@ test('PCE-CD VN maximal rendering runtime links with reserved resident headroom'
   const generatedHeaderPath = path.join(projectDir, 'src', 'generated', 'vn.h');
   const generatedHeader = fs.readFileSync(generatedHeaderPath, 'utf8')
     .replace('#define PCE_VN_HAS_FULL_SCREEN_BG 0u', '#define PCE_VN_HAS_FULL_SCREEN_BG 1u')
-    .replace(/#define PCE_VN_VARIABLE_STORAGE_COUNT \d+u/, '#define PCE_VN_VARIABLE_STORAGE_COUNT 16u');
+    .replace(/#define PCE_VN_VARIABLE_STORAGE_COUNT \d+u/, '#define PCE_VN_VARIABLE_STORAGE_COUNT 16u')
+    .replace('#define PCE_VN_SPRITE_SLOT0_PATTERN_BASE 396u', '#define PCE_VN_SPRITE_SLOT0_PATTERN_BASE 384u')
+    .replace('#define PCE_VN_SPRITE_SLOT0_PATTERN_CAPACITY 86u', '#define PCE_VN_SPRITE_SLOT0_PATTERN_CAPACITY 160u')
+    .replace('#define PCE_VN_SPRITE_SLOT1_PATTERN_BASE 482u', '#define PCE_VN_SPRITE_SLOT1_PATTERN_BASE 544u')
+    .replace('#define PCE_VN_SPRITE_SLOT1_PATTERN_CAPACITY 0u', '#define PCE_VN_SPRITE_SLOT1_PATTERN_CAPACITY 176u')
+    .replace('#define PCE_VN_SPRITE_SLOT2_PATTERN_BASE 482u', '#define PCE_VN_SPRITE_SLOT2_PATTERN_BASE 720u')
+    .replace('#define PCE_VN_SPRITE_SLOT2_PATTERN_CAPACITY 0u', '#define PCE_VN_SPRITE_SLOT2_PATTERN_CAPACITY 208u')
+    .replace('#define PCE_VN_SPRITE_SLOT3_PATTERN_BASE 482u', '#define PCE_VN_SPRITE_SLOT3_PATTERN_BASE 928u');
   assert.match(generatedHeader, /#define PCE_VN_HAS_FULL_SCREEN_BG 1u/);
   assert.match(generatedHeader, /#define PCE_VN_HAS_SPRITE_ANIMATIONS 1u/);
   assert.match(generatedHeader, /#define PCE_VN_HAS_SPRITETEXT 1u/);
+  assert.match(generatedHeader, /#define PCE_VN_SPRITE_SLOT2_PATTERN_CAPACITY 208u/);
   fs.writeFileSync(generatedHeaderPath, generatedHeader, 'utf8');
+
+  const generatedAssetsPath = path.join(projectDir, 'src', 'generated', 'assets.c');
+  const generatedAssets = fs.readFileSync(generatedAssetsPath, 'utf8')
+    .replace(
+      'const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = { { 76u, 0u, 0u }, 3u };',
+      'const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = { { 76u, 0u, 0u }, 13u };'
+    )
+    .replace(
+      'const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = { { 77u, 0u, 0u }, 2u };',
+      'const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = { { 77u, 0u, 0u }, 18u };'
+    )
+    .replace(
+      'const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = { { 78u, 0u, 0u }, 3u };',
+      'const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = { { 82u, 0u, 0u }, 275u };'
+    )
+    .replace('const unsigned int pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = 3;', 'const unsigned int pce_editor_bg_asset_count PCE_EDITOR_RODATA_SECTION = 13;')
+    .replace('const unsigned int pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = 2;', 'const unsigned int pce_editor_sprite_asset_count PCE_EDITOR_RODATA_SECTION = 18;')
+    .replace('const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 3;', 'const unsigned int pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 275;');
+  assert.match(generatedAssets, /pce_editor_adpcm_asset_count PCE_EDITOR_RODATA_SECTION = 275;/);
+  fs.writeFileSync(generatedAssetsPath, generatedAssets, 'utf8');
 
   const outDir = path.join(projectDir, 'out');
   const elfPath = path.join(outDir, 'max-runtime.elf');

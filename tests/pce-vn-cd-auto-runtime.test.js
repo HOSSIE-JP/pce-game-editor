@@ -59,7 +59,11 @@ test('CD VN runtime consumes SELECT before input watchers and applies dynamic AU
   assert.ok(selectOffset >= 0 && selectOffset < asyncOffset);
   assert.match(
     main,
-    /static uint8_t read_pad_raw\(void\)[\s\S]*return \(uint8_t\)~pce_joypad_read\(\);/
+    /static uint8_t VN_BANKED_CODE2 read_pad_raw\(void\)[\s\S]*return \(uint8_t\)~pce_joypad_read\(\);/
+  );
+  assert.match(
+    main,
+    /advance_story\(\);\s+VN_MAP_BANK130_FOR_CODE\(\);\s+last_pad = read_pad_raw\(\);/
   );
   assert.match(
     main,

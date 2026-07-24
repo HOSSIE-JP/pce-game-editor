@@ -99,6 +99,68 @@ test('HuCARD VN wait cursor follows the live AUTO_ENABLE value', () => {
   assert.doesNotMatch(tick, /advance_mode/);
 });
 
+test('HuCARD VN restores the blank tile after Full BG before an Input-driven scene transition', () => {
+  const restore = sliceBetween(
+    'static void VN_HUCARD_CODE_VIDEO restore_text_vram_after_full_screen_bg(void)\n{',
+    'static uint16_t VN_HUCARD_CODE_TEXT vn_glyph_decode',
+  );
+  assert.match(
+    restore,
+    /if \(!full_screen_bg_text_vram_dirty \|\| current_scene_full_screen_bg\) return;/,
+  );
+  assert.match(
+    restore,
+    /upload_blank_tile\(\);[\s\S]*full_screen_bg_text_vram_dirty = 0u;/,
+  );
+
+  const setBackground = sliceBetween(
+    'static void VN_HUCARD_CODE_VIDEO set_background',
+    'static uint16_t VN_HUCARD_CODE_TEXT ui_tile',
+  );
+  const fadeOut = setBackground.indexOf('fade_palette(&old_bg->palette');
+  const restoreBeforeUpload = setBackground.indexOf('restore_text_vram_after_full_screen_bg();');
+  const upload = setBackground.indexOf('upload_bg_graphics(bg');
+  assert.ok(fadeOut >= 0 && restoreBeforeUpload > fadeOut);
+  assert.ok(upload > restoreBeforeUpload);
+  assert.match(
+    setBackground,
+    /if \(current_scene_full_screen_bg\) full_screen_bg_text_vram_dirty = 1u;/,
+  );
+
+  const showScene = sliceBetween(
+    'static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index)\n{',
+    'static void VN_HUCARD_CODE_SCRIPT advance_story(void)\n{',
+  );
+  assert.match(
+    showScene,
+    /scene_pack_u8\(&active_scene_pack, VN_SCENE_PACK_OFFSET_FLAGS\)[\s\S]*PCE_VN_SCENE_FLAG_FULL_SCREEN_BG/,
+  );
+
+  const startMessage = sliceBetween(
+    'static void VN_HUCARD_CODE_TEXT start_message',
+    'static void VN_HUCARD_CODE_TEXT finish_active_message',
+  );
+  assert.ok(
+    startMessage.indexOf('restore_text_vram_after_full_screen_bg();')
+      < startMessage.indexOf('begin_message_window_vram_update();'),
+  );
+
+  const drawChoice = sliceBetween(
+    'static void VN_HUCARD_CODE_TEXT draw_choice_options',
+    'static void VN_HUCARD_CODE_TEXT update_choice_cursor',
+  );
+  assert.ok(
+    drawChoice.indexOf('restore_text_vram_after_full_screen_bg();')
+      < drawChoice.indexOf('begin_message_window_vram_update();'),
+  );
+
+  const mainLoop = runtime.slice(runtime.indexOf('int main(void)'));
+  assert.match(
+    mainLoop,
+    /if \(sync_input_mask\)[\s\S]*sync_input_mask = 0u;[\s\S]*if \(target != PCE_VN_NO_COMMAND\) current_command = target;[\s\S]*advance_story\(\);/,
+  );
+});
+
 test('HuCARD VN message mouth uses the next ROW and restores it before input wait or interruption', () => {
   const startMessage = sliceBetween(
     'static void VN_HUCARD_CODE_TEXT start_message',

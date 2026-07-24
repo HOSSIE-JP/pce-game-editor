@@ -57,6 +57,7 @@ package loaderは対象busを停止してstatusを確認し、宣言byte数だ�
 ## code配置
 
 - bank128は起動、BIOS境界、IRQ handler、薄いdispatchに残します。無属性helperはbank128へ入りやすいため、追加前に配置属性を決めます。
+- main loopのpad polling leaf (`read_pad_raw`) はbank130へ置き、初回・毎frameの呼出前にMPR4=bank130を明示します。大規模CD metadata catalogではLTO後のbank128 accessor群が小規模templateより増えるため、入力処理をbank128へ戻すと512-byte常駐余白gateを割る可能性があります。
 - sprite animationの16-bit per-frame delay tableはプロジェクトのanimation数に応じて増えるためbank128 resident rodataへ置かず、`PCE_VN_DATA_SECTION`でbank132へ置きます。bank121 visual helperのanimation tickへ入るresident wrapperは、MPR4を切り替える前にMPR6をbank132へmapします。
 - BG行転送後の左右margin clear (`clear_bg_map_side_margins_impl`) 本体はbank122 runtime support overlayへ置き、bank129には薄いdispatchだけを残します。bank122内では同じoverlayの`clear_map_rect_at_dest_impl`を直接呼び、slot4 dispatcherを再入させません。Full BG対応コードが有効なprojectでもbank128/129のload imageを8KB未満に保つためです。
 - bank122はdirect CD/SCSI処理だけでなく、palette upload/fade、部分BAT clear、SATB upload、ADPCM buffered容量判定と毎frameのADPCM再生終了serviceを担うruntime support overlayです。dispatcherは呼出元のMPR4とMPR6を保存・復元するためbank121 visual helperからも呼べますが、bank122実行中にbank130へmapするhelperは呼びません。

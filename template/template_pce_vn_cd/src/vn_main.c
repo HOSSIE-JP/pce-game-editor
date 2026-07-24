@@ -148,7 +148,10 @@ static void VN_BANKED_CODE delay_frame(void)
 #endif
 }
 
-static uint8_t read_pad_raw(void)
+/* Pad polling only runs from main after MPR4 has been restored to bank130.
+   Keep this leaf out of bank128 so large CD metadata catalogs retain the
+   resident safety margin without weakening the link-map gate. */
+static uint8_t VN_BANKED_CODE2 read_pad_raw(void)
 {
 #if defined(__PCE__)
     vn_map_io_page();
@@ -278,6 +281,7 @@ int main(void)
     if (runtime_start_scene >= pce_vn_scene_count) runtime_start_scene = 0u;
     show_scene(runtime_start_scene);
     advance_story();
+    VN_MAP_BANK130_FOR_CODE();
     last_pad = read_pad_raw();
 #if defined(__PCE_CD__)
     if (pad_edge_reset_pending)

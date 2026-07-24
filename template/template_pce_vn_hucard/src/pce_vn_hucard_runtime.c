@@ -196,6 +196,10 @@ static uint8_t composer_prev_valid;
 static uint8_t composer_row;
 static uint8_t current_scene;
 static uint16_t current_command;
+#if PCE_VN_HAS_FULL_SCREEN_BG
+static uint8_t current_scene_full_screen_bg __attribute__((section(".bss")));
+static uint8_t full_screen_bg_text_vram_dirty __attribute__((section(".bss")));
+#endif
 static int16_t current_bg_index = -1;
 static uint8_t current_bg_palette_bank;
 static uint8_t last_pad;
@@ -231,6 +235,9 @@ static vn_psg_voice_t psg_hardware_voices[6] __attribute__((section(".bss")));
 static void VN_HUCARD_CODE_PSG psg_advance(uint8_t frames);
 static void VN_HUCARD_CODE_SCRIPT advance_story(void);
 static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index);
+#if PCE_VN_HAS_FULL_SCREEN_BG
+static void VN_HUCARD_CODE_VIDEO restore_text_vram_after_full_screen_bg(void);
+#endif
 
 static void wait_vblank(void)
 {
@@ -518,12 +525,18 @@ static void VN_HUCARD_CODE_VIDEO set_background(int16_t bg_index, uint8_t transi
         fade_palette(&old_bg->palette, (uint16_t)(current_bg_palette_bank * 16u), fade_out_frames, 0u);
     }
     if (fade_transition) display_disable();
+#if PCE_VN_HAS_FULL_SCREEN_BG
+    restore_text_vram_after_full_screen_bg();
+#endif
     current_bg_index = bg_index;
     current_bg_palette_bank = bg->palette_bank;
     upload_bg_graphics(bg,
         tile_x < VN_MAP_WIDTH ? (uint8_t)tile_x : 0u,
         tile_y < VN_VISIBLE_HEIGHT ? (uint8_t)tile_y : 0u,
         fade_transition ? 0u : 16u);
+#if PCE_VN_HAS_FULL_SCREEN_BG
+    if (current_scene_full_screen_bg) full_screen_bg_text_vram_dirty = 1u;
+#endif
     if (fade_transition)
     {
         display_enable();
@@ -605,6 +618,18 @@ static void VN_HUCARD_CODE_VIDEO upload_blank_tile(void)
     service_psg_during_blocking_work();
     vn_vram_copy((uint16_t)(VN_UI_BLANK_TILE * 16u), msg_tile, 32u);
 }
+
+#if PCE_VN_HAS_FULL_SCREEN_BG
+static void VN_HUCARD_CODE_VIDEO restore_text_vram_after_full_screen_bg(void)
+{
+    if (!full_screen_bg_text_vram_dirty || current_scene_full_screen_bg) return;
+    /* A 256x224 BG occupies every normal BG tile slot and overwrites the
+       message strip's shared blank pattern. Restore that pattern before a
+       normal BG clear or message-window BAT update can reference it. */
+    upload_blank_tile();
+    full_screen_bg_text_vram_dirty = 0u;
+}
+#endif
 
 static uint16_t VN_HUCARD_CODE_TEXT vn_glyph_decode(const uint8_t *glyphs, uint16_t pos)
 {
@@ -2021,6 +2046,9 @@ static void VN_HUCARD_CODE_TEXT start_message(uint8_t message_index)
     {
         message_text_speed = (uint8_t)((message_speed_level - 1) * 10);
     }
+#if PCE_VN_HAS_FULL_SCREEN_BG
+    restore_text_vram_after_full_screen_bg();
+#endif
     instant_glyph_count = message.instant_glyph_count;
     start_active_message_mouth();
     write_ui_text_palette(ui_text_color_word(message.text_color));
@@ -2078,6 +2106,9 @@ static void VN_HUCARD_CODE_TEXT draw_choice_options(void)
     vn_choice_ref_t choice;
     if (active_choice_index < 0) return;
     if (!scene_pack_read_choice(&active_scene_pack, (uint8_t)active_choice_index, &choice)) return;
+#if PCE_VN_HAS_FULL_SCREEN_BG
+    restore_text_vram_after_full_screen_bg();
+#endif
     write_ui_text_palette(ui_text_color_word(PCE_VN_MESSAGE_COLOR_NONE));
     choice_cursor_pattern_row = choice_selected_index;
     restore_window_display = begin_message_window_vram_update();
@@ -2166,6 +2197,11 @@ static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index)
     cancel_all_sprite_moves();
     if (scene_index >= pce_vn_scene_count) scene_index = 0u;
     if (!load_scene_pack_into_cache(scene_index, &active_scene_pack)) return;
+#if PCE_VN_HAS_FULL_SCREEN_BG
+    current_scene_full_screen_bg = (uint8_t)(
+        scene_pack_u8(&active_scene_pack, VN_SCENE_PACK_OFFSET_FLAGS)
+        & PCE_VN_SCENE_FLAG_FULL_SCREEN_BG);
+#endif
     current_scene = scene_index;
     current_command = 0u;
     active_message_index = -1;
