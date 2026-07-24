@@ -2,8 +2,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const cdBundle = require('./pce-cd-bundle');
-
 const BASE64_CHUNK_SIZE = 32768;
 
 function isCdRomPath(filePath) {
@@ -48,18 +46,7 @@ function preparePceExportMedia(romPath) {
   }
 
   if (isCdRomPath(resolved)) {
-    const bundle = cdBundle.createCdBundleBuffer(resolved);
-    return {
-      mediaType: 'cdrom2',
-      sourcePath: resolved,
-      label: bundle.zipName,
-      gameName: bundle.entryName,
-      entryName: bundle.entryName,
-      buffer: bundle.zipBuffer,
-      files: bundle.files,
-      fileSize: bundle.zipBuffer.length,
-      crc32: crc32Hex(bundle.zipBuffer),
-    };
+    throw new Error('CD-ROM2 プロジェクトは Export の対象外です。HuCard プロジェクトを Build してください。');
   }
 
   const buffer = fs.readFileSync(resolved);
@@ -94,7 +81,7 @@ function addAsset(assets, dataDir, relativePath, options = {}) {
   });
 }
 
-function collectPceEmulatorJsAssets(runtime, options = {}) {
+function collectPceEmulatorJsAssets(runtime) {
   if (!runtime || !runtime.dataDir || !runtime.loaderPath) {
     throw new Error('EmulatorJS runtime が未設定です。Setup で取得またはパス指定してください。');
   }
@@ -123,13 +110,6 @@ function collectPceEmulatorJsAssets(runtime, options = {}) {
     addAsset(assets, dataDir, `cores/${runtime.coreAsset}`, { required: true });
   }
 
-  if (options.includeCompression) {
-    addAsset(assets, dataDir, 'compression/extractzip.js', { required: true });
-    addAsset(assets, dataDir, 'compression/extract7z.js', { required: false });
-    addAsset(assets, dataDir, 'compression/libunrar.js', { required: false });
-    addAsset(assets, dataDir, 'compression/libunrar.wasm', { required: false });
-  }
-
   return {
     loaderText: fs.readFileSync(runtime.loaderPath, 'utf-8'),
     assets,
@@ -155,25 +135,18 @@ function escapeScriptContent(value) {
   return String(value || '').replace(/<\/script>/gi, '<\\/script>');
 }
 
-function buildExportPayload({ media, emulatorAssets, systemCard }) {
+function buildExportPayload({ media, emulatorAssets }) {
   return {
     media: {
       label: media.label,
       gameName: media.gameName,
       entryName: media.entryName,
       mediaType: media.mediaType,
-      mime: media.mediaType === 'cdrom2' ? 'application/zip' : 'application/octet-stream',
+      mime: 'application/octet-stream',
       size: media.fileSize,
       crc32: media.crc32,
       chunks: splitBase64(media.buffer),
     },
-    bios: systemCard ? {
-      label: path.basename(systemCard.path),
-      mime: 'application/octet-stream',
-      size: systemCard.buffer.length,
-      crc32: crc32Hex(systemCard.buffer),
-      chunks: splitBase64(systemCard.buffer),
-    } : null,
     assets: emulatorAssets.assets.map((asset) => ({
       key: asset.key,
       relativePath: asset.relativePath,
@@ -187,14 +160,16 @@ function buildExportPayload({ media, emulatorAssets, systemCard }) {
 function generatePceExportHtml({
   media,
   emulatorAssets,
-  systemCard = null,
   appVersion = 'unknown',
   appBuildNumber = 'dev',
   appBuildAt = 'N/A',
 }) {
-  const payload = buildExportPayload({ media, emulatorAssets, systemCard });
-  const title = media.mediaType === 'cdrom2' ? `${media.entryName} - PCE CD-ROM2` : `${media.label} - PC Engine`;
-  const mediaKind = media.mediaType === 'cdrom2' ? 'Super CD-ROM2' : 'HuCard';
+  if (media?.mediaType !== 'hucard') {
+    throw new Error('CD-ROM2 プロジェクトは HTML Export の対象外です。HuCard メディアだけを出力できます。');
+  }
+  const payload = buildExportPayload({ media, emulatorAssets });
+  const title = `${media.label} - PC Engine`;
+  const mediaKind = 'HuCard';
   const loaderText = escapeScriptContent(emulatorAssets.loaderText);
   const payloadJson = escapedJson(payload);
 
@@ -282,7 +257,6 @@ function generatePceExportHtml({
           <dt>Size</dt><dd id="mediaSize">${escapeHtml(String(media.fileSize))} bytes</dd>
           <dt>CRC32</dt><dd>${escapeHtml(media.crc32)}</dd>
           <dt>EmulatorJS core</dt><dd>${escapeHtml(emulatorAssets.coreAsset || 'mednafen_pce')}</dd>
-          <dt>System Card</dt><dd>${systemCard ? `${escapeHtml(path.basename(systemCard.path))} embedded` : 'N/A'}</dd>
           <dt>Export build</dt><dd>${escapeHtml(String(appVersion))} / ${escapeHtml(String(appBuildNumber))} / ${escapeHtml(String(appBuildAt || 'N/A'))}</dd>
         </dl>
       </details>
@@ -480,8 +454,6 @@ function generatePceExportHtml({
   window.EJS_cacheConfig = { enabled: false, cacheMaxSizeMB: 1, cacheMaxAgeMins: 1 };
   window.EJS_pathtodata = 'pce-export-data/';
   window.EJS_gameUrl = urlFor(payload.media);
-  if (payload.media.mediaType === 'cdrom2') window.EJS_forceExtract = true;
-  if (payload.bios) window.EJS_biosUrl = urlFor(payload.bios);
   window.EJS_ready = () => {
     setStatus('Emulator ready');
     focusGame();
@@ -499,24 +471,11 @@ ${loaderText}
 </html>`;
 }
 
-function readSystemCard(systemCardPath) {
-  if (!systemCardPath) return null;
-  const resolved = path.resolve(systemCardPath);
-  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
-    throw new Error(`System Card ROM が見つかりません: ${resolved}`);
-  }
-  return {
-    path: resolved,
-    buffer: fs.readFileSync(resolved),
-  };
-}
-
 module.exports = {
   collectPceEmulatorJsAssets,
   crc32Hex,
   generatePceExportHtml,
   isCdRomPath,
   preparePceExportMedia,
-  readSystemCard,
   splitBase64,
 };

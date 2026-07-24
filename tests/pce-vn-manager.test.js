@@ -3099,6 +3099,44 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.ok(changedLogs.some((line) => /VN timing: generate pass 1 done in /.test(line)));
 });
 
+test('PCE CD clean build regenerates payloads before computing the VN data catalog', async () => {
+  const projectDir = path.join(makeWorkspaceTempDir('pce-vn-cd-clean-assets-'), 'project');
+  fs.cpSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd'), projectDir, { recursive: true });
+  const scenePath = path.join(projectDir, 'assets', 'pce-vn-scenes.json');
+  const sceneDoc = JSON.parse(fs.readFileSync(scenePath, 'utf-8'));
+  sceneDoc.startScene = 'opening';
+  sceneDoc.scenes = [{
+    id: 'opening',
+    name: 'Opening',
+    commands: [
+      { type: 'background', assetId: 'vn_classroom_bg' },
+      { type: 'message', text: 'A', textSpeedFrames: 0, advance: 'manual' },
+    ],
+  }];
+  writeJson(scenePath, sceneDoc);
+
+  const generatedVisualDir = path.join(projectDir, 'assets', 'generated', 'vn_classroom_bg');
+  fs.rmSync(generatedVisualDir, { recursive: true, force: true });
+  assert.equal(fs.existsSync(path.join(generatedVisualDir, 'tiles.bin')), false);
+  assert.equal(fs.existsSync(path.join(generatedVisualDir, 'map_vram.bin')), false);
+
+  const buildSystem = loadPceBuildSystem();
+  buildSystem.openProject(projectDir);
+  const result = await buildSystem.buildProject(() => {}, {
+    dryRun: true,
+    allowMissingToolchain: true,
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(fs.existsSync(path.join(generatedVisualDir, 'tiles.bin')), true);
+  assert.equal(fs.existsSync(path.join(generatedVisualDir, 'map_vram.bin')), true);
+  const stamp = JSON.parse(fs.readFileSync(path.join(projectDir, 'assets', 'generated', 'vn', 'build-stamp.json'), 'utf-8'));
+  assert.ok(stamp.mergedDataFiles.includes('assets/generated/vn_classroom_bg/tiles.bin'));
+  assert.ok(stamp.mergedDataFiles.includes('assets/generated/vn_classroom_bg/map_vram.bin'));
+  assert.ok(result.commandInfo.mkcdArgs.some((arg) => /assets[\\/]generated[\\/]vn_classroom_bg[\\/]tiles\.bin$/.test(arg)));
+  assert.ok(result.commandInfo.mkcdArgs.some((arg) => /assets[\\/]generated[\\/]vn_classroom_bg[\\/]map_vram\.bin$/.test(arg)));
+});
+
 test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', async () => {
   const projectDir = path.join(makeWorkspaceTempDir('pce-vn-hucard-build-project-'), 'project');
   fs.cpSync(path.join(__dirname, '..', 'template', 'template_pce_vn_hucard'), projectDir, { recursive: true });
@@ -3445,6 +3483,10 @@ test('PCE build system derives CD data padding from the measured program size', 
   const firstData20 = buildSystem.parseMkcdFirstDataSector(
     'Writing "out/TST.elf" (__cd_out_tst_elf) to ISO @ sector 1, size 20', 'TST.elf');
   assert.equal(buildSystem.PCE_CD_DATA_BASE_SECTOR - firstData20, 43);
+  // The Windows pce-mkcd process writes its log through an ANSI code page, so
+  // a Japanese display-name path can be mojibake after Node decodes it as UTF-8.
+  const mojibake = 'Writing "out/�����̂���ɂ���I�H.elf" (__cd_out_game_elf) to ISO @ sector 1, size 18';
+  assert.equal(buildSystem.parseMkcdFirstDataSector(mojibake, 'いしのうらにいる！？.elf'), 19);
   // Unparseable output falls back to null so the build keeps the provisional pad.
   assert.equal(buildSystem.parseMkcdFirstDataSector('no useful output', 'TST.elf'), null);
 });
@@ -3469,7 +3511,7 @@ test('PCE build system expands llvm-mos Windows clang wrappers to clang --config
   const cdInfo = buildSystem.buildCommandForProject(
     projectDir,
     {
-      title: 'Wrapper Test',
+      title: '表示名 テスト！',
       romName: 'wrapper-test',
       targetMedia: 'cd',
       toolchain: 'llvm-mos',
@@ -3484,11 +3526,12 @@ test('PCE build system expands llvm-mos Windows clang wrappers to clang --config
   assert.ok(cdInfo.args.includes('-Oz'));
   assert.ok(cdInfo.args.includes('-DPCE_EDITOR_TARGET_CD=1'));
   assert.ok(cdInfo.args.some((arg) => /main\.c$/i.test(arg)));
+  assert.equal(path.basename(cdInfo.cuePath), '表示名 テスト！.cue');
 
   const huCardInfo = buildSystem.buildCommandForProject(
     projectDir,
     {
-      title: 'Wrapper Test',
+      title: '表示名 テスト！',
       romName: 'wrapper-test',
       targetMedia: 'hucard',
       toolchain: 'llvm-mos',
@@ -3499,6 +3542,7 @@ test('PCE build system expands llvm-mos Windows clang wrappers to clang --config
   assert.equal(path.basename(huCardInfo.command).toLowerCase(), 'clang.exe');
   assert.equal(huCardInfo.args[0], '--config');
   assert.equal(path.basename(huCardInfo.args[1]).toLowerCase(), 'mos-pce.cfg');
+  assert.equal(path.basename(huCardInfo.romPath), '表示名 テスト！.pce');
   assert.ok(huCardInfo.args.includes('-Os'));
 });
 

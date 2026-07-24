@@ -200,9 +200,14 @@ test('built-in PCE asset editor suite is scoped to the PC Engine core', () => {
     assert.equal(pcePlugins.has(id), true, `${id} should be available for PC Engine`);
     assert.ok(pcePlugins.get(id).roles.some((role) => role.id === 'builder'));
   });
-  ['pce-font-editor', 'pce-visual-novel-editor', 'pce-music-editor', 'pce-cdda-manager', 'pce-adpcm-manager', 'pce-background-manager', 'pce-sprite-manager', 'pce-palette-editor'].forEach((id) => {
+  ['pce-font-editor', 'pce-visual-novel-editor', 'pce-vn-system-settings', 'pce-music-editor', 'pce-cdda-manager', 'pce-adpcm-manager', 'pce-background-manager', 'pce-sprite-manager', 'pce-palette-editor'].forEach((id) => {
     assert.equal(pcePlugins.has(id), false, `${id} should be hidden behind an integrated plugin`);
   });
+  assert.equal(
+    pluginManager.listPluginDiagnostics().some((entry) => entry.pluginId === 'pce-vn-system-settings'),
+    false,
+    'the integrated system settings module should have a valid hidden manifest',
+  );
   assert.equal(pcePlugins.get('pce-asset-manager').renderer.capabilities.includes('audio-import-handler'), true);
   assert.equal(pcePlugins.get('image-editor').tab.page, 'image-editor');
   assert.equal(pcePlugins.get('image-editor').tab.label, 'Image');

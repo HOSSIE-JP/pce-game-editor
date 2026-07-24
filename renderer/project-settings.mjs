@@ -31,7 +31,9 @@ export function buildPceProjectSettings(projectConfig = {}, input = {}) {
     coreId: 'pc-engine',
     platform: 'pce',
     title,
-    romName: projectConfig.romName || title,
+    // 出力名はプロジェクト表示名に一本化する。旧romNameを優先すると、
+    // Settingsで名称を変えても古いテンプレート名のままビルドされてしまう。
+    romName: title,
     toolchain: 'llvm-mos',
     testPlay: buildTestPlaySettingsPatch(projectConfig, input.externalEmulator),
   };

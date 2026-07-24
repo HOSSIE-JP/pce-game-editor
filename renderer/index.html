@@ -274,9 +274,9 @@
           <section class="settings-column export-settings-column">
             <h3 class="settings-column-title">エクスポート設定</h3>
             <div class="form-group">
-              <label class="form-label">出力 ROM パス</label>
+              <label class="form-label">出力メディアパス</label>
               <input type="text" class="form-input form-input-mono" id="settingOutputPath" readonly />
-              <p class="form-hint">ビルド後に <code>out/rom.bin</code> へ出力されます</p>
+              <p class="form-hint">ビルド後、プロジェクト表示名をファイル名にして <code>out/&lt;表示名&gt;.pce</code>（CD-ROM2 は <code>.cue</code>）へ出力されます。ファイル名に使えない文字は <code>_</code> に置き換えます。</p>
             </div>
             <div class="form-actions-inline">
               <button class="btn-sm" id="btnOpenOutputFolder" type="button">出力フォルダを開く</button>
@@ -518,15 +518,15 @@
         <button class="icon-btn" id="btnExportModalClose" type="button">✕</button>
       </div>
       <div class="settings-form compact-form">
-        <p class="form-hint">最後にビルドされた PCE メディアを出力します。必要に応じて先に Build を実行してください。</p>
+        <p class="form-hint">HuCard プロジェクトの最後の Build 出力だけを保存できます。CD-ROM2 プロジェクトは Export の対象外です。</p>
         <div class="export-choice-grid">
           <button class="export-choice-btn" id="btnExportRom" type="button">
-            <span class="export-choice-title">PCE メディア</span>
-            <span class="export-choice-desc">HuCard は .pce、CD-ROM2 は .zip bundle として保存</span>
+            <span class="export-choice-title">HuCard ROM</span>
+            <span class="export-choice-desc">HuCard の .pce ファイルとして保存</span>
           </button>
           <button class="export-choice-btn" id="btnExportHtml" type="button">
             <span class="export-choice-title">HTML</span>
-            <span class="export-choice-desc">ROM と EmulatorJS を埋め込んだ単体 HTML として保存</span>
+            <span class="export-choice-desc">HuCard ROM と EmulatorJS を埋め込んだ単体 HTML として保存</span>
           </button>
         </div>
         <div class="form-actions-inline modal-actions-end">

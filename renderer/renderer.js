@@ -460,9 +460,14 @@ function clearBuildLog() {
 
 function updateRomOutputActions() {
   const hasRom = !!state.lastRomPath;
+  const isHuCard = /\.pce$/i.test(String(state.lastRomPath || ''));
   if (el.btnExport) {
-    el.btnExport.disabled = !hasRom;
-    el.btnExport.title = hasRom ? '最後にビルドされた PCE メディアをエクスポート' : '先に Build を実行してください';
+    el.btnExport.disabled = !isHuCard;
+    el.btnExport.title = isHuCard
+      ? '最後にビルドされた HuCard ROM をエクスポート'
+      : hasRom
+        ? 'CD-ROM2 プロジェクトは Export の対象外です'
+        : '先に HuCard プロジェクトを Build してください';
   }
   if (el.btnDownloadRom) {
     el.btnDownloadRom.disabled = !hasRom;
@@ -3528,6 +3533,10 @@ async function openExportModal() {
     appendLog('app', 'Export できる PCE メディアがありません。先に Build を実行してください。', 'warn');
     return;
   }
+  if (!/\.pce$/i.test(state.lastRomPath)) {
+    appendLog('app', 'CD-ROM2 プロジェクトは Export の対象外です。HuCard プロジェクトを Build してください。', 'warn');
+    return;
+  }
   openModal(el.exportModal);
 }
 
@@ -3537,6 +3546,10 @@ async function exportLastBuild(format) {
   updateRomOutputActions();
   if (!state.lastRomPath) {
     appendLog('app', 'Export できる PCE メディアがありません。先に Build を実行してください。', 'warn');
+    return;
+  }
+  if (!/\.pce$/i.test(state.lastRomPath)) {
+    appendLog('app', 'CD-ROM2 プロジェクトは Export の対象外です。HuCard プロジェクトを Build してください。', 'warn');
     return;
   }
   const isHtml = format === 'html';

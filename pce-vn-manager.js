@@ -4620,6 +4620,14 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
   logBuildTiming(logger, 'runtime sync', stage);
   stage = Date.now();
   ensureSceneFile(projectDir);
+  // CD layout generation needs the physical visual/audio payloads to exist.
+  // A clean build used to enumerate the catalog first and regenerate these
+  // files later in generateAssetSources(). The first CD image therefore omitted
+  // every missing payload and cached that incomplete list until a HuCARD build
+  // happened to generate the files.
+  if (typeof assetManager.ensureGeneratedAssetFiles === 'function') {
+    assetManager.ensureGeneratedAssetFiles(projectDir, { targetMedia: 'cd' });
+  }
   // Reserve the consolidated asset-metadata file at its final size before the CD
   // layout is computed so its sector (and every file after it) stays stable, the
   // same reserve/overwrite contract used for the overlay blob below.
@@ -4650,11 +4658,22 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
   ensureCdAsyncCodeReservation(projectDir);
   writeOverlayFragment(projectDir);
   logBuildTiming(logger, 'reserve CD layout placeholders', stage);
+  const currentDataFiles = collectCdDataFiles(projectDir);
+  const currentCddaTracks = collectCddaTracks(projectDir);
+  const currentCd = config.cd && typeof config.cd === 'object' ? config.cd : {};
+  const currentMergedDataFiles = mergeCdDataFiles(projectDir, currentDataFiles, currentCd.dataFiles);
+  const currentMergedCddaTracks = Array.from(new Set([
+    ...(Array.isArray(currentCd.cddaTracks) ? currentCd.cddaTracks : []),
+    ...currentCddaTracks,
+  ]));
   if (options.incremental) {
     stage = Date.now();
     const cached = readVnBuildStamp(projectDir);
     if (cached?.generated && Array.isArray(cached.mergedDataFiles) && vnGeneratedOutputsReady(projectDir, cached.generated)) {
-      const signature = vnBuildSignature(projectDir, config, cached.mergedDataFiles, cached.mergedCddaTracks || []);
+      // Compare against the catalog derived from files that exist now, not the
+      // cached list. Otherwise a clean build can cache an incomplete catalog
+      // and never notice the payloads generated later in the same build.
+      const signature = vnBuildSignature(projectDir, config, currentMergedDataFiles, currentMergedCddaTracks);
       if (signature === cached.signature) {
         logBuildTiming(logger, 'incremental cache check', stage, 'up-to-date');
         logger?.info?.(`VN generation skipped: inputs unchanged (${cached.generated.sceneCount || 0} scene(s), ${cached.generated.messageCount || 0} message(s), ${cached.generated.glyphCount || 0} glyph(s))`);
@@ -4666,8 +4685,8 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
             incrementalSkipped: true,
           },
           stampInfo: {
-            dataFiles: cached.mergedDataFiles,
-            cddaTracks: cached.mergedCddaTracks || [],
+            dataFiles: currentMergedDataFiles,
+            cddaTracks: currentMergedCddaTracks,
           },
           configPatch: {
             toolchain: 'llvm-mos',
@@ -4675,8 +4694,8 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
             cd: {
               ...cd,
               systemCardProfile: 'jp-v3',
-              dataFiles: cached.mergedDataFiles,
-              cddaTracks: cached.mergedCddaTracks || [],
+              dataFiles: currentMergedDataFiles,
+              cddaTracks: currentMergedCddaTracks,
             },
             pluginSettings: {
               ...(config.pluginSettings || {}),

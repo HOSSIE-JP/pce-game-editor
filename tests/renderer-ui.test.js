@@ -66,17 +66,17 @@ test('header build controls include setup and export flow', () => {
   assert.match(html, /id="exportModal"/);
   assert.match(html, /id="btnExportRom"/);
   assert.match(html, /id="btnExportHtml"/);
-  assert.match(html, /最後にビルドされた PCE メディアを出力/);
-  assert.match(html, /PCE メディア/);
-  assert.match(html, /HuCard は \.pce、CD-ROM2 は \.zip bundle として保存/);
-  assert.match(html, /ROM と EmulatorJS を埋め込んだ単体 HTML として保存/);
+  assert.match(html, /HuCard プロジェクトの最後の Build 出力だけを保存できます。CD-ROM2 プロジェクトは Export の対象外です/);
+  assert.match(html, /HuCard ROM/);
+  assert.match(html, /HuCard の \.pce ファイルとして保存/);
+  assert.match(html, /HuCard ROM と EmulatorJS を埋め込んだ単体 HTML として保存/);
   assert.match(renderer, /btnSetup:\s*\$\('btnSetup'\)/);
   assert.match(renderer, /btnExport:\s*\$\('btnExport'\)/);
   assert.match(renderer, /el\.btnSetup\?\.addEventListener\('click'[\s\S]*openSetupWindow\(\)/);
   assert.match(renderer, /el\.btnExport\?\.addEventListener\('click',\s*openExportModal\)/);
-  assert.match(renderer, /最後にビルドされた PCE メディアをエクスポート/);
-  assert.match(renderer, /Export できる PCE メディアがありません/);
-  assert.match(renderer, /function updateRomOutputActions\(\)[\s\S]*el\.btnExport\.disabled = !hasRom/);
+  assert.match(renderer, /CD-ROM2 プロジェクトは Export の対象外です/);
+  assert.match(renderer, /function updateRomOutputActions\(\)[\s\S]*const isHuCard = \/\\\.pce\$\/i\.test/);
+  assert.match(renderer, /el\.btnExport\.disabled = !isHuCard/);
   assert.match(renderer, /async function openExportModal\(\)[\s\S]*window\.electronAPI\.getRomPath\(\)/);
   assert.match(renderer, /async function exportLastBuild\(format\)/);
   assert.match(renderer, /window\.electronAPI\.exportRom\(\)/);
@@ -117,6 +117,16 @@ test('plugin role accordion starts expanded by default', () => {
   assert.match(html, /class="accordion-body" id="pluginRoleBody"/);
   assert.doesNotMatch(html, /class="accordion-body is-collapsed" id="pluginRoleBody"/);
   assert.match(renderer, /roleAccordionOpen:\s*true/);
+});
+
+test('project settings describe display-name-based PCE and CUE output paths', () => {
+  const html = readRendererFile('index.html');
+
+  assert.match(html, /出力メディアパス/);
+  assert.match(html, /プロジェクト表示名をファイル名にして/);
+  assert.match(html, /out\/&lt;表示名&gt;\.pce/);
+  assert.match(html, /CD-ROM2 は <code>\.cue<\/code>/);
+  assert.doesNotMatch(html, /out\/rom\.bin/);
 });
 
 test('log viewer height persists and popout control is wired', () => {
@@ -589,11 +599,12 @@ test('PCE visual novel preview message skip completes the typewriter page', () =
   const showMessageSource = renderer.slice(showMessageStart, showChoiceStart);
 
   assert.match(previewRuntimeSource, /const messageWaitGlyph = String\(data\.messageWaitGlyph \|\| '▼'\)/);
-  assert.match(previewRuntimeSource, /cursor\.textContent = messageWaitGlyph;/);
+  assert.match(previewRuntimeSource, /const messageAutoGlyph = String\(data\.messageAutoGlyph \|\| '◆'\)/);
+  assert.match(previewRuntimeSource, /cursor\.textContent = indicatorGlyph;/);
   assert.match(showMessageSource, /function complete\(\) \{\r?\n\s+if \(done\) return;\r?\n\s+done = true;\r?\n\s+shownBody = parts\.body\.length;/);
   assert.match(showMessageSource, /if \(typeTimer\) \{ clearInterval\(typeTimer\); typeTimer = null; \}/);
   assert.match(showMessageSource, /const autoEnabled = getVar\('AUTO_ENABLE'\) === 1;/);
-  assert.match(showMessageSource, /paintMsg\(full, color, !autoEnabled\);/);
+  assert.match(showMessageSource, /paintMsg\(full, color, autoEnabled \? messageAutoGlyph : messageWaitGlyph, !autoEnabled\);/);
   assert.match(showMessageSource, /function revealNextBodyGlyph\(\) \{\r?\n\s+if \(done\) return;/);
   assert.match(showMessageSource, /pending = function \(\) \{ if \(!done\) complete\(\); else next\(Boolean\(c\.voiceAssetId\)\); \};/);
 });

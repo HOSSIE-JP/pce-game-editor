@@ -98,7 +98,10 @@ test('HuCARD VN message indicator follows the live AUTO_ENABLE value', () => {
   assert.match(refresh, /message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO[\s\S]*show_message_auto_indicator\(\);/);
   assert.match(tick, /message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO[\s\S]*show_message_auto_indicator\(\);/);
   assert.match(runtime, /show_message_auto_indicator\(void\)[\s\S]*PCE_VN_MESSAGE_AUTO_GLYPH/);
-  assert.match(runtime, /row != composer_row \|\| col <= composer_prev_col/);
+  assert.match(runtime, /draw_message_glyph_at_impl\([^\n]+uint8_t isolated\)/);
+  assert.match(runtime, /use_prev = isolated \? 0u : composer_prev_valid/);
+  assert.match(runtime, /draw_message_indicator_glyph_at\([^\n]+\)[\s\S]*draw_message_glyph_at_impl\(glyph, col, row, 1u, 1u\)/);
+  assert.match(runtime, /show_message_auto_indicator\(void\)[\s\S]*draw_message_indicator_glyph_at\(PCE_VN_MESSAGE_AUTO_GLYPH/);
   assert.doesNotMatch(refresh, /advance_mode/);
   assert.doesNotMatch(tick, /advance_mode/);
 });

@@ -92,7 +92,12 @@ test('CD VN runtime consumes SELECT before input watchers and applies dynamic AU
     message,
     /if \(vn_auto_enable\)[\s\S]*message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO[\s\S]*show_message_auto_indicator\(\);/
   );
-  assert.match(message, /row != composer_row \|\| col <= composer_prev_col/);
+  assert.match(message, /use_prev = \(uint8_t\)\(composer_prev_valid && row == composer_row && col > composer_prev_col\)/);
+  assert.match(message, /if \(col == VN_WAIT_CURSOR_COL\) return;[\s\S]*composer_prev_mask/);
+  assert.match(
+    message,
+    /show_message_auto_indicator\(void\)[\s\S]*PCE_VN_MESSAGE_AUTO_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW/
+  );
   assert.doesNotMatch(message, /active_message_state\.advance_mode != PCE_VN_ADVANCE_BUTTON/);
 });
 

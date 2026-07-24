@@ -3808,13 +3808,19 @@ function normalizeCdDataFileList(projectDir, entries = []) {
     .filter((relativePath) => fs.existsSync(path.join(projectDir, relativePath)))));
 }
 
-function generateAssetSources(projectDir, options = {}) {
-  const doc = readAssetDocument(projectDir);
+function ensureGeneratedAssetFiles(projectDir, options = {}) {
+  const doc = options.doc || readAssetDocument(projectDir);
   const targetsCd = assetSourceTargetsCd(projectDir, options);
   ensureVisualGeneratedAssets(projectDir, doc, { force: Boolean(options.forceVisualRegeneration) });
   ensureAdpcmGeneratedAssets(projectDir, doc);
   if (targetsCd) ensureCddaGeneratedAssets(projectDir, doc);
   ensurePsgImportedAssets(projectDir, doc);
+  return doc;
+}
+
+function generateAssetSources(projectDir, options = {}) {
+  const targetsCd = assetSourceTargetsCd(projectDir, options);
+  const doc = ensureGeneratedAssetFiles(projectDir, options);
   const assetIdFilter = Array.isArray(options.assetIds)
     ? new Set(options.assetIds.map((id) => String(id || '').trim()).filter(Boolean))
     : null;
@@ -4279,6 +4285,7 @@ module.exports = {
   computeAssetMetaLayout,
   ensurePsgPatternFiles,
   ensurePsgImportedAssets,
+  ensureGeneratedAssetFiles,
   ensureAssetMetaReservation,
   normalizePsgOptions,
   normalizePsgPatternEntries,

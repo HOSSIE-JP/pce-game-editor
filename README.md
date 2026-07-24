@@ -43,7 +43,7 @@ npm start
 
 CD-ROM2 VNは日本版Super System Card 3.0 profile `jp-v3`専用です。HuC6280 PSGはSystem Cardのmain/sub track driverをVSync IRQで駆動し、本文とSpriteTextは`EX_GETFNT`のJIS第一水準glyphを必要時に使います。BIOS、PSG driver、抽出glyphはゲーム生成物へ含めません。CD VNのPSG/font/scene/bank契約は[System Card BIOS設計](docs/pce-vn-engine-redesign.md)を参照してください。
 
-`Export` では、HuCard の `.pce`、Super CD-ROM2 の `.zip` bundle、または EmulatorJS runtime/core とゲームデータを埋め込んだ単体 HTML を出力できます。CD-ROM2 HTML export は Setup 済みの System Card ROM も埋め込みます。
+`Export` は HuCard project 専用です。`.pce`、または EmulatorJS runtime/core と HuCard ROM を埋め込んだ単体 HTML を出力できます。CD-ROM2 project は System Card / IPL を必要とする配布境界を避けるため Export の対象外です。HTML を再配布する場合は、EmulatorJS/core の GPL 条件に従って対応ソースとライセンス表示も提供してください。
 
 ## テスト
 

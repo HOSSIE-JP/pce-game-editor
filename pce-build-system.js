@@ -295,7 +295,8 @@ function normalizeTemplateBuilderRole(builderId, targetMedia = 'hucard') {
 }
 
 function normalizeProjectConfig(config = {}) {
-  const romName = String(config.romName || config.title || 'pce_sample').trim() || 'pce_sample';
+  const title = String(config.title || config.romName || 'pce_sample').trim() || 'pce_sample';
+  const romName = title;
   const pluginRoles = config.pluginRoles && typeof config.pluginRoles === 'object'
     ? { ...config.pluginRoles }
     : {};
@@ -313,7 +314,7 @@ function normalizeProjectConfig(config = {}) {
   return {
     coreId: 'pc-engine',
     platform: 'pce',
-    title: String(config.title || romName).trim() || romName,
+    title,
     author: String(config.author || 'AUTHOR').trim() || 'AUTHOR',
     serial: String(config.serial || 'PCE0000000000').trim() || 'PCE0000000000',
     region: String(config.region || 'JUE').trim() || 'JUE',
@@ -569,7 +570,11 @@ function getProjectInfo() {
 }
 
 function sanitizeRomName(value) {
-  const name = String(value || 'pce_sample').replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  let name = String(value || 'pce_sample')
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+    .replace(/[. ]+$/g, '');
+  if (/^(?:\.{1,2}|con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name)) name += '_';
   return name || 'pce_sample';
 }
 
@@ -941,9 +946,17 @@ function ensurePceCdDataPaddingFile(commandInfo) {
 // verbose line looks like: Writing "out/TST.elf" (...) to ISO @ sector 1, size 18
 function parseMkcdFirstDataSector(verboseOutput, elfBasename) {
   if (!verboseOutput || !elfBasename) return null;
+  const output = String(verboseOutput);
   const elfBase = elfBasename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(`"[^"]*${elfBase}"[^\\n]*@ sector (\\d+), size (\\d+)`);
-  const match = String(verboseOutput).match(re);
+  let match = output.match(re);
+  // pce-mkcd is a MinGW executable whose verbose output uses the active ANSI
+  // code page. Node decodes it as UTF-8, so a Unicode ELF basename can become
+  // replacement characters and cannot match elfBasename. The program entry is
+  // still unambiguous: it is the quoted .elf input written at sector 1.
+  if (!match) {
+    match = output.match(/Writing\s+"[^"\r\n]*\.elf"[^\r\n]*@ sector (1), size (\d+)/i);
+  }
   if (!match) return null;
   return Number(match[1]) + Number(match[2]);
 }
@@ -1078,7 +1091,7 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
   const toolchain = normalizeToolchain(config.toolchain);
   const targetMedia = normalizeTargetMedia(config.targetMedia);
   const outDir = path.join(projectDir, 'out');
-  const romBase = sanitizeRomName(config.romName || config.title);
+  const romBase = sanitizeRomName(config.title || config.romName);
   ensureDirSync(outDir);
   const sources = collectSourceFiles(projectDir, config);
   if (targetMedia === 'cd') {
@@ -1640,7 +1653,7 @@ function buildProject(onLog, options = {}) {
 function getLastRomPath() {
   const config = loadProjectConfig();
   const ext = normalizeTargetMedia(config.targetMedia) === 'cd' ? '.cue' : '.pce';
-  const romPath = path.join(getProjectDir(), 'out', `${sanitizeRomName(config.romName || config.title)}${ext}`);
+  const romPath = path.join(getProjectDir(), 'out', `${sanitizeRomName(config.title || config.romName)}${ext}`);
   return fs.existsSync(romPath) ? romPath : null;
 }
 

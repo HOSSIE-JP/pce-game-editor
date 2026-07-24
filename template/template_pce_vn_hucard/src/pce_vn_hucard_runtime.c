@@ -744,7 +744,7 @@ static void VN_HUCARD_CODE_TEXT add_glyph_tile(const uint16_t *gmask, uint16_t g
     }
 }
 
-static void VN_HUCARD_CODE_TEXT draw_message_glyph_at_impl(uint16_t glyph, uint8_t col, uint8_t row, uint8_t wait_for_vblank)
+static void VN_HUCARD_CODE_TEXT draw_message_glyph_at_impl(uint16_t glyph, uint8_t col, uint8_t row, uint8_t wait_for_vblank, uint8_t isolated)
 {
     const uint16_t px0 = (uint16_t)col * VN_GLYPH_W;
     const uint8_t tc0 = (uint8_t)(px0 >> 3);
@@ -755,11 +755,11 @@ static void VN_HUCARD_CODE_TEXT draw_message_glyph_at_impl(uint16_t glyph, uint8
     uint8_t k;
     if (glyph == 0u || glyph == PCE_VN_GLYPH_NEWLINE || glyph == PCE_VN_GLYPH_END)
     {
-        composer_prev_valid = 0u;
+        if (!isolated) composer_prev_valid = 0u;
         return;
     }
-    if (row != composer_row || col <= composer_prev_col) composer_prev_valid = 0u;
-    use_prev = composer_prev_valid;
+    if (!isolated && (row != composer_row || col <= composer_prev_col)) composer_prev_valid = 0u;
+    use_prev = isolated ? 0u : composer_prev_valid;
     load_glyph_mask(glyph, msg_gmask);
     reset_msg_tile_batch();
     for (tc = tc0; tc <= tc1 && tc < VN_MSG_TILE_COLS; tc++)
@@ -778,20 +778,28 @@ static void VN_HUCARD_CODE_TEXT draw_message_glyph_at_impl(uint16_t glyph, uint8
     }
     if (wait_for_vblank) flush_msg_tile_batch();
     else flush_msg_tile_batch_now();
-    for (k = 0u; k < VN_GLYPH_MASK_WORDS; k++) composer_prev_mask[k] = msg_gmask[k];
-    composer_prev_col = col;
-    composer_prev_valid = 1u;
-    composer_row = row;
+    if (!isolated)
+    {
+        for (k = 0u; k < VN_GLYPH_MASK_WORDS; k++) composer_prev_mask[k] = msg_gmask[k];
+        composer_prev_col = col;
+        composer_prev_valid = 1u;
+        composer_row = row;
+    }
 }
 
 static void VN_HUCARD_CODE_TEXT draw_message_glyph_at(uint16_t glyph, uint8_t col, uint8_t row)
 {
-    draw_message_glyph_at_impl(glyph, col, row, 1u);
+    draw_message_glyph_at_impl(glyph, col, row, 1u, 0u);
 }
 
 static void VN_HUCARD_CODE_TEXT draw_message_glyph_at_now(uint16_t glyph, uint8_t col, uint8_t row)
 {
-    draw_message_glyph_at_impl(glyph, col, row, 0u);
+    draw_message_glyph_at_impl(glyph, col, row, 0u, 0u);
+}
+
+static void VN_HUCARD_CODE_TEXT draw_message_indicator_glyph_at(uint16_t glyph, uint8_t col, uint8_t row)
+{
+    draw_message_glyph_at_impl(glyph, col, row, 1u, 1u);
 }
 
 static void VN_HUCARD_CODE_TEXT clear_message_glyph_area(uint8_t col, uint8_t row)
@@ -883,15 +891,13 @@ static void VN_HUCARD_CODE_TEXT show_message_wait_indicator(void)
 {
     message_wait_indicator_state = VN_MESSAGE_INDICATOR_WAIT_VISIBLE;
     message_frame_timer = 0u;
-    composer_prev_valid = 0u;
-    draw_message_glyph_at(PCE_VN_MESSAGE_WAIT_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
+    draw_message_indicator_glyph_at(PCE_VN_MESSAGE_WAIT_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
 }
 
 static void VN_HUCARD_CODE_TEXT show_message_auto_indicator(void)
 {
     message_wait_indicator_state = VN_MESSAGE_INDICATOR_AUTO;
-    composer_prev_valid = 0u;
-    draw_message_glyph_at(PCE_VN_MESSAGE_AUTO_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
+    draw_message_indicator_glyph_at(PCE_VN_MESSAGE_AUTO_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
 }
 
 static void VN_HUCARD_CODE_TEXT hide_message_wait_indicator(void)

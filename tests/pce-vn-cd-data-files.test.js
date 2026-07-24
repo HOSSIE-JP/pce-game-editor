@@ -11,6 +11,7 @@ test('VN CD data file policy keeps current raw files and rejects generated RLE s
       'assets/generated/bg/tiles.bin',
       'assets/generated/bg/tiles.rle',
       'assets/generated/vn/scenes/old.bin',
+      'assets/generated/removed_asset/tiles.bin',
       'assets/custom/extra.bin',
     ],
     managedPaths: new Set(['assets/generated/vn/scenes/old.bin']),

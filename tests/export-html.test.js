@@ -12,10 +12,6 @@ const {
   preparePceExportMedia,
 } = require('../pce-export');
 
-function makeTempDir(prefix) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-}
-
 function readMain() {
   return fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8');
 }
@@ -57,6 +53,9 @@ test('export handlers use the last built media without triggering a build', () =
   assert.match(htmlHandler, /buildSystem\.getLastRomPath\(\)/);
   assert.match(romHandler, /pceExport\.preparePceExportMedia\(romPath\)/);
   assert.match(htmlHandler, /pceExport\.generatePceExportHtml\(/);
+  assert.match(htmlHandler, /pceExport\.preparePceExportMedia\(romPath\)/);
+  assert.doesNotMatch(romHandler, /isCdRomPath/);
+  assert.doesNotMatch(htmlHandler, /readSystemCard/);
   assert.doesNotMatch(romHandler, /runBuildFull\(/);
   assert.doesNotMatch(htmlHandler, /runBuildFull\(/);
   assert.match(romHandler, /エクスポートできるビルド済み PCE メディアがありません/);
@@ -100,51 +99,39 @@ test('PCE HuCard export HTML embeds media and EmulatorJS bootstrap', () => {
   assert.doesNotMatch(html, /MD Emulator/);
 });
 
-test('PCE CD-ROM2 export HTML embeds CD bundle and System Card', () => {
-  const dir = makeTempDir('pce-export-cd-');
-  fs.writeFileSync(path.join(dir, 'game.iso'), Buffer.from([1, 2, 3]));
+test('PCE Export rejects CD-ROM2 media and never emits a System Card payload', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-export-cd-reject-'));
   const cuePath = path.join(dir, 'game.cue');
   fs.writeFileSync(cuePath, 'FILE "game.iso" BINARY\n  TRACK 01 MODE1/2048\n', 'utf-8');
-  const media = preparePceExportMedia(cuePath);
-  const systemCard = { path: path.join(dir, 'syscard3.pce'), buffer: Buffer.from([0xaa, 0xbb]) };
-  const html = generatePceExportHtml({
-    media,
-    systemCard,
-    emulatorAssets: minimalEmulatorAssets([
-      { key: 'extractzip.js', relativePath: 'compression/extractzip.js', mime: 'application/javascript', size: 8, buffer: Buffer.from('zipwork') },
-    ]),
-  });
-  const payload = payloadFromHtml(html);
-
-  assert.equal(payload.media.mediaType, 'cdrom2');
-  assert.equal(payload.media.label, 'game.zip');
-  assert.equal(payload.media.entryName, 'game.cue');
-  assert.equal(payload.bios.label, 'syscard3.pce');
-  assert.deepEqual(payload.bios.chunks, [Buffer.from([0xaa, 0xbb]).toString('base64')]);
-  assert.match(html, /window\.EJS_forceExtract = true/);
-  assert.match(html, /System Card<\/dt><dd>syscard3\.pce embedded/);
-  assert.match(Buffer.from(payload.media.chunks.join(''), 'base64').toString('latin1'), /game\.cue/);
+  assert.throws(
+    () => preparePceExportMedia(cuePath),
+    /CD-ROM2 プロジェクトは Export の対象外です/,
+  );
+  assert.throws(
+    () => generatePceExportHtml({
+      media: { mediaType: 'cdrom2' },
+      emulatorAssets: minimalEmulatorAssets(),
+    }),
+    /CD-ROM2 プロジェクトは HTML Export の対象外です/,
+  );
 });
 
-test('PCE EmulatorJS asset collection includes core and CD decompression worker', () => {
-  const root = makeTempDir('pce-export-runtime-');
+test('PCE EmulatorJS asset collection includes only the HuCard runtime assets', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-export-runtime-'));
   const dataDir = path.join(root, 'data');
   fs.mkdirSync(path.join(dataDir, 'cores', 'reports'), { recursive: true });
-  fs.mkdirSync(path.join(dataDir, 'compression'), { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'loader.js'), 'loader');
   fs.writeFileSync(path.join(dataDir, 'emulator.min.js'), 'emulator');
   fs.writeFileSync(path.join(dataDir, 'emulator.min.css'), 'css');
   fs.writeFileSync(path.join(dataDir, 'cores', 'cores.json'), '{}');
   fs.writeFileSync(path.join(dataDir, 'cores', 'reports', 'mednafen_pce.json'), '{}');
   fs.writeFileSync(path.join(dataDir, 'cores', 'mednafen_pce-wasm.data'), 'core');
-  fs.writeFileSync(path.join(dataDir, 'compression', 'extractzip.js'), 'zip');
-
   const collected = collectPceEmulatorJsAssets({
     rootDir: root,
     dataDir,
     loaderPath: path.join(dataDir, 'loader.js'),
     coreAsset: 'mednafen_pce-wasm.data',
-  }, { includeCompression: true });
+  });
   const keys = collected.assets.map((asset) => asset.key).sort();
 
   assert.equal(collected.loaderText, 'loader');
@@ -152,5 +139,5 @@ test('PCE EmulatorJS asset collection includes core and CD decompression worker'
   assert.ok(keys.includes('emulator.min.css'));
   assert.ok(keys.includes('mednafen_pce-wasm.data'));
   assert.ok(keys.includes('mednafen_pce.json'));
-  assert.ok(keys.includes('extractzip.js'));
+  assert.ok(!keys.includes('extractzip.js'));
 });

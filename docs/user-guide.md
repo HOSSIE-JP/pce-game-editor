@@ -33,7 +33,7 @@ Mega Drive ROM ヘッダー向けだったタイトル、作者名、シリア�
 
 現行 visual asset は raw の `tiles.bin` / `map_vram.bin` / `patterns.bin` だけを使い、圧縮オプションや `.rle` sidecar は保存しません。ADPCM divider/encoder と一部の VN command field には、既存データを安全に読み込むための値補正が残っていますが、UI で複数バージョンを選ぶ機能ではありません。詳細は [Implementation Audit](implementation-audit-2026-07-10.md) を参照してください。
 
-Settings の `プロジェクト表示名` は、アプリ内表示とエクスポート候補名のための project metadata です。PCE ROM ヘッダー情報ではないため、作者名やシリアルの編集欄は表示しません。
+Settings の `プロジェクト表示名` は、アプリ内表示に加えてビルド出力のファイル名に使う project metadata です。HuCARD は `out/<表示名>.pce`、CD-ROM2 は `out/<表示名>.cue`（対応する `.iso` も同じ名前）になります。ファイル名に使えない文字は `_` に置き換えます。PCE ROM ヘッダー情報ではないため、作者名やシリアルの編集欄は表示しません。
 
 ### Plugins とユーザーコードの信頼
 
@@ -205,12 +205,12 @@ Test Play は直前の出力を残したままビルドします。VN シーン�
 
 ## Export
 
-`Export` は最後に成功した Build 出力を保存します。新しくビルドは実行しないため、内容を更新したい場合は先に `Build` を押してください。
+`Export` は最後に成功した **HuCard** Build 出力だけを保存します。新しくビルドは実行しないため、内容を更新したい場合は先に `Build` を押してください。CD-ROM2 project は System Card / IPL を必要とする配布境界を避けるため、Export の対象外です。
 
-- **PCE メディア**: HuCard project では `.pce` を保存し、Super CD-ROM2 project では `.cue` が参照する `.iso` / CD-DA WAV などを含む `.zip` bundle を保存します。
-- **HTML**: Setup 済みの EmulatorJS runtime / `mednafen_pce` core とゲームデータを 1 つの HTML に埋め込みます。HuCard は ROM 本体を、Super CD-ROM2 は CD bundle と Setup 済み System Card ROM も埋め込むため、生成 HTML は大きくなります。
+- **HuCard ROM**: `.pce` を保存します。
+- **HTML**: Setup 済みの EmulatorJS runtime / `mednafen_pce` core と HuCard ROM を 1 つの HTML に埋め込みます。CD-ROM2 のゲームデータ、System Card、IPL は埋め込みません。
 
-HTML export は `file://` でダブルクリック起動できることを目的にしています。生成された HTML にはユーザーが Setup で指定した EmulatorJS runtime/core と、CD-ROM2 の場合はユーザー所有の System Card ROM が含まれます。配布する場合は、これらの runtime/core/System Card/ゲームデータを再配布してよいかを必ず確認してください。PCE Game Editor 本体のリポジトリには EmulatorJS runtime/core や System Card は同梱しません。
+HTML export は `file://` でダブルクリック起動できることを目的にしています。生成 HTML にはユーザーが Setup で指定した EmulatorJS runtime/core が含まれます。EmulatorJS は GPL-3.0、`mednafen_pce` core は GPL 系コンポーネントのため、配布する場合は対象バージョンのライセンス表示、対応する完全なソース、改変・ビルド手順を GPL の条件に従って提供してください。PCE Game Editor 本体のリポジトリには EmulatorJS runtime/core や System Card は同梱しません。
 
 ## Test Play
 

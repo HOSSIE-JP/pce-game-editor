@@ -13,6 +13,7 @@ test('renderer project settings normalize only the current PCE fields', async ()
   assert.equal(config.coreId, 'pc-engine');
   assert.equal(config.toolchain, 'llvm-mos');
   assert.equal(config.title, 'Demo');
+  assert.equal(config.romName, 'Demo');
   assert.deepEqual(config.testPlay.externalEmulator, { executablePath: 'C:/emu.exe', extraArgs: '--fullscreen' });
   assert.equal(Object.hasOwn(config, 'author'), false);
 });

@@ -1729,43 +1729,40 @@ async function handleExportRom() {
     return { ok: false, error: 'エクスポートできるビルド済み PCE メディアがありません。先に Build を実行してください。' };
   }
 
-  const isCdMedia = pceExport.isCdRomPath(romPath);
+  let media;
+  try {
+    media = pceExport.preparePceExportMedia(romPath);
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+
   const owner = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
-  let suggested = isCdMedia
-    ? `${sanitizeExportFileName(path.basename(romPath, path.extname(romPath)), 'pce-cd')}.zip`
-    : path.basename(romPath);
+  let suggested = path.basename(romPath);
   try {
     const cfg = buildSystem.loadProjectConfig();
     const projectName = cfg?.title || cfg?.romName || cfg?.name || buildSystem.getProjectInfo()?.projectName;
-    if (projectName) suggested = `${sanitizeExportFileName(projectName, 'rom')}${isCdMedia ? '.zip' : '.pce'}`;
+    if (projectName) suggested = `${sanitizeExportFileName(projectName, 'rom')}.pce`;
   } catch (err) {
     appDiagnostics.report({
       source: 'export',
       code: 'export-project-name-read-failed',
       level: 'warn',
       error: err,
-      details: { mediaType: isCdMedia ? 'cd' : 'hucard' },
+      details: { mediaType: 'hucard' },
     });
   }
 
   const result = await dialog.showSaveDialog(owner, {
-    title: isCdMedia ? 'CD-ROM2 bundle をエクスポート' : 'HuCard ROM をエクスポート',
+    title: 'HuCard ROM をエクスポート',
     defaultPath: suggested,
     filters: [
-      isCdMedia
-        ? { name: 'PC Engine CD-ROM2 bundle', extensions: ['zip'] }
-        : { name: 'PC Engine HuCard ROM', extensions: ['pce'] },
+      { name: 'PC Engine HuCard ROM', extensions: ['pce'] },
       { name: 'All Files', extensions: ['*'] },
     ],
   });
 
   if (result.canceled || !result.filePath) return { ok: false, canceled: true };
-  if (isCdMedia) {
-    const media = pceExport.preparePceExportMedia(romPath);
-    fs.writeFileSync(result.filePath, media.buffer);
-  } else {
-    fs.copyFileSync(romPath, result.filePath);
-  }
+  fs.writeFileSync(result.filePath, media.buffer);
   return { ok: true, path: result.filePath };
 }
 
@@ -1773,6 +1770,13 @@ async function handleExportHtml() {
   const romPath = buildSystem.getLastRomPath();
   if (!romPath || !fs.existsSync(romPath)) {
     return { ok: false, error: 'エクスポートできるビルド済み PCE メディアがありません。先に Build を実行してください。' };
+  }
+
+  let media;
+  try {
+    media = pceExport.preparePceExportMedia(romPath);
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
   }
 
   const pceSetupManager = buildSystem.getPceSetupManager();
@@ -1791,25 +1795,6 @@ async function handleExportHtml() {
   }
   if (!runtime.coreAsset) {
     return { ok: false, needsSetup: true, error: `EmulatorJS mednafen_pce core が見つかりません: ${path.join(runtime.dataDir, 'cores')}` };
-  }
-
-  let media;
-  let systemCard = null;
-  try {
-    media = pceExport.preparePceExportMedia(romPath);
-    if (media.mediaType === 'cdrom2') {
-      const systemCardPath = pceSetupManager.getPceCdSystemCardPath();
-      if (!systemCardPath) {
-        return {
-          ok: false,
-          needsSetup: true,
-          error: 'SUPER CD-ROM2 HTML Export requires System Card ROM. Setup で System Card パスを指定してください。',
-        };
-      }
-      systemCard = pceExport.readSystemCard(systemCardPath);
-    }
-  } catch (err) {
-    return { ok: false, error: String(err?.message || err) };
   }
 
   // 保存先 HTML ファイルを選択（シングルファイル・サーバー不要）
@@ -1838,9 +1823,7 @@ async function handleExportHtml() {
 
   let emulatorAssets;
   try {
-    emulatorAssets = pceExport.collectPceEmulatorJsAssets(runtime, {
-      includeCompression: media.mediaType === 'cdrom2',
-    });
+    emulatorAssets = pceExport.collectPceEmulatorJsAssets(runtime);
   } catch (err) {
     return { ok: false, needsSetup: true, error: String(err?.message || err) };
   }
@@ -1848,7 +1831,6 @@ async function handleExportHtml() {
   const html = pceExport.generatePceExportHtml({
     media,
     emulatorAssets,
-    systemCard,
     appVersion: electronPackageJson.version,
     appBuildNumber: appBuildMeta.buildNumber,
     appBuildAt: appBuildMeta.buildAt,

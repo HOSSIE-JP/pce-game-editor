@@ -302,6 +302,9 @@ static void VN_OVERLAY_CODE preload_message_glyph_masks(const pce_vn_message_t *
 }
 #endif
 
+/* A 12px glyph shares one tile with the glyph to its left. HUD indicators are
+   drawn in the reserved terminal column, which starts on a tile boundary and
+   must not replace the text stream's saved neighbour. */
 static void VN_OVERLAY_CODE draw_message_glyph_at(uint16_t glyph, uint8_t col, uint8_t row)
 {
     const uint16_t px0 = (uint16_t)col * VN_GLYPH_W;
@@ -313,14 +316,13 @@ static void VN_OVERLAY_CODE draw_message_glyph_at(uint16_t glyph, uint8_t col, u
     uint8_t tc;
     uint8_t k;
     map_vn_data();
-    if (glyph == 0u || glyph == PCE_VN_GLYPH_NEWLINE || glyph == PCE_VN_GLYPH_END)
+    /* Stream callers consume END/NEWLINE before entering the glyph renderer. */
+    if (glyph == 0u)
     {
         composer_prev_valid = 0u; /* a blank/newline breaks the shared-tile chain */
         return;
     }
-    if (row != composer_row || col <= composer_prev_col)
-        composer_prev_valid = 0u; /* new row/rewrite: no left neighbor */
-    use_prev = composer_prev_valid;
+    use_prev = (uint8_t)(composer_prev_valid && row == composer_row && col > composer_prev_col);
     gmask = cached_message_glyph_mask(glyph);
     if (!gmask)
     {
@@ -346,6 +348,7 @@ static void VN_OVERLAY_CODE draw_message_glyph_at(uint16_t glyph, uint8_t col, u
             pce_editor_vram_copy((uint16_t)(tile * 16u), msg_enc, 32u);
         }
     }
+    if (col == VN_WAIT_CURSOR_COL) return;
     for (k = 0u; k < VN_GLYPH_MASK_ROWS; k++) composer_prev_mask[k] = gmask[k];
     composer_prev_col = col;
     composer_prev_valid = 1u;
@@ -477,7 +480,7 @@ static void VN_BANKED_CODE show_message_wait_indicator(void)
     call_overlay_draw_message_glyph_at(PCE_VN_MESSAGE_WAIT_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
 }
 
-static void VN_BANKED_CODE show_message_auto_indicator(void)
+static void VN_BANKED_CODE2 show_message_auto_indicator(void)
 {
     message_wait_indicator_state = VN_MESSAGE_INDICATOR_AUTO;
     map_message_wait_indicator_cell(0u);
@@ -518,7 +521,7 @@ static void VN_BANKED_CODE refresh_message_wait_indicator(void)
     if (!message_wait_indicator_state) show_message_wait_indicator();
 }
 
-static void VN_BANKED_CODE tick_message_wait_indicator(void)
+static void VN_BANKED_CODE2 tick_message_wait_indicator(void)
 {
     if (active_message_index < 0)
     {
