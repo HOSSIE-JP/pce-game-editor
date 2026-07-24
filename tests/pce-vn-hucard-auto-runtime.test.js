@@ -70,7 +70,7 @@ test('HuCARD VN consumes SELECT for AUTO and preserves manual message advance', 
   );
   assert.match(
     mainLoop,
-    /if \(auto_enable\)[\s\S]*message_auto_wait = active_message_state\.auto_wait_frames;[\s\S]*hide_message_wait_indicator\(\);[\s\S]*else[\s\S]*refresh_message_wait_indicator\(\);/,
+    /if \(active_message_index >= 0\)[\s\S]*if \(auto_enable && message_complete\)[\s\S]*message_auto_wait = active_message_state\.auto_wait_frames;[\s\S]*refresh_message_wait_indicator\(\);/,
   );
 
   const activeMessage = sliceBetween(
@@ -84,7 +84,7 @@ test('HuCARD VN consumes SELECT for AUTO and preserves manual message advance', 
   assert.doesNotMatch(activeMessage, /psg_song|psg_sfx|service_psg/);
 });
 
-test('HuCARD VN wait cursor follows the live AUTO_ENABLE value', () => {
+test('HuCARD VN message indicator follows the live AUTO_ENABLE value', () => {
   const refresh = sliceBetween(
     'static void VN_HUCARD_CODE_TEXT refresh_message_wait_indicator',
     'static void VN_HUCARD_CODE_TEXT tick_message_wait_indicator',
@@ -95,6 +95,10 @@ test('HuCARD VN wait cursor follows the live AUTO_ENABLE value', () => {
   );
   assert.match(refresh, /variable_values\[PCE_VN_VARIABLE_AUTO_ENABLE_INDEX\] != 0u/);
   assert.match(tick, /variable_values\[PCE_VN_VARIABLE_AUTO_ENABLE_INDEX\] != 0u/);
+  assert.match(refresh, /message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO[\s\S]*show_message_auto_indicator\(\);/);
+  assert.match(tick, /message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO[\s\S]*show_message_auto_indicator\(\);/);
+  assert.match(runtime, /show_message_auto_indicator\(void\)[\s\S]*PCE_VN_MESSAGE_AUTO_GLYPH/);
+  assert.match(runtime, /row != composer_row \|\| col <= composer_prev_col/);
   assert.doesNotMatch(refresh, /advance_mode/);
   assert.doesNotMatch(tick, /advance_mode/);
 });

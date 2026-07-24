@@ -143,6 +143,26 @@ test('PCE VN preview clamps reserved variable writes', () => {
   });
 });
 
+test('PCE VN previews show a steady AUTO indicator instead of the blinking wait cursor', () => {
+  const previewRuntimeSource = sourceBetween(
+    'function previewRuntime()',
+    'function buildPreviewHtml(payload)',
+  );
+  const messageOverlaySource = sourceBetween(
+    'function paintMessageOverlay(overlay, text',
+    'function fitStageNodes()',
+  );
+
+  assert.match(renderer, /const MESSAGE_AUTO_GLYPH = '◆';/);
+  assert.match(renderer, /messageAutoGlyph: MESSAGE_AUTO_GLYPH/);
+  assert.match(previewRuntimeSource, /const messageAutoGlyph = String\(data\.messageAutoGlyph \|\| '◆'\)/);
+  assert.match(previewRuntimeSource, /indicatorBlinks \? 'pv-wait-cursor' : 'pv-auto-indicator'/);
+  assert.match(previewRuntimeSource, /autoEnabled \? messageAutoGlyph : messageWaitGlyph, !autoEnabled/);
+  assert.match(previewRuntimeSource, /getVar\('AUTO_ENABLE'\) === 1 \? messageAutoGlyph : ''/);
+  assert.match(messageOverlaySource, /autoPreview \? MESSAGE_AUTO_GLYPH : MESSAGE_WAIT_GLYPH/);
+  assert.match(messageOverlaySource, /indicatorBlinks \? 'pce-vn-msg-wait-cursor' : 'pce-vn-msg-auto-indicator'/);
+});
+
 test('PCE VN preview HTML injects every standalone runtime dependency', async () => {
   const renderSpriteTextSource = sourceBetween(
     'function renderSpriteTextCells(node, text)',

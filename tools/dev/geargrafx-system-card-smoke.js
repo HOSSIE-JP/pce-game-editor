@@ -9,7 +9,7 @@ const readline = require('node:readline');
 const DEFAULT_EXE = 'C:\\homebrew\\emulator\\Geargrafx\\Geargrafx.exe';
 
 function parseArgs(argv) {
-  const result = { exe: DEFAULT_EXE, cue: '', frames: 6000, exercise: false, inspectCommand: false, inspectCount: false, inspectSpriteMove: false, inspectCdda: false, inspectCddaStart: false, presses: 180, settle: 0, skipPsgCheck: false, skipForbiddenCheck: false, list: false, search: '', info: '' };
+  const result = { exe: DEFAULT_EXE, cue: '', frames: 6000, exercise: false, inspectCommand: false, inspectCount: false, inspectSpriteMove: false, inspectCdda: false, inspectCddaStart: false, cddaCommandHit: 1, presses: 180, settle: 0, skipPsgCheck: false, skipForbiddenCheck: false, list: false, search: '', info: '' };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--list') result.list = true;
@@ -24,6 +24,7 @@ function parseArgs(argv) {
     else if (arg === '--inspect-sprite-move') result.inspectSpriteMove = true;
     else if (arg === '--inspect-cdda') result.inspectCdda = true;
     else if (arg === '--inspect-cdda-start') result.inspectCddaStart = true;
+    else if (arg === '--cdda-command-hit') result.cddaCommandHit = Math.max(1, Number(argv[++i]) || 1);
     else if (arg === '--presses') result.presses = Math.max(1, Number(argv[++i]) || 180);
     else if (arg === '--settle') result.settle = Math.max(0, Number(argv[++i]) || 0);
     else if (arg === '--skip-psg-check') result.skipPsgCheck = true;
@@ -232,6 +233,7 @@ async function main() {
     const cddaCommandAddress = cddaCommandImplAddress || cddaAudioCommandAddress;
     const cddaCommandBank = cddaCommandImplAddress ? 133 : 129;
     const cddaSyncAddress = optionalSymbolCpuAddress(mapPath, 'sync_cd_external_irq_after_bios_call');
+    const cdTransferScratchAddress = optionalSymbolCpuAddress(mapPath, 'cd_transfer_scratch');
     const spriteMoveBreakpoint = {
       address: (((130 - 128) * 0x2000) + (spriteMoveStartAddress & 0x1fff)).toString(16),
       memory_area: 'cd_ram',
@@ -429,6 +431,104 @@ async function main() {
       throw new Error(`Geargrafx frame step timed out: ${JSON.stringify({ frames, start, current, status, stepResults })}`);
     };
 
+    if (options.inspectCddaStart && options.cddaCommandHit > 1) {
+      if (options.cddaCommandHit !== 2) {
+        throw new Error('--cdda-command-hit currently supports title command hits 1 or 2');
+      }
+      const status = contentPayload(await client.routed('debug_get_status'));
+      const pc = String(status?.pc ?? status?.PC ?? status?.current_pc ?? '').replace(/^0x|^\$/i, '').toLowerCase();
+      const expectedPc = cddaCommandAddress.toString(16).toLowerCase();
+      if (!status?.paused || !pc.endsWith(expectedPc)) {
+        throw new Error(`First CD-DA command entry was not reached: ${JSON.stringify(status)}`);
+      }
+      await client.routed('remove_breakpoint', cddaCommandBreakpoint);
+      await client.tool('set_breakpoint', cddaSyncBreakpoint);
+      const firstBiosDeadline = Date.now() + 20000;
+      let firstBiosStatus = status;
+      let firstBiosState = 0;
+      let firstBiosSyncHits = 0;
+      const expectedBiosPc = cddaSyncAddress.toString(16).toLowerCase();
+      while (Date.now() < firstBiosDeadline) {
+        await client.tool('debug_continue');
+        while (Date.now() < firstBiosDeadline) {
+          firstBiosStatus = contentPayload(await client.routed('debug_get_status'));
+          const currentPc = String(firstBiosStatus?.pc ?? firstBiosStatus?.PC ?? firstBiosStatus?.current_pc ?? '')
+            .replace(/^0x|^\$/i, '').toLowerCase();
+          if (firstBiosStatus?.paused && currentPc.endsWith(expectedBiosPc)) break;
+          await sleep(10);
+        }
+        const currentPc = String(firstBiosStatus?.pc ?? firstBiosStatus?.PC ?? firstBiosStatus?.current_pc ?? '')
+          .replace(/^0x|^\$/i, '').toLowerCase();
+        if (!firstBiosStatus?.paused || !currentPc.endsWith(expectedBiosPc)) break;
+        firstBiosSyncHits += 1;
+        firstBiosState = await readWramByte(cddaStateAddress);
+        if (firstBiosState & 0x01) break;
+      }
+      await client.routed('remove_breakpoint', cddaSyncBreakpoint);
+      if (!(firstBiosState & 0x01)) {
+        throw new Error(`First CD-DA command did not reach its BIOS return: ${JSON.stringify({ firstBiosStatus, firstBiosState, firstBiosSyncHits })}`);
+      }
+      const beforeCdda = contentPayload(await client.routed('get_cdrom_audio_status'));
+      const macro = contentPayload(await client.routed('controller_macro', {
+        player: 1,
+        commands: [{ wait: 90 }, { tap: 'run' }, { wait: 1 }],
+      }));
+      let afterStatus = contentPayload(await client.routed('debug_get_status'));
+      if (afterStatus?.paused) await client.tool('debug_continue');
+      await sleep(2000);
+      await client.tool('debug_pause');
+      afterStatus = contentPayload(await client.routed('debug_get_status'));
+      const afterCdda = contentPayload(await client.routed('get_cdrom_audio_status'));
+      let cddaMetaBytes = [];
+      if (cdromRam && cdTransferScratchAddress) {
+        const payload = contentPayload(await client.tool('read_memory', {
+          area: Number(cdromRam.id ?? cdromRam.area ?? cdromRam.index),
+          offset: (((132 - 128) * 0x2000) + (cdTransferScratchAddress & 0x1fff)).toString(16),
+          size: 96,
+        }));
+        cddaMetaBytes = bytesFromPayload(payload);
+      }
+      const cddaMetaRecords = [];
+      for (let offset = 0; offset + 8 <= cddaMetaBytes.length; offset += 32) {
+        cddaMetaRecords.push({
+          track: cddaMetaBytes[offset],
+          startLba: cddaMetaBytes[offset + 2] | (cddaMetaBytes[offset + 3] << 8) | (cddaMetaBytes[offset + 4] << 16),
+          stopLba: cddaMetaBytes[offset + 5] | (cddaMetaBytes[offset + 6] << 8) | (cddaMetaBytes[offset + 7] << 16),
+        });
+      }
+      const vm = {
+        scene: currentSceneAddress ? await readWramByte(currentSceneAddress) : null,
+        command: currentCommandAddress ? await readWramByte(currentCommandAddress) : null,
+        cddaState: await readWramByte(cddaStateAddress),
+      };
+      const afterDriveState = String(afterCdda?.state || '').toUpperCase();
+      const selectedMeta = cddaMetaRecords.find((record) => record.startLba === Number(afterCdda?.start_lba)) || null;
+      if (!['PLAYING', 'STOPPED'].includes(afterDriveState)
+          || Number(afterCdda?.start_lba) === Number(beforeCdda?.start_lba)
+          || !selectedMeta) {
+        throw new Error(`Second CD-DA command did not switch tracks after title input: ${JSON.stringify({ firstBiosStatus, firstBiosState, firstBiosSyncHits, beforeCdda, macro, afterStatus, afterCdda, cddaMetaRecords, vm })}`);
+      }
+      process.stdout.write(`${JSON.stringify({
+        ok: true,
+        mode: 'inspect-cdda-start',
+        cue: cuePath,
+        media,
+        command: {
+          address: `0x${cddaCommandAddress.toString(16)}`,
+          bank: cddaCommandBank,
+          hit: 2,
+          scene: vm.scene,
+          command: vm.command,
+          cddaState: vm.cddaState,
+        },
+        firstCommand: { biosStatus: firstBiosStatus, biosSyncHits: firstBiosSyncHits, cddaState: firstBiosState },
+        titleInput: { macro, status: afterStatus },
+        cdda: { before: beforeCdda, after: afterCdda, selectedMeta },
+        cddaMetaRecords,
+      }, null, 2)}\n`);
+      return;
+    }
+
     if (options.inspectCddaStart) {
       const status = contentPayload(await client.routed('debug_get_status'));
       const pc = String(status?.pc ?? status?.PC ?? status?.current_pc ?? '').replace(/^0x|^\$/i, '').toLowerCase();
@@ -542,6 +642,9 @@ async function main() {
         command: {
           address: `0x${cddaCommandAddress.toString(16)}`,
           bank: cddaCommandBank,
+          hit: options.cddaCommandHit,
+          scene: currentSceneAddress ? await readWramByte(currentSceneAddress) : null,
+          command: currentCommandAddress ? await readWramByte(currentCommandAddress) : null,
           biosSyncAddress: `0x${cddaSyncAddress.toString(16)}`,
           biosSyncHits,
           cddaState: biosState,

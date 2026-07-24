@@ -53,6 +53,7 @@ test('CD VN runtime clamps reserved variables and snapshots MSG_SPEED per messag
 test('CD VN runtime consumes SELECT before input watchers and applies dynamic AUTO timing', () => {
   const main = readRuntimeFile('vn_main.c');
   const message = readRuntimeFile('vn_msg_core.c');
+  const header = readRuntimeFile(path.join('generated', 'vn.h'));
   const selectOffset = main.indexOf('if (pressed & PAD_SEL)');
   const asyncOffset = main.indexOf('if (async_input_active && (pressed & async_input_mask))');
 
@@ -82,10 +83,16 @@ test('CD VN runtime consumes SELECT before input watchers and applies dynamic AU
     /message_voice_mode == VN_MESSAGE_VOICE_LOOP && adpcm_playback_active\(\)[\s\S]*stop_adpcm_voice\(\);[\s\S]*advance_story\(\)/
   );
   assert.doesNotMatch(main, /active_message_state\.advance_mode == PCE_VN_ADVANCE_AUTO/);
+  assert.match(header, /#define PCE_VN_MESSAGE_AUTO_GLYPH 33183u/);
   assert.match(
     message,
-    /refresh_message_wait_indicator[\s\S]*\|\| vn_auto_enable/
+    /show_message_auto_indicator\(void\)[\s\S]*PCE_VN_MESSAGE_AUTO_GLYPH/
   );
+  assert.match(
+    message,
+    /if \(vn_auto_enable\)[\s\S]*message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO[\s\S]*show_message_auto_indicator\(\);/
+  );
+  assert.match(message, /row != composer_row \|\| col <= composer_prev_col/);
   assert.doesNotMatch(message, /active_message_state\.advance_mode != PCE_VN_ADVANCE_BUTTON/);
 });
 

@@ -90,7 +90,7 @@ Visual Novel CD テンプレートには、`BG` / `Sprite` / `Sprite Move` / `Me
 
 `システム設定` タブでは、ノベルエンジン全体のメッセージ速度と Advance の初期値を設定します。メッセージ速度は `速度1(速い)：0`、`速度2：10`、`速度3：20`、`速度4：30`、`速度5：40`、`速度6(遅い)：50` から選びます。Advance は既定が `button` で、`auto` にすると Auto wait のフレーム数を使います。これらは全 `Message` command 共通で、Message のプロパティには表示されません。Auto wait はAdvanceの初期値がbuttonでも編集できます。
 
-CD-ROM2 / HuCARD 共通の予約変数として `AUTO_ENABLE` と `MSG_SPEED` を使用できます。`AUTO_ENABLE` は `0=OFF`、`1=ON` で、初期値はAdvanceから決まります。SELECTを押すたびにON/OFFが切り替わり、SELECTはこの切り替え専用です。`MSG_SPEED` の初期値は0で、`0`はシステム設定（CDの音声付きMessageでは音声同期速度）、`1..6`は速度1〜6（`0 / 10 / 20 / 30 / 40 / 50` frame/文字）を指定します。Variable / Choiceで書き込み、IF / Switchで参照でき、範囲外の値はそれぞれ`0..1`、`0..6`へ丸められます。速度はMessage開始時に確定するため、表示中に変更しても次のMessageから反映されます。
+CD-ROM2 / HuCARD 共通の予約変数として `AUTO_ENABLE` と `MSG_SPEED` を使用できます。`AUTO_ENABLE` は `0=OFF`、`1=ON` で、初期値はAdvanceから決まります。SELECTを押すたびにON/OFFが切り替わり、SELECTはこの切り替え専用です。Message右下の表示は、手動モードでは本文完了後に点滅する `▼`、AUTOモードでは文字送り中から常時点灯する `◆` になり、SELECTでの切り替えにも即座に追従します。この表示はCD-ROM2、HuCARD、エディター内プレビューで共通です。`MSG_SPEED` の初期値は0で、`0`はシステム設定（CDの音声付きMessageでは音声同期速度）、`1..6`は速度1〜6（`0 / 10 / 20 / 30 / 40 / 50` frame/文字）を指定します。Variable / Choiceで書き込み、IF / Switchで参照でき、範囲外の値はそれぞれ`0..1`、`0..6`へ丸められます。速度はMessage開始時に確定するため、表示中に変更しても次のMessageから反映されます。
 
 AUTOがONの音声なしMessageは、本文表示完了後にAuto waitを経て進みます。CDのone-shot Message voiceは本文表示とADPCM自然終了の両方が完了した時点で進み、追加のAuto waitは入りません。音声開始に失敗した場合とloop音声はAuto waitを使い、loop音声は遷移時に停止します。HuCARDのPSGと独立したAudioコマンドはAUTO待機の対象ではありません。
 

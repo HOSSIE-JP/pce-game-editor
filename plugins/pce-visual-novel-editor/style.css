@@ -837,6 +837,10 @@
   animation: pce-vn-message-wait-cursor 1s steps(1, end) infinite;
 }
 
+.pce-vn-msg-auto-indicator {
+  opacity: 1;
+}
+
 @keyframes pce-vn-message-wait-cursor {
   0%,
   49.999% {

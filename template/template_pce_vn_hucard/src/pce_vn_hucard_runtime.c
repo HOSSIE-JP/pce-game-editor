@@ -36,6 +36,10 @@
 #define VN_UI_BLANK_TILE (PCE_VN_FONT_TILE_BASE + VN_MSG_TILE_COUNT)
 #define VN_UI_PALETTE 15u
 #define VN_WAIT_CURSOR_BLINK_FRAMES 24u
+#define VN_MESSAGE_INDICATOR_HIDDEN 0u
+#define VN_MESSAGE_INDICATOR_WAIT_VISIBLE 1u
+#define VN_MESSAGE_INDICATOR_WAIT_BLANK 2u
+#define VN_MESSAGE_INDICATOR_AUTO 3u
 #define VN_SATB_ADDR 0x7f00u
 #define VN_SPRITE_SLOT_COUNT 4u
 #define VN_SPRITE_SATB_PER_SLOT 12u
@@ -754,7 +758,7 @@ static void VN_HUCARD_CODE_TEXT draw_message_glyph_at_impl(uint16_t glyph, uint8
         composer_prev_valid = 0u;
         return;
     }
-    if (row != composer_row) composer_prev_valid = 0u;
+    if (row != composer_row || col <= composer_prev_col) composer_prev_valid = 0u;
     use_prev = composer_prev_valid;
     load_glyph_mask(glyph, msg_gmask);
     reset_msg_tile_batch();
@@ -877,10 +881,17 @@ static void VN_HUCARD_CODE_TEXT blank_message_wait_indicator(void)
 
 static void VN_HUCARD_CODE_TEXT show_message_wait_indicator(void)
 {
-    message_wait_indicator_state = 1u;
+    message_wait_indicator_state = VN_MESSAGE_INDICATOR_WAIT_VISIBLE;
     message_frame_timer = 0u;
     composer_prev_valid = 0u;
     draw_message_glyph_at(PCE_VN_MESSAGE_WAIT_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
+}
+
+static void VN_HUCARD_CODE_TEXT show_message_auto_indicator(void)
+{
+    message_wait_indicator_state = VN_MESSAGE_INDICATOR_AUTO;
+    composer_prev_valid = 0u;
+    draw_message_glyph_at(PCE_VN_MESSAGE_AUTO_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
 }
 
 static void VN_HUCARD_CODE_TEXT hide_message_wait_indicator(void)
@@ -889,8 +900,9 @@ static void VN_HUCARD_CODE_TEXT hide_message_wait_indicator(void)
     {
         blank_message_wait_indicator();
     }
-    message_wait_indicator_state = 0u;
-    message_frame_timer = 0u;
+    if (message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO)
+        message_frame_timer = 0u;
+    message_wait_indicator_state = VN_MESSAGE_INDICATOR_HIDDEN;
 }
 
 static void VN_HUCARD_CODE_TEXT reset_message_wait_indicator_state(void)
@@ -918,25 +930,45 @@ static void VN_HUCARD_CODE_SPRITE_STATE restore_active_message_mouth(void)
 static void VN_HUCARD_CODE_TEXT refresh_message_wait_indicator(void)
 {
     if (active_message_index >= 0 && message_complete) restore_active_message_mouth();
-    if (active_message_index < 0
-        || !message_complete
-        || variable_values[PCE_VN_VARIABLE_AUTO_ENABLE_INDEX] != 0u)
+    if (active_message_index < 0)
     {
         hide_message_wait_indicator();
         return;
     }
+    if (variable_values[PCE_VN_VARIABLE_AUTO_ENABLE_INDEX] != 0u)
+    {
+        if (message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO)
+        {
+            hide_message_wait_indicator();
+            show_message_auto_indicator();
+        }
+        return;
+    }
+    if (message_wait_indicator_state == VN_MESSAGE_INDICATOR_AUTO)
+        hide_message_wait_indicator();
+    if (!message_complete) return;
     if (!message_wait_indicator_state) show_message_wait_indicator();
 }
 
 static void VN_HUCARD_CODE_TEXT tick_message_wait_indicator(void)
 {
-    if (active_message_index < 0
-        || !message_complete
-        || variable_values[PCE_VN_VARIABLE_AUTO_ENABLE_INDEX] != 0u)
+    if (active_message_index < 0)
     {
         hide_message_wait_indicator();
         return;
     }
+    if (variable_values[PCE_VN_VARIABLE_AUTO_ENABLE_INDEX] != 0u)
+    {
+        if (message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO)
+        {
+            hide_message_wait_indicator();
+            show_message_auto_indicator();
+        }
+        return;
+    }
+    if (message_wait_indicator_state == VN_MESSAGE_INDICATOR_AUTO)
+        hide_message_wait_indicator();
+    if (!message_complete) return;
     if (!message_wait_indicator_state)
     {
         show_message_wait_indicator();
@@ -945,13 +977,13 @@ static void VN_HUCARD_CODE_TEXT tick_message_wait_indicator(void)
     message_frame_timer++;
     if (message_frame_timer < VN_WAIT_CURSOR_BLINK_FRAMES) return;
     message_frame_timer = 0u;
-    if (message_wait_indicator_state == 2u)
+    if (message_wait_indicator_state == VN_MESSAGE_INDICATOR_WAIT_BLANK)
     {
         show_message_wait_indicator();
     }
     else
     {
-        message_wait_indicator_state = 2u;
+        message_wait_indicator_state = VN_MESSAGE_INDICATOR_WAIT_BLANK;
         blank_message_wait_indicator();
     }
 }
@@ -2067,13 +2099,14 @@ static void VN_HUCARD_CODE_TEXT start_message(uint8_t message_index)
         message_complete = draw_message_next_entry(&active_message_state);
     }
     end_message_window_vram_update(restore_window_display);
-    if (message_complete) refresh_message_wait_indicator();
+    refresh_message_wait_indicator();
 }
 
 static void VN_HUCARD_CODE_TEXT finish_active_message(void)
 {
     if (active_message_index < 0) return;
-    hide_message_wait_indicator();
+    if (message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO)
+        hide_message_wait_indicator();
     while (!message_complete)
     {
         message_complete = draw_message_next_entry(&active_message_state);
@@ -2419,17 +2452,11 @@ int main(void)
                 (uint8_t)(get_variable_value(PCE_VN_VARIABLE_AUTO_ENABLE_INDEX) == 0);
             set_variable_value(PCE_VN_VARIABLE_AUTO_ENABLE_INDEX, auto_enable);
             pressed = (uint8_t)(pressed & (uint8_t)~PAD_SELECT);
-            if (active_message_index >= 0 && message_complete)
+            if (active_message_index >= 0)
             {
-                if (auto_enable)
-                {
+                if (auto_enable && message_complete)
                     message_auto_wait = active_message_state.auto_wait_frames;
-                    hide_message_wait_indicator();
-                }
-                else
-                {
-                    refresh_message_wait_indicator();
-                }
+                refresh_message_wait_indicator();
             }
         }
         if (async_input_mask && (pressed & async_input_mask))

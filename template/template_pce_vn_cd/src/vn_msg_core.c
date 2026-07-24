@@ -318,7 +318,8 @@ static void VN_OVERLAY_CODE draw_message_glyph_at(uint16_t glyph, uint8_t col, u
         composer_prev_valid = 0u; /* a blank/newline breaks the shared-tile chain */
         return;
     }
-    if (row != composer_row) composer_prev_valid = 0u; /* new row: no left neighbor */
+    if (row != composer_row || col <= composer_prev_col)
+        composer_prev_valid = 0u; /* new row/rewrite: no left neighbor */
     use_prev = composer_prev_valid;
     gmask = cached_message_glyph_mask(glyph);
     if (!gmask)
@@ -355,6 +356,10 @@ static void VN_OVERLAY_CODE draw_message_glyph_at(uint16_t glyph, uint8_t col, u
 #define VN_MESSAGE_ENTRY_NEWLINE 1u
 #define VN_MESSAGE_ENTRY_DRAWABLE 2u
 #define VN_MESSAGE_ROW_COL_LIMIT(row) ((row) == VN_WAIT_CURSOR_ROW ? VN_WAIT_CURSOR_COL : VN_TEXT_COLS)
+#define VN_MESSAGE_INDICATOR_HIDDEN 0u
+#define VN_MESSAGE_INDICATOR_WAIT_VISIBLE 1u
+#define VN_MESSAGE_INDICATOR_WAIT_BLANK 2u
+#define VN_MESSAGE_INDICATOR_AUTO 3u
 
 static uint8_t VN_OVERLAY_CODE draw_message_next_entry(const pce_vn_message_t *message)
 {
@@ -466,10 +471,17 @@ static void VN_RESIDENT_CODE call_overlay_draw_message_glyph_at(uint16_t glyph, 
 
 static void VN_BANKED_CODE show_message_wait_indicator(void)
 {
-    message_wait_indicator_state = 1u;
+    message_wait_indicator_state = VN_MESSAGE_INDICATOR_WAIT_VISIBLE;
     message_frame_timer = 0u;
     map_message_wait_indicator_cell(0u);
     call_overlay_draw_message_glyph_at(PCE_VN_MESSAGE_WAIT_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
+}
+
+static void VN_BANKED_CODE show_message_auto_indicator(void)
+{
+    message_wait_indicator_state = VN_MESSAGE_INDICATOR_AUTO;
+    map_message_wait_indicator_cell(0u);
+    call_overlay_draw_message_glyph_at(PCE_VN_MESSAGE_AUTO_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW);
 }
 
 static void VN_BANKED_CODE hide_message_wait_indicator(void)
@@ -477,33 +489,54 @@ static void VN_BANKED_CODE hide_message_wait_indicator(void)
     if (message_wait_indicator_state)
     {
         map_message_wait_indicator_cell(1u);
-        message_frame_timer = 0u;
+        if (message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO)
+            message_frame_timer = 0u;
     }
-    message_wait_indicator_state = 0u;
+    message_wait_indicator_state = VN_MESSAGE_INDICATOR_HIDDEN;
 }
 
 static void VN_BANKED_CODE refresh_message_wait_indicator(void)
 {
     if (active_message_index >= 0 && message_complete) update_active_message_mouth(1u);
-    if (active_message_index < 0
-        || !message_complete
-        || vn_auto_enable)
+    if (active_message_index < 0)
     {
         hide_message_wait_indicator();
         return;
     }
+    if (vn_auto_enable)
+    {
+        if (message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO)
+        {
+            hide_message_wait_indicator();
+            show_message_auto_indicator();
+        }
+        return;
+    }
+    if (message_wait_indicator_state == VN_MESSAGE_INDICATOR_AUTO)
+        hide_message_wait_indicator();
+    if (!message_complete) return;
     if (!message_wait_indicator_state) show_message_wait_indicator();
 }
 
 static void VN_BANKED_CODE tick_message_wait_indicator(void)
 {
-    if (active_message_index < 0
-        || !message_complete
-        || vn_auto_enable)
+    if (active_message_index < 0)
     {
         hide_message_wait_indicator();
         return;
     }
+    if (vn_auto_enable)
+    {
+        if (message_wait_indicator_state != VN_MESSAGE_INDICATOR_AUTO)
+        {
+            hide_message_wait_indicator();
+            show_message_auto_indicator();
+        }
+        return;
+    }
+    if (message_wait_indicator_state == VN_MESSAGE_INDICATOR_AUTO)
+        hide_message_wait_indicator();
+    if (!message_complete) return;
     if (!message_wait_indicator_state)
     {
         show_message_wait_indicator();
@@ -512,13 +545,13 @@ static void VN_BANKED_CODE tick_message_wait_indicator(void)
     message_frame_timer++;
     if (message_frame_timer < VN_WAIT_CURSOR_BLINK_FRAMES) return;
     message_frame_timer = 0u;
-    if (message_wait_indicator_state == 2u)
+    if (message_wait_indicator_state == VN_MESSAGE_INDICATOR_WAIT_BLANK)
     {
         show_message_wait_indicator();
     }
     else
     {
-        message_wait_indicator_state = 2u;
+        message_wait_indicator_state = VN_MESSAGE_INDICATOR_WAIT_BLANK;
         map_message_wait_indicator_cell(1u);
     }
 }

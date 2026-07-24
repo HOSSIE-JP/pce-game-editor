@@ -34,6 +34,7 @@ const GLYPH_NEWLINE_BYTE = 0xfe;
 const GLYPH_ESCAPE_BYTE = 0xfd;
 const GLYPH_DIRECT_MAX = 0xfc; // highest glyph index encodable as a single byte
 const MESSAGE_WAIT_GLYPH = '▼';
+const MESSAGE_AUTO_GLYPH = '◆';
 // Append one glyph index to a stream: a single byte for 0..252, otherwise an
 // escape prefix plus a 16-bit little-endian index. Returns nothing; the caller
 // tracks the entry count (one per glyph/newline) for glyph_count.
@@ -1585,10 +1586,10 @@ function messageDisplayText(message) {
 }
 
 // Every distinct character that appears in messages/choices, untruncated.
-// The leading ' ', '>', and wait marker are always present because the runtime
-// draws blank cells, choice cursors, and the blinking page-advance marker.
+// The leading ' ', '>', wait marker, and AUTO marker are always present because
+// the runtime draws blank cells, choice cursors, and message-mode indicators.
 function collectGlyphsRaw(doc) {
-  const glyphs = [' ', '>', MESSAGE_WAIT_GLYPH];
+  const glyphs = [' ', '>', MESSAGE_WAIT_GLYPH, MESSAGE_AUTO_GLYPH];
   const seen = new Set(glyphs);
   (doc.scenes || []).forEach((scene) => {
     compiledSceneCommands(scene).forEach((command) => {
@@ -3789,6 +3790,7 @@ function generateVnSources(projectDir, options = {}) {
     : [];
   const systemChoiceCursorGlyph = hucardMode ? 0 : systemCardFont.encodeSystemCardText('>', 'choice cursor', { terminate: false }).words[0];
   const systemMessageWaitGlyph = hucardMode ? 0 : systemCardFont.encodeSystemCardText(MESSAGE_WAIT_GLYPH, 'message wait glyph', { terminate: false }).words[0];
+  const systemMessageAutoGlyph = hucardMode ? 0 : systemCardFont.encodeSystemCardText(MESSAGE_AUTO_GLYPH, 'message AUTO glyph', { terminate: false }).words[0];
 
   const headerPath = path.join(generatedDir, 'vn.h');
   const sourcePath = path.join(generatedDir, 'vn.c');
@@ -3994,6 +3996,7 @@ function generateVnSources(projectDir, options = {}) {
     `#define PCE_VN_FONT_TILE_BASE ${Number(fontConfig.tileBase || DEFAULT_FONT_TILE_BASE)}u`,
     `#define PCE_VN_CHOICE_CURSOR_GLYPH ${hucardMode ? (glyphIndex.get('>') ?? 0) : systemChoiceCursorGlyph}u`,
     `#define PCE_VN_MESSAGE_WAIT_GLYPH ${hucardMode ? (glyphIndex.get(MESSAGE_WAIT_GLYPH) ?? 0) : systemMessageWaitGlyph}u`,
+    `#define PCE_VN_MESSAGE_AUTO_GLYPH ${hucardMode ? (glyphIndex.get(MESSAGE_AUTO_GLYPH) ?? 0) : systemMessageAutoGlyph}u`,
     '#define PCE_VN_GLYPH_END 0xffffu',
     '#define PCE_VN_GLYPH_NEWLINE 0xfffeu',
     ...(hucardMode ? ['#define PCE_VN_GLYPH_ESCAPE 0xfdu'] : []),

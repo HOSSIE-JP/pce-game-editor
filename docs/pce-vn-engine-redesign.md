@@ -105,7 +105,7 @@ message glyphは必要時に`EX_GETFNT/$E060`の12×12 modeで32-byte scratchへ
 
 `spritetext`も12×12 modeを必要時に呼び、2pxの透明余白を持つ16×16 hardware sprite patternへ4bpp化してVRAMへuploadします。SATBは従来どおり1文字1entryですが、配置はmessageと同じ横12px・縦16pxピッチです。
 
-CD生成物には`font.bin`、`font_sprite.bin`を出しません。起動時全font uploadと全glyph VRAM mask領域もありません。`>`、`▼`、起動失敗表示だけを固定図形として持ち、一般文字のfallbackには使いません。
+CD生成物には`font.bin`、`font_sprite.bin`を出しません。起動時全font uploadと全glyph VRAM mask領域もありません。`>`、手動待ちの`▼`、AUTO表示の`◆`、起動失敗表示だけを固定図形として持ち、一般文字のfallbackには使いません。
 
 ## 音声・描画で維持する契約
 

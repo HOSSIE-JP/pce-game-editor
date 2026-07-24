@@ -18,6 +18,7 @@ const PCE_SCREEN_HEIGHT = 224;
 const MESSAGE_AREA = { x: 24, y: 152, cols: 17, rows: 4, cellW: 12, cellH: 16 };
 const SPRITETEXT_CELL = { width: 12, height: 16 };
 const MESSAGE_WAIT_GLYPH = '▼';
+const MESSAGE_AUTO_GLYPH = '◆';
 const DEFAULT_CHARACTER_Y = 24;
 const DEFAULT_BG_TILE_X = 2;
 const DEFAULT_BG_TILE_Y = 1;
@@ -1250,6 +1251,7 @@ function previewRuntime() {
   const data = window.__PCE_VN_PREVIEW__ || { doc: { scenes: [] }, urls: {}, meta: {} };
   const settings = data.doc.settings || {};
   const messageWaitGlyph = String(data.messageWaitGlyph || '▼').slice(0, 1) || '▼';
+  const messageAutoGlyph = String(data.messageAutoGlyph || '◆').slice(0, 1) || '◆';
   const messageSpeedFrameOptions = [0, 10, 20, 30, 40, 50];
   const rawMessageSpeedFrames = Number(settings.messageSpeedFrames);
   const messageSpeedFrames = Number.isFinite(rawMessageSpeedFrames)
@@ -1282,6 +1284,7 @@ function previewRuntime() {
     '.pv-row{height:' + MSG.cellH + 'px;display:flex;}',
     '.pv-cell{width:' + MSG.cellW + 'px;height:' + MSG.cellH + 'px;line-height:' + MSG.cellH + 'px;font-size:11px;text-align:center;color:inherit;text-shadow:0 1px 2px rgba(0,0,0,.9);overflow:hidden;}',
     '.pv-wait-cursor{animation:pv-wait-cursor 1s steps(1,end) infinite;}',
+    '.pv-auto-indicator{opacity:1;}',
     '#pv-msg.pv-hidden,#pv-choice.pv-hidden{display:none;}',
     '#pv-effect{position:absolute;inset:0;z-index:20;pointer-events:none;opacity:0;background:#fff;}',
     '#pv-choice{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;gap:6px;min-width:140px;}',
@@ -2366,7 +2369,7 @@ function previewRuntime() {
     const color = String((c && c.textColor) || '').trim();
     return /^#[0-9a-f]{6}$/i.test(color) ? color : '#fff';
   }
-  function paintMsg(text, color, waitCursor = false) {
+  function paintMsg(text, color, indicatorGlyph = '', indicatorBlinks = false) {
     const lines = layoutLines(text);
     msgBox.style.color = color || '#fff';
     msgBox.innerHTML = '';
@@ -2380,15 +2383,15 @@ function previewRuntime() {
         cell.textContent = line[c];
         row.appendChild(cell);
       }
-      if (waitCursor && r === MSG.rows - 1) {
+      if (indicatorGlyph && r === MSG.rows - 1) {
         while (row.children.length < MSG.cols - 1) {
           const spacer = document.createElement('span');
           spacer.className = 'pv-cell';
           row.appendChild(spacer);
         }
         const cursor = document.createElement('span');
-        cursor.className = 'pv-cell pv-wait-cursor';
-        cursor.textContent = messageWaitGlyph;
+        cursor.className = `pv-cell ${indicatorBlinks ? 'pv-wait-cursor' : 'pv-auto-indicator'}`;
+        cursor.textContent = indicatorGlyph;
         row.appendChild(cursor);
       }
       msgBox.appendChild(row);
@@ -2430,7 +2433,7 @@ function previewRuntime() {
     let voiceStarted = false;
     let voiceComplete = !c.voiceAssetId;
     let voiceFailed = false;
-    paintMsg(parts.prefix, color);
+    paintMsg(parts.prefix, color, getVar('AUTO_ENABLE') === 1 ? messageAutoGlyph : '');
     function next(stopVoice = false) {
       clearTimers();
       restoreActiveMessageMouth();
@@ -2447,7 +2450,7 @@ function previewRuntime() {
       }
       if (!done) return;
       const autoEnabled = getVar('AUTO_ENABLE') === 1;
-      paintMsg(full, color, !autoEnabled);
+      paintMsg(full, color, autoEnabled ? messageAutoGlyph : messageWaitGlyph, !autoEnabled);
       if (!autoEnabled) {
         if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
         return;
@@ -2484,7 +2487,17 @@ function previewRuntime() {
       if (!done) complete();
       else scheduleAuto(true);
     };
-    activeMessageAutoToggle = () => scheduleAuto(true);
+    activeMessageAutoToggle = () => {
+      if (done) {
+        scheduleAuto(true);
+        return;
+      }
+      paintMsg(
+        parts.prefix + parts.body.slice(0, shownBody),
+        color,
+        getVar('AUTO_ENABLE') === 1 ? messageAutoGlyph : '',
+      );
+    };
     pending = function () { if (!done) complete(); else next(Boolean(c.voiceAssetId)); };
     if (c.voiceAssetId) {
       recordAdpcmUse(c.voiceAssetId, 'Message voice');
@@ -2521,7 +2534,11 @@ function previewRuntime() {
         shownBody += 1;
         if (ch !== '\r' && ch !== '\n') break;
       }
-      paintMsg(parts.prefix + parts.body.slice(0, shownBody), color);
+      paintMsg(
+        parts.prefix + parts.body.slice(0, shownBody),
+        color,
+        getVar('AUTO_ENABLE') === 1 ? messageAutoGlyph : '',
+      );
       if (shownBody >= parts.body.length) complete();
     }
     if (messageFastForward || speed <= 0 || !parts.body) complete();
@@ -3153,7 +3170,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
     return block;
   }
 
-  function paintMessageOverlay(overlay, text, waitCursor = false) {
+  function paintMessageOverlay(overlay, text, indicatorGlyph = '', indicatorBlinks = false) {
     const lines = layoutMessageLines(text);
     overlay.innerHTML = '';
     for (let r = 0; r < MESSAGE_AREA.rows; r += 1) {
@@ -3166,15 +3183,15 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
         cell.textContent = line[c];
         row.appendChild(cell);
       }
-      if (waitCursor && r === MESSAGE_AREA.rows - 1) {
+      if (indicatorGlyph && r === MESSAGE_AREA.rows - 1) {
         while (row.children.length < MESSAGE_AREA.cols - 1) {
           const spacer = document.createElement('span');
           spacer.className = 'pce-vn-msg-cell';
           row.appendChild(spacer);
         }
         const cursor = document.createElement('span');
-        cursor.className = 'pce-vn-msg-cell pce-vn-msg-wait-cursor';
-        cursor.textContent = MESSAGE_WAIT_GLYPH;
+        cursor.className = `pce-vn-msg-cell ${indicatorBlinks ? 'pce-vn-msg-wait-cursor' : 'pce-vn-msg-auto-indicator'}`;
+        cursor.textContent = indicatorGlyph;
         row.appendChild(cursor);
       }
       overlay.appendChild(row);
@@ -3187,7 +3204,9 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
     if (!overlay) return;
     const parts = messageParts(command);
     const full = parts.full;
-    paintMessageOverlay(overlay, full, true);
+    const autoPreview = systemSettings().messageAdvanceMode === 'auto';
+    const indicatorGlyph = autoPreview ? MESSAGE_AUTO_GLYPH : MESSAGE_WAIT_GLYPH;
+    paintMessageOverlay(overlay, full, indicatorGlyph, !autoPreview);
     const play = () => {
       if (token !== previewToken) return;
       stopMessagePreview();
@@ -3227,7 +3246,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
         ? Math.max(1, (adpcmSeconds * 1000) / bodyDrawable)
         : systemSettings().messageSpeedFrames * 1000 / 60;
       if (speed <= 0 || !parts.body) {
-        paintMessageOverlay(overlay, full, true);
+        paintMessageOverlay(overlay, full, indicatorGlyph, !autoPreview);
         restoreMouth();
       } else {
         let shownBody = 0;
@@ -3238,17 +3257,21 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
             shownBody += 1;
             if (ch !== '\r' && ch !== '\n') break;
           }
-          paintMessageOverlay(overlay, parts.prefix + parts.body.slice(0, shownBody));
+          paintMessageOverlay(
+            overlay,
+            parts.prefix + parts.body.slice(0, shownBody),
+            autoPreview ? MESSAGE_AUTO_GLYPH : '',
+          );
           if (shownBody >= parts.body.length) {
             if (messagePreviewTimer) {
               clearInterval(messagePreviewTimer);
               messagePreviewTimer = null;
             }
-            paintMessageOverlay(overlay, full, true);
+            paintMessageOverlay(overlay, full, indicatorGlyph, !autoPreview);
             restoreMouth();
           }
         };
-        paintMessageOverlay(overlay, parts.prefix);
+        paintMessageOverlay(overlay, parts.prefix, autoPreview ? MESSAGE_AUTO_GLYPH : '');
         revealNextBodyGlyph();
         if (shownBody < parts.body.length) messagePreviewTimer = setInterval(revealNextBodyGlyph, speed);
       }
@@ -4919,6 +4942,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
         screen: { w: PCE_SCREEN_WIDTH, h: PCE_SCREEN_HEIGHT },
         message: MESSAGE_AREA,
         messageWaitGlyph: MESSAGE_WAIT_GLYPH,
+        messageAutoGlyph: MESSAGE_AUTO_GLYPH,
       };
       const win = window.open('', `pce-vn-preview-${selectedId}`, 'width=720,height=560');
       if (!win) {
