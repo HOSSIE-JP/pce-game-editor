@@ -157,6 +157,10 @@ test('HuCARD VN restores the blank tile after Full BG before an Input-driven sce
   const mainLoop = runtime.slice(runtime.indexOf('int main(void)'));
   assert.match(
     mainLoop,
+    /if \(async_input_mask && \(pressed & async_input_mask\)\)[\s\S]*if \(!current_scene_full_screen_bg\) hide_message_window_map\(\);[\s\S]*advance_story\(\);/,
+  );
+  assert.match(
+    mainLoop,
     /if \(sync_input_mask\)[\s\S]*sync_input_mask = 0u;[\s\S]*if \(target != PCE_VN_NO_COMMAND\) current_command = target;[\s\S]*advance_story\(\);/,
   );
 });

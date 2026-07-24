@@ -2442,7 +2442,11 @@ int main(void)
             active_message_index = -1;
             active_choice_index = -1;
             wait_frames_remaining = 0u;
+#if PCE_VN_HAS_FULL_SCREEN_BG
+            if (!current_scene_full_screen_bg) hide_message_window_map();
+#else
             hide_message_window_map();
+#endif
             cancel_all_sprite_moves();
             advance_story();
             goto frame_end;
