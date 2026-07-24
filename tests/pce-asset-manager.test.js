@@ -1631,15 +1631,18 @@ test('PCE asset manager allocates extra data files through HuCARD ROM banks', ()
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
 
   assert.equal(generated.extraDataCount, 2);
-  assert.equal(generated.bankedChunkCount, 3);
+  assert.equal(generated.bankedChunkCount, 2);
   assert.match(header, /extern const pce_editor_data_ref_t pce_vn_font_data_ref;/);
   assert.match(header, /extern const pce_editor_data_ref_t pce_vn_scene_pack_ref_0;/);
   assert.match(source, /PCE_ROM_BANK_AT\(1, 2\)/);
   assert.match(source, /PCE_ROM_BANK_AT\(4, 5\)/);
   assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(5, 6\)/);
   assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(6, 6\)/);
-  assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(7, 6\)/);
+  assert.doesNotMatch(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(7, 6\)/);
   assert.doesNotMatch(source, /PCE_ROM_BANK_AT\(5, 6\)/);
+  assert.match(source, /pce_vn_font_data_ref_data_bank5/);
+  assert.match(source, /pce_vn_scene_pack_ref_0_data_bank5/);
+  assert.match(source, /pce_vn_scene_pack_ref_0_data_bank6/);
   assert.match(source, /pce_vn_font_data_ref_data_chunks\[\]/);
   assert.match(source, /const pce_editor_data_ref_t pce_vn_font_data_ref PCE_EDITOR_RODATA_SECTION = \{ \(const unsigned char \*\)0, 48u, pce_vn_font_data_ref_data_chunks, 1u,/);
   assert.match(source, /pce_vn_scene_pack_ref_0_data_chunks\[\]/);
@@ -1670,8 +1673,53 @@ test('PCE asset manager allocates extra data files through HuCARD ROM banks', ()
       romBankReservedLabel: 'HuCARD VN runtime code banks 1-4 reserve ROM banks 1-4; data banks use 5-127',
       extraDataFiles: [{ symbol: 'too_big_ref', relativePath: 'assets/generated/vn/scenes/too_big.bin', forceBanked: true }],
     }),
-    /PCE HuCard banked asset data exceeds available ROM data banks.*runtime code banks 1-4/,
+    /PCE HuCard banked asset data exceeds available ROM data banks.*runtime code banks 1-4.*1007617 bytes required so far; 1007616 bytes available across 123 banks/,
   );
+});
+
+test('PCE asset manager packs many small HuCARD data refs into the same ROM bank', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeWorkspaceTempDir('pce-extra-data-rom-pack-');
+  writeFile(projectDir, 'project.json', JSON.stringify({
+    coreId: 'pc-engine',
+    platform: 'pce',
+    title: 'Packed Extra Data',
+    romName: 'packed_extra_data',
+    toolchain: 'llvm-mos',
+    targetMedia: 'hucard',
+  }, null, 2));
+  const extraDataFiles = Array.from({ length: 124 }, (_unused, index) => {
+    const suffix = String(index).padStart(3, '0');
+    const relativePath = `assets/generated/vn/scenes/small_${suffix}.bin`;
+    writeFile(projectDir, relativePath, Buffer.alloc(8, index));
+    return {
+      symbol: `small_ref_${suffix}`,
+      relativePath,
+      forceBanked: true,
+    };
+  });
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: [] });
+
+  const generated = assetManager.generateAssetSources(projectDir, {
+    fixedRomBanks: [
+      { bank: 1, offset: 2 },
+      { bank: 2, offset: 3 },
+      { bank: 3, offset: 4 },
+      { bank: 4, offset: 5 },
+    ],
+    reservedRomBanks: [1, 2, 3, 4],
+    romBankStart: 5,
+    romBankDataOffset: 6,
+    extraDataFiles,
+  });
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+
+  assert.equal(generated.extraDataCount, 124);
+  assert.equal(generated.bankedChunkCount, 1);
+  assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(5, 6\);/);
+  assert.doesNotMatch(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(6, 6\);/);
+  assert.match(source, /small_ref_000_data_bank5/);
+  assert.match(source, /small_ref_123_data_bank5/);
 });
 
 test('PCE HuCARD VN font data stays banked when glyph count grows', () => {
@@ -1767,14 +1815,15 @@ test('PCE asset manager honors explicit HuCARD media over a stale CD project con
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
 
-  assert.equal(generated.bankedChunkCount, 6);
+  assert.equal(generated.bankedChunkCount, 3);
   assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(5, 6\);/);
-  assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(10, 6\);/);
+  assert.match(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(7, 6\);/);
+  assert.doesNotMatch(source, /PCE_EDITOR_ROM_DATA_BANK_AT\(8, 6\);/);
   assert.match(source, /pce_editor_image_bg_palette_bank5/);
-  assert.match(source, /pce_editor_image_bg_tiles_bank6/);
-  assert.match(source, /pce_editor_image_bg_map_bank7/);
-  assert.match(source, /pce_vn_font_data_ref_data_bank8/);
-  assert.match(source, /pce_vn_font_data_ref_data_bank10/);
+  assert.match(source, /pce_editor_image_bg_tiles_bank5/);
+  assert.match(source, /pce_editor_image_bg_map_bank5/);
+  assert.match(source, /pce_vn_font_data_ref_data_bank5/);
+  assert.match(source, /pce_vn_font_data_ref_data_bank7/);
   assert.match(source, /const pce_editor_data_ref_t pce_vn_font_data_ref PCE_EDITOR_RODATA_SECTION = \{ \(const unsigned char \*\)0, 16385u, pce_vn_font_data_ref_data_chunks, 3u,/);
   assert.match(header, /#define PCE_EDITOR_ASSET_META_ON_CD 0/);
   assert.match(source, /const pce_editor_bg_asset_t pce_editor_bg_assets\[\] PCE_EDITOR_RODATA_SECTION/);

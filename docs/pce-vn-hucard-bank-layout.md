@@ -19,6 +19,8 @@ Sprite は、VRAM/SATB へ実際に書き込む描画側を bank2、状態・pat
 
 `assets.c` では runtime code banks だけ full `PCE_ROM_BANK_AT()` を使います。data banks は `PCE_EDITOR_ROM_DATA_BANK_AT()` の map-only declaration で、不要な `pce_rom_bankN_call()` trampoline を bank0 `.text` に増やしません。
 
+Data bank allocator は、個々の palette / map / pattern / scene pack ごとに新しい 8KB bank を開始せず、現在の bank の未使用領域へ次の data ref を順に pack します。1つの data ref が bank 末尾をまたぐ場合は、末尾までの chunk と次 bank の chunk に分割し、それぞれの bank とリンク済み pointer を `pce_editor_data_chunk_t` に記録します。このため異なる asset の小さい payload が同じ physical bank を共有しても、runtime は map 後の pointer から正しいデータを読み出せます。容量判定は data ref の個数ではなく、banks 5..127 の実 payload 合計（123 banks × 8192 bytes）で行います。
+
 ## PSG timing
 
 HuCARD VN の PSG BGM/SFX は HuC6280 TIMER IRQ ではなく、runtime の `wait_vblank()` を通過した安全地点を時間源にします。main loop、palette fade、BG map clear、message window、sprite/SATB 更新などの cooperative service point が VBlank を待った直後に `psg_advance(1)` を呼び、PSG register を main thread だけで更新します。
@@ -50,7 +52,7 @@ HuCARD VN の `extraDataFiles` は、8KB 未満でも必ず banked `pce_editor_d
 - `assets/generated/vn/font_sprite.bin` spritetext font
 - `assets/generated/vn/psg/*.bin` PSG pattern
 
-これらは image/sprite payload と同じ ROM-bank allocator を共有し、banks 5..127 を消費します。容量超過は build error です。
+これらは image/sprite payload と同じ ROM-bank allocator を共有し、banks 5..127 の空き領域へ連続して pack されます。palette のような小さい data ref だけで 8KB bank を1つ消費することはありません。実 payload が 123 banks の合計容量を超えた場合は、必要量と利用可能量を含む build error になります。
 
 ## グリフと scene pack 制約
 

@@ -262,14 +262,12 @@ const VN_FONT_VRAM_TILE_SOFT_CEILING = 1728;
 const VN_GLYPH_COUNT_SOFT_WARN = 900;
 const VN_SCENE_PACK_CACHE_BYTES = 8192;
 const VN_HUCARD_SCENE_PACK_CACHE_BYTES = 4096;
-const VN_SCENE_PACK_VERSION = 2;
-const VN_HUCARD_SCENE_PACK_VERSION = 1;
+const VN_SCENE_PACK_VERSION = 3;
+const VN_HUCARD_SCENE_PACK_VERSION = 2;
 const VN_SCENE_PACK_HEADER_SIZE = 20;
 const VN_SCENE_PACK_COMMAND_SIZE = 19;
 const VN_SCENE_PACK_MESSAGE_SIZE = 13;
-const VN_MESSAGE_MOUTH_SLOT_BITS = 2;
-const VN_MESSAGE_MOUTH_SLOT_MASK = (1 << VN_MESSAGE_MOUTH_SLOT_BITS) - 1;
-const VN_MESSAGE_INSTANT_GLYPH_MAX = 0xff >> VN_MESSAGE_MOUTH_SLOT_BITS;
+const VN_MESSAGE_INSTANT_GLYPH_MAX = 0xff;
 const VN_SCENE_PACK_CHOICE_SIZE = 6;
 const VN_SCENE_PACK_OPTION_SIZE = 7;
 const VN_SCENE_PACK_SWITCH_SIZE = 5;
@@ -930,16 +928,14 @@ function defaultSceneDocument(assetDoc = { assets: [] }) {
     speaker: 'アカリ',
     text: '256がめんです',
     voiceAssetId,
-    mouthSlot: 0,
-    mouthAnimationId: '',
+    mouthSlot: null,
   });
   commands.push({
     type: 'message',
     speaker: 'アカリ',
     text: '17もじx4ぎょう',
     voiceAssetId: '',
-    mouthSlot: 0,
-    mouthAnimationId: '',
+    mouthSlot: null,
   });
   return {
     version: VN_VERSION,
@@ -1046,6 +1042,12 @@ function resolveMessageText(raw, index) {
   return value.trim().slice(0, 96);
 }
 
+function normalizeMessageMouthSlot(raw) {
+  if (raw.mouthSlot == null || String(raw.mouthSlot).trim() === '') return null;
+  const parsed = Math.round(Number(raw.mouthSlot));
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 3 ? parsed : null;
+}
+
 function normalizeMessageCommand(message = {}, index = 0, valid = assetIdsByType()) {
   const raw = message && typeof message === 'object' ? message : {};
   const voiceAssetId = String(raw.voiceAssetId || '').trim();
@@ -1055,8 +1057,7 @@ function normalizeMessageCommand(message = {}, index = 0, valid = assetIdsByType
     text: resolveMessageText(raw, index),
     textColor: normalizeMessageColor(raw.textColor),
     voiceAssetId: valid.adpcm?.has(voiceAssetId) ? voiceAssetId : '',
-    mouthSlot: clampInt(raw.mouthSlot, 0, 3, 0),
-    mouthAnimationId: String(raw.mouthAnimationId || '').trim().slice(0, 32),
+    mouthSlot: normalizeMessageMouthSlot(raw),
   };
 }
 
@@ -2769,8 +2770,6 @@ function buildScenePack(sceneBuild, hucardMode = false) {
         switchSize: VN_SCENE_PACK_SWITCH_SIZE,
         spriteTextCommand: VN_COMMAND_SPRITETEXT,
         instantGlyphMax: VN_MESSAGE_INSTANT_GLYPH_MAX,
-        mouthSlotMask: VN_MESSAGE_MOUTH_SLOT_MASK,
-        mouthSlotBits: VN_MESSAGE_MOUTH_SLOT_BITS,
       },
     }));
   }
@@ -3271,11 +3270,7 @@ function generateVnSources(projectDir, options = {}) {
         if (entryCount > VN_MAX_U8_COUNT) {
           throw new Error(`PCE VN message in scene "${sceneBuild.sceneId}" exceeds 255 glyphs`);
         }
-        const mouthSlot = clampInt(command.mouthSlot, 0, 3, 0);
-        const mouthSpriteId = slotSpriteAssets[mouthSlot] || '';
-        const mouthAnimationIndex = command.mouthAnimationId && mouthSpriteId
-          ? (spriteAnimations.index.get(`${mouthSpriteId}:${command.mouthAnimationId}`) ?? -1)
-          : -1;
+        const mouthSlot = command.mouthSlot == null ? -1 : clampInt(command.mouthSlot, 0, 3, 0);
         const voiceIndex = !hucardMode && command.voiceAssetId && adpcmIndex.has(command.voiceAssetId)
           ? adpcmIndex.get(command.voiceAssetId)
           : -1;
@@ -3289,7 +3284,6 @@ function generateVnSources(projectDir, options = {}) {
             : voiceSyncedTextSpeedFrames(command, display.bodyDrawableCount, assetDoc, projectDir, systemSettings.messageSpeedFrames),
           advanceMode: systemSettings.messageAdvanceMode === 'auto' ? VN_ADVANCE_AUTO : VN_ADVANCE_BUTTON,
           autoWaitFrames: systemSettings.messageAutoWaitFrames,
-          mouthAnimationIndex,
           mouthSlot,
           instantGlyphCount: display.instantGlyphCount,
           textColor: messageColorWord(command.textColor),
@@ -3907,8 +3901,8 @@ function generateVnSources(projectDir, options = {}) {
     '  unsigned char text_speed_frames;',
     '  unsigned char advance_mode;',
     '  unsigned char auto_wait_frames;',
-    '  signed int mouth_animation_index;',
-    '  unsigned char mouth_slot;',
+    '  signed int mouth_slot;',
+    '  unsigned char instant_glyph_count;',
     '  unsigned int text_color;',
     '} pce_vn_message_t;',
     '',

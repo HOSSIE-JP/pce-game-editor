@@ -448,7 +448,7 @@ static void upload_ui_palette(void)
 /* Tint the UI text foreground (palette 15, slots 1-15) to a message's color, or
    restore the default white when the message has no override. Affects the body
    text and speaker label drawn with this palette. */
-static void apply_message_text_color(uint16_t color)
+static void VN_BANKED_CODE apply_message_text_color(uint16_t color)
 {
     ui_text_color = color;
     write_ui_text_palette(ui_text_color_word(color));

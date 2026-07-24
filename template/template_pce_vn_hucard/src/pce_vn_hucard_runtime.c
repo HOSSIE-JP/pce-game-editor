@@ -59,8 +59,6 @@
 #define VN_VDC_CONTROL_BASE (VDC_CONTROL_IRQ_VBLANK | VDC_CONTROL_DRAM_REFRESH | VDC_CONTROL_VRAM_ADD_1)
 #define VN_VDC_DISPLAY_CONTROL (VN_VDC_CONTROL_BASE | VDC_CONTROL_ENABLE_BG | VDC_CONTROL_ENABLE_SPRITE)
 #define VN_VDC_MEMORY_CONTROL (VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_32_32)
-#define VN_MESSAGE_MOUTH_SLOT(info) ((uint8_t)((info) & 0x03u))
-#define VN_MESSAGE_INSTANT_GLYPH_COUNT(info) ((uint8_t)((info) >> 2u))
 #define VN_HUCARD_CODE_SCRIPT __attribute__((noinline, section(".rom_bank1")))
 #define VN_HUCARD_CODE_VIDEO __attribute__((noinline, section(".rom_bank2")))
 #define VN_HUCARD_CODE_TEXT __attribute__((noinline, section(".rom_bank3")))
@@ -180,6 +178,7 @@ static uint8_t sync_sprite_move_slot = 0xffu;
 static uint16_t sprite_slot_pattern_base[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint8_t sprite_slot_palette_bank[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint8_t sprite_slot_pattern_valid[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
+static uint8_t sprite_animation_refresh_mask __attribute__((section(".bss")));
 static uint16_t blank_bat_row[VN_MAP_WIDTH] __attribute__((section(".bss")));
 /* Keep pointer-addressed scratch outside .zp.bss. llvm-mos can use direct-page
  * addresses for tiny objects, but memcpy/TIA/generic pointer writes need real
@@ -202,6 +201,7 @@ static uint8_t current_bg_palette_bank;
 static uint8_t last_pad;
 static int16_t active_message_index = -1;
 static pce_vn_message_t active_message_state __attribute__((section(".bss")));
+static int16_t active_message_mouth_animation_index __attribute__((section(".bss")));
 static uint8_t message_glyph_pos;
 static uint16_t message_glyph_byte;
 static uint8_t message_frame_timer;
@@ -831,7 +831,7 @@ static uint8_t VN_HUCARD_CODE_TEXT draw_message_prefix_glyphs(const pce_vn_messa
     uint8_t instant_glyph_count;
     uint8_t i;
     if (!message || !message->glyphs) return 1u;
-    instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT(message->mouth_slot);
+    instant_glyph_count = message->instant_glyph_count;
     for (i = 0u; i < instant_glyph_count; i++)
     {
         if (draw_message_next_entry(message)) return 1u;
@@ -874,8 +874,25 @@ static void VN_HUCARD_CODE_TEXT reset_message_wait_indicator_state(void)
     message_frame_timer = 0u;
 }
 
+static void VN_HUCARD_CODE_SPRITE_STATE restore_active_message_mouth(void)
+{
+    const int16_t normal_animation_index = active_message_mouth_animation_index;
+    const int16_t mouth_slot = active_message_state.mouth_slot;
+    vn_sprite_slot_t *state;
+    if (normal_animation_index < 0) return;
+    active_message_mouth_animation_index = -1;
+    if (mouth_slot < 0 || mouth_slot >= VN_SPRITE_SLOT_COUNT) return;
+    state = &sprite_slots[(uint8_t)mouth_slot];
+    if (state->animation_index != normal_animation_index + 1) return;
+    state->animation_index = normal_animation_index;
+    state->frame = 0u;
+    state->timer = 0u;
+    sprite_animation_refresh_mask |= (uint8_t)(1u << (uint8_t)mouth_slot);
+}
+
 static void VN_HUCARD_CODE_TEXT refresh_message_wait_indicator(void)
 {
+    if (active_message_index >= 0 && message_complete) restore_active_message_mouth();
     if (active_message_index < 0
         || !message_complete
         || variable_values[PCE_VN_VARIABLE_AUTO_ENABLE_INDEX] != 0u)
@@ -1014,8 +1031,8 @@ static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_read_message(const vn_scene_pack
     message->text_speed_frames = scene_pack_u8(cache, (uint16_t)(offset + 5u));
     message->advance_mode = scene_pack_u8(cache, (uint16_t)(offset + 6u));
     message->auto_wait_frames = scene_pack_u8(cache, (uint16_t)(offset + 7u));
-    message->mouth_animation_index = scene_pack_s16(cache, (uint16_t)(offset + 8u));
-    message->mouth_slot = scene_pack_u8(cache, (uint16_t)(offset + 10u));
+    message->mouth_slot = scene_pack_s16(cache, (uint16_t)(offset + 8u));
+    message->instant_glyph_count = scene_pack_u8(cache, (uint16_t)(offset + 10u));
     message->text_color = scene_pack_u16(cache, (uint16_t)(offset + 11u));
     return 1u;
 }
@@ -1691,6 +1708,30 @@ static void VN_HUCARD_CODE_SPRITE_STATE set_sprite(const pce_vn_command_t *comma
     refresh_scene_sprites(upload_pattern_mask);
 }
 
+static void VN_HUCARD_CODE_SPRITE_STATE start_active_message_mouth(void)
+{
+    const int16_t mouth_slot = active_message_state.mouth_slot;
+    vn_sprite_slot_t *state;
+    int16_t normal_animation_index;
+    uint16_t mouth_animation_index;
+    active_message_mouth_animation_index = -1;
+    if (mouth_slot < 0 || mouth_slot >= VN_SPRITE_SLOT_COUNT) return;
+    state = &sprite_slots[(uint8_t)mouth_slot];
+    normal_animation_index = state->animation_index;
+    if (!state->visible || state->asset_index < 0 || normal_animation_index < 0) return;
+    mouth_animation_index = (uint16_t)(normal_animation_index + 1);
+    if (mouth_animation_index >= pce_vn_sprite_animation_count
+        || pce_vn_sprite_animations[mouth_animation_index].sprite_index != (uint16_t)state->asset_index)
+    {
+        return;
+    }
+    active_message_mouth_animation_index = normal_animation_index;
+    state->animation_index = (int16_t)mouth_animation_index;
+    state->frame = 0u;
+    state->timer = 0u;
+    sprite_animation_refresh_mask |= (uint8_t)(1u << (uint8_t)mouth_slot);
+}
+
 static void VN_HUCARD_CODE_SPRITE_STATE tick_sprites(void)
 {
     uint8_t slot;
@@ -1701,6 +1742,7 @@ static void VN_HUCARD_CODE_SPRITE_STATE tick_sprites(void)
         const pce_vn_sprite_anim_t *anim;
         unsigned int delay;
         uint8_t slot_dirty = 0u;
+        if (sprite_animation_refresh_mask & (uint8_t)(1u << slot)) slot_dirty = 1u;
         if (state->visible && state->animation_index >= 0 && (uint16_t)state->animation_index < pce_vn_sprite_animation_count)
         {
             anim = &pce_vn_sprite_animations[state->animation_index];
@@ -1774,6 +1816,7 @@ static void VN_HUCARD_CODE_SPRITE_STATE tick_sprites(void)
             dirty = 1u;
         }
     }
+    sprite_animation_refresh_mask = 0u;
     if (dirty) upload_sprite_table_now();
 }
 
@@ -1978,7 +2021,8 @@ static void VN_HUCARD_CODE_TEXT start_message(uint8_t message_index)
     {
         message_text_speed = (uint8_t)((message_speed_level - 1) * 10);
     }
-    instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT(message.mouth_slot);
+    instant_glyph_count = message.instant_glyph_count;
+    start_active_message_mouth();
     write_ui_text_palette(ui_text_color_word(message.text_color));
     restore_window_display = begin_message_window_vram_update();
     clear_window_tile_pixels();
@@ -2136,6 +2180,7 @@ static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index)
 static void VN_HUCARD_CODE_SCRIPT advance_story(void)
 {
     pce_vn_command_t command;
+    restore_active_message_mouth();
     while (current_command < scene_pack_command_count(&active_scene_pack))
     {
         if (!scene_pack_read_command(&active_scene_pack, (uint8_t)current_command, &command)) return;
@@ -2301,8 +2346,12 @@ int main(void)
     psg_init();
     init_scene_cache();
     init_variables();
+    active_message_mouth_animation_index = -1;
+    sprite_animation_refresh_mask = 0u;
     init_video();
-    last_pad = pce_joypad_read();
+    /* llvm-mos returns the hardware's active-low pad byte.  Keep the runtime
+       edge state active-high so PAD_* means "currently pressed". */
+    last_pad = (uint8_t)~pce_joypad_read();
     show_scene(pce_vn_start_scene);
     advance_story();
     tick_sprites();
@@ -2325,7 +2374,7 @@ int main(void)
                 tick_message_wait_indicator();
             }
         }
-        pad = pce_joypad_read();
+        pad = (uint8_t)~pce_joypad_read();
         pressed = (uint8_t)(pad & (uint8_t)~last_pad);
         last_pad = pad;
         if (pressed & PAD_SELECT)

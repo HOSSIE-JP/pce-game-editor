@@ -69,9 +69,16 @@
 #define PCE_VN_HAS_FULL_SCREEN_BG 0u
 #define PCE_VN_HAS_SPRITE_ANIMATIONS 1u
 #define PCE_VN_HAS_SPRITETEXT 1u
-#define PCE_VN_VARIABLE_STORAGE_COUNT 3u
+#define PCE_VN_VARIABLE_AUTO_ENABLE_INDEX 0u
+#define PCE_VN_VARIABLE_MSG_SPEED_INDEX 1u
+#define PCE_VN_VARIABLE_USER_BASE_INDEX 2u
+#define PCE_VN_AUTO_ENABLE_OFF 0u
+#define PCE_VN_AUTO_ENABLE_ON 1u
+#define PCE_VN_MSG_SPEED_DEFAULT 0u
+#define PCE_VN_MSG_SPEED_MAX 6u
+#define PCE_VN_VARIABLE_STORAGE_COUNT 5u
 #define PCE_VN_SCENE_PACK_CACHE_BYTES 8192u
-#define PCE_VN_SCENE_PACK_VERSION 2u
+#define PCE_VN_SCENE_PACK_VERSION 3u
 #define PCE_VN_SCENE_PACK_HEADER_SIZE 20u
 #define PCE_VN_SCENE_PACK_COMMAND_SIZE 19u
 #define PCE_VN_SCENE_PACK_MESSAGE_SIZE 13u
@@ -99,8 +106,8 @@ typedef struct {
   unsigned char text_speed_frames;
   unsigned char advance_mode;
   unsigned char auto_wait_frames;
-  signed int mouth_animation_index;
-  unsigned char mouth_slot;
+  signed int mouth_slot;
+  unsigned char instant_glyph_count;
   unsigned int text_color;
 } pce_vn_message_t;
 

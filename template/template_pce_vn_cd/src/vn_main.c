@@ -58,6 +58,7 @@ static void init_runtime_state(void)
     message_complete = 1u;
     message_auto_wait = 0u;
     message_voice_mode = VN_MESSAGE_VOICE_NONE;
+    active_message_mouth_animation_index = -1;
     ui_text_color = PCE_VN_MESSAGE_COLOR_NONE;
     sync_input_active = 0u;
     sync_input_mask = 0u;
@@ -151,7 +152,9 @@ static uint8_t read_pad_raw(void)
 {
 #if defined(__PCE__)
     vn_map_io_page();
-    return pce_joypad_read();
+    /* llvm-mos returns the hardware's active-low pad byte.  Normalize it so
+       edge detection and the public PAD_* masks represent pressed buttons. */
+    return (uint8_t)~pce_joypad_read();
 #else
     return 0;
 #endif

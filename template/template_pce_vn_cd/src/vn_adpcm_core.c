@@ -97,7 +97,10 @@ static uint8_t VN_BANKED_CODE adpcm_voice_fits_buffer(void)
 #endif
 }
 
-static uint8_t VN_OVERLAY_CODE copy_adpcm_voice_impl(signed int voice_index)
+/* This metadata snapshot lives in bank129. Keeping it out of the nearly-full
+   bank133 overlay leaves room for the shared message-mouth transition helper,
+   and bank130 callers can reach bank129 without swapping their executing bank. */
+static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
 {
 #if defined(__PCE_CD__)
     const pce_editor_adpcm_asset_t *voice;
@@ -146,16 +149,6 @@ static uint8_t VN_OVERLAY_CODE copy_adpcm_voice_impl(signed int voice_index)
     }
     adpcm_voice_snapshot.cd_byte_size = voice_cd_byte_size;
     return 1u;
-#else
-    (void)voice_index;
-    return 0u;
-#endif
-}
-
-static uint8_t VN_BANKED_CODE copy_adpcm_voice(signed int voice_index)
-{
-#if defined(__PCE_CD__)
-    return vn_overlay_dispatch(VN_OVERLAY_OP_COPY_ADPCM_VOICE, (uint16_t)(int16_t)voice_index, 0u, 0u);
 #else
     (void)voice_index;
     return 0u;
@@ -374,7 +367,10 @@ static void VN_BANKED_CODE stop_adpcm_voice(void)
 #endif
 }
 
-static void VN_BANKED_CODE2 service_adpcm_playback(void)
+/* The frame service runs from the roomy bank122 code blob. It can call bank129
+   directly; the locked mouth dispatcher restores bank122 before this function
+   resumes, then vn_cd_async_call_bank122 restores the caller's slot4/MPR6. */
+static void VN_CD_ASYNC_CODE service_adpcm_playback_impl(void)
 {
 #if defined(__PCE_CD__)
     if (!adpcm_play_active) return;
@@ -405,6 +401,13 @@ static void VN_BANKED_CODE2 service_adpcm_playback(void)
     adpcm_play_looping = 0u;
     stop_buffered_adpcm_playback_direct();
     sync_cd_external_irq_after_bios_call();
+    /* A general Audio ADPCM one-shot may finish while an unrelated message is
+       revealing. Only the active message's own one-shot voice owns the mouth
+       restore; text completion handles messages without a voice. */
+    if (message_voice_mode == VN_MESSAGE_VOICE_ONESHOT)
+    {
+        (void)vn_overlay_dispatch_locked(VN_OVERLAY_OP_MESSAGE_MOUTH, 0u, 0u, 1u);
+    }
 #endif
 }
 

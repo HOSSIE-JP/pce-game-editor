@@ -27,7 +27,12 @@ async function main() {
   app.commandLine.appendSwitch('disable-background-timer-throttling');
   app.commandLine.appendSwitch('disable-renderer-backgrounding');
   app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+  const sessionDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-wasm-verify-session-'));
   app.setPath('userData', dataDir);
+  /* Keep setup/system-card discovery rooted at the editor's normal data dir,
+     but isolate Chromium locks from a concurrently running editor/Codex app. */
+  app.setPath('sessionData', sessionDataDir);
+  app.setPath('cache', path.join(sessionDataDir, 'Cache'));
   await app.whenReady();
 
   const emulatorJsDir = setupManager.getEmulatorJsDir();
@@ -104,7 +109,8 @@ async function main() {
     if (i % 3 === 0) await tapButton(3);
     await sleep(2000);
     const transitionImage = await win.webContents.capturePage();
-    if (transitionImage.toPNG().length <= 13000) {
+    const transitionSize = transitionImage.toPNG().length;
+    if (transitionSize <= 17000) {
       bootStarted = true;
       break;
     }

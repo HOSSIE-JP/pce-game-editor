@@ -29,8 +29,9 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 - `fullScreenBg: true` の scene は 256x224 px の全画面 BG用です。`message`, `choice` は置けませんが、`sprite` / `spritemove` / `spritetext` は使用できます。前sceneのspriteとSpriteTextは消去されるため、このscene内で表示してください。`background` は `x: 0`, `y: 0` にしてください。
 - `sprite` は立ち絵 slot 0..3 の表示・差し替え・非表示です。複数人を出す場合は別 slot を使ってください。
 - `sprite.x` は 0..319、`sprite.y` は 0..223 の pixel 座標です。立ち絵の標準 y は 24 付近です。
-- `message.mouthSlot` / `message.mouthAnimationId` を使う場合、その message より前に同じ slot へ visible な `sprite` を表示してください。
-- 口パク後に口を閉じたい場合は、message の後に同じ slot へ idle animation の `sprite` command を置いてください。runtime は自動では戻しません。
+- `message.mouthSlot`を使う場合、そのmessageより前に同じslotへvisibleな`sprite`を表示してください。
+- sprite assetのanimation ROWは、通常ROWの直後に対応する口パクROWを置いてください。runtimeはmessage開始時に現在ROW+1へ切り替え、本文表示完了またはone-shot ADPCM終了で元ROWへ自動復帰します。
+- ナレーションなど立ち絵へ紐づかないmessageは`"mouthSlot": null`、または`mouthSlot` field省略にしてください。
 - `audio.kind` は `cdda`, `adpcm`, `psg` です。`action` は `play` または `stop`。
 - CD-DA 再生中に BG / sprite / ADPCM などの CD data load が入ると CD-DA は短く一時停止します。音楽を自然に始めたい scene では、BG / sprite 表示を先に置いてから CD-DA を再生してください。
 - `adpcm` voice は message の `voiceAssetId` に指定できます。文字送り速度はビルド時に voice 長へ合わせて自動計算されます。
@@ -70,8 +71,7 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
           "text": "メッセージ",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": null
         }
       ]
     }
@@ -149,7 +149,7 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 
 - `assetId`: sprite asset ID。
 - `slot`: 0..3。
-- `animationId`: sprite asset の animation ID。例: `default`, `blink`, `mouth`。
+- `animationId`: sprite asset の animation ID。例: `default`, `mouth`, `blink`。口パクさせる通常ROWの直後には、対応する口パクROWを置きます。
 - `visible: false` でその slot を非表示にします。
 
 ### message
@@ -161,8 +161,7 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
   "text": "こんにちは。\n今日は大切な話が\nあります。",
   "textColor": "#ffffff",
   "voiceAssetId": "",
-  "mouthSlot": 0,
-  "mouthAnimationId": ""
+  "mouthSlot": 0
 }
 ```
 
@@ -171,7 +170,7 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 - `textColor`: 空文字なら既定色。
 - `voiceAssetId`: ADPCM voice asset ID。空文字可。
 - ADPCM voice の文字送り同期は本文の文字数だけを使い、話者行は同期対象に含めません。
-- `mouthSlot` / `mouthAnimationId`: 口パク用。使わない場合は `0` / `""`。
+- `mouthSlot`: 口パク対象のslot `0..3`。指定slotの現在animation ROWから次ROWへ切り替わります。ナレーションでは`null`またはfield省略にします。
 
 ### audio
 
@@ -353,7 +352,7 @@ ChatGPT に画像や音声案も作らせる場合は、スクリプト JSON と
       "type": "sprite",
       "name": "立ち絵/Akari",
       "size": "transparent PNG, sprite sheet",
-      "animations": ["default", "blink", "mouth"],
+      "animations": ["default", "mouth", "blink"],
       "prompt": "anime visual novel character standing pose, transparent background, pixel-art friendly, front-facing, separate mouth/blink frames"
     },
     {
@@ -378,7 +377,7 @@ ChatGPT に画像や音声案も作らせる場合は、スクリプト JSON と
 - 通常 BG はメッセージ窓が下部に重なるので、重要な情報を下端 64px に置かないでください。
 - Full BG 用は 256x224 ぴったりにしてください。
 - Sprite は透明背景を前提にし、立ち絵の余白を含めて PC Engine で見やすいコントラストにしてください。
-- Sprite animation は `default`, `blink`, `mouth` など、スクリプトから参照しやすい ID にしてください。
+- Sprite animation は `default`, `mouth`, `blink` など、スクリプトから参照しやすい ID にしてください。通常ROWと口パクROWは必ずこの順で隣接させます。
 - asset ID は小文字英数字・`_`・`-` を推奨します。
 
 音声案の注意:
@@ -434,7 +433,7 @@ ChatGPT に画像や音声案も作らせる場合は、スクリプト JSON と
 
 使用可能 asset:
 - image: bg_classroom, bg_corridor, bg_rooftop
-- sprite: akari_sprite(default, blink, mouth), mika_sprite(default, blink, mouth)
+- sprite: akari_sprite(default, mouth, blink), mika_sprite(default, mouth, blink)
 - cdda-track: opening_cdda
 - adpcm: akari_voice_001, akari_voice_002, mika_voice_001
 - psg-song: vn_psg_chime
@@ -444,8 +443,8 @@ ChatGPT に画像や音声案も作らせる場合は、スクリプト JSON と
 - 3 scene 程度
 - `choice` で route 変数に 1 または 2 を入れる
 - `if` または `switch` を 1 回使う
-- 口パクは voice 付き message でだけ使う
-- message 後に idle animation へ戻す `sprite` command を置く
+- 口パクさせる message には対象の `mouthSlot` を指定し、ナレーションでは省略または null にする
+- 各通常ROWの直後に対応する口パクROWを置く。message終了時は自動復帰するため、手動復帰用の `sprite` command は置かない
 - BGM は BG / Sprite 表示後に開始する
 
 出力は valid JSON のみ。説明文、Markdown、コメントは禁止。
@@ -490,6 +489,6 @@ PCE VN engine 用の短編シナリオ、スクリプト JSON、画像生成プ�
 - choice は 4 個以下。
 - Full BG scene に message / choice がなく、sprite / spritetextは同じscene内で表示されている。
 - CD-DA を流したい scene では、BG / Sprite command が CD-DA play より前にある。
-- voice 付き message の前に mouth slot の sprite が表示済み。
-- mouth animation 後に必要なら idle animation へ戻している。
+- `mouthSlot` を指定した message の前に、対象slotのspriteが表示済み。
+- 口パクさせる通常ROWの直後が同じsprite assetの口パクROWで、手動復帰用の `sprite` command を置いていない。
 - scene が長い場合は `jump` で分割されている。

@@ -9,15 +9,11 @@ static uint16_t vn_service_epoch __attribute__((section(".bss")));
 static void VN_RESIDENT_CODE service_adpcm_during_blocking_frames(uint8_t frames, uint8_t restore_visual_cache)
 {
 #if defined(__PCE_CD__)
-    uint8_t slot4_bank;
     if (!frames || !adpcm_play_active) return;
-    slot4_bank = vn_slot4_current_bank();
-    pce_ram_bank130_map();
     while (frames--)
     {
-        service_adpcm_playback();
+        (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_ADPCM_PLAYBACK);
     }
-    vn_slot4_map_bank(slot4_bank);
     (void)restore_visual_cache;
 #else
     (void)frames;

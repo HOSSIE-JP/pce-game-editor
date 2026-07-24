@@ -21,9 +21,9 @@ static signed int clamp_variable_value(int32_t value)
     return (signed int)value;
 }
 
-/* Tiny hot getter: execute-control and IF/Switch use it frequently, and keeping
-   it resident preserves the 512-byte bank130 link margin. */
-static signed int VN_RESIDENT_CODE variable_value(signed int variable_index)
+/* Tiny hot getter: execute-control and IF/Switch use it frequently. Bank129 is
+   co-resident with the command VM and preserves the bank128/130 link margins. */
+static signed int VN_BANKED_CODE variable_value(signed int variable_index)
 {
     uint8_t index;
     uint16_t value;
@@ -228,7 +228,7 @@ static uint8_t scene_pack_command_count(const vn_scene_pack_cache_t *cache)
     return scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_COMMAND_COUNT);
 }
 
-static uint8_t VN_BANKED_CODE2 scene_pack_full_screen_bg(const vn_scene_pack_cache_t *cache)
+static uint8_t VN_BANKED_CODE scene_pack_full_screen_bg(const vn_scene_pack_cache_t *cache)
 {
 #if !PCE_VN_HAS_FULL_SCREEN_BG
     (void)cache;
@@ -281,8 +281,8 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_message_impl(const vn_scene_pack_
     message->text_speed_frames = scene_pack_u8(cache, (uint16_t)(offset + 5u));
     message->advance_mode = scene_pack_u8(cache, (uint16_t)(offset + 6u));
     message->auto_wait_frames = scene_pack_u8(cache, (uint16_t)(offset + 7u));
-    message->mouth_animation_index = scene_pack_s16(cache, (uint16_t)(offset + 8u));
-    message->mouth_slot = scene_pack_u8(cache, (uint16_t)(offset + 10u));
+    message->mouth_slot = scene_pack_s16(cache, (uint16_t)(offset + 8u));
+    message->instant_glyph_count = scene_pack_u8(cache, (uint16_t)(offset + 10u));
     message->text_color = scene_pack_u16(cache, (uint16_t)(offset + 11u));
     return 1u;
 }
@@ -436,7 +436,7 @@ static void clear_current_bg_map_region(void)
     );
 }
 
-static void VN_BANKED_CODE clear_bg_map_side_margins(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles)
+static void VN_CD_ASYNC_CODE clear_bg_map_side_margins_impl(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles)
 {
     uint8_t x;
     uint8_t y;
@@ -453,13 +453,25 @@ static void VN_BANKED_CODE clear_bg_map_side_margins(uint16_t map_dest, uint8_t 
     if (!visible_height) return;
     if (x)
     {
-        clear_map_rect_at_dest((uint16_t)(map_dest - x), x, visible_height);
+        clear_map_rect_at_dest_impl((uint16_t)(map_dest - x), x, visible_height);
     }
     if ((uint16_t)x + visible_width < VN_MAP_WIDTH)
     {
-        clear_map_rect_at_dest((uint16_t)(map_dest + visible_width),
+        clear_map_rect_at_dest_impl((uint16_t)(map_dest + visible_width),
             (uint8_t)(VN_MAP_WIDTH - (x + visible_width)), visible_height);
     }
+}
+
+static void VN_BANKED_CODE clear_bg_map_side_margins(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles)
+{
+#if defined(__PCE_CD__)
+    vn_visual_cache_arg_dest = map_dest;
+    vn_visual_cache_arg_x = width_tiles;
+    vn_visual_cache_arg_y = height_tiles;
+    (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_CLEAR_BG_MARGINS);
+#else
+    clear_bg_map_side_margins_impl(map_dest, width_tiles, height_tiles);
+#endif
 }
 
 static void upload_bg_graphics(const pce_editor_bg_asset_t *bg, uint16_t map_dest, uint16_t bg_index)
@@ -1158,6 +1170,7 @@ static signed int current_scene_next_scene(void)
 
 static void advance_story(void)
 {
+    update_active_message_mouth(1u);
 #if defined(__PCE_CD__)
     if (active_message_index >= 0 && adpcm_playback_active()) stop_adpcm_voice();
 #endif

@@ -62,6 +62,8 @@ test('HuCARD VN consumes SELECT for AUTO and preserves manual message advance', 
   const select = mainLoop.indexOf('if (pressed & PAD_SELECT)');
   const asyncInput = mainLoop.indexOf('if (async_input_mask && (pressed & async_input_mask))');
   assert.ok(select >= 0 && select < asyncInput);
+  assert.match(mainLoop, /last_pad = \(uint8_t\)~pce_joypad_read\(\);/);
+  assert.match(mainLoop, /pad = \(uint8_t\)~pce_joypad_read\(\);/);
   assert.match(
     mainLoop,
     /set_variable_value\(PCE_VN_VARIABLE_AUTO_ENABLE_INDEX, auto_enable\);[\s\S]*pressed = \(uint8_t\)\(pressed & \(uint8_t\)~PAD_SELECT\);/,
@@ -95,4 +97,43 @@ test('HuCARD VN wait cursor follows the live AUTO_ENABLE value', () => {
   assert.match(tick, /variable_values\[PCE_VN_VARIABLE_AUTO_ENABLE_INDEX\] != 0u/);
   assert.doesNotMatch(refresh, /advance_mode/);
   assert.doesNotMatch(tick, /advance_mode/);
+});
+
+test('HuCARD VN message mouth uses the next ROW and restores it before input wait or interruption', () => {
+  const startMessage = sliceBetween(
+    'static void VN_HUCARD_CODE_TEXT start_message',
+    'static void VN_HUCARD_CODE_TEXT finish_active_message',
+  );
+  const refresh = sliceBetween(
+    'static void VN_HUCARD_CODE_TEXT refresh_message_wait_indicator',
+    'static void VN_HUCARD_CODE_TEXT tick_message_wait_indicator',
+  );
+  const beginMouth = sliceBetween(
+    'static void VN_HUCARD_CODE_SPRITE_STATE start_active_message_mouth',
+    'static void VN_HUCARD_CODE_SPRITE_STATE tick_sprites',
+  );
+  const restoreMouth = sliceBetween(
+    'static void VN_HUCARD_CODE_SPRITE_STATE restore_active_message_mouth',
+    'static void VN_HUCARD_CODE_TEXT refresh_message_wait_indicator',
+  );
+  const tickSprites = sliceBetween(
+    'static void VN_HUCARD_CODE_SPRITE_STATE tick_sprites',
+    'static void VN_HUCARD_CODE_TEXT upload_font_sprite_patterns',
+  );
+  const advance = runtime.slice(runtime.lastIndexOf('static void VN_HUCARD_CODE_SCRIPT advance_story(void)'));
+
+  assert.match(startMessage, /instant_glyph_count = message\.instant_glyph_count;[\s\S]*start_active_message_mouth\(\);/);
+  assert.match(
+    beginMouth,
+    /normal_animation_index \+ 1[\s\S]*mouth_animation_index >= pce_vn_sprite_animation_count[\s\S]*pce_vn_sprite_animations\[mouth_animation_index\]\.sprite_index != \(uint16_t\)state->asset_index/,
+  );
+  assert.match(
+    restoreMouth,
+    /state->animation_index != normal_animation_index \+ 1[\s\S]*state->animation_index = normal_animation_index;[\s\S]*sprite_animation_refresh_mask/,
+  );
+  assert.match(refresh, /active_message_index >= 0 && message_complete\) restore_active_message_mouth\(\);/);
+  assert.match(tickSprites, /sprite_animation_refresh_mask[\s\S]*draw_sprite_slot\(slot, 0u\);[\s\S]*sprite_animation_refresh_mask = 0u;/);
+  assert.match(advance, /advance_story\(void\)\s*\{\s*pce_vn_command_t command;\s*restore_active_message_mouth\(\);/);
+  assert.match(runtime, /message->mouth_slot = scene_pack_s16\(cache, \(uint16_t\)\(offset \+ 8u\)\);/);
+  assert.match(runtime, /message->instant_glyph_count = scene_pack_u8\(cache, \(uint16_t\)\(offset \+ 10u\)\);/);
 });

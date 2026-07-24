@@ -241,21 +241,6 @@
             "loop": true
           },
           {
-            "id": "blink",
-            "name": "Blink",
-            "frameWidth": 64,
-            "frameHeight": 128,
-            "firstCell": 0,
-            "frameCount": 2,
-            "frameDelay": 14,
-            "frameDelays": [
-              14,
-              14
-            ],
-            "frameStrideCells": 4,
-            "loop": true
-          },
-          {
             "id": "mouth",
             "name": "Mouth",
             "frameWidth": 64,
@@ -266,6 +251,21 @@
             "frameDelays": [
               4,
               4
+            ],
+            "frameStrideCells": 4,
+            "loop": true
+          },
+          {
+            "id": "blink",
+            "name": "Blink",
+            "frameWidth": 64,
+            "frameHeight": 128,
+            "firstCell": 0,
+            "frameCount": 2,
+            "frameDelay": 14,
+            "frameDelays": [
+              14,
+              14
             ],
             "frameStrideCells": 4,
             "loop": true
@@ -538,21 +538,6 @@
             "loop": true
           },
           {
-            "id": "blink",
-            "name": "Blink",
-            "frameWidth": 64,
-            "frameHeight": 128,
-            "firstCell": 0,
-            "frameCount": 2,
-            "frameDelay": 14,
-            "frameDelays": [
-              14,
-              14
-            ],
-            "frameStrideCells": 4,
-            "loop": true
-          },
-          {
             "id": "mouth",
             "name": "Mouth",
             "frameWidth": 64,
@@ -563,6 +548,21 @@
             "frameDelays": [
               4,
               4
+            ],
+            "frameStrideCells": 4,
+            "loop": true
+          },
+          {
+            "id": "blink",
+            "name": "Blink",
+            "frameWidth": 64,
+            "frameHeight": 128,
+            "firstCell": 0,
+            "frameCount": 2,
+            "frameDelay": 14,
+            "frameDelays": [
+              14,
+              14
             ],
             "frameStrideCells": 4,
             "loop": true

@@ -64,8 +64,7 @@
           "text": "これはVNコマンドの\nサンプルです。\nBG Sprite Audioを\nじゅんに実行します。",
           "textColor": "#ffdb92",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": 0
         },
         {
           "type": "spritetext",
@@ -80,22 +79,10 @@
         {
           "type": "message",
           "speaker": "Akari",
-          "text": "Messageはせりふ。\nADPCM voiceと\nmouth animationを\nどうじに使えます。",
+          "text": "Messageはせりふ。\nMouth slotを選ぶと\n次ROWで口パクして\n終了時に戻ります。",
           "textColor": "#ffffff",
           "voiceAssetId": "akari_voice",
-          "mouthSlot": 0,
-          "mouthAnimationId": "mouth"
-        },
-        {
-          "type": "sprite",
-          "slot": 0,
-          "assetId": "akari_sprite",
-          "x": 96,
-          "y": 24,
-          "animationId": "default",
-          "flipX": false,
-          "flipY": false,
-          "visible": true
+          "mouthSlot": 0
         },
         {
           "type": "inputcheck",
@@ -111,8 +98,7 @@
           "text": "Input asyncを開始。\nRUNを押すと\nWaitを飛ばして\nラベルへ進みます。",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": 0
         },
         {
           "type": "wait",
@@ -158,8 +144,7 @@
           "text": "BGM中にSE packageを\n読み込み同時再生。\nAudio stopのあと\nJumpで分岐です。",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": 0
         },
         {
           "type": "audio",
@@ -272,8 +257,7 @@
           "text": "Variableはdefine\nset add sub random。\nChoiceの結果も\n変数へ入ります。",
           "textColor": "#dbffdb",
           "voiceAssetId": "mika_voice",
-          "mouthSlot": 0,
-          "mouthAnimationId": "mouth"
+          "mouthSlot": 0
         },
         {
           "type": "sprite",
@@ -345,8 +329,7 @@
           "text": "IFは変数をくらべ\ntrueならラベルへ。\nfalseはelseへ\n進められます。",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": 0
         },
         {
           "type": "goto",
@@ -362,8 +345,7 @@
           "text": "Switchは値ごとに\nラベルを選びます。\ndefaultも指定\nできます。",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": 0
         },
         {
           "type": "goto",
@@ -379,8 +361,7 @@
           "text": "Gotoは同じsceneの\nLabelへ移動します。\n分岐の合流にも\n使えます。",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": 0
         },
         {
           "type": "label",
@@ -399,8 +380,7 @@
           "text": "Choice IF Switch\nLabel Gotoを確認。\nつぎはEffectと\nInput syncです。",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": 0
         },
         {
           "type": "audio",
@@ -447,8 +427,7 @@
           "text": "Spriteはanimationを\n指定できます。\nここではblinkを\nループ再生中です。",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": null
         },
         {
           "type": "sprite",
@@ -481,8 +460,7 @@
           "text": "Effectはflashや\nshakeで画面を\n強調できます。",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": 0
         },
         {
           "type": "effect",
@@ -523,8 +501,7 @@
           "text": "SpriteTextは短い\n文字をスプライトで\n上に重ねます。",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": 0
         },
         {
           "type": "spritetext",
@@ -573,8 +550,7 @@
           "text": "Input syncは\n指定ボタンまで\nその場で待ちます。\nIかRUNを押してね。",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": 0
         },
         {
           "type": "inputcheck",
@@ -602,8 +578,7 @@
           "text": "sync入力を確認。\n最後のsceneへ\nJumpします。",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": 0
         },
         {
           "type": "audio",
@@ -650,8 +625,7 @@
           "text": "このテンプレートは\n全コマンドを\n実例として\n確認できます。",
           "textColor": "#ffdb92",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": 0
         },
         {
           "type": "audio",
@@ -666,26 +640,6 @@
           "assetId": "akari_sprite",
           "x": 96,
           "y": 24,
-          "animationId": "blink",
-          "flipX": false,
-          "flipY": false,
-          "visible": true
-        },
-        {
-          "type": "message",
-          "speaker": "Akari",
-          "text": "Messageの後で\nidleへ戻したい時は\nSprite defaultを\n置いてください。",
-          "textColor": "",
-          "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
-        },
-        {
-          "type": "sprite",
-          "slot": 0,
-          "assetId": "akari_sprite",
-          "x": 96,
-          "y": 24,
           "animationId": "default",
           "flipX": false,
           "flipY": false,
@@ -693,12 +647,19 @@
         },
         {
           "type": "message",
+          "speaker": "Akari",
+          "text": "Mouth slotを選ぶと\n現在ROWの次へ進み\n表示か音声の終了で\n自動的に戻ります。",
+          "textColor": "",
+          "voiceAssetId": "",
+          "mouthSlot": 0
+        },
+        {
+          "type": "message",
           "speaker": "",
           "text": "おつかれさまでした。\nスクリプトを開いて\n各コマンドの設定を\n見てください。",
           "textColor": "",
           "voiceAssetId": "",
-          "mouthSlot": 0,
-          "mouthAnimationId": ""
+          "mouthSlot": null
         }
       ],
       "nextSceneId": ""

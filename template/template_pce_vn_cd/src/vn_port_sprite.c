@@ -620,6 +620,51 @@ static void VN_OVERLAY_CODE cache_sprite_animation_impl(uint8_t slot_index)
 #endif
 }
 
+/* Start and restore share the bank133 sprite-state path so the two scarce
+   resident banks keep their required build headroom. This helper only maps
+   generated data in MPR6 and updates always-visible state; it never calls
+   bank130 while the overlay occupies MPR4. */
+static void VN_OVERLAY_CODE update_active_message_mouth_impl(uint8_t restore)
+{
+    const signed int slot_index = active_message_state.mouth_slot;
+    signed int normal_animation_index;
+    vn_sprite_slot_t *slot;
+    if (restore)
+    {
+        normal_animation_index = active_message_mouth_animation_index;
+        active_message_mouth_animation_index = -1;
+        if (normal_animation_index < 0) return;
+    }
+    else
+    {
+        active_message_mouth_animation_index = -1;
+        normal_animation_index = -1;
+    }
+    if (slot_index < 0 || slot_index >= VN_SPRITE_SLOT_COUNT) return;
+    slot = sprite_slot_ref((uint8_t)slot_index);
+    if (restore)
+    {
+        if (slot->animation_index != normal_animation_index + 1) return;
+    }
+    else
+    {
+        normal_animation_index = slot->animation_index;
+        if (!slot->visible || slot->sprite_index < 0 || normal_animation_index < 0) return;
+        map_vn_data();
+        if ((unsigned int)(normal_animation_index + 1) >= pce_vn_sprite_animation_count
+            || pce_vn_sprite_animations[normal_animation_index + 1].sprite_index != (unsigned int)slot->sprite_index)
+        {
+            return;
+        }
+        active_message_mouth_animation_index = normal_animation_index;
+    }
+    slot->animation_index = (signed int)(normal_animation_index + (restore ? 0 : 1));
+    slot->frame = 0u;
+    slot->timer = 0u;
+    cache_sprite_animation_impl((uint8_t)slot_index);
+    REQUEST_SPRITE_REFRESH_FULL();
+}
+
 /* Resident wrapper: the overlay impl only reads bank132 (map_vn_data, slot6) and
    writes the always-mapped sprite slot, so it dispatches like the scene-pack
    readers (no IRQ lock). */
@@ -629,6 +674,15 @@ static void VN_BANKED_CODE cache_sprite_animation(uint8_t slot_index)
     (void)vn_overlay_dispatch(VN_OVERLAY_OP_CACHE_SPRITE_ANIM, 0u, 0u, slot_index);
 #else
     cache_sprite_animation_impl(slot_index);
+#endif
+}
+
+static void VN_BANKED_CODE update_active_message_mouth(uint8_t restore)
+{
+#if defined(__PCE_CD__)
+    (void)vn_overlay_dispatch(VN_OVERLAY_OP_MESSAGE_MOUTH, 0u, 0u, restore);
+#else
+    update_active_message_mouth_impl(restore);
 #endif
 }
 

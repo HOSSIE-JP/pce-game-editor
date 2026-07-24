@@ -23,8 +23,9 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_choice_option_impl(const vn_scene
 static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_impl(const vn_scene_pack_cache_t *cache, uint8_t switch_index, vn_switch_ref_t *branch);
 static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_case_impl(const vn_scene_pack_cache_t *cache, const vn_switch_ref_t *branch, uint8_t case_index, pce_vn_switch_case_t *branch_case);
 static void VN_OVERLAY_CODE set_variable_value_impl(signed int variable_index, signed int value);
-static uint8_t VN_OVERLAY_CODE copy_adpcm_voice_impl(signed int voice_index);
 static void VN_OVERLAY_CODE cdda_command_impl(signed int asset_index);
+static void VN_OVERLAY_CODE update_active_message_mouth_impl(uint8_t restore);
+static void VN_CD_ASYNC_CODE service_adpcm_playback_impl(void);
 #endif
 /* PHASE_A_SPLIT:END */
 #if defined(__PCE_CD__)
@@ -403,7 +404,7 @@ static uint8_t VN_OVERLAY_ENTRY_CODE vn_overlay_entry(uint8_t op, uint16_t a0, u
     if (o == VN_OVERLAY_OP_CDDA_COMMAND) { cdda_command_impl((signed int)(int16_t)a0); return 0u; }
     if (o == VN_OVERLAY_OP_MAP_WAIT_CELL) { map_message_wait_indicator_cell_impl((uint8_t)a2); return 0u; }
     if (o == VN_OVERLAY_OP_SET_VARIABLE) { set_variable_value_impl((signed int)(int16_t)a0, (signed int)(int16_t)a1); return 0u; }
-    if (o == VN_OVERLAY_OP_COPY_ADPCM_VOICE) return copy_adpcm_voice_impl((signed int)(int16_t)a0);
+    if (o == VN_OVERLAY_OP_MESSAGE_MOUTH) { update_active_message_mouth_impl(a2); return 0u; }
     return 0u;
 }
 #endif
@@ -563,6 +564,17 @@ static uint8_t VN_CD_ASYNC_ENTRY_CODE vn_cd_async_entry(uint8_t op)
     {
         map_choice_cursor_cells_impl(vn_visual_cache_arg_x, 0u);
         map_choice_cursor_cells_impl(vn_visual_cache_arg_y, 1u);
+        return 1u;
+    }
+    if (op == VN_CD_ASYNC_OP_CLEAR_BG_MARGINS)
+    {
+        clear_bg_map_side_margins_impl(vn_visual_cache_arg_dest,
+            vn_visual_cache_arg_x, vn_visual_cache_arg_y);
+        return 1u;
+    }
+    if (op == VN_CD_ASYNC_OP_ADPCM_PLAYBACK)
+    {
+        service_adpcm_playback_impl();
         return 1u;
     }
     return vn_cd_async_status;

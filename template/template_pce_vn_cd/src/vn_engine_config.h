@@ -203,6 +203,10 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_CD_ASYNC_OP_UPLOAD_SPRITE_TABLE 48u
 /* Cursor BAT delta. old/new rows ride the shared runtime-support scratch. */
 #define VN_CD_ASYNC_OP_MAP_CHOICE_CURSOR 56u
+/* Full-screen BG side margins use the same bank122 BAT-clear implementation. */
+#define VN_CD_ASYNC_OP_CLEAR_BG_MARGINS 64u
+/* Per-frame direct ADPCM countdown/completion service. */
+#define VN_CD_ASYNC_OP_ADPCM_PLAYBACK 72u
 #ifndef VN_CD_ASYNC_BYTES_PER_FRAME
 #define VN_CD_ASYNC_BYTES_PER_FRAME 256u
 #endif
@@ -254,8 +258,6 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define REQUEST_SPRITE_REFRESH_PATTERNS() do { \
     if (pending_sprite_refresh != VN_SPRITE_REFRESH_FULL) pending_sprite_refresh = VN_SPRITE_REFRESH_PATTERNS; \
 } while (0)
-#define VN_MESSAGE_MOUTH_SLOT(info) ((uint8_t)((info) & 0x03u))
-#define VN_MESSAGE_INSTANT_GLYPH_COUNT(info) ((uint8_t)((info) >> 2u))
 #define VN_SCENE_PACK_MAGIC_P 0x50u
 #define VN_SCENE_PACK_MAGIC_V 0x56u
 #define VN_SCENE_PACK_MAGIC_N 0x4eu
@@ -356,8 +358,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_OVERLAY_OP_MAP_WAIT_CELL 16u
 /* a0 = variable index, a1 = value（共に 16bit signed を uint16 で運ぶ）。純粋(bss 書き込み)。 */
 #define VN_OVERLAY_OP_SET_VARIABLE 17u
-/* a0 = ADPCM asset index. Snapshot copy only; no bank130 calls. */
-#define VN_OVERLAY_OP_COPY_ADPCM_VOICE 18u
+/* a2 = 0 for next-ROW mouth start, 1 for restoring the saved ROW. */
+#define VN_OVERLAY_OP_MESSAGE_MOUTH 18u
 #if defined(__PCE_CD__)
 typedef uint8_t (*vn_overlay_entry_fn_t)(uint8_t, uint16_t, uint16_t, uint8_t);
 #define VN_OVERLAY_CALL(op, a0, a1, a2) \
@@ -369,6 +371,7 @@ typedef uint8_t (*vn_cd_async_entry_fn_t)(uint8_t);
    dispatcher (which calls it directly) compiles before the definition. */
 static uint8_t VN_OVERLAY_CODE show_character_sprite_frame_slot(uint8_t i);
 static void VN_OVERLAY_CODE cache_sprite_animation_impl(uint8_t slot_index);
+static void VN_OVERLAY_CODE update_active_message_mouth_impl(uint8_t restore);
 /* Forward decl: the CD-DA resume helper's dispatcher precedes vn_overlay_dispatch's
    definition (the resume path lives early in the file). */
 static uint8_t VN_BANKED_CODE vn_overlay_dispatch(uint8_t op, uint16_t a0, uint16_t a1, uint8_t a2);

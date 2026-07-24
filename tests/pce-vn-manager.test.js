@@ -73,7 +73,6 @@ function commandRecord(buffer, index) {
 function messageRecord(buffer, index) {
   const table = u16(buffer, 12);
   const offset = table + (index * 13);
-  const mouthSlotInfo = buffer[offset + 10];
   return {
     glyphOffset: u16(buffer, offset),
     glyphCount: buffer[offset + 2],
@@ -81,9 +80,8 @@ function messageRecord(buffer, index) {
     textSpeedFrames: buffer[offset + 5],
     advanceMode: buffer[offset + 6],
     autoWaitFrames: buffer[offset + 7],
-    mouthAnimationIndex: s16(buffer, offset + 8),
-    mouthSlot: mouthSlotInfo & 0x03,
-    instantGlyphCount: mouthSlotInfo >> 2,
+    mouthSlot: s16(buffer, offset + 8),
+    instantGlyphCount: buffer[offset + 10],
     textColor: u16(buffer, offset + 11),
   };
 }
@@ -257,7 +255,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
         { type: 'sprite', assetId: 'hero', x: 500, y: -10 },
         { type: 'sprite', assetId: 'hero' },
         { type: 'audio', kind: 'cdda', action: 'play', assetId: 'track' },
-        { type: 'message', text: 'こんにちは', voiceAssetId: 'voice', textSpeedFrames: 3, mouthAnimationId: 'mouth' },
+        { type: 'message', text: 'こんにちは', voiceAssetId: 'voice', textSpeedFrames: 3, mouthSlot: 0, mouthAnimationId: 'mouth' },
       ],
       nextSceneId: 'missing',
     }],
@@ -285,6 +283,8 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.equal(normalized.scenes[0].commands[3].type, 'audio');
   assert.equal(normalized.scenes[0].commands[4].textSpeedFrames, undefined);
   assert.equal(normalized.scenes[0].commands[4].advanceMode, undefined);
+  assert.equal(normalized.scenes[0].commands[4].mouthSlot, 0);
+  assert.equal(Object.hasOwn(normalized.scenes[0].commands[4], 'mouthAnimationId'), false);
   assert.equal(normalized.scenes[0].nextSceneId, '');
   const legacyOnly = vnManager.normalizeSceneDocument({
     version: 1,
@@ -332,7 +332,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.doesNotMatch(header, /PCE_VN_COMMAND_PRELOAD/);
   assert.match(header, /PCE_VN_COMMAND_CHOICE 4u/);
   assert.match(header, /PCE_VN_SCENE_PACK_CACHE_BYTES 8192u/);
-  assert.match(header, /PCE_VN_SCENE_PACK_VERSION 2u/);
+  assert.match(header, /PCE_VN_SCENE_PACK_VERSION 3u/);
   assert.match(header, /typedef struct \{\n  pce_vn_cd_sector_t sector;/);
   assert.match(header, /pce_vn_command_t/);
   assert.match(source, /PCE_RAM_BANK_AT\(132, 6\);/);
@@ -410,7 +410,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.match(source, /const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs\[\]/);
   assert.doesNotMatch(source, /pce_vn_commands\[\]|pce_vn_messages\[\]|pce_vn_scenes\[\]/);
   assert.equal(pack.subarray(0, 4).toString('ascii'), 'PVNS');
-  assert.equal(pack[4], 2);
+  assert.equal(pack[4], 3);
   assert.equal(pack[5], 6);
   assert.equal(pack[6], 1);
   assert.deepEqual(commandRecord(pack, 0), {
@@ -433,8 +433,9 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   // The 3-byte placeholder voice is sub-frame, so the synced duration rounds to
   // zero frames and the global message speed is kept as the fallback.
   assert.equal(message.textSpeedFrames, vnManager.VN_DEFAULT_MESSAGE_SPEED_FRAMES);
-  assert.equal(message.mouthAnimationIndex, 1);
-  // CD v2 stores normalized Shift-JIS words and terminates with 0xffff.
+  assert.equal(message.mouthSlot, 0);
+  assert.equal(message.instantGlyphCount, 0);
+  // CD v3 stores normalized Shift-JIS words and terminates with 0xffff.
   assert.equal(pack.readUInt16LE(message.glyphOffset + (message.glyphCount * 2)), 0xffff);
 });
 
@@ -1257,6 +1258,38 @@ test('PCE VN manager encodes full-screen BG scene mode, allows hardware sprites 
   assert.doesNotMatch(spriteTextCommandSource, /current_scene_full_screen_bg/);
   assert.doesNotMatch(spriteTextCommandSource, /restore_text_vram_after_full_screen_bg/);
   assert.match(cdSceneRuntime, /static void VN_BANKED_CODE clear_bg_map_side_margins/);
+  const clearMarginsImplStart = cdSceneRuntime.indexOf(
+    'static void VN_CD_ASYNC_CODE clear_bg_map_side_margins_impl',
+  );
+  const clearMarginsWrapperStart = cdSceneRuntime.indexOf(
+    'static void VN_BANKED_CODE clear_bg_map_side_margins',
+    clearMarginsImplStart,
+  );
+  const clearMarginsWrapperEnd = cdSceneRuntime.indexOf(
+    'static void upload_bg_graphics',
+    clearMarginsWrapperStart,
+  );
+  assert.notEqual(clearMarginsImplStart, -1);
+  assert.notEqual(clearMarginsWrapperStart, -1);
+  assert.notEqual(clearMarginsWrapperEnd, -1);
+  const clearMarginsImplSource = cdSceneRuntime.slice(clearMarginsImplStart, clearMarginsWrapperStart);
+  const clearMarginsWrapperSource = cdSceneRuntime.slice(clearMarginsWrapperStart, clearMarginsWrapperEnd);
+  assert.match(clearMarginsImplSource, /clear_map_rect_at_dest_impl\(/);
+  assert.doesNotMatch(clearMarginsImplSource, /clear_map_rect_at_dest\(/,
+    'bank122 margin clear must not dispatch recursively through the slot-4 overlay');
+  assert.match(clearMarginsWrapperSource,
+    /vn_cd_async_call_bank122\(VN_CD_ASYNC_OP_CLEAR_BG_MARGINS\)/);
+  const cdAsyncConfig = fs.readFileSync(
+    path.join(TEMPLATE_VN_SRC_DIR, 'vn_engine_config.h'),
+    'utf-8',
+  );
+  const cdAsyncBus = fs.readFileSync(
+    path.join(TEMPLATE_VN_SRC_DIR, 'vn_engine_bus.c'),
+    'utf-8',
+  );
+  assert.match(cdAsyncConfig, /#define VN_CD_ASYNC_OP_CLEAR_BG_MARGINS 64u/);
+  assert.match(cdAsyncBus,
+    /if \(op == VN_CD_ASYNC_OP_CLEAR_BG_MARGINS\)[\s\S]*clear_bg_map_side_margins_impl\(/);
 
   writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
     version: 2,
@@ -1902,7 +1935,9 @@ test('PCE VN manager emits variable, branch, switch, label, and goto commands', 
   assert.match(header, /PCE_VN_VARIABLE_USER_BASE_INDEX 2u/);
   assert.match(header, /PCE_VN_VARIABLE_STORAGE_COUNT 5u/);
   assert.match(header, /signed int voice_index;/);
-  assert.match(header, /signed int mouth_animation_index;/);
+  assert.match(header, /signed int mouth_slot;/);
+  assert.match(header, /unsigned char instant_glyph_count;/);
+  assert.doesNotMatch(header, /mouth_animation_index/);
   assert.match(header, /signed int target_scene;/);
   assert.match(header, /signed int variable_index;/);
   assert.match(header, /signed int asset_index;/);
@@ -2087,7 +2122,7 @@ test('PCE HuCARD VN generation keeps scene-pack commands and strips CD audio out
   const message = messageRecord(pack, 0);
   assert.equal(message.voiceIndex, -1);
   assert.equal(message.textSpeedFrames, 50);
-  assert.equal(message.mouthSlot, 0);
+  assert.equal(message.mouthSlot, -1);
   assert.equal(message.instantGlyphCount, 5);
   assert.equal(message.glyphCount, 7);
   assert.equal(commandRecord(pack, 5).type, vnManager.VN_COMMAND_INPUTCHECK);
@@ -2443,15 +2478,17 @@ test('PCE VN manager normalizes message text color and clears empty bodies', () 
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
   const pack = readPack(projectDir, generated.scenePackPaths[0]);
   assert.match(header, /PCE_VN_SCENE_PACK_MESSAGE_SIZE 13u/);
-  assert.doesNotMatch(header, /instant_glyph_count/);
+  assert.match(header, /unsigned char instant_glyph_count;/);
   assert.match(header, /unsigned int text_color;/);
+  assert.equal(messageRecord(pack, 0).mouthSlot, -1);
   assert.equal(messageRecord(pack, 0).textColor, 0x38);
   assert.equal(messageRecord(pack, 1).textColor, vnManager.VN_MESSAGE_COLOR_NONE);
 
   const runtime = readRuntimeSource();
   assert.match(runtime, /apply_message_text_color\(message->text_color\)/);
-  assert.match(runtime, /#define VN_MESSAGE_INSTANT_GLYPH_COUNT\(info\) \(\(uint8_t\)\(\(info\) >> 2u\)\)/);
-  assert.match(runtime, /message->mouth_slot = scene_pack_u8\(cache, \(uint16_t\)\(offset \+ 10u\)\)/);
+  assert.doesNotMatch(runtime, /VN_MESSAGE_INSTANT_GLYPH_COUNT|VN_MESSAGE_MOUTH_SLOT/);
+  assert.match(runtime, /message->mouth_slot = scene_pack_s16\(cache, \(uint16_t\)\(offset \+ 8u\)\)/);
+  assert.match(runtime, /message->instant_glyph_count = scene_pack_u8\(cache, \(uint16_t\)\(offset \+ 10u\)\)/);
   assert.match(runtime, /message->text_color = scene_pack_u16/);
 });
 
@@ -3218,10 +3255,11 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.doesNotMatch(runtime, /static void VN_HUCARD_CODE_PSG tick_psg\(void\)/);
   assert.match(runtime, /static void VN_HUCARD_CODE_TEXT update_choice_cursor\(uint8_t old_index, uint8_t new_index\)/);
   assert.match(runtime, /tick_message_wait_indicator\(\);/);
-  assert.match(runtime, /#define VN_MESSAGE_INSTANT_GLYPH_COUNT\(info\) \(\(uint8_t\)\(\(info\) >> 2u\)\)/);
-  assert.match(runtime, /message->mouth_slot = scene_pack_u8\(cache, \(uint16_t\)\(offset \+ 10u\)\);/);
-  assert.match(runtime, /static uint8_t VN_HUCARD_CODE_TEXT draw_message_prefix_glyphs\(const pce_vn_message_t \*message\)[\s\S]*instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT\(message->mouth_slot\);[\s\S]*if \(draw_message_next_entry\(message\)\) return 1u;/);
-  assert.match(runtime, /instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT\(message\.mouth_slot\);[\s\S]*if \(instant_glyph_count\)[\s\S]*message_complete = draw_message_prefix_glyphs\(&active_message_state\);[\s\S]*if \(!message_complete && !message_text_speed\)/);
+  assert.doesNotMatch(runtime, /VN_MESSAGE_INSTANT_GLYPH_COUNT|VN_MESSAGE_MOUTH_SLOT/);
+  assert.match(runtime, /message->mouth_slot = scene_pack_s16\(cache, \(uint16_t\)\(offset \+ 8u\)\);/);
+  assert.match(runtime, /message->instant_glyph_count = scene_pack_u8\(cache, \(uint16_t\)\(offset \+ 10u\)\);/);
+  assert.match(runtime, /static uint8_t VN_HUCARD_CODE_TEXT draw_message_prefix_glyphs\(const pce_vn_message_t \*message\)[\s\S]*instant_glyph_count = message->instant_glyph_count;[\s\S]*if \(draw_message_next_entry\(message\)\) return 1u;/);
+  assert.match(runtime, /instant_glyph_count = message\.instant_glyph_count;[\s\S]*if \(instant_glyph_count\)[\s\S]*message_complete = draw_message_prefix_glyphs\(&active_message_state\);[\s\S]*if \(!message_complete && !message_text_speed\)/);
   const hucardSetBgStart = runtime.indexOf('static void VN_HUCARD_CODE_VIDEO set_background');
   const hucardSetBgEnd = runtime.indexOf('static uint16_t VN_HUCARD_CODE_TEXT ui_tile', hucardSetBgStart);
   assert.notEqual(hucardSetBgStart, -1);

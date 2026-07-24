@@ -446,7 +446,7 @@ command recordは19 bytesのままです。`frames`を`arg0/arg1`、移動先を
 | `blinkFrames` | `0..255` | `0` で常時表示。`1` 以上で `blinkFrames` フレームごとに表示/非表示をトグル（点滅） |
 | `visible` | `boolean` | `false` で slot を消去 |
 
-CD VNの`spritetext`文字列はscene pack v2へ16-bit Shift-JISで格納されます。runtimeは表示に必要な文字だけをSystem Card `EX_GETFNT`の12×12 modeで取得し、2pxの透明余白を持つ16×16 hardware sprite patternへ4bpp化してVRAMへuploadします。見える字形と横ピッチはmessageと同じ12px、改行ピッチは16pxです。`font_sprite.bin`や起動時一括uploadはありません。HuCard VNのbanked sprite fontも同じ12×12字形・12pxピッチを使います。
+CD VNの`spritetext`文字列はscene pack v3へ16-bit Shift-JISで格納されます。runtimeは表示に必要な文字だけをSystem Card `EX_GETFNT`の12×12 modeで取得し、2pxの透明余白を持つ16×16 hardware sprite patternへ4bpp化してVRAMへuploadします。見える字形と横ピッチはmessageと同じ12px、改行ピッチは16pxです。`font_sprite.bin`や起動時一括uploadはありません。HuCard VNのbanked sprite fontも同じ12×12字形・12pxピッチを使います。
 
 制約（PCE ハードウェア由来）:
 
@@ -533,7 +533,7 @@ HuCARD VN build は System Card package へは変換しませんが、共通の 
 
 ### 読み込みと cache
 
-明示的な `preload` command は廃止済みです。scene 入場時の runtime は、scene pack v2をbank123のactive cache（8192 bytes）へ読み込んでから、最初の `message` / `choice` / `wait` / `jump` までに必要なassetだけを先読みします。scene readerはoffset/countでbank123へ短時間mapし、message開始時には最大68 glyphをconsole RAMへdetachします。scene後半の背景・sprite・ADPCMは必要になった時点で読み込みます。script pack読込はCD data readなのでCD-DAと同時には行えません。
+明示的な `preload` command は廃止済みです。scene 入場時の runtime は、scene pack v3をbank123のactive cache（8192 bytes）へ読み込んでから、最初の `message` / `choice` / `wait` / `jump` までに必要なassetだけを先読みします。scene readerはoffset/countでbank123へ短時間mapし、message開始時には最大68 glyphをconsole RAMへdetachします。scene後半の背景・sprite・ADPCMは必要になった時点で読み込みます。script pack読込はCD data readなのでCD-DAと同時には行えません。
 
 現行 runtime は ADPCM の cache 状態を `loaded_adpcm_valid` / `loaded_adpcm_index` で管理します。build は `message.voiceAssetId` に必要な内部 `Cache Load ADPCM` を挿入し、分岐やADPCM cache操作より前にある最初の message voice については scene 先頭へ hoist します。同じscene内で別ADPCMの message voice が続く場合は、そのmessage直前でADPCM RAMを読み替えます。実際の `audio` / `message.voiceAssetId` 再生時に必要な ADPCM を読み込み、すでに同じ ADPCM が読み込まれている場合は controller を reset/load しません。音声の確実な再生制御は `audio` command または `message.voiceAssetId` を主 API にしてください。
 
@@ -692,7 +692,7 @@ classDiagram
 | `pce_vn_scene_packs[]` / `_count` | scene pack の CD sector、sector count、byte size、next scene |
 | `pce_vn_variable_initial_values[]` / `_count` | runtime 変数の初期値 |
 
-`voice_index`、`asset_index`、`message_index`、`animation_index`、`scene_index`、`choice_index`、`target_scene`、`variable_index`、`next_scene` は `-1` sentinel を持つため `signed int` として生成します。scene 数、variable 数、sprite animation 数は `unsigned char` で公開するため build 時に 255 件を上限として検証します。CD-ROM2 VN の command/message/choice/switch は scene pack 内の local index になり、上限は scene ごとに 255 件です。CD scene pack v2は8192 bytes以下、HuCard scene packは4096 bytes以下です。
+`voice_index`、`asset_index`、`message_index`、`animation_index`、`scene_index`、`choice_index`、`target_scene`、`variable_index`、`next_scene` は `-1` sentinel を持つため `signed int` として生成します。scene 数、variable 数、sprite animation 数は `unsigned char` で公開するため build 時に 255 件を上限として検証します。CD-ROM2 VN の command/message/choice/switch は scene pack 内の local index になり、上限は scene ごとに 255 件です。CD scene pack v3は8192 bytes以下、HuCard scene pack v2は4096 bytes以下です。
 
 PCE-CD / Super CD-ROM2 buildではbank123をscene pack、bank128/129/130をresident code、bank132をgenerated data/scratch/変換済みglyph cache、bank133をcode overlay、bank134をSystem Card BGM、bank135をSystem Card SFXに使います。bank131はSystem Cardのため使用禁止です。message/spritetext glyphは`EX_GETFNT`からon-demand取得し、`font.bin`/`font_sprite.bin`を生成しません。CD textはlength付き16-bit Shift-JISで、ASCIIは全角化し、非漢字領域+JIS第一水準以外をbuild errorにします。詳細とlink-map gateは`docs/pce-memory-bank-strategy.md`を参照してください。
 
@@ -822,9 +822,9 @@ ADPCM の `divider` は再生周波数/速度側の値で、音量ではあり�
 ### スプライトを追加して表示する
 
 1. `importAssetImage({ kind: "sprite", id: "akari_sprite", cellWidth: 16, cellHeight: 16 })` で登録する。
-2. 必要なら `options.animations` に `mouth`、`blink` などを定義する。
+2. `options.animations` は通常ROWの直後に口パクROWを置く（例: `default`, `mouth`, `blink`）。
 3. scene に `{ "type": "sprite", "slot": 0, "assetId": "akari_sprite", "animationId": "default", "visible": true }` を追加する。
-4. 口パクなどは `message.mouthSlot` と `message.mouthAnimationId` で message 中に animation を切り替える。ADPCM voice の再生中も animation は止まらず更新される。
+4. 口パクするmessageでは `message.mouthSlot` に対象slotを指定する。runtimeは現在ROWの次ROWへ切り替え、本文表示完了またはone-shot ADPCM終了で元ROWへ自動復帰する。ナレーションは`mouthSlot: null`またはfield省略にする。
 
 ### ADPCM ボイスを message に付ける
 

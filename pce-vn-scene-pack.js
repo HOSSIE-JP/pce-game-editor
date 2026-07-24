@@ -4,7 +4,7 @@ function createVnScenePackCodec(options = {}) {
   const { clampInt, clampSignedInt, constants = {} } = options;
   const {
     cacheBytes, magic, version, headerSize, commandSize, messageSize, choiceSize, switchSize,
-    spriteTextCommand, instantGlyphMax, mouthSlotMask, mouthSlotBits,
+    spriteTextCommand, instantGlyphMax,
   } = constants;
   if (typeof clampInt !== 'function' || typeof clampSignedInt !== 'function' || !Buffer.isBuffer(magic)) {
     throw new Error('VN scene pack codec dependencies are required');
@@ -37,10 +37,12 @@ function createVnScenePackCodec(options = {}) {
   function encodeMessage(message = {}) {
     const bytes = [];
     const instantCount = clampInt(message.instantGlyphCount, 0, instantGlyphMax, 0);
-    const mouthSlot = (clampInt(message.mouthSlot, 0, mouthSlotMask, 0) & mouthSlotMask) | (instantCount << mouthSlotBits);
+    const mouthSlot = message.mouthSlot == null || Number(message.mouthSlot) < 0
+      ? -1
+      : clampInt(message.mouthSlot, 0, 3, -1);
     pushU16(bytes, message.glyphOffset); pushU8(bytes, message.glyphCount); pushS16(bytes, message.voiceIndex);
     pushU8(bytes, message.textSpeedFrames); pushU8(bytes, message.advanceMode); pushU8(bytes, message.autoWaitFrames);
-    pushS16(bytes, message.mouthAnimationIndex); pushU8(bytes, mouthSlot); pushU16(bytes, message.textColor);
+    pushS16(bytes, mouthSlot); pushU8(bytes, instantCount); pushU16(bytes, message.textColor);
     return Buffer.from(bytes);
   }
   function encodeChoice(choice = {}) {

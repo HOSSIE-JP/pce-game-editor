@@ -728,8 +728,8 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.doesNotMatch(renderer, /name="autoWaitFrames"/);
   assert.doesNotMatch(renderer, /name="durationFrames"/);
   assert.doesNotMatch(renderer, /<span class="form-label">Move<\/span>/);
-  assert.match(renderer, /function mouthAnimationOptions\(command = \{\}\)/);
-  assert.match(renderer, /<span class="form-label">Mouth animation<\/span><select class="form-select" name="mouthAnimationId">\$\{mouthAnimationOptions\(command\)\}<\/select>/);
+  assert.doesNotMatch(renderer, /function mouthAnimationOptions\(command = \{\}\)|name="mouthAnimationId"|Mouth animation/);
+  assert.match(renderer, /<span class="form-label">Mouth slot<\/span><select class="form-select" name="mouthSlot"><option value="" \$\{command\.mouthSlot == null \? 'selected' : ''\}>なし（ナレーション）<\/option>/);
   assert.match(renderer, /function audioDurationSeconds\(asset = \{\}\)/);
   assert.match(renderer, /byteLength \* 2 \/ sampleRate\) \+ ADPCM_END_PAD_SECONDS/);
   assert.match(renderer, /<span class="form-label">X tile<\/span><input class="form-input" name="x" type="number" min="0" max="63"/);

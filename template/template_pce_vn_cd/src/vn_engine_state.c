@@ -57,6 +57,7 @@ static uint8_t message_voice_mode = VN_MESSAGE_VOICE_NONE;
 /* Effective per-character reveal frames for the active message (after ADPCM sync). */
 static uint8_t message_text_speed = 0;
 static pce_vn_message_t active_message_state __attribute__((section(".bss")));
+static signed int active_message_mouth_animation_index __attribute__((section(".bss")));
 static uint16_t ui_text_color;
 static uint8_t current_scene_full_screen_bg = 0;
 /* Input-check command state (single watcher). */
@@ -296,8 +297,8 @@ static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, v
 static uint8_t scene_pack_command_count(const vn_scene_pack_cache_t *cache);
 #if defined(__PCE_CD__)
 static void VN_OVERLAY_CODE cdda_command_impl(signed int asset_index);
-static void VN_BANKED_CODE2 service_adpcm_playback(void);
 static void VN_BANKED_CODE stop_adpcm_voice(void);
+static void VN_BANKED_CODE update_active_message_mouth(uint8_t restore);
 static void VN_BANKED_CODE quiet_cd_unit_irqs(void);
 #endif
 static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset_index, uint8_t arg);
@@ -319,9 +320,11 @@ static void VN_VISUAL_CACHE_CODE flash_screen_color_impl(uint16_t color, uint8_t
 static void load_overlay_code(void);
 static void VN_BANKED_CODE load_visual_cache_code(void);
 static void VN_BANKED_CODE load_cd_async_code(void);
+static uint8_t VN_BANKED_CODE vn_cd_async_call_bank122(uint8_t op);
 static void VN_CD_ASYNC_CODE upload_palette_impl(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t fallback_dark);
 static void VN_CD_ASYNC_CODE fade_palette_impl(const pce_editor_data_ref_t *palette, uint16_t base_index, uint8_t frames, uint8_t fade_in);
 static void VN_CD_ASYNC_CODE clear_map_rect_at_dest_impl(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles);
+static void VN_CD_ASYNC_CODE clear_bg_map_side_margins_impl(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles);
 static uint8_t VN_CD_ASYNC_CODE adpcm_voice_fits_buffer_impl(void);
 static void VN_CD_ASYNC_CODE upload_sprite_table_impl(void);
 static void VN_CD_ASYNC_CODE map_choice_cursor_cells_impl(uint8_t row, uint8_t visible);

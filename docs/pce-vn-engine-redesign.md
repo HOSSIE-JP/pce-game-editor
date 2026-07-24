@@ -85,7 +85,7 @@ packageは実際に参照された`(assetId, channel)`ごとに生成します�
 
 CD VNの`asset_meta.bin`には旧`pce_editor_psg_step_t`、pattern record、PSG regionを出しません。System Card package referenceはscene commandから独立した生成tableで管理します。
 
-## scene pack v2
+## scene pack v3
 
 CD scene packは最大8192 bytesで、bank123/MPR6へ読み込みます。console RAM上の生pointerは使いません。
 

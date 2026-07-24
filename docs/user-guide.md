@@ -43,9 +43,9 @@ Settings > Plugins は、有効なプラグインに加えて、不正な manife
 
 標準の HuCard サンプルは `llvm-mos-sdk` の `mos-pce-clang` でビルドするスライドショーテンプレートです。builder は `pce-slideshow-builder` で、CD-ROM2 VN 用の `pce-visual-novel-builder` とは分離されています。`Image` に登録した BG 画像のうち、ID が `slide_001` または `slide_001_title` の形式に一致するものだけを番号順に表示し、最後の画像の後は先頭へ戻ります。番号は `001` から連番にしてください。スライド画像は PNG として保存され、8px 単位かつ 256x224px 以下である必要があります。ビルド時に形式、サイズ、生成済みデータ、HuCard の ROM bank 使用量を検査し、容量を超える場合は何枚目で超えたかを示すエラーで停止します。コントローラーの `←` は前の画像、`→` またはその他のボタンは次の画像へ進みます。入力がない場合も一定時間で次の画像へ自動遷移します。テンプレートには `slideshow_bgm` の PSG song が含まれ、HuCard 上でループ再生されます。スライドショーテンプレートから作成したプロジェクトでは、既定で `Sound` と `Novel` の sidebar plugin は無効です。
 
-HuCARD ノベルテンプレートは `template_pce_vn_hucard` / builder `pce-visual-novel-hucard-builder` を使います。Novel のシーン編集 UI と script command は CD-ROM2 VN と同じですが、ビルド結果は `.pce` のみで、IPL / System Card / `pce-mkcd` / CD data file は使いません。BG、Sprite、Message、Choice、Variable、IF/Switch/GOTO、InputCheck、Effect、SpriteText、PSG は HuCARD runtime で処理します。ADPCM、CD-DA、`message.voiceAssetId`、ADPCM cache load は HuCARD では無音の no-op になり、ADPCM / CD-DA asset metadata も ROM に出力されません。PSG song / SFX は HuCARD 用の ROM bank data として入り、song はループ、SFX はワンショットで再生されます。BGM と SFX は別々に管理され、SFX が使う channel だけを一時的に優先し、終了後はその channel の BGM を復元します。MIDIのwave IDも保持しますが、System Cardを持たないHuCARDでは内蔵波形をそのまま使えないため、sine / saw / triangle / square の32-sample波形へ近似します。font mask、scene pack、spritetext font、PSG pattern、画像/sprite payload は同じ HuCARD ROM bank allocator を共有するため、127 ROM bank を超える場合はビルドエラーになります。Test Play は通常の HuCARD ROM と同じく標準エミュレーターまたは外部エミュレーターへ `.pce` を渡します。
+HuCARD ノベルテンプレートは `template_pce_vn_hucard` / builder `pce-visual-novel-hucard-builder` を使います。Novel のシーン編集 UI と script command は CD-ROM2 VN と同じですが、ビルド結果は `.pce` のみで、IPL / System Card / `pce-mkcd` / CD data file は使いません。BG、Sprite、Message、Choice、Variable、IF/Switch/GOTO、InputCheck、Effect、SpriteText、PSG は HuCARD runtime で処理します。ADPCM、CD-DA、`message.voiceAssetId`、ADPCM cache load は HuCARD では無音の no-op になり、ADPCM / CD-DA asset metadata も ROM に出力されません。PSG song / SFX は HuCARD 用の ROM bank data として入り、song はループ、SFX はワンショットで再生されます。BGM と SFX は別々に管理され、SFX が使う channel だけを一時的に優先し、終了後はその channel の BGM を復元します。MIDIのwave IDも保持しますが、System Cardを持たないHuCARDでは内蔵波形をそのまま使えないため、sine / saw / triangle / square の32-sample波形へ近似します。font mask、scene pack、spritetext font、PSG pattern、画像/sprite payload は同じ HuCARD ROM bank allocator を共有し、小さいpayloadは同じ8KB data bankの空き領域へpackされます。banks 5..127 の実容量（123 banks）を超える場合はビルドエラーになります。Test Play は通常の HuCARD ROM と同じく標準エミュレーターまたは外部エミュレーターへ `.pce` を渡します。
 
-HuCARD ノベルの ROM 配置は固定です。runtime code は `rom_bank1..4` を予約し、font mask / scene pack / spritetext font / PSG pattern / 画像 payload は `rom_bank5..127` の data bank に置かれます。BG / Sprite の generated visual payload は、小さい palette / map も含めて data bank に置かれ、bank0 `.rodata` には置きません。message font は 12x12 mask、1 glyph = 24 bytes で、使用グリフ数に応じて data bank を消費します。マスクは描画時にROMから直接読まれるためVRAMに常駐せず、VRAMは文字種数にかかわらずメッセージ表示帯208タイルとblank 1タイルだけを予約します。scene pack は 4096 bytes cache 上限を維持し、超過時は scene 分割を促す build error になります。詳細は [HuCARD VN bank layout](pce-vn-hucard-bank-layout.md) を参照してください。
+HuCARD ノベルの ROM 配置は固定です。runtime code は `rom_bank1..4` を予約し、font mask / scene pack / spritetext font / PSG pattern / 画像 payload は `rom_bank5..127` の data bank に置かれます。BG / Sprite の generated visual payload は、小さい palette / map も含めて data bank に置かれ、bank0 `.rodata` には置きません。異なるassetのdata refは同じbankへ同居でき、bank境界をまたぐpayloadだけが複数chunkへ分割されます。message font は 12x12 mask、1 glyph = 24 bytes で、使用グリフ数に応じて data bank を消費します。マスクは描画時にROMから直接読まれるためVRAMに常駐せず、VRAMは文字種数にかかわらずメッセージ表示帯208タイルとblank 1タイルだけを予約します。scene pack は 4096 bytes cache 上限を維持し、超過時は scene 分割を促す build error になります。詳細は [HuCARD VN bank layout](pce-vn-hucard-bank-layout.md) を参照してください。
 
 ## Image / Sprites
 
@@ -84,7 +84,7 @@ ZIPの `batches/speaker_001.csv`、`speaker_002.csv` などは話者ごとに分
 
 Irodori-TTSは1回のバッチで参照話者が共通なので、キャラクターごとのCSVを個別に読み込み、対応するSpeaker EmbeddingまたはReference WAVを選んで生成してください。HuCARDプロジェクトでもリスト作成・ADPCM登録・Messageへの設定保存には利用できますが、設定したMessage voiceを実機再生できるのはCD-ROM2 VNだけです。
 
-Visual Novel CD テンプレートには、`BG` / `Sprite` / `Sprite Move` / `Message` / `Audio` / `Variable` / `Choice` / `IF` / `Switch` / `Label` / `GOTO` / `Input` / `Jump` / `Wait` / `Effect` / `SpriteText` を使うコマンド仕様サンプルシナリオが入っています。エディタではこれらに加えて `Cache` コマンドも追加できます。Akari / Mika の立ち絵は `default` / `blink` / `mouth` のアニメーションを持つスプライトシートになっており、`Message` の Mouth slot / Mouth animation の実例として確認できます。
+Visual Novel CD テンプレートには、`BG` / `Sprite` / `Sprite Move` / `Message` / `Audio` / `Variable` / `Choice` / `IF` / `Switch` / `Label` / `GOTO` / `Input` / `Jump` / `Wait` / `Effect` / `SpriteText` を使うコマンド仕様サンプルシナリオが入っています。エディタではこれらに加えて `Cache` コマンドも追加できます。Akari / Mika の立ち絵は `default`（通常）/ `mouth`（口パク）/ `blink` の順でROWを持つスプライトシートになっており、`Message` の Mouth slotによる「現在ROW→次ROW」と自動復帰を確認できます。
 
 `システム設定` タブでは、ノベルエンジン全体のメッセージ速度と Advance の初期値を設定します。メッセージ速度は `速度1(速い)：0`、`速度2：10`、`速度3：20`、`速度4：30`、`速度5：40`、`速度6(遅い)：50` から選びます。Advance は既定が `button` で、`auto` にすると Auto wait のフレーム数を使います。これらは全 `Message` command 共通で、Message のプロパティには表示されません。Auto wait はAdvanceの初期値がbuttonでも編集できます。
 
@@ -92,7 +92,7 @@ CD-ROM2 / HuCARD 共通の予約変数として `AUTO_ENABLE` と `MSG_SPEED` �
 
 AUTOがONの音声なしMessageは、本文表示完了後にAuto waitを経て進みます。CDのone-shot Message voiceは本文表示とADPCM自然終了の両方が完了した時点で進み、追加のAuto waitは入りません。音声開始に失敗した場合とloop音声はAuto waitを使い、loop音声は遷移時に停止します。HuCARDのPSGと独立したAudioコマンドはAUTO待機の対象ではありません。
 
-BG / Sprite / ADPCM / PSGなどの読み込みはruntimeがscene入場時と各表示・再生命令で管理します。CD scene pack v2は最大8192 bytesでbank123へ読み込み、message開始時に最大68 glyphをconsole RAMへ切り離します。BG / Spriteは`Cache Load`でvisual cacheへ、PSGは`(assetId, channel)`単位のSystem Card packageをBGM=bank134、SFX=bank135へ先読みできます。実際のVRAM / BAT / SATB反映は`background` / `sprite` command実行時だけです。
+BG / Sprite / ADPCM / PSGなどの読み込みはruntimeがscene入場時と各表示・再生命令で管理します。CD scene pack v3は最大8192 bytesでbank123へ読み込み、message開始時に最大68 glyphをconsole RAMへ切り離します。BG / Spriteは`Cache Load`でvisual cacheへ、PSGは`(assetId, channel)`単位のSystem Card packageをBGM=bank134、SFX=bank135へ先読みできます。実際のVRAM / BAT / SATB反映は`background` / `sprite` command実行時だけです。
 
 `Cache`コマンドはruntime cacheを制御します。`Clear`は読み込み済み判定だけを落とし、現在表示/再生中のVRAM、SATB、ADPCM、CD-DA、PSG、変数、scene packを破壊しません。`Load PSG`は参照するchannel variantを対象busへ先読みします。同じbusで別packageを再生中にpreloadするsceneはbuild errorになるため、先に`Audio stop`で`BGM`または`SFX`を停止してください。`All`はmessageのBIOS glyph cacheも無効化します。
 
@@ -114,7 +114,7 @@ CD-ROM2 VNのビルドは、ランタイム常駐bank128/129/130にそれぞれ�
 
 `Sprite`（立ち絵）コマンドの主なプロパティは次のとおりです。
 
-- **Slot（0〜3）**: 立ち絵を表示する 4 枚のスロットのどれを使うか。VN runtime は同時に最大 4 枚の立ち絵を持ち、スロットごとに 1 枚を保持します。同じスロットへ別の `Sprite` コマンドを置くと、その 1 枚を差し替え（`visible: false` なら非表示）します。別々のスロットを使えば複数の立ち絵を同時に出せます。通常シーン間では表示中のスロットを保持するため、消したい場合は同じスロットへ `visible: false` の `Sprite` コマンドを置いてください。複数表示するときは **Slot 0 から順に**使ってください。runtime は BG 直後にメッセージ用 VRAM を置き、その末尾から SATB 手前までを連続したスプライト pattern 領域として使います。表示中のSLOTは番号順に並べて、この連続領域と palette bank へ非重複配置します。`Message` の **Mouth slot** はここで表示したスロット番号を指すので、口パクさせたい立ち絵はあらかじめ目的のスロットへ出しておきます。**このプロパティは有効です**（必須・常に作用します）。
+- **Slot（0〜3）**: 立ち絵を表示する 4 枚のスロットのどれを使うか。VN runtime は同時に最大 4 枚の立ち絵を持ち、スロットごとに 1 枚を保持します。同じスロットへ別の `Sprite` コマンドを置くと、その 1 枚を差し替え（`visible: false` なら非表示）します。別々のスロットを使えば複数の立ち絵を同時に出せます。通常シーン間では表示中のスロットを保持するため、消したい場合は同じスロットへ `visible: false` の `Sprite` コマンドを置いてください。複数表示するときは **Slot 0 から順に**使ってください。runtime は BG 直後にメッセージ用 VRAM を置き、その末尾から SATB 手前までを連続したスプライト pattern 領域として使います。表示中のSLOTは番号順に並べて、この連続領域と palette bank へ非重複配置します。`Message` の **Mouth slot** はここで表示したスロット番号を指すので、口パクさせたい立ち絵はあらかじめ目的のスロットへ出しておきます。`Sprite` コマンドの **Slot** は必須ですが、`Message` の **Mouth slot** は任意で、ナレーションでは **なし（ナレーション）** を選べます。
 - **Animation**: その立ち絵アセットの `options.animations`（Sprite エディタの ROW 定義）から再生するアニメーションを選びます。`default` 以外を選ぶと、ゲーム実機と同じく該当 ROW のフレームを `frameDelays`（未指定時は `frameDelay`）間隔で巡回（ループ）します。
 
 `Sprite Move` は、すでに表示中の Slot を Target X/Y へ指定フレーム数で直線移動します。既定は同期で、移動完了まで後続コマンドを実行しません。**async（同時移動）**を有効にすると後続へ直ちに進むため、別々の Slot に続けて指定して最大4枚を同時に動かせます。Animation は「変更しない」が既定で、指定した場合は移動開始時に同じsprite asset内のROWへ切り替えます。同じ Slot への新しい `Sprite Move` / `Sprite`、scene切替、`blank` は先行移動を中止します。座標は X=`0..319`、Y=`0..223`、Frames=`1..65535`です。Full BG sceneでも、そのscene内で表示したspriteに使用できます。
@@ -154,15 +154,15 @@ Message voice は buffered ADPCM 専用です。ADPCM は direct-buffered 安全
 
 SpriteTextの見える字形は本文と同じ12×12pxで、横12px・縦16pxピッチです。PCEの最小スプライトセルは16×16なので、字形を2pxの透明余白で中央に置き、隣の文字を12px間隔で重ねて配置します。ハードウェアの制約として、スプライト文字は立ち絵と同じ **SATB（最大64個）/ 1走査線16個**を共有します。CD VNは表示時にSystem Card `EX_GETFNT`の12×12 glyphを取得して4bpp化し、必要なpatternだけをVRAMへuploadします。VRAMはシナリオ内のSpriteTextが実際に使う固有glyph数（最大64）だけを予約するため、未使用分が立ち絵pattern領域を圧迫しません。`font_sprite.bin`や起動時一括転送はありません。
 
-`Message` コマンドの **Mouth slot** / **Mouth animation** は、メッセージ表示中に立ち絵の口を動かす（口パク）ための設定です。使うには次の手順が必要です。
+`Message` コマンドの **Mouth slot** は、メッセージ表示中に立ち絵の口を動かす（口パク）ための設定です。messageごとの **Mouth animation** 指定はありません。使うには次の手順が必要です。
 
-1. 立ち絵（Sprite）アセット側に、口パク用の複数フレームアニメーション（例: `mouth`）を用意します。`Sprite` プラグインのアニメーション定義でフレーム数を 2 以上にし、口を回し続けたい場合はループを有効にします。
+1. 立ち絵（Sprite）アセット側で、通常ROWの直後に口パクROWを置きます。例: `default`, `mouth`。口パクROWは複数フレームにし、口を回し続けたい場合はループを有効にします。
 2. その `Message` より **前に** `Sprite` コマンドを置き、対象の立ち絵をいずれかのスロット（0〜3）へ表示（visible）しておきます。
-3. `Message` コマンドの **Mouth slot** に手順 2 と同じスロット番号を指定し、**Mouth animation** でそのスロットの sprite が持つ Row（例: `mouth`）をリストから選びます。
+3. `Message` コマンドの **Mouth slot** に手順 2 と同じスロット番号を指定します。ナレーションなど立ち絵と紐づかないmessageでは **なし（ナレーション）** を選びます。
 
-スロットに立ち絵が表示されていない、または入力したアニメーション名が見つからない場合は無効（口パクなし）になります。口パクはメッセージ表示開始時に再生が始まり、ADPCM 音声の再生中も止めずに更新されます。メッセージ完了後も自動では止まりません。喋り終わりで口を閉じたいときは、その `Message` の後に同じスロットへ通常（idle）アニメーションを指定した `Sprite` コマンドを置いてください。
+メッセージ開始時に、指定slotの現在animation ROWから同一sprite asset内の次ROWへ切り替わります。本文表示が完了して入力待機へ入るか、CD one-shot ADPCM音声が自然終了すると、先に到達した時点で元ROWへ自動復帰します。スロットに立ち絵がない、現在ROWが最終ROW、または次ROWが別sprite assetに跨ぐ場合は無効（口パクなし）です。手動で通常ROWへ戻す`Sprite`コマンドは不要です。
 
-CD VNの本文はlength付き16-bit Shift-JISでscene pack v2へ保存され、printable ASCIIは全角JISへ正規化されます。許可文字は日本版v3の非漢字領域とJIS第一水準だけです。第二水準、CP932拡張、半角カナ、絵文字、結合文字はscene/command位置付きbuild errorになります。runtimeは`EX_GETFNT`の12×12出力を24-byte maskへ変換し、68-glyph cacheで必要時に再利用します。`font.bin`は生成しません。
+CD VNの本文はlength付き16-bit Shift-JISでscene pack v3へ保存され、printable ASCIIは全角JISへ正規化されます。許可文字は日本版v3の非漢字領域とJIS第一水準だけです。第二水準、CP932拡張、半角カナ、絵文字、結合文字はscene/command位置付きbuild errorになります。runtimeは`EX_GETFNT`の12×12出力を24-byte maskへ変換し、68-glyph cacheで必要時に再利用します。`font.bin`は生成しません。
 
 ノベル編集画面の**フォント**タブで管理するTTF/OTF設定はHuCard VNとエディタpreview用です。CD VNのゲーム生成物には反映せず、System Card内蔵glyphを正とします。BIOS由来glyph byteや画像をprojectへ保存する機能はありません。
 
@@ -185,7 +185,9 @@ CD VNの本文はlength付き16-bit Shift-JISでscene pack v2へ保存され、p
 
 **`Comment`（コメント）コマンド**は、スクリプトに**エディタ専用のメモ**を残すためのコマンドです。ビルドやプレビュー実行には一切含まれず（シーンメモリも消費しません）、プロジェクトファイルには保存されて次回も残ります。コメントには**メッセージ文**を設定でき、スクリプトコマンド一覧では「メモ」分類の**固定色**（文字色は自動で読みやすい黒/白を選択）で表示されるので、章の区切りや作業メモを視覚的に目立たせられます。以前は任意の背景色を指定できましたが、分類ごとの色分けに統一したため、背景色は固定になりました。
 
-シーン編集画面右上の **▶ プレビュー** ボタンで、表示中のシーンを起点に疑似ゲーム画面を別ウィンドウで再生できます。プレビュー画面にはメニューバーがなく、キーボードを **方向＝↑↓←→、RUN＝SPACE / ENTER / S、SELECT＝Shift / A、I＝Z、II＝X** としてコントローラー入力の代わりに使えます。SELECTはAUTOのON/OFF切り替え専用です。`Input` コマンドの sync / async 判定は方向・RUN・I・IIの割り当てを使い、async は実機と同じく次のコマンドへ進みながら入力を監視します。メッセージ送りと選択肢の決定は RUN / I / II の各代替キーまたはクリック、選択肢の移動は上下キー、Esc でプレビューを閉じます。メッセージは実機と同じ 17 文字 × 4 行レイアウト（画面 `y=152px`、4 行目末尾はボタン送り待ちの `▼` 用に予約、改行・折り返し対応）で表示し、Message の **Text color** もプレビューに反映します。背景・立ち絵・メッセージ・選択肢・予約変数を含む変数・分岐（IF / Switch / GOTO / Label / Jump）・Wait・音声・演出・スプライト文字（SpriteText、位置確認用にテキストで近似表示）を簡易再生します。Skip チェック済みコマンドはこの再生からも除外されます。立ち絵は `Sprite` コマンドで指定した **Animation** を実機同様にコマ送り再生します（口パク用の **Mouth animation** も同様）。下部バーの **早送り** を ON にすると、メッセージ本文を表示速度設定や ADPCM ボイスの再生時間に関係なく即時表示し、次のクリックまたは RUN / I / II の代替キーで次のシーンコマンドへ進みます。早送りはこのプレビューだけの機能で、実機向けビルドには出力されません。Debug 表示は既定で OFF で、必要な時だけ下部バーの **Debug** チェックで表示できます。Debug の Variables欄には`AUTO_ENABLE` / `MSG_SPEED`も表示します。Cache 欄はプレビュー内の簡易シミュレーションで、`Cache Load` / `Cache Clear` / `BG` / `Sprite` / ADPCM / PSG 再生命令の順序から visual RAM cache、ADPCM RAM、PSG pattern buffer の状態や、表示 command の RAM cache hit / CD fallback を推定します。実機 RAM を読み返すものではありませんが、CD load タイミングを寄せるシーン設計の確認に使えます。
+シーン編集画面右上の **▶ プレビュー** ボタンで、表示中のシーンを起点に疑似ゲーム画面を別ウィンドウで再生できます。キーボードは **方向＝↑↓←→、RUN＝SPACE / ENTER / S、SELECT＝Shift / A、I＝Z、II＝X** として使います。SELECTはAUTOのON/OFF専用です。`Input` のsync / async、メッセージ送り、選択肢、Wait、音声、演出、SpriteText、Skip済みcommandも簡易再生へ反映します。
+
+メッセージは実機と同じ17文字×4行レイアウトで、**Text color**と**Mouth slot**も反映します。Mouth slot指定時は現在ROWの次ROWへ切り替え、本文表示完了またはADPCM終了で元ROWへ戻ります。下部バーの **早送り** は本文を即時表示しますが、この時も入力待機へ入る時点で通常ROWへ復帰します。DebugのVariables欄には`AUTO_ENABLE` / `MSG_SPEED`、Cache欄にはvisual RAM cache、ADPCM RAM、PSG pattern buffer、active scene packの見積りを表示します。Cache表示は実機RAMの読み返しではなく、generated metadataとcommand順に基づくシミュレーションです。
 
 プレビュー内では実機ランタイムに合わせ、CD-DA と PSG BGM（`psg-song`）を排他再生します。PSG BGMを開始すると再生中のCD-DAを停止し、CD-DAを開始すると再生中のPSG BGMを停止します。PSG SFXはこのBGM排他の対象外です。
 

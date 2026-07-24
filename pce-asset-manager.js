@@ -2211,14 +2211,20 @@ function normalizeFixedRomBanks(values = []) {
 function createRomBankAllocator(options = {}) {
   const nextBank = Math.trunc(Number(options.nextBank));
   const maxBank = Math.trunc(Number(options.maxBank));
+  const startBank = Number.isFinite(nextBank) ? Math.max(1, Math.min(127, nextBank)) : 1;
   return {
     kind: 'rom',
-    nextBank: Number.isFinite(nextBank) ? Math.max(1, Math.min(127, nextBank)) : 1,
+    startBank,
+    nextBank: startBank,
     maxBank: Number.isFinite(maxBank) ? Math.max(1, Math.min(127, maxBank)) : 127,
     sectionPrefix: 'rom_bank',
     dataBankOffset: Number.isFinite(Number(options.dataBankOffset)) ? Math.max(2, Math.min(6, Math.trunc(Number(options.dataBankOffset)))) : 6,
     reservedBanks: normalizeReservedRomBanks(options.reservedBanks),
     reservedLabel: String(options.reservedLabel || '').trim(),
+    packBanks: options.packBanks !== false,
+    currentBank: 0,
+    currentBankUsed: 0,
+    allocatedBytes: 0,
     banks: [],
   };
 }
@@ -2229,32 +2235,73 @@ function createCdRamBankAllocator() {
     nextBank: 130,
     maxBank: 131,
     sectionPrefix: 'ram_bank',
+    packBanks: false,
+    currentBank: 0,
+    currentBankUsed: 0,
+    allocatedBytes: 0,
     banks: [],
   };
 }
 
-function allocateAssetBank(allocator) {
+function assetBankCapacity(allocator) {
+  if (!allocator || allocator.kind !== 'rom') return null;
+  let bankCount = 0;
+  for (let bank = allocator.startBank; bank <= allocator.maxBank; bank += 1) {
+    if (!allocator.reservedBanks?.has(bank)) bankCount += 1;
+  }
+  return {
+    bankCount,
+    byteSize: bankCount * ROM_BANKED_CHUNK_SIZE,
+  };
+}
+
+function allocateAssetBank(allocator, pendingBytes = 0) {
   if (!allocator) throw new Error('ROM bank allocator is required');
   while (allocator.reservedBanks?.has(allocator.nextBank)) {
     allocator.nextBank += 1;
   }
   if (allocator.nextBank > allocator.maxBank) {
+    const capacity = assetBankCapacity(allocator);
+    const usage = capacity
+      ? `: ${allocator.allocatedBytes + Math.max(0, pendingBytes)} bytes required so far; ${capacity.byteSize} bytes available across ${capacity.bankCount} banks`
+      : '';
     throw new Error(allocator.kind === 'ram'
       ? 'PCE-CD banked asset data exceeds reserved fallback RAM banks 130-131'
-      : `PCE HuCard banked asset data exceeds available ROM data banks${allocator.reservedLabel ? ` (${allocator.reservedLabel})` : ''}`);
+      : `PCE HuCard banked asset data exceeds available ROM data banks${allocator.reservedLabel ? ` (${allocator.reservedLabel})` : ''}${usage}`);
   }
   const bank = allocator.nextBank;
   allocator.nextBank += 1;
   allocator.banks.push(bank);
+  allocator.currentBank = bank;
+  allocator.currentBankUsed = 0;
   return bank;
+}
+
+function allocateAssetBankChunk(allocator, requestedBytes) {
+  const requested = Math.max(1, Math.trunc(Number(requestedBytes)) || 1);
+  if (!allocator.packBanks || !allocator.currentBank || allocator.currentBankUsed >= ROM_BANKED_CHUNK_SIZE) {
+    allocateAssetBank(allocator, requested);
+  }
+  const available = allocator.packBanks
+    ? ROM_BANKED_CHUNK_SIZE - allocator.currentBankUsed
+    : ROM_BANKED_CHUNK_SIZE;
+  const size = Math.min(requested, available);
+  const allocation = {
+    bank: allocator.currentBank,
+    size,
+  };
+  allocator.currentBankUsed += size;
+  allocator.allocatedBytes += size;
+  return allocation;
 }
 
 function bufferToBankedCArray(name, buffer, allocator) {
   const lines = [];
   const chunks = [];
-  for (let offset = 0; offset < buffer.length; offset += ROM_BANKED_CHUNK_SIZE) {
-    const chunk = buffer.subarray(offset, Math.min(offset + ROM_BANKED_CHUNK_SIZE, buffer.length));
-    const bank = allocateAssetBank(allocator);
+  for (let offset = 0; offset < buffer.length;) {
+    const allocation = allocateAssetBankChunk(allocator, buffer.length - offset);
+    const bank = allocation.bank;
+    const chunk = buffer.subarray(offset, offset + allocation.size);
     const chunkName = `${name}_bank${bank}`;
     lines.push(`static const unsigned char PCE_EDITOR_BANKED_SECTION(".${allocator.sectionPrefix}${bank}") ${chunkName}[] = {`);
     for (let i = 0; i < chunk.length; i += 12) {
@@ -2264,6 +2311,7 @@ function bufferToBankedCArray(name, buffer, allocator) {
     lines.push('};');
     lines.push('');
     chunks.push({ bank, name: chunkName, size: chunk.length });
+    offset += chunk.length;
   }
   if (chunks.length) {
     lines.push(`static const pce_editor_data_chunk_t ${name}_chunks[] PCE_EDITOR_RODATA_SECTION = {`);

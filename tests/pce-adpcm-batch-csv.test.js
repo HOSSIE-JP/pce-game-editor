@@ -358,7 +358,6 @@ test('CD VN dry build catalogs a batch-imported ADPCM referenced by message voic
     text: 'BATCH VOICE',
     voiceAssetId: 'batch_voice',
     mouthSlot: 0,
-    mouthAnimationId: '',
   }];
   sceneDoc.scenes[0].nextSceneId = '';
   sceneDoc.scenes = [sceneDoc.scenes[0]];
@@ -391,7 +390,6 @@ test('Irodori export to ADPCM CSV import and manifest assignment completes a CD 
     text: 'IRODORI WORKFLOW',
     voiceAssetId: '',
     mouthSlot: 0,
-    mouthAnimationId: '',
   }];
   sceneDoc.scenes[0].nextSceneId = '';
   sceneDoc.scenes = [sceneDoc.scenes[0]];

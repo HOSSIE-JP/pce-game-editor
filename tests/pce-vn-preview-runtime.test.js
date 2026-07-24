@@ -46,6 +46,10 @@ test('PCE VN preview serialized Sprite and SpriteText helpers are self-contained
     'function applySpriteFrame(node, url, geo, flipX, flipY)',
     'function computeVisualState(commands = [], uptoIndex = -1, fullScreenBg = false)',
   );
+  const nextSpriteRowSource = sourceBetween(
+    'function nextSpriteAnimationRowId(source, animationId)',
+    'function defaultCharacterPlacement(asset)',
+  );
 
   assert.doesNotMatch(renderSpriteTextSource, /SPRITETEXT_CELL/);
   assert.doesNotMatch(spriteGeometrySource, /MAX_SPRITE_FRAME_DELAY/);
@@ -77,6 +81,11 @@ test('PCE VN preview serialized Sprite and SpriteText helpers are self-contained
   }, 'walk');
   assert.equal(geo.frameDelay, 0xffff);
   assert.deepEqual(Array.from(geo.frameDelays), [0xffff, 2]);
+  const nextSpriteAnimationRowId = evaluateFunction(nextSpriteRowSource);
+  const rows = { animations: [{ id: 'default' }, { id: 'mouth' }, { id: 'blink' }] };
+  assert.equal(nextSpriteAnimationRowId(rows, 'default'), 'mouth');
+  assert.equal(nextSpriteAnimationRowId(rows, 'mouth'), 'blink');
+  assert.equal(nextSpriteAnimationRowId(rows, 'blink'), '');
 
   let now = 0;
   const callbacks = [];
@@ -151,6 +160,10 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
     'function applySpriteFrame(node, url, geo, flipX, flipY)',
     'function computeVisualState(commands = [], uptoIndex = -1, fullScreenBg = false)',
   );
+  const nextSpriteRowSource = sourceBetween(
+    'function nextSpriteAnimationRowId(source, animationId)',
+    'function defaultCharacterPlacement(asset)',
+  );
   const previewRuntimeSource = sourceBetween(
     'function previewRuntime()',
     'function buildPreviewHtml(payload)',
@@ -172,6 +185,7 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
   const psgPreviewNoiseHz = evaluateFunction(psgNoiseSource);
   const spriteFrameGeometry = evaluateFunction(spriteGeometrySource);
   const applySpriteFrame = evaluateFunction(applySpriteSource);
+  const nextSpriteAnimationRowId = evaluateFunction(nextSpriteRowSource);
   const previewRuntime = evaluateFunction(previewRuntimeSource);
   const buildPreviewHtml = evaluateFunction(buildPreviewHtmlSource, {
     PREVIEW_KEYBOARD_BUTTON_BY_CODE,
@@ -181,6 +195,7 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
     renderSpriteTextCells,
     psgPreviewNoiseHz,
     spriteFrameGeometry,
+    nextSpriteAnimationRowId,
     applySpriteFrame,
     previewRuntime,
   });
@@ -191,6 +206,7 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
   assert.match(html, /function renderSpriteTextCells/);
   assert.match(html, /function psgPreviewNoiseHz/);
   assert.match(html, /function spriteFrameGeometry/);
+  assert.match(html, /function nextSpriteAnimationRowId/);
   assert.match(html, /function applySpriteFrame/);
 
   const helperScripts = Array.from(html.matchAll(/<script>([\s\S]*?)<\/script>/g), (match) => match[1]);

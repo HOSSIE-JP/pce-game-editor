@@ -389,7 +389,7 @@ static uint8_t VN_OVERLAY_CODE draw_message_prefix_glyphs(const pce_vn_message_t
     uint8_t instant_glyph_count;
     uint8_t i;
     if (!message || !message->glyphs) return 1u;
-    instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT(message->mouth_slot);
+    instant_glyph_count = message->instant_glyph_count;
     for (i = 0u; i < instant_glyph_count; i++)
     {
         if (draw_message_next_entry(message) == VN_MESSAGE_ENTRY_COMPLETE) return 1u;
@@ -484,6 +484,7 @@ static void VN_BANKED_CODE hide_message_wait_indicator(void)
 
 static void VN_BANKED_CODE refresh_message_wait_indicator(void)
 {
+    if (active_message_index >= 0 && message_complete) update_active_message_mouth(1u);
     if (active_message_index < 0
         || !message_complete
         || vn_auto_enable)
@@ -494,7 +495,7 @@ static void VN_BANKED_CODE refresh_message_wait_indicator(void)
     if (!message_wait_indicator_state) show_message_wait_indicator();
 }
 
-static void VN_RESIDENT_CODE tick_message_wait_indicator(void)
+static void VN_BANKED_CODE tick_message_wait_indicator(void)
 {
     if (active_message_index < 0
         || !message_complete
@@ -572,15 +573,13 @@ static void start_message(uint8_t message_index)
 {
     pce_vn_message_t *message = VN_MESSAGE_SCRATCH;
     uint8_t restore_window_display = 0u;
-    uint8_t mouth_slot = 0u;
     uint8_t instant_glyph_count = 0u;
     VN_MAP_BANK130_FOR_CODE();
     if (scene_pack_read_message(&active_scene_pack, message_index, message))
     {
         active_message_state = *message;
         message = &active_message_state;
-        mouth_slot = VN_MESSAGE_MOUTH_SLOT(message->mouth_slot);
-        instant_glyph_count = VN_MESSAGE_INSTANT_GLYPH_COUNT(message->mouth_slot);
+        instant_glyph_count = message->instant_glyph_count;
         active_message_index = message_index;
         active_choice_index = -1;
         wait_frames_remaining = 0u;
@@ -593,15 +592,9 @@ static void start_message(uint8_t message_index)
         message_auto_wait = message->auto_wait_frames;
         message_wait_indicator_state = 0u;
         message_voice_mode = VN_MESSAGE_VOICE_NONE;
+        active_message_mouth_animation_index = -1;
         apply_message_text_color(message->text_color);
-        if (message->mouth_animation_index >= 0 && mouth_slot < VN_SPRITE_SLOT_COUNT)
-        {
-            sprite_slots[mouth_slot].animation_index = message->mouth_animation_index;
-            sprite_slots[mouth_slot].frame = 0u;
-            sprite_slots[mouth_slot].timer = 0u;
-            cache_sprite_animation(mouth_slot);
-            REQUEST_SPRITE_REFRESH_FULL();
-        }
+        update_active_message_mouth(0u);
         message_text_speed = (vn_msg_speed >= 1u && vn_msg_speed <= 6u)
             ? (uint8_t)((vn_msg_speed - 1u) * 10u)
             : message->text_speed_frames;

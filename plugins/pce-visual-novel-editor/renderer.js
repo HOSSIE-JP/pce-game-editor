@@ -469,8 +469,8 @@ function messageDrawableLength(text = '') {
   return [...String(text || '')].filter((ch) => ch !== '\r' && ch !== '\n').length;
 }
 
-// pce-vn-manager.js の scene pack バイナリ仕様を反映した定数。CD scene pack v2は
-// bank123の8192-byte cache、HuCard scene pack v1は4096-byte cacheへ読み込む。
+// pce-vn-manager.js の scene pack バイナリ仕様を反映した定数。CD scene pack v3は
+// bank123の8192-byte cache、HuCard scene pack v2は4096-byte cacheへ読み込む。
 // project.jsonをloadしたあとvnScenePackLimit/vnScenePackUsesShiftJisを切り替える。
 // これを超えると
 // ビルドが失敗する（シーン分割が必要）。下の見積りはエディタ上の早期警告で、最終的な
@@ -482,7 +482,7 @@ let vnScenePackUsesShiftJis = true;
 const VN_PACK_HEADER_SIZE = 20;
 const VN_PACK_COMMAND_SIZE = 19;
 // 13 bytes: glyphOffset(2)+glyphCount(1)+voice(2)+speed(1)+advance(1)+autoWait(1)
-//           +mouthAnim(2)+mouthSlot/instantPrefix(1)+textColor(2). pce-vn-manager.js と一致させる。
+//           +mouthSlot(2)+instantPrefix(1)+textColor(2). pce-vn-manager.js と一致させる。
 const VN_PACK_MESSAGE_SIZE = 13;
 const VN_PACK_CHOICE_SIZE = 6;
 const VN_PACK_OPTION_SIZE = 7;
@@ -809,6 +809,18 @@ function computeVisualState(commands = [], uptoIndex = -1, fullScreenBg = false)
   return state;
 }
 
+function nextSpriteAnimationRowId(source, animationId) {
+  // This function is also serialized into the preview window.
+  const animations = Array.isArray(source?.animations) ? source.animations : [];
+  if (animations.length < 2) return '';
+  const wanted = String(animationId || 'default');
+  let index = animations.findIndex((row) => String(row?.id || 'default') === wanted);
+  if (index < 0) index = animations.findIndex((row) => String(row?.id || 'default') === 'default');
+  if (index < 0) index = 0;
+  const next = animations[index + 1];
+  return next ? (String(next.id || 'default').trim() || 'default') : '';
+}
+
 function defaultCharacterPlacement(asset) {
   return {
     x: Math.max(0, Math.floor((PCE_SCREEN_WIDTH - spritePixelWidth(asset)) / 2)),
@@ -886,8 +898,7 @@ function defaultCommand(type, assets = []) {
     text: 'メッセージを入力してください。',
     textColor: '',
     voiceAssetId: first('adpcm'),
-    mouthSlot: 0,
-    mouthAnimationId: '',
+    mouthSlot: null,
   };
 }
 
@@ -1134,14 +1145,21 @@ function normalizeCommand(command = {}, assets = [], index = 0) {
   }
   // 本文は未指定(null/undefined)のときだけ既定文言を補完。空文字はクリア意図として保持。
   const messageText = (raw.text == null ? (index === 0 ? 'メッセージを入力してください。' : '') : String(raw.text)).trim().slice(0, 96);
+  const parsedMouthSlot = Math.round(Number(raw.mouthSlot));
+  const mouthSlot = raw.mouthSlot != null
+    && String(raw.mouthSlot).trim() !== ''
+    && Number.isFinite(parsedMouthSlot)
+    && parsedMouthSlot >= 0
+    && parsedMouthSlot <= 3
+    ? parsedMouthSlot
+    : null;
   return {
     type: 'message',
     speaker: String(raw.speaker || '').trim().slice(0, 16),
     text: messageText,
     textColor: snapHexToPce(raw.textColor),
     voiceAssetId: byId(raw.voiceAssetId)?.type === 'adpcm' ? raw.voiceAssetId : '',
-    mouthSlot: clamp(raw.mouthSlot, 0, 3, 0),
-    mouthAnimationId: String(raw.mouthAnimationId || '').trim().slice(0, 32),
+    mouthSlot,
   };
 }
 
@@ -1342,6 +1360,7 @@ function previewRuntime() {
   let autoTimer = null;
   let messageFastForward = false;
   let activeMessageFastForward = null;
+  let activeMessageMouthRestore = null;
   const spriteMoveTimers = new Map();
   let spriteTextBlinkRaf = 0;
   let spriteTextBlinkPrev = 0;
@@ -1909,6 +1928,30 @@ function previewRuntime() {
     if (waitTimer) { clearTimeout(waitTimer); waitTimer = null; }
     if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
   }
+  function restoreActiveMessageMouth() {
+    const restore = activeMessageMouthRestore;
+    activeMessageMouthRestore = null;
+    if (typeof restore === 'function') restore();
+  }
+  function startActiveMessageMouth(command) {
+    restoreActiveMessageMouth();
+    if (command?.mouthSlot == null || String(command.mouthSlot).trim() === '') return;
+    const slot = Number(command.mouthSlot);
+    if (!Number.isInteger(slot) || slot < 0 || slot > 3) return;
+    const sprite = state.sprites[slot];
+    if (!sprite?.assetId) return;
+    const mouthRowId = nextSpriteAnimationRowId(data.meta[sprite.assetId] || {}, sprite.animationId);
+    if (!mouthRowId) return;
+    const normalAnimationId = sprite.animationId;
+    sprite.animationId = mouthRowId;
+    activeMessageMouthRestore = () => {
+      const current = state.sprites[slot];
+      if (current !== sprite || current.animationId !== mouthRowId) return;
+      current.animationId = normalAnimationId;
+      renderStage();
+    };
+    renderStage();
+  }
   function cancelSpriteMove(slot) {
     const move = spriteMoveTimers.get(slot);
     if (!move) return;
@@ -2142,6 +2185,7 @@ function previewRuntime() {
   function interruptForAsyncInputJump() {
     clearTimers();
     cancelAllSpriteMoves();
+    restoreActiveMessageMouth();
     activeMessageFastForward = null;
     activeMessageAutoToggle = null;
     pending = null;
@@ -2363,6 +2407,7 @@ function previewRuntime() {
   }
 
   function showEnd() {
+    restoreActiveMessageMouth();
     hideChoice();
     msgBox.classList.remove('pv-hidden');
     paintMsg('― END ―', '#fff');
@@ -2372,6 +2417,7 @@ function previewRuntime() {
   }
 
   function showMessage(c) {
+    startActiveMessageMouth(c);
     hideChoice();
     msgBox.classList.remove('pv-hidden');
     const parts = messageParts(c);
@@ -2387,6 +2433,7 @@ function previewRuntime() {
     paintMsg(parts.prefix, color);
     function next(stopVoice = false) {
       clearTimers();
+      restoreActiveMessageMouth();
       if (stopVoice && c.voiceAssetId) stopAudio('adpcm');
       activeMessageFastForward = null;
       activeMessageAutoToggle = null;
@@ -2425,6 +2472,7 @@ function previewRuntime() {
       shownBody = parts.body.length;
       if (typeTimer) { clearInterval(typeTimer); typeTimer = null; }
       if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+      restoreActiveMessageMouth();
       scheduleAuto(true);
     }
     activeMessageFastForward = () => {
@@ -2443,10 +2491,12 @@ function previewRuntime() {
       if (!messageFastForward) {
         voiceStarted = Boolean(playAudio('adpcm', c.voiceAssetId, voiceLoop, () => {
           voiceComplete = true;
+          restoreActiveMessageMouth();
           scheduleAuto(false);
         }, () => {
           voiceFailed = true;
           voiceComplete = true;
+          restoreActiveMessageMouth();
           scheduleAuto(true);
         }));
         if (!voiceStarted) {
@@ -2612,6 +2662,7 @@ function previewRuntime() {
   function start() {
     clearTimers();
     cancelAllSpriteMoves();
+    restoreActiveMessageMouth();
     stopAudio('cdda');
     stopAudio('adpcm');
     stopAudio('psg');
@@ -2670,6 +2721,7 @@ function previewRuntime() {
   root.querySelector('#pv-fast-forward')?.addEventListener('change', (e) => { setMessageFastForward(e.currentTarget.checked); });
   debugToggle?.addEventListener('change', (e) => { setVarDebugVisible(e.currentTarget.checked); });
   window.addEventListener('beforeunload', () => {
+    restoreActiveMessageMouth();
     cancelAllSpriteMoves();
     stopAudio('cdda');
     stopAudio('adpcm');
@@ -2690,7 +2742,7 @@ function buildPreviewHtml(payload) {
     + pcePreviewButtonForKeyboardEvent.toString() + '\n' + pcePreviewInputMatch.toString() + '\n'
     + pcePreviewBgmConflict.toString() + '</scr' + 'ipt>'
     + '<scr' + 'ipt>' + renderSpriteTextCells.toString() + '\n' + psgPreviewNoiseHz.toString() + '\n'
-    + spriteFrameGeometry.toString() + '\n' + applySpriteFrame.toString() + '</scr' + 'ipt>'
+    + spriteFrameGeometry.toString() + '\n' + nextSpriteAnimationRowId.toString() + '\n' + applySpriteFrame.toString() + '</scr' + 'ipt>'
     + '<scr' + 'ipt>(' + previewRuntime.toString() + ')();</scr' + 'ipt>'
     + '</body></html>';
 }
@@ -2824,6 +2876,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
   let commandClipboard = null;
   let messagePreviewTimer = null;
   let previewAudioEl = null;
+  let messagePreviewMouthRestore = null;
   const assetDataUrlCache = new Map();
   const assetApi = api.assets || {};
   const commandPsgPreviewController = createPsgPreviewController({
@@ -2841,6 +2894,11 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
   function stopMessagePreview() {
     if (messagePreviewTimer) { clearInterval(messagePreviewTimer); messagePreviewTimer = null; }
     if (previewAudioEl) { try { previewAudioEl.pause(); } catch (_) {} previewAudioEl = null; }
+    if (messagePreviewMouthRestore) {
+      const restore = messagePreviewMouthRestore;
+      messagePreviewMouthRestore = null;
+      restore();
+    }
     commandPsgPreviewController.stop();
   }
 
@@ -2878,26 +2936,6 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
       })
       .filter(Boolean);
     return normalized.length ? normalized : [{ id: 'default', label: 'default' }];
-  }
-
-  function mouthAnimationOptions(command = {}) {
-    const spriteId = spriteAssetIdForSlotAt(command.mouthSlot);
-    const current = String(command.mouthAnimationId || '').trim();
-    const options = [`<option value="">なし</option>`];
-    if (!spriteId) {
-      if (current) {
-        options.push(`<option value="${esc(current)}" selected>${esc(current)}</option>`);
-      }
-      return options.join('');
-    }
-    const rows = spriteAnimationRows(assetById(spriteId));
-    rows.forEach((row) => {
-      options.push(`<option value="${esc(row.id)}" ${row.id === current ? 'selected' : ''}>${esc(row.label)}</option>`);
-    });
-    if (current && !rows.some((row) => row.id === current)) {
-      options.push(`<option value="${esc(current)}" selected>${esc(current)}</option>`);
-    }
-    return options.join('');
   }
 
   function spriteMoveAnimationOptions(command = {}) {
@@ -2988,6 +3026,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
         node.style.position = 'absolute';
         node.style.left = `${layer.x || 0}px`;
         node.style.top = `${layer.y || 0}px`;
+        node.dataset.spriteSlot = String(layer.slot);
         applySpriteFrame(node, url, geo, layer.flipX, layer.flipY);
         if (active) node.classList.add('is-active');
         return node;
@@ -3011,6 +3050,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
       img.style.transform = `translate(${tx}px, ${ty}px) scale(${sx}, ${sy})`;
     }
     if (active) img.classList.add('is-active');
+    if (kind === 'sprite') img.dataset.spriteSlot = String(layer.slot);
     return img;
   }
 
@@ -3135,7 +3175,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
     }
   }
 
-  function startMessagePreview(node, command, token) {
+  function startMessagePreview(node, command, token, state, urls) {
     const overlay = node.querySelector('[data-role="message-overlay"]');
     const playBtn = node.querySelector('[data-role="message-play"]');
     if (!overlay) return;
@@ -3145,6 +3185,33 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
     const play = () => {
       if (token !== previewToken) return;
       stopMessagePreview();
+      const slot = command.mouthSlot == null || String(command.mouthSlot).trim() === ''
+        ? -1
+        : Number(command.mouthSlot);
+      const sprite = Number.isInteger(slot) && slot >= 0 && slot <= 3 ? state.sprites[slot] : null;
+      const spriteAsset = sprite ? assetById(sprite.assetId) : null;
+      const mouthRowId = spriteAsset
+        ? nextSpriteAnimationRowId(spriteAnimationMeta(spriteAsset), sprite.animationId)
+        : '';
+      let ownedMouthRestore = null;
+      if (sprite && mouthRowId && urls[sprite.assetId]) {
+        const stage = node.querySelector('.pce-vn-stage');
+        const normalNode = stage?.querySelector(`[data-sprite-slot="${slot}"]`);
+        if (normalNode) {
+          const mouthNode = makeStageImg({ ...sprite, animationId: mouthRowId }, 'sprite', urls[sprite.assetId], false);
+          normalNode.replaceWith(mouthNode);
+          ownedMouthRestore = () => {
+            if (!mouthNode.isConnected) return;
+            mouthNode.replaceWith(makeStageImg(sprite, 'sprite', urls[sprite.assetId], false));
+          };
+          messagePreviewMouthRestore = ownedMouthRestore;
+        }
+      }
+      const restoreMouth = () => {
+        if (!ownedMouthRestore || messagePreviewMouthRestore !== ownedMouthRestore) return;
+        messagePreviewMouthRestore = null;
+        ownedMouthRestore();
+      };
       // ADPCM 選択時は再生長に同期した 1 文字あたりの間隔を使う（runtime と同じ考え方）。
       const adpcmSeconds = command.voiceAssetId
         ? audioDurationSeconds(assetById(command.voiceAssetId))
@@ -3155,6 +3222,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
         : systemSettings().messageSpeedFrames * 1000 / 60;
       if (speed <= 0 || !parts.body) {
         paintMessageOverlay(overlay, full, true);
+        restoreMouth();
       } else {
         let shownBody = 0;
         const revealNextBodyGlyph = () => {
@@ -3171,6 +3239,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
               messagePreviewTimer = null;
             }
             paintMessageOverlay(overlay, full, true);
+            restoreMouth();
           }
         };
         paintMessageOverlay(overlay, parts.prefix);
@@ -3183,7 +3252,12 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
           if (token !== previewToken || !url) return;
           const audio = new Audio(url);
           previewAudioEl = audio;
-          audio.play().catch(() => {});
+          audio.addEventListener('ended', () => {
+            if (previewAudioEl === audio) previewAudioEl = null;
+            restoreMouth();
+          });
+          audio.addEventListener('error', restoreMouth);
+          audio.play().catch(restoreMouth);
         });
       }
     };
@@ -3438,7 +3512,6 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
     } else if (command.type === 'message') {
       parts.push(command.speaker || '', command.text || '');
       addAssetSearchText(parts, command.voiceAssetId);
-      if (command.mouthAnimationId) parts.push(command.mouthAnimationId);
     } else if (command.type === 'audio' || command.type === 'cache') {
       addAssetSearchText(parts, command.assetId);
     } else if (command.type === 'choice') {
@@ -3631,7 +3704,6 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
       textColor: colorEnabled ? colorHex : '',
       voiceAssetId: detailForm.elements.voiceAssetId.value,
       mouthSlot: detailForm.elements.mouthSlot.value,
-      mouthAnimationId: detailForm.elements.mouthAnimationId.value,
     }, assets);
   }
 
@@ -4155,10 +4227,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
           </span>
         </label>
       </div>
-      <div class="pce-vn-grid tight">
-        <label class="form-group"><span class="form-label">Mouth slot</span><select class="form-select" name="mouthSlot">${[0, 1, 2, 3].map((slot) => `<option value="${slot}" ${slot === command.mouthSlot ? 'selected' : ''}>slot ${slot}</option>`).join('')}</select></label>
-        <label class="form-group"><span class="form-label">Mouth animation</span><select class="form-select" name="mouthAnimationId">${mouthAnimationOptions(command)}</select></label>
-      </div>
+      <label class="form-group"><span class="form-label">Mouth slot</span><select class="form-select" name="mouthSlot"><option value="" ${command.mouthSlot == null ? 'selected' : ''}>なし（ナレーション）</option>${[0, 1, 2, 3].map((slot) => `<option value="${slot}" ${slot === command.mouthSlot ? 'selected' : ''}>slot ${slot}</option>`).join('')}</select><span class="form-hint">指定slotの現在ROWから次のROWへ切り替え、音声または本文表示の終了時に元へ戻します。</span></label>
     `;
   }
 
@@ -4288,7 +4357,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
       const node = buildMessageStageNode(state, urls, command);
       commandPreviewEl.replaceChildren(node);
       fitStageNodes();
-      startMessagePreview(node, command, token);
+      startMessagePreview(node, command, token, state, urls);
       return;
     }
     if (command.type === 'background' || command.type === 'sprite' || command.type === 'spritemove' || command.type === 'spritetext') {
