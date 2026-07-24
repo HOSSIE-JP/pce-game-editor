@@ -2789,7 +2789,13 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
               </label>
               <label class="pce-vn-scene-name-field pce-vn-scene-id-field">
                 <span>ID</span>
-                <input class="form-input form-input-mono" data-role="scene-id" placeholder="opening" />
+                <input
+                  class="form-input form-input-mono"
+                  data-role="scene-id"
+                  placeholder="opening"
+                  maxlength="32"
+                  spellcheck="false"
+                />
               </label>
               <div class="pce-vn-view-switch" role="group" aria-label="スクリプト編集モード">
                 <button class="btn-sm active" type="button" data-script-mode="gui">GUI</button>
@@ -4582,16 +4588,26 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
   async function save() {
     try {
       if (editorMode === 'json') {
-        if (!applyScriptJsonToDoc({ refreshText: true })) return;
+        if (!applyScriptJsonToDoc({ refreshText: true })) {
+          return { ok: false, error: errorEl.textContent || 'JSONを検証できませんでした' };
+        }
       } else {
         commitCurrentUiToDoc();
         doc = normalizeDoc(doc, assets);
       }
-      await api.electronAPI.writeCodeFile({ path: SCENE_FILE, content: JSON.stringify(doc, null, 2), encoding: 'utf8' });
+      const saved = await api.electronAPI.writeCodeFile({
+        path: SCENE_FILE,
+        content: JSON.stringify(doc, null, 2),
+        encoding: 'utf8',
+      });
+      if (!saved?.ok) throw new Error(saved?.error || 'シーンを保存できませんでした');
       errorEl.textContent = '保存しました';
       render();
+      return { ok: true };
     } catch (err) {
-      errorEl.textContent = `保存失敗: ${err?.message || err}`;
+      const error = String(err?.message || err);
+      errorEl.textContent = `保存失敗: ${error}`;
+      return { ok: false, error };
     }
   }
 
@@ -5074,10 +5090,6 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
     sceneNameInput.value = current.name || '';
     root.querySelector('[data-role="scene-title"]').textContent = sceneDisplayName(current);
     renderSceneList();
-  });
-
-  sceneIdInput?.addEventListener('input', () => {
-    sceneIdInput.value = safeId(sceneIdInput.value, '');
   });
 
   sceneIdInput?.addEventListener('change', () => {

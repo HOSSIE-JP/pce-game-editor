@@ -473,6 +473,10 @@ async function main() {
       }
       const biosVdc = vdcSnapshot(contentPayload(await client.routed('get_huc6270_registers', { vdc: 1 })));
       const biosVce = contentPayload(await client.routed('get_huc6260_status'));
+      const biosCdda = contentPayload(await client.routed('get_cdrom_audio_status'));
+      if (String(biosCdda?.state || '').toUpperCase() !== 'PLAYING') {
+        throw new Error(`CD-DA BIOS call returned without starting audio playback: ${JSON.stringify(biosCdda)}`);
+      }
       const biosScreen = screenshotDigest(await client.tool('get_screenshot'));
       await client.routed('remove_breakpoint', cddaSyncBreakpoint);
 
@@ -543,7 +547,7 @@ async function main() {
           cddaState: biosState,
         },
         frame: { before: beforeScreen, after: frames.map((frame) => frame.screen), stable: screenStable },
-        biosReturn: { status: biosStatus, vdc: biosVdc, vce: biosVce, screen: biosScreen },
+        biosReturn: { status: biosStatus, cdda: biosCdda, vdc: biosVdc, vce: biosVce, screen: biosScreen },
         vdc: { before: beforeVdc, after: frames.map((frame) => frame.vdc), restored: vdcRestored },
         vce: { before: beforeVce, after: frames.map((frame) => frame.vce), restored: vceRestored },
         visibleTimingWrites: 0,

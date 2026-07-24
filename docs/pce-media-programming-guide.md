@@ -529,7 +529,7 @@ HuCARD VN build は System Card package へは変換しませんが、共通の 
 | `action` | `"play"` / `"stop"` | `play` は track 再生、`stop` は pause |
 | `assetId` | `cdda-track` asset ID | `play` のとき `options.track` が runtime へ渡る |
 
-現行 VN runtime の CD-DA 再生は、明示的な audio command がある場合だけ開始します。asset 生成時に `start_sector` と、次track先頭（最終trackではlead-out）を指す排他的 `end_sector` をcatalogへ保存し、両方を `PCE_CDB_LOCATION_TYPE_SECTOR` として `pce_cdb_cdda_play()` へ渡します。`cdda-track.options.loop` が `true` ならこの範囲へ `PCE_CDB_CDDA_PLAY_REPEAT`、`false` なら `PCE_CDB_CDDA_PLAY_ONE_SHOT` を指定するため、選択trackを越えて後続trackへ流れません。CD VNはgraphics/full VBlank handlerを使わず、generic IRQ user vectorでVDC statusをackして`PSG_DRIVE`を1回実行します。CD-DA play後はCD/IRQ stateだけを同期し、VDC/VCEを再初期化しません。CD data / ADPCM BIOS helper後にfull video復元が必要な場合は、まずR5とuser IRQを再設定して次VBlankを待ち、blank中にVCE・R9〜R14・R19・scrollを復元してから表示を再開します。可視走査中に同じtiming値を書き直して1frameの同期崩れを起こさないための順序です。
+現行 VN runtime の CD-DA 再生は、明示的な audio command がある場合だけ開始します。asset 生成時に `start_sector` と、次track先頭（最終trackではlead-out）を指す排他的 `end_sector` をcatalogへ保存し、両方を `PCE_CDB_LOCATION_TYPE_SECTOR` として `pce_cdb_cdda_play()` へ渡します。最初のCD-DA開始位置は、`pce-mkcd` が生成するデータトラックの実サイズ（データ末尾の150セクタpost-gapと、最小450セクタを含む）に合わせます。`cdda-track.options.loop` が `true` ならこの範囲へ `PCE_CDB_CDDA_PLAY_REPEAT`、`false` なら `PCE_CDB_CDDA_PLAY_ONE_SHOT` を指定するため、選択trackを越えて後続trackへ流れません。CD VNはgraphics/full VBlank handlerを使わず、generic IRQ user vectorでVDC statusをackして`PSG_DRIVE`を1回実行します。CD-DA play後はCD/IRQ stateだけを同期し、VDC/VCEを再初期化しません。CD data / ADPCM BIOS helper後にfull video復元が必要な場合は、まずR5とuser IRQを再設定して次VBlankを待ち、blank中にVCE・R9〜R14・R19・scrollを復元してから表示を再開します。可視走査中に同じtiming値を書き直して1frameの同期崩れを起こさないための順序です。
 
 ### 読み込みと cache
 

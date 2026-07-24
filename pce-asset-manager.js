@@ -36,6 +36,7 @@ const BANKED_DATA_THRESHOLD = 1024;
 const CD_DATA_BASE_SECTOR = 64;
 const CD_SECTOR_BYTES = 2048;
 const CD_AUDIO_MIN_SECTOR = 450;
+const CD_DATA_POSTGAP_SECTORS = 150;
 const CDDA_SECTORS_PER_SECOND = 75;
 const CDDA_PLAYBACK_GUARD_FRAMES = 2;
 const CD_MSF_LEAD_IN_SECTORS = 150;
@@ -3004,7 +3005,13 @@ function cdDataEndSector(cdLayout) {
 
 function buildCddaTrackLayout(projectDir, cddaAssets, cdLayout) {
   const layout = new Map();
-  let sector = Math.max(CD_AUDIO_MIN_SECTOR, cdDataEndSector(cdLayout));
+  // pce-mkcd pads the data track by 150 sectors before the first audio track.
+  // For small images this is hidden by the minimum 450-sector ISO size, but a
+  // larger data track must include the post-gap or every CD-DA LBA is early.
+  let sector = Math.max(
+    CD_AUDIO_MIN_SECTOR,
+    cdDataEndSector(cdLayout) + CD_DATA_POSTGAP_SECTORS,
+  );
   const sorted = [...cddaAssets].sort((a, b) => {
     const aTrack = normalizeCddaOptions(a).track;
     const bTrack = normalizeCddaOptions(b).track;
@@ -3028,8 +3035,11 @@ function buildCddaTrackLayout(projectDir, cddaAssets, cdLayout) {
 
 function generateCddaMetadata(projectDir, assets, generationOptions = {}) {
   const cddaAssets = assets.filter((asset) => asset.type === 'cdda-track');
+  const cddaLayoutAssets = Array.isArray(generationOptions.cddaLayoutAssets)
+    ? generationOptions.cddaLayoutAssets.filter((asset) => asset.type === 'cdda-track')
+    : cddaAssets;
   const cddaLayout = generationOptions.targetsCd
-    ? buildCddaTrackLayout(projectDir, cddaAssets, generationOptions.cdLayout)
+    ? buildCddaTrackLayout(projectDir, cddaLayoutAssets, generationOptions.cdLayout)
     : new Map();
   const metaLines = cddaAssets.map((asset, index) => {
     const options = normalizeCddaOptions(asset);
@@ -3176,7 +3186,7 @@ function assetMetaShouldUseCd(projectDir, doc, options = {}) {
   return assetMetaDecision(projectDir, doc, options).useCd;
 }
 
-function validateGeneratedAssetScale(projectDir, doc, assetIds = null) {
+function validateGeneratedAssetScale(projectDir, doc) {
   const layout = computeAssetMetaLayout(doc);
   const checks = [
     ['BG', layout.bg.length],
@@ -3189,22 +3199,15 @@ function validateGeneratedAssetScale(projectDir, doc, assetIds = null) {
       throw new Error(`PCE-CD VN supports up to ${PCE_CATALOG_MAX_ASSETS_PER_TYPE} referenced ${label} assets (got ${count}).`);
     }
   });
-  if (layout.cdda.length > PCE_CDDA_MAX_AUDIO_TRACKS) {
-    throw new Error(`CD-DA supports up to ${PCE_CDDA_MAX_AUDIO_TRACKS} audio tracks (track 2..99; got ${layout.cdda.length}). Use ADPCM or PSG for large audio libraries.`);
-  }
   const tracks = new Map();
   const rawDoc = readRawAssetDocument(projectDir);
-  const idFilter = assetIds instanceof Set ? assetIds : null;
-  (Array.isArray(rawDoc.assets) ? rawDoc.assets : []).forEach((asset) => {
+  const physicalCddaAssets = (Array.isArray(rawDoc.assets) ? rawDoc.assets : [])
+    .filter((asset) => asset?.type === 'cdda-track');
+  if (physicalCddaAssets.length > PCE_CDDA_MAX_AUDIO_TRACKS) {
+    throw new Error(`CD-DA supports up to ${PCE_CDDA_MAX_AUDIO_TRACKS} audio tracks (track 2..99; got ${physicalCddaAssets.length}). Use ADPCM or PSG for large audio libraries.`);
+  }
+  physicalCddaAssets.forEach((asset) => {
     if (!asset || asset.type !== 'cdda-track') return;
-    if (idFilter && !idFilter.has(String(asset.id || ''))) return;
-    const rawTrack = asset.options?.track;
-    const parsed = rawTrack == null || rawTrack === '' ? DEFAULT_CDDA_OPTIONS.track : Number(rawTrack);
-    if (!Number.isFinite(parsed) || Math.trunc(parsed) !== parsed || parsed < 2 || parsed > 99) {
-      throw new Error(`CD-DA asset "${asset.id}" has invalid track ${rawTrack}; use an integer track number from 2 to 99.`);
-    }
-  });
-  layout.cdda.forEach((asset) => {
     const rawTrack = asset.options?.track;
     const parsed = rawTrack == null || rawTrack === '' ? DEFAULT_CDDA_OPTIONS.track : Number(rawTrack);
     if (!Number.isFinite(parsed) || Math.trunc(parsed) !== parsed || parsed < 2 || parsed > 99) {
@@ -3311,7 +3314,7 @@ function metaCdRefForFile(cdLayout, relativePath, byteSize) {
 // Serialize the metadata records into the reserved-size buffer. Records use the
 // fixed offsets documented in docs/pce-asset-meta-cd-ondemand.md and mirrored by
 // the runtime decoder (META_* offsets in pce_vn_runtime.c).
-function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout) {
+function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout, cddaLayoutAssets) {
   const layout = metaLayout || computeAssetMetaLayout(doc);
   const buf = Buffer.alloc(layout.byteSize);
   layout.bg.forEach((asset, index) => {
@@ -3401,7 +3404,10 @@ function buildAssetMetaBuffer(projectDir, doc, cdLayout, metaLayout) {
     }
   });
   {
-    const cddaLayout = buildCddaTrackLayout(projectDir, layout.cdda, cdLayout);
+    const physicalCddaAssets = Array.isArray(cddaLayoutAssets)
+      ? cddaLayoutAssets.filter((asset) => asset.type === 'cdda-track')
+      : layout.cdda;
+    const cddaLayout = buildCddaTrackLayout(projectDir, physicalCddaAssets, cdLayout);
     layout.cdda.forEach((asset, index) => {
       const base = (layout.cddaOffset * CD_SECTOR_BYTES) + (index * META_CDDA_SLOT);
       const options = normalizeCddaOptions(asset);
@@ -3701,6 +3707,85 @@ function ensureAdpcmGeneratedAssets(projectDir, doc) {
   return changed;
 }
 
+function cddaAssetNeedsRegeneration(projectDir, asset) {
+  const generated = asset?.data?.generated || {};
+  const sourceRel = normalizeRelativePath(asset?.source || '');
+  const outputFile = normalizeRelativePath(generated.outputFile || relativeGeneratedPath(asset.id, 'cdda.wav'));
+  const previewFile = normalizeRelativePath(generated.previewFile || relativeGeneratedPath(asset.id, 'preview.json'));
+  if (!sourceRel || !outputFile) return false;
+  const sourcePath = path.join(projectDir, sourceRel);
+  const outputPath = path.join(projectDir, outputFile);
+  const previewPath = path.join(projectDir, previewFile);
+  if (!fs.existsSync(outputPath)) return true;
+  if (!fs.existsSync(sourcePath)) return false;
+  if (!fs.existsSync(previewPath)) return true;
+  return fs.statSync(sourcePath).mtimeMs > fs.statSync(outputPath).mtimeMs;
+}
+
+function regenerateCddaGeneratedAsset(projectDir, asset) {
+  const sourceRel = normalizeRelativePath(asset.source || '');
+  if (!sourceRel) return asset;
+  const { absPath: sourceAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
+  if (!fs.existsSync(sourceAbs)) {
+    throw new Error(`CD-DA source not found for regeneration: ${sourceRel}`);
+  }
+  const generated = asset.data?.generated || {};
+  const outputFile = normalizeRelativePath(generated.outputFile || relativeGeneratedPath(asset.id, 'cdda.wav'));
+  const previewFile = normalizeRelativePath(generated.previewFile || relativeGeneratedPath(asset.id, 'preview.json'));
+  const { absPath: outputAbs } = resolveUnderRoot(projectDir, outputFile, 'project');
+  const { absPath: previewAbs } = resolveUnderRoot(projectDir, previewFile, 'project');
+  const converted = audioConverter.convertWavForCdda(fs.readFileSync(sourceAbs));
+  const processing = asset.data?.import?.processing || {};
+  ensureDirSync(path.dirname(outputAbs));
+  ensureDirSync(path.dirname(previewAbs));
+  fs.writeFileSync(outputAbs, converted.output);
+  fs.writeFileSync(previewAbs, JSON.stringify({
+    source: sourceRel,
+    kind: 'cdda-track',
+    sampleRate: converted.sampleRate,
+    channels: converted.channels,
+    durationSeconds: converted.durationSeconds,
+    bytes: converted.output.length,
+    waveform: converted.waveform,
+    warnings: converted.warnings,
+    processing,
+  }, null, 2), 'utf-8');
+  return normalizeAsset({
+    ...asset,
+    data: {
+      ...(asset.data || {}),
+      generated: {
+        ...generated,
+        outputFile,
+        previewFile,
+        byteLength: converted.output.length,
+        sampleRate: converted.sampleRate,
+        channels: converted.channels,
+        durationSeconds: converted.durationSeconds,
+        waveform: converted.waveform,
+        warnings: converted.warnings,
+      },
+      import: {
+        ...(asset.data?.import || {}),
+        converter: 'Internal WAV/CD-DA normalizer',
+        regeneratedAt: new Date().toISOString(),
+      },
+    },
+  });
+}
+
+function ensureCddaGeneratedAssets(projectDir, doc) {
+  let changed = false;
+  doc.assets = (doc.assets || []).map((asset) => {
+    if (asset.type !== 'cdda-track' || !cddaAssetNeedsRegeneration(projectDir, asset)) return asset;
+    const regenerated = regenerateCddaGeneratedAsset(projectDir, asset);
+    if (regenerated !== asset) changed = true;
+    return regenerated;
+  });
+  if (changed) writeAssetDocument(projectDir, doc);
+  return changed;
+}
+
 function buildCdDataLayout(projectDir, dataFiles) {
   const layout = new Map();
   let sector = CD_DATA_BASE_SECTOR;
@@ -3725,8 +3810,10 @@ function normalizeCdDataFileList(projectDir, entries = []) {
 
 function generateAssetSources(projectDir, options = {}) {
   const doc = readAssetDocument(projectDir);
+  const targetsCd = assetSourceTargetsCd(projectDir, options);
   ensureVisualGeneratedAssets(projectDir, doc, { force: Boolean(options.forceVisualRegeneration) });
   ensureAdpcmGeneratedAssets(projectDir, doc);
+  if (targetsCd) ensureCddaGeneratedAssets(projectDir, doc);
   ensurePsgImportedAssets(projectDir, doc);
   const assetIdFilter = Array.isArray(options.assetIds)
     ? new Set(options.assetIds.map((id) => String(id || '').trim()).filter(Boolean))
@@ -3734,12 +3821,11 @@ function generateAssetSources(projectDir, options = {}) {
   let sourceDoc = assetIdFilter
     ? { ...doc, assets: (doc.assets || []).filter((asset) => asset?.id && assetIdFilter.has(String(asset.id))) }
     : doc;
-  const targetsCd = assetSourceTargetsCd(projectDir, options);
   const slideshow = !targetsCd && isHuCardSlideshowProject(projectDir, options)
     ? selectHuCardSlideshowAssets(projectDir, sourceDoc.assets)
     : null;
   if (slideshow) sourceDoc = { ...sourceDoc, assets: slideshow.assets };
-  validateGeneratedAssetScale(projectDir, sourceDoc, assetIdFilter);
+  validateGeneratedAssetScale(projectDir, sourceDoc);
   ensurePsgPatternFiles(projectDir, sourceDoc, options);
   const assetMetaInfo = assetMetaDecision(projectDir, sourceDoc, options);
   // Reserve the consolidated metadata file at its final size before any CD layout
@@ -3795,7 +3881,16 @@ function generateAssetSources(projectDir, options = {}) {
     catalogMode: false,
   });
   const adpcmGenerated = generateAdpcmMetadata(projectDir, sourceDoc.assets, { targetsCd, cdLayout });
-  const cddaGenerated = generateCddaMetadata(projectDir, sourceDoc.assets, { targetsCd, cdLayout });
+  // The generated catalog may contain only scene-referenced assets, but the
+  // physical disc still contains every CD-DA track. Compute LBAs from the full
+  // track list so an unreferenced intermediate track does not collapse the
+  // following track onto its start sector.
+  const cddaLayoutAssets = (doc.assets || []).filter((asset) => asset.type === 'cdda-track');
+  const cddaGenerated = generateCddaMetadata(projectDir, sourceDoc.assets, {
+    targetsCd,
+    cdLayout,
+    cddaLayoutAssets,
+  });
   const extraGenerated = generateExtraDataRefs(projectDir, options.extraDataFiles, bankAllocator);
   const emptyDataRef = '{ (const unsigned char *)0, 0u, (const pce_editor_data_chunk_t *)0, 0u, (const pce_editor_cd_data_ref_t *)0 }';
 
@@ -3805,7 +3900,13 @@ function generateAssetSources(projectDir, options = {}) {
   let metaRegionLines = [];
   if (assetMetaOnCd) {
     if (metaLayout.byteSize > 0) {
-      const metaBuffer = buildAssetMetaBuffer(projectDir, sourceDoc, cdLayout, metaLayout);
+      const metaBuffer = buildAssetMetaBuffer(
+        projectDir,
+        sourceDoc,
+        cdLayout,
+        metaLayout,
+        cddaLayoutAssets
+      );
       const { absPath: metaAbs } = resolveUnderRoot(projectDir, ASSET_META_FILE, 'project');
       ensureDirSync(path.dirname(metaAbs));
       fs.writeFileSync(metaAbs, metaBuffer);

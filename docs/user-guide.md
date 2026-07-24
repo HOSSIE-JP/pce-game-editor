@@ -39,6 +39,8 @@ Settings の `プロジェクト表示名` は、アプリ内表示とエクス�
 
 Settings > Plugins は、有効なプラグインに加えて、不正な manifest と不足 dependency を「プラグイン診断」に表示します。診断にはplugin ID、組み込み/ユーザーの区分、エラー理由、manifest pathが出るため、読み込まれないpluginをフォルダ探索だけで調査する必要はありません。
 
+Plugins 画面上部の `Build / Emulator プラグイン（単一選択）` は既定で展開され、現在の Build plugin と Test Play plugin をすぐ確認・変更できます。見出しをクリックすると必要に応じて折りたためます。
+
 ユーザープラグインフォルダへ新しく置いたpluginは未信頼・無効状態です。有効化すると、rendererとmain process codeがアプリと同じ権限で動くことを確認するダイアログが表示されます。内容と入手元を確認できる場合だけ信頼してください。「信頼を解除」を押すと、そのpluginを無効化して実行許可を取り消します。現在の信頼モデルは明示確認方式で、user pluginを別processへ隔離するsandboxではありません。
 
 標準の HuCard サンプルは `llvm-mos-sdk` の `mos-pce-clang` でビルドするスライドショーテンプレートです。builder は `pce-slideshow-builder` で、CD-ROM2 VN 用の `pce-visual-novel-builder` とは分離されています。`Image` に登録した BG 画像のうち、ID が `slide_001` または `slide_001_title` の形式に一致するものだけを番号順に表示し、最後の画像の後は先頭へ戻ります。番号は `001` から連番にしてください。スライド画像は PNG として保存され、8px 単位かつ 256x224px 以下である必要があります。ビルド時に形式、サイズ、生成済みデータ、HuCard の ROM bank 使用量を検査し、容量を超える場合は何枚目で超えたかを示すエラーで停止します。コントローラーの `←` は前の画像、`→` またはその他のボタンは次の画像へ進みます。入力がない場合も一定時間で次の画像へ自動遷移します。テンプレートには `slideshow_bgm` の PSG song が含まれ、HuCard 上でループ再生されます。スライドショーテンプレートから作成したプロジェクトでは、既定で `Sound` と `Novel` の sidebar plugin は無効です。
@@ -194,6 +196,8 @@ CD VNの本文はlength付き16-bit Shift-JISでscene pack v3へ保存され、p
 ## Build
 
 `Build` は現在の project 設定と有効な builder plugin を使って ROM / CUE を生成します。Super CD-ROM2 project では `.cue` と `.iso`、必要に応じて CD-DA track WAV や Test Play 用 zip が `out/` に作られます。
+
+CD-ROM2 / HuCARD のVN builderを使う場合、`Build` と `Test Play` はNovel画面のGUI / JSON編集状態を先に `assets/pce-vn-scenes.json` へ保存し、その完了後にbuilderを起動します。AudioのAsset選択などを変更した直後でも、画面上の最新値がビルド対象になります。保存に失敗した場合は古いsceneで続行せず、ビルドを中止してエラーを表示します。
 
 Build Log には `VN generation`、`asset source generation`、`compile/link ELF`、`VN overlay extraction`、`PCE-CD padding update`、`PCE-CD ISO assembly` の各段階の所要時間が表示されます。ビルドが長い場合は、この timing 行で VN スクリプト生成、画像/音声アセット生成、llvm-mos link、ISO 作成のどこが重いかを切り分けてください。
 

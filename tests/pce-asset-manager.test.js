@@ -547,6 +547,38 @@ test('PCE generated sources refresh stale ADPCM encoder output before build', ()
   assert.equal(refreshedDoc.assets[0].data.generated.nibbleOrder, 'msn-first');
 });
 
+test('PCE CD asset generation recreates a missing normalized CD-DA track from its source WAV', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-cdda-refresh-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  const imported = assetManager.importAudio(projectDir, {
+    dataUrl: makeWavDataUrl(22050, 128),
+    sourceFileName: 'opening.wav',
+    kind: 'cdda-track',
+    id: 'opening',
+    track: 2,
+    loop: true,
+  });
+  const outputPath = path.join(projectDir, imported.asset.data.generated.outputFile);
+  const previewPath = path.join(projectDir, imported.asset.data.generated.previewFile);
+  fs.unlinkSync(outputPath);
+  fs.unlinkSync(previewPath);
+
+  assetManager.generateAssetSources(projectDir);
+
+  const refreshedDoc = assetManager.readAssetDocument(projectDir);
+  const refreshed = refreshedDoc.assets.find((asset) => asset.id === 'opening');
+  const preview = JSON.parse(fs.readFileSync(previewPath, 'utf-8'));
+  assert.equal(fs.existsSync(outputPath), true);
+  assert.equal(fs.statSync(outputPath).size > 44, true);
+  assert.equal(refreshed.data.generated.sampleRate, 44100);
+  assert.equal(refreshed.data.generated.channels, 2);
+  assert.equal(refreshed.data.generated.byteLength, fs.statSync(outputPath).size);
+  assert.equal(preview.kind, 'cdda-track');
+  assert.equal(preview.sampleRate, 44100);
+  assert.equal(preview.channels, 2);
+});
+
 test('PCE ADPCM import auto-splits assets that exceed runtime-safe size', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-audio-split-');
@@ -772,6 +804,68 @@ test('PCE CD-DA loop flag edited after import updates CD catalog metadata', () =
   const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
   assert.equal(meta[0], 2); // track
   assert.equal(meta[1], 0); // loop
+});
+
+test('PCE CD-DA metadata keeps physical gaps when an intermediate track is not referenced', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-cdda-physical-layout-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({
+    scenes: [{
+      id: 'title',
+      commands: [
+        { type: 'audio', kind: 'cdda', action: 'play', assetId: 'track_02' },
+        { type: 'audio', kind: 'cdda', action: 'play', assetId: 'track_04' },
+      ],
+    }],
+  }, null, 2));
+  writeFile(projectDir, 'assets/generated/track_02/cdda.wav', makeWavBuffer(44100, 44100));
+  writeFile(projectDir, 'assets/generated/track_03/cdda.wav', makeWavBuffer(44100, 88200));
+  writeFile(projectDir, 'assets/generated/track_04/cdda.wav', makeWavBuffer(44100, 44100));
+  writeFile(projectDir, 'assets/generated/large-data.bin', Buffer.alloc(400 * 2048));
+  assetManager.writeAssetDocument(projectDir, {
+    version: 2,
+    assets: [
+      {
+        id: 'track_02',
+        type: 'cdda-track',
+        options: { track: 2, loop: false },
+        data: { generated: { outputFile: 'assets/generated/track_02/cdda.wav' } },
+      },
+      {
+        id: 'track_03',
+        type: 'cdda-track',
+        options: { track: 3, loop: false },
+        data: { generated: { outputFile: 'assets/generated/track_03/cdda.wav' } },
+      },
+      {
+        id: 'track_04',
+        type: 'cdda-track',
+        options: { track: 4, loop: false },
+        data: { generated: { outputFile: 'assets/generated/track_04/cdda.wav' } },
+      },
+    ],
+  });
+
+  const generated = assetManager.generateAssetSources(projectDir, {
+    assetIds: ['track_02', 'track_04'],
+    cdDataFiles: [
+      'assets/generated/meta/asset_meta.bin',
+      'assets/generated/large-data.bin',
+    ],
+  });
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
+
+  assert.match(source, /pce_editor_cdda_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 64u, 0u, 0u \}, 2u \}/);
+  assert.equal(meta[0], 2);
+  assert.equal(meta[32], 4);
+  // asset_meta.bin occupies sector 64, followed by 400 data sectors. pce-mkcd
+  // adds a 150-sector post-gap, so physical track 02 begins at sector 615.
+  assert.equal(meta.readUIntLE(2, 3), 615);
+  // Track 04 starts after physical tracks 02 (75 sectors) and 03 (150 sectors),
+  // even though track 03 is not present in the generated two-entry catalog.
+  assert.equal(meta.readUIntLE(34, 3), 840);
 });
 
 test('PCE image import generates BG and sprite assets with the internal converter', () => {

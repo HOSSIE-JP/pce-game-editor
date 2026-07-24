@@ -109,13 +109,14 @@ test('setup page exposes PCE-CD IPL extraction flow', () => {
   assert.match(html, /extractPceCdIpl\(\{ sourcePath, confirmOwnedSource \}\)/);
 });
 
-test('plugin role accordion starts collapsed by default', () => {
+test('plugin role accordion starts expanded by default', () => {
   const html = readRendererFile('index.html');
   const renderer = readRendererFile('renderer.js');
 
-  assert.match(html, /id="btnPluginRoleAccordion" type="button" aria-expanded="false"/);
-  assert.match(html, /class="accordion-body is-collapsed" id="pluginRoleBody"/);
-  assert.match(renderer, /roleAccordionOpen:\s*false/);
+  assert.match(html, /id="btnPluginRoleAccordion" type="button" aria-expanded="true"/);
+  assert.match(html, /class="accordion-body" id="pluginRoleBody"/);
+  assert.doesNotMatch(html, /class="accordion-body is-collapsed" id="pluginRoleBody"/);
+  assert.match(renderer, /roleAccordionOpen:\s*true/);
 });
 
 test('log viewer height persists and popout control is wired', () => {
@@ -563,6 +564,15 @@ test('PCE visual novel editor keeps scene deletion in the scene list', () => {
   assert.doesNotMatch(renderer, /data-action="delete-scene"/);
   assert.match(renderer, /data-scene-delete="\$\{esc\(item\.id\)\}"/);
   assert.match(renderer, /function deleteScene\(sceneId = selectedId\)/);
+});
+
+test('PCE visual novel editor preserves underscores while typing a scene ID', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+
+  assert.match(renderer, /data-role="scene-id"[\s\S]*maxlength="32"/);
+  assert.doesNotMatch(renderer, /sceneIdInput\?\.addEventListener\('input'/);
+  assert.doesNotMatch(renderer, /\.value\s*=\s*safeId\(/);
+  assert.match(renderer, /sceneIdInput\?\.addEventListener\('change',[\s\S]*renameSceneId\(sceneIdInput\.value\)/);
 });
 
 test('PCE visual novel preview message skip completes the typewriter page', () => {
@@ -1330,6 +1340,28 @@ test('project settings save through IPC before build structure generation', () =
   assert.match(renderer, /await persistProjectSettings\(result\.config,\s*\{\s*showMessage:\s*true\s*\}\)/);
   assert.match(renderer, /await persistProjectSettings\(settingsResult\.config\)/);
   assert.match(renderer, /generateStructureOnly\(state\.projectConfig\)/);
+});
+
+test('build saves the current visual novel editor state before running a builder plugin', () => {
+  const renderer = readRendererFile('renderer.js');
+  const vnRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+  const buildBody = renderer.slice(
+    renderer.indexOf('async function runBuild(opts = {})'),
+    renderer.indexOf('// ========================================================= TEST PLAY ===')
+  );
+
+  assert.match(renderer, /async function saveVisualNovelBeforeBuild\(\)/);
+  assert.match(renderer, /getPluginCapability\('visual-novel-editor'\)/);
+  assert.match(buildBody, /builderPluginId === 'pce-visual-novel-builder'[\s\S]*builderPluginId === 'pce-visual-novel-hucard-builder'/);
+  assert.match(buildBody, /if \(usesVisualNovelBuilder && !opts\._visualNovelSaved\)/);
+  assert.match(buildBody, /await saveVisualNovelBeforeBuild\(\)/);
+  assert.ok(buildBody.indexOf('await saveVisualNovelBeforeBuild()') < buildBody.indexOf('runPluginGenerator(builderPluginId)'));
+  assert.match(buildBody, /opts = \{ \.\.\.opts, _visualNovelSaved: true \}/);
+  assert.match(vnRenderer, /const saved = await api\.electronAPI\.writeCodeFile\(\{/);
+  assert.match(vnRenderer, /if \(!applyScriptJsonToDoc\(\{ refreshText: true \}\)\) \{[\s\S]*return \{ ok: false, error:/);
+  assert.match(vnRenderer, /if \(!saved\?\.ok\) throw new Error/);
+  assert.match(vnRenderer, /return \{ ok: true \}/);
+  assert.match(vnRenderer, /return \{ ok: false, error \}/);
 });
 
 test('test play rebuilds before opening so ROM header matches project settings', () => {

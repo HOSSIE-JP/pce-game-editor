@@ -93,7 +93,7 @@ const state = {
     type: 'all',
   },
   pluginUi: {
-    roleAccordionOpen: false,
+    roleAccordionOpen: true,
   },
   startup: {
     selectedDefaultSidebarPage: false,
@@ -3339,9 +3339,23 @@ async function persistProjectSettings(config, { showMessage = false } = {}) {
 
 // ============================================================== BUILD ===
 
+async function saveVisualNovelBeforeBuild() {
+  const editor = getPluginCapability('visual-novel-editor');
+  if (!editor?.save) return { ok: true };
+  try {
+    const result = await editor.save();
+    return result?.ok === false
+      ? { ok: false, error: result.error || 'ノベルシーンを保存できませんでした' }
+      : { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+}
+
 /**
  * @param {object} [opts]
  * @param {string} [opts._generatedByPlugin] - このプラグイン ID が既に main.c を書き込み済み
+ * @param {boolean} [opts._visualNovelSaved] - VN editor の画面状態を保存済み
  * @param {boolean} [opts.skipClean] - clean ターゲットを省略して差分ビルドする
  */
 async function runBuild(opts = {}) {
@@ -3353,9 +3367,26 @@ async function runBuild(opts = {}) {
     return { success: false, error: 'Build プラグイン未設定' };
   }
 
-  // ---- アクティブビルダープラグインが設定されており、かつ呼び出し元がプラグイン生成後でない場合 ----
   const builderPluginId = getActiveRolePlugin('builder') || pluginState.activeBuilderPlugin;
   const builderPlugin = builderPluginId ? getPluginById(builderPluginId) : null;
+  const usesVisualNovelBuilder = builderPluginId === 'pce-visual-novel-builder'
+    || builderPluginId === 'pce-visual-novel-hucard-builder';
+
+  // Audio asset selection and other VN edits live in the renderer until the
+  // editor's Save action runs. Persist them before invoking the builder so
+  // Build/Test Play never compiles the previous on-disk command.
+  if (usesVisualNovelBuilder && !opts._visualNovelSaved) {
+    const saved = await saveVisualNovelBeforeBuild();
+    if (!saved.ok) {
+      setLogOpen(true);
+      appendBuildLog(`[ERROR] ノベルシーンの保存に失敗: ${saved.error}`, 'error');
+      setBuildStatus('error', 'ノベル保存失敗');
+      return { success: false, error: saved.error || 'ノベルシーンの保存に失敗' };
+    }
+    opts = { ...opts, _visualNovelSaved: true };
+  }
+
+  // ---- アクティブビルダープラグインが設定されており、かつ呼び出し元がプラグイン生成後でない場合 ----
   if (builderPluginId && builderPlugin?.hasGenerator && !opts._generatedByPlugin) {
     // プラグインで main.c を生成してから再度 runBuild を呼ぶ
     appendBuildLog(`[Plugin] ${builderPluginId}: コード生成中...`);
