@@ -1,0 +1,22 @@
+{
+  "episode": 2,
+  "stills": [
+    {
+      "id": "ep02_001",
+      "role": "題材・現物の提示",
+      "sceneId": "ep02_XX_scene",
+      "storyMoment": "",
+      "characters": ["部長", "チカ", "レン"],
+      "composition": "",
+      "expressions": {
+        "部長": "",
+        "チカ": "",
+        "レン": ""
+      },
+      "props": [],
+      "background": "bg_clubroom_day",
+      "prompt": "224x136 anime cel event still, thick clean outlines, mostly flat colors, minimal gradients, two or three cel-shadow levels, large readable color areas, no text, no logo, no UI, preserve character references...",
+      "negativePrompt": "photorealistic, 3d render, painterly, watercolor, soft airbrush gradients, fine noise, tiny unreadable patterns, text, subtitles, logos, speech bubbles, UI, watermark"
+    }
+  ]
+}

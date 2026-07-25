@@ -1,0 +1,13 @@
+{
+  "proposedAssets": [
+    {
+      "id": "ep02_001",
+      "type": "image",
+      "name": "イベントスチル/第02話/場面名",
+      "source": "assets/images/ep02_001.png",
+      "size": "224x136",
+      "kind": "background",
+      "requiredByScene": "ep02_XX_scene"
+    }
+  ]
+}

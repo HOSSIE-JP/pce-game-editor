@@ -1,0 +1,182 @@
+{
+  "name": "ishi-no-ura-pce-vn-authoring",
+  "version": "1.0.0",
+  "fileCount": 35,
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "bytes": 500,
+      "sha256": "6f368afb408c264ca47310705fd0b56d954e256fd396b38c86401b879e54e893"
+    },
+    {
+      "path": "README.md",
+      "bytes": 2331,
+      "sha256": "349910fd51e4c5ce4a7855f2e18c22c737c469eb7f710eeb292bf3dec021b836"
+    },
+    {
+      "path": "SKILL.md",
+      "bytes": 12319,
+      "sha256": "7320871c2f8b6830df2fd0c3c73c9e8e22ece5d21fa915176e5a433f7ef339ad"
+    },
+    {
+      "path": "VERSION",
+      "bytes": 6,
+      "sha256": "59854984853104df5c353e2f681a15fc7924742f9a2e468c29af248dce45ce03"
+    },
+    {
+      "path": "agents/openai.yaml",
+      "bytes": 387,
+      "sha256": "d1d3d580ad5ecff1e5a974533cb50ab95eb3966c1247417e341d67aad84f5e90"
+    },
+    {
+      "path": "assets/character-references/buchou.png",
+      "bytes": 1777941,
+      "sha256": "0f47538f8ff449a358810dfe16bf9820cc57e5f1284d64caf517e127ac891c7c"
+    },
+    {
+      "path": "assets/character-references/chika.png",
+      "bytes": 1786361,
+      "sha256": "7b6c253b4205369dc534e112f7dc01c689c7e47f27b4924fead547e8e4f06742"
+    },
+    {
+      "path": "assets/character-references/ren.png",
+      "bytes": 1704583,
+      "sha256": "a772186759e7d44d0700abef133b1a658652ca0e9ea0aad126c45c0f7f252d3e"
+    },
+    {
+      "path": "assets/templates/episode-brief.md",
+      "bytes": 989,
+      "sha256": "af346004fa970927cc1034f6f2e7187759a7242b0130f6c60688d0361a239359"
+    },
+    {
+      "path": "assets/templates/event-still-registration-plan.json",
+      "bytes": 287,
+      "sha256": "93fa01818686c02c98eb176d7884176b78186a20ba83669007d06d9e89db2231"
+    },
+    {
+      "path": "assets/templates/scenario-design-output.md",
+      "bytes": 731,
+      "sha256": "defeb0cfb1adb8f8efcd649930b5909da6f530ae3471044cbfc8bd3425e45319"
+    },
+    {
+      "path": "assets/templates/still-integration-map.json",
+      "bytes": 976,
+      "sha256": "ef40a17788c8297bce1869b04531bca8a5e448852d69e0695dc2c04dccd19852"
+    },
+    {
+      "path": "assets/templates/still-plan.json",
+      "bytes": 829,
+      "sha256": "143150a502fedb8da54b7f608fdb4889ccd38e109aeb23f3e020f6924b001a65"
+    },
+    {
+      "path": "examples/episode-02/brief.md",
+      "bytes": 1431,
+      "sha256": "a48abf08bf7a53d9dfc3e43475e1bc551e3bb85821c35cdb6a17ac3348ecc1de"
+    },
+    {
+      "path": "examples/episode-02/event-still-registration-plan.json",
+      "bytes": 1143,
+      "sha256": "b495e1132f64d2c0f47a2384663a4bc001a5e18349ff9f6c926be15f74b1139e"
+    },
+    {
+      "path": "examples/episode-02/pce-vn-scenes.json",
+      "bytes": 56904,
+      "sha256": "69431a02c91c1d06132b85e58c33ba8a5caea51023117b1a9544e59eb58b3658"
+    },
+    {
+      "path": "examples/episode-02/scenario-design.md",
+      "bytes": 1288,
+      "sha256": "59600c9ccb3e554167bc65f5c45093650eb32c3835ef2c41184bdbe969a5786d"
+    },
+    {
+      "path": "examples/episode-02/stills/ep02_001.png",
+      "bytes": 8227,
+      "sha256": "c78b9953d37da340cb3297f6585285f6c3b7d292e75318759df744d97042124b"
+    },
+    {
+      "path": "examples/episode-02/stills/ep02_002.png",
+      "bytes": 7268,
+      "sha256": "9e2ca4f8eeb08791bc5017ca34118f2feec93bc2f4ade7608423c566e4cbd17c"
+    },
+    {
+      "path": "examples/episode-02/stills/ep02_003.png",
+      "bytes": 6617,
+      "sha256": "6646789f81afe35887df173edfa57f8307e8d29117e61e3bba64fb3c5b757e9a"
+    },
+    {
+      "path": "examples/episode-02/stills/ep02_004.png",
+      "bytes": 8241,
+      "sha256": "9586d3750b0b0fca8a5da1a4ad742712a33de6ec58d9efdb760555cb167733dc"
+    },
+    {
+      "path": "references/asset-catalog.md",
+      "bytes": 13361,
+      "sha256": "21911bf13073964c5b15bf770f4aa57d4769f2b2d9d1ca622d6ad39b8bdf6757"
+    },
+    {
+      "path": "references/chatgpt-authoring-workflow.md",
+      "bytes": 27432,
+      "sha256": "259d4ecbb7d62e8d9b0a9e55323a80e8c1264ef54be7235409098ebf96cea549"
+    },
+    {
+      "path": "references/episode-02-case-study.md",
+      "bytes": 2417,
+      "sha256": "2a1d39e4bffe59ffd65a76f18d6a4d21cabdd40cac275468e8e3366d35580a19"
+    },
+    {
+      "path": "references/production-checklist.md",
+      "bytes": 1937,
+      "sha256": "903244d78aa97d66877bfafc0809a2f236c6bc5b2f98ac4d5bed4d64ea8fb8e7"
+    },
+    {
+      "path": "references/series-bible.md",
+      "bytes": 18701,
+      "sha256": "9d5ba6621e565ffe2132778d0d139c68c918737d310ee5c7c27a369e57887a96"
+    },
+    {
+      "path": "references/skill-sources.md",
+      "bytes": 382,
+      "sha256": "30d623d2c928c93b0a787233ce4d53bbeac85e0e5d07d1be1b91229e80a0504b"
+    },
+    {
+      "path": "scripts/integrate_event_stills.py",
+      "bytes": 6749,
+      "sha256": "b21099db70dc598826c70fa638c58261e6f8de3969f1a03ff2d943c99769788f"
+    },
+    {
+      "path": "scripts/package_episode.py",
+      "bytes": 4561,
+      "sha256": "ec96a14552a6809d21b2cbcd84e30be53d569eb4cf3a454c83c642ae76e6c82d"
+    },
+    {
+      "path": "scripts/prepare_event_stills.py",
+      "bytes": 8825,
+      "sha256": "2fefdfac043ab3a48b04a6d82a7d026ecbfaaea8e1d857197f5ef3a7a215f364"
+    },
+    {
+      "path": "scripts/requirements.txt",
+      "bytes": 13,
+      "sha256": "dce978a554b00caca70d59f539d25c61fcc89681e02d7fec42948cd5c3c0a127"
+    },
+    {
+      "path": "scripts/self_test.py",
+      "bytes": 336,
+      "sha256": "bda3857ce6db77d366da2e3722cb0a240dbd59498bf4e414ca9aee04a2906e82"
+    },
+    {
+      "path": "scripts/validate_pce_vn.py",
+      "bytes": 25088,
+      "sha256": "49cd93715d20c9af7589683d2f3fdb9c739f65d1669ef43869fd6deb25f83a0d"
+    },
+    {
+      "path": "tests/fixtures/minimal-pce-assets.json",
+      "bytes": 9003,
+      "sha256": "81130e6eb9b5817932e4f0c9bc3310001960c14ac0454fda881d0ccae0b2867d"
+    },
+    {
+      "path": "tests/test_skill.py",
+      "bytes": 6091,
+      "sha256": "9282f0f03bec320dd7af311c079483b30957a6921ef52607b96cd4e22ac8d0b9"
+    }
+  ]
+}

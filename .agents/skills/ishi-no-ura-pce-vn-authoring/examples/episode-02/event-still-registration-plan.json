@@ -1,0 +1,40 @@
+{
+  "proposedAssets": [
+    {
+      "id": "ep02_001",
+      "type": "image",
+      "name": "イベントスチル/第02話/大型限定版の提示",
+      "source": "assets/images/ep02_001.png",
+      "size": "224x136",
+      "kind": "background",
+      "requiredByScene": "ep02_05_limited_choice"
+    },
+    {
+      "id": "ep02_002",
+      "type": "image",
+      "name": "イベントスチル/第02話/予約限定版の到着",
+      "source": "assets/images/ep02_002.png",
+      "size": "224x136",
+      "kind": "background",
+      "requiredByScene": "ep02_16_delivery_door"
+    },
+    {
+      "id": "ep02_003",
+      "type": "image",
+      "name": "イベントスチル/第02話/倉庫案で意見一致",
+      "source": "assets/images/ep02_003.png",
+      "size": "224x136",
+      "kind": "background",
+      "requiredByScene": "ep02_23_tag_punch"
+    },
+    {
+      "id": "ep02_004",
+      "type": "image",
+      "name": "イベントスチル/第02話/満杯の棚の危機",
+      "source": "assets/images/ep02_004.png",
+      "size": "224x136",
+      "kind": "background",
+      "requiredByScene": "ep02_17_box_crisis"
+    }
+  ]
+}
