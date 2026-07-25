@@ -69,7 +69,8 @@ test('header build controls include setup and export flow', () => {
   assert.match(html, /HuCard プロジェクトの最後の Build 出力だけを保存できます。CD-ROM2 プロジェクトは Export の対象外です/);
   assert.match(html, /HuCard ROM/);
   assert.match(html, /HuCard の \.pce ファイルとして保存/);
-  assert.match(html, /HuCard ROM と EmulatorJS を埋め込んだ単体 HTML として保存/);
+  assert.match(html, /itch\.io HTML5 ZIP/);
+  assert.match(html, /HuCard ROM と EmulatorJS を同梱した itch\.io アップロード用 ZIP として保存/);
   assert.match(renderer, /btnSetup:\s*\$\('btnSetup'\)/);
   assert.match(renderer, /btnExport:\s*\$\('btnExport'\)/);
   assert.match(renderer, /el\.btnSetup\?\.addEventListener\('click'[\s\S]*openSetupWindow\(\)/);
@@ -77,8 +78,8 @@ test('header build controls include setup and export flow', () => {
   assert.match(renderer, /CD-ROM2 プロジェクトは Export の対象外です/);
   assert.match(renderer, /function updateRomOutputActions\(\)[\s\S]*const isHuCard = \/\\\.pce\$\/i\.test/);
   assert.match(renderer, /el\.btnExport\.disabled = !isHuCard/);
-  assert.match(renderer, /async function openExportModal\(\)[\s\S]*window\.electronAPI\.getRomPath\(\)/);
-  assert.match(renderer, /async function exportLastBuild\(format\)/);
+  assert.match(renderer, /async function openExportModal\(\)[\s\S]*state\.lastRomPath \|\| \(await window\.electronAPI\.getRomPath\(\)\)/);
+  assert.match(renderer, /async function exportLastBuild\(format\)[\s\S]*state\.lastRomPath \|\| \(await window\.electronAPI\.getRomPath\(\)\)/);
   assert.match(renderer, /window\.electronAPI\.exportRom\(\)/);
   assert.match(renderer, /window\.electronAPI\.exportHtml\(\)/);
   assert.match(renderer, /const result = isHtml\s*\? await window\.electronAPI\.exportHtml\(\)\s*: await window\.electronAPI\.exportRom\(\)/);

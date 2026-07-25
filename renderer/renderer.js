@@ -3526,7 +3526,7 @@ async function openTestPlay() {
 }
 
 async function openExportModal() {
-  const romPath = await window.electronAPI.getRomPath();
+  const romPath = state.lastRomPath || (await window.electronAPI.getRomPath());
   state.lastRomPath = romPath || null;
   updateRomOutputActions();
   if (!state.lastRomPath) {
@@ -3541,7 +3541,7 @@ async function openExportModal() {
 }
 
 async function exportLastBuild(format) {
-  const romPath = await window.electronAPI.getRomPath();
+  const romPath = state.lastRomPath || (await window.electronAPI.getRomPath());
   state.lastRomPath = romPath || null;
   updateRomOutputActions();
   if (!state.lastRomPath) {
@@ -3553,7 +3553,7 @@ async function exportLastBuild(format) {
     return;
   }
   const isHtml = format === 'html';
-  const label = isHtml ? 'HTML' : 'ROM';
+  const label = isHtml ? 'itch.io ZIP' : 'ROM';
   closeModal(el.exportModal);
   setLogOpen(true);
   appendLog('build', `${label} をエクスポートします: ${state.lastRomPath}`);

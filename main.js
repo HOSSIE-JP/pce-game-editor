@@ -78,6 +78,7 @@ let editorControlServer = null;
 let latestLogSnapshot = { entries: [] };
 let isQuitting = false;
 let forcedQuitTimer = null;
+let lastSuccessfulBuild = null;
 
 const MAIN_WINDOW_DEFAULT_BOUNDS = { width: 1280, height: 860 };
 const MAIN_WINDOW_MIN_BOUNDS = { width: 960, height: 640 };
@@ -1189,14 +1190,14 @@ function createMenu() {
           },
         },
         {
-          label: 'Export HTML',
+          label: 'Export itch.io ZIP',
           click: async () => {
             const result = await handleExportHtml();
             if (result.ok) {
-              sendToRenderer('build-log', { text: `HTML をエクスポートしました: ${result.path}`, level: 'info' });
+              sendToRenderer('build-log', { text: `itch.io ZIP をエクスポートしました: ${result.path}`, level: 'info' });
               shell.openPath(path.dirname(result.path)).catch(() => {});
             } else if (!result.canceled) {
-              sendToRenderer('build-log', { text: `Export HTML 失敗: ${result.error}`, level: 'error' });
+              sendToRenderer('build-log', { text: `Export itch.io ZIP 失敗: ${result.error}`, level: 'error' });
             }
           },
         },
@@ -1658,6 +1659,16 @@ async function runBuildFull(options = {}) {
   return runPceBuildFull(options);
 }
 
+function getLastBuiltMediaPath() {
+  const projectDir = path.resolve(buildSystem.getProjectDir());
+  if (lastSuccessfulBuild?.projectDir === projectDir
+    && lastSuccessfulBuild.romPath
+    && fs.existsSync(lastSuccessfulBuild.romPath)) {
+    return lastSuccessfulBuild.romPath;
+  }
+  return buildSystem.getLastRomPath();
+}
+
 async function runPceBuildFull(options = {}) {
   try {
     const projectDir = buildSystem.getProjectDir();
@@ -1705,6 +1716,12 @@ async function runPceBuildFull(options = {}) {
     });
 
     if (result.success) {
+      if (result.romPath && fs.existsSync(result.romPath)) {
+        lastSuccessfulBuild = {
+          projectDir: path.resolve(projectDir),
+          romPath: path.resolve(result.romPath),
+        };
+      }
       await invokePluginHookSafe(builderPluginId, 'onBuildEnd', result, pluginContext);
     } else {
       await invokePluginHookSafe(builderPluginId, 'onBuildError', {
@@ -1724,7 +1741,7 @@ async function runPceBuildFull(options = {}) {
 // ── Export ハンドラ ─────────────────────────────────────────────────────────
 
 async function handleExportRom() {
-  const romPath = buildSystem.getLastRomPath();
+  const romPath = getLastBuiltMediaPath();
   if (!romPath || !fs.existsSync(romPath)) {
     return { ok: false, error: 'エクスポートできるビルド済み PCE メディアがありません。先に Build を実行してください。' };
   }
@@ -1767,7 +1784,7 @@ async function handleExportRom() {
 }
 
 async function handleExportHtml() {
-  const romPath = buildSystem.getLastRomPath();
+  const romPath = getLastBuiltMediaPath();
   if (!romPath || !fs.existsSync(romPath)) {
     return { ok: false, error: 'エクスポートできるビルド済み PCE メディアがありません。先に Build を実行してください。' };
   }
@@ -1797,13 +1814,13 @@ async function handleExportHtml() {
     return { ok: false, needsSetup: true, error: `EmulatorJS mednafen_pce core が見つかりません: ${path.join(runtime.dataDir, 'cores')}` };
   }
 
-  // 保存先 HTML ファイルを選択（シングルファイル・サーバー不要）
+  // itch.io がそのまま展開・配信できる HTML5 ZIP を保存する。
   const owner = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
-  let suggested = `${sanitizeExportFileName(path.basename(romPath, path.extname(romPath)), 'rom')}.html`;
+  let suggested = `${sanitizeExportFileName(path.basename(romPath, path.extname(romPath)), 'rom')}-itchio.zip`;
   try {
     const cfg = buildSystem.loadProjectConfig();
     const projectName = cfg?.title || cfg?.romName || cfg?.name || buildSystem.getProjectInfo()?.projectName;
-    if (projectName) suggested = `${sanitizeExportFileName(projectName, 'rom')}.html`;
+    if (projectName) suggested = `${sanitizeExportFileName(projectName, 'rom')}-itchio.zip`;
   } catch (err) {
     appDiagnostics.report({
       source: 'export',
@@ -1815,9 +1832,9 @@ async function handleExportHtml() {
   }
 
   const saveResult = await dialog.showSaveDialog(owner, {
-    title: 'HTML をエクスポート（スタンドアロン・サーバー不要）',
+    title: 'itch.io 用 HTML5 ZIP をエクスポート',
     defaultPath: suggested,
-    filters: [{ name: 'HTML ファイル', extensions: ['html'] }],
+    filters: [{ name: 'ZIP ファイル', extensions: ['zip'] }],
   });
   if (saveResult.canceled || !saveResult.filePath) return { ok: false, canceled: true };
 
@@ -1828,16 +1845,14 @@ async function handleExportHtml() {
     return { ok: false, needsSetup: true, error: String(err?.message || err) };
   }
 
-  const html = pceExport.generatePceExportHtml({
+  const bundle = pceExport.createPceItchIoBundle({
     media,
     emulatorAssets,
     appVersion: electronPackageJson.version,
-    appBuildNumber: appBuildMeta.buildNumber,
-    appBuildAt: appBuildMeta.buildAt,
   });
-  fs.writeFileSync(saveResult.filePath, html, 'utf-8');
+  fs.writeFileSync(saveResult.filePath, cdBundle.createStoredZipBuffer(bundle.entries));
 
-  return { ok: true, path: saveResult.filePath };
+  return { ok: true, path: saveResult.filePath, entryName: bundle.entryName, fileCount: bundle.fileCount };
 }
 
 async function handleExportVnIrodoriBatch(payload = {}) {
@@ -1920,7 +1935,7 @@ ipcMain.handle('log:appendEntry', async (_event, entry) => {
 });
 
 ipcMain.handle('build:getRomPath', async () => {
-  return buildSystem.getLastRomPath();
+  return getLastBuiltMediaPath();
 });
 
 ipcMain.handle('build:getProjectConfig', async () => {

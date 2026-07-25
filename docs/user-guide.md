@@ -29,7 +29,7 @@ Mega Drive ROM ヘッダー向けだったタイトル、作者名、シリア�
 - asset の正本は `assets/pce-assets.json` の `version: 2` です。BG / sprite / palette / PSG / ADPCM / CD-DA を同じ document で管理します。
 - VN scene の正本は `assets/pce-vn-scenes.json` の `version: 2` です。scene の実行順は `commands`、scene pack の生成順は `scenes` 配列順です。
 - build plugin と Test Play plugin の選択は `project.json.pluginRoles.builder` / `pluginRoles.testplay` です。
-- HuCard は `targetMedia: "hucard"`、Super CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を使います。CD VNの`cd.systemCardProfile`はbuilderが固定値`"jp-v3"`へ正規化する生成契約で、ユーザーが設定する項目ではありません。System Card ROM本体はビルドには不要で、Setupで指定したユーザー所有ROMをTest Play／HTML Export時だけ検証・使用します。
+- HuCard は `targetMedia: "hucard"`、Super CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を使います。CD VNの`cd.systemCardProfile`はbuilderが固定値`"jp-v3"`へ正規化する生成契約で、ユーザーが設定する項目ではありません。System Card ROM本体はビルドには不要で、Setupで指定したユーザー所有ROMを CD-ROM2 Test Play 時だけ検証・使用します。
 
 現行 visual asset は raw の `tiles.bin` / `map_vram.bin` / `patterns.bin` だけを使い、圧縮オプションや `.rle` sidecar は保存しません。ADPCM divider/encoder と一部の VN command field には、既存データを安全に読み込むための値補正が残っていますが、UI で複数バージョンを選ぶ機能ではありません。詳細は [Implementation Audit](implementation-audit-2026-07-10.md) を参照してください。
 
@@ -208,9 +208,11 @@ Test Play は直前の出力を残したままビルドします。VN シーン�
 `Export` は最後に成功した **HuCard** Build 出力だけを保存します。新しくビルドは実行しないため、内容を更新したい場合は先に `Build` を押してください。CD-ROM2 project は System Card / IPL を必要とする配布境界を避けるため、Export の対象外です。
 
 - **HuCard ROM**: `.pce` を保存します。
-- **HTML**: Setup 済みの EmulatorJS runtime / `mednafen_pce` core と HuCard ROM を 1 つの HTML に埋め込みます。CD-ROM2 のゲームデータ、System Card、IPL は埋め込みません。
+- **itch.io HTML5 ZIP**: Setup 済みの EmulatorJS runtime、`mednafen_pce` legacy core、HuCard ROMを `index.html`、`data/`、`rom/`、`LICENSES/`、`SOURCE.md` として ZIP にまとめます。CD-ROM2 のゲームデータ、System Card、IPL は含めません。
 
-HTML export は `file://` でダブルクリック起動できることを目的にしています。生成 HTML にはユーザーが Setup で指定した EmulatorJS runtime/core が含まれます。EmulatorJS は GPL-3.0、`mednafen_pce` core は GPL 系コンポーネントのため、配布する場合は対象バージョンのライセンス表示、対応する完全なソース、改変・ビルド手順を GPL の条件に従って提供してください。PCE Game Editor 本体のリポジトリには EmulatorJS runtime/core や System Card は同梱しません。
+この ZIP は単一 HTML ではなく、itch.io が HTTP で配信する HTML5 game 用です。ZIP を展開せずに itch.io の HTML game としてアップロードしてください。`index.html` は ZIP のルートにあり、内部参照は同梱ファイルへの相対パスです。ローカルの `file://` ダブルクリック起動はサポート対象ではありません。itch.io の HTML5 upload では、ZIPのルートに `index.html` を置く必要があります。詳しくは [itch.io の HTML5 upload documentation](https://itch.io/docs/creators/html5) を参照してください。
+
+生成 ZIP の `LICENSES/EmulatorJS-GPL-3.0.txt` には Setup 済み EmulatorJS の GPL-3.0 license text を、`LICENSES/NOTICE.txt` には再配布時の注意を入れます。`SOURCE.md` は同梱 runtime/core の版、source repository、core dataのSHA-256、および公開すべき source archive の内容を記録します。EmulatorJS は GPL-3.0、`mednafen_pce` core は GPL 系コンポーネントのため、**NOTICEやSOURCE.mdだけではライセンス義務を満たしません**。公開者は、同じ itch.io game pageで `ゲーム名-source.zip` を別ダウンロードとして公開し、同梱した正確な版に対応する完全なソース、ライセンス表示、必要な改変内容とビルド手順を GPL 条件に従って提供してください。PCE Game Editor 本体のリポジトリには EmulatorJS runtime/core のソースや System Card を同梱しません。
 
 ## Test Play
 
