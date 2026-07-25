@@ -810,7 +810,14 @@ static void VN_HUCARD_CODE_TEXT clear_message_glyph_area(uint8_t col, uint8_t ro
     uint8_t tc;
     uint8_t sub;
     uint8_t k;
-    composer_prev_valid = 0u;
+    /* The reserved wait/AUTO cursor starts on a tile boundary and never shares
+       a tile with message text. Clearing it while typewriter text is still
+       revealing must therefore preserve the stream's saved left neighbour. */
+    if (col != VN_WAIT_CURSOR_COL || row != VN_WAIT_CURSOR_ROW)
+    {
+        composer_prev_valid = 0u;
+        composer_row = 0xffu;
+    }
     for (k = 0u; k < 32u; k++) msg_tile[k] = 0u;
     reset_msg_tile_batch();
     for (tc = tc0; tc <= tc1 && tc < VN_MSG_TILE_COLS; tc++)

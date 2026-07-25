@@ -102,6 +102,21 @@ test('HuCARD VN message indicator follows the live AUTO_ENABLE value', () => {
   assert.match(runtime, /use_prev = isolated \? 0u : composer_prev_valid/);
   assert.match(runtime, /draw_message_indicator_glyph_at\([^\n]+\)[\s\S]*draw_message_glyph_at_impl\(glyph, col, row, 1u, 1u\)/);
   assert.match(runtime, /show_message_auto_indicator\(void\)[\s\S]*draw_message_indicator_glyph_at\(PCE_VN_MESSAGE_AUTO_GLYPH/);
+  const clearGlyph = sliceBetween(
+    'static void VN_HUCARD_CODE_TEXT clear_message_glyph_area',
+    'static uint8_t VN_HUCARD_CODE_TEXT draw_message_next_entry_impl',
+  );
+  assert.match(
+    clearGlyph,
+    /if \(col != VN_WAIT_CURSOR_COL \|\| row != VN_WAIT_CURSOR_ROW\)[\s\S]*composer_prev_valid = 0u/,
+  );
+  const glyphWidth = Number(runtime.match(/#define VN_GLYPH_W (\d+)u/)[1]);
+  const waitCursorCol = Number(runtime.match(/#define VN_WAIT_CURSOR_COL (\d+)u/)[1]);
+  const lastTextPixel = ((waitCursorCol - 1) * glyphWidth) + glyphWidth - 1;
+  const waitCursorPixel = waitCursorCol * glyphWidth;
+  assert.equal(waitCursorPixel % 8, 0);
+  assert.equal(lastTextPixel >> 3, (waitCursorPixel >> 3) - 1);
+  assert.doesNotMatch(runtime, /composer_prev_masks|composer_prev_cols|composer_prev_valid_rows/);
   assert.doesNotMatch(refresh, /advance_mode/);
   assert.doesNotMatch(tick, /advance_mode/);
 });
