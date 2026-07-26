@@ -592,6 +592,7 @@ static void show_scene(uint8_t scene_index)
         {
             clear_screen_map();
             preloaded_bg_valid = 0u;
+            current_bg_display_valid = 0u;
             preloaded_scene_visual_valid = 0u;
         }
     }
@@ -762,6 +763,8 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
     {
         clear_sprites();
         upload_sprite_table();
+        sprite_satb_layout_valid = 0u;
+        REQUEST_SPRITE_REFRESH_FULL();
         pending_scene_sprite_clear = 0u;
     }
     bg_ready = (uint8_t)(preloaded_bg_valid
@@ -780,6 +783,8 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
         if (current_scene_full_screen_bg)
         {
             full_screen_bg_text_vram_dirty = 1u;
+            sprite_satb_layout_valid = 0u;
+            REQUEST_SPRITE_REFRESH_FULL();
             for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
             {
                 loaded_sprite_pattern_valid[i] = 0u;
@@ -793,6 +798,7 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
         preloaded_bg_y = next_y;
     }
     current_bg_index = bg_index;
+    current_bg_display_valid = 1u;
     current_bg_x = next_x;
     current_bg_y = next_y;
     current_bg_map_base = next_bg->map_base;
@@ -820,6 +826,33 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
     if (bg_fade_in_frames)
     {
         fade_palette(&next_bg->palette, (uint16_t)(next_bg->palette_bank * 16u), bg_fade_in_frames, 1u);
+    }
+    if (pending_sprite_refresh)
+    {
+        refresh_scene_sprites();
+    }
+}
+
+/* bank122 is already boot-loaded for pure VDC/CD helpers.  Keep the actual
+   predicate there so the resident command dispatcher retains its bank budget. */
+static uint8_t VN_BANKED_CODE2 command_matches_display(const pce_vn_command_t *command)
+{
+    vn_visual_cache_arg_asset = (uint16_t)(uintptr_t)command;
+    return vn_cd_async_call_bank122(VN_CD_ASYNC_OP_MATCH_DISPLAY_COMMAND);
+}
+
+/* Keep this slot4-dependent follow-up with the normal sprite work.  The caller
+   has already established that the BG pixels are current, so this only repairs
+   scene-local SATB bookkeeping without touching BG or palette state. */
+static void VN_BANKED_CODE2 finish_same_background_transition(void)
+{
+    if (pending_scene_sprite_clear)
+    {
+        clear_sprites();
+        upload_sprite_table();
+        sprite_satb_layout_valid = 0u;
+        REQUEST_SPRITE_REFRESH_FULL();
+        pending_scene_sprite_clear = 0u;
     }
     if (pending_sprite_refresh)
     {
@@ -933,6 +966,17 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
 {
     uint8_t slot;
     if (!command) return VN_EXEC_CONTINUE;
+    /* Check visual no-ops before the CD voice gate below.  A duplicate image
+       command performs no CD access, so it must not interrupt an active voice. */
+    if ((command->type == PCE_VN_COMMAND_BACKGROUND || command->type == PCE_VN_COMMAND_SPRITE)
+        && command_matches_display(command))
+    {
+        if (command->type == PCE_VN_COMMAND_BACKGROUND)
+        {
+            finish_same_background_transition();
+        }
+        return VN_EXEC_CONTINUE;
+    }
 #if defined(__PCE_CD__)
     if (adpcm_playback_active()
         && (command->type == PCE_VN_COMMAND_BACKGROUND
@@ -1056,6 +1100,7 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
 #endif
             clear_screen_map();
             preloaded_bg_valid = 0u;
+            current_bg_display_valid = 0u;
             preloaded_scene_visual_valid = 0u;
         }
         else if (command->flags == PCE_VN_EFFECT_SHAKE)

@@ -525,6 +525,54 @@ static uint8_t VN_CD_ASYNC_CODE vn_cd_async_service_impl(void)
     return vn_cd_async_status;
 }
 
+/* This is intentionally pure: bank122 temporarily replaces bank130 in slot4,
+   so the duplicate-display predicate may only inspect resident state. */
+static uint8_t VN_CD_ASYNC_CODE command_matches_display_impl(const pce_vn_command_t *command)
+{
+    if (!command) return 0u;
+    if (command->type == PCE_VN_COMMAND_BACKGROUND)
+    {
+        const uint8_t next_x = command->x < VN_MAP_WIDTH ? (uint8_t)command->x : 0u;
+        const uint8_t next_y = command->y < VN_MAP_HEIGHT ? (uint8_t)command->y : 0u;
+        if (pending_display_enable) return 0u;
+        if (current_bg_index != command->asset_index || current_bg_x != next_x || current_bg_y != next_y) return 0u;
+        if (!current_bg_display_valid) return 0u;
+#if PCE_VN_HAS_FULL_SCREEN_BG
+        if (current_scene_full_screen_bg)
+        {
+            if (!full_screen_bg_text_vram_dirty) return 0u;
+        }
+        else if (full_screen_bg_text_vram_dirty)
+        {
+            return 0u;
+        }
+#endif
+        return 1u;
+    }
+    if (command->type == PCE_VN_COMMAND_SPRITE)
+    {
+        const vn_sprite_slot_t *state;
+        uint8_t slot;
+        if (!(command->flags & PCE_VN_SPRITE_VISIBLE) || command->asset_index < 0) return 0u;
+        if (pending_display_enable || pending_sprite_refresh || pending_scene_sprite_clear) return 0u;
+        slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
+        if (sprite_moves[slot].active || sync_sprite_move_slot == slot) return 0u;
+        state = &sprite_slots[slot];
+        if (!state->visible
+            || state->sprite_index != command->asset_index
+            || state->animation_index != command->animation_index
+            || state->x != command->x
+            || state->y != command->y
+            || state->flags != command->flags)
+        {
+            return 0u;
+        }
+        if (!sprite_satb_layout_valid || !sprite_satb_slot_count[slot]) return 0u;
+        return 1u;
+    }
+    return 0u;
+}
+
 static uint8_t VN_CD_ASYNC_ENTRY_CODE vn_cd_async_entry(uint8_t op)
 {
     if (op == VN_CD_ASYNC_OP_BEGIN) return vn_cd_async_begin_impl();
@@ -575,6 +623,25 @@ static uint8_t VN_CD_ASYNC_ENTRY_CODE vn_cd_async_entry(uint8_t op)
     if (op == VN_CD_ASYNC_OP_ADPCM_PLAYBACK)
     {
         service_adpcm_playback_impl();
+        return 1u;
+    }
+    if (op == VN_CD_ASYNC_OP_MATCH_DISPLAY_COMMAND)
+    {
+        return command_matches_display_impl((const pce_vn_command_t *)(uintptr_t)vn_visual_cache_arg_asset);
+    }
+    if (op == VN_CD_ASYNC_OP_CLEAR_SPRITES)
+    {
+        clear_sprites_impl();
+        return 1u;
+    }
+    if (op == VN_CD_ASYNC_OP_CANCEL_SPRITE_MOVE)
+    {
+        cancel_sprite_move_impl(vn_visual_cache_arg_slot);
+        return 1u;
+    }
+    if (op == VN_CD_ASYNC_OP_CANCEL_ALL_SPRITE_MOVES)
+    {
+        cancel_all_sprite_moves_impl();
         return 1u;
     }
     return vn_cd_async_status;

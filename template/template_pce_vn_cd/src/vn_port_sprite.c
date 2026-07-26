@@ -26,7 +26,7 @@ static uint8_t sprite_pattern_slots_for_size(uint8_t cell_width, uint8_t cell_he
     return (uint8_t)(row_pattern_slots * pattern_rows);
 }
 
-static void VN_BANKED_CODE2 clear_sprites(void)
+static void VN_CD_ASYNC_CODE clear_sprites_impl(void)
 {
 #if defined(__PCE__)
     uint8_t i;
@@ -39,6 +39,17 @@ static void VN_BANKED_CODE2 clear_sprites(void)
         sprite_shadow[i].pattern = 0u;
         sprite_shadow[i].attr = 0u;
     }
+#endif
+}
+
+/* The actual clear is self-contained RAM work, so keep it with the bank122
+   upload helper.  The thin wrapper preserves whichever slot4 bank called it. */
+static void VN_BANKED_CODE clear_sprites(void)
+{
+#if defined(__PCE_CD__)
+    (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_CLEAR_SPRITES);
+#else
+    clear_sprites_impl();
 #endif
 }
 
@@ -686,13 +697,32 @@ static void VN_BANKED_CODE update_active_message_mouth(uint8_t restore)
 #endif
 }
 
-static void VN_BANKED_CODE cancel_sprite_move(uint8_t slot)
+/* Boot runs before the bank122 runtime-support overlay is loaded. Keep this
+   small nonzero sentinel initialization in permanent bank129 rather than
+   dispatching through cancel_all_sprite_moves(). sprite_moves is static BSS
+   and is therefore already zeroed before main(). */
+static void VN_BANKED_CODE initialize_sprite_move_state(void)
+{
+    sync_sprite_move_slot = 0xffu;
+}
+
+static void VN_CD_ASYNC_CODE cancel_sprite_move_impl(uint8_t slot)
 {
     sprite_moves[slot].active = 0u;
     if (sync_sprite_move_slot == slot) sync_sprite_move_slot = 0xffu;
 }
 
-static void VN_BANKED_CODE cancel_all_sprite_moves(void)
+static void VN_BANKED_CODE cancel_sprite_move(uint8_t slot)
+{
+#if defined(__PCE_CD__)
+    vn_visual_cache_arg_slot = slot;
+    (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_CANCEL_SPRITE_MOVE);
+#else
+    cancel_sprite_move_impl(slot);
+#endif
+}
+
+static void VN_CD_ASYNC_CODE cancel_all_sprite_moves_impl(void)
 {
     uint8_t slot;
     for (slot = 0u; slot < VN_SPRITE_SLOT_COUNT; slot++)
@@ -700,6 +730,15 @@ static void VN_BANKED_CODE cancel_all_sprite_moves(void)
         sprite_moves[slot].active = 0u;
     }
     sync_sprite_move_slot = 0xffu;
+}
+
+static void VN_BANKED_CODE cancel_all_sprite_moves(void)
+{
+#if defined(__PCE_CD__)
+    (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_CANCEL_ALL_SPRITE_MOVES);
+#else
+    cancel_all_sprite_moves_impl();
+#endif
 }
 
 static uint8_t VN_BANKED_CODE2 start_sprite_move(const pce_vn_command_t *command)
@@ -910,6 +949,9 @@ static void VN_BANKED_CODE2 hide_sprites_for_asset_load(void)
 {
     clear_sprites();
     upload_sprite_table();
+    /* The shadow/SATB contents were cleared above.  A later identical Sprite
+       command must rebuild them instead of treating its logical state as live. */
+    sprite_satb_layout_valid = 0u;
     pending_scene_sprite_clear = 0u;
     if (!pending_display_enable)
     {

@@ -47,6 +47,7 @@ loadAppConfig(require('../app.config'));
   'pce-vn-hucard-auto-runtime.test.js',
   'pce-vn-irodori-assign.test.js',
   'pce-vn-irodori-batch.test.js',
+  'pce-vn-godot-package.test.js',
   'pce-vn-cd-data-files.test.js',
   'pce-vn-cd-catalog.test.js',
   'pce-vn-scene-pack.test.js',

@@ -1358,6 +1358,7 @@ function previewRuntime() {
   let pc = 0;
   let vars = {};
   let state = { background: null, sprites: {}, spriteTexts: {} };
+  let displaySuppressed = false;
   let typeTimer = null;
   let waitTimer = null;
   let autoTimer = null;
@@ -1378,7 +1379,7 @@ function previewRuntime() {
   const PSG_CLOCK = 3579545;
   const PSG_CHANNEL_COUNT = 6;
   let psgAudioContext = null;
-  let psgState = null;
+  const psgStates = { bgm: null, sfx: null };
   const variableInitialValues = {
     AUTO_ENABLE: messageAdvanceMode === 'auto' ? 1 : 0,
     MSG_SPEED: 0,
@@ -1445,12 +1446,12 @@ function previewRuntime() {
       return state.map((cell) => ({ ...cell }));
     });
   }
-  function rememberPsgNode(node) {
-    if (!psgState || !node) return;
-    psgState.nodes.push(node);
+  function rememberPsgNode(stateRef, node) {
+    if (!stateRef || !node) return;
+    stateRef.nodes.push(node);
     node.onended = () => {
-      if (!psgState) return;
-      psgState.nodes = psgState.nodes.filter((entry) => entry !== node);
+      if (psgStates[stateRef.bus] !== stateRef) return;
+      stateRef.nodes = stateRef.nodes.filter((entry) => entry !== node);
     };
   }
   function schedulePsgEnvelope(gain, start, duration, level) {
@@ -1461,7 +1462,7 @@ function previewRuntime() {
     gain.gain.setValueAtTime(level, Math.max(start + 0.008, end - 0.018));
     gain.gain.exponentialRampToValueAtTime(0.0001, end);
   }
-  function schedulePsgTone(cell, start, duration) {
+  function schedulePsgTone(stateRef, cell, start, duration) {
     const frequency = psgFrequencyFromPeriod(cell.period);
     if (!frequency || !psgAudioContext) return;
     const osc = psgAudioContext.createOscillator();
@@ -1472,9 +1473,9 @@ function previewRuntime() {
     osc.connect(gain).connect(psgAudioContext.destination);
     osc.start(start);
     osc.stop(start + duration);
-    rememberPsgNode(osc);
+    rememberPsgNode(stateRef, osc);
   }
-  function schedulePsgNoise(cell, start, duration) {
+  function schedulePsgNoise(stateRef, cell, start, duration) {
     if (!psgAudioContext) return;
     const playDuration = Math.min(duration, 0.12);
     const sampleRate = psgAudioContext.sampleRate;
@@ -1503,41 +1504,45 @@ function previewRuntime() {
     source.connect(gain).connect(psgAudioContext.destination);
     source.start(start);
     source.stop(start + playDuration);
-    rememberPsgNode(source);
+    rememberPsgNode(stateRef, source);
   }
-  function schedulePsgStep() {
-    const stateRef = psgState;
-    if (!stateRef || !psgAudioContext) return;
+  function schedulePsgStep(stateRef) {
+    if (!stateRef || !psgAudioContext || psgStates[stateRef.bus] !== stateRef) return;
     if (stateRef.step >= stateRef.rows.length) {
-      if (!stateRef.loop) { stopPsgPreview(); return; }
+      if (!stateRef.loop) { stopPsgPreview(stateRef.bus); return; }
       stateRef.step = 0;
     }
     const row = stateRef.rows[stateRef.step] || [];
     const start = psgAudioContext.currentTime + 0.012;
     row.forEach((cell, channel) => {
       if (!cell || cell.volume <= 0 || cell.period <= 0) return;
-      if (cell.noise && channel >= 4) schedulePsgNoise(cell, start, stateRef.stepSeconds);
-      else schedulePsgTone(cell, start, stateRef.stepSeconds * 0.96);
+      if (cell.noise && channel >= 4) schedulePsgNoise(stateRef, cell, start, stateRef.stepSeconds);
+      else schedulePsgTone(stateRef, cell, start, stateRef.stepSeconds * 0.96);
     });
     stateRef.step += 1;
     const timer = setTimeout(() => {
-      if (psgState) psgState.timers = psgState.timers.filter((entry) => entry !== timer);
-      schedulePsgStep();
+      if (psgStates[stateRef.bus] !== stateRef) return;
+      stateRef.timers = stateRef.timers.filter((entry) => entry !== timer);
+      schedulePsgStep(stateRef);
     }, Math.max(20, stateRef.stepSeconds * 1000));
     stateRef.timers.push(timer);
   }
   function stopPsgPreview(target = 'all') {
-    const stateRef = psgState;
-    if (!stateRef) return false;
     const normalizedTarget = target === 'bgm' || target === 'sfx' ? target : 'all';
-    if (normalizedTarget !== 'all' && stateRef.bus !== normalizedTarget) return false;
-    psgState = null;
-    stateRef.timers.forEach((timer) => clearTimeout(timer));
-    stateRef.nodes.forEach((node) => {
-      try { node.stop?.(); } catch (_) {}
-      try { node.disconnect?.(); } catch (_) {}
+    const buses = normalizedTarget === 'all' ? ['bgm', 'sfx'] : [normalizedTarget];
+    let stopped = false;
+    buses.forEach((bus) => {
+      const stateRef = psgStates[bus];
+      if (!stateRef) return;
+      psgStates[bus] = null;
+      stateRef.timers.forEach((timer) => clearTimeout(timer));
+      stateRef.nodes.forEach((node) => {
+        try { node.stop?.(); } catch (_) {}
+        try { node.disconnect?.(); } catch (_) {}
+      });
+      stopped = true;
     });
-    return true;
+    return stopped;
   }
   async function playPsgPreview(assetId, loop) {
     if (!assetId || !data.meta[assetId]) return;
@@ -1549,7 +1554,7 @@ function previewRuntime() {
     if (!AudioCtor) return;
     const conflict = pcePreviewBgmConflict('psg', meta.type);
     if (conflict) stopAudio(conflict.kind, conflict.target);
-    stopPsgPreview();
+    stopPsgPreview(bus);
     psgAudioContext = psgAudioContext || new AudioCtor();
     const options = meta.psgOptions || {};
     const nextState = {
@@ -1561,15 +1566,15 @@ function previewRuntime() {
       timers: [],
       nodes: [],
     };
-    psgState = nextState;
+    psgStates[bus] = nextState;
     try {
       if (psgAudioContext.state === 'suspended') await psgAudioContext.resume();
     } catch (err) {
-      if (psgState === nextState) stopPsgPreview(bus);
+      if (psgStates[bus] === nextState) stopPsgPreview(bus);
       throw err;
     }
-    if (psgState !== nextState) return;
-    schedulePsgStep();
+    if (psgStates[bus] !== nextState) return;
+    schedulePsgStep(nextState);
   }
 
   function rememberVariable(name, initialValue, isDefinition) {
@@ -2271,14 +2276,49 @@ function previewRuntime() {
       run();
     }, Math.max(0, ms));
   }
+  function backgroundCommandMatchesDisplay(c) {
+    if (displaySuppressed) return false;
+    const current = state.background;
+    return Boolean(
+      current
+      && current.assetId === c.assetId
+      && Number(current.x || 0) === Number(c.x || 0)
+      && Number(current.y || 0) === Number(c.y || 0)
+      && current.fullScreen === Boolean(scene && scene.fullScreenBg),
+    );
+  }
+  function spriteCommandMatchesDisplay(c) {
+    if (displaySuppressed) return false;
+    const slot = c.slot;
+    const current = state.sprites[slot];
+    if (c.visible === false || !current || spriteMoveTimers.has(slot)) return false;
+    return current.assetId === c.assetId
+      && Number(current.x || 0) === Number(c.x || 0)
+      && Number(current.y || 0) === Number(c.y || 0)
+      && Boolean(current.flipX) === Boolean(c.flipX)
+      && Boolean(current.flipY) === Boolean(c.flipY)
+      && String(current.animationId || '') === String(c.animationId || '');
+  }
   function applyBackground(c) {
-    const nextBg = { assetId: c.assetId, x: c.x, y: c.y };
+    const revealSuppressedDisplay = displaySuppressed;
+    const nextBg = {
+      assetId: c.assetId,
+      x: c.x,
+      y: c.y,
+      fullScreen: Boolean(scene && scene.fullScreenBg),
+    };
     const fadeOut = bgFadeFrames(c.fadeOutFrames);
     const fadeIn = bgFadeFrames(c.fadeInFrames);
     const currentBg = stage.querySelector('.pv-bg-layer');
     const continueWithNext = () => {
       state.background = nextBg;
       renderStage();
+      if (revealSuppressedDisplay) {
+        displaySuppressed = false;
+        const revealMs = frameMs(fadeIn);
+        effectLayer.style.transition = revealMs ? 'opacity ' + revealMs + 'ms linear' : 'none';
+        effectLayer.style.opacity = '0';
+      }
       const nextNode = stage.querySelector('.pv-bg-layer');
       const fadeInMs = frameMs(fadeIn);
       if (!nextNode || !fadeInMs) {
@@ -2310,6 +2350,7 @@ function previewRuntime() {
     const seconds = Math.max(0.01, frames / 60);
     const color = c.color || (c.effect === 'flash' ? '#ffffff' : '#000000');
     if (c.effect === 'blank') {
+      displaySuppressed = true;
       cancelAllSpriteMoves();
       state.background = null;
       state.sprites = {};
@@ -2326,11 +2367,13 @@ function previewRuntime() {
       effectLayer.style.opacity = '0';
     }
     else if (c.effect === 'fadeOut') {
+      displaySuppressed = true;
       effectLayer.style.transition = `opacity ${seconds}s linear`;
       effectLayer.style.background = color;
       effectLayer.style.opacity = '1';
     }
     else if (c.effect === 'fadeIn') {
+      displaySuppressed = false;
       stage.style.transition = `opacity ${seconds}s linear`;
       stage.style.opacity = '1';
       effectLayer.style.transition = `opacity ${seconds}s linear`;
@@ -2600,8 +2643,15 @@ function previewRuntime() {
         continue;
       }
       const t = c.type;
-      if (t === 'background') { pc += 1; recordVisualDisplay(c.assetId, 'bg', 'BG'); applyBackground(c); return; }
+      if (t === 'background') {
+        pc += 1;
+        if (backgroundCommandMatchesDisplay(c)) continue;
+        recordVisualDisplay(c.assetId, 'bg', 'BG');
+        applyBackground(c);
+        return;
+      }
       if (t === 'sprite') {
+        if (spriteCommandMatchesDisplay(c)) { pc += 1; continue; }
         cancelSpriteMove(c.slot);
         if (c.visible === false) delete state.sprites[c.slot];
         else {
@@ -2691,6 +2741,7 @@ function previewRuntime() {
     vars = initialVars();
     resetPreviewCacheState();
     state = { background: null, sprites: {}, spriteTexts: {} };
+    displaySuppressed = false;
     activeMessageFastForward = null;
     activeMessageAutoToggle = null;
     pending = null;
@@ -2829,6 +2880,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
               <span>Full BG</span>
             </label>
             <button class="btn-sm" type="button" data-action="preview" title="シーンをプレビュー再生">▶ プレビュー</button>
+            <button class="btn-sm" type="button" data-action="export-godot" title="Godotネイティブ再生用の正規化済みシーンと参照素材をZIPへ出力">Godot出力</button>
             <button class="btn-sm" type="button" data-action="export-irodori" title="全シーンのMessageをIrodori-TTS用の話者別CSVへ出力">音声バッチ出力</button>
             <button class="btn-sm" type="button" data-action="apply-irodori" title="manifest.csvから登録済みADPCMをMessageへ一括設定">音声バッチ反映</button>
             <button class="btn-primary" type="button" data-action="save">保存</button>
@@ -4688,6 +4740,57 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
     }
   }
 
+  async function exportGodotPackage() {
+    const exportButton = root.querySelector('[data-action="export-godot"]');
+    try {
+      errorEl.textContent = '';
+      if (editorMode === 'json') {
+        if (!applyScriptJsonToDoc({ refreshText: true })) {
+          logger?.error?.(`Godot出力失敗: ${errorEl.textContent || 'JSONを検証できませんでした。'}`);
+          return;
+        }
+      } else {
+        commitCurrentUiToDoc();
+      }
+      const snapshot = normalizeDoc(doc, assets);
+      exportButton.disabled = true;
+      const result = await api.electronAPI.exportVnGodotPackage({ doc: snapshot });
+      if (result?.canceled) {
+        logger?.info?.('Godot再生パッケージ出力をキャンセルしました。');
+        return;
+      }
+      if (!result?.ok) {
+        const message = `Godot出力失敗: ${result?.error || '再生パッケージを出力できませんでした。'}`;
+        errorEl.textContent = message;
+        logger?.error?.(message);
+        return;
+      }
+      const saved = await api.electronAPI.writeCodeFile({
+        path: SCENE_FILE,
+        content: JSON.stringify(snapshot, null, 2),
+        encoding: 'utf8',
+      });
+      if (!saved?.ok) {
+        const message = `Godot再生パッケージは出力しましたが、シーンを保存できませんでした: ${saved?.error || 'unknown'}`;
+        errorEl.textContent = message;
+        logger?.error?.(message);
+        return;
+      }
+      doc = snapshot;
+      render();
+      const message = `Godot再生パッケージを出力しました: ${result.path} `
+        + `(Scene ${result.sceneCount} / Command ${result.commandCount} / Asset ${result.assetCount})`;
+      errorEl.textContent = message;
+      logger?.info?.(message);
+    } catch (err) {
+      const message = `Godot出力失敗: ${err?.message || err}`;
+      errorEl.textContent = message;
+      logger?.error?.(message);
+    } finally {
+      exportButton.disabled = false;
+    }
+  }
+
   async function normalizedVoiceBatchSnapshot({ refreshAssets = false } = {}) {
     if (editorMode === 'json') {
       if (!applyScriptJsonToDoc({ refreshText: true })) {
@@ -5332,6 +5435,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
   root.querySelector('[data-action="reload"]').addEventListener('click', () => { void load({ force: true }); });
   root.querySelector('[data-action="save"]').addEventListener('click', save);
   root.querySelector('[data-action="preview"]').addEventListener('click', () => { void openScenePreview(); });
+  root.querySelector('[data-action="export-godot"]').addEventListener('click', () => { void exportGodotPackage(); });
   root.querySelector('[data-action="export-irodori"]').addEventListener('click', () => { void exportIrodoriBatch(); });
   root.querySelector('[data-action="apply-irodori"]').addEventListener('click', () => { void applyIrodoriVoiceBatch(); });
   root.querySelectorAll('[data-script-mode]').forEach((button) => {

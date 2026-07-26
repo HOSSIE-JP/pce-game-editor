@@ -808,7 +808,10 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /type === 'wait'/);
   assert.match(renderer, /function playAudio\(kind, assetId, loop, onEnded, onError\)[\s\S]*new Audio\(data\.urls\[assetId\]\)/);
   assert.match(renderer, /function applyBackground\(c\)/);
-  assert.match(renderer, /if \(t === 'background'\) \{ pc \+= 1; recordVisualDisplay\(c\.assetId, 'bg', 'BG'\); applyBackground\(c\); return; \}/);
+  assert.match(renderer, /function backgroundCommandMatchesDisplay\(c\)/);
+  assert.match(renderer, /function spriteCommandMatchesDisplay\(c\)/);
+  assert.match(renderer, /if \(t === 'background'\) \{[\s\S]*if \(backgroundCommandMatchesDisplay\(c\)\) continue;[\s\S]*recordVisualDisplay\(c\.assetId, 'bg', 'BG'\);[\s\S]*applyBackground\(c\);/);
+  assert.match(renderer, /if \(t === 'sprite'\) \{[\s\S]*if \(spriteCommandMatchesDisplay\(c\)\) \{ pc \+= 1; continue; \}[\s\S]*renderStage\(\);/);
   assert.match(renderer, /<aside id="pv-debug" class="pv-hidden"><section><h2>Variables<\/h2><div id="pv-vars"><\/div><\/section><section><h2>Cache<\/h2><div id="pv-cache"><\/div><\/section><\/aside>/);
   assert.match(renderer, /id="pv-debug-vars" type="checkbox" \/>/);
   assert.match(renderer, /id="pv-fast-forward" type="checkbox" \/>/);
@@ -910,6 +913,9 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(vnRenderer, /data-action="apply-irodori"/);
   assert.match(vnRenderer, /export function activatePlugin\(\{ root, api, logger, registerCapability \}\)/);
   assert.match(vnRenderer, /async function exportIrodoriBatch\(\)/);
+  assert.match(vnRenderer, /async function exportGodotPackage\(\)/);
+  assert.match(vnRenderer, /data-action="export-godot"/);
+  assert.match(vnRenderer, /exportVnGodotPackage\(\{ doc: snapshot \}\)/);
   assert.match(vnRenderer, /normalizeDoc\(doc, assets\)/);
   assert.match(vnRenderer, /exportVnIrodoriBatch\(\{[\s\S]*doc: snapshot,[\s\S]*assetIds:/);
   assert.match(vnRenderer, /logger\?\.info\?\./);
@@ -922,6 +928,7 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(vnRenderer, /command\.voiceAssetId = assignment\.id/);
   assert.match(vnRenderer, /有効な \$\{Number\(summary\.assignableRows\) \|\| 0\} 行を反映/);
   assert.match(main, /ipcMain\.handle\('vn:exportIrodoriBatch'/);
+  assert.match(main, /ipcMain\.handle\('vn:exportGodotPackage'/);
   assert.match(main, /ipcMain\.handle\('vn:inspectIrodoriVoiceAssignments'/);
 
   const fontRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-font-editor', 'renderer.js'), 'utf-8');

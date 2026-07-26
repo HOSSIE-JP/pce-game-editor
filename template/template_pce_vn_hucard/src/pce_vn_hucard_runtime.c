@@ -206,6 +206,9 @@ static uint8_t full_screen_bg_text_vram_dirty __attribute__((section(".bss")));
 #endif
 static int16_t current_bg_index = -1;
 static uint8_t current_bg_palette_bank;
+static uint8_t current_bg_x __attribute__((section(".bss")));
+static uint8_t current_bg_y __attribute__((section(".bss")));
+static uint8_t current_bg_display_valid __attribute__((section(".bss")));
 static uint8_t last_pad;
 static int16_t active_message_index = -1;
 static pce_vn_message_t active_message_state __attribute__((section(".bss")));
@@ -517,11 +520,41 @@ static void VN_HUCARD_CODE_VIDEO upload_bg_graphics(const pce_editor_bg_asset_t 
     }
 }
 
+static uint8_t VN_HUCARD_CODE_VIDEO background_display_matches(int16_t bg_index, uint16_t tile_x, uint16_t tile_y)
+{
+    const uint8_t next_x = tile_x < VN_MAP_WIDTH ? (uint8_t)tile_x : 0u;
+    const uint8_t next_y = tile_y < VN_VISIBLE_HEIGHT ? (uint8_t)tile_y : 0u;
+    if (bg_index < 0 || (uint16_t)bg_index >= pce_editor_bg_asset_count) return 0u;
+    if (!current_bg_display_valid
+        || current_bg_index != bg_index
+        || current_bg_x != next_x
+        || current_bg_y != next_y)
+    {
+        return 0u;
+    }
+#if PCE_VN_HAS_FULL_SCREEN_BG
+    /* A Full BG consumes the message blank tile.  Its dirty state is part of
+       the displayed BG state, so a normal/full scene-mode change reuploads. */
+    if (current_scene_full_screen_bg)
+    {
+        if (!full_screen_bg_text_vram_dirty) return 0u;
+    }
+    else if (full_screen_bg_text_vram_dirty)
+    {
+        return 0u;
+    }
+#endif
+    return 1u;
+}
+
 static void VN_HUCARD_CODE_VIDEO set_background(int16_t bg_index, uint8_t transition, uint8_t fade_out_frames, uint8_t fade_in_frames, uint16_t tile_x, uint16_t tile_y)
 {
     const pce_editor_bg_asset_t *bg;
     const uint8_t fade_transition = (uint8_t)(transition == PCE_VN_BG_TRANSITION_FADE);
+    const uint8_t next_x = tile_x < VN_MAP_WIDTH ? (uint8_t)tile_x : 0u;
+    const uint8_t next_y = tile_y < VN_VISIBLE_HEIGHT ? (uint8_t)tile_y : 0u;
     if (bg_index < 0 || (uint16_t)bg_index >= pce_editor_bg_asset_count) return;
+    if (background_display_matches(bg_index, tile_x, tile_y)) return;
     bg = &pce_editor_bg_assets[bg_index];
     if (current_bg_index >= 0 && fade_transition)
     {
@@ -535,9 +568,12 @@ static void VN_HUCARD_CODE_VIDEO set_background(int16_t bg_index, uint8_t transi
     current_bg_index = bg_index;
     current_bg_palette_bank = bg->palette_bank;
     upload_bg_graphics(bg,
-        tile_x < VN_MAP_WIDTH ? (uint8_t)tile_x : 0u,
-        tile_y < VN_VISIBLE_HEIGHT ? (uint8_t)tile_y : 0u,
+        next_x,
+        next_y,
         fade_transition ? 0u : 16u);
+    current_bg_x = next_x;
+    current_bg_y = next_y;
+    current_bg_display_valid = 1u;
 #if PCE_VN_HAS_FULL_SCREEN_BG
     if (current_scene_full_screen_bg) full_screen_bg_text_vram_dirty = 1u;
 #endif
@@ -1745,6 +1781,28 @@ static uint8_t VN_HUCARD_CODE_SPRITE_STATE start_sprite_move(const pce_vn_comman
     return (uint8_t)!(command->flags & PCE_VN_SPRITE_MOVE_ASYNC);
 }
 
+static uint8_t VN_HUCARD_CODE_SPRITE_STATE sprite_command_matches_display(const pce_vn_command_t *command)
+{
+    const vn_sprite_slot_t *state;
+    uint8_t slot;
+    if (!command) return 0u;
+    if (!(command->flags & PCE_VN_SPRITE_VISIBLE) || command->asset_index < 0) return 0u;
+    slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
+    if (sprite_moves[slot].active || sync_sprite_move_slot == slot) return 0u;
+    state = &sprite_slots[slot];
+    if (!state->visible
+        || state->asset_index != command->asset_index
+        || state->animation_index != command->animation_index
+        || state->x != command->x
+        || state->y != command->y
+        || state->flags != command->flags)
+    {
+        return 0u;
+    }
+    if (!state->satb_count || !sprite_slot_pattern_valid[slot]) return 0u;
+    return 1u;
+}
+
 static void VN_HUCARD_CODE_SPRITE_STATE set_sprite(const pce_vn_command_t *command)
 {
     uint8_t slot;
@@ -1753,6 +1811,7 @@ static void VN_HUCARD_CODE_SPRITE_STATE set_sprite(const pce_vn_command_t *comma
     if (!command) return;
     slot = command->slot < VN_SPRITE_SLOT_COUNT ? command->slot : 0u;
     state = &sprite_slots[slot];
+    if (sprite_command_matches_display(command)) return;
     cancel_sprite_move(slot);
     if (!(command->flags & PCE_VN_SPRITE_VISIBLE) || command->asset_index < 0)
     {
@@ -2046,6 +2105,7 @@ static void VN_HUCARD_CODE_SCRIPT apply_effect(const pce_vn_command_t *command)
     {
         cancel_all_sprite_moves();
         clear_screen_map(0);
+        current_bg_display_valid = 0u;
         return;
     }
     if (command->flags == PCE_VN_EFFECT_FLASH)

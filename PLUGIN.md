@@ -1145,6 +1145,8 @@ Sound > ADPCM の詳細フォームと取込ダイアログは、通常編集す
 
 `novel-editor`はscript scene編集、システム設定、font管理を1つのsidebarタブに統合します。scene budgetは`project.json`を読み、CD=8192 bytes/16-bit Shift-JIS、HuCard=4096 bytes/glyph index streamで見積ります。CD VNはSystem Card `EX_GETFNT`を正とし、FontタブのTTF/OTF設定をゲーム生成物へ反映しません。CDで第二水準、CP932拡張、半角カナ、絵文字、結合文字を保存してもbuild時に位置付きerrorになります。HuCardのbanked font生成は維持します。
 
+Novel内蔵の`Godot出力`はpreload API `window.pce.exportVnGodotPackage({ doc })`（IPC `vn:exportGodotPackage`）を使います。main processは`pce-vn-godot-package.js`で`doc`とasset documentを現行形式へ正規化し、SkipされていないCommandが参照するassetだけを収集してstored ZIPを保存します。manifestは`pce-vn-godot-package` version 1、project/entrypoints/stats/filesを持ち、filesには各entryのbyte数とSHA-256を記録します。visualはPNG/JPEG/WebP、audioはWAV/OGG/MP3だけを許可し、project外pathと未登録/再生sourceなしassetは出力前に拒否します。`entrypoints.font`は`readFontConfig(projectDir).fontPath`で選択中のproject fontだけを指し、未選択font libraryの先頭fileへfallbackしません。project IDは既存`id`/`projectId`/`uuid`を優先し、ない場合はproject directoryとproject metadataから安定生成するため、同名の別directory projectはGodotライブラリ上で衝突しません。
+
 ### Test Play
 
 `pce-standard-emulator`は`pce-setup-manager`が検出したEmulatorJS runtimeと`mednafen_pce` coreを使います。browser側のframe schedulingとcore内VSyncの二重同期で約30fpsへ段落ちしないよう、`EJS_defaultOptions`は`webgl2Enabled: enabled`、`vsync: disabled`を既定にします。CD VN Test Playはprojectの`cd.systemCardProfile: "jp-v3"`とユーザー所有System Card ROMのversion/profileを検証してから起動します。不一致時は起動しません。System Card / IPLはリポジトリやゲーム生成物へ同梱しません。描画/IRQ調査はGeargrafx MCPを優先します。

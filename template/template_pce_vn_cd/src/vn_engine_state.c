@@ -9,6 +9,9 @@ static uint8_t pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
 static uint8_t pending_display_enable = 0;
 static uint8_t pending_scene_sprite_clear = 0;
 static signed int current_bg_index;
+/* Separate physical-display latch: cache invalidation must not make an
+   already visible BG appear absent to duplicate-command handling. */
+static uint8_t current_bg_display_valid = 0;
 /* Resident snapshot of the current BG palette so the palette-fade helpers don't
    re-fetch the CD-streamed descriptor. set_background refreshes it on each BG. */
 static uint8_t current_bg_palette[32];
@@ -290,6 +293,7 @@ static uint8_t vn_switch_case_scratch_storage[sizeof(pce_vn_switch_case_t)] __at
 static void advance_story(void);
 static void VN_RESIDENT_CODE clear_spritetext_slots(void);
 static void VN_BANKED_CODE refresh_scene_sprites(void);
+static void VN_BANKED_CODE initialize_sprite_move_state(void);
 static void VN_BANKED_CODE cancel_sprite_move(uint8_t slot);
 static void VN_BANKED_CODE cancel_all_sprite_moves(void);
 static uint8_t VN_BANKED_CODE2 start_sprite_move(const pce_vn_command_t *command);
@@ -327,6 +331,9 @@ static void VN_CD_ASYNC_CODE clear_map_rect_at_dest_impl(uint16_t map_dest, uint
 static void VN_CD_ASYNC_CODE clear_bg_map_side_margins_impl(uint16_t map_dest, uint8_t width_tiles, uint8_t height_tiles);
 static uint8_t VN_CD_ASYNC_CODE adpcm_voice_fits_buffer_impl(void);
 static void VN_CD_ASYNC_CODE upload_sprite_table_impl(void);
+static void VN_CD_ASYNC_CODE clear_sprites_impl(void);
+static void VN_CD_ASYNC_CODE cancel_sprite_move_impl(uint8_t slot);
+static void VN_CD_ASYNC_CODE cancel_all_sprite_moves_impl(void);
 static void VN_CD_ASYNC_CODE map_choice_cursor_cells_impl(uint8_t row, uint8_t visible);
 static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_data_read(pce_sector_t sector, uint8_t dest_kind, uint8_t dest_bank, uint16_t dest_addr, uint16_t byte_count);
 static uint8_t VN_BANKED_CODE2 vn_cd_async_begin_scene_pack_read(pce_sector_t sector, uint16_t dest_addr, uint16_t byte_count);

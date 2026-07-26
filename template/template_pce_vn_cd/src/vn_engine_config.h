@@ -207,6 +207,13 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_CD_ASYNC_OP_CLEAR_BG_MARGINS 64u
 /* Per-frame direct ADPCM countdown/completion service. */
 #define VN_CD_ASYNC_OP_ADPCM_PLAYBACK 72u
+/* Pure display-state comparison for duplicate BG/Sprite commands. */
+#define VN_CD_ASYNC_OP_MATCH_DISPLAY_COMMAND 80u
+/* SATB shadow clear; pure RAM work shared by visible transition paths. */
+#define VN_CD_ASYNC_OP_CLEAR_SPRITES 88u
+/* Sprite move state updates; these only touch the shared slot records. */
+#define VN_CD_ASYNC_OP_CANCEL_SPRITE_MOVE 96u
+#define VN_CD_ASYNC_OP_CANCEL_ALL_SPRITE_MOVES 104u
 #ifndef VN_CD_ASYNC_BYTES_PER_FRAME
 #define VN_CD_ASYNC_BYTES_PER_FRAME 256u
 #endif

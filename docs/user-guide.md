@@ -88,6 +88,8 @@ Irodori-TTSは1回のバッチで参照話者が共通なので、キャラク�
 
 Visual Novel CD テンプレートには、`BG` / `Sprite` / `Sprite Move` / `Message` / `Audio` / `Variable` / `Choice` / `IF` / `Switch` / `Label` / `GOTO` / `Input` / `Jump` / `Wait` / `Effect` / `SpriteText` を使うコマンド仕様サンプルシナリオが入っています。エディタではこれらに加えて `Cache` コマンドも追加できます。Akari / Mika の立ち絵は `default`（通常）/ `mouth`（口パク）/ `blink` の順でROWを持つスプライトシートになっており、`Message` の Mouth slotによる「現在ROW→次ROW」と自動復帰を確認できます。
 
+Novel画面上部の`Godot出力`は、現在のGUI/JSON編集状態を先に`assets/pce-vn-scenes.json`へ保存し、Godotネイティブプレイヤーへ取り込む`*.pcevn.zip`を作成します。CD-ROM2 / HuCARD VNの両方で利用でき、Sceneと参照中のアセットだけを収録します。画像はPNG/JPEG/WebP、CD-DA/ADPCMはWAV/OGG/MP3の再生可能source（CD-DAは生成WAVを優先）、PSGはpattern metadataを使います。Novelの`フォント`タブで選択中のproject font（`assets/pce-font.json`の`fontPath`）がTTF/OTF/WOFF/WOFF2なら同梱し、Godot側の本文・SpriteText・選択肢・再生UIで優先します。未選択のfont libraryから別のfontを勝手に選ぶことはありません。System Card、IPL、ROM/CUE/ISO、PCE向けtiles/map/pattern/ADPCM binaryは含みません。同じeditor projectから再出力したpackageはGodot側で更新として扱われ、別projectはライブラリに併存します。
+
 `システム設定` タブでは、ノベルエンジン全体のメッセージ速度と Advance の初期値を設定します。メッセージ速度は `速度1(速い)：0`、`速度2：10`、`速度3：20`、`速度4：30`、`速度5：40`、`速度6(遅い)：50` から選びます。Advance は既定が `button` で、`auto` にすると Auto wait のフレーム数を使います。これらは全 `Message` command 共通で、Message のプロパティには表示されません。Auto wait はAdvanceの初期値がbuttonでも編集できます。
 
 CD-ROM2 / HuCARD 共通の予約変数として `AUTO_ENABLE` と `MSG_SPEED` を使用できます。`AUTO_ENABLE` は `0=OFF`、`1=ON` で、初期値はAdvanceから決まります。SELECTを押すたびにON/OFFが切り替わり、SELECTはこの切り替え専用です。Message右下の表示は、手動モードでは本文完了後に点滅する `▼`、AUTOモードでは文字送り中から常時点灯する `◆` になり、SELECTでの切り替えにも即座に追従します。この表示はCD-ROM2、HuCARD、エディター内プレビューで共通です。`MSG_SPEED` の初期値は0で、`0`はシステム設定（CDの音声付きMessageでは音声同期速度）、`1..6`は速度1〜6（`0 / 10 / 20 / 30 / 40 / 50` frame/文字）を指定します。Variable / Choiceで書き込み、IF / Switchで参照でき、範囲外の値はそれぞれ`0..1`、`0..6`へ丸められます。速度はMessage開始時に確定するため、表示中に変更しても次のMessageから反映されます。
@@ -115,6 +117,8 @@ CD-ROM2 VN buildでは、sceneから参照されるBG / Sprite / ADPCM / PSGは�
 CD-ROM2 VNのビルドは、ランタイム常駐bank128/129/130にそれぞれ最低512 bytesの更新余白を予約します。スクリプトや機能追加でこの余白を割る場合は、実際の8KB overflowを待たずに`resident headroom`エラーとして停止します。これは素材数の上限ではなく、エンジンコードの配置退行を早期検出するための安全ゲートです。
 
 `Sprite`（立ち絵）コマンドの主なプロパティは次のとおりです。
+
+すでに同じ最終表示状態にある `BG` / `Sprite` コマンドは、CD-ROM2・HuCARD runtime とスクリプト再生プレビューで no-op になります。BG は asset と tile 座標、Sprite は Slot・visible・asset・座標・反転・Animation がすべて一致すると、VRAM/SATB の再描画をせず、BG の fade-out / fade-in も行いません。座標・反転・Animation が違う場合や、Sprite Move 中、`blank` や Full BG の復帰などで実表示を再構築する必要がある場合は、従来どおりコマンドを実行します。
 
 - **Slot（0〜3）**: 立ち絵を表示する 4 枚のスロットのどれを使うか。VN runtime は同時に最大 4 枚の立ち絵を持ち、スロットごとに 1 枚を保持します。同じスロットへ別の `Sprite` コマンドを置くと、その 1 枚を差し替え（`visible: false` なら非表示）します。別々のスロットを使えば複数の立ち絵を同時に出せます。通常シーン間では表示中のスロットを保持するため、消したい場合は同じスロットへ `visible: false` の `Sprite` コマンドを置いてください。複数表示するときは **Slot 0 から順に**使ってください。runtime は BG 直後にメッセージ用 VRAM を置き、その末尾から SATB 手前までを連続したスプライト pattern 領域として使います。表示中のSLOTは番号順に並べて、この連続領域と palette bank へ非重複配置します。`Message` の **Mouth slot** はここで表示したスロット番号を指すので、口パクさせたい立ち絵はあらかじめ目的のスロットへ出しておきます。`Sprite` コマンドの **Slot** は必須ですが、`Message` の **Mouth slot** は任意で、ナレーションでは **なし（ナレーション）** を選べます。
 - **Animation**: その立ち絵アセットの `options.animations`（Sprite エディタの ROW 定義）から再生するアニメーションを選びます。`default` 以外を選ぶと、ゲーム実機と同じく該当 ROW のフレームを `frameDelays`（未指定時は `frameDelay`）間隔で巡回（ループ）します。
@@ -191,7 +195,7 @@ CD VNの本文はlength付き16-bit Shift-JISでscene pack v3へ保存され、p
 
 メッセージは実機と同じ17文字×4行レイアウトで、**Text color**と**Mouth slot**も反映します。Mouth slot指定時は現在ROWの次ROWへ切り替え、本文表示完了またはADPCM終了で元ROWへ戻ります。下部バーの **早送り** は本文を即時表示しますが、この時も入力待機へ入る時点で通常ROWへ復帰します。DebugのVariables欄には`AUTO_ENABLE` / `MSG_SPEED`、Cache欄にはvisual RAM cache、ADPCM RAM、PSG pattern buffer、active scene packの見積りを表示します。Cache表示は実機RAMの読み返しではなく、generated metadataとcommand順に基づくシミュレーションです。
 
-プレビュー内では実機ランタイムに合わせ、CD-DA と PSG BGM（`psg-song`）を排他再生します。PSG BGMを開始すると再生中のCD-DAを停止し、CD-DAを開始すると再生中のPSG BGMを停止します。PSG SFXはこのBGM排他の対象外です。
+プレビュー内では実機ランタイムに合わせ、CD-DA と PSG BGM（`psg-song`）を排他再生します。PSG BGMを開始すると再生中のCD-DAを停止し、CD-DAを開始すると再生中のPSG BGMを停止します。PSG SFXはこのBGM排他の対象外で、PSG BGMと同時に発音できます。`Audio stop` の対象をBGMまたはSFXにした場合は、指定したPSGバスだけを停止します。
 
 ## Build
 

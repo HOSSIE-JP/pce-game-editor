@@ -113,6 +113,125 @@ test('CD VN one-shot natural completion remains free of BIOS status polling and 
   assert.match(service, /adpcm_play_active = 0u;[\s\S]*stop_buffered_adpcm_playback_direct\(\);/);
 });
 
+test('CD VN skips only physically current duplicate BG and Sprite commands', () => {
+  const config = readRuntimeFile('vn_engine_config.h');
+  const bus = readRuntimeFile('vn_engine_bus.c');
+  const scene = readRuntimeFile('vn_port_scene.c');
+  const sprite = readRuntimeFile('vn_port_sprite.c');
+  const message = readRuntimeFile('vn_msg_core.c');
+  const asyncMatcherStart = bus.indexOf('static uint8_t VN_CD_ASYNC_CODE command_matches_display_impl');
+  const asyncEntryStart = bus.indexOf('static uint8_t VN_CD_ASYNC_ENTRY_CODE vn_cd_async_entry', asyncMatcherStart);
+  const setBackgroundStart = scene.indexOf('static void set_background');
+  const residentMatcherStart = scene.indexOf('static uint8_t VN_BANKED_CODE2 command_matches_display', setBackgroundStart);
+  const sameBackgroundStart = scene.indexOf('static void VN_BANKED_CODE2 finish_same_background_transition', residentMatcherStart);
+  const controlStart = scene.indexOf('static uint8_t VN_BANKED_CODE2 execute_control_command', sameBackgroundStart);
+  const executeStart = scene.indexOf('static uint8_t VN_BANKED_CODE execute_command', controlStart);
+  const clearSpritesImplStart = sprite.indexOf('static void VN_CD_ASYNC_CODE clear_sprites_impl(void)');
+  const clearSpritesStart = sprite.indexOf('static void VN_BANKED_CODE clear_sprites(void)', clearSpritesImplStart);
+  const hideSpritesStart = sprite.indexOf('static void VN_BANKED_CODE2 hide_sprites_for_asset_load(void)');
+
+  assert.ok(asyncMatcherStart >= 0 && asyncEntryStart > asyncMatcherStart);
+  assert.ok(setBackgroundStart >= 0 && residentMatcherStart > setBackgroundStart);
+  assert.ok(sameBackgroundStart > residentMatcherStart && controlStart > sameBackgroundStart);
+  assert.ok(executeStart > controlStart && clearSpritesImplStart >= 0 && clearSpritesStart > clearSpritesImplStart && hideSpritesStart >= 0);
+
+  const asyncMatcher = bus.slice(asyncMatcherStart, asyncEntryStart);
+  const asyncEntry = bus.slice(asyncEntryStart);
+  const setBackground = scene.slice(setBackgroundStart, residentMatcherStart);
+  const residentMatcher = scene.slice(residentMatcherStart, controlStart);
+  const sameBackground = scene.slice(sameBackgroundStart, controlStart);
+  const clearSprites = sprite.slice(clearSpritesStart, hideSpritesStart);
+  const execute = scene.slice(executeStart);
+  const hideSprites = sprite.slice(hideSpritesStart);
+
+  assert.match(config, /#define VN_CD_ASYNC_OP_MATCH_DISPLAY_COMMAND 80u/);
+  assert.match(config, /#define VN_CD_ASYNC_OP_CLEAR_SPRITES 88u/);
+  assert.match(config, /#define VN_CD_ASYNC_OP_CANCEL_SPRITE_MOVE 96u/);
+  assert.match(config, /#define VN_CD_ASYNC_OP_CANCEL_ALL_SPRITE_MOVES 104u/);
+  assert.match(
+    residentMatcher,
+    /vn_visual_cache_arg_asset = \(uint16_t\)\(uintptr_t\)command;[\s\S]*vn_cd_async_call_bank122\(VN_CD_ASYNC_OP_MATCH_DISPLAY_COMMAND\)/,
+  );
+  assert.match(
+    asyncEntry,
+    /VN_CD_ASYNC_OP_MATCH_DISPLAY_COMMAND[\s\S]*command_matches_display_impl\(\(const pce_vn_command_t \*\)\(uintptr_t\)vn_visual_cache_arg_asset\)/,
+  );
+  assert.match(asyncEntry, /VN_CD_ASYNC_OP_CLEAR_SPRITES[\s\S]*clear_sprites_impl\(\);/);
+  assert.match(asyncEntry, /VN_CD_ASYNC_OP_CANCEL_SPRITE_MOVE[\s\S]*cancel_sprite_move_impl\(vn_visual_cache_arg_slot\);/);
+  assert.match(asyncEntry, /VN_CD_ASYNC_OP_CANCEL_ALL_SPRITE_MOVES[\s\S]*cancel_all_sprite_moves_impl\(\);/);
+  assert.match(clearSprites, /vn_cd_async_call_bank122\(VN_CD_ASYNC_OP_CLEAR_SPRITES\)/);
+  assert.match(
+    asyncMatcher,
+    /current_bg_index != command->asset_index \|\| current_bg_x != next_x \|\| current_bg_y != next_y/,
+  );
+  assert.match(asyncMatcher, /if \(!current_bg_display_valid\) return 0u;/);
+  assert.match(asyncMatcher, /if \(pending_display_enable\) return 0u;/);
+  assert.match(
+    asyncMatcher,
+    /if \(current_scene_full_screen_bg\)[\s\S]*!full_screen_bg_text_vram_dirty[\s\S]*else if \(full_screen_bg_text_vram_dirty\)/,
+  );
+
+  const bgFade = setBackground.indexOf('fade_palette(&ref, current_bg_palette_base, bg_fade_out_frames, 0u);');
+  const bgUpload = setBackground.indexOf('upload_bg_graphics(next_bg');
+  assert.ok(bgFade >= 0 && bgUpload >= 0);
+
+  assert.match(
+    asyncMatcher,
+    /state->sprite_index != command->asset_index[\s\S]*state->animation_index != command->animation_index[\s\S]*state->x != command->x[\s\S]*state->y != command->y[\s\S]*state->flags != command->flags/,
+  );
+  assert.match(
+    asyncMatcher,
+    /sprite_moves\[slot\]\.active \|\| sync_sprite_move_slot == slot/,
+  );
+  assert.match(asyncMatcher, /!sprite_satb_layout_valid \|\| !sprite_satb_slot_count\[slot\]/);
+  assert.doesNotMatch(asyncMatcher, /state->frame|state->timer/);
+
+  const duplicateVisual = execute.indexOf('(command->type == PCE_VN_COMMAND_BACKGROUND || command->type == PCE_VN_COMMAND_SPRITE)');
+  const voiceStop = execute.indexOf('stop_adpcm_voice();');
+  assert.ok(duplicateVisual >= 0 && voiceStop > duplicateVisual);
+  const duplicateBgBranch = execute.slice(duplicateVisual, voiceStop);
+  assert.match(duplicateBgBranch, /if \(command->type == PCE_VN_COMMAND_BACKGROUND\)[\s\S]*finish_same_background_transition\(\);[\s\S]*return VN_EXEC_CONTINUE;/);
+  assert.doesNotMatch(duplicateBgBranch, /set_background\(|fade_palette\(|upload_bg_graphics\(/);
+  assert.match(
+    sameBackground,
+    /if \(pending_scene_sprite_clear\)[\s\S]*clear_sprites\(\);[\s\S]*upload_sprite_table\(\);[\s\S]*sprite_satb_layout_valid = 0u;[\s\S]*REQUEST_SPRITE_REFRESH_FULL\(\);[\s\S]*if \(pending_sprite_refresh\)[\s\S]*refresh_scene_sprites\(\);/,
+  );
+  assert.match(
+    setBackground,
+    /if \(pending_scene_sprite_clear\)[\s\S]*clear_sprites\(\);[\s\S]*upload_sprite_table\(\);[\s\S]*sprite_satb_layout_valid = 0u;[\s\S]*REQUEST_SPRITE_REFRESH_FULL\(\)/,
+  );
+  assert.match(
+    setBackground,
+    /if \(current_scene_full_screen_bg\)[\s\S]*sprite_satb_layout_valid = 0u;[\s\S]*REQUEST_SPRITE_REFRESH_FULL\(\);[\s\S]*loaded_sprite_pattern_valid\[i\] = 0u/,
+  );
+  assert.match(
+    hideSprites,
+    /clear_sprites\(\);[\s\S]*upload_sprite_table\(\);[\s\S]*sprite_satb_layout_valid = 0u;/,
+  );
+  assert.match(
+    message,
+    /if \(clear_visible_full_bg\)[\s\S]*clear_screen_map\(\);[\s\S]*preloaded_bg_valid = 0u;[\s\S]*current_bg_display_valid = 0u;/,
+  );
+});
+
+test('CD VN boot initializes sprite moves without calling the unloaded bank122 overlay', () => {
+  const main = readRuntimeFile('vn_main.c');
+  const sprite = readRuntimeFile('vn_port_sprite.c');
+  const initStart = main.indexOf('static void init_runtime_state(void)');
+  const nextFunction = main.indexOf('static void VN_BANKED_CODE vn_wait_next_vblank_raw(void)', initStart);
+  const init = main.slice(initStart, nextFunction);
+  const bootResetStart = sprite.indexOf('static void VN_BANKED_CODE initialize_sprite_move_state(void)');
+  const nextSpriteFunction = sprite.indexOf('static void VN_CD_ASYNC_CODE cancel_sprite_move_impl', bootResetStart);
+  const bootReset = sprite.slice(bootResetStart, nextSpriteFunction);
+
+  assert.ok(initStart >= 0 && nextFunction > initStart && bootResetStart >= 0 && nextSpriteFunction > bootResetStart);
+  assert.match(init, /initialize_sprite_move_state\(\);/);
+  assert.doesNotMatch(init, /cancel_all_sprite_moves\(\);/);
+  assert.match(sprite, /sprite_moves is static BSS[\s\S]*initialize_sprite_move_state\(void\)/);
+  assert.match(bootReset, /sync_sprite_move_slot = 0xffu;/);
+  assert.doesNotMatch(bootReset, /cancel_all_sprite_moves\(\);/);
+});
+
 test('CD VN message mouth uses the next ROW and restores it on text, voice, or story completion', () => {
   const config = readRuntimeFile('vn_engine_config.h');
   const state = readRuntimeFile('vn_engine_state.c');

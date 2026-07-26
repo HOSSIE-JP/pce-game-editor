@@ -187,6 +187,66 @@ test('HuCARD VN restores the blank tile after Full BG before an Input-driven sce
   );
 });
 
+test('HuCARD VN skips only display-equivalent BG and Sprite commands', () => {
+  const bgMatcher = sliceBetween(
+    'static uint8_t VN_HUCARD_CODE_VIDEO background_display_matches',
+    'static void VN_HUCARD_CODE_VIDEO set_background',
+  );
+  const setBackground = sliceBetween(
+    'static void VN_HUCARD_CODE_VIDEO set_background',
+    'static uint16_t VN_HUCARD_CODE_TEXT ui_tile',
+  );
+  const spriteMatcher = sliceBetween(
+    'static uint8_t VN_HUCARD_CODE_SPRITE_STATE sprite_command_matches_display',
+    'static void VN_HUCARD_CODE_SPRITE_STATE set_sprite',
+  );
+  const setSprite = sliceBetween(
+    'static void VN_HUCARD_CODE_SPRITE_STATE set_sprite',
+    'static void VN_HUCARD_CODE_SPRITE_STATE start_active_message_mouth',
+  );
+  const effect = sliceBetween(
+    'static void VN_HUCARD_CODE_SCRIPT apply_effect',
+    'static void VN_HUCARD_CODE_TEXT start_message',
+  );
+
+  assert.match(runtime, /static uint8_t current_bg_x __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(runtime, /static uint8_t current_bg_y __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(runtime, /static uint8_t current_bg_display_valid __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.match(
+    bgMatcher,
+    /!current_bg_display_valid[\s\S]*current_bg_index != bg_index[\s\S]*current_bg_x != next_x[\s\S]*current_bg_y != next_y/,
+  );
+  assert.match(
+    bgMatcher,
+    /if \(current_scene_full_screen_bg\)[\s\S]*!full_screen_bg_text_vram_dirty[\s\S]*else if \(full_screen_bg_text_vram_dirty\)/,
+  );
+
+  const bgNoOp = setBackground.indexOf('if (background_display_matches(bg_index, tile_x, tile_y)) return;');
+  const fade = setBackground.indexOf('fade_palette(&old_bg->palette');
+  const upload = setBackground.indexOf('upload_bg_graphics(bg');
+  assert.ok(bgNoOp >= 0 && bgNoOp < fade && bgNoOp < upload);
+  assert.match(
+    setBackground,
+    /upload_bg_graphics\(bg,[\s\S]*next_x,[\s\S]*next_y,[\s\S]*current_bg_x = next_x;[\s\S]*current_bg_y = next_y;[\s\S]*current_bg_display_valid = 1u;/,
+  );
+  assert.match(
+    effect,
+    /if \(command->flags == PCE_VN_EFFECT_BLANK\)[\s\S]*clear_screen_map\(0\);[\s\S]*current_bg_display_valid = 0u;/,
+  );
+
+  assert.match(
+    spriteMatcher,
+    /state->asset_index != command->asset_index[\s\S]*state->animation_index != command->animation_index[\s\S]*state->x != command->x[\s\S]*state->y != command->y[\s\S]*state->flags != command->flags/,
+  );
+  assert.match(spriteMatcher, /sprite_moves\[slot\]\.active \|\| sync_sprite_move_slot == slot/);
+  assert.match(spriteMatcher, /!state->satb_count \|\| !sprite_slot_pattern_valid\[slot\]/);
+  assert.doesNotMatch(spriteMatcher, /state->frame|state->timer/);
+  const spriteNoOp = setSprite.indexOf('if (sprite_command_matches_display(command)) return;');
+  const cancelMove = setSprite.indexOf('cancel_sprite_move(slot);');
+  const refresh = setSprite.indexOf('refresh_scene_sprites(upload_pattern_mask);');
+  assert.ok(spriteNoOp >= 0 && spriteNoOp < cancelMove && spriteNoOp < refresh);
+});
+
 test('HuCARD VN message mouth uses the next ROW and restores it before input wait or interruption', () => {
   const startMessage = sliceBetween(
     'static void VN_HUCARD_CODE_TEXT start_message',

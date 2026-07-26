@@ -9,7 +9,7 @@
 | 104-119 | MPR6 | visual payload cache | 8KB×16 page。BG/spriteの低位RAM cache |
 | 120 | — | 未使用 | 将来用 |
 | 121 | MPR4 | visual helper overlay | `visual_code.bin`をCDからロード。固定entry経由 |
-| 122 | MPR4 | CD async / runtime support overlay | `cd_async_code.bin`をCDからロード。固定entry経由。palette、部分BAT clear、SATB upload、ADPCM容量判定・再生終了serviceも担当 |
+| 122 | MPR4 | CD async / runtime support overlay | `cd_async_code.bin`をCDからロード。固定entry経由。palette、部分BAT clear、SATB upload/clear、sprite move中止、表示一致判定、ADPCM容量判定・再生終了serviceも担当 |
 | 123 | MPR6 | active scene pack | 8KB `NOLOAD`。最大8192 bytes |
 | 124-127 | — | 未使用 | 将来用。新用途を割り当てる前に文書とgateを更新 |
 | 128 | MPR2 | resident code | 起動、薄いdispatch、System Card adapter、小さいmetadata |
@@ -60,14 +60,14 @@ package loaderは対象busを停止してstatusを確認し、宣言byte数だ�
 - main loopのpad polling leaf (`read_pad_raw`) はbank130へ置き、初回・毎frameの呼出前にMPR4=bank130を明示します。大規模CD metadata catalogではLTO後のbank128 accessor群が小規模templateより増えるため、入力処理をbank128へ戻すと512-byte常駐余白gateを割る可能性があります。
 - sprite animationの16-bit per-frame delay tableはプロジェクトのanimation数に応じて増えるためbank128 resident rodataへ置かず、`PCE_VN_DATA_SECTION`でbank132へ置きます。bank121 visual helperのanimation tickへ入るresident wrapperは、MPR4を切り替える前にMPR6をbank132へmapします。
 - BG行転送後の左右margin clear (`clear_bg_map_side_margins_impl`) 本体はbank122 runtime support overlayへ置き、bank129には薄いdispatchだけを残します。bank122内では同じoverlayの`clear_map_rect_at_dest_impl`を直接呼び、slot4 dispatcherを再入させません。Full BG対応コードが有効なprojectでもbank128/129のload imageを8KB未満に保つためです。
-- bank122はdirect CD/SCSI処理だけでなく、palette upload/fade、部分BAT clear、SATB upload、ADPCM buffered容量判定と毎frameのADPCM再生終了serviceを担うruntime support overlayです。dispatcherは呼出元のMPR4とMPR6を保存・復元するためbank121 visual helperからも呼べますが、bank122実行中にbank130へmapするhelperは呼びません。
+- bank122はdirect CD/SCSI処理だけでなく、palette upload/fade、部分BAT clear、SATB upload/clear、sprite move中止、BG/Spriteの純粋な表示一致判定、ADPCM buffered容量判定と毎frameのADPCM再生終了serviceを担うruntime support overlayです。dispatcherは呼出元のMPR4とMPR6を保存・復元するためbank121 visual helperからも呼べますが、bank122実行中にbank130へmapするhelperは呼びません。
 - choiceカーソル移動の2×2 BAT差分更新本体もbank122 runtime supportへ置きます。上下入力側はbank128の薄いdispatchとし、bank130の常駐512-byte余白を消費せず、同一VBlank内で旧行をblank、新行を初期描画済みarrow patternへ差し替えます。
 - bank122のruntime-support op番号は疎に保ちます。連番へ詰めるとLLVM-MOSがresident `.rodata`にcross-section jump tableを生成し、`llvm-objcopy`が`.vn_cd_async_code`を抽出・除去できなくなります。
 - sprite pattern cache loadの調停は、CD metadata accessとbank121 visual cache呼出を橋渡しするためbank128の薄いresident wrapperに置きます。大きな転送本体をresidentへ戻してはいけません。
 - overlay実行中はbank130が見えません。`VN_OVERLAY_CODE`から呼ぶhelperはbank129か本当に必要な最小bank128へ置き、bank130へ置きません。
 - visual/async helperは`.vn_visual_code`/`.vn_cd_async_code`としてlink後に抽出し、対応する`PT_LOAD`を`PT_NULL`化します。これを怠ると`pce-mkcd`の初期load imageが壊れます。
 - bank133 overlayは`.vn_overlay`を抽出し、residentからは`vn_overlay_entry`の固定address dispatchだけで呼びます。message口パクの次ROW切替／通常ROW復帰もここでsprite stateを更新します。bank122のADPCM終了serviceから復帰を要求するときは`vn_overlay_dispatch_locked()`を使い、overlayから戻った後も呼出元のbank122をMPR4へ復元します。
-- `spritemove`の開始/中止helperはbank130、毎frameのDDA tickはbank121 visual helper、SATB再構築はbank133 overlayに置きます。console RAMの移動状態は4 slot合計96 bytes以下とし、command recordは19 bytesから増やしません。
+- `spritemove`の開始helperはbank130、中止helperはbank122 runtime support、bank122ロード前の起動時移動state初期化はbank129、毎frameのDDA tickはbank121 visual helper、SATB再構築はbank133 overlayに置きます。console RAMの移動状態は4 slot合計96 bytes以下とし、command recordは19 bytesから増やしません。
 - 詳しい抽出/relocation規則は[pce-vn-overlay-pathb.md](pce-vn-overlay-pathb.md)を参照してください。
 
 ## console RAM / ZP gate

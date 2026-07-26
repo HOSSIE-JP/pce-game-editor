@@ -119,6 +119,78 @@ test('PCE VN preview keeps CD-DA and PSG BGM mutually exclusive', async () => {
   assert.equal(pcePreviewBgmConflict('adpcm', 'adpcm'), null);
 });
 
+test('PCE VN preview keeps PSG BGM alive while PSG SFX starts and stops', async () => {
+  class FakeAudioContext {
+    constructor() {
+      this.state = 'running';
+      this.sampleRate = 44100;
+      this.currentTime = 0;
+      this.destination = {};
+    }
+
+    createOscillator() {
+      return {
+        frequency: { setValueAtTime() {} },
+        connect(target) { return target; },
+        start() {},
+        stop() {},
+        disconnect() {},
+      };
+    }
+
+    createGain() {
+      return {
+        gain: {
+          cancelScheduledValues() {},
+          setValueAtTime() {},
+          linearRampToValueAtTime() {},
+          exponentialRampToValueAtTime() {},
+        },
+        connect(target) { return target; },
+      };
+    }
+  }
+
+  const psgRuntimeSource = sourceBetween(
+    'const PSG_CLOCK = 3579545;',
+    'function rememberVariable(name, initialValue, isDefinition)',
+  );
+  const context = {
+    data: {
+      meta: {
+        song: { type: 'psg-song', psgOptions: { steps: 1, bpm: 150, pattern: [{ step: 0, channel: 0, period: 512, volume: 16 }] } },
+        sfx: { type: 'psg-sfx', psgOptions: { steps: 1, bpm: 150, pattern: [{ step: 0, channel: 1, period: 384, volume: 16 }] } },
+      },
+    },
+    messageAdvanceMode: 'button',
+    pcePreviewBgmConflict: (kind, assetType) => (kind === 'psg' && assetType === 'psg-song' ? { kind: 'cdda', target: 'all' } : null),
+    psgPreviewNoiseHz: () => 1,
+    stopAudio() {},
+    setTimeout: () => ({}),
+    clearTimeout() {},
+    window: { AudioContext: FakeAudioContext },
+  };
+  vm.runInNewContext(`${psgRuntimeSource}
+    globalThis.psgPreviewTest = {
+      play: playPsgPreview,
+      stop: stopPsgPreview,
+      states: () => psgStates,
+    };`, context);
+
+  await context.psgPreviewTest.play('song', true);
+  const bgmState = context.psgPreviewTest.states().bgm;
+  assert.ok(bgmState);
+  assert.equal(context.psgPreviewTest.states().sfx, null);
+
+  await context.psgPreviewTest.play('sfx', false);
+  assert.equal(context.psgPreviewTest.states().bgm, bgmState);
+  assert.ok(context.psgPreviewTest.states().sfx);
+
+  assert.equal(context.psgPreviewTest.stop('sfx'), true);
+  assert.equal(context.psgPreviewTest.states().bgm, bgmState);
+  assert.equal(context.psgPreviewTest.states().sfx, null);
+});
+
 test('PCE VN preview clamps reserved variable writes', () => {
   const variableRuntimeSource = sourceBetween(
     'function s16(value)',
@@ -161,6 +233,47 @@ test('PCE VN previews show a steady AUTO indicator instead of the blinking wait 
   assert.match(previewRuntimeSource, /getVar\('AUTO_ENABLE'\) === 1 \? messageAutoGlyph : ''/);
   assert.match(messageOverlaySource, /autoPreview \? MESSAGE_AUTO_GLYPH : MESSAGE_WAIT_GLYPH/);
   assert.match(messageOverlaySource, /indicatorBlinks \? 'pce-vn-msg-wait-cursor' : 'pce-vn-msg-auto-indicator'/);
+});
+
+test('PCE VN playback preview skips display-equivalent BG and Sprite commands', () => {
+  const previewRuntimeSource = sourceBetween(
+    'function previewRuntime()',
+    'function buildPreviewHtml(payload)',
+  );
+
+  assert.match(
+    previewRuntimeSource,
+    /function backgroundCommandMatchesDisplay\(c\)[\s\S]*current\.assetId === c\.assetId[\s\S]*current\.fullScreen === Boolean\(scene && scene\.fullScreenBg\)/,
+  );
+  assert.match(previewRuntimeSource, /let displaySuppressed = false;/);
+  assert.match(
+    previewRuntimeSource,
+    /function backgroundCommandMatchesDisplay\(c\) \{\s*if \(displaySuppressed\) return false;/,
+  );
+  assert.match(
+    previewRuntimeSource,
+    /function spriteCommandMatchesDisplay\(c\)[\s\S]*spriteMoveTimers\.has\(slot\)[\s\S]*current\.flipX[\s\S]*current\.flipY[\s\S]*current\.animationId/,
+  );
+  assert.match(
+    previewRuntimeSource,
+    /function spriteCommandMatchesDisplay\(c\) \{\s*if \(displaySuppressed\) return false;/,
+  );
+  assert.match(
+    previewRuntimeSource,
+    /function applyBackground\(c\)[\s\S]*const revealSuppressedDisplay = displaySuppressed;[\s\S]*if \(revealSuppressedDisplay\) \{[\s\S]*displaySuppressed = false;[\s\S]*effectLayer\.style\.opacity = '0';/,
+  );
+  assert.match(
+    previewRuntimeSource,
+    /if \(c\.effect === 'fadeOut'\) \{\s*displaySuppressed = true;[\s\S]*else if \(c\.effect === 'fadeIn'\) \{\s*displaySuppressed = false;/,
+  );
+  assert.match(
+    previewRuntimeSource,
+    /if \(t === 'background'\) \{[\s\S]*pc \+= 1;[\s\S]*if \(backgroundCommandMatchesDisplay\(c\)\) continue;[\s\S]*recordVisualDisplay\(c\.assetId, 'bg', 'BG'\);[\s\S]*applyBackground\(c\);/,
+  );
+  assert.match(
+    previewRuntimeSource,
+    /if \(t === 'sprite'\) \{[\s\S]*if \(spriteCommandMatchesDisplay\(c\)\) \{ pc \+= 1; continue; \}[\s\S]*cancelSpriteMove\(c\.slot\);[\s\S]*renderStage\(\);/,
+  );
 });
 
 test('PCE VN preview HTML injects every standalone runtime dependency', async () => {
@@ -248,5 +361,5 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
   assert.match(previewRuntimeSource, /pcePreviewBgmConflict\('psg', meta\.type\)/);
   assert.match(previewRuntimeSource, /pcePreviewBgmConflict\(kind, data\.meta\[assetId\]\?\.type\)/);
   assert.match(previewRuntimeSource, /function stopPsgPreview\(target = 'all'\)/);
-  assert.match(previewRuntimeSource, /normalizedTarget !== 'all' && stateRef\.bus !== normalizedTarget/);
+  assert.match(previewRuntimeSource, /const psgStates = \{ bgm: null, sfx: null \};/);
 });

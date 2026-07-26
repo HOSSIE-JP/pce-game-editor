@@ -11,6 +11,7 @@ static void init_runtime_state(void)
     pending_display_enable = 0u;
     pending_scene_sprite_clear = 0u;
     current_bg_index = -1;
+    current_bg_display_valid = 0u;
     current_bg_x = 0u;
     current_bg_y = 0u;
     current_bg_map_base = 0u;
@@ -109,7 +110,8 @@ static void init_runtime_state(void)
     vn_auto_enable = vn_variable_lo[PCE_VN_VARIABLE_AUTO_ENABLE_INDEX];
     vn_msg_speed = vn_variable_lo[PCE_VN_VARIABLE_MSG_SPEED_INDEX];
     VN_MAP_BANK130_FOR_CODE();
-    cancel_all_sprite_moves();
+    /* bank122 has not been loaded yet; use the permanent bank129 helper. */
+    initialize_sprite_move_state();
     clear_spritetext_slots();
 }
 

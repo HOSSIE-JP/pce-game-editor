@@ -60,6 +60,10 @@ static void VN_RESIDENT_CODE restore_text_vram_after_full_screen_bg(void)
     if (clear_visible_full_bg)
     {
         clear_screen_map();
+        /* The old Full BG is no longer physically present.  A later command
+           for the same asset must upload it instead of taking the BG no-op. */
+        preloaded_bg_valid = 0u;
+        current_bg_display_valid = 0u;
     }
 #endif
 }
