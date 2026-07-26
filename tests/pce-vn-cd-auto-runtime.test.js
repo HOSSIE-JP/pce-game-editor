@@ -115,6 +115,7 @@ test('CD VN one-shot natural completion remains free of BIOS status polling and 
 
 test('CD VN skips only physically current duplicate BG and Sprite commands', () => {
   const config = readRuntimeFile('vn_engine_config.h');
+  const state = readRuntimeFile('vn_engine_state.c');
   const bus = readRuntimeFile('vn_engine_bus.c');
   const scene = readRuntimeFile('vn_port_scene.c');
   const sprite = readRuntimeFile('vn_port_sprite.c');
@@ -148,6 +149,11 @@ test('CD VN skips only physically current duplicate BG and Sprite commands', () 
   assert.match(config, /#define VN_CD_ASYNC_OP_CLEAR_SPRITES 88u/);
   assert.match(config, /#define VN_CD_ASYNC_OP_CANCEL_SPRITE_MOVE 96u/);
   assert.match(config, /#define VN_CD_ASYNC_OP_CANCEL_ALL_SPRITE_MOVES 104u/);
+  assert.match(
+    state,
+    /static volatile uint8_t full_screen_bg_text_vram_dirty = 0;/,
+    'the Full BG dirty clear must remain an observable cross-bank store',
+  );
   assert.match(
     residentMatcher,
     /vn_visual_cache_arg_asset = \(uint16_t\)\(uintptr_t\)command;[\s\S]*vn_cd_async_call_bank122\(VN_CD_ASYNC_OP_MATCH_DISPLAY_COMMAND\)/,

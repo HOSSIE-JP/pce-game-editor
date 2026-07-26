@@ -33,7 +33,9 @@ static uint16_t loaded_sprite_pattern_index[VN_SPRITE_SLOT_COUNT] __attribute__(
 static uint16_t loaded_sprite_pattern_base[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint16_t loaded_sprite_pattern_units[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint8_t loaded_sprite_palette_bank[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
-static uint8_t full_screen_bg_text_vram_dirty = 0;
+/* This flag is shared by resident and banked scene code. Keep the store
+   observable: llvm-mos otherwise mislowers the conditional resident clear. */
+static volatile uint8_t full_screen_bg_text_vram_dirty = 0;
 static uint8_t loaded_adpcm_valid = 0;
 static uint16_t loaded_adpcm_index = 0;
 static signed char screen_shake_x = 0;
