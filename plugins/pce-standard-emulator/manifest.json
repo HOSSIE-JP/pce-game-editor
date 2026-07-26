@@ -2,7 +2,7 @@
   "id": "pce-standard-emulator",
   "name": "標準エミュレーター (EmulatorJS)",
   "description": "Setup で取得した EmulatorJS mednafen_pce core を使って Test Play を起動します。",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "play",
   "types": ["emulator"],
   "supportedCores": ["pc-engine"],

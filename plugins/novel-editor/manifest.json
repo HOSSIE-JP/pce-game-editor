@@ -2,7 +2,7 @@
   "id": "novel-editor",
   "name": "ノベル",
   "description": "VN シーン編集とフォント生成をまとめて扱います。",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "book",
   "types": ["editor", "asset"],
   "supportedCores": ["pc-engine"],

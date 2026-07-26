@@ -2,7 +2,7 @@
   "id": "pce-slideshow-builder",
   "name": "HuCard スライドショービルダー",
   "description": "HuCard スライドショーテンプレートのアセット生成と ROM ビルドを担当します。",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "build",
   "types": ["build"],
   "generator": false,

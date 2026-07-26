@@ -2,7 +2,7 @@
   "id": "code-editor",
   "name": "コードエディタ",
   "description": "プロジェクト配下のファイルをツリー表示して編集・新規作成・削除できる標準エディタプラグインです。",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "code",
   "types": ["editor"],
   "supportedCores": ["*"],

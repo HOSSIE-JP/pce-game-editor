@@ -2,7 +2,7 @@
   "id": "pce-palette-editor",
   "name": "パレットエディター",
   "description": "Image プラグイン内で使う palette 編集モジュールです。",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "grid",
   "types": ["editor", "asset"],
   "hidden": true,

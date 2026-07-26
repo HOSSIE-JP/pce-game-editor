@@ -2,7 +2,7 @@
   "id": "pce-cdda-manager",
   "name": "CD-DA 管理",
   "description": "Sound プラグイン内で使う CD-DA トラック管理モジュールです。",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "music",
   "types": ["editor", "asset"],
   "hidden": true,

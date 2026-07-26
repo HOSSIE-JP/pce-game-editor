@@ -2,7 +2,7 @@
   "id": "pce-vn-system-settings",
   "name": "VN システム設定",
   "description": "Novel プラグイン内で使う VN システム設定モジュールです。",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "settings",
   "types": ["editor"],
   "hidden": true,

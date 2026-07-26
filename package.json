@@ -1,6 +1,6 @@
 {
   "name": "pce-game-editor",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Electron shell for PC Engine game development",
   "main": "main.js",

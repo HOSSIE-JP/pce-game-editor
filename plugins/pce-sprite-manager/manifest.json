@@ -2,7 +2,7 @@
   "id": "pce-sprite-manager",
   "name": "スプライト管理",
   "description": "Image プラグイン内で使う sprite sheet 管理モジュールです。",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "sprites",
   "types": ["editor", "asset"],
   "hidden": true,

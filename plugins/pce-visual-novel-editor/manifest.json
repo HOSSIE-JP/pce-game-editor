@@ -2,7 +2,7 @@
   "id": "pce-visual-novel-editor",
   "name": "ビジュアルノベル",
   "description": "Novel プラグイン内で使う VN シーン編集モジュールです。",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "book",
   "types": ["editor", "asset"],
   "hidden": true,

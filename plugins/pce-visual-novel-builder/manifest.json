@@ -2,7 +2,7 @@
   "id": "pce-visual-novel-builder",
   "name": "CD-ROM2 ノベルビルダー",
   "description": "Super CD-ROM2 ビジュアルノベルテンプレートのシーン生成と CD-ROM2 ビルドを担当します。",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "build",
   "types": ["build"],
   "generator": false,

@@ -2,7 +2,7 @@
   "id": "pce-font-editor",
   "name": "フォント",
   "description": "Novel プラグイン内で使うフォント生成モジュールです。",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "text",
   "types": ["editor", "asset"],
   "hidden": true,

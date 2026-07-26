@@ -2,7 +2,7 @@
   "id": "sound-editor",
   "name": "サウンド",
   "description": "ADPCM / CD-DA / PSG の音声アセット編集をまとめて扱います。",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "music",
   "types": ["editor", "asset"],
   "dependencies": ["pce-audio-converter"],
