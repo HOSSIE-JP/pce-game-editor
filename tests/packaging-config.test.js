@@ -54,6 +54,35 @@ test('packaging includes the PCE standard emulator plugin assets', () => {
   });
 });
 
+test('packaging exposes third-party notices and exact license texts', () => {
+  const config = readPackageConfig();
+  const root = path.join(__dirname, '..');
+
+  assert.match(config, /from:\s*LICENSE/);
+  assert.match(config, /THIRD_PARTY_NOTICES\.md/);
+  assert.match(config, /from:\s*licenses/);
+  [
+    'LICENSE',
+    'THIRD_PARTY_NOTICES.md',
+    'licenses/Electron-MIT.txt',
+    'licenses/iconv-lite-MIT.txt',
+    'licenses/safer-buffer-MIT.txt',
+    'licenses/electron-builder-MIT.txt',
+    'licenses/GPL-2.0-only.txt',
+  ].forEach((file) => {
+    assert.equal(fs.existsSync(path.join(root, file)), true, `missing ${file}`);
+  });
+
+  const notices = fs.readFileSync(path.join(root, 'THIRD_PARTY_NOTICES.md'), 'utf-8');
+  const appLicense = fs.readFileSync(path.join(root, 'LICENSE'), 'utf-8');
+  const pkg = readPackageJson();
+  assert.equal(pkg.author, 'HOSSIE');
+  assert.equal(pkg.license, 'MIT');
+  assert.match(appLicense, /MIT License[\s\S]*Copyright \(c\) 2026 HOSSIE/);
+  assert.ok(notices.includes(`| Electron | ${pkg.devDependencies.electron} |`));
+  assert.ok(notices.includes(`| iconv-lite | ${pkg.dependencies['iconv-lite']} |`));
+});
+
 test('packaging has no legacy MD emulator or md-api plugin', () => {
   const config = readPackageConfig();
 

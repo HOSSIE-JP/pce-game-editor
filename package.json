@@ -3,6 +3,8 @@
   "version": "0.4.0",
   "private": true,
   "description": "Electron shell for PC Engine game development",
+  "author": "HOSSIE",
+  "license": "MIT",
   "main": "main.js",
   "scripts": {
     "inject-build-meta": "node scripts/inject-build-meta.js",

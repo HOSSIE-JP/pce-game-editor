@@ -267,6 +267,7 @@ const el = {
   aboutTitle: $('aboutTitle'),
   aboutDescription: $('aboutDescription'),
   aboutAppVersion: $('aboutAppVersion'),
+  aboutAppAuthor: $('aboutAppAuthor'),
   aboutWasmBuildVersion: $('aboutWasmBuildVersion'),
   aboutWasmPackageVersion: $('aboutWasmPackageVersion'),
   aboutElectronVersion: $('aboutElectronVersion'),
@@ -275,6 +276,9 @@ const el = {
   aboutPlatform: $('aboutPlatform'),
   aboutArch: $('aboutArch'),
   aboutAppPath: $('aboutAppPath'),
+  btnAppLicense: $('btnAppLicense'),
+  btnThirdPartyNotices: $('btnThirdPartyNotices'),
+  aboutLicenseStatus: $('aboutLicenseStatus'),
   projectModal: $('projectModal'),
   btnProjectModalClose: $('btnProjectModalClose'),
   btnProjectModalCancel: $('btnProjectModalCancel'),
@@ -6109,6 +6113,7 @@ async function openAboutDialog() {
     if (el.aboutTitle) el.aboutTitle.textContent = info.appName || 'PCE Game Editor';
     if (el.aboutDescription) el.aboutDescription.textContent = info.appDescription || 'PC Engine editor and EmulatorJS information';
     if (el.aboutAppVersion) el.aboutAppVersion.textContent = info.appVersion || 'unknown';
+    if (el.aboutAppAuthor) el.aboutAppAuthor.textContent = info.appAuthor || 'unknown';
     if (el.aboutWasmBuildVersion) el.aboutWasmBuildVersion.textContent = wasm.buildVersion || 'unknown';
     if (el.aboutWasmPackageVersion) el.aboutWasmPackageVersion.textContent = wasm.runtimePath || wasm.packageVersion || 'unknown';
     if (el.aboutElectronVersion) el.aboutElectronVersion.textContent = info.electronVersion || 'unknown';
@@ -6117,6 +6122,19 @@ async function openAboutDialog() {
     if (el.aboutPlatform) el.aboutPlatform.textContent = info.platform || 'unknown';
     if (el.aboutArch) el.aboutArch.textContent = info.arch || 'unknown';
     if (el.aboutAppPath) el.aboutAppPath.textContent = info.appPath || 'unknown';
+    if (el.btnAppLicense) {
+      el.btnAppLicense.dataset.path = info.appLicensePath || '';
+      el.btnAppLicense.disabled = !info.appLicensePath;
+    }
+    if (el.btnThirdPartyNotices) {
+      el.btnThirdPartyNotices.dataset.path = info.thirdPartyNoticesPath || '';
+      el.btnThirdPartyNotices.disabled = !info.thirdPartyNoticesPath;
+    }
+    if (el.aboutLicenseStatus) {
+      el.aboutLicenseStatus.textContent = info.appLicensePath && info.thirdPartyNoticesPath
+        ? ''
+        : 'ライセンス文書が見つかりません。';
+    }
   } catch (_err) {
     if (el.aboutWasmBuildVersion) {
       el.aboutWasmBuildVersion.textContent = 'failed to load';
@@ -6583,6 +6601,26 @@ function bindEvents() {
 
   if (el.btnAboutClose) el.btnAboutClose.addEventListener('click', closeAboutDialog);
   if (el.aboutBackdrop) el.aboutBackdrop.addEventListener('click', closeAboutDialog);
+  if (el.btnAppLicense) {
+    el.btnAppLicense.addEventListener('click', async () => {
+      const licensePath = el.btnAppLicense.dataset.path || '';
+      if (!licensePath) return;
+      const result = await window.electronAPI.openPathInExplorer(licensePath);
+      if (el.aboutLicenseStatus) {
+        el.aboutLicenseStatus.textContent = result?.ok ? '' : `MIT Licenseを開けませんでした: ${result?.error || 'unknown'}`;
+      }
+    });
+  }
+  if (el.btnThirdPartyNotices) {
+    el.btnThirdPartyNotices.addEventListener('click', async () => {
+      const noticePath = el.btnThirdPartyNotices.dataset.path || '';
+      if (!noticePath) return;
+      const result = await window.electronAPI.openPathInExplorer(noticePath);
+      if (el.aboutLicenseStatus) {
+        el.aboutLicenseStatus.textContent = result?.ok ? '' : `ライセンス文書を開けませんでした: ${result?.error || 'unknown'}`;
+      }
+    });
+  }
 
   el.buildLogHeader?.addEventListener('click', () => setLogOpen(!state.logOpen));
   el.btnCopyLog?.addEventListener('click', async (e) => {

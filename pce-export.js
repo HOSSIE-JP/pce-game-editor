@@ -4,6 +4,14 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+function readBundledLicense(fileName) {
+  const licensePath = path.join(__dirname, 'licenses', fileName);
+  if (!fs.existsSync(licensePath)) {
+    throw new Error(`PCE Game Editor のライセンス文書が見つかりません: ${licensePath}`);
+  }
+  return fs.readFileSync(licensePath);
+}
+
 function isCdRomPath(filePath) {
   return path.extname(String(filePath || '')).toLowerCase() === '.cue';
 }
@@ -130,6 +138,7 @@ function collectPceEmulatorJsAssets(runtime) {
     assets,
     coreAsset,
     licenseText: fs.readFileSync(licensePath),
+    coreLicenseText: readBundledLicense('GPL-2.0-only.txt'),
     sourceInfo: {
       emulatorJsVersion: String(runtimePackage.version || 'unrecorded'),
       emulatorJsRepository: String(runtimePackage.repository?.url || 'https://github.com/EmulatorJS/EmulatorJS'),
@@ -216,7 +225,7 @@ function generatePceExportSourceMarkdown({ media, emulatorAssets }) {
   const coreLicenseFile = sourceInfo.coreLicenseFile || 'COPYING';
   const coreSha256 = sourceInfo.coreSha256 || 'unrecorded';
 
-  return `# Source availability\n\nThis document accompanies the HTML5 package for \`${romName}\`. It identifies GPL-licensed components bundled with the game package.\n\n## Where to obtain the corresponding source\n\nThe publisher must make a file named \`${sourceArchive}\` available as a separate downloadable file on the same itch.io game page as this HTML5 ZIP (or provide an equally prominent, no-charge download URL). \`SOURCE.md\` is an index to that source package; it is **not** the corresponding source by itself.\n\nThe source archive must contain the exact source snapshots, local patches, and build instructions/scripts used for the bundled components below. Keep it available for as long as this game package is distributed.\n\n## Bundled GPL components\n\n| Component | Bundled artifact | License information | Source reference | Build identity |\n| --- | --- | --- | --- | --- |\n| EmulatorJS | \`data/loader.js\`, \`data/emulator.min.js\`, \`data/emulator.min.css\`, \`data/compression/extract7z.js\` | GPL-3.0; see \`LICENSES/EmulatorJS-GPL-3.0.txt\` | ${emulatorJsRepository} (version \`${emulatorJsVersion}\`) | Include \`package.json\`, lockfile, minify/build scripts, and all local patches in \`${sourceArchive}\`. |\n| mednafen_pce legacy core | \`data/cores/${emulatorAssets.coreAsset || 'mednafen_pce-legacy-wasm.data'}\` | See upstream \`${coreLicenseFile}\` and all notices in the source snapshot. | ${coreRepository} | SHA-256 of bundled core data: \`${coreSha256}\`. Include the exact source commit, WASM build scripts/toolchain settings, and local patches in \`${sourceArchive}\`. |\n\n## Scope\n\nThe HuCard ROM \`rom/${romName}\` is game content loaded by the emulator. Its source is not made GPL-covered merely by running it in EmulatorJS. The PCE Game Editor application is not bundled in this HTML5 package; its whole source is not required by this notice. If the publisher distributes modified EmulatorJS, modified core code, or another combined GPL-covered component, the matching source for that work must be included in \`${sourceArchive}\`.\n\nNo PC Engine System Card or IPL is included in this package.\n`;
+  return `# Source availability\n\nThis document accompanies the HTML5 package for \`${romName}\`. It identifies GPL-licensed components bundled with the game package.\n\n## Where to obtain the corresponding source\n\nThe publisher must make a file named \`${sourceArchive}\` available as a separate downloadable file on the same itch.io game page as this HTML5 ZIP (or provide an equally prominent, no-charge download URL). \`SOURCE.md\` is an index to that source package; it is **not** the corresponding source by itself.\n\nThe source archive must contain the exact source snapshots, local patches, and build instructions/scripts used for the bundled components below. Keep it available for as long as this game package is distributed.\n\n## Bundled GPL components\n\n| Component | Bundled artifact | License information | Source reference | Build identity |\n| --- | --- | --- | --- | --- |\n| EmulatorJS | \`data/loader.js\`, \`data/emulator.min.js\`, \`data/emulator.min.css\`, \`data/compression/extract7z.js\` | GPL-3.0; see \`LICENSES/EmulatorJS-GPL-3.0.txt\` | ${emulatorJsRepository} (version \`${emulatorJsVersion}\`) | Include \`package.json\`, lockfile, minify/build scripts, and all local patches in \`${sourceArchive}\`. |\n| mednafen_pce legacy core | \`data/cores/${emulatorAssets.coreAsset || 'mednafen_pce-legacy-wasm.data'}\` | GPL-2.0-only; see \`LICENSES/mednafen_pce-GPL-2.0-only.txt\`, upstream \`${coreLicenseFile}\`, and all notices in the source snapshot. | ${coreRepository} | SHA-256 of bundled core data: \`${coreSha256}\`. Include the exact source commit, WASM build scripts/toolchain settings, and local patches in \`${sourceArchive}\`. |\n\n## Scope\n\nThe HuCard ROM \`rom/${romName}\` is game content loaded by the emulator. Its source is not made GPL-covered merely by running it in EmulatorJS. The PCE Game Editor application is not bundled in this HTML5 package; its whole source is not required by this notice. If the publisher distributes modified EmulatorJS, modified core code, or another combined GPL-covered component, the matching source for that work must be included in \`${sourceArchive}\`.\n\nNo PC Engine System Card or IPL is included in this package.\n`;
 }
 
 function createPceItchIoBundle({ media, emulatorAssets, appVersion = 'unknown' }) {
@@ -228,7 +237,8 @@ function createPceItchIoBundle({ media, emulatorAssets, appVersion = 'unknown' }
   const sourceMarkdown = generatePceExportSourceMarkdown({ media: { ...media, entryName: romName }, emulatorAssets });
   const notice = [
     'This HTML5 package bundles EmulatorJS and the mednafen_pce legacy core.',
-    'EmulatorJS is distributed under GPL-3.0; the core has GPL-family licensing.',
+    'EmulatorJS is distributed under GPL-3.0; mednafen_pce is distributed under GPL-2.0-only.',
+    'See LICENSES/EmulatorJS-GPL-3.0.txt and LICENSES/mednafen_pce-GPL-2.0-only.txt.',
     'Before distributing this package, provide the complete corresponding source and license notices for the exact bundled versions, including your modifications and build instructions when required by the applicable licenses.',
     'PCE Game Editor does not include EmulatorJS source, the emulation-core source, any PC Engine System Card, or IPL in this package.',
   ].join('\n');
@@ -237,6 +247,7 @@ function createPceItchIoBundle({ media, emulatorAssets, appVersion = 'unknown' }
     { name: `rom/${romName}`, data: media.buffer },
     ...emulatorAssets.assets.map((asset) => ({ name: `data/${asset.relativePath}`, data: asset.buffer })),
     { name: 'LICENSES/EmulatorJS-GPL-3.0.txt', data: emulatorAssets.licenseText },
+    { name: 'LICENSES/mednafen_pce-GPL-2.0-only.txt', data: emulatorAssets.coreLicenseText || readBundledLicense('GPL-2.0-only.txt') },
     { name: 'LICENSES/NOTICE.txt', data: Buffer.from(notice, 'utf-8') },
     { name: 'SOURCE.md', data: Buffer.from(sourceMarkdown, 'utf-8') },
   ];

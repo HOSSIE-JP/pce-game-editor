@@ -7,6 +7,8 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   ASSETS_FILE,
+  BORDER_PACKAGE_FILE,
+  BORDER_SOURCE_FILE,
   MANIFEST_FILE,
   PACKAGE_FORMAT,
   PACKAGE_VERSION,
@@ -16,7 +18,7 @@ const {
   stableProjectId,
 } = require('../pce-vn-godot-package');
 
-function makeProject() {
+function makeProject({ border = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-vn-godot-'));
   fs.mkdirSync(path.join(dir, 'assets', 'images'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'assets', 'audio'), { recursive: true });
@@ -30,6 +32,9 @@ function makeProject() {
     targetMedia: 'cd',
   }));
   fs.writeFileSync(path.join(dir, 'assets', 'images', 'bg.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  if (border) {
+    fs.writeFileSync(path.join(dir, BORDER_SOURCE_FILE), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x42]));
+  }
   fs.writeFileSync(path.join(dir, 'assets', 'audio', 'voice.wav'), Buffer.from('RIFF-test'));
   fs.writeFileSync(path.join(dir, 'assets', 'audio', 'unused.wav'), Buffer.from('RIFF-unused'));
   fs.writeFileSync(path.join(dir, 'assets', 'fonts', 'font.ttf'), Buffer.from('font'));
@@ -112,9 +117,20 @@ test('Godot package contains normalized scenes and referenced playback assets on
   assert.equal(assets.assets.find((asset) => asset.id === 'song').file, '');
   assert.match(assets.assets.find((asset) => asset.id === 'voice').file, /^media\//);
   assert.ok(bundle.entries.some((entry) => entry.name === 'font/font.ttf'));
+  assert.equal(bundle.manifest.entrypoints.border, BORDER_PACKAGE_FILE);
+  assert.equal(bundle.entries.find((entry) => entry.name === BORDER_PACKAGE_FILE).data.at(-1), 0x42);
+  assert.ok(bundle.manifest.files.some((entry) => entry.path === BORDER_PACKAGE_FILE && /^[0-9a-f]{64}$/.test(entry.sha256)));
   assert.equal(bundle.manifest.stats.scenes, 1);
   assert.equal(bundle.manifest.stats.commands, 3);
   assert.equal(bundle.manifest.files.every((file) => /^[0-9a-f]{64}$/.test(file.sha256)), true);
+});
+
+test('Godot package keeps the fixed player border optional', () => {
+  const dir = makeProject({ border: false });
+  const bundle = buildGodotPackageBundle({ projectDir: dir, sceneDoc: scenes() });
+  assert.equal(bundle.manifest.entrypoints.border, '');
+  assert.equal(bundle.entries.some((entry) => entry.name === BORDER_PACKAGE_FILE), false);
+  assert.equal(bundle.manifest.files.some((entry) => entry.path === BORDER_PACKAGE_FILE), false);
 });
 
 test('same-title projects in different editor directories keep separate library ids', () => {

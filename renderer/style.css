@@ -2876,6 +2876,13 @@ button.project-path-chip {
   word-break: break-all;
 }
 
+.about-license-note {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 @media (max-width: 740px) {
   .about-panel {
     margin: 16px auto;

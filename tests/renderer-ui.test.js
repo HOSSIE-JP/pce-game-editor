@@ -110,6 +110,21 @@ test('setup page exposes PCE-CD IPL extraction flow', () => {
   assert.match(html, /extractPceCdIpl\(\{ sourcePath, confirmOwnedSource \}\)/);
 });
 
+test('About exposes the app license and packaged third-party notices', () => {
+  const html = readRendererFile('index.html');
+  const renderer = readRendererFile('renderer.js');
+
+  assert.match(html, /id="aboutAppAuthor"/);
+  assert.match(html, /id="btnAppLicense"[\s\S]*MIT Licenseを開く/);
+  assert.match(html, /id="btnThirdPartyNotices"[\s\S]*第三者ライセンスを開く/);
+  assert.match(html, /id="aboutLicenseStatus"/);
+  assert.match(renderer, /info\.appLicensePath/);
+  assert.match(renderer, /info\.appAuthor/);
+  assert.match(renderer, /openPathInExplorer\(licensePath\)/);
+  assert.match(renderer, /info\.thirdPartyNoticesPath/);
+  assert.match(renderer, /openPathInExplorer\(noticePath\)/);
+});
+
 test('plugin role accordion starts expanded by default', () => {
   const html = readRendererFile('index.html');
   const renderer = readRendererFile('renderer.js');

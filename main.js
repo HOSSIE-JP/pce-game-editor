@@ -40,6 +40,20 @@ function readAppBuildMeta() {
 
 const appBuildMeta = readAppBuildMeta();
 
+function getThirdPartyNoticesPath() {
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, 'THIRD_PARTY_NOTICES.md')]
+    : [path.join(__dirname, 'THIRD_PARTY_NOTICES.md')];
+  return candidates.find((candidate) => fs.existsSync(candidate)) || '';
+}
+
+function getAppLicensePath() {
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, 'LICENSE')]
+    : [path.join(__dirname, 'LICENSE')];
+  return candidates.find((candidate) => fs.existsSync(candidate)) || '';
+}
+
 // ── Portable mode detection ────────────────────────────────────────────────
 // Must run before any app.getPath() call (including those inside require'd modules).
 (function applyConfiguredPortableMode() {
@@ -2015,12 +2029,15 @@ ipcMain.handle('app:getInfo', async () => {
     buildNumber: appBuildMeta.buildNumber,
     buildAt: appBuildMeta.buildAt,
     appDescription: electronPackageJson.description || '',
+    appAuthor: electronPackageJson.author || '',
     appPath: app.getAppPath(),
     platform: process.platform,
     arch: process.arch,
     electronVersion: process.versions.electron,
     chromeVersion: process.versions.chrome,
     nodeVersion: process.versions.node,
+    appLicensePath: getAppLicensePath(),
+    thirdPartyNoticesPath: getThirdPartyNoticesPath(),
     embeddedWasm: wasm,
   };
 });

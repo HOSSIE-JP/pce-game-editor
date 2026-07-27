@@ -1,7 +1,11 @@
 appId: jp.co.geroneko.pce.editor.desktop
 productName: PCEGameEditor
+copyright: "Copyright © 2026 HOSSIE"
 files:
   - "*.js"
+  - LICENSE
+  - THIRD_PARTY_NOTICES.md
+  - licenses/**
   - renderer/**
   - build/icon.png
   - build/icon.ico
@@ -15,6 +19,14 @@ extraResources:
     filter:
       - "**/*"
       - "!**/out/**"
+  - from: THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
+  - from: LICENSE
+    to: LICENSE
+  - from: licenses
+    to: licenses
+    filter:
+      - "**/*"
 extraFiles:
   - from: build/portable
     to: portable

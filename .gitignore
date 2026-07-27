@@ -1,5 +1,11 @@
+# Codex / local agent output and machine-specific configuration
+.codex-artifacts/
 .codex-tmp/
 .codex-tmp-read/
+.codex/
+.mcp.json
+
+# Local scratch and generated build data
 .tmp/
 .tmp-codex-build-user-data/
 tmp/
@@ -21,3 +27,8 @@ md-emulator.d.ts
 wasm-player.js
 projects/
 !**/template/*/data
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

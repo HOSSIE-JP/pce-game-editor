@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "geargrafx": {
-      "type": "stdio",
-      "command": "/Users/hossie/.local/bin/geargrafx-mcp-shim",
-      "args": []
-    }
-  }
-}

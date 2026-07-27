@@ -1,7 +1,0 @@
-interface:
-  display_name: "いしのうら PCE VN話数制作"
-  short_description: "新話設計、イベントスチル、16色化、PCE VN JSON組み込みと検査"
-  brand_color: "#244992"
-  default_prompt: "正本資料と承認済み設計に従い、『いしのうらにいる！？』の話数制作工程を進めてください。"
-policy:
-  allow_implicit_invocation: true

@@ -29,7 +29,7 @@ const TOOL_DEFINITIONS = Object.freeze({
     kind: 'llvmMos',
     label: 'llvm-mos-sdk',
     description: 'llvm-mos SDK と mos-pce-clang',
-    license: 'Apache-2.0 with LLVM exceptions / MIT-style components',
+    license: 'Apache-2.0 WITH LLVM-exception（ほか個別ライセンスの同梱物あり）',
     homepage: 'https://github.com/llvm-mos/llvm-mos-sdk',
     targetSubdir: ['llvm-mos-sdk'],
     executableBaseNames: ['mos-pce-clang'],
@@ -44,12 +44,12 @@ const TOOL_DEFINITIONS = Object.freeze({
     kind: 'emulatorJs',
     label: 'EmulatorJS / mednafen_pce',
     description: 'WASM Test Play 用 EmulatorJS runtime/core',
-    license: 'GPL-family runtime/core, downloaded by user action',
+    license: 'EmulatorJS: GPL-3.0 / mednafen_pce: GPL-2.0-only',
     homepage: 'https://github.com/EmulatorJS/EmulatorJS',
     targetSubdir: ['emulators', 'emulatorjs-pce'],
     executableBaseNames: [],
     requiresPlatformAsset: false,
-    note: 'EmulatorJS runtime/core は GPL 系のためリポジトリには同梱せず、ユーザー操作で data/tools 配下へ取得します。CDN 配布は .7z のため展開には 7z / 7za / bsdtar のいずれかが必要です。',
+    note: 'EmulatorJS runtime/core はリポジトリやアプリ配布物へ同梱せず、ユーザー操作で tools 配下へ取得します。Windows ではOS標準の tar でCDNの .7z を展開できます。',
     github: {
       owner: 'EmulatorJS',
       repo: 'EmulatorJS',
@@ -409,16 +409,16 @@ function fontRendererDiagnostic() {
 }
 
 function getEnvironmentDiagnostics(options = {}) {
-  const zipStatus = process.platform === 'win32'
-    ? firstConfiguredStatus([
-      commandStatus('zipExpandArchive', 'ZIP 展開 (PowerShell)', ['powershell.exe', 'powershell', 'pwsh'], 'llvm-mos-sdk などの .zip ツールアーカイブ展開に使います。', true),
-      commandStatus('zipTar', 'ZIP 展開 (tar)', ['tar'], 'llvm-mos-sdk などの .zip ツールアーカイブ展開に使います。', true),
-      commandStatus('zipUnzip', 'ZIP 展開 (unzip)', ['unzip'], 'llvm-mos-sdk などの .zip ツールアーカイブ展開に使います。', true),
-    ])
-    : firstConfiguredStatus([
-      commandStatus('zipUnzip', 'ZIP 展開 (unzip)', ['unzip'], 'llvm-mos-sdk などの .zip ツールアーカイブ展開に使います。', true),
-      commandStatus('zipTar', 'ZIP 展開 (tar)', ['tar'], 'llvm-mos-sdk などの .zip ツールアーカイブ展開に使います。', true),
-    ]);
+  const platform = normalizePlatform(options.platform);
+  // Supported Windows releases already provide tar with ZIP/7z support, and
+  // Windows PowerShell/System.Drawing is only an implementation detail. Keep
+  // SetUp focused on dependencies that require user action.
+  if (platform === 'win32') return [];
+
+  const zipStatus = firstConfiguredStatus([
+    commandStatus('zipUnzip', 'ZIP 展開 (unzip)', ['unzip'], 'llvm-mos-sdk などの .zip ツールアーカイブ展開に使います。', true),
+    commandStatus('zipTar', 'ZIP 展開 (tar)', ['tar'], 'llvm-mos-sdk などの .zip ツールアーカイブ展開に使います。', true),
+  ]);
   const sevenZipStatus = firstConfiguredStatus([
     commandStatus('sevenZip', '7z 展開 (7z)', ['7z'], 'EmulatorJS CDN の .7z 配布物を SetUp から展開するときに使います。', false),
     commandStatus('sevenZipA', '7z 展開 (7za)', ['7za'], 'EmulatorJS CDN の .7z 配布物を SetUp から展開するときに使います。', false),
@@ -429,7 +429,7 @@ function getEnvironmentDiagnostics(options = {}) {
     zipStatus,
     sevenZipStatus,
     fontRendererDiagnostic(),
-  ].filter(Boolean);
+  ].filter((item) => item && !item.configured);
 }
 
 function getOptionalFileSetting(key) {
@@ -1024,9 +1024,9 @@ function extractArchive(archivePath, destDir, options = {}) {
   if (lower.endsWith('.zip')) {
     const extractors = platform === 'win32'
       ? [
+        ['tar', ['-xf', archivePath, '-C', destDir]],
         ['powershell.exe', powershellExpandArchiveArgs(archivePath, destDir)],
         ['pwsh', powershellExpandArchiveArgs(archivePath, destDir)],
-        ['tar', ['-xf', archivePath, '-C', destDir]],
         ['unzip', ['-o', archivePath, '-d', destDir]],
       ]
       : [
@@ -1071,19 +1071,26 @@ function extractArchive(archivePath, destDir, options = {}) {
     return { ok: true, destDir };
   }
   if (lower.endsWith('.7z')) {
-    const extractors = [
-      ['7z', ['x', '-y', `-o${destDir}`, archivePath]],
-      ['7za', ['x', '-y', `-o${destDir}`, archivePath]],
-      ['bsdtar', ['-xf', archivePath, '-C', destDir]],
-      ['tar', ['-xf', archivePath, '-C', destDir]],
-    ];
+    const extractors = platform === 'win32'
+      ? [
+        ['tar', ['-xf', archivePath, '-C', destDir]],
+        ['7z', ['x', '-y', `-o${destDir}`, archivePath]],
+        ['7za', ['x', '-y', `-o${destDir}`, archivePath]],
+        ['bsdtar', ['-xf', archivePath, '-C', destDir]],
+      ]
+      : [
+        ['7z', ['x', '-y', `-o${destDir}`, archivePath]],
+        ['7za', ['x', '-y', `-o${destDir}`, archivePath]],
+        ['bsdtar', ['-xf', archivePath, '-C', destDir]],
+        ['tar', ['-xf', archivePath, '-C', destDir]],
+      ];
     const failures = [];
     for (const [command, args] of extractors) {
       const result = run(command, args);
       if (result === true) return { ok: true, destDir };
       failures.push(result);
     }
-    throw new Error(`7z extraction failed. Install 7z/7za or bsdtar. ${failures.filter(Boolean).join(' | ')}`);
+    throw new Error(`7z extraction failed. Use Windows tar or install 7z/7za/bsdtar. ${failures.filter(Boolean).join(' | ')}`);
   }
   throw new Error(`unsupported archive: ${archivePath}`);
 }
@@ -1205,6 +1212,7 @@ module.exports = {
   extractArchive,
   findEmulatorJsRuntimeDir,
   findExecutable,
+  getEnvironmentDiagnostics,
   getDefaultTargetDir,
   getDownloadCatalog,
   getEmulatorBaseDir,

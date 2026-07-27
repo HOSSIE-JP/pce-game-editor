@@ -7,13 +7,19 @@
 `SetUp` 画面で、使用する機能に応じて次の外部ファイルを設定します。
 
 - `llvm-mos-sdk`: HuCard / CD-ROM2 のビルドに使います。
-- IPL / System Card: Super CD-ROM2 のビルドや Test Play に使います。CD VNは日本版Super System Card 3.0 profile `jp-v3`専用で、Test Play前にROM内容を検証します。ユーザー所有ファイルとして扱い、リポジトリやゲーム生成物には同梱しません。
+- IPL: Super CD-ROM2 のビルドに使います。所有するCDイメージからSetUpで抽出するか、所有するファイルを指定します。
+- System Card: Super CD-ROM2 の Test Play に使います。CD VNは日本版Super System Card 3.0 profile `jp-v3`専用で、Test Play前にROM内容を検証します。ビルド自体には使いません。
 - EmulatorJS runtime: 標準エミュレーターで Test Play する場合に使います。
+
+IPL / System Cardはユーザー所有ファイルとして扱い、リポジトリやゲーム生成物には同梱しません。外部エミュレーターをTest Play roleに選ぶ場合、その実行ファイルもユーザーが指定します。機能別の正確な組み合わせは[公開時の外部依存・ライセンス監査](release-dependencies-and-licenses.md)を参照してください。
 
 標準Test Playでは、EmulatorJSのbrowser loopとcore内VSyncが二重に待たないよう、内側VSyncを無効にしてPC Engine本来のframe rateを維持します。負荷が少し増えただけで約30fpsへ段落ちし、PSGを含む音声も遅くなる現象を防ぐための既定設定です。外部エミュレーターのVSync設定には影響しません。
 
 Windows で `llvm-mos linker を起動できません` または `Application Control policy has blocked this file` が出る場合は、プロジェクトや C ソースではなく Windows Application Control / Smart App Control / WDAC が `llvm-mos-sdk` の `ld.lld.exe` を拒否しています。`data/tools/llvm-mos-sdk/llvm-mos/bin/ld.lld.exe --version` が単体で起動できる状態にする必要があります。Windows 側でこのファイルを許可するか、SetUp で実行可能な `llvm-mos-sdk` を指定してください。
-PC Engine Core の SetUp には、ツールカードのほかに環境診断が表示されます。ZIP 展開、EmulatorJS CDN の `.7z` 展開、VN フォント描画 renderer（Windows System.Drawing / Python+Pillow）の検出結果を確認できます。VNフォント生成はFFmpegへ依存しません。各ツールカードの手動パス欄には、既に別の場所へ入れてある `mos-pce-clang` や EmulatorJS runtime フォルダを指定できます。
+
+Windows CD-ROM2 Build の `pce-mkcd.exe` は `libstdc++-6.dll` / `libgcc_s_seh-1.dll` / `libwinpthread-1.dll` を必要とします。SDK の隣に無い場合、Build は Git for Windows / MSYS2 / MinGW / PATH から3点が揃った同一セットを探して `pce-mkcd.exe` の隣へコピーします。コピー元も無い場合は、その旨をBuild Logへ表示して停止します。HuCard Buildには不要です。PCE Game Editorは`git`コマンド自体を実行しないため、DLLが別経路で揃っていればGit for Windowsの導入も不要です。
+
+Windows 標準の `tar.exe` は ZIP / 7z 展開に利用でき、Windows PowerShell / System.Drawing はHuCard VN font描画に利用するOS機能なので、SetUpに個別の成功行は表示しません。`pwsh.exe`（PowerShell 7）の追加導入は不要です。Windows以外では、archive展開手段やPython 3 + Pillowが不足している場合だけ任意/要確認の診断を表示します。font rendererが無い場合も内蔵fallback bitmapで生成でき、VNフォント生成はFFmpegへ依存しません。各ツールカードの手動パス欄には、既に別の場所へ入れてある `mos-pce-clang` や EmulatorJS runtime フォルダを指定できます。
 
 ## 新規プロジェクト
 
@@ -89,6 +95,8 @@ Irodori-TTSは1回のバッチで参照話者が共通なので、キャラク�
 Visual Novel CD テンプレートには、`BG` / `Sprite` / `Sprite Move` / `Message` / `Audio` / `Variable` / `Choice` / `IF` / `Switch` / `Label` / `GOTO` / `Input` / `Jump` / `Wait` / `Effect` / `SpriteText` を使うコマンド仕様サンプルシナリオが入っています。エディタではこれらに加えて `Cache` コマンドも追加できます。Akari / Mika の立ち絵は `default`（通常）/ `mouth`（口パク）/ `blink` の順でROWを持つスプライトシートになっており、`Message` の Mouth slotによる「現在ROW→次ROW」と自動復帰を確認できます。
 
 Novel画面上部の`Godot出力`は、現在のGUI/JSON編集状態を先に`assets/pce-vn-scenes.json`へ保存し、Godotネイティブプレイヤーへ取り込む`*.pcevn.zip`を作成します。CD-ROM2 / HuCARD VNの両方で利用でき、Sceneと参照中のアセットだけを収録します。画像はPNG/JPEG/WebP、CD-DA/ADPCMはWAV/OGG/MP3の再生可能source（CD-DAは生成WAVを優先）、PSGはpattern metadataを使います。Novelの`フォント`タブで選択中のproject font（`assets/pce-font.json`の`fontPath`）がTTF/OTF/WOFF/WOFF2なら同梱し、Godot側の本文・SpriteText・選択肢・再生UIで優先します。未選択のfont libraryから別のfontを勝手に選ぶことはありません。System Card、IPL、ROM/CUE/ISO、PCE向けtiles/map/pattern/ADPCM binaryは含みません。同じeditor projectから再出力したpackageはGodot側で更新として扱われ、別projectはライブラリに併存します。
+
+Godot Playerのワイド画面余白へ枠を表示する場合は、project内へ`assets/images/player-border.png`を置きます。画像assetへの登録やScene Commandからの参照は不要です。`Godot出力`は固定名を検出してZIP内`presentation/player-border.png`へ追加し、manifestの`entrypoints.border`から参照します。推奨サイズは`1280×720`で、Playerは縦横比を維持したcover配置の上へ中央ゲーム画面を重ねます。ファイルがなければentrypointは空のままで、従来どおり暗色の余白になります。
 
 `システム設定` タブでは、ノベルエンジン全体のメッセージ速度と Advance の初期値を設定します。メッセージ速度は `速度1(速い)：0`、`速度2：10`、`速度3：20`、`速度4：30`、`速度5：40`、`速度6(遅い)：50` から選びます。Advance は既定が `button` で、`auto` にすると Auto wait のフレーム数を使います。これらは全 `Message` command 共通で、Message のプロパティには表示されません。Auto wait はAdvanceの初期値がbuttonでも編集できます。
 
@@ -216,7 +224,7 @@ Test Play は直前の出力を残したままビルドします。VN シーン�
 
 この ZIP は単一 HTML ではなく、itch.io が HTTP で配信する HTML5 game 用です。ZIP を展開せずに itch.io の HTML game としてアップロードしてください。`index.html` は ZIP のルートにあり、内部参照は同梱ファイルへの相対パスです。ローカルの `file://` ダブルクリック起動はサポート対象ではありません。itch.io の HTML5 upload では、ZIPのルートに `index.html` を置く必要があります。詳しくは [itch.io の HTML5 upload documentation](https://itch.io/docs/creators/html5) を参照してください。
 
-生成 ZIP の `LICENSES/EmulatorJS-GPL-3.0.txt` には Setup 済み EmulatorJS の GPL-3.0 license text を、`LICENSES/NOTICE.txt` には再配布時の注意を入れます。`SOURCE.md` は同梱 runtime/core の版、source repository、core dataのSHA-256、および公開すべき source archive の内容を記録します。EmulatorJS は GPL-3.0、`mednafen_pce` core は GPL 系コンポーネントのため、**NOTICEやSOURCE.mdだけではライセンス義務を満たしません**。公開者は、同じ itch.io game pageで `ゲーム名-source.zip` を別ダウンロードとして公開し、同梱した正確な版に対応する完全なソース、ライセンス表示、必要な改変内容とビルド手順を GPL 条件に従って提供してください。PCE Game Editor 本体のリポジトリには EmulatorJS runtime/core のソースや System Card を同梱しません。
+生成 ZIP の `LICENSES/EmulatorJS-GPL-3.0.txt` には Setup 済み EmulatorJS の GPL-3.0 license text、`LICENSES/mednafen_pce-GPL-2.0-only.txt` にはcoreのGPL-2.0本文、`LICENSES/NOTICE.txt` には再配布時の注意を入れます。`SOURCE.md` は同梱 runtime/core の版、source repository、core dataのSHA-256、および公開すべき source archive の内容を記録します。**ライセンス本文、NOTICE、SOURCE.mdだけでは対応ソース提供義務を満たしません**。公開者は、同じ itch.io game pageで `ゲーム名-source.zip` を別ダウンロードとして公開し、同梱した正確な版に対応する完全なソース、ライセンス表示、必要な改変内容とビルド手順を GPL 条件に従って提供してください。PCE Game Editor 本体のリポジトリには EmulatorJS runtime/core のソースや System Card を同梱しません。
 
 ## Test Play
 

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "geargrafx": {
+      "type": "stdio",
+      "command": "C:\\path\\to\\Geargrafx.exe",
+      "args": [
+        "--headless",
+        "--mcp-stdio"
+      ]
+    }
+  }
+}

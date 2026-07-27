@@ -119,7 +119,7 @@
               <span class="badge ${ready ? 'ok' : (tool.optional ? 'warn' : 'ng')}">${ready ? '設定済み' : (tool.optional ? '任意' : '未設定')}</span>
             </div>
             <p class="path">${esc(statusPath(item) || '未設定')}</p>
-            <p class="desc">${esc(tool.description || '')}${tool.license ? `<br>License: <code>${esc(tool.license)}</code>` : ''}</p>
+            <p class="desc">${esc(tool.description || '')}${tool.license ? `<br>License: <code>${esc(tool.license)}</code>` : ''}${tool.note ? `<br>${esc(tool.note)}` : ''}</p>
             <div class="row">
               <select id="version-${esc(tool.kind)}">
                 ${versions.length ? versions.map((version) => `<option value="${esc(version.id)}">${esc(version.label || version.id)}</option>`).join('') : '<option value="">候補なし</option>'}
@@ -161,14 +161,18 @@
       status = await window.electronSetup.getStatus();
       byId('iplPath').value = status.pceCdIpl?.path || '';
       byId('systemCardPath').value = status.pceCdSystemCard?.path || '';
-      const requiredReady = isReady(status.llvmMos) && isReady(status.llvmMosPceCd) && isReady(status.pceMkcd) && isReady(status.emulatorJs);
+      const diagnostics = Array.isArray(status.diagnostics) ? status.diagnostics : [];
+      const requiredReady = isReady(status.llvmMos)
+        && isReady(status.llvmMosPceCd)
+        && isReady(status.pceMkcd)
+        && isReady(status.emulatorJs)
+        && diagnostics.filter((item) => item.required).every((item) => item.configured);
       byId('setupBadge').textContent = requiredReady ? 'セットアップ済み' : '未完了';
       byId('setupBadge').className = requiredReady ? 'badge ok' : 'badge warn';
       const companions = [
         ['mos-pce-cd-clang', status.llvmMosPceCd],
         ['pce-mkcd', status.pceMkcd],
       ];
-      const diagnostics = Array.isArray(status.diagnostics) ? status.diagnostics : [];
       byId('diagnostics').innerHTML = companions.map(([label, item]) => `<p class="path">${label}: ${esc(isReady(item) ? statusPath(item) : '未設定')}</p>`).join('')
         + diagnostics.map((item) => `<p class="desc"><span class="badge ${item.configured ? 'ok' : (item.required ? 'ng' : 'warn')}">${item.configured ? 'OK' : (item.required ? '要確認' : '任意')}</span> ${esc(item.label || item.id)}: ${esc(item.path || item.detail || '未検出')}</p>`).join('');
       renderTools();

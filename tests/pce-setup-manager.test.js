@@ -40,11 +40,34 @@ test('PCE setup manager detects llvm-mos PCE-CD companion tools and user-provide
   assert.equal(status.pceCdIpl.path, ipl);
   assert.equal(status.pceCdSystemCard.path, syscard);
   assert.deepEqual(catalog.tools.map((tool) => tool.kind), ['llvmMos', 'emulatorJs']);
-  const fontRenderer = status.diagnostics.find((item) => item.id === 'fontRenderer');
-  assert.ok(fontRenderer);
-  assert.doesNotMatch(JSON.stringify(fontRenderer), /ffmpeg/i);
+  assert.doesNotMatch(JSON.stringify(status.diagnostics), /ffmpeg/i);
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', 'pce-setup-manager.js'), 'utf-8'), /ffmpeg/i);
   assert.equal(Object.hasOwn(status, 'superfamiconv'), false);
+});
+
+test('PCE setup hides Windows-provided archive and font implementation details', () => {
+  const setupManager = loadPceSetupManager(makeTempUserData());
+
+  assert.deepEqual(setupManager.getEnvironmentDiagnostics({ platform: 'win32' }), []);
+});
+
+test('PCE setup prefers Windows tar for ZIP and 7z downloads', () => {
+  const setupManager = loadPceSetupManager(makeTempUserData());
+  const destDir = path.join(makeTempUserData(), 'extract');
+
+  for (const fileName of ['tool.zip', 'runtime.7z']) {
+    const calls = [];
+    const archivePath = path.join(makeTempUserData(), fileName);
+    const result = setupManager.extractArchive(archivePath, destDir, {
+      platform: 'win32',
+      runExtractor(command, args) {
+        calls.push([command, args]);
+        return true;
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(calls[0][0], 'tar');
+  }
 });
 
 test('PCE setup manager extracts user-owned IPL into portable tools directory', () => {

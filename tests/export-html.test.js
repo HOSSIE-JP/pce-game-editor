@@ -21,6 +21,7 @@ function minimalEmulatorAssets() {
   return {
     coreAsset: 'mednafen_pce-legacy-wasm.data',
     licenseText: Buffer.from('GPL-3.0 license text'),
+    coreLicenseText: Buffer.from('GPL-2.0 license text'),
     sourceInfo: {
       emulatorJsVersion: '4.2.4-test',
       emulatorJsRepository: 'https://example.invalid/EmulatorJS',
@@ -102,6 +103,7 @@ test('PCE HuCard itch.io ZIP puts index.html, ROM, runtime, licenses, and source
   assert.ok(names.includes('data/compression/extract7z.js'));
   assert.ok(names.includes('data/cores/mednafen_pce-legacy-wasm.data'));
   assert.ok(names.includes('LICENSES/EmulatorJS-GPL-3.0.txt'));
+  assert.ok(names.includes('LICENSES/mednafen_pce-GPL-2.0-only.txt'));
   assert.ok(names.includes('LICENSES/NOTICE.txt'));
   assert.ok(names.includes('SOURCE.md'));
   assert.equal(bundle.entries.find((entry) => entry.name === 'rom/sample.pce').data.equals(sampleMedia().buffer), true);
@@ -109,6 +111,7 @@ test('PCE HuCard itch.io ZIP puts index.html, ROM, runtime, licenses, and source
   const source = bundle.entries.find((entry) => entry.name === 'SOURCE.md').data.toString('utf-8');
   assert.match(source, /sample-source\.zip/);
   assert.match(source, /https:\/\/example\.invalid\/EmulatorJS/);
+  assert.match(source, /mednafen_pce-GPL-2\.0-only\.txt/);
   assert.match(source, /0123456789abcdef/);
 });
 
@@ -148,6 +151,7 @@ test('PCE EmulatorJS asset collection selects the legacy core and the 7z extract
 
   assert.equal(collected.coreAsset, 'mednafen_pce-legacy-wasm.data');
   assert.equal(collected.licenseText.toString('utf-8'), 'GPL-3.0');
+  assert.match(collected.coreLicenseText.toString('utf-8'), /GNU GENERAL PUBLIC LICENSE[\s\S]*Version 2/);
   assert.equal(collected.sourceInfo.emulatorJsVersion, '4.2.4-test');
   assert.equal(collected.sourceInfo.coreRepository, 'https://example.invalid/beetle-pce-libretro');
   assert.match(collected.sourceInfo.coreSha256, /^[a-f0-9]{64}$/);

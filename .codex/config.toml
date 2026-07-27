@@ -1,5 +1,0 @@
-[mcp_servers.geargrafx]
-command = "/Users/hossie/.local/bin/geargrafx-mcp-shim"
-args = []
-startup_timeout_sec = 30
-enabled = true

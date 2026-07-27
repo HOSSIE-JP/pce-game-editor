@@ -692,6 +692,7 @@
         <h3>バージョン情報</h3>
         <dl class="about-list">
           <div class="about-row"><dt>アプリ</dt><dd id="aboutAppVersion">-</dd></div>
+          <div class="about-row"><dt>配布者</dt><dd id="aboutAppAuthor">-</dd></div>
           <div class="about-row"><dt>EmulatorJS core</dt><dd id="aboutWasmBuildVersion">-</dd></div>
           <div class="about-row"><dt>EmulatorJS runtime</dt><dd id="aboutWasmPackageVersion">-</dd></div>
           <div class="about-row"><dt>Electron</dt><dd id="aboutElectronVersion">-</dd></div>
@@ -706,6 +707,15 @@
           <div class="about-row"><dt>Architecture</dt><dd id="aboutArch">-</dd></div>
           <div class="about-row"><dt>App Path</dt><dd id="aboutAppPath">-</dd></div>
         </dl>
+      </div>
+      <div class="about-section">
+        <h3>ライセンス</h3>
+        <p class="about-license-note">PCE Game Editor本体はMIT Licenseです。第三者ソフトウェアにはそれぞれのライセンスが適用されます。</p>
+        <div class="form-actions-inline">
+          <button class="btn-sm" id="btnAppLicense" type="button" disabled>MIT Licenseを開く</button>
+          <button class="btn-sm" id="btnThirdPartyNotices" type="button" disabled>第三者ライセンスを開く</button>
+        </div>
+        <p class="hint-text" id="aboutLicenseStatus"></p>
       </div>
     </section>
   </div>
