@@ -2,7 +2,7 @@
 
 CD-ROM2 VN runtime（`template/template_pce_vn_cd/src/pce_vn_runtime.c`）が「スクリプトコマンドを増やすと常駐コードバンクが溢れて `ld.lld: section '.ram_bankN' will not fit ... overflowed` でビルド失敗する」問題を、**エンジンに全コマンドを載せたまま正常ビルドさせる**ための実務手順をまとめた再利用可能なプレイブックです。
 
-> **このファイルを読むタイミング**: bank128/129/130 が512-byte余白gateを割った／overlay(bank133)・visual-code(bank121)・runtime-support(bank122)へコードを退避する／退避候補を選ぶとき。
+> **このファイルを読むタイミング**: bank128/129/130またはlogic overlay(bank124)が1024-byte余白gateを割った／render overlay(bank133)・logic overlay(bank124)・visual-code(bank121)・runtime-support(bank122)へコードを退避する／退避候補を選ぶとき。
 >
 > **前提ドキュメント**:
 > - 機構（Path B overlay の link/抽出/dispatch）= [pce-vn-overlay-pathb.md](pce-vn-overlay-pathb.md)
@@ -14,32 +14,34 @@ CD-ROM2 VN runtime（`template/template_pce_vn_cd/src/pce_vn_runtime.c`）が「
 ## 0. 結論（最短ルート）
 
 1. **測定**（§2）して、どの bank が何バイト超過か、各 bank の大物関数を把握する。
-2. 超過分を **slot4 退避リザーバ（overlay=bank133 ／ visual-code=bank121 ／ async/runtime-support=bank122、各8KB）** へ責務単位で逃がす。退避できるのは **§3 の co-residency 条件を満たす処理だけ**。
+2. 超過分を **slot4退避リザーバ（render overlay=bank133／logic overlay=bank124／visual-code=bank121／async/runtime-support=bank122、各8KB）** へ責務単位で逃がす。退避できるのは **§3のco-residency条件を満たす処理だけ**。
 3. 退避は **op-dispatch レシピ**（§4）で行う。overlay 内だけで呼ばれる関数は **retag のみ（dispatcher 不要）**。
 4. 各退避後に **再測定＋reloc ベースの co-residency 検証**（§5）。緑になるまで反復。
 5. dispatcher は退避先の bank ではなく **bank128/129（slot2/3）** に置く。**dispatcher のコストが、退避で空けたいバンクを食う**点に注意（§6）。
 
 ---
 
-## 1. 現在のメモリ実態（2026-06、Phase 3 後）
+## 1. 現在のメモリ実態（2026-06、Phase 4）
 
-CD-ROM2 VN は HuC6280 の MPR 窓に以下を割り当てる。**コードを置けるのは常駐3枚 + slot4退避3枚**。
+CD-ROM2 VN は HuC6280 の MPR 窓に以下を割り当てる。**コードを置けるのは常駐3枚 + slot4退避4枚**。
 
 | 物理bank | MPR slot | 役割 | コード可否 |
 |---:|---:|---|---|
 | 128 | 2 | 常駐 `.text`/`.rodata`/`.data`/`.zp.data`（`VN_RESIDENT_CODE` / untagged） | ◎ 常駐 |
 | 129 | 3 | banked code `VN_BANKED_CODE` | ◎ 常駐 |
 | 130 | 4 | banked code 2 `VN_BANKED_CODE2` | ◎ 常駐（128/129/130 は co-resident） |
-| 133 | 4 | **overlay `VN_OVERLAY_CODE`（bank130 と時分割、8KB フル）** | ○ 退避先①（op-dispatch 経由） |
-| 121 | 4 | **visual-code `VN_VISUAL_CACHE_CODE`（bank130 と時分割、8KB）** | ○ 退避先②（visual_cache_call 経由） |
-| 122 | 4 | **CD async/runtime-support `VN_CD_ASYNC_CODE`（bank130 と時分割、8KB）** | ○ 退避先③（固定entry経由） |
+| 133 | 4 | **render/compositor overlay `VN_OVERLAY_CODE`（8KB）** | ○ message/sprite/SATB描画 |
+| 124 | 4 | **logic overlay `VN_LOGIC_OVERLAY_CODE`（8KB）** | ○ scene/control decode、Animation状態 |
+| 121 | 4 | **visual-code `VN_VISUAL_CACHE_CODE`（8KB）** | ○ visual payload/VRAM補助 |
+| 122 | 4 | **CD async/runtime-support `VN_CD_ASYNC_CODE`（8KB）** | ○ CD/SCSI、palette/BAT/SATB/ADPCM support |
 | 131 | 5 | — | ✗ System Card が slot5 で実行するため**コード不可（毒）** |
 | 132 | 6 | VN generated data + CD scratch | ✗ data 専用（MPR6 はトグル） |
-| 134/135 | 6 | 再生中 PSG パターン（bank132 と時分割） | ✗ data |
+| 134 | 4（System Card） | main/BGM package | ✗ System Card PSG data |
+| 135 | 5（System Card） | sub/SFX package | ✗ System Card PSG data |
 | 104-119 | 6 | visual payload cache page | ✗ data |
 
 - **常駐コード総枠 = 128+129+130 ＝ 約24KB（不変）**。機能追加で増えるのは常にエンジンコード（素材は CD data file なので予算を食わない）。
-- **slot4 退避リザーバ = overlay(8KB) + visual-code(8KB) + async/runtime-support(8KB)**。いずれも bank130 と MPR slot4 を**時分割**するので、退避関数の実行中は bank130 が見えない（§3）。bank122はCD/SCSIに限らずpalette、BAT/SATB転送、純粋なADPCM容量計算などのruntime supportを担当する。
+- **slot4退避リザーバ = render(8KB) + logic(8KB) + visual(8KB) + async/runtime-support(8KB)**。いずれもbank130とMPR slot4を**時分割**するので、実行中はbank130と他のslot4 codeが見えない（§3）。bank124はVDCを直接描画しないlogic、bank133は描画合成、bank121はvisual transfer/cache、bank122はCD/SCSIとruntime supportへ責務を分ける。
 - **`console_ram`（低位作業 RAM、`.bss`/`.data`/`.zp` の VMA 側）は常に逼迫**（実測 99.9%、空き数 B）。退避で新しい低位 RAM グローバルを増やさないこと（§6）。
 
 ---
@@ -74,21 +76,24 @@ awk -v S=.ram_bank130 '$0 ~ S"$"{f=1;next} /\.[a-z]/{if(f && /ram_bank|\.text|\.
 
 ## 3. co-residency 判定（退避できる／できない）
 
-overlay/visual-code/async-runtime-support の関数は **slot4 を bank130 と時分割**するので、実行中 bank130 は不可視。退避関数が呼んでよいのは:
+render/logic/visual/async-runtime-supportの関数は **slot4をbank130と時分割**するので、実行中はbank130と別overlayが不可視。退避関数が呼んでよいのは:
 
 - ✅ slot2(bank128 = `.text`/常駐)・slot3(bank129 = `VN_BANKED_CODE`)
 - ✅ `always_inline`/inline ヘルパ、`map_vn_data()`（**slot6 のみ**触る）、console_ram(zp)、CD BIOS(MPR7)
-- ✅ 同じ overlay 内の別 overlay 関数
+- ✅ 同じsection/物理bank内の別関数
+- ✅ bank128/129のresident dispatcherを経由し、呼出時MPR4/MPR6を保存して別slot4 fixed entryを実行し、元bankを復元してから戻る経路。直接relocationが0件であることを§5で確認する
 
 **退避できないもの（呼ぶと slot4 が bank130 等に化けて暴走）**:
 
 - ❌ `VN_BANKED_CODE2`(bank130) の関数を直接呼ぶ
 - ❌ `delay_frame()` ＝ **内部で `pce_ram_bank130_map()` を呼び slot4 を bank130 へ戻す**。フレーム待ちが必要ならbank122 palette fadeと同様に、bank130をmapしない`vn_wait_next_vblank()` + `engine_service()`で構成できるか個別に検証する。
 - ❌ `service_psg_during_blocking_work()` / `VN_MAP_BANK130_FOR_CODE()` を呼ぶ関数。
-- ❌ CD on-demand accessor `vn_get_*_asset()`（sprite/bg/adpcm 等）→ CD read の wait が `service_psg`(bank130 map) を経由する。→ `plan_scene_sprite_layout` / `refresh_scene_sprite_slot_upload` は退避不可。
-- ❌ visual_cache_*（slot4 の bank121 を張る）を呼ぶ関数 ＝ slot4 のネスト切替になる（例: `cd_bg_map_ref_to_vram` は `visual_cache_bg_map_to_vram` を呼ぶので退避不可）。
+- ❌ 別slot4 bankの関数を直接呼ぶ、または復元先をbank130へ固定する旧dispatcherを使う経路。
+- ❌ CD on-demand accessorや`visual_cache_*`を「同じbankに見える通常関数」として直接呼ぶ経路。別slot4 bankへ移る場合は、必ず上記のexact-restore resident dispatcherへ戻してからfixed entryを呼ぶ。
 
-**良い退避候補の型**: 純粋デコーダ（`scene_pack_read_*` … console_ram のキャッシュを読むだけ）、純粋計算（`cdda_sector_from_remaining` … グローバルへの算術）、bank132 read のみ（`cache_sprite_animation` … `map_vn_data` で slot6 を張って読むだけ）、overlay 内だけで使うヘルパ（`message_glyph_cache_find`）。
+**実装済みの例**: `vn_get_sprite_asset_impl`、`plan_scene_sprite_layout_impl`、`refresh_scene_sprite_slot_upload_impl`はbank122です。metadata CD readやbank121 visual helper呼出はbank128/129のdispatcherがcaller MPR4/MPR6を復元してからbank122へ戻るため成立します。この例を他accessorへ一般化する前に、同じ復元契約と禁止relocation 0件を再検証してください。
+
+**良い退避候補の型**: bank124にはscene/control decoderやAnimation stateの純粋logic、bank133にはmessage/sprite/SATB描画、bank121にはvisual payload/VRAM処理、bank122にはCD/SCSI、palette/BAT/ADPCM support、Sprite catalog/layout/uploadを置く。Sprite Animation metadataとSystem PSG metadataはCD on-demand化し、件数比例tableをbank128/132へ戻さない。
 
 **最終確認は静的解析（§5）で必ず取る**。「呼んでいそう」では判断しない。
 
@@ -96,7 +101,7 @@ overlay/visual-code/async-runtime-support の関数は **slot4 を bank130 と�
 
 ## 4. op-dispatch 退避レシピ
 
-overlay へ関数を移す手順（visual-code は `visual_cache_entry`/`visual_cache_call`、bank122 は `vn_cd_async_entry`/`vn_cd_async_call_bank122` で同型）:
+overlayへ関数を移す手順（bank124 logic、bank121 visual、bank122 asyncも、それぞれの固定entryとresident dispatcherで同型）:
 
 1. **retag**: 対象を `VN_BANKED_CODE/CODE2` → `VN_OVERLAY_CODE`。名前を `xxx_impl` にし、元名は dispatcher に使う（呼び出し元を変えない）。エントリ(`vn_overlay_entry`)より後ろに定義するなら forward 宣言。
 2. **op を足してエントリに分岐**: `#define VN_OVERLAY_OP_xxx N`、`vn_overlay_entry(op,a0,a1,a2)` に `if(o==VN_OVERLAY_OP_xxx) return xxx_impl(...);`。ポインタ引数は `(uint16_t)(uintptr_t)` で 16bit 化して渡し、overlay 側で `(T*)(uintptr_t)` に戻す（HuC6280 アドレスは 16bit）。bank122のruntime-support opは連番にせず疎な値を使う。`-Oz`が分岐をresident `.rodata`のjump tableへ変換すると、residentから`.vn_cd_async_code`へのrelocationが残り、後段の`llvm-objcopy --remove-section`が失敗する。
@@ -116,12 +121,12 @@ overlay へ関数を移す手順（visual-code は `visual_cache_entry`/`visual_
 # build cmd に -Wl,--emit-relocs を足して dbg.elf を作る
 llvm-objdump -dr --section=.vn_overlay dbg.elf | grep -iE "jsr|jmp|R_MOS"
 ```
-- ✅ 許容: `.vn_overlay+...`(内部) / `.text+...`(bank128) / `__memset` 等 compiler-rt(.text) / `.ram_bank129+...`(bank129) / BIOS。
-- ❌ 危険: `.ram_bank130+...` / `.ram_bank121+...`（slot4 を時分割する別バンク）。
+- ✅ 許容: 検査中の同一section / `.text+...`(bank128) / `__memset`等compiler-rt(.text) / `.ram_bank129+...`(bank129) / BIOS。
+- ❌ 危険: `.ram_bank130`、または検査中とは異なる`.vn_overlay` / `.vn_logic_overlay` / `.vn_visual_code` / `.vn_cd_async_code`（slot4を時分割する別bank）。
 
 ### 5-2. ビルド緑化・回帰・実機
-- `--print-memory-usage` とlink-map gateで128/129/130の空きが各512 bytes以上、`.vn_overlay`/`.vn_visual_code`/`.vn_cd_async_code`が全て100%未満。
-- `tests/pce-build-memory-gate.test.js`の最大描画機能実リンク（Full BG + sprite animation + SpriteText）を通し、常駐3バンクの512-byte予約を固定する。
+- `--print-memory-usage`とlink-map gateでbank128/129/130およびbank124 `.vn_logic_overlay`の空きが各1024 bytes以上、`.vn_overlay`/`.vn_logic_overlay`/`.vn_visual_code`/`.vn_cd_async_code`が全て物理8KB未満。
+- `tests/pce-build-memory-gate.test.js`の最大描画機能実リンク（Full BG + Sprite Animation + SpriteText）を通し、常駐3バンクとlogic overlayの1024-byte予約を固定する。
 - `node --test tests/pce-vn-manager.test.js` と `npm test`。**overlay 予約 sector を変えると後続 CD data file の sector が一律ずれる**（§6）ので、テストの sector 期待値・dispatcher 形の assertion も同じ作業で更新する。
 - Geargrafx でメッセージ送り/選択肢/sprite 口パク/ADPCM/PSG/CD-DA/effect が崩れず進み無ハングを確認（co-residency 回帰の最終確認）。
 
@@ -132,13 +137,15 @@ llvm-objdump -dr --section=.vn_overlay dbg.elf | grep -iE "jsr|jmp|R_MOS"
 - **`always_inline` で小ヘルパを畳むと退避先が膨張する**。`scene_pack_u16/s16` を `always_inline` にしたら reader 各所に展開されて **overlay が +2KB 膨張**（8106B でほぼ満杯）。→ **小ヘルパも overlay 関数（noinline）として置く**方が良い。overlay 内だけで呼ぶなら retag だけで済む。
 - **dispatcher コストが、空けたいバンクを食う**。退避 1 件の正味削減 ≒ `関数サイズ − dispatcherサイズ`。小さい関数を個別 dispatcher で退避すると割に合わない。**複数の dispatcher は共有 helper に統合**（本セッションは message/sprite の lock+swap を `vn_overlay_dispatch_locked` 1 本に集約して bank128 を ~100B 削減）。
 - **console_ram 満杯**。退避の引数渡しに新しい `.bss`/低位グローバルを足さない。`vn_overlay_entry(op,a0,a1,a2)` の通常引数（zp 仮想レジスタ）で渡す。8 引数の `show_character_sprite_frame` は **slot index 1 個だけ渡して overlay 側で slot 配列から 8 引数を再構築**した。
-- **overlay 予約 sector を増やすと CD レイアウトがずれる**。`VN_OVERLAY_RESERVED_SECTORS` 2→4 で overlay 以降の CD data file が **一律 +2 sector**。`pce_vn_visual_code_data`/`pce_vn_scene_packs[]`/各 asset の埋め込み sector が全部ずれる（IPL padding が data 開始を sector 64 に保つので整合は取れる）。テストの sector 期待値も +2 する。
+- **runtime blobの予約sectorを増やすと後続物理ファイルのbase sectorがずれる**。現在はrender/logic/visual/asyncの4 blobと`vn_payload.bin`だけが物理`cd.dataFiles`です。blobを増やすとpack先頭sectorはずれますが、scene/asset/metadataは`vn_payload-index.json`のlogical sector aliasを再計算して追随します。blob ref、pack base、aliasのテストを同時に更新します。
 - **`scene_pack_command_count` を always_inline にできなかった**。`jump_to_command`（定義前）から呼ばれるため always_inline 不可 → **bank128 resident（untagged）**にして overlay からも bank130 からも呼べるようにした（+6B 程度は許容）。
 - **dispatcher を bank130 に置くと自滅**。dispatcher が `pce_ram_bank133_map()` した瞬間、自分（bank130/slot4）が消える。必ず bank128/129。
 
 ---
 
-## 7. 本セッションの実績（worked example: `ishi_no_ura` 全コマンド搭載）
+## 7. 過去の実績（worked example: `ishi_no_ura` 全コマンド搭載）
+
+以下はbank124 logic overlay導入前のPhase 3測定です。現在の配置判断では、ここでbank133へ移したscene/control/Animation系logicをbank124へ分離し、bank128/129/130/124の各1024-byte gateを正とします。
 
 | | before | after |
 |---|---|---|
@@ -158,6 +165,6 @@ co-residency 静的検証: overlay の全 228 JSR/JMP が `.vn_overlay`/`.text`/
 
 ## 8. それでも足りないとき
 
-1. **bank121 visual-code（もう 1 枚の 8KB slot4 退避先）へ分散**。`VN_VISUAL_CACHE_CODE` + visual_cache op を足す。同じ co-residency 制約（§3）。
-2. **追加 overlay**（別の未使用 bank）。bank134/135 は PSG 使用中なので避ける。詳細は [pce-vn-overlay-pathb.md](pce-vn-overlay-pathb.md) §7(B)。
+1. **責務の合う既存slot4 bankへ分散**。logicはbank124、描画合成はbank133、visual transferはbank121、CD/runtime supportはbank122を使う。同じco-residency制約（§3）。
+2. **追加overlay**（bank125-127の別の未使用bank）。bank131とbank134/135は使用中なので避ける。詳細は[pce-vn-overlay-pathb.md](pce-vn-overlay-pathb.md) §7(B)。
 3. **データ駆動化でコード自体を削減**（テーブル化して bank132/CD へ追い出す）。素材は予算を食わないので、増えるのは常にエンジンコード量。

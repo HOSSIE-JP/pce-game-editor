@@ -30,6 +30,7 @@ function mapLine(vma, size, name, lma = vma) {
 function validMapLines() {
   return [
     mapLine(bankOrigin(123, 0xc000), 0x2000, '.ram_bank123'),
+    mapLine(bankOrigin(124, 0x8000), 0x0100, '.vn_logic_overlay'),
     mapLine(bankOrigin(128, 0x4000), 0x0100, '.text'),
     mapLine(bankOrigin(129, 0x6000), 0x0100, '.ram_bank129'),
     mapLine(bankOrigin(130, 0x8000), 0x0100, '.ram_bank130'),
@@ -96,6 +97,7 @@ test('PCE-CD VN link gate accepts exact scene/console/ZP boundaries and NOLOAD b
   const { mapPath, elfPath } = writeGateInputs(dir);
   const report = buildSystem.validatePceCdVnLinkMap(mapPath, elfPath);
   assert.equal(report.usage[123], 8192);
+  assert.equal(report.usage[124], 256);
   assert.equal(report.usage[128], 256);
   assert.equal(report.usage[132], 8152);
   assert.equal(report.headroom[132], 3960);
@@ -103,6 +105,7 @@ test('PCE-CD VN link gate accepts exact scene/console/ZP boundaries and NOLOAD b
   assert.equal(report.consoleFree, 2026);
   assert.equal(report.zpEnd, 0x20e6);
   assert.match(buildSystem.formatPceCdVnLinkGate(report), /bank123 8192\/8192/);
+  assert.match(buildSystem.formatPceCdVnLinkGate(report), /bank124 256\/8192/);
   assert.match(buildSystem.formatPceCdVnLinkGate(report), /bank132 8152\/8192 \(data gap 3960\)/);
   assert.equal(buildSystem.formatPceCdVnHeadroomWarning(report), '');
 });
@@ -110,9 +113,10 @@ test('PCE-CD VN link gate accepts exact scene/console/ZP boundaries and NOLOAD b
 test('PCE-CD VN link gate warns before resident banks overflow', () => {
   const buildSystem = loadBuildSystem();
   const warning = buildSystem.formatPceCdVnHeadroomWarning({
-    usage: { 128: 8151, 129: 7971, 130: 8173, 132: 8152, 133: 7499 },
+    usage: { 124: 8182, 128: 8151, 129: 7971, 130: 8173, 132: 8152, 133: 7499 },
   });
   assert.match(warning, /256-byte warning threshold/);
+  assert.match(warning, /bank124 free 10 bytes/);
   assert.match(warning, /bank128 free 41 bytes/);
   assert.match(warning, /bank129 free 221 bytes/);
   assert.match(warning, /bank130 free 19 bytes/);
@@ -137,18 +141,36 @@ test('PCE-CD VN link gate rejects bank overflow, missing reservations, and loada
   assert.throws(() => buildSystem.validatePceCdVnLinkMap(inputs.mapPath, inputs.elfPath), /.ram_bank134 must be an ELF SHT_NOBITS\/NOLOAD/);
 });
 
-test('PCE-CD VN link gate reserves 512 bytes in every co-resident runtime bank', () => {
+test('PCE-CD VN link gate reserves 1024 bytes in every co-resident runtime bank and logic overlay', () => {
   const buildSystem = loadBuildSystem();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-link-gate-resident-headroom-'));
-  const inputs = writeGateInputs(dir, validMapLines().map((line) => (
+  let inputs = writeGateInputs(dir, validMapLines().map((line) => (
     line.endsWith(' .ram_bank129')
-      ? mapLine(bankOrigin(129, 0x6000), 0x1e01, '.ram_bank129')
+      ? mapLine(bankOrigin(129, 0x6000), 0x1c00, '.ram_bank129')
       : line
   )));
-  assert.equal(buildSystem.PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES, 512);
+  assert.doesNotThrow(() => buildSystem.validatePceCdVnLinkMap(inputs.mapPath, inputs.elfPath));
+
+  inputs = writeGateInputs(dir, validMapLines().map((line) => (
+    line.endsWith(' .ram_bank129')
+      ? mapLine(bankOrigin(129, 0x6000), 0x1c01, '.ram_bank129')
+      : line
+  )));
+  assert.equal(buildSystem.PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES, 1024);
+  assert.equal(buildSystem.PCE_CD_VN_LOGIC_OVERLAY_MIN_FREE_BYTES, 1024);
   assert.throws(
     () => buildSystem.validatePceCdVnLinkMap(inputs.mapPath, inputs.elfPath),
-    /bank129 resident headroom 511 bytes is below required 512 bytes/
+    /bank129 used 7169\/8192, free 1023 bytes, required 1024 bytes free/
+  );
+
+  inputs = writeGateInputs(dir, validMapLines().map((line) => (
+    line.endsWith(' .vn_logic_overlay')
+      ? mapLine(bankOrigin(124, 0x8000), 0x1c01, '.vn_logic_overlay')
+      : line
+  )));
+  assert.throws(
+    () => buildSystem.validatePceCdVnLinkMap(inputs.mapPath, inputs.elfPath),
+    /bank124 \(.vn_logic_overlay\) used 7169\/8192, free 1023 bytes, required 1024 bytes free/
   );
 });
 
@@ -239,15 +261,19 @@ test('PCE-CD VN maximal rendering runtime with a large asset catalog links with 
   assert.equal(result.status, 0, `${result.stdout || ''}\n${result.stderr || ''}`);
 
   const report = buildSystem.validatePceCdVnLinkMap(mapPath, elfPath);
-  [128, 129, 130].forEach((bank) => {
+  [124, 128, 129, 130].forEach((bank) => {
+    const required = bank === 124
+      ? buildSystem.PCE_CD_VN_LOGIC_OVERLAY_MIN_FREE_BYTES
+      : buildSystem.PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES;
     assert.ok(
-      0x2000 - report.usage[bank] >= buildSystem.PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES,
+      0x2000 - report.usage[bank] >= required,
       `bank${bank} has only ${0x2000 - report.usage[bank]} free bytes`
     );
   });
 
   const strippedElfPath = path.join(outDir, 'max-runtime-stripped.elf');
   const stripResult = spawnSync(llvmMosObjcopy, [
+    '--remove-section', '.rela.vn_logic_overlay', '--remove-section', '.vn_logic_overlay',
     '--remove-section', '.rela.vn_overlay', '--remove-section', '.vn_overlay',
     '--remove-section', '.rela.vn_visual_code', '--remove-section', '.vn_visual_code',
     '--remove-section', '.rela.vn_cd_async_code', '--remove-section', '.vn_cd_async_code',

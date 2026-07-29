@@ -15,6 +15,132 @@ function readRuntimeFile(name) {
   return fs.readFileSync(path.join(CD_RUNTIME_DIR, name), 'utf8').replace(/\r\n/g, '\n');
 }
 
+function readRuntimeFunction(source, marker) {
+  const start = source.indexOf(marker);
+  if (start < 0) throw new Error(`runtime function marker not found: ${marker}`);
+  const bodyStart = source.indexOf('{', start);
+  if (bodyStart < 0) throw new Error(`runtime function body not found: ${marker}`);
+  let depth = 0;
+  for (let i = bodyStart; i < source.length; i++) {
+    if (source[i] === '{') depth++;
+    else if (source[i] === '}') {
+      depth--;
+      if (depth === 0) return source.slice(start, i + 1);
+    }
+  }
+  throw new Error(`runtime function body was not closed: ${marker}`);
+}
+
+test('CD VN runtime preserves 16-bit metadata sector offsets and restores bank132 mapping', () => {
+  const cache = readRuntimeFile('vn_cache_core.c');
+  const cdda = readRuntimeFile('vn_port_cdda.c');
+  const readerStart = cache.indexOf('static void VN_RESIDENT_CODE vn_read_meta_sector');
+  const readerEnd = cache.indexOf('static pce_editor_bg_asset_t g_bg_cache', readerStart);
+
+  assert.ok(readerStart >= 0 && readerEnd > readerStart);
+  const reader = cache.slice(readerStart, readerEnd);
+
+  assert.match(
+    reader,
+    /vn_read_meta_sector\(const pce_editor_cd_sector_t \*region_sector, uint16_t sector_off\)/,
+  );
+  assert.match(
+    reader,
+    /cd_sector_from_ref\(&sector, region_sector\);[\s\S]*while \(sector_off != 0u\)[\s\S]*cd_sector_advance\(&sector\);[\s\S]*sector_off--;[\s\S]*pce_cdb_cd_read\(/,
+  );
+  assert.match(
+    reader,
+    /pce_cdb_cd_read\([\s\S]*cd_transfer_wait\(\);[\s\S]*sync_cd_external_irq_after_bios_call\(\);[\s\S]*resume_cdda_after_cd_data_access\(\);[\s\S]*map_vn_data\(\);\s*\}/,
+  );
+  assert.match(
+    cache,
+    /vn_read_meta_sector\(&pce_editor_bg_meta\.sector, \(uint16_t\)\(idx \/ VN_META_BG_PER_SECTOR\)\)/,
+  );
+  assert.match(
+    cache,
+    /vn_read_meta_sector\(&pce_editor_sprite_meta\.sector, \(uint16_t\)\(idx \/ VN_META_SPRITE_PER_SECTOR\)\)/,
+  );
+  assert.match(
+    cache,
+    /vn_read_meta_sector\(&pce_editor_adpcm_meta\.sector, \(uint16_t\)\(idx \/ VN_META_ADPCM_PER_SECTOR\)\)/,
+  );
+  assert.match(
+    cdda,
+    /vn_read_meta_sector\(&pce_editor_cdda_meta\.sector, \(uint16_t\)\(idx \/ VN_META_CDDA_PER_SECTOR\)\)/,
+  );
+  assert.doesNotMatch(cache, /vn_read_meta_sector\([^\n]*uint8_t sector_off/);
+  assert.doesNotMatch(cache, /vn_read_meta_sector\([^\n]*\(uint8_t\)\(idx \/ VN_META_/);
+  assert.doesNotMatch(cdda, /vn_read_meta_sector\([^\n]*\(uint8_t\)\(idx \/ VN_META_/);
+});
+
+test('CD VN runtime streams fixed System Card PSG metadata records instead of resident arrays', () => {
+  const psg = readRuntimeFile('vn_psg_core.c');
+  const header = readRuntimeFile(path.join('generated', 'vn.h'));
+  const snapshot = readRuntimeFunction(
+    psg,
+    'static uint8_t VN_BANKED_CODE2 vn_system_psg_package_snapshot',
+  );
+
+  assert.match(psg, /#define VN_SYSTEM_PSG_META_SLOT_BYTES 16u/);
+  assert.match(psg, /#define VN_SYSTEM_PSG_META_PER_SECTOR 128u/);
+  assert.match(
+    snapshot,
+    /vn_read_meta_sector\([\s\S]*&pce_vn_system_psg_meta\.sector,[\s\S]*\(uint16_t\)\(index \/ VN_SYSTEM_PSG_META_PER_SECTOR\)/,
+  );
+  assert.match(
+    snapshot,
+    /record = &cd_transfer_scratch\[[\s\S]*index % VN_SYSTEM_PSG_META_PER_SECTOR[\s\S]*VN_SYSTEM_PSG_META_SLOT_BYTES/,
+  );
+  assert.match(snapshot, /package->data\.sector\.lo = record\[VN_SYSTEM_PSG_META_SECTOR\]/);
+  assert.match(snapshot, /package->data\.sector\.md = record\[VN_SYSTEM_PSG_META_SECTOR \+ 1u\]/);
+  assert.match(snapshot, /package->data\.sector\.hi = record\[VN_SYSTEM_PSG_META_SECTOR \+ 2u\]/);
+  assert.match(snapshot, /VN_SYSTEM_PSG_META_SECTOR_COUNT \+ 1u\] << 8/);
+  assert.match(snapshot, /VN_SYSTEM_PSG_META_BYTE_SIZE \+ 1u\] << 8/);
+  assert.match(snapshot, /package->bus = record\[VN_SYSTEM_PSG_META_BUS\]/);
+  assert.match(snapshot, /package->channel = record\[VN_SYSTEM_PSG_META_CHANNEL\]/);
+  assert.doesNotMatch(psg, /pce_vn_system_psg_packages\s*\[/);
+  assert.match(header, /extern const pce_editor_meta_region_t pce_vn_system_psg_meta;/);
+  assert.doesNotMatch(header, /extern const pce_vn_system_psg_package_t pce_vn_system_psg_packages\[\];/);
+});
+
+test('CD VN scene cache readers keep the singleton cache as direct-page symbols', () => {
+  const scene = readRuntimeFile('vn_port_scene.c');
+  const markers = [
+    'static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_has_range',
+    'static uint8_t scene_pack_u8',
+    'static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_copy',
+    'static uint8_t scene_pack_is_valid',
+  ];
+
+  for (const marker of markers) {
+    const body = readRuntimeFunction(scene, marker);
+    const cdStart = body.indexOf('#if defined(__PCE_CD__)');
+    const cdEnd = body.indexOf('#else', cdStart);
+    const cdBranch = body.slice(cdStart, cdEnd);
+    assert.ok(cdStart >= 0 && cdEnd > cdStart, `${marker} must have an explicit CD branch`);
+    assert.match(cdBranch, /active_scene_pack\.(?:valid|base|size)/);
+    assert.doesNotMatch(cdBranch, /cache->/);
+  }
+
+  const load = readRuntimeFunction(
+    scene,
+    'static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache',
+  );
+  const loadCdStart = load.indexOf('#if defined(__PCE_CD__)');
+  const loadCdEnd = load.indexOf('#else', loadCdStart);
+  const loadCdBranch = load.slice(loadCdStart, loadCdEnd);
+  assert.match(loadCdBranch, /\(void\)cache;/);
+  assert.match(loadCdBranch, /active_scene_pack\.valid/);
+  assert.match(loadCdBranch, /active_scene_pack\.base/);
+  assert.match(loadCdBranch, /active_scene_pack\.size/);
+  assert.match(loadCdBranch, /active_scene_pack\.scene_index/);
+  assert.doesNotMatch(loadCdBranch, /cache->/);
+  assert.match(
+    scene,
+    /llvm-mos direct-page addresses[\s\S]*are not valid when materialized as a generic 16-bit pointer/,
+  );
+});
+
 test('CD VN runtime clamps reserved variables and snapshots MSG_SPEED per message', () => {
   const state = readRuntimeFile('vn_engine_state.c');
   const scene = readRuntimeFile('vn_port_scene.c');
@@ -34,7 +160,7 @@ test('CD VN runtime clamps reserved variables and snapshots MSG_SPEED per messag
   );
   assert.match(
     scene,
-    /set_variable_value\(signed int variable_index, signed int value\)[\s\S]*vn_overlay_dispatch/
+    /set_variable_value\(signed int variable_index, signed int value\)[\s\S]*vn_logic_overlay_dispatch/
   );
   assert.match(
     message,
@@ -238,6 +364,115 @@ test('CD VN boot initializes sprite moves without calling the unloaded bank122 o
   assert.doesNotMatch(bootReset, /cancel_all_sprite_moves\(\);/);
 });
 
+test('CD VN loads pure logic into bank124 and restores exact MPR4/MPR6 mappings', () => {
+  const config = readRuntimeFile('vn_engine_config.h');
+  const bus = readRuntimeFile('vn_engine_bus.c');
+  const cache = readRuntimeFile('vn_cache_core.c');
+  const scene = readRuntimeFile('vn_port_scene.c');
+  const sprite = readRuntimeFile('vn_port_sprite.c');
+  const main = readRuntimeFile('vn_main.c');
+  const adpcm = readRuntimeFile('vn_adpcm_core.c');
+  const time = readRuntimeFile('vn_engine_time.c');
+  const dispatchStart = bus.indexOf('static uint8_t VN_BANKED_CODE vn_logic_overlay_dispatch');
+  const legacyEntryStart = bus.indexOf('static uint8_t VN_OVERLAY_ENTRY_CODE vn_overlay_entry');
+  const logicEntryStart = bus.indexOf('static uint8_t VN_LOGIC_OVERLAY_ENTRY_CODE vn_logic_overlay_entry');
+  const logicEntryEnd = bus.indexOf('#endif', logicEntryStart);
+  const commonLoader = readRuntimeFunction(
+    bus,
+    'static uint8_t VN_BANKED_CODE vn_load_slot4_blob',
+  );
+  const loaderStart = bus.indexOf('static void VN_BANKED_CODE load_logic_overlay_code');
+  const loaderEnd = bus.indexOf('static void VN_BANKED_CODE load_cd_async_code', loaderStart);
+  const prepareStart = sprite.indexOf('static uint8_t VN_BANKED_CODE prepare_sprite_animation_meta');
+  const logicAnimationStart = sprite.indexOf('static uint8_t VN_LOGIC_OVERLAY_CODE prepared_sprite_animation_matches');
+  const logicAnimationEnd = sprite.indexOf('/* Resident wrappers perform', logicAnimationStart);
+  const cacheWrapperStart = sprite.indexOf('static void VN_BANKED_CODE cache_sprite_animation', logicAnimationEnd);
+  const mouthWrapperStart = sprite.indexOf('static void VN_BANKED_CODE update_active_message_mouth', cacheWrapperStart);
+  const mouthWrapperEnd = sprite.indexOf('/* Boot runs before', mouthWrapperStart);
+  const tickImplStart = sprite.indexOf('static void VN_LOGIC_OVERLAY_CODE tick_sprite_animations_impl');
+  const tickWrapperEnd = sprite.indexOf('/* Advance blink timers', tickImplStart);
+
+  assert.ok(dispatchStart >= 0 && legacyEntryStart > dispatchStart);
+  assert.ok(logicEntryStart > legacyEntryStart && logicEntryEnd > logicEntryStart);
+  assert.ok(loaderStart >= 0 && loaderEnd > loaderStart);
+  assert.ok(prepareStart >= 0 && logicAnimationStart > prepareStart && logicAnimationEnd > logicAnimationStart);
+  assert.ok(cacheWrapperStart > logicAnimationEnd && mouthWrapperStart > cacheWrapperStart && mouthWrapperEnd > mouthWrapperStart);
+  assert.ok(tickImplStart >= 0 && tickWrapperEnd > tickImplStart);
+
+  const dispatcher = bus.slice(dispatchStart, legacyEntryStart);
+  const legacyEntry = bus.slice(legacyEntryStart, logicEntryStart);
+  const logicEntry = bus.slice(logicEntryStart, logicEntryEnd);
+  const loader = bus.slice(loaderStart, loaderEnd);
+  const decoders = [
+    'static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_has_range',
+    'static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_copy',
+    'static uint16_t VN_LOGIC_OVERLAY_CODE scene_pack_u16',
+    'static signed int VN_LOGIC_OVERLAY_CODE scene_pack_s16',
+    'static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_command_impl',
+    'static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_message_impl',
+    'static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_choice_impl',
+    'static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_choice_option_impl',
+    'static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_switch_impl',
+    'static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_switch_case_impl',
+  ].map((marker) => readRuntimeFunction(scene, marker)).join('\n');
+  const variableLogic = readRuntimeFunction(
+    scene,
+    'static void VN_LOGIC_OVERLAY_CODE set_variable_value_impl',
+  );
+  const prepare = sprite.slice(prepareStart, logicAnimationStart);
+  const animationLogic = sprite.slice(logicAnimationStart, logicAnimationEnd);
+  const cacheWrapper = sprite.slice(cacheWrapperStart, mouthWrapperStart);
+  const mouthWrapper = sprite.slice(mouthWrapperStart, mouthWrapperEnd);
+  const tickLogic = sprite.slice(tickImplStart, tickWrapperEnd);
+
+  assert.match(config, /PCE_RAM_BANK_AT\(124,\s*4\);/);
+  assert.match(config, /#define VN_LOGIC_OVERLAY_RESERVED_SECTORS 4u/);
+  assert.match(config, /section\("\.vn_logic_overlay\.entry"\)/);
+  assert.match(config, /section\("\.vn_logic_overlay\.impl"\)/);
+  assert.match(config, /PCE_VN_LOGIC_OVERLAY_LOAD_ADDR/);
+  assert.match(config, /typedef struct \{[\s\S]*source_ref;[\s\S]*load_addr;[\s\S]*target_bank;[\s\S]*reserved_sectors;[\s\S]*loaded_flag;[\s\S]*\} vn_slot4_blob_descriptor_t;/);
+  assert.match(
+    dispatcher,
+    /slot4_bank = vn_slot4_current_bank\(\);[\s\S]*"tma #\$40"[\s\S]*map_vn_data\(\);[\s\S]*pce_ram_bank124_map\(\);[\s\S]*VN_LOGIC_OVERLAY_CALL\(op, a0, a1, a2\);[\s\S]*"tam #\$40"[\s\S]*vn_slot4_map_bank\(slot4_bank\);/,
+  );
+  assert.match(
+    commonLoader,
+    /slot4_bank = vn_slot4_current_bank\(\);[\s\S]*"tma #\$40"[\s\S]*map_vn_data\(\);[\s\S]*ref = \*descriptor->source_ref;[\s\S]*vn_slot4_map_bank\(descriptor->target_bank\);[\s\S]*pce_cdb_cd_read\([\s\S]*"tam #\$40"[\s\S]*vn_slot4_map_bank\(slot4_bank\);/,
+  );
+  assert.match(bus, /vn_logic_overlay_blob = \{[\s\S]*&pce_vn_logic_overlay_data,[\s\S]*124u,[\s\S]*VN_LOGIC_OVERLAY_RESERVED_SECTORS/);
+  assert.match(bus, /vn_overlay_blob = \{[\s\S]*&pce_vn_overlay_data,[\s\S]*133u,[\s\S]*VN_OVERLAY_RESERVED_SECTORS/);
+  assert.match(bus, /vn_cd_async_blob = \{[\s\S]*&pce_vn_cd_async_code_data,[\s\S]*122u,[\s\S]*&vn_cd_async_code_loaded/);
+  assert.match(bus, /load_logic_overlay_code\(void\)[\s\S]*vn_load_slot4_blob\(&vn_logic_overlay_blob\)/);
+  assert.match(bus, /load_cd_async_code\(void\)[\s\S]*vn_load_slot4_blob\(&vn_cd_async_blob\)/);
+  assert.match(cache, /load_visual_cache_code\(void\)[\s\S]*vn_load_slot4_blob\(&vn_visual_cache_blob\)/);
+  assert.match(main, /load_overlay_code\(\);[\s\S]*load_logic_overlay_code\(\);[\s\S]*load_visual_cache_code\(\);[\s\S]*load_cd_async_code\(\);/);
+  assert.match(logicEntry, /VN_LOGIC_OVERLAY_OP_READ_COMMAND[\s\S]*VN_LOGIC_OVERLAY_OP_READ_SWITCH_CASE/);
+  assert.match(logicEntry, /VN_LOGIC_OVERLAY_OP_CACHE_SPRITE_ANIM[\s\S]*VN_LOGIC_OVERLAY_OP_SET_VARIABLE[\s\S]*VN_LOGIC_OVERLAY_OP_MESSAGE_MOUTH[\s\S]*VN_LOGIC_OVERLAY_OP_TICK_SPRITE_ANIMATIONS/);
+  assert.doesNotMatch(legacyEntry, /VN_LOGIC_OVERLAY_OP_/);
+  assert.match(decoders, /VN_LOGIC_OVERLAY_CODE scene_pack_read_command_impl/);
+  assert.match(decoders, /VN_LOGIC_OVERLAY_CODE scene_pack_read_switch_case_impl/);
+  assert.match(scene, /set_variable_value\(signed int variable_index, signed int value\)[\s\S]*vn_logic_overlay_dispatch\(VN_LOGIC_OVERLAY_OP_SET_VARIABLE/);
+
+  assert.match(prepare, /"tma #\$40"[\s\S]*vn_read_meta_sector\([\s\S]*"tam #\$40"/);
+  assert.match(cacheWrapper, /prepare_sprite_animation_meta\([\s\S]*vn_logic_overlay_dispatch\([\s\S]*VN_LOGIC_OVERLAY_OP_CACHE_SPRITE_ANIM/);
+  assert.match(mouthWrapper, /prepare_sprite_animation_meta\([\s\S]*vn_logic_overlay_dispatch\(VN_LOGIC_OVERLAY_OP_MESSAGE_MOUTH/);
+  assert.doesNotMatch(animationLogic, /vn_read_meta_sector|pce_cdb_|vn_cd_async_call_bank122|visual_cache_call|vn_overlay_dispatch|VN_MAP_BANK130_FOR_CODE|pce_ram_bank(?:121|122|133)_map/);
+  assert.doesNotMatch(`${decoders}\n${variableLogic}`, /pce_cdb_|vn_cd_async_call_bank122|visual_cache_call|vn_overlay_dispatch|VN_MAP_BANK130_FOR_CODE|pce_ram_bank(?:121|122|133)_map/);
+  assert.match(tickLogic, /VN_LOGIC_OVERLAY_CODE tick_sprite_animations_impl[\s\S]*vn_logic_overlay_dispatch\(VN_LOGIC_OVERLAY_OP_TICK_SPRITE_ANIMATIONS/);
+  assert.doesNotMatch(cache, /VN_VISUAL_CACHE_OP_TICK_SPRITE_ANIMATIONS/);
+
+  /* Natural voice completion runs inside bank122. It reaches the resident
+     prepare+logic wrapper, whose dispatcher restores bank122 instead of forcing
+     bank130 before the suspended service function returns. */
+  assert.match(time, /vn_cd_async_call_bank122\(VN_CD_ASYNC_OP_ADPCM_PLAYBACK\)/);
+  assert.match(adpcm, /static void VN_CD_ASYNC_CODE service_adpcm_playback_impl\(void\)[\s\S]*update_active_message_mouth\(1u\);/);
+  assert.match(mouthWrapper, /vn_logic_overlay_dispatch\(VN_LOGIC_OVERLAY_OP_MESSAGE_MOUTH/);
+
+  /* Every slot4 dispatcher now restores the exact caller mapping. */
+  assert.match(bus, /vn_overlay_dispatch\(uint8_t op[\s\S]*slot4_bank = vn_slot4_current_bank\(\);[\s\S]*pce_ram_bank133_map\(\);[\s\S]*VN_OVERLAY_CALL\(op, a0, a1, a2\);[\s\S]*vn_slot4_map_bank\(slot4_bank\);/);
+  assert.match(cache, /visual_cache_call\(uint8_t op\)[\s\S]*slot4_bank = vn_slot4_current_bank\(\);[\s\S]*VN_MAP_VISUAL_CACHE_CODE\(\);[\s\S]*PCE_VN_VISUAL_CODE_LOAD_ADDR[\s\S]*vn_slot4_map_bank\(slot4_bank\);/);
+});
+
 test('CD VN message mouth uses the next ROW and restores it on text, voice, or story completion', () => {
   const config = readRuntimeFile('vn_engine_config.h');
   const state = readRuntimeFile('vn_engine_state.c');
@@ -251,9 +486,9 @@ test('CD VN message mouth uses the next ROW and restores it on text, voice, or s
 
   assert.match(state, /static signed int active_message_mouth_animation_index/);
   assert.match(main, /active_message_mouth_animation_index = -1;/);
-  assert.match(config, /#define VN_OVERLAY_OP_MESSAGE_MOUTH 18u/);
+  assert.match(config, /#define VN_LOGIC_OVERLAY_OP_MESSAGE_MOUTH 72u/);
   assert.match(config, /#define VN_CD_ASYNC_OP_ADPCM_PLAYBACK 72u/);
-  assert.match(bus, /VN_OVERLAY_OP_MESSAGE_MOUTH\) \{ update_active_message_mouth_impl\(a2\); return 0u; \}/);
+  assert.match(bus, /VN_LOGIC_OVERLAY_OP_MESSAGE_MOUTH\) return update_active_message_mouth_impl\(a2\);/);
   assert.match(bus, /VN_CD_ASYNC_OP_ADPCM_PLAYBACK\)[\s\S]*service_adpcm_playback_impl\(\);[\s\S]*return 1u;/);
   assert.match(time, /vn_cd_async_call_bank122\(VN_CD_ASYNC_OP_ADPCM_PLAYBACK\)/);
   assert.match(
@@ -262,13 +497,14 @@ test('CD VN message mouth uses the next ROW and restores it on text, voice, or s
   );
   assert.match(
     sprite,
-    /update_active_message_mouth_impl\(uint8_t restore\)[\s\S]*slot_index = active_message_state\.mouth_slot[\s\S]*normal_animation_index \+ 1\) >= pce_vn_sprite_animation_count[\s\S]*pce_vn_sprite_animations\[normal_animation_index \+ 1\]\.sprite_index != \(unsigned int\)slot->sprite_index/,
+    /update_active_message_mouth_impl\(uint8_t restore\)[\s\S]*slot_index = active_message_state\.mouth_slot[\s\S]*normal_animation_index \+ 1\) >= pce_vn_sprite_animation_count[\s\S]*prepared_sprite_animation_matches\([\s\S]*cache_sprite_animation_impl\(\(uint8_t\)slot_index, \(uint16_t\)slot->animation_index\)/,
   );
   assert.match(
     sprite,
-    /if \(restore\)[\s\S]*slot->animation_index != normal_animation_index \+ 1[\s\S]*slot->animation_index = \(signed int\)\(normal_animation_index \+ \(restore \? 0 : 1\)\);[\s\S]*cache_sprite_animation_impl\(\(uint8_t\)slot_index\);[\s\S]*REQUEST_SPRITE_REFRESH_FULL\(\);/,
+    /if \(restore\)[\s\S]*slot->animation_index != normal_animation_index \+ 1[\s\S]*slot->animation_index = \(signed int\)\(normal_animation_index \+ \(restore \? 0 : 1\)\);[\s\S]*if \(!restore\) active_message_mouth_animation_index = normal_animation_index;[\s\S]*REQUEST_SPRITE_REFRESH_FULL\(\);/,
   );
-  assert.match(sprite, /update_active_message_mouth\(uint8_t restore\)[\s\S]*vn_overlay_dispatch\(VN_OVERLAY_OP_MESSAGE_MOUTH, 0u, 0u, restore\)/);
+  assert.doesNotMatch(sprite, /pce_vn_sprite_animations\[/);
+  assert.match(sprite, /update_active_message_mouth\(uint8_t restore\)[\s\S]*prepare_sprite_animation_meta\([\s\S]*vn_logic_overlay_dispatch\(VN_LOGIC_OVERLAY_OP_MESSAGE_MOUTH, 0u, 0u, restore\)/);
   assert.match(message, /apply_message_text_color\(message->text_color\);[\s\S]*update_active_message_mouth\(0u\);/);
   assert.match(
     message,
@@ -276,7 +512,7 @@ test('CD VN message mouth uses the next ROW and restores it on text, voice, or s
   );
   assert.match(
     adpcm,
-    /static void VN_CD_ASYNC_CODE service_adpcm_playback_impl\(void\)[\s\S]*stop_buffered_adpcm_playback_direct\(\);[\s\S]*sync_cd_external_irq_after_bios_call\(\);[\s\S]*if \(message_voice_mode == VN_MESSAGE_VOICE_ONESHOT\)[\s\S]*vn_overlay_dispatch_locked\(VN_OVERLAY_OP_MESSAGE_MOUTH, 0u, 0u, 1u\);/,
+    /static void VN_CD_ASYNC_CODE service_adpcm_playback_impl\(void\)[\s\S]*stop_buffered_adpcm_playback_direct\(\);[\s\S]*sync_cd_external_irq_after_bios_call\(\);[\s\S]*if \(message_voice_mode == VN_MESSAGE_VOICE_ONESHOT\)[\s\S]*update_active_message_mouth\(1u\);/,
   );
   assert.match(adpcm, /static uint8_t VN_BANKED_CODE copy_adpcm_voice\(signed int voice_index\)/);
   assert.match(scene, /advance_story\(void\)\s*\{\s*update_active_message_mouth\(1u\);/);

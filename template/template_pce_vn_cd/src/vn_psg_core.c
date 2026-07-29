@@ -11,6 +11,13 @@
 #define VN_SYSTEM_PSG_SFX_ADDR 0xc000u
 #define VN_SYSTEM_PSG_BGM_LIMIT 8156u
 #define VN_SYSTEM_PSG_SFX_LIMIT 8192u
+#define VN_SYSTEM_PSG_META_SLOT_BYTES 16u
+#define VN_SYSTEM_PSG_META_PER_SECTOR 128u
+#define VN_SYSTEM_PSG_META_SECTOR 0u
+#define VN_SYSTEM_PSG_META_SECTOR_COUNT 3u
+#define VN_SYSTEM_PSG_META_BYTE_SIZE 5u
+#define VN_SYSTEM_PSG_META_BUS 7u
+#define VN_SYSTEM_PSG_META_CHANNEL 8u
 
 static void VN_BANKED_CODE2 vn_system_psg_update_active(void)
 {
@@ -54,13 +61,30 @@ static void VN_BANKED_CODE2 stop_psg(void)
 static uint8_t VN_BANKED_CODE2 vn_system_psg_package_snapshot(uint16_t index,
     pce_vn_system_psg_package_t *package)
 {
+    const uint8_t *record;
     map_vn_data();
     if (index >= pce_vn_system_psg_package_count)
     {
         map_resident_data();
         return 0u;
     }
-    *package = pce_vn_system_psg_packages[index];
+    vn_read_meta_sector(
+        &pce_vn_system_psg_meta.sector,
+        (uint16_t)(index / VN_SYSTEM_PSG_META_PER_SECTOR));
+    record = &cd_transfer_scratch[
+        (uint16_t)((index % VN_SYSTEM_PSG_META_PER_SECTOR)
+        * VN_SYSTEM_PSG_META_SLOT_BYTES)];
+    package->data.sector.lo = record[VN_SYSTEM_PSG_META_SECTOR];
+    package->data.sector.md = record[VN_SYSTEM_PSG_META_SECTOR + 1u];
+    package->data.sector.hi = record[VN_SYSTEM_PSG_META_SECTOR + 2u];
+    package->data.sector_count =
+        (unsigned int)record[VN_SYSTEM_PSG_META_SECTOR_COUNT]
+        | ((unsigned int)record[VN_SYSTEM_PSG_META_SECTOR_COUNT + 1u] << 8);
+    package->data.byte_size =
+        (unsigned int)record[VN_SYSTEM_PSG_META_BYTE_SIZE]
+        | ((unsigned int)record[VN_SYSTEM_PSG_META_BYTE_SIZE + 1u] << 8);
+    package->bus = record[VN_SYSTEM_PSG_META_BUS];
+    package->channel = record[VN_SYSTEM_PSG_META_CHANNEL];
     map_resident_data();
     if (package->bus > VN_SYSTEM_PSG_SFX_BUS || !package->data.byte_size ||
         !package->data.sector_count) return 0u;

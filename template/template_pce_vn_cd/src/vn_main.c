@@ -28,6 +28,8 @@ static void init_runtime_state(void)
     loaded_adpcm_index = 0u;
 #if defined(__PCE_CD__)
     cdda_state = 0u;
+    sprite_animation_meta_ready = 0u;
+    sprite_animation_meta_index = 0u;
 #if VN_CDDA_RESUME_AFTER_DATA_READ
     cdda_resume_defer_depth = 0u;
 #endif
@@ -263,6 +265,7 @@ static void init_video(void)
        phase). The CD->bank133->slot4 load/map/execute path is verified in
        Geargrafx (overlay ran from slot 4 with MPR4=bank133). */
     load_overlay_code();
+    load_logic_overlay_code();
 #if VN_ENABLE_VISUAL_PAYLOAD_CACHE
     load_visual_cache_code();
 #endif

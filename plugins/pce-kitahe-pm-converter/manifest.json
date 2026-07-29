@@ -1,0 +1,20 @@
+{
+  "id": "pce-kitahe-pm-converter",
+  "name": "北へ。PhotoMemories スクリプト取込",
+  "description": "北へ。PhotoMemories の SCR を、加工済み PCE アセットへの対応付けを使って CD-ROM2 VN シーンへ変換します。",
+  "version": "1.0.0",
+  "icon": "book",
+  "types": ["converter"],
+  "supportedCores": ["pc-engine"],
+  "hooks": ["inspectKitahePmSource", "applyKitahePmConversion"],
+  "permissions": ["project.read", "project.write", "dialog.openFile", "main.invokeHook"],
+  "mainApi": {
+    "hooks": ["inspectKitahePmSource", "applyKitahePmConversion"],
+    "capabilities": ["kitahe-pm-script-converter"]
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "capabilities": ["kitahe-pm-script-converter"]
+  }
+}

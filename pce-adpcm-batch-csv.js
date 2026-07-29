@@ -279,8 +279,8 @@ function inspectAdpcmBatchCsv(csvPath, existingAssets = [], options = {}) {
     row.outputIds.forEach((id) => projectedAdpcmIds.add(id));
   }
   const warnings = [];
-  if (projectedAdpcmIds.size > 512) {
-    warnings.push(`ADPCM asset は取込後 ${projectedAdpcmIds.size} 件です。CD VN の標準保証上限は参照される512件です`);
+  if (projectedAdpcmIds.size > 2048) {
+    warnings.push(`ADPCM asset は取込後 ${projectedAdpcmIds.size} 件です。CD VN の標準保証上限は参照される2048件です`);
   }
 
   const validRows = rows.filter((row) => row.valid).length;

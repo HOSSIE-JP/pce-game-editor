@@ -414,7 +414,7 @@ static uint8_t VN_BANKED_CODE refresh_scene_sprite_patterns(void)
 #endif
 }
 
-static uint8_t VN_BANKED_CODE plan_scene_sprite_layout(void)
+static uint8_t VN_CD_ASYNC_CODE plan_scene_sprite_layout_impl(void)
 {
     uint8_t i;
     uint8_t safe_hide_mask = 0u;
@@ -488,7 +488,7 @@ static uint8_t VN_BANKED_CODE plan_scene_sprite_layout(void)
     return safe_hide_mask;
 }
 
-static uint8_t VN_BANKED_CODE refresh_scene_sprite_slot_upload(uint8_t i, uint8_t satb_index)
+static uint8_t VN_CD_ASYNC_CODE refresh_scene_sprite_slot_upload_impl(uint8_t i, uint8_t satb_index)
 {
     vn_sprite_slot_t *slot;
     pce_editor_sprite_draw_meta_t draw_meta;
@@ -528,6 +528,26 @@ static uint8_t VN_BANKED_CODE refresh_scene_sprite_slot_upload(uint8_t i, uint8_
     written = call_overlay_show_sprite_slot(i);
     sprite_satb_slot_count[i] = written;
     return (uint8_t)(satb_index + written);
+}
+
+static uint8_t VN_BANKED_CODE plan_scene_sprite_layout(void)
+{
+#if defined(__PCE_CD__)
+    return vn_cd_async_call_bank122(VN_CD_ASYNC_OP_PLAN_SPRITE_LAYOUT);
+#else
+    return plan_scene_sprite_layout_impl();
+#endif
+}
+
+static uint8_t VN_BANKED_CODE refresh_scene_sprite_slot_upload(uint8_t i, uint8_t satb_index)
+{
+#if defined(__PCE_CD__)
+    vn_visual_cache_arg_slot = i;
+    vn_visual_cache_arg_x = satb_index;
+    return vn_cd_async_call_bank122(VN_CD_ASYNC_OP_REFRESH_SPRITE_SLOT);
+#else
+    return refresh_scene_sprite_slot_upload_impl(i, satb_index);
+#endif
 }
 
 static void VN_BANKED_CODE refresh_scene_sprites(void)
@@ -580,12 +600,62 @@ static void VN_BANKED_CODE refresh_scene_sprites(void)
     pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
 }
 
-static void VN_OVERLAY_CODE cache_sprite_animation_impl(uint8_t slot_index)
+/* CD metadata access must stay outside bank124. This resident helper reads one
+   sector into bank132 and publishes only the immediately-consumed record key;
+   vn_logic_overlay_dispatch maps bank132 while the logic code decodes/caches it. */
+static uint8_t VN_BANKED_CODE prepare_sprite_animation_meta(uint16_t animation_index)
+{
+#if defined(__PCE_CD__) && PCE_VN_HAS_SPRITE_ANIMATIONS
+    uint8_t restore_mpr6;
+    sprite_animation_meta_ready = 0u;
+    sprite_animation_meta_index = animation_index;
+    __asm__ volatile("tma #$40" : "=a"(restore_mpr6));
+    map_vn_data();
+    if (animation_index < pce_vn_sprite_animation_count)
+    {
+        vn_read_meta_sector(
+            &pce_vn_sprite_animation_meta.sector,
+            (uint16_t)(animation_index / VN_SPRITE_ANIM_META_PER_SECTOR));
+        sprite_animation_meta_ready = 1u;
+    }
+    __asm__ volatile("tam #$40" : : "a"(restore_mpr6));
+    return sprite_animation_meta_ready;
+#elif defined(__PCE_CD__)
+    sprite_animation_meta_ready = 0u;
+    sprite_animation_meta_index = animation_index;
+    return 0u;
+#else
+    (void)animation_index;
+    return 1u;
+#endif
+}
+
+#if defined(__PCE_CD__) && PCE_VN_HAS_SPRITE_ANIMATIONS
+static uint8_t VN_LOGIC_OVERLAY_CODE prepared_sprite_animation_matches(uint8_t slot_index, uint16_t animation_index)
+{
+    const uint8_t *animation;
+    unsigned int animation_sprite_index;
+    vn_sprite_slot_t *slot;
+    if (slot_index >= VN_SPRITE_SLOT_COUNT) return 0u;
+    slot = sprite_slot_ref(slot_index);
+    if (slot->sprite_index < 0) return 0u;
+    if (!sprite_animation_meta_ready || sprite_animation_meta_index != animation_index) return 0u;
+    animation = &cd_transfer_scratch[
+        (uint16_t)((animation_index % VN_SPRITE_ANIM_META_PER_SECTOR)
+        * VN_SPRITE_ANIM_META_SLOT_BYTES)];
+    animation_sprite_index = (unsigned int)animation[0]
+        | ((unsigned int)animation[1] << 8);
+    if (animation_sprite_index != (unsigned int)slot->sprite_index) return 0u;
+    if (!animation[3] || animation[3] > VN_SPRITE_ANIM_MAX_FRAMES) return 0u;
+    return 1u;
+}
+#endif
+
+static uint8_t VN_LOGIC_OVERLAY_CODE cache_sprite_animation_impl(uint8_t slot_index, uint16_t animation_index)
 {
     vn_sprite_slot_t *slot;
-#if PCE_VN_HAS_SPRITE_ANIMATIONS
-    const pce_vn_sprite_anim_t *animation;
-    unsigned int animation_sprite_index;
+#if defined(__PCE_CD__) && PCE_VN_HAS_SPRITE_ANIMATIONS
+    const uint8_t *animation;
     uint8_t animation_first_cell;
     uint8_t animation_frame_count;
     unsigned int animation_frame_delay;
@@ -593,9 +663,9 @@ static void VN_OVERLAY_CODE cache_sprite_animation_impl(uint8_t slot_index)
     uint8_t animation_frame_height_cells;
     uint8_t animation_frame_stride_cells;
     uint8_t animation_loop;
-    const unsigned int *animation_frame_delays;
+    uint8_t i;
 #endif
-    if (slot_index >= VN_SPRITE_SLOT_COUNT) return;
+    if (slot_index >= VN_SPRITE_SLOT_COUNT) return 0u;
     slot = &sprite_slots[slot_index];
     slot->anim_frame_count = 0u;
     slot->anim_frame_delay = 0u;
@@ -606,20 +676,25 @@ static void VN_OVERLAY_CODE cache_sprite_animation_impl(uint8_t slot_index)
     slot->anim_frame_stride_cells = 0u;
     slot->anim_frame_delays = (const unsigned int *)0;
 #if PCE_VN_HAS_SPRITE_ANIMATIONS
-    if (slot->sprite_index < 0 || slot->animation_index < 0) return;
-    map_vn_data();
-    if ((unsigned int)slot->animation_index >= pce_vn_sprite_animation_count) return;
-    animation = &pce_vn_sprite_animations[(unsigned int)slot->animation_index];
-    animation_sprite_index = animation->sprite_index;
-    animation_first_cell = animation->first_cell;
-    animation_frame_count = animation->frame_count;
-    animation_frame_delay = animation->frame_delay;
-    animation_frame_width_cells = animation->frame_width_cells;
-    animation_frame_height_cells = animation->frame_height_cells;
-    animation_frame_stride_cells = animation->frame_stride_cells;
-    animation_loop = animation->loop;
-    animation_frame_delays = animation->frame_delays;
-    if (animation_sprite_index != (unsigned int)slot->sprite_index) return;
+    if (slot->sprite_index < 0 || slot->animation_index < 0) return 0u;
+    if (animation_index != (uint16_t)slot->animation_index) return 0u;
+#if defined(__PCE_CD__)
+    if (!prepared_sprite_animation_matches(slot_index, animation_index)) return 0u;
+    animation = &cd_transfer_scratch[
+        (uint16_t)((animation_index % VN_SPRITE_ANIM_META_PER_SECTOR)
+        * VN_SPRITE_ANIM_META_SLOT_BYTES)];
+#else
+    return 0u;
+#endif
+#if defined(__PCE_CD__)
+    animation_first_cell = animation[2];
+    animation_frame_count = animation[3];
+    animation_frame_delay = (unsigned int)animation[4]
+        | ((unsigned int)animation[5] << 8);
+    animation_frame_width_cells = animation[6];
+    animation_frame_height_cells = animation[7];
+    animation_frame_stride_cells = animation[8];
+    animation_loop = animation[9];
     slot->anim_frame_count = animation_frame_count;
     slot->anim_frame_delay = animation_frame_delay;
     slot->anim_loop = animation_loop;
@@ -627,15 +702,24 @@ static void VN_OVERLAY_CODE cache_sprite_animation_impl(uint8_t slot_index)
     slot->anim_frame_width_cells = animation_frame_width_cells;
     slot->anim_frame_height_cells = animation_frame_height_cells;
     slot->anim_frame_stride_cells = animation_frame_stride_cells;
-    slot->anim_frame_delays = animation_frame_delays;
+    if (animation[10])
+    {
+        for (i = 0u; i < animation_frame_count && i < VN_SPRITE_ANIM_MAX_FRAMES; i++)
+        {
+            uint16_t offset = (uint16_t)(VN_SPRITE_ANIM_META_DELAYS_OFFSET + ((uint16_t)i * 2u));
+            sprite_animation_delay_cache[slot_index][i] = (unsigned int)animation[offset]
+                | ((unsigned int)animation[(uint16_t)(offset + 1u)] << 8);
+        }
+        slot->anim_frame_delays = sprite_animation_delay_cache[slot_index];
+    }
 #endif
+#endif
+    return slot->anim_frame_count ? 1u : 0u;
 }
 
-/* Start and restore share the bank133 sprite-state path so the two scarce
-   resident banks keep their required build headroom. This helper only maps
-   generated data in MPR6 and updates always-visible state; it never calls
-   bank130 while the overlay occupies MPR4. */
-static void VN_OVERLAY_CODE update_active_message_mouth_impl(uint8_t restore)
+/* The state transition is pure bank124 logic. The resident wrapper below has
+   already fetched the target record; this code never performs a CD/BIOS call. */
+static uint8_t VN_LOGIC_OVERLAY_CODE update_active_message_mouth_impl(uint8_t restore)
 {
     const signed int slot_index = active_message_state.mouth_slot;
     signed int normal_animation_index;
@@ -644,56 +728,91 @@ static void VN_OVERLAY_CODE update_active_message_mouth_impl(uint8_t restore)
     {
         normal_animation_index = active_message_mouth_animation_index;
         active_message_mouth_animation_index = -1;
-        if (normal_animation_index < 0) return;
+        if (normal_animation_index < 0) return 0u;
     }
     else
     {
         active_message_mouth_animation_index = -1;
         normal_animation_index = -1;
     }
-    if (slot_index < 0 || slot_index >= VN_SPRITE_SLOT_COUNT) return;
+    if (slot_index < 0 || slot_index >= VN_SPRITE_SLOT_COUNT) return 0u;
     slot = sprite_slot_ref((uint8_t)slot_index);
     if (restore)
     {
-        if (slot->animation_index != normal_animation_index + 1) return;
+        if (slot->animation_index != normal_animation_index + 1) return 0u;
     }
     else
     {
         normal_animation_index = slot->animation_index;
-        if (!slot->visible || slot->sprite_index < 0 || normal_animation_index < 0) return;
-        map_vn_data();
-        if ((unsigned int)(normal_animation_index + 1) >= pce_vn_sprite_animation_count
-            || pce_vn_sprite_animations[normal_animation_index + 1].sprite_index != (unsigned int)slot->sprite_index)
-        {
-            return;
-        }
-        active_message_mouth_animation_index = normal_animation_index;
+        if (!slot->visible || slot->sprite_index < 0 || normal_animation_index < 0) return 0u;
+        if ((unsigned int)(normal_animation_index + 1) >= pce_vn_sprite_animation_count) return 0u;
     }
+#if defined(__PCE_CD__) && PCE_VN_HAS_SPRITE_ANIMATIONS
+    if (!prepared_sprite_animation_matches(
+        (uint8_t)slot_index,
+        (uint16_t)(normal_animation_index + (restore ? 0 : 1)))) return 0u;
+#endif
     slot->animation_index = (signed int)(normal_animation_index + (restore ? 0 : 1));
     slot->frame = 0u;
     slot->timer = 0u;
-    cache_sprite_animation_impl((uint8_t)slot_index);
+    if (!cache_sprite_animation_impl((uint8_t)slot_index, (uint16_t)slot->animation_index))
+    {
+        return 0u;
+    }
+    if (!restore) active_message_mouth_animation_index = normal_animation_index;
     REQUEST_SPRITE_REFRESH_FULL();
+    return 1u;
 }
 
-/* Resident wrapper: the overlay impl only reads bank132 (map_vn_data, slot6) and
-   writes the always-mapped sprite slot, so it dispatches like the scene-pack
-   readers (no IRQ lock). */
+/* Resident wrappers perform the only animation-meta CD read, then bank124
+   applies the prepared bank132 record and detaches per-frame delays into BSS. */
 static void VN_BANKED_CODE cache_sprite_animation(uint8_t slot_index)
 {
 #if defined(__PCE_CD__)
-    (void)vn_overlay_dispatch(VN_OVERLAY_OP_CACHE_SPRITE_ANIM, 0u, 0u, slot_index);
+    signed int animation_index = -1;
+    if (slot_index < VN_SPRITE_SLOT_COUNT)
+        animation_index = sprite_slot_ref(slot_index)->animation_index;
+    if (animation_index >= 0)
+        (void)prepare_sprite_animation_meta((uint16_t)animation_index);
+    else
+        sprite_animation_meta_ready = 0u;
+    (void)vn_logic_overlay_dispatch(
+        VN_LOGIC_OVERLAY_OP_CACHE_SPRITE_ANIM,
+        (uint16_t)animation_index,
+        0u,
+        slot_index);
+    sprite_animation_meta_ready = 0u;
 #else
-    cache_sprite_animation_impl(slot_index);
+    const signed int animation_index = slot_index < VN_SPRITE_SLOT_COUNT
+        ? sprite_slot_ref(slot_index)->animation_index
+        : -1;
+    (void)cache_sprite_animation_impl(slot_index, (uint16_t)animation_index);
 #endif
 }
 
 static void VN_BANKED_CODE update_active_message_mouth(uint8_t restore)
 {
 #if defined(__PCE_CD__)
-    (void)vn_overlay_dispatch(VN_OVERLAY_OP_MESSAGE_MOUTH, 0u, 0u, restore);
+    signed int target_animation_index = -1;
+    const signed int slot_index = active_message_state.mouth_slot;
+    if (restore)
+    {
+        target_animation_index = active_message_mouth_animation_index;
+    }
+    else if (slot_index >= 0 && slot_index < VN_SPRITE_SLOT_COUNT)
+    {
+        const vn_sprite_slot_t *slot = sprite_slot_ref((uint8_t)slot_index);
+        if (slot->animation_index >= 0)
+            target_animation_index = slot->animation_index + 1;
+    }
+    if (target_animation_index >= 0)
+        (void)prepare_sprite_animation_meta((uint16_t)target_animation_index);
+    else
+        sprite_animation_meta_ready = 0u;
+    (void)vn_logic_overlay_dispatch(VN_LOGIC_OVERLAY_OP_MESSAGE_MOUTH, 0u, 0u, restore);
+    sprite_animation_meta_ready = 0u;
 #else
-    update_active_message_mouth_impl(restore);
+    (void)update_active_message_mouth_impl(restore);
 #endif
 }
 
@@ -783,19 +902,14 @@ static uint8_t VN_BANKED_CODE2 start_sprite_move(const pce_vn_command_t *command
     return (uint8_t)!(command->flags & PCE_VN_SPRITE_MOVE_ASYNC);
 }
 
-#if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
-static void VN_VISUAL_CACHE_CODE tick_sprite_animations_impl(void)
+#if defined(__PCE_CD__)
+static void VN_LOGIC_OVERLAY_CODE tick_sprite_animations_impl(void)
 #else
 static void tick_sprite_animations(void)
 #endif
 {
     uint8_t i;
     uint8_t changed = 0u;
-#if defined(__PCE_CD__) && !VN_ENABLE_VISUAL_PAYLOAD_CACHE
-    /* Per-frame delay tables are generated in bank132. The normal cached path
-       maps it in the resident wrapper before entering visual-code bank121. */
-    map_vn_data();
-#endif
     for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
     {
         vn_sprite_slot_t *slot = sprite_slot_ref(i);
@@ -871,14 +985,10 @@ static void tick_sprite_animations(void)
     if (changed) REQUEST_SPRITE_REFRESH_PATTERNS();
 }
 
-#if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
+#if defined(__PCE_CD__)
 static void VN_RESIDENT_CODE tick_sprite_animations(void)
 {
-    if (!vn_visual_cache_code_loaded) return;
-    /* visual_cache_call only swaps MPR4. Keep MPR6 on generated-data bank132 so
-       the visual-code tick can read project-sized 16-bit delay tables safely. */
-    map_vn_data();
-    (void)visual_cache_call(VN_VISUAL_CACHE_OP_TICK_SPRITE_ANIMATIONS);
+    (void)vn_logic_overlay_dispatch(VN_LOGIC_OVERLAY_OP_TICK_SPRITE_ANIMATIONS, 0u, 0u, 0u);
 }
 #endif
 

@@ -34,8 +34,8 @@ static signed int VN_BANKED_CODE variable_value(signed int variable_index)
     return (signed int)(int16_t)value;
 }
 
-/* Overlay (pure bss write). Reached via the resident dispatcher below. */
-static void VN_OVERLAY_CODE set_variable_value_impl(signed int variable_index, signed int value)
+/* Pure bss write in the bank124 logic overlay. */
+static void VN_LOGIC_OVERLAY_CODE set_variable_value_impl(signed int variable_index, signed int value)
 {
     uint8_t index;
     uint16_t raw;
@@ -62,7 +62,7 @@ static void VN_OVERLAY_CODE set_variable_value_impl(signed int variable_index, s
 static void VN_BANKED_CODE set_variable_value(signed int variable_index, signed int value)
 {
 #if defined(__PCE_CD__)
-    (void)vn_overlay_dispatch(VN_OVERLAY_OP_SET_VARIABLE, (uint16_t)variable_index, (uint16_t)value, 0u);
+    (void)vn_logic_overlay_dispatch(VN_LOGIC_OVERLAY_OP_SET_VARIABLE, (uint16_t)variable_index, (uint16_t)value, 0u);
 #else
     set_variable_value_impl(variable_index, value);
 #endif
@@ -95,7 +95,10 @@ static signed int random_range_value(signed int min, signed int max)
     return clamp_variable_value((int32_t)min + (int32_t)(next_random_value() % span));
 }
 
-static uint8_t compare_values(signed int left, uint8_t operator_id, signed int right)
+/* Keep the compare fan-out resident and out-of-line. If it is folded into the
+   extracted bank124 evaluator, llvm may emit its branch table in resident
+   .rodata and objcopy can no longer remove the overlay section. */
+static uint8_t VN_RESIDENT_CODE compare_values(signed int left, uint8_t operator_id, signed int right)
 {
     if (operator_id == PCE_VN_COMPARE_NE) return (uint8_t)(left != right);
     if (operator_id == PCE_VN_COMPARE_LT) return (uint8_t)(left < right);
@@ -117,17 +120,37 @@ static uint8_t VN_BANKED_CODE2 jump_to_command(uint16_t command_offset)
     return 1u;
 }
 
-static uint8_t VN_OVERLAY_CODE scene_pack_has_range(const vn_scene_pack_cache_t *cache, uint16_t offset, uint16_t length)
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_has_range(const vn_scene_pack_cache_t *cache, uint16_t offset, uint16_t length)
 {
+#if defined(__PCE_CD__)
+    /* CD has exactly one bank123 scene cache.  Keep these accesses as direct
+       WRAM symbols: llvm-mos direct-page addresses (for example $203c encoded
+       as $3c) are not valid when materialized as a generic 16-bit pointer. */
+    (void)cache;
+    if (!active_scene_pack.valid || !active_scene_pack.base) return 0u;
+    if (offset > active_scene_pack.size) return 0u;
+    return (uint8_t)(length <= (uint16_t)(active_scene_pack.size - offset));
+#else
     if (!cache || !cache->valid || !cache->base) return 0u;
     if (offset > cache->size) return 0u;
     return (uint8_t)(length <= (uint16_t)(cache->size - offset));
+#endif
 }
 
 static uint8_t scene_pack_u8(const vn_scene_pack_cache_t *cache, uint16_t offset)
 {
     uint8_t saved;
     uint8_t value;
+#if defined(__PCE_CD__)
+    (void)cache;
+    if (!active_scene_pack.valid || !active_scene_pack.base) return 0u;
+    if (offset >= active_scene_pack.size) return 0u;
+    __asm__ volatile("tma #$40" : "=a"(saved));
+    __asm__ volatile("lda #123\n\ttam #$40" ::: "a");
+    value = ((const uint8_t *)(uintptr_t)active_scene_pack.base)[offset];
+    __asm__ volatile("tam #$40" : : "a"(saved));
+    return value;
+#else
     if (!cache || !cache->valid || !cache->base) return 0u;
     if (offset >= cache->size) return 0u;
     __asm__ volatile("tma #$40" : "=a"(saved));
@@ -135,9 +158,10 @@ static uint8_t scene_pack_u8(const vn_scene_pack_cache_t *cache, uint16_t offset
     value = ((const uint8_t *)(uintptr_t)cache->base)[offset];
     __asm__ volatile("tam #$40" : : "a"(saved));
     return value;
+#endif
 }
 
-static uint8_t VN_OVERLAY_CODE scene_pack_copy(const vn_scene_pack_cache_t *cache,
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_copy(const vn_scene_pack_cache_t *cache,
     uint16_t offset, uint8_t *dest, uint16_t length)
 {
     uint8_t saved;
@@ -145,17 +169,18 @@ static uint8_t VN_OVERLAY_CODE scene_pack_copy(const vn_scene_pack_cache_t *cach
     if (!dest || !scene_pack_has_range(cache, offset, length)) return 0u;
     __asm__ volatile("tma #$40" : "=a"(saved));
     __asm__ volatile("lda #123\n\ttam #$40" ::: "a");
+#if defined(__PCE_CD__)
+    for (i = 0u; i < length; i++) dest[i] = ((const uint8_t *)(uintptr_t)active_scene_pack.base)[offset + i];
+#else
     for (i = 0u; i < length; i++) dest[i] = ((const uint8_t *)(uintptr_t)cache->base)[offset + i];
+#endif
     __asm__ volatile("tam #$40" : : "a"(saved));
     return 1u;
 }
 
-/* Overlay (bank133) functions: they are called only by the overlay scene-pack
-   readers (and s16->u16), so they live in the overlay alongside them rather than
-   inlining (which bloated the overlay) or sitting in bank130 (unreachable from the
-   overlay). u8 stays resident because spritetext command scanning also uses it;
-   has_range is overlay-only to keep bank128 below its fixed resident budget. */
-static uint16_t VN_OVERLAY_CODE scene_pack_u16(const vn_scene_pack_cache_t *cache, uint16_t offset)
+/* bank124 helpers are called only by the logic-overlay scene-pack readers (and
+   s16->u16). u8 stays resident because spritetext command scanning also uses it. */
+static uint16_t VN_LOGIC_OVERLAY_CODE scene_pack_u16(const vn_scene_pack_cache_t *cache, uint16_t offset)
 {
     uint8_t bytes[2];
     if (!scene_pack_has_range(cache, offset, 2u)) return 0u;
@@ -163,14 +188,19 @@ static uint16_t VN_OVERLAY_CODE scene_pack_u16(const vn_scene_pack_cache_t *cach
     return (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8));
 }
 
-static signed int VN_OVERLAY_CODE scene_pack_s16(const vn_scene_pack_cache_t *cache, uint16_t offset)
+static signed int VN_LOGIC_OVERLAY_CODE scene_pack_s16(const vn_scene_pack_cache_t *cache, uint16_t offset)
 {
     return (signed int)(int16_t)scene_pack_u16(cache, offset);
 }
 
 static uint8_t scene_pack_is_valid(const vn_scene_pack_cache_t *cache)
 {
+#if defined(__PCE_CD__)
+    (void)cache;
+    if (!active_scene_pack.base || active_scene_pack.size < PCE_VN_SCENE_PACK_HEADER_SIZE) return 0u;
+#else
     if (!cache || !cache->base || cache->size < PCE_VN_SCENE_PACK_HEADER_SIZE) return 0u;
+#endif
     if (scene_pack_u8(cache, 0u) != VN_SCENE_PACK_MAGIC_P) return 0u;
     if (scene_pack_u8(cache, 1u) != VN_SCENE_PACK_MAGIC_V) return 0u;
     if (scene_pack_u8(cache, 2u) != VN_SCENE_PACK_MAGIC_N) return 0u;
@@ -180,13 +210,13 @@ static uint8_t scene_pack_is_valid(const vn_scene_pack_cache_t *cache)
 
 static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache)
 {
-    if (!cache) return 0u;
-    if (cache->valid && cache->scene_index == scene_index) return 1u;
-    cache->valid = 0u;
 #if defined(__PCE_CD__)
     {
         pce_vn_scene_pack_t pack;
         pce_sector_t sector = {0};
+        (void)cache;
+        if (active_scene_pack.valid && active_scene_pack.scene_index == scene_index) return 1u;
+        active_scene_pack.valid = 0u;
         map_vn_data();
         if (scene_index >= pce_vn_scene_count) return 0u;
         pack = pce_vn_scene_packs[scene_index];
@@ -194,7 +224,7 @@ static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, v
         sector.lo = pack.sector.lo;
         sector.md = pack.sector.md;
         sector.hi = pack.sector.hi;
-        if (!vn_cd_async_begin_scene_pack_read(sector, cache->base, pack.byte_size))
+        if (!vn_cd_async_begin_scene_pack_read(sector, active_scene_pack.base, pack.byte_size))
         {
             return 0u;
         }
@@ -204,18 +234,22 @@ static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, v
             engine_service();
             vn_cd_async_service_frame();
         }
-        cache->size = pack.byte_size;
-        cache->scene_index = scene_index;
+        active_scene_pack.size = pack.byte_size;
+        active_scene_pack.scene_index = scene_index;
         /* The bounded bank123 readers intentionally reject an invalid cache.
            Mark a completed transfer readable for the header probe, then revoke
            it immediately when magic/version validation fails. */
-        cache->valid = (uint8_t)(vn_cd_async_status == VN_CD_ASYNC_STATUS_DONE);
-        if (cache->valid && !scene_pack_is_valid(cache)) cache->valid = 0u;
+        active_scene_pack.valid = (uint8_t)(vn_cd_async_status == VN_CD_ASYNC_STATUS_DONE);
+        if (active_scene_pack.valid && !scene_pack_is_valid((const vn_scene_pack_cache_t *)0))
+        {
+            active_scene_pack.valid = 0u;
+        }
         VN_MAP_BANK130_FOR_CODE();
-        return cache->valid;
+        return active_scene_pack.valid;
     }
 #else
     (void)scene_index;
+    (void)cache;
     return 0u;
 #endif
 }
@@ -238,7 +272,7 @@ static uint8_t VN_BANKED_CODE scene_pack_full_screen_bg(const vn_scene_pack_cach
 #endif
 }
 
-static uint8_t VN_OVERLAY_CODE scene_pack_read_command_impl(const vn_scene_pack_cache_t *cache, uint8_t command_index, pce_vn_command_t *command)
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_command_impl(const vn_scene_pack_cache_t *cache, uint8_t command_index, pce_vn_command_t *command)
 {
     uint16_t offset;
     if (!command) return 0u;
@@ -261,7 +295,7 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_command_impl(const vn_scene_pack_
     return 1u;
 }
 
-static uint8_t VN_OVERLAY_CODE scene_pack_read_message_impl(const vn_scene_pack_cache_t *cache, uint8_t message_index, pce_vn_message_t *message)
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_message_impl(const vn_scene_pack_cache_t *cache, uint8_t message_index, pce_vn_message_t *message)
 {
     uint16_t offset;
     uint16_t glyph_offset;
@@ -287,7 +321,7 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_message_impl(const vn_scene_pack_
     return 1u;
 }
 
-static uint8_t VN_OVERLAY_CODE scene_pack_read_choice_impl(const vn_scene_pack_cache_t *cache, uint8_t choice_index, vn_choice_ref_t *choice)
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_choice_impl(const vn_scene_pack_cache_t *cache, uint8_t choice_index, vn_choice_ref_t *choice)
 {
     uint16_t offset;
     if (!choice) return 0u;
@@ -302,7 +336,7 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_choice_impl(const vn_scene_pack_c
     return 1u;
 }
 
-static uint8_t VN_OVERLAY_CODE scene_pack_read_choice_option_impl(const vn_scene_pack_cache_t *cache, const vn_choice_ref_t *choice, uint8_t option_index, pce_vn_choice_option_t *option)
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_choice_option_impl(const vn_scene_pack_cache_t *cache, const vn_choice_ref_t *choice, uint8_t option_index, pce_vn_choice_option_t *option)
 {
     uint16_t offset;
     uint16_t glyph_offset;
@@ -321,7 +355,7 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_choice_option_impl(const vn_scene
     return 1u;
 }
 
-static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_impl(const vn_scene_pack_cache_t *cache, uint8_t switch_index, vn_switch_ref_t *branch)
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_switch_impl(const vn_scene_pack_cache_t *cache, uint8_t switch_index, vn_switch_ref_t *branch)
 {
     uint16_t offset;
     if (!branch) return 0u;
@@ -335,7 +369,7 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_impl(const vn_scene_pack_c
     return 1u;
 }
 
-static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_case_impl(const vn_scene_pack_cache_t *cache, const vn_switch_ref_t *branch, uint8_t case_index, pce_vn_switch_case_t *branch_case)
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_switch_case_impl(const vn_scene_pack_cache_t *cache, const vn_switch_ref_t *branch, uint8_t case_index, pce_vn_switch_case_t *branch_case)
 {
     uint16_t offset;
     if (!branch || !branch_case || case_index >= branch->case_count) return 0u;
@@ -347,12 +381,12 @@ static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_case_impl(const vn_scene_p
 }
 
 /* Resident wrappers keep the original reader names/signatures so call sites are
-   unchanged. On CD the cache arg is ignored (the overlay reads active_scene_pack). */
+   unchanged. On CD the cache arg is ignored (bank124 reads active_scene_pack). */
 static uint8_t VN_BANKED_CODE scene_pack_read_command(const vn_scene_pack_cache_t *cache, uint8_t command_index, pce_vn_command_t *command)
 {
 #if defined(__PCE_CD__)
     (void)cache;
-    return vn_overlay_dispatch(VN_OVERLAY_OP_READ_COMMAND, (uint16_t)(uintptr_t)command, 0u, command_index);
+    return vn_logic_overlay_dispatch(VN_LOGIC_OVERLAY_OP_READ_COMMAND, (uint16_t)(uintptr_t)command, 0u, command_index);
 #else
     return scene_pack_read_command_impl(cache, command_index, command);
 #endif
@@ -362,7 +396,7 @@ static uint8_t VN_BANKED_CODE scene_pack_read_message(const vn_scene_pack_cache_
 {
 #if defined(__PCE_CD__)
     (void)cache;
-    return vn_overlay_dispatch(VN_OVERLAY_OP_READ_MESSAGE, (uint16_t)(uintptr_t)message, 0u, message_index);
+    return vn_logic_overlay_dispatch(VN_LOGIC_OVERLAY_OP_READ_MESSAGE, (uint16_t)(uintptr_t)message, 0u, message_index);
 #else
     return scene_pack_read_message_impl(cache, message_index, message);
 #endif
@@ -372,7 +406,7 @@ static uint8_t VN_BANKED_CODE scene_pack_read_choice(const vn_scene_pack_cache_t
 {
 #if defined(__PCE_CD__)
     (void)cache;
-    return vn_overlay_dispatch(VN_OVERLAY_OP_READ_CHOICE, (uint16_t)(uintptr_t)choice, 0u, choice_index);
+    return vn_logic_overlay_dispatch(VN_LOGIC_OVERLAY_OP_READ_CHOICE, (uint16_t)(uintptr_t)choice, 0u, choice_index);
 #else
     return scene_pack_read_choice_impl(cache, choice_index, choice);
 #endif
@@ -382,7 +416,7 @@ static uint8_t VN_BANKED_CODE scene_pack_read_choice_option(const vn_scene_pack_
 {
 #if defined(__PCE_CD__)
     (void)cache;
-    return vn_overlay_dispatch(VN_OVERLAY_OP_READ_CHOICE_OPTION, (uint16_t)(uintptr_t)option, (uint16_t)(uintptr_t)choice, option_index);
+    return vn_logic_overlay_dispatch(VN_LOGIC_OVERLAY_OP_READ_CHOICE_OPTION, (uint16_t)(uintptr_t)option, (uint16_t)(uintptr_t)choice, option_index);
 #else
     return scene_pack_read_choice_option_impl(cache, choice, option_index, option);
 #endif
@@ -392,7 +426,7 @@ static uint8_t VN_BANKED_CODE scene_pack_read_switch(const vn_scene_pack_cache_t
 {
 #if defined(__PCE_CD__)
     (void)cache;
-    return vn_overlay_dispatch(VN_OVERLAY_OP_READ_SWITCH, (uint16_t)(uintptr_t)branch, 0u, switch_index);
+    return vn_logic_overlay_dispatch(VN_LOGIC_OVERLAY_OP_READ_SWITCH, (uint16_t)(uintptr_t)branch, 0u, switch_index);
 #else
     return scene_pack_read_switch_impl(cache, switch_index, branch);
 #endif
@@ -402,7 +436,7 @@ static uint8_t VN_BANKED_CODE scene_pack_read_switch_case(const vn_scene_pack_ca
 {
 #if defined(__PCE_CD__)
     (void)cache;
-    return vn_overlay_dispatch(VN_OVERLAY_OP_READ_SWITCH_CASE, (uint16_t)(uintptr_t)branch_case, (uint16_t)(uintptr_t)branch, case_index);
+    return vn_logic_overlay_dispatch(VN_LOGIC_OVERLAY_OP_READ_SWITCH_CASE, (uint16_t)(uintptr_t)branch_case, (uint16_t)(uintptr_t)branch, case_index);
 #else
     return scene_pack_read_switch_case_impl(cache, branch, case_index, branch_case);
 #endif
@@ -860,8 +894,73 @@ static void VN_BANKED_CODE2 finish_same_background_transition(void)
     }
 }
 
+/* Variable and branch evaluation is pure logic. It may inspect the resident
+   scene cache and fixed banks 128/129, but it never calls another slot-4 bank.
+   Jump targets are published for the bank130 wrapper to apply after dispatch. */
+static uint8_t VN_LOGIC_OVERLAY_CODE execute_control_command_impl(const pce_vn_command_t *command)
+{
+    volatile uint8_t command_type;
+    if (!command) return VN_EXEC_CONTINUE;
+    /* Keep the optimizer from synthesizing a resident .rodata jump table:
+       bank124 is extracted from the ELF and must own every control edge. */
+    command_type = command->type;
+    if (command_type == PCE_VN_COMMAND_VARIABLE)
+    {
+        const signed int value = command_value_arg(command);
+        const signed int current = variable_value(command->asset_index);
+        if (command->flags == PCE_VN_VAR_OP_ADD)
+        {
+            set_variable_value_impl(command->asset_index, clamp_variable_value((int32_t)current + (int32_t)value));
+        }
+        else if (command->flags == PCE_VN_VAR_OP_SUB)
+        {
+            set_variable_value_impl(command->asset_index, clamp_variable_value((int32_t)current - (int32_t)value));
+        }
+        else if (command->flags == PCE_VN_VAR_OP_RANDOM)
+        {
+            set_variable_value_impl(command->asset_index, random_range_value(signed_from_u16(command->x), signed_from_u16(command->y)));
+        }
+        else
+        {
+            set_variable_value_impl(command->asset_index, value);
+        }
+    }
+    else if (command_type == PCE_VN_COMMAND_IF)
+    {
+        const signed int left = variable_value(command->asset_index);
+        const signed int right = command_value_arg(command);
+        const uint16_t target = compare_values(left, command->flags, right) ? command->x : command->y;
+        vn_control_jump_target = target;
+    }
+    else if (command_type == PCE_VN_COMMAND_SWITCH)
+    {
+        vn_switch_ref_t *branch = VN_SWITCH_SCRATCH;
+        uint8_t i;
+        uint16_t target = PCE_VN_NO_COMMAND;
+        const signed int value = variable_value(command->asset_index);
+        if (command->choice_index >= 0
+            && scene_pack_read_switch_impl(&active_scene_pack, (uint8_t)command->choice_index, branch))
+        {
+            for (i = 0u; i < branch->case_count; i++)
+            {
+                pce_vn_switch_case_t *branch_case = VN_SWITCH_CASE_SCRATCH;
+                if (!scene_pack_read_switch_case_impl(&active_scene_pack, branch, i, branch_case)) continue;
+                if (branch_case->value == value)
+                {
+                    target = branch_case->command;
+                    break;
+                }
+            }
+            if (target == PCE_VN_NO_COMMAND) target = branch->default_command;
+            vn_control_jump_target = target;
+        }
+    }
+    return VN_EXEC_CONTINUE;
+}
+
 static uint8_t VN_BANKED_CODE2 execute_control_command(const pce_vn_command_t *command)
 {
+    uint8_t result;
     if (!command) return VN_EXEC_CONTINUE;
     if (command->type == PCE_VN_COMMAND_CHOICE)
     {
@@ -874,66 +973,15 @@ static uint8_t VN_BANKED_CODE2 execute_control_command(const pce_vn_command_t *c
             start_choice((uint8_t)command->choice_index);
             return active_choice_index >= 0 ? VN_EXEC_WAIT : VN_EXEC_CONTINUE;
         }
-    }
-    else if (command->type == PCE_VN_COMMAND_VARIABLE)
-    {
-        const signed int value = command_value_arg(command);
-        const signed int current = variable_value(command->asset_index);
-        if (command->flags == PCE_VN_VAR_OP_ADD)
-        {
-            set_variable_value(command->asset_index, clamp_variable_value((int32_t)current + (int32_t)value));
-        }
-        else if (command->flags == PCE_VN_VAR_OP_SUB)
-        {
-            set_variable_value(command->asset_index, clamp_variable_value((int32_t)current - (int32_t)value));
-        }
-        else if (command->flags == PCE_VN_VAR_OP_RANDOM)
-        {
-            set_variable_value(command->asset_index, random_range_value(signed_from_u16(command->x), signed_from_u16(command->y)));
-        }
-        else
-        {
-            set_variable_value(command->asset_index, value);
-        }
-    }
-    else if (command->type == PCE_VN_COMMAND_IF)
-    {
-        const signed int left = variable_value(command->asset_index);
-        const signed int right = command_value_arg(command);
-        const uint16_t target = compare_values(left, command->flags, right) ? command->x : command->y;
-        (void)jump_to_command(target);
-    }
-    else if (command->type == PCE_VN_COMMAND_SWITCH)
-    {
-        vn_switch_ref_t *branch = VN_SWITCH_SCRATCH;
-        uint8_t i;
-        uint16_t target = PCE_VN_NO_COMMAND;
-        const signed int value = variable_value(command->asset_index);
-        if (command->choice_index >= 0 && scene_pack_read_switch(&active_scene_pack, (uint8_t)command->choice_index, branch))
-        {
-            for (i = 0u; i < branch->case_count; i++)
-            {
-                pce_vn_switch_case_t *branch_case = VN_SWITCH_CASE_SCRATCH;
-                if (!scene_pack_read_switch_case(&active_scene_pack, branch, i, branch_case)) continue;
-                if (branch_case->value == value)
-                {
-                    target = branch_case->command;
-                    break;
-                }
-            }
-            if (target == PCE_VN_NO_COMMAND) target = branch->default_command;
-            (void)jump_to_command(target);
-        }
-    }
-    else if (command->type == PCE_VN_COMMAND_GOTO)
-    {
-        (void)jump_to_command(command->x);
-    }
-    else if (command->type == PCE_VN_COMMAND_LABEL)
-    {
         return VN_EXEC_CONTINUE;
     }
-    else if (command->type == PCE_VN_COMMAND_INPUTCHECK)
+    if (command->type == PCE_VN_COMMAND_LABEL) return VN_EXEC_CONTINUE;
+    if (command->type == PCE_VN_COMMAND_GOTO)
+    {
+        (void)jump_to_command(command->x);
+        return VN_EXEC_CONTINUE;
+    }
+    if (command->type == PCE_VN_COMMAND_INPUTCHECK)
     {
         const uint8_t mode = (uint8_t)command->flags;
         const uint8_t mask = command->arg0;
@@ -945,21 +993,34 @@ static uint8_t VN_BANKED_CODE2 execute_control_command(const pce_vn_command_t *c
         }
         else if (mode == PCE_VN_INPUT_MODE_ASYNC)
         {
-            /* Arm the watcher and keep running the script. */
             async_input_active = 1u;
             async_input_mask = mask;
             async_input_target = command->x;
         }
         else
         {
-            /* Synchronous: block here until one of the buttons is pressed. */
             sync_input_active = 1u;
             sync_input_mask = mask;
             sync_input_target = command->x;
             return VN_EXEC_WAIT;
         }
+        return VN_EXEC_CONTINUE;
     }
-    return VN_EXEC_CONTINUE;
+    vn_control_jump_target = PCE_VN_NO_COMMAND;
+#if defined(__PCE_CD__)
+    result = vn_logic_overlay_dispatch(
+        VN_LOGIC_OVERLAY_OP_EXECUTE_CONTROL,
+        (uint16_t)(uintptr_t)command,
+        0u,
+        0u);
+#else
+    result = execute_control_command_impl(command);
+#endif
+    if (vn_control_jump_target != PCE_VN_NO_COMMAND)
+    {
+        (void)jump_to_command(vn_control_jump_target);
+    }
+    return result;
 }
 
 static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)

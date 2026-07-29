@@ -11,6 +11,13 @@ SECTIONS {
     KEEP(*(.vn_cd_async_code.impl .vn_cd_async_code.impl.*))
     __vn_cd_async_code_end = .;
   } >ram_bank122
+  .vn_logic_overlay 0x17c8000 : {
+    __vn_logic_overlay_start = .;
+    KEEP(*(.vn_logic_overlay.entry .vn_logic_overlay.entry.*))
+    KEEP(*(.vn_logic_overlay.impl .vn_logic_overlay.impl.*))
+    KEEP(*(.vn_logic_overlay .vn_logic_overlay.*))
+    __vn_logic_overlay_end = .;
+  } >ram_bank124
   .vn_overlay 0x1858000 : {
     __vn_overlay_start = .;
     KEEP(*(.vn_overlay.entry .vn_overlay.entry.*))

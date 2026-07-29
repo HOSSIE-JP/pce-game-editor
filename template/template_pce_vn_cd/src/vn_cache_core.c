@@ -414,11 +414,6 @@ static uint8_t VN_VISUAL_CACHE_ENTRY_CODE visual_cache_entry(uint8_t op)
         clear_runtime_cache_impl(vn_visual_cache_arg_scope);
         return 0u;
     }
-    if (visual_op == VN_VISUAL_CACHE_OP_TICK_SPRITE_ANIMATIONS)
-    {
-        tick_sprite_animations_impl();
-        return 0u;
-    }
     if (visual_op == VN_VISUAL_CACHE_OP_FADE_SCREEN)
     {
         fade_current_screen_to_color_impl(vn_visual_cache_arg_dest, vn_visual_cache_arg_x);
@@ -442,9 +437,10 @@ typedef uint8_t (*vn_visual_cache_entry_fn_t)(uint8_t op);
 static uint8_t VN_RESIDENT_CODE visual_cache_call(uint8_t op)
 {
     uint8_t result;
+    const uint8_t slot4_bank = vn_slot4_current_bank();
     VN_MAP_VISUAL_CACHE_CODE();
     result = ((vn_visual_cache_entry_fn_t)PCE_VN_VISUAL_CODE_LOAD_ADDR)(op);
-    VN_MAP_BANK130_FOR_CODE();
+    vn_slot4_map_bank(slot4_bank);
     return result;
 }
 
@@ -733,13 +729,17 @@ _Static_assert(PCE_EDITOR_META_CDDA_SLOT >= PCE_EDITOR_META_CDDA_PLAY_FRAMES + 2
    the bank; 128/129/130 are co-resident so callers in any of them reach it with a
    transparent cross-bank call. VN_RESIDENT_CODE keeps it out-of-line in bank128 so
    the banked (129/130) sprite/adpcm callers don't inline a copy of it and balloon. */
-static void VN_RESIDENT_CODE vn_read_meta_sector(const pce_editor_cd_sector_t *region_sector, uint8_t sector_off)
+static void VN_RESIDENT_CODE vn_read_meta_sector(const pce_editor_cd_sector_t *region_sector, uint16_t sector_off)
 {
     pce_sector_t sector = {0};
     map_vn_data();
     prepare_cd_data_access();
     cd_sector_from_ref(&sector, region_sector);
-    while (sector_off--) cd_sector_advance(&sector);
+    while (sector_off != 0u)
+    {
+        cd_sector_advance(&sector);
+        sector_off--;
+    }
     map_vn_data();
     (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, (uint16_t)(uintptr_t)cd_transfer_scratch, VN_CD_SECTOR_BYTES);
     cd_transfer_wait();
@@ -767,7 +767,7 @@ static const pce_editor_bg_asset_t *VN_RESIDENT_CODE vn_get_bg_asset(uint16_t id
     slot = (uint8_t)(idx & (VN_BG_META_CACHE_SLOTS - 1u));
     if (g_bg_cache_key[slot] == key) return &g_bg_cache[slot];
     rec = &g_bg_cache[slot];
-    vn_read_meta_sector(&pce_editor_bg_meta.sector, (uint8_t)(idx / VN_META_BG_PER_SECTOR));
+    vn_read_meta_sector(&pce_editor_bg_meta.sector, (uint16_t)(idx / VN_META_BG_PER_SECTOR));
     p = &cd_transfer_scratch[(uint16_t)((uint16_t)(idx % VN_META_BG_PER_SECTOR) * PCE_EDITOR_META_BG_SLOT)];
     __builtin_memcpy(rec, p, sizeof(*rec));
     __builtin_memcpy(g_bg_palette[slot], p + PCE_EDITOR_META_BG_PALETTE, 32);
@@ -789,7 +789,7 @@ static uint8_t g_spr_cell_map[VN_SPRITE_SLOT_COUNT][VN_META_CELL_MAP_MAX];
 static uint16_t g_spr_cache_key[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint8_t g_spr_cache_next __attribute__((section(".bss"))) = 0u;
 
-static const pce_editor_sprite_asset_t *VN_RESIDENT_CODE vn_get_sprite_asset(uint16_t idx, uint8_t preferred_slot)
+static const pce_editor_sprite_asset_t *VN_CD_ASYNC_CODE vn_get_sprite_asset_impl(uint16_t idx, uint8_t preferred_slot)
 {
     uint8_t slot;
     uint16_t key;
@@ -812,7 +812,7 @@ static const pce_editor_sprite_asset_t *VN_RESIDENT_CODE vn_get_sprite_asset(uin
         g_spr_cache_next = (uint8_t)((g_spr_cache_next + 1u) % VN_SPRITE_SLOT_COUNT);
     }
     rec = &g_spr_cache[slot];
-    vn_read_meta_sector(&pce_editor_sprite_meta.sector, (uint8_t)(idx / VN_META_SPRITE_PER_SECTOR));
+    vn_read_meta_sector(&pce_editor_sprite_meta.sector, (uint16_t)(idx / VN_META_SPRITE_PER_SECTOR));
     p = &cd_transfer_scratch[(uint16_t)((uint16_t)(idx % VN_META_SPRITE_PER_SECTOR) * PCE_EDITOR_META_SPRITE_SLOT)];
     __builtin_memcpy(rec, p, sizeof(*rec));
     __builtin_memcpy(g_spr_palette[slot], p + PCE_EDITOR_META_SPR_PALETTE, 32);
@@ -836,6 +836,19 @@ static const pce_editor_sprite_asset_t *VN_RESIDENT_CODE vn_get_sprite_asset(uin
     return rec;
 }
 
+static const pce_editor_sprite_asset_t *VN_RESIDENT_CODE vn_get_sprite_asset(uint16_t idx, uint8_t preferred_slot)
+{
+#if defined(__PCE_CD__)
+    vn_sprite_asset_result = (const pce_editor_sprite_asset_t *)0;
+    vn_visual_cache_arg_asset = idx;
+    vn_visual_cache_arg_slot = preferred_slot;
+    (void)vn_cd_async_call_bank122(VN_CD_ASYNC_OP_GET_SPRITE_ASSET);
+    return vn_sprite_asset_result;
+#else
+    return vn_get_sprite_asset_impl(idx, preferred_slot);
+#endif
+}
+
 static pce_editor_adpcm_asset_t g_adpcm_cache;
 static pce_editor_cd_data_ref_t g_adpcm_cd;
 static uint16_t g_adpcm_cache_key;
@@ -845,7 +858,7 @@ static const pce_editor_adpcm_asset_t *VN_RESIDENT_CODE vn_get_adpcm_asset(uint1
     const uint8_t *p;
     const uint16_t key = (uint16_t)(idx + 1u);
     if (g_adpcm_cache_key == key) return &g_adpcm_cache;
-    vn_read_meta_sector(&pce_editor_adpcm_meta.sector, (uint8_t)(idx / VN_META_ADPCM_PER_SECTOR));
+    vn_read_meta_sector(&pce_editor_adpcm_meta.sector, (uint16_t)(idx / VN_META_ADPCM_PER_SECTOR));
     p = &cd_transfer_scratch[(uint16_t)((uint16_t)(idx % VN_META_ADPCM_PER_SECTOR) * PCE_EDITOR_META_ADPCM_SLOT)];
     g_adpcm_cache.data = 0;
     g_adpcm_cache.data_size = (unsigned long)p[PCE_EDITOR_META_ADPCM_DATA_SIZE]
@@ -1161,29 +1174,7 @@ static void VN_BANKED_CODE2 clear_runtime_cache(uint8_t scope)
 #if VN_ENABLE_VISUAL_PAYLOAD_CACHE
 static void VN_BANKED_CODE load_visual_cache_code(void)
 {
-    pce_sector_t sector = {0};
-    uint8_t remaining;
-    uint16_t dest = (uint16_t)PCE_VN_VISUAL_CODE_LOAD_ADDR;
-    if (vn_visual_cache_code_loaded) return;
-    map_vn_data();
-    sector.lo = pce_vn_visual_code_data.sector.lo;
-    sector.md = pce_vn_visual_code_data.sector.md;
-    sector.hi = pce_vn_visual_code_data.sector.hi;
-    prepare_cd_data_access();
-    remaining = VN_VISUAL_CODE_RESERVED_SECTORS;
-    while (remaining)
-    {
-        pce_ram_bank121_map();
-        (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, dest, VN_CD_SECTOR_BYTES);
-        cd_transfer_wait();
-        dest = (uint16_t)(dest + VN_CD_SECTOR_BYTES);
-        remaining--;
-        cd_sector_advance(&sector);
-    }
-    sync_cd_external_irq_after_bios_call();
-    pce_ram_bank130_map();
-    resume_cdda_after_cd_data_access();
-    vn_visual_cache_code_loaded = 1u;
+    (void)vn_load_slot4_blob(&vn_visual_cache_blob);
 }
 #endif
 #endif

@@ -44,3 +44,43 @@ test('VN CD catalog collects referenced raw payloads behind a dedicated boundary
   ]);
   assert.equal(files.some((file) => file.endsWith('.rle')), false);
 });
+
+test('VN CD catalog keeps all runtime code blobs physical and ordered before payloads', () => {
+  const root = path.join(__dirname, '..', 'node_modules', '.vn-catalog-test');
+  fs.mkdirSync(root, { recursive: true });
+  const projectDir = fs.mkdtempSync(path.join(root, 'runtime-blobs-'));
+  const runtimeFiles = {
+    overlayData: 'assets/generated/vn/overlay.bin',
+    visualCodeData: 'assets/generated/vn/visual_code.bin',
+    cdAsyncCodeData: 'assets/generated/vn/cd_async_code.bin',
+    logicOverlayData: 'assets/generated/vn/logic_overlay.bin',
+  };
+  Object.values(runtimeFiles).forEach((relativePath) => {
+    const absolutePath = path.join(projectDir, relativePath);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(absolutePath, Buffer.alloc(8192));
+  });
+
+  const catalog = createVnCdCatalog({
+    assetManager: {
+      readAssetDocument: () => ({ assets: [] }),
+      assetMetaShouldUseCd: () => false,
+      ASSET_META_FILE: 'assets/generated/meta/asset_meta.bin',
+    },
+    compiledSceneCommands: (entry) => entry.commands || [],
+    normalizeAssetId: (value) => String(value || ''),
+    normalizeRelativePath: (value) => String(value || '').replace(/\\/g, '/'),
+    readSceneDocument: () => ({ scenes: [{ id: 'opening', commands: [] }] }),
+    scenePackRelativePath: () => 'assets/generated/vn/scenes/000_opening.bin',
+    enableVisualPayloadCache: true,
+    files: runtimeFiles,
+  });
+
+  assert.deepEqual(catalog.collectCdDataFiles(projectDir), [
+    'assets/generated/vn/overlay.bin',
+    'assets/generated/vn/visual_code.bin',
+    'assets/generated/vn/cd_async_code.bin',
+    'assets/generated/vn/logic_overlay.bin',
+    'assets/generated/vn/scenes/000_opening.bin',
+  ]);
+});

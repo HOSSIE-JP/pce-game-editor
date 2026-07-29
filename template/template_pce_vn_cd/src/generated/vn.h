@@ -1,6 +1,8 @@
 #ifndef PCE_EDITOR_GENERATED_VN_H
 #define PCE_EDITOR_GENERATED_VN_H
 
+#include "assets.h"
+
 #define PCE_VN_SYSTEM_CARD_PROFILE_JP_V3 1u
 
 #define PCE_VN_COMMAND_BACKGROUND 0u
@@ -202,14 +204,16 @@ extern const pce_vn_cd_data_ref_t pce_vn_overlay_data;
 extern const pce_vn_cd_data_ref_t pce_vn_visual_code_data;
 #define PCE_VN_CD_ASYNC_CODE_LOAD_ADDR 32768u
 extern const pce_vn_cd_data_ref_t pce_vn_cd_async_code_data;
+#define PCE_VN_LOGIC_OVERLAY_LOAD_ADDR 32768u
+extern const pce_vn_cd_data_ref_t pce_vn_logic_overlay_data;
 #endif
 void pce_vn_data_map(void);
-extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];
+extern const pce_editor_meta_region_t pce_vn_sprite_animation_meta;
 extern const unsigned int pce_vn_sprite_animation_count;
 extern const signed int pce_vn_variable_initial_values[];
 extern const unsigned char pce_vn_variable_count;
 extern const pce_vn_scene_pack_t pce_vn_scene_packs[];
-extern const pce_vn_system_psg_package_t pce_vn_system_psg_packages[];
+extern const pce_editor_meta_region_t pce_vn_system_psg_meta;
 extern const unsigned int pce_vn_system_psg_package_count;
 extern const unsigned char pce_vn_scene_count;
 extern const unsigned char pce_vn_start_scene;

@@ -192,7 +192,7 @@ test('built-in PCE asset editor suite is scoped to the PC Engine core', () => {
   const pluginManager = loadWithMockedElectron(path.join(__dirname, '..', 'plugin-manager.js'), { userData });
   const pcePlugins = new Map(pluginManager.listPlugins({ coreId: 'pc-engine' }).map((plugin) => [plugin.id, plugin]));
 
-  ['novel-editor', 'pce-asset-manager', 'image-editor', 'sound-editor', 'pce-image-converter', 'pce-audio-converter'].forEach((id) => {
+  ['novel-editor', 'pce-asset-manager', 'image-editor', 'sound-editor', 'pce-image-converter', 'pce-audio-converter', 'pce-kitahe-pm-converter'].forEach((id) => {
     assert.equal(pcePlugins.has(id), true, `${id} should be available for PC Engine`);
     assert.deepEqual(pcePlugins.get(id).supportedCores, ['pc-engine']);
   });
@@ -215,6 +215,12 @@ test('built-in PCE asset editor suite is scoped to the PC Engine core', () => {
   assert.equal(pcePlugins.get('sound-editor').tab.label, 'Sound');
   assert.equal(pcePlugins.get('novel-editor').tab.page, 'novel-editor');
   assert.equal(pcePlugins.get('novel-editor').tab.label, 'Novel');
+  const kitaheConverter = pcePlugins.get('pce-kitahe-pm-converter');
+  assert.deepEqual(kitaheConverter.pluginTypes, ['converter']);
+  assert.deepEqual(kitaheConverter.hooks, ['inspectKitahePmSource', 'applyKitahePmConversion']);
+  assert.deepEqual(kitaheConverter.mainApi.capabilities, ['kitahe-pm-script-converter']);
+  assert.deepEqual(kitaheConverter.renderer.capabilities, ['kitahe-pm-script-converter']);
+  assert.equal(kitaheConverter.hasRenderer, true);
 });
 
 test('setEnabledWithDependencies rejects missing dependencies without changing state', () => {

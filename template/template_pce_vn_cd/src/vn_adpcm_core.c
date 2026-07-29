@@ -368,8 +368,8 @@ static void VN_BANKED_CODE stop_adpcm_voice(void)
 }
 
 /* The frame service runs from the roomy bank122 code blob. It can call bank129
-   directly; the locked mouth dispatcher restores bank122 before this function
-   resumes, then vn_cd_async_call_bank122 restores the caller's slot4/MPR6. */
+   directly; the bank124 logic dispatcher restores bank122 exactly before this
+   function resumes, then vn_cd_async_call_bank122 restores caller slot4/MPR6. */
 static void VN_CD_ASYNC_CODE service_adpcm_playback_impl(void)
 {
 #if defined(__PCE_CD__)
@@ -406,7 +406,7 @@ static void VN_CD_ASYNC_CODE service_adpcm_playback_impl(void)
        restore; text completion handles messages without a voice. */
     if (message_voice_mode == VN_MESSAGE_VOICE_ONESHOT)
     {
-        (void)vn_overlay_dispatch_locked(VN_OVERLAY_OP_MESSAGE_MOUTH, 0u, 0u, 1u);
+        update_active_message_mouth(1u);
     }
 #endif
 }

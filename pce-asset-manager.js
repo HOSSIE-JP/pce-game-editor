@@ -16,6 +16,7 @@ const { normalizeRelativePath, resolveUnderRoot } = require('./pce-file-safety')
 const { createPceAssetStore } = require('./pce-asset-store');
 const { decodePngImage, parsePngSize } = require('./pce-png-decoder');
 const adpcmBatchCsv = require('./pce-adpcm-batch-csv');
+const cdPayloadPack = require('./pce-cd-payload-pack');
 
 const ASSET_FILE = path.join('assets', 'pce-assets.json');
 const PCE_INTERNAL_IMAGE_CONVERTER = 'Internal PCE image converter';
@@ -40,7 +41,11 @@ const CD_DATA_POSTGAP_SECTORS = 150;
 const CDDA_SECTORS_PER_SECOND = 75;
 const CDDA_PLAYBACK_GUARD_FRAMES = 2;
 const CD_MSF_LEAD_IN_SECTORS = 150;
-const PCE_CATALOG_MAX_ASSETS_PER_TYPE = 512;
+const PCE_CATALOG_MAX_BG_ASSETS = 1024;
+const PCE_CATALOG_MAX_SPRITE_ASSETS = 1024;
+const PCE_CATALOG_MAX_ADPCM_ASSETS = 2048;
+const PCE_CATALOG_MAX_PSG_ASSETS = 512;
+const PCE_RESIDENT_MAX_ASSETS_PER_TYPE = 512;
 const PCE_CDDA_MAX_AUDIO_TRACKS = 98; // CD-DA track numbers 2..99.
 const PCE_BG_MAP_WIDTH_TILES = 32;
 const PCE_BG_MAP_HEIGHT_TILES = 32;
@@ -3186,17 +3191,25 @@ function assetMetaShouldUseCd(projectDir, doc, options = {}) {
   return assetMetaDecision(projectDir, doc, options).useCd;
 }
 
-function validateGeneratedAssetScale(projectDir, doc) {
+function validateGeneratedAssetScale(projectDir, doc, options = {}) {
   const layout = computeAssetMetaLayout(doc);
-  const checks = [
-    ['BG', layout.bg.length],
-    ['sprite', layout.sprite.length],
-    ['ADPCM', layout.adpcm.length],
-    ['PSG', layout.psg.length],
-  ];
-  checks.forEach(([label, count]) => {
-    if (count > PCE_CATALOG_MAX_ASSETS_PER_TYPE) {
-      throw new Error(`PCE-CD VN supports up to ${PCE_CATALOG_MAX_ASSETS_PER_TYPE} referenced ${label} assets (got ${count}).`);
+  const cdVnCatalog = assetMetaShouldUseCd(projectDir, doc, options);
+  const checks = cdVnCatalog
+    ? [
+      ['BG', layout.bg.length, PCE_CATALOG_MAX_BG_ASSETS],
+      ['sprite', layout.sprite.length, PCE_CATALOG_MAX_SPRITE_ASSETS],
+      ['ADPCM', layout.adpcm.length, PCE_CATALOG_MAX_ADPCM_ASSETS],
+      ['PSG', layout.psg.length, PCE_CATALOG_MAX_PSG_ASSETS],
+    ]
+    : [
+      ['BG', layout.bg.length, PCE_RESIDENT_MAX_ASSETS_PER_TYPE],
+      ['sprite', layout.sprite.length, PCE_RESIDENT_MAX_ASSETS_PER_TYPE],
+      ['ADPCM', layout.adpcm.length, PCE_RESIDENT_MAX_ASSETS_PER_TYPE],
+      ['PSG', layout.psg.length, PCE_RESIDENT_MAX_ASSETS_PER_TYPE],
+    ];
+  checks.forEach(([label, count, limit]) => {
+    if (count > limit) {
+      throw new Error(`PCE-CD VN supports up to ${limit} referenced ${label} assets (got ${count}).`);
     }
   });
   const tracks = new Map();
@@ -3788,14 +3801,43 @@ function ensureCddaGeneratedAssets(projectDir, doc) {
 
 function buildCdDataLayout(projectDir, dataFiles) {
   const layout = new Map();
+  const physicalPaths = new Set();
   let sector = CD_DATA_BASE_SECTOR;
   (dataFiles || []).forEach((relativePath) => {
     const normalized = normalizeRelativePath(relativePath || '');
-    if (!normalized || layout.has(normalized)) return;
+    if (!normalized || physicalPaths.has(normalized)) return;
+    if (layout.has(normalized)) {
+      throw new Error(`CD payload logical path conflicts with a physical data file: ${normalized}`);
+    }
+    physicalPaths.add(normalized);
     const absPath = path.join(projectDir, normalized);
     const size = fs.existsSync(absPath) ? fs.statSync(absPath).size : 0;
     const sectorCount = Math.max(1, Math.ceil(size / CD_SECTOR_BYTES));
-    layout.set(normalized, { sector, sectorCount });
+    layout.set(normalized, { sector, sectorCount, byteSize: size });
+    if (path.posix.basename(normalized) === 'vn_payload.bin') {
+      const indexRelativePath = normalizeRelativePath(path.join(
+        path.dirname(normalized),
+        'vn_payload-index.json',
+      ));
+      const indexAbsPath = path.join(projectDir, indexRelativePath);
+      if (fs.existsSync(indexAbsPath)) {
+        const index = cdPayloadPack.readCdPayloadPackIndex({
+          packPath: absPath,
+          indexPath: indexAbsPath,
+        });
+        index.entries.forEach((entry) => {
+          if (layout.has(entry.logicalPath)) {
+            throw new Error(`CD payload logical path conflicts with a physical data file: ${entry.logicalPath}`);
+          }
+          layout.set(entry.logicalPath, {
+            sector: sector + entry.sectorOffset,
+            sectorCount: entry.sectorCount,
+            byteSize: entry.byteSize,
+            packedIn: normalized,
+          });
+        });
+      }
+    }
     sector += sectorCount;
   });
   return layout;
@@ -3831,7 +3873,7 @@ function generateAssetSources(projectDir, options = {}) {
     ? selectHuCardSlideshowAssets(projectDir, sourceDoc.assets)
     : null;
   if (slideshow) sourceDoc = { ...sourceDoc, assets: slideshow.assets };
-  validateGeneratedAssetScale(projectDir, sourceDoc);
+  validateGeneratedAssetScale(projectDir, sourceDoc, options);
   ensurePsgPatternFiles(projectDir, sourceDoc, options);
   const assetMetaInfo = assetMetaDecision(projectDir, sourceDoc, options);
   // Reserve the consolidated metadata file at its final size before any CD layout
@@ -4275,6 +4317,11 @@ module.exports = {
   DEFAULT_SPRITE_ANIMATION,
   PCE_IMAGE_MAX_WIDTH,
   PCE_SPRITE_MAX_HEIGHT,
+  PCE_CATALOG_MAX_BG_ASSETS,
+  PCE_CATALOG_MAX_SPRITE_ASSETS,
+  PCE_CATALOG_MAX_ADPCM_ASSETS,
+  PCE_CATALOG_MAX_PSG_ASSETS,
+  PCE_RESIDENT_MAX_ASSETS_PER_TYPE,
   SPRITE_CELL_SIZES,
   SUPPORTED_TYPES,
   buildInternalPceConversionPlan,

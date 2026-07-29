@@ -958,6 +958,75 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(fontCss, /\.pce-font-list/);
 });
 
+test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workflow', () => {
+  const vnRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+  const converterRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-kitahe-pm-converter', 'renderer.js'), 'utf-8');
+  const converterCss = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-kitahe-pm-converter', 'style.css'), 'utf-8');
+
+  assert.match(vnRenderer, /data-action="import-kitahe-pm"[\s\S]*北へ。PM取込/);
+  assert.match(vnRenderer, /api\.capabilities\.get\('kitahe-pm-script-converter'\)/);
+  assert.match(vnRenderer, /api\.capabilities\.require\('kitahe-pm-script-converter', 1500\)/);
+  assert.match(vnRenderer, /openImportModal\(\{[\s\S]*doc: normalizeDoc\(doc, assets\),[\s\S]*assets,[\s\S]*targetMedia/);
+  assert.match(vnRenderer, /targetMedia !== 'cd'/);
+  assert.match(vnRenderer, /doc = normalizeDoc\(result\.doc, assets\)/);
+  const importStart = vnRenderer.indexOf('async function importKitahePmScripts()');
+  const importEnd = vnRenderer.indexOf('async function exportIrodoriBatch()', importStart);
+  const importSource = vnRenderer.slice(importStart, importEnd);
+  assert.match(importSource, /const persisted = await save\(\)/);
+  assert.ok(importSource.indexOf('const persisted = await save()') < importSource.indexOf('converter.openImportModal({'));
+  assert.equal(importSource.indexOf('await save()', importSource.indexOf('doc = normalizeDoc(result.doc, assets)')), -1);
+
+  assert.match(converterRenderer, /registerCapability\(CAPABILITY_NAME, \{ openImportModal \}\)/);
+  assert.match(converterRenderer, /api\.createModal\(/);
+  assert.match(converterRenderer, /properties: \['openDirectory'\]/);
+  assert.match(converterRenderer, /invoke\('inspectKitahePmSource'/);
+  assert.match(converterRenderer, /invoke\('applyKitahePmConversion'/);
+  assert.match(converterRenderer, /selectedScripts: Array\.from\(state\.selectedScripts\)/);
+  assert.match(converterRenderer, /speakers: compactSpeakerMappings\(state\)/);
+  assert.match(converterRenderer, /assets: compactAssetMappings\(state\)/);
+  assert.match(converterRenderer, /speakerMappings: Object\.create\(null\)/);
+  assert.match(converterRenderer, /assetMappings: Object\.create\(null\)/);
+  assert.match(converterRenderer, /const showPreview = async \(\) =>/);
+  assert.match(converterRenderer, /previewConversion: true/);
+  assert.match(converterRenderer, /mapping,\s*previewConversion: true/);
+  assert.match(converterRenderer, /state\.inspection = \{[\s\S]*\.\.\.previousInspection,[\s\S]*\.\.\.preview,[\s\S]*signature: previewSignature/);
+  assert.match(converterRenderer, /state\.previewMode = state\.mode/);
+  assert.match(converterRenderer, /state\.previewSetStartScene = state\.mode === 'replace' \? true : state\.setStartScene/);
+  assert.match(converterRenderer, /const invalidateMappedPreview = \(message = '適用方法を変更したため再プレビューしてください'\) =>/);
+  assert.match(converterRenderer, /state\.previewMode !== state\.mode[\s\S]*state\.previewSetStartScene !== requestedSetStartScene/);
+  assert.match(converterRenderer, /target\.dataset\.kitaheField === 'set-start'[\s\S]*invalidateMappedPreview\(\)/);
+  assert.match(converterRenderer, /target\.name === 'kitahe-mode'[\s\S]*invalidateMappedPreview\(\)/);
+  assert.match(converterRenderer, /data-map-x="\$\{index\}"[\s\S]*min="0" max="\$\{sprite \? 319 : 31\}"/);
+  assert.match(converterRenderer, /data-map-y="\$\{index\}"[\s\S]*min="0" max="\$\{sprite \? 223 : 31\}"/);
+  assert.match(converterRenderer, /modePreviewsHtml\(state\.inspection\?\.modePreviews\)/);
+  assert.match(converterRenderer, /sceneBudgetsHtml\(state\.inspection\?\.sceneBudgets\)/);
+  assert.match(converterRenderer, /budget\.scenePackLimit \?\? budget\.packByteLimit/);
+  assert.match(converterRenderer, /summaryRows\(state\.inspection\?\.totals\)/);
+  assert.match(converterRenderer, /signature: state\.inspection\?\.signature/);
+  assert.match(converterRenderer, /mode: state\.mode/);
+  assert.match(converterRenderer, /confirmWarnings: counts\.warning > 0 && state\.warningConfirmed/);
+  assert.match(converterRenderer, /value="replace"/);
+  assert.match(converterRenderer, /value="append"/);
+  assert.match(converterRenderer, /data-kitahe-field="set-start"/);
+  assert.match(converterRenderer, /maxlength="16"/);
+  assert.match(converterRenderer, /option value="narration"/);
+  assert.match(converterRenderer, /data-map-enabled="\$\{index\}"[\s\S]*\$\{mapped \? 'checked' : ''\}/);
+  assert.match(converterRenderer, /current\.action = target\.checked \? 'map' : 'omit'/);
+  assert.match(converterRenderer, /action: suggestedAssetId \? 'map' : 'omit'/);
+  assert.match(converterRenderer, /suggestedAssetType[\s\S]*=== 'sprite'/);
+  assert.doesNotMatch(converterRenderer, /data-map-action|登録済みアセットへ対応<\/option>|明示的に省略<\/option>/);
+  assert.match(converterRenderer, /preserveBodyScroll[\s\S]*previousBody\.scrollTop[\s\S]*nextBody\.scrollTop = bodyScroll\.top/);
+  assert.match(converterRenderer, /renderModal\(modal, state, \{ preserveBodyScroll: true \}\)/);
+  assert.match(converterRenderer, /requirement\.kind === 'psg'\) return \['psg-song'\]/);
+  assert.doesNotMatch(converterRenderer, /window\.prompt|window\.alert|window\.confirm/);
+  assert.match(converterCss, /\.pce-kitahe-import-panel/);
+  assert.match(converterCss, /\.pce-kitahe-map-card\.is-omitted/);
+  assert.match(converterCss, /\.pce-kitahe-map-toggle input/);
+  assert.match(converterCss, /\.pce-kitahe-diagnostic\[data-level="error"\]/);
+  assert.match(converterCss, /\.pce-kitahe-preview-modes/);
+  assert.match(converterCss, /\.pce-kitahe-budget-table/);
+});
+
 test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page', () => {
   const manifest = readPluginManifest('sound-editor');
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'sound-editor', 'renderer.js'), 'utf-8');

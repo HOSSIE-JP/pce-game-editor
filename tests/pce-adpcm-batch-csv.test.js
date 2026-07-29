@@ -186,15 +186,15 @@ test('ADPCM batch CSV predicts auto parts, rejects oversize error policy, and de
   assert.match(collision.rows[1].errors.join(' '), /long_part01.*衝突/);
 });
 
-test('ADPCM batch CSV warns but permits projected counts above the VN 512-asset limit', () => {
+test('ADPCM batch CSV warns but permits projected counts above the VN 2048-asset limit', () => {
   const dir = makeTempDir('pce-adpcm-csv-limit-');
   writeFile(dir, 'voice.wav', makeWavBuffer());
   const csvPath = writeFile(dir, 'limit.csv', 'source,id\nvoice.wav,new_voice\n');
-  const existing = Array.from({ length: 512 }, (_unused, index) => ({ id: `voice_${index}`, type: 'adpcm' }));
+  const existing = Array.from({ length: 2048 }, (_unused, index) => ({ id: `voice_${index}`, type: 'adpcm' }));
   const inspected = batchCsv.inspectAdpcmBatchCsv(csvPath, existing);
   assert.equal(inspected.summary.validRows, 1);
-  assert.equal(inspected.summary.projectedAdpcmCount, 513);
-  assert.match(inspected.warnings.join(' '), /512件/);
+  assert.equal(inspected.summary.projectedAdpcmCount, 2049);
+  assert.match(inspected.warnings.join(' '), /2048件/);
 });
 
 test('ADPCM batch import keeps successes, preserves failed existing sources, overwrites ADPCM, and cleans old parts', async () => {
@@ -373,8 +373,14 @@ test('CD VN dry build catalogs a batch-imported ADPCM referenced by message voic
   assert.equal(result.success, true);
   assert.equal(path.extname(result.commandInfo.cuePath), '.cue');
   assert.equal(result.generated.visualNovel.messageCount, 1);
-  assert.ok(result.commandInfo.mkcdArgs.some((entry) => /assets[\\/]generated[\\/]batch_voice[\\/]adpcm\.bin$/.test(entry)));
-  assert.ok(result.commandInfo.mkcdArgs.some((entry) => /assets[\\/]generated[\\/]meta[\\/]asset_meta\.bin$/.test(entry)));
+  assert.ok(result.commandInfo.mkcdArgs.some((entry) => /assets[\\/]generated[\\/]vn[\\/]vn_payload\.bin$/.test(entry)));
+  assert.ok(!result.commandInfo.mkcdArgs.some((entry) => /assets[\\/]generated[\\/]batch_voice[\\/]adpcm\.bin$/.test(entry)));
+  const payloadIndex = JSON.parse(fs.readFileSync(
+    path.join(projectDir, 'assets', 'generated', 'vn', 'vn_payload-index.json'),
+    'utf8',
+  ));
+  assert.ok(payloadIndex.entries.some((entry) => entry.logicalPath === 'assets/generated/batch_voice/adpcm.bin'));
+  assert.ok(payloadIndex.entries.some((entry) => entry.logicalPath === 'assets/generated/meta/asset_meta.bin'));
   assert.ok(fs.statSync(catalogPath).size > 0);
 });
 
@@ -424,6 +430,12 @@ test('Irodori export to ADPCM CSV import and manifest assignment completes a CD 
   });
   assert.equal(result.success, true);
   assert.equal(result.generated.visualNovel.messageCount, 1);
-  assert.ok(result.commandInfo.mkcdArgs.some((entry) => /assets[\\/]generated[\\/]voice_0001[\\/]adpcm\.bin$/.test(entry)));
-  assert.ok(result.commandInfo.mkcdArgs.some((entry) => /assets[\\/]generated[\\/]meta[\\/]asset_meta\.bin$/.test(entry)));
+  assert.ok(result.commandInfo.mkcdArgs.some((entry) => /assets[\\/]generated[\\/]vn[\\/]vn_payload\.bin$/.test(entry)));
+  assert.ok(!result.commandInfo.mkcdArgs.some((entry) => /assets[\\/]generated[\\/]voice_0001[\\/]adpcm\.bin$/.test(entry)));
+  const payloadIndex = JSON.parse(fs.readFileSync(
+    path.join(projectDir, 'assets', 'generated', 'vn', 'vn_payload-index.json'),
+    'utf8',
+  ));
+  assert.ok(payloadIndex.entries.some((entry) => entry.logicalPath === 'assets/generated/voice_0001/adpcm.bin'));
+  assert.ok(payloadIndex.entries.some((entry) => entry.logicalPath === 'assets/generated/meta/asset_meta.bin'));
 });

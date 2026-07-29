@@ -18,6 +18,10 @@
 PCE_RAM_BANK_AT(128, 2);
 PCE_RAM_BANK_AT(129, 3);
 PCE_RAM_BANK_AT(130, 4);
+/* bank124 = pure VN logic overlay. Like bank121/122/133 it time-shares MPR4,
+   but it never calls code in another slot-4 bank. Its full 8 KB image is loaded
+   from CD at boot and entered only through vn_logic_overlay_dispatch(). */
+PCE_RAM_BANK_AT(124, 4);
 /* bank123 = active scene pack. It is mapped into MPR6 only for bounded
    offset/count reads and never exposed as a long-lived raw pointer. */
 PCE_RAM_BANK_AT(123, 6);
@@ -39,9 +43,10 @@ PCE_RAM_BANK_AT(135, 6);
 #if VN_ENABLE_VISUAL_PAYLOAD_CACHE
 PCE_RAM_BANK_AT(121, 4);
 #endif
-/* bank122 = experimental direct CD/SCSI helper code, time-shared with bank130,
-   bank121, and bank133 in MPR slot 4. Keeping it separate prevents the async
-   loader from consuming the already-tight visual helper and overlay banks. */
+/* bank122 = async CD/SCSI and sprite catalog/layout/upload helper code,
+   time-shared with bank130, bank121, bank124, and bank133 in MPR slot 4.
+   Keeping it separate prevents these bounded data/VDC operations from consuming
+   the resident, visual, render-overlay, and logic-overlay banks. */
 PCE_RAM_BANK_AT(122, 4);
 PCE_CDB_USE_PSG_DRIVER(1);
 PCE_CDB_USE_GRAPHICS_DRIVER(0);
@@ -49,6 +54,17 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 
 #include "generated/assets.h"
 #include "generated/vn.h"
+
+/* Every executable slot-4 blob is described uniformly. The descriptor itself
+   stays resident; source_ref points at generated metadata in bank132 and is
+   snapshotted before the target bank replaces MPR4. */
+typedef struct {
+    const pce_vn_cd_data_ref_t *source_ref;
+    uint16_t load_addr;
+    uint8_t target_bank;
+    uint8_t reserved_sectors;
+    uint8_t *loaded_flag;
+} vn_slot4_blob_descriptor_t;
 
 /* Generated VN headers reserve these exact slots. Defaults keep the template's
    standalone/maximal-runtime compile probes buildable before regeneration. */
@@ -96,6 +112,10 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 /* Max positional cells per sprite sheet whose cell_map we cache (1 byte/cell).
    Keep this in sync with the generator cap in pce-asset-manager.js. */
 #define VN_META_CELL_MAP_MAX 256u
+#define VN_SPRITE_ANIM_META_SLOT_BYTES 256u
+#define VN_SPRITE_ANIM_META_PER_SECTOR 8u
+#define VN_SPRITE_ANIM_META_DELAYS_OFFSET 12u
+#define VN_SPRITE_ANIM_MAX_FRAMES 64u
 #ifndef PCE_VN_SPRITE_PATTERN_BASE
 #define PCE_VN_SPRITE_PATTERN_BASE 704u
 #endif
@@ -214,6 +234,11 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 /* Sprite move state updates; these only touch the shared slot records. */
 #define VN_CD_ASYNC_OP_CANCEL_SPRITE_MOVE 96u
 #define VN_CD_ASYNC_OP_CANCEL_ALL_SPRITE_MOVES 104u
+/* Metadata decode and the sprite upload planner are large but operate safely
+   in bank122. Their resident wrappers pass scalar args through shared state. */
+#define VN_CD_ASYNC_OP_GET_SPRITE_ASSET 112u
+#define VN_CD_ASYNC_OP_PLAN_SPRITE_LAYOUT 120u
+#define VN_CD_ASYNC_OP_REFRESH_SPRITE_SLOT 128u
 #ifndef VN_CD_ASYNC_BYTES_PER_FRAME
 #define VN_CD_ASYNC_BYTES_PER_FRAME 256u
 #endif
@@ -227,8 +252,10 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_VISUAL_VRAM_COPY_SLICE_BYTES 16u
 #define VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES VN_CD_SECTOR_BYTES
 #define VN_VISUAL_VRAM_COPY_ACTIVE_SLICE_BYTES() (psg_active ? VN_VISUAL_VRAM_COPY_SLICE_BYTES : VN_VISUAL_VRAM_COPY_FAST_SLICE_BYTES)
+#define VN_OVERLAY_RESERVED_SECTORS 4u
 #define VN_VISUAL_CODE_RESERVED_SECTORS 4u
 #define VN_CD_ASYNC_CODE_RESERVED_SECTORS 4u
+#define VN_LOGIC_OVERLAY_RESERVED_SECTORS 4u
 /* Idle $20F5 owns only the generic VDC user vector. SYNC/VBLANK/full-handler
    bits remain clear; external IRQ is enabled transiently by CD/ADPCM helpers. */
 #define VN_CDB_BIOS_IRQ_MASK_USER ((uint8_t)PCE_CDB_MASK_IRQ_VDC)
@@ -249,7 +276,6 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_VISUAL_CACHE_OP_COPY_REF_TO_VRAM 5u
 #define VN_VISUAL_CACHE_OP_DRAW_SPRITETEXT 6u
 #define VN_VISUAL_CACHE_OP_CLEAR_RUNTIME_CACHE 7u
-#define VN_VISUAL_CACHE_OP_TICK_SPRITE_ANIMATIONS 8u
 #define VN_VISUAL_CACHE_OP_LOAD_SPRITE_PATTERN_CACHE 9u
 #define VN_VISUAL_CACHE_OP_FADE_SCREEN 10u
 #define VN_VISUAL_CACHE_OP_RESTORE_SCREEN_PALETTE 11u
@@ -293,6 +319,8 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #endif
 #define VN_CD_ASYNC_ENTRY_CODE __attribute__((used, retain, noinline, section(".vn_cd_async_code.entry")))
 #define VN_CD_ASYNC_CODE __attribute__((used, retain, noinline, section(".vn_cd_async_code.impl")))
+#define VN_LOGIC_OVERLAY_ENTRY_CODE __attribute__((used, retain, noinline, section(".vn_logic_overlay.entry")))
+#define VN_LOGIC_OVERLAY_CODE __attribute__((used, retain, noinline, section(".vn_logic_overlay.impl")))
 #define VN_RESIDENT_CODE __attribute__((noinline, section(".text")))
 /* Overlay code (Path B Phase B1). Linked in the SAME compilation as the rest of
    the runtime (so zp imaginary registers and resident symbols resolve), but
@@ -316,6 +344,7 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_OVERLAY_ENTRY_CODE __attribute__((used, retain, noinline, section(".vn_overlay.entry")))
 #define VN_MAP_BANK130_FOR_CODE() pce_ram_bank130_map()
 #define VN_MAP_CD_ASYNC_CODE() pce_ram_bank122_map()
+#define VN_MAP_LOGIC_OVERLAY_CODE() pce_ram_bank124_map()
 #if VN_ENABLE_VISUAL_PAYLOAD_CACHE
 #define VN_MAP_VISUAL_CACHE_CODE() pce_ram_bank121_map()
 #else
@@ -330,11 +359,14 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_VISUAL_CACHE_CODE
 #define VN_CD_ASYNC_ENTRY_CODE
 #define VN_CD_ASYNC_CODE
+#define VN_LOGIC_OVERLAY_ENTRY_CODE
+#define VN_LOGIC_OVERLAY_CODE
 #define VN_RESIDENT_CODE
 #define VN_OVERLAY_CODE
 #define VN_OVERLAY_ENTRY_CODE
 #define VN_MAP_BANK130_FOR_CODE() ((void)0)
 #define VN_MAP_CD_ASYNC_CODE() ((void)0)
+#define VN_MAP_LOGIC_OVERLAY_CODE() ((void)0)
 #define VN_MAP_VISUAL_CACHE_CODE() ((void)0)
 #endif
 
@@ -349,40 +381,51 @@ PCE_CDB_USE_GRAPHICS_DRIVER(0);
 #define VN_OVERLAY_OP_PRELOAD_MASKS 5u
 #define VN_OVERLAY_OP_SHOW_SPRITE_SLOT 6u
 #define VN_OVERLAY_OP_REFRESH_SPRITE 7u
-/* Pure scene-pack decoders offloaded to the overlay. a0 = output struct pointer
-   (16-bit), a1 = aux pointer (choice/switch ref, 16-bit), a2 = element index. */
-#define VN_OVERLAY_OP_READ_COMMAND 8u
-#define VN_OVERLAY_OP_READ_MESSAGE 9u
-#define VN_OVERLAY_OP_READ_CHOICE 10u
-#define VN_OVERLAY_OP_READ_CHOICE_OPTION 11u
-#define VN_OVERLAY_OP_READ_SWITCH 12u
-#define VN_OVERLAY_OP_READ_SWITCH_CASE 13u
-/* a2 = sprite slot index. */
-#define VN_OVERLAY_OP_CACHE_SPRITE_ANIM 14u
 /* a0 = signed CD-DA asset index. */
 #define VN_OVERLAY_OP_CDDA_COMMAND 15u
 /* a2 = blank flag. VDC を触る(BAT 書き込み)ので locked dispatch。 */
 #define VN_OVERLAY_OP_MAP_WAIT_CELL 16u
-/* a0 = variable index, a1 = value（共に 16bit signed を uint16 で運ぶ）。純粋(bss 書き込み)。 */
-#define VN_OVERLAY_OP_SET_VARIABLE 17u
-/* a2 = 0 for next-ROW mouth start, 1 for restoring the saved ROW. */
-#define VN_OVERLAY_OP_MESSAGE_MOUTH 18u
+
+/* bank124 pure-logic dispatch ops. Keep values sparse so -Oz cannot lower the
+   entry chain to a jump table in resident .rodata outside the extracted blob.
+   Scene readers use a0 = output pointer, a1 = auxiliary pointer and a2 = index. */
+#define VN_LOGIC_OVERLAY_OP_READ_COMMAND 8u
+#define VN_LOGIC_OVERLAY_OP_READ_MESSAGE 16u
+#define VN_LOGIC_OVERLAY_OP_READ_CHOICE 24u
+#define VN_LOGIC_OVERLAY_OP_READ_CHOICE_OPTION 32u
+#define VN_LOGIC_OVERLAY_OP_READ_SWITCH 40u
+#define VN_LOGIC_OVERLAY_OP_READ_SWITCH_CASE 48u
+/* a0 = prepared animation index, a2 = sprite slot index. */
+#define VN_LOGIC_OVERLAY_OP_CACHE_SPRITE_ANIM 56u
+/* a0/a1 carry signed 16-bit variable index/value. */
+#define VN_LOGIC_OVERLAY_OP_SET_VARIABLE 64u
+/* a2 = 0 for mouth start, 1 for restoring the saved animation. */
+#define VN_LOGIC_OVERLAY_OP_MESSAGE_MOUTH 72u
+#define VN_LOGIC_OVERLAY_OP_TICK_SPRITE_ANIMATIONS 80u
+/* a0 = resident pce_vn_command_t pointer. Any pending jump is returned through
+   vn_control_jump_target and applied only after bank130 is restored. */
+#define VN_LOGIC_OVERLAY_OP_EXECUTE_CONTROL 88u
 #if defined(__PCE_CD__)
 typedef uint8_t (*vn_overlay_entry_fn_t)(uint8_t, uint16_t, uint16_t, uint8_t);
 #define VN_OVERLAY_CALL(op, a0, a1, a2) \
     (((vn_overlay_entry_fn_t)PCE_VN_OVERLAY_LOAD_ADDR)((uint8_t)(op), (uint16_t)(a0), (uint16_t)(a1), (uint8_t)(a2)))
+typedef uint8_t (*vn_logic_overlay_entry_fn_t)(uint8_t, uint16_t, uint16_t, uint8_t);
+#define VN_LOGIC_OVERLAY_CALL(op, a0, a1, a2) \
+    (((vn_logic_overlay_entry_fn_t)PCE_VN_LOGIC_OVERLAY_LOAD_ADDR)((uint8_t)(op), (uint16_t)(a0), (uint16_t)(a1), (uint8_t)(a2)))
 typedef uint8_t (*vn_cd_async_entry_fn_t)(uint8_t);
 #define VN_CD_ASYNC_CALL(op) (((vn_cd_async_entry_fn_t)PCE_VN_CD_ASYNC_CODE_LOAD_ADDR)((uint8_t)(op)))
 #endif
 /* Defined after the slot arrays/sprite frame fn; forward-declared so the non-CD
    dispatcher (which calls it directly) compiles before the definition. */
 static uint8_t VN_OVERLAY_CODE show_character_sprite_frame_slot(uint8_t i);
-static void VN_OVERLAY_CODE cache_sprite_animation_impl(uint8_t slot_index);
-static void VN_OVERLAY_CODE update_active_message_mouth_impl(uint8_t restore);
+static uint8_t VN_LOGIC_OVERLAY_CODE cache_sprite_animation_impl(uint8_t slot_index, uint16_t animation_index);
+static uint8_t VN_LOGIC_OVERLAY_CODE update_active_message_mouth_impl(uint8_t restore);
+static void VN_LOGIC_OVERLAY_CODE tick_sprite_animations_impl(void);
 /* Forward decl: the CD-DA resume helper's dispatcher precedes vn_overlay_dispatch's
    definition (the resume path lives early in the file). */
 static uint8_t VN_BANKED_CODE vn_overlay_dispatch(uint8_t op, uint16_t a0, uint16_t a1, uint8_t a2);
 static uint8_t VN_BANKED_CODE vn_overlay_dispatch_locked(uint8_t op, uint16_t a0, uint16_t a1, uint8_t a2);
+static uint8_t VN_BANKED_CODE vn_logic_overlay_dispatch(uint8_t op, uint16_t a0, uint16_t a1, uint8_t a2);
 
 #ifndef PCE_EDITOR_CD_COMPRESSION_NONE
 #define PCE_EDITOR_CD_COMPRESSION_NONE 0u

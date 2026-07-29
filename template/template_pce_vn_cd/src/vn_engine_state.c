@@ -101,6 +101,7 @@ static uint8_t vn_visual_cache_arg_x __attribute__((section(".bss")));
 static uint8_t vn_visual_cache_arg_y __attribute__((section(".bss")));
 static int16_t vn_visual_cache_arg_sprite_x __attribute__((section(".bss")));
 static const pce_editor_data_ref_t *vn_visual_cache_arg_ref __attribute__((section(".bss")));
+static const pce_editor_sprite_asset_t *vn_sprite_asset_result __attribute__((section(".bss")));
 #endif
 static uint8_t vn_cd_async_code_loaded = 0;
 static uint8_t vn_cd_bus_state = VN_CD_BUS_IDLE;
@@ -116,6 +117,7 @@ static uint16_t vn_cd_async_dest_addr = 0u;
 static uint16_t vn_cd_async_store_remaining = 0u;
 static uint16_t vn_cd_async_wire_remaining = 0u;
 static uint16_t vn_rng_state;
+static uint16_t vn_control_jump_target __attribute__((section(".bss")));
 static uint8_t vn_variable_lo[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
 static uint8_t vn_variable_hi[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
 /* Hot mirrors of the two reserved variables avoid mapping bank130 just to read
@@ -143,6 +145,14 @@ typedef struct
 } vn_sprite_slot_t;
 static vn_sprite_slot_t sprite_slots_storage[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 #define sprite_slots sprite_slots_storage
+static uint16_t sprite_animation_delay_cache[VN_SPRITE_SLOT_COUNT][VN_SPRITE_ANIM_MAX_FRAMES] __attribute__((section(".bss")));
+#if defined(__PCE_CD__)
+/* A resident wrapper fills cd_transfer_scratch, then marks the one animation
+   record that bank124 may consume. The marker prevents a stale meta sector from
+   being applied if validation rejects a request before the CD read. */
+static uint8_t sprite_animation_meta_ready __attribute__((section(".bss")));
+static uint16_t sprite_animation_meta_index __attribute__((section(".bss")));
+#endif
 typedef struct
 {
     uint16_t target_x;
@@ -319,11 +329,12 @@ static void VN_RESIDENT_CODE engine_service_blocking(uint16_t iterations);
 #if defined(__PCE_CD__) && VN_ENABLE_VISUAL_PAYLOAD_CACHE
 static uint8_t VN_VISUAL_CACHE_CODE draw_spritetext_slots_impl(uint8_t satb_index);
 static void VN_VISUAL_CACHE_CODE clear_runtime_cache_impl(uint8_t scope);
-static void VN_VISUAL_CACHE_CODE tick_sprite_animations_impl(void);
+static void VN_LOGIC_OVERLAY_CODE tick_sprite_animations_impl(void);
 static void VN_VISUAL_CACHE_CODE fade_current_screen_to_color_impl(uint16_t target, uint8_t frames);
 static void VN_VISUAL_CACHE_CODE restore_current_screen_palette_impl(void);
 static void VN_VISUAL_CACHE_CODE flash_screen_color_impl(uint16_t color, uint8_t frames);
 static void load_overlay_code(void);
+static void VN_BANKED_CODE load_logic_overlay_code(void);
 static void VN_BANKED_CODE load_visual_cache_code(void);
 static void VN_BANKED_CODE load_cd_async_code(void);
 static uint8_t VN_BANKED_CODE vn_cd_async_call_bank122(uint8_t op);

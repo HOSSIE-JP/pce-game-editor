@@ -2879,6 +2879,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
               <input type="checkbox" data-role="scene-fullscreen-bg" />
               <span>Full BG</span>
             </label>
+            <button class="btn-sm" type="button" data-action="import-kitahe-pm" title="北へ。PhotoMemories の SCR をCD-ROM2 VNシーンへ変換" hidden>北へ。PM取込</button>
             <button class="btn-sm" type="button" data-action="preview" title="シーンをプレビュー再生">▶ プレビュー</button>
             <button class="btn-sm" type="button" data-action="export-godot" title="Godotネイティブ再生用の正規化済みシーンと参照素材をZIPへ出力">Godot出力</button>
             <button class="btn-sm" type="button" data-action="export-irodori" title="全シーンのMessageをIrodori-TTS用の話者別CSVへ出力">音声バッチ出力</button>
@@ -2936,6 +2937,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
   const scriptJsonInput = root.querySelector('[data-role="script-json"]');
   let assets = [];
   let doc = defaultDoc();
+  let targetMedia = '';
   let selectedId = 'opening';
   let selectedCommandIndex = 0;
   let editorMode = 'gui';
@@ -4602,9 +4604,13 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
       const project = projectRead?.ok && projectRead.content ? JSON.parse(projectRead.content) : {};
       const hucard = String(project.targetMedia || '').toLowerCase() === 'hucard'
         || project?.pluginRoles?.builder === 'pce-visual-novel-hucard-builder';
+      targetMedia = hucard ? 'hucard' : 'cd';
+      root.querySelector('[data-action="import-kitahe-pm"]').hidden = hucard;
       vnScenePackLimit = hucard ? VN_HUCARD_SCENE_PACK_LIMIT : VN_CD_SCENE_PACK_LIMIT;
       vnScenePackUsesShiftJis = !hucard;
     } catch (_) {
+      targetMedia = 'cd';
+      root.querySelector('[data-action="import-kitahe-pm"]').hidden = false;
       vnScenePackLimit = VN_CD_SCENE_PACK_LIMIT;
       vnScenePackUsesShiftJis = true;
     }
@@ -4683,6 +4689,61 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
       const error = String(err?.message || err);
       errorEl.textContent = `保存失敗: ${error}`;
       return { ok: false, error };
+    }
+  }
+
+  async function importKitahePmScripts() {
+    const importButton = root.querySelector('[data-action="import-kitahe-pm"]');
+    try {
+      errorEl.textContent = '';
+      if (targetMedia !== 'cd') {
+        const message = '北へ。PM取込は CD-ROM2 VN プロジェクト専用です。';
+        errorEl.textContent = message;
+        logger?.warn?.(message);
+        return;
+      }
+      importButton.disabled = true;
+      const assetResult = await listPceAssets({ force: true });
+      assets = Array.isArray(assetResult?.assets) ? assetResult.assets : assets;
+      const persisted = await save();
+      if (!persisted?.ok) {
+        throw new Error(persisted?.error || '取込前のシーンを保存できませんでした');
+      }
+      const converter = api.capabilities.get('kitahe-pm-script-converter')
+        || await api.capabilities.require('kitahe-pm-script-converter', 1500);
+      if (!converter?.openImportModal) {
+        throw new Error('北へ。PhotoMemories コンバータープラグインが無効または未インストールです');
+      }
+      const result = await converter.openImportModal({
+        doc: normalizeDoc(doc, assets),
+        assets,
+        targetMedia,
+      });
+      if (result?.canceled) return;
+      if (!result?.ok) throw new Error(result?.error || '変換結果を取得できませんでした');
+      if (!result.doc || !Array.isArray(result.doc.scenes)) {
+        throw new Error('変換結果に VN scene document がありません');
+      }
+
+      doc = normalizeDoc(result.doc, assets);
+      editorMode = 'gui';
+      selectedId = (result.importedSceneIds || []).find((id) => doc.scenes.some((item) => item.id === id))
+        || (doc.scenes.some((item) => item.id === result.startScene) ? result.startScene : '')
+        || doc.startScene
+        || doc.scenes[0]?.id
+        || 'opening';
+      selectedCommandIndex = 0;
+      render();
+      const count = Array.isArray(result.importedSceneIds) ? result.importedSceneIds.length : 0;
+      const message = `北へ。PM取込を適用しました: ${count} scene`;
+      errorEl.textContent = message;
+      logger?.info?.(message);
+    } catch (error) {
+      const message = `北へ。PM取込失敗: ${error?.message || error}`;
+      errorEl.textContent = message;
+      logger?.error?.(message);
+    } finally {
+      importButton.disabled = false;
     }
   }
 
@@ -5434,6 +5495,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
 
   root.querySelector('[data-action="reload"]').addEventListener('click', () => { void load({ force: true }); });
   root.querySelector('[data-action="save"]').addEventListener('click', save);
+  root.querySelector('[data-action="import-kitahe-pm"]').addEventListener('click', () => { void importKitahePmScripts(); });
   root.querySelector('[data-action="preview"]').addEventListener('click', () => { void openScenePreview(); });
   root.querySelector('[data-action="export-godot"]').addEventListener('click', () => { void exportGodotPackage(); });
   root.querySelector('[data-action="export-irodori"]').addEventListener('click', () => { void exportIrodoriBatch(); });

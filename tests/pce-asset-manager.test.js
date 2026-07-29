@@ -2507,9 +2507,83 @@ test('PCE asset catalog leaves PSG to System Card packages and streams CD-DA met
   assert.equal(meta[cddaBase + 2], 194); // CD-DA audio starts at sector 450.
 });
 
-test('PCE asset catalog accepts 512 BG/sprite/ADPCM/PSG assets and rejects 513', () => {
+test('PCE CD data layout resolves logical payload paths through vn_payload index', () => {
   const assetManager = loadAssetManager();
-  const projectDir = makeTempDir('pce-assets-catalog-512-');
+  const { writeCdPayloadPack } = require('../pce-cd-payload-pack');
+  const projectDir = makeTempDir('pce-assets-packed-layout-');
+  writeFile(projectDir, 'assets/generated/vn/overlay.bin', Buffer.alloc(2048, 0x11));
+  writeFile(projectDir, 'assets/generated/scene.bin', Buffer.alloc(17, 0x22));
+  writeFile(projectDir, 'assets/generated/voice.bin', Buffer.alloc(2049, 0x33));
+  writeCdPayloadPack({
+    entries: [
+      {
+        logicalPath: 'assets/generated/scene.bin',
+        sourcePath: path.join(projectDir, 'assets/generated/scene.bin'),
+      },
+      {
+        logicalPath: 'assets/generated/voice.bin',
+        sourcePath: path.join(projectDir, 'assets/generated/voice.bin'),
+      },
+    ],
+    packPath: path.join(projectDir, 'assets/generated/vn/vn_payload.bin'),
+    indexPath: path.join(projectDir, 'assets/generated/vn/vn_payload-index.json'),
+  });
+
+  const layout = assetManager.buildCdDataLayout(projectDir, [
+    'assets/generated/vn/overlay.bin',
+    'assets/generated/vn/vn_payload.bin',
+  ]);
+  assert.deepEqual(layout.get('assets/generated/vn/overlay.bin'), {
+    sector: 64,
+    sectorCount: 1,
+    byteSize: 2048,
+  });
+  assert.deepEqual(layout.get('assets/generated/vn/vn_payload.bin'), {
+    sector: 65,
+    sectorCount: 3,
+    byteSize: 6144,
+  });
+  assert.deepEqual(layout.get('assets/generated/scene.bin'), {
+    sector: 65,
+    sectorCount: 1,
+    byteSize: 17,
+    packedIn: 'assets/generated/vn/vn_payload.bin',
+  });
+  assert.deepEqual(layout.get('assets/generated/voice.bin'), {
+    sector: 66,
+    sectorCount: 2,
+    byteSize: 2049,
+    packedIn: 'assets/generated/vn/vn_payload.bin',
+  });
+});
+
+test('PCE CD data layout rejects pack aliases that conflict with later physical files', () => {
+  const assetManager = loadAssetManager();
+  const { writeCdPayloadPack } = require('../pce-cd-payload-pack');
+  const projectDir = makeTempDir('pce-assets-packed-layout-conflict-');
+  const logicalPath = 'assets/generated/shared.bin';
+  writeFile(projectDir, logicalPath, Buffer.from('shared'));
+  writeCdPayloadPack({
+    entries: [{
+      logicalPath,
+      sourcePath: path.join(projectDir, logicalPath),
+    }],
+    packPath: path.join(projectDir, 'assets/generated/vn/vn_payload.bin'),
+    indexPath: path.join(projectDir, 'assets/generated/vn/vn_payload-index.json'),
+  });
+
+  assert.throws(
+    () => assetManager.buildCdDataLayout(projectDir, [
+      'assets/generated/vn/vn_payload.bin',
+      logicalPath,
+    ]),
+    /CD payload logical path conflicts with a physical data file: assets\/generated\/shared\.bin/,
+  );
+});
+
+test('PCE CD VN asset catalog enforces per-type large-project limits', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-catalog-large-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
   writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({ scenes: [{ id: 's0', commands: [] }] }, null, 2));
   writeFile(projectDir, 'assets/generated/bg/palette.bin', Buffer.alloc(32, 0x01));
@@ -2553,25 +2627,30 @@ test('PCE asset catalog accepts 512 BG/sprite/ADPCM/PSG assets and rejects 513',
     type: 'psg-sfx',
     options: { pattern: [] },
   });
-  const assets512 = [
-    ...Array.from({ length: 512 }, (_unused, index) => makeBgAsset(index)),
-    ...Array.from({ length: 512 }, (_unused, index) => makeSpriteAsset(index)),
-    ...Array.from({ length: 512 }, (_unused, index) => makeAdpcmAsset(index)),
+  assert.equal(assetManager.PCE_CATALOG_MAX_BG_ASSETS, 1024);
+  assert.equal(assetManager.PCE_CATALOG_MAX_SPRITE_ASSETS, 1024);
+  assert.equal(assetManager.PCE_CATALOG_MAX_ADPCM_ASSETS, 2048);
+  assert.equal(assetManager.PCE_CATALOG_MAX_PSG_ASSETS, 512);
+
+  const assetsAtLimits = [
+    ...Array.from({ length: 1024 }, (_unused, index) => makeBgAsset(index)),
+    ...Array.from({ length: 1024 }, (_unused, index) => makeSpriteAsset(index)),
+    ...Array.from({ length: 2048 }, (_unused, index) => makeAdpcmAsset(index)),
     ...Array.from({ length: 512 }, (_unused, index) => makePsgAsset(index)),
   ];
-  assetManager.writeAssetDocument(projectDir, { version: 2, assets: assets512 });
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: assetsAtLimits });
   const generated = assetManager.generateAssetSources(projectDir);
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
   const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
-  assert.equal(generated.bgCount, 512);
-  assert.equal(generated.spriteCount, 512);
-  assert.equal(generated.adpcmCount, 512);
+  assert.equal(generated.bgCount, 1024);
+  assert.equal(generated.spriteCount, 1024);
+  assert.equal(generated.adpcmCount, 2048);
   assert.equal(generated.psgCount, 0);
   assert.equal(generated.assetCatalogMode, 'cd');
   // Validation still counts source PSG assets, but CD asset metadata emits none;
   // pce-vn-manager compiles only referenced variants into System Card packages.
-  assert.deepEqual(generated.assetCatalogCounts, { bg: 512, sprite: 512, adpcm: 512, psg: 512, cdda: 0 });
-  assert.equal(meta.length, (32 + 128 + 8) * 2048);
+  assert.deepEqual(generated.assetCatalogCounts, { bg: 1024, sprite: 1024, adpcm: 2048, psg: 512, cdda: 0 });
+  assert.equal(meta.length, (64 + 256 + 32) * 2048);
   assert.deepEqual(assetManager.collectCdDataFiles(projectDir), [
     'assets/generated/bg/tiles.bin',
     'assets/generated/bg/map_vram.bin',
@@ -2579,31 +2658,47 @@ test('PCE asset catalog accepts 512 BG/sprite/ADPCM/PSG assets and rejects 513',
     'assets/generated/voice/adpcm.bin',
     'assets/generated/meta/asset_meta.bin',
   ]);
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 68u, 0u, 0u \}, 512u \};/);
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 100u, 0u, 0u \}, 512u \};/);
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 228u, 0u, 0u \}, 512u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 68u, 0u, 0u \}, 1024u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 132u, 0u, 0u \}, 1024u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 132u, 1u, 0u \}, 2048u \};/);
   assert.doesNotMatch(source, /pce_editor_psg_meta|pce_editor_psg_asset_count/);
   assert.doesNotMatch(source, /const pce_editor_bg_asset_t pce_editor_bg_assets\[\]/);
   assert.doesNotMatch(source, /const pce_editor_sprite_asset_t pce_editor_sprite_assets\[\]/);
   assert.doesNotMatch(source, /const pce_editor_adpcm_asset_t pce_editor_adpcm_assets\[\]/);
   assert.doesNotMatch(source, /const pce_editor_psg_asset_t pce_editor_psg_assets\[\]/);
 
-  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 513 }, (_unused, index) => makeBgAsset(index)) });
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 1025 }, (_unused, index) => makeBgAsset(index)) });
   assert.throws(
     () => assetManager.generateAssetSources(projectDir),
-    /supports up to 512 referenced BG assets/,
+    /supports up to 1024 referenced BG assets/,
   );
-  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 513 }, (_unused, index) => makeSpriteAsset(index)) });
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 1025 }, (_unused, index) => makeSpriteAsset(index)) });
   assert.throws(
     () => assetManager.generateAssetSources(projectDir),
-    /supports up to 512 referenced sprite assets/,
+    /supports up to 1024 referenced sprite assets/,
   );
-  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 513 }, (_unused, index) => makeAdpcmAsset(index)) });
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 2049 }, (_unused, index) => makeAdpcmAsset(index)) });
   assert.throws(
     () => assetManager.generateAssetSources(projectDir),
-    /supports up to 512 referenced ADPCM assets/,
+    /supports up to 2048 referenced ADPCM assets/,
   );
   assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 513 }, (_unused, index) => makePsgAsset(index)) });
+  assert.throws(
+    () => assetManager.generateAssetSources(projectDir),
+    /supports up to 512 referenced PSG assets/,
+  );
+});
+
+test('PCE expanded catalog limits do not change the HuCard 512-asset guard', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-hucard-scale-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'hucard', toolchain: 'llvm-mos' }, null, 2));
+  const assets = Array.from({ length: 513 }, (_unused, index) => ({
+    id: `psg_${index}`,
+    type: 'psg-sfx',
+    options: { pattern: [] },
+  }));
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets });
   assert.throws(
     () => assetManager.generateAssetSources(projectDir),
     /supports up to 512 referenced PSG assets/,

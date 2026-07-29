@@ -23,7 +23,7 @@ static void VN_OVERLAY_CODE cdda_command_impl(signed int asset_index)
     {
     uint16_t idx = (uint16_t)asset_index;
     if (idx >= pce_editor_cdda_asset_count) return;
-    vn_read_meta_sector(&pce_editor_cdda_meta.sector, (uint8_t)(idx / VN_META_CDDA_PER_SECTOR));
+    vn_read_meta_sector(&pce_editor_cdda_meta.sector, (uint16_t)(idx / VN_META_CDDA_PER_SECTOR));
     p = &cd_transfer_scratch[(uint16_t)((uint16_t)(idx % VN_META_CDDA_PER_SECTOR) * PCE_EDITOR_META_CDDA_SLOT)];
     track = p[PCE_EDITOR_META_CDDA_TRACK];
     if (track < 2u) return;

@@ -73,6 +73,10 @@ PC Engine の色は各チャンネル3bitの512色マスターパレットから
 
 ChatGPT などでシナリオ、スクリプト JSON、画像・音声アセット案を作る場合は、`docs/pce-vn-chatgpt-authoring-guide.md` の制作ルールとプロンプト例を使ってください。
 
+CD-ROM2 projectでは、スクリプト画面上部の **北へ。PM取込** から「北へ。PhotoMemories」の解析済みSCRをsceneへ変換できます。resource rootを選び、変換対象のSCR、entry、主人公名、`COLOR` tokenごとの話者、到達可能な画像・音声参照の対応先を順に指定します。sourceの拡張子を除いたpathと登録済みPCE asset名が一致する参照は自動選択され、複数画像は `_A` / `_B` など一致しない末尾を除いた共通名で事前結合assetへ照合されます。カード右上のチェックをOFFにするとカードの色が変わり、その参照を明示的に省略します。Mapping設定を変えてもスクロール位置は維持されます。画像の結合・crop・減色、P04/MIDI/GD-DA自体の変換は行いません。HuCARD projectでは利用できません。
+
+変換前の診断には元SCRの相対pathと行番号、未対応演出の省略・近似、scene予算が表示されます。warningは確認後に適用できますが、壊れた分岐、未解決label、未設定mapping、asset型違い、PCEで使えない文字、scene/command/変数/8192-byte pack上限の超過がある場合は適用されません。**置換** は現在のVN settingsを維持して取込entryを開始sceneにし、**追加** は既存開始sceneを既定で維持します。適用前のsceneは `assets/pce-vn-scenes.kitahe-backup.json`、再取込用設定と詳細reportは `assets/kitahe-pm-conversion*.json` へ保存されます。詳しい変換規則と制約は [pce-kitahe-pm-converter.md](pce-kitahe-pm-converter.md) を参照してください。
+
 スクリプト画面上部の **音声バッチ出力** は、全シーンの有効な `Message` を走査し、Irodori-TTS Batch Clientへ読み込める話者別CSVをZIPで保存します。GUI / JSONの未保存編集も出力へ含み、ZIP保存が成功すると、その出力に使った同じscene snapshotを `assets/pce-vn-scenes.json` へ自動保存します。この時点では新しく採番した `voiceAssetId` はMessageへ設定しません。スキップ指定または本文が空のMessageは除外し、話者が空のMessageは `narrator` バッチへ入ります。
 
 ZIPの `batches/speaker_001.csv`、`speaker_002.csv` などは話者ごとに分かれ、ナレーションは `batches/narrator.csv` です。各CSVはUTF-8 BOM付きの `id,text,output_dir` 形式で、`output_dir` は `/output/<話者名>`（ナレーションは `/output/narrator`）になります。`manifest.csv` には各Messageのscene ID、1始まりのcommand index、話者、本文、音声ID、出力WAVパスが記録されます。`output/adpcm-import.csv` は同じ音声IDを共有するMessageを1ジョブへまとめたADPCM一括取込リストで、8000Hz・loopなし・自動分割を既定にします。
@@ -118,11 +122,11 @@ BG / Sprite / ADPCM / PSGなどの読み込みはruntimeがscene入場時と各�
 
 シーン右上の **Full BG** を有効にすると、そのシーンでは 256×224 の全画面背景とhardware spriteを表示できます。背景は 256×224px の BG asset を `x: 0`, `y: 0` に置いてください。`Sprite` / `Sprite Move` / `SpriteText` は使用できますが、前シーンのspriteとSpriteTextは引き継がれないため、Full BGシーン内で表示してください。ビルド時はFull BG上で実際に使うSpriteText fontまたはsprite patternをFull BG tileと重ならない位置へ自動packし、SATBまでに収まらない場合はエラーになります。通常シーンの `BG` コマンドへ切り替わるときは、Full BGをそのコマンドの **Fade out** フレーム数で暗転してから、Full BGが上書きした message / blank 用 VRAMを復元し、新しいBGの転送とFade inを行います。このモードのシーンに `Message` / `Choice` がある場合、または同じ BG asset を通常シーンでも使う場合はビルドエラーになります。
 
-Asset 一覧に未使用の大きな BG / Sprite / Audio が残っていても、VN build の runtime metadata と VRAM 予約は scene から参照される asset だけを対象にします。使っていない素材を置いたままでもビルド予算を消費しません。
+Asset一覧に未使用の大きなBG / Sprite / ADPCM / PSGが残っていても、VN buildのruntime metadataとVRAM予約はsceneから参照されるassetだけを対象にします。CD-DAだけは例外で、CUEの物理track配置を維持するため、未参照でも登録済みの全CD-DA assetをtrack数・連番検査とディスク出力の対象にします。
 
-CD-ROM2 VN buildでは、sceneから参照されるBG / Sprite / ADPCM / PSGは各512件までを標準保証ラインとして扱います。BG / Sprite / ADPCM / CD-DA metadataは`asset_meta.bin`、PSGはSystem Card packageとしてCD data fileへ置くため、asset数に比例するRAM常駐配列を作りません。CD-DA trackは2〜99（最大98本）です。
+CD-ROM2 VN buildでは、同一ビルドから参照できる正式上限をADPCM 2048件、BG 1024件、Sprite 1024件、Sprite Animation合計1024件、System Card PSG package variant 512件、CD-DA 98本（track 2〜99）とします。PSG variantは`assetId`と再生channelの組ごとに1件で、参照PSG source asset自体も512件までです。これはCD容量、1 assetのサイズ、Spriteの同時表示4 slotなどとは別の上限です。CD-DA以外の未参照assetは数えません。BG / Sprite / ADPCM / CD-DA metadata、Sprite Animation metadata、System Card PSG metadata/package、scene pack、BG/Sprite/ADPCM payloadは2048-byte境界で`vn_payload.bin`へ集約し、論理sector aliasで読み込みます。CD-DA音声trackはpack対象外です。詳しい数え方と個別制約は[pce-vn-large-project-limits.md](pce-vn-large-project-limits.md)を参照してください。
 
-CD-ROM2 VNのビルドは、ランタイム常駐bank128/129/130にそれぞれ最低512 bytesの更新余白を予約します。スクリプトや機能追加でこの余白を割る場合は、実際の8KB overflowを待たずに`resident headroom`エラーとして停止します。これは素材数の上限ではなく、エンジンコードの配置退行を早期検出するための安全ゲートです。
+CD-ROM2 VNのビルドは、ランタイム常駐bank128/129/130とbank124 logic overlayにそれぞれ最低1024 bytesの更新余白を予約します。スクリプトや機能追加でこの余白を割る場合は、実際の8KB overflowを待たずにbank名・使用量・空き・必要空きを含むheadroom errorとして停止します。これは素材数の上限ではなく、エンジンコードの配置退行を早期検出するための安全ゲートです。
 
 `Sprite`（立ち絵）コマンドの主なプロパティは次のとおりです。
 
@@ -262,7 +266,7 @@ Super CD-ROM2 / ADPCM を含む project では、Geargrafx などの外部エミ
 ## アセットの登録と整理
 
 - **ADPCM は buffered direct playback 専用です。** Sound > ADPCM には Streaming 指定はありません。ADPCM asset は direct-buffered 安全上限（既定 address では 32767 bytes）以下に収めてください。新規取り込みの標準 sample rate は 8000Hz で、16000Hz の約半分のサイズになり CD 読み込み負荷を抑えます。音質を優先する声だけ Sample rate を 10666Hz や 16000Hz へ上げてください。長いボイスは `splitPolicy: "auto"`、sample rate 低下、または CD-DA 化を検討してください。ADPCM address と divider は通常編集する必要がないため Sound > ADPCM には表示せず、address は既定値、divider は sample rate からの自動値を使います。大量の音声素材は ADPCM asset として管理し、CD-DA は曲や長尺 BGM など少数の物理 track 用に残すのが安全です。
-- **多数の PCM WAV は CSV から一括登録できます。** `Sound > ADPCM > CSV一括` または統合 `Assets > AD CSV` を押し、UTF-8 の CSV を選びます。確認画面には行番号、ID、source、sample rate、予想 part 数、既存 ADPCM の置換対象、警告、エラーが表示されます。エラー行が混ざっていても有効行だけ実行でき、失敗した行の後も処理を続けます。キャンセルは現在処理中の1行を保存した後で残りを止め、それまでの成功を保持します。同じ ID の既存 ADPCM は置換されますが、画像・sprite・PSG・CD-DA など別種 asset は保護され、その行だけエラーになります。512件を超える登録も可能ですが、CD VN から参照できる標準上限は512件なので警告を確認してください。
+- **多数の PCM WAV は CSV から一括登録できます。** `Sound > ADPCM > CSV一括` または統合 `Assets > AD CSV` を押し、UTF-8 の CSV を選びます。確認画面には行番号、ID、source、sample rate、予想 part 数、既存 ADPCM の置換対象、警告、エラーが表示されます。エラー行が混ざっていても有効行だけ実行でき、失敗した行の後も処理を続けます。キャンセルは現在処理中の1行を保存した後で残りを止め、それまでの成功を保持します。同じ ID の既存 ADPCM は置換されますが、画像・sprite・PSG・CD-DA など別種 asset は保護され、その行だけエラーになります。2048件を超える登録も可能ですが、CD VNから同一ビルドで参照できるADPCM上限は2048件です。自動分割されたpartも1件ずつ数えるため、確認画面の警告を確認してください。
 
   ```csv
   source,id,name,sampleRate,loop,splitPolicy

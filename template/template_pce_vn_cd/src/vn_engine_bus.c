@@ -16,16 +16,20 @@ static uint8_t VN_OVERLAY_CODE draw_message_prefix_glyphs(const pce_vn_message_t
 static void VN_OVERLAY_CODE preload_message_glyph_masks(const pce_vn_message_t *message);
 static void VN_OVERLAY_CODE map_message_wait_indicator_cell_impl(uint8_t blank);
 static uint8_t VN_OVERLAY_CODE refresh_scene_sprite_patterns_impl(void);
-static uint8_t VN_OVERLAY_CODE scene_pack_read_command_impl(const vn_scene_pack_cache_t *cache, uint8_t command_index, pce_vn_command_t *command);
-static uint8_t VN_OVERLAY_CODE scene_pack_read_message_impl(const vn_scene_pack_cache_t *cache, uint8_t message_index, pce_vn_message_t *message);
-static uint8_t VN_OVERLAY_CODE scene_pack_read_choice_impl(const vn_scene_pack_cache_t *cache, uint8_t choice_index, vn_choice_ref_t *choice);
-static uint8_t VN_OVERLAY_CODE scene_pack_read_choice_option_impl(const vn_scene_pack_cache_t *cache, const vn_choice_ref_t *choice, uint8_t option_index, pce_vn_choice_option_t *option);
-static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_impl(const vn_scene_pack_cache_t *cache, uint8_t switch_index, vn_switch_ref_t *branch);
-static uint8_t VN_OVERLAY_CODE scene_pack_read_switch_case_impl(const vn_scene_pack_cache_t *cache, const vn_switch_ref_t *branch, uint8_t case_index, pce_vn_switch_case_t *branch_case);
-static void VN_OVERLAY_CODE set_variable_value_impl(signed int variable_index, signed int value);
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_command_impl(const vn_scene_pack_cache_t *cache, uint8_t command_index, pce_vn_command_t *command);
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_message_impl(const vn_scene_pack_cache_t *cache, uint8_t message_index, pce_vn_message_t *message);
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_choice_impl(const vn_scene_pack_cache_t *cache, uint8_t choice_index, vn_choice_ref_t *choice);
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_choice_option_impl(const vn_scene_pack_cache_t *cache, const vn_choice_ref_t *choice, uint8_t option_index, pce_vn_choice_option_t *option);
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_switch_impl(const vn_scene_pack_cache_t *cache, uint8_t switch_index, vn_switch_ref_t *branch);
+static uint8_t VN_LOGIC_OVERLAY_CODE scene_pack_read_switch_case_impl(const vn_scene_pack_cache_t *cache, const vn_switch_ref_t *branch, uint8_t case_index, pce_vn_switch_case_t *branch_case);
+static void VN_LOGIC_OVERLAY_CODE set_variable_value_impl(signed int variable_index, signed int value);
+static uint8_t VN_LOGIC_OVERLAY_CODE execute_control_command_impl(const pce_vn_command_t *command);
 static void VN_OVERLAY_CODE cdda_command_impl(signed int asset_index);
-static void VN_OVERLAY_CODE update_active_message_mouth_impl(uint8_t restore);
+static uint8_t VN_LOGIC_OVERLAY_CODE update_active_message_mouth_impl(uint8_t restore);
 static void VN_CD_ASYNC_CODE service_adpcm_playback_impl(void);
+static const pce_editor_sprite_asset_t *VN_CD_ASYNC_CODE vn_get_sprite_asset_impl(uint16_t idx, uint8_t preferred_slot);
+static uint8_t VN_CD_ASYNC_CODE plan_scene_sprite_layout_impl(void);
+static uint8_t VN_CD_ASYNC_CODE refresh_scene_sprite_slot_upload_impl(uint8_t i, uint8_t satb_index);
 #endif
 /* PHASE_A_SPLIT:END */
 #if defined(__PCE_CD__)
@@ -338,17 +342,17 @@ static void VN_BANKED_CODE cancel_cdda_after_cd_data_conflict(void)
 }
 
 #endif /* PHASE_A_SPLIT */
-/* Shared resident (bank129) dispatcher to the bank133 overlay scene-pack decoders.
-   Pure reads touch no VDC, PSG, or MPR6 banked pattern data, so (like
-   visual_cache_call) no IRQ lock is needed around the slot4 swap; the System Card
-   IRQ handlers run from MPR7, not slot4. */
+/* Shared resident (bank129) dispatcher for non-VDC bank133 work. No IRQ lock is
+   needed, but exact MPR4 restoration is mandatory because CD-DA/runtime service
+   can enter from another slot-4 overlay. */
 static uint8_t VN_BANKED_CODE vn_overlay_dispatch(uint8_t op, uint16_t a0, uint16_t a1, uint8_t a2)
 {
 #if defined(__PCE_CD__)
     uint8_t r;
+    const uint8_t slot4_bank = vn_slot4_current_bank();
     pce_ram_bank133_map();
     r = (uint8_t)VN_OVERLAY_CALL(op, a0, a1, a2);
-    pce_ram_bank130_map();
+    vn_slot4_map_bank(slot4_bank);
     return r;
 #else
     (void)op; (void)a0; (void)a1; (void)a2;
@@ -380,6 +384,28 @@ static uint8_t VN_BANKED_CODE vn_overlay_dispatch_locked(uint8_t op, uint16_t a0
 #endif
 }
 
+/* bank124 contains only state/decoder logic and is safe without a VDC IRQ lock.
+   Both shared mappings are restored exactly: callers may be suspended in
+   bank121/122/130/133, and MPR6 may hold bank123 or a PSG/cache data bank. */
+static uint8_t VN_BANKED_CODE vn_logic_overlay_dispatch(uint8_t op, uint16_t a0, uint16_t a1, uint8_t a2)
+{
+#if defined(__PCE_CD__)
+    uint8_t r;
+    uint8_t restore_mpr6;
+    const uint8_t slot4_bank = vn_slot4_current_bank();
+    __asm__ volatile("tma #$40" : "=a"(restore_mpr6));
+    map_vn_data();
+    pce_ram_bank124_map();
+    r = (uint8_t)VN_LOGIC_OVERLAY_CALL(op, a0, a1, a2);
+    __asm__ volatile("tam #$40" : : "a"(restore_mpr6));
+    vn_slot4_map_bank(slot4_bank);
+    return r;
+#else
+    (void)op; (void)a0; (void)a1; (void)a2;
+    return 0u;
+#endif
+}
+
 #if defined(__PCE_CD__)
 /* Single fixed-address overlay entry. Reached only via VN_OVERLAY_CALL (indirect
    call to the literal PCE_VN_OVERLAY_LOAD_ADDR), so the build carries no
@@ -394,17 +420,27 @@ static uint8_t VN_OVERLAY_ENTRY_CODE vn_overlay_entry(uint8_t op, uint16_t a0, u
     if (o == VN_OVERLAY_OP_PRELOAD_MASKS) { preload_message_glyph_masks((const pce_vn_message_t *)(uintptr_t)a0); return 0u; }
     if (o == VN_OVERLAY_OP_SHOW_SPRITE_SLOT) return show_character_sprite_frame_slot((uint8_t)a1);
     if (o == VN_OVERLAY_OP_REFRESH_SPRITE) return refresh_scene_sprite_patterns_impl();
-    if (o == VN_OVERLAY_OP_READ_COMMAND) return scene_pack_read_command_impl(&active_scene_pack, a2, (pce_vn_command_t *)(uintptr_t)a0);
-    if (o == VN_OVERLAY_OP_READ_MESSAGE) return scene_pack_read_message_impl(&active_scene_pack, a2, (pce_vn_message_t *)(uintptr_t)a0);
-    if (o == VN_OVERLAY_OP_READ_CHOICE) return scene_pack_read_choice_impl(&active_scene_pack, a2, (vn_choice_ref_t *)(uintptr_t)a0);
-    if (o == VN_OVERLAY_OP_READ_CHOICE_OPTION) return scene_pack_read_choice_option_impl(&active_scene_pack, (const vn_choice_ref_t *)(uintptr_t)a1, a2, (pce_vn_choice_option_t *)(uintptr_t)a0);
-    if (o == VN_OVERLAY_OP_READ_SWITCH) return scene_pack_read_switch_impl(&active_scene_pack, a2, (vn_switch_ref_t *)(uintptr_t)a0);
-    if (o == VN_OVERLAY_OP_READ_SWITCH_CASE) return scene_pack_read_switch_case_impl(&active_scene_pack, (const vn_switch_ref_t *)(uintptr_t)a1, a2, (pce_vn_switch_case_t *)(uintptr_t)a0);
-    if (o == VN_OVERLAY_OP_CACHE_SPRITE_ANIM) { cache_sprite_animation_impl(a2); return 0u; }
     if (o == VN_OVERLAY_OP_CDDA_COMMAND) { cdda_command_impl((signed int)(int16_t)a0); return 0u; }
     if (o == VN_OVERLAY_OP_MAP_WAIT_CELL) { map_message_wait_indicator_cell_impl((uint8_t)a2); return 0u; }
-    if (o == VN_OVERLAY_OP_SET_VARIABLE) { set_variable_value_impl((signed int)(int16_t)a0, (signed int)(int16_t)a1); return 0u; }
-    if (o == VN_OVERLAY_OP_MESSAGE_MOUTH) { update_active_message_mouth_impl(a2); return 0u; }
+    return 0u;
+}
+
+/* Single fixed-address bank124 entry. The sparse op values deliberately keep
+   this as an if-chain inside the extracted section (no external jump table). */
+static uint8_t VN_LOGIC_OVERLAY_ENTRY_CODE vn_logic_overlay_entry(uint8_t op, uint16_t a0, uint16_t a1, uint8_t a2)
+{
+    volatile uint8_t o = op;
+    if (o == VN_LOGIC_OVERLAY_OP_READ_COMMAND) return scene_pack_read_command_impl(&active_scene_pack, a2, (pce_vn_command_t *)(uintptr_t)a0);
+    if (o == VN_LOGIC_OVERLAY_OP_READ_MESSAGE) return scene_pack_read_message_impl(&active_scene_pack, a2, (pce_vn_message_t *)(uintptr_t)a0);
+    if (o == VN_LOGIC_OVERLAY_OP_READ_CHOICE) return scene_pack_read_choice_impl(&active_scene_pack, a2, (vn_choice_ref_t *)(uintptr_t)a0);
+    if (o == VN_LOGIC_OVERLAY_OP_READ_CHOICE_OPTION) return scene_pack_read_choice_option_impl(&active_scene_pack, (const vn_choice_ref_t *)(uintptr_t)a1, a2, (pce_vn_choice_option_t *)(uintptr_t)a0);
+    if (o == VN_LOGIC_OVERLAY_OP_READ_SWITCH) return scene_pack_read_switch_impl(&active_scene_pack, a2, (vn_switch_ref_t *)(uintptr_t)a0);
+    if (o == VN_LOGIC_OVERLAY_OP_READ_SWITCH_CASE) return scene_pack_read_switch_case_impl(&active_scene_pack, (const vn_switch_ref_t *)(uintptr_t)a1, a2, (pce_vn_switch_case_t *)(uintptr_t)a0);
+    if (o == VN_LOGIC_OVERLAY_OP_CACHE_SPRITE_ANIM) return cache_sprite_animation_impl(a2, a0);
+    if (o == VN_LOGIC_OVERLAY_OP_SET_VARIABLE) { set_variable_value_impl((signed int)(int16_t)a0, (signed int)(int16_t)a1); return 0u; }
+    if (o == VN_LOGIC_OVERLAY_OP_MESSAGE_MOUTH) return update_active_message_mouth_impl(a2);
+    if (o == VN_LOGIC_OVERLAY_OP_TICK_SPRITE_ANIMATIONS) { tick_sprite_animations_impl(); return 0u; }
+    if (o == VN_LOGIC_OVERLAY_OP_EXECUTE_CONTROL) return execute_control_command_impl((const pce_vn_command_t *)(uintptr_t)a0);
     return 0u;
 }
 #endif
@@ -644,29 +680,85 @@ static uint8_t VN_CD_ASYNC_ENTRY_CODE vn_cd_async_entry(uint8_t op)
         cancel_all_sprite_moves_impl();
         return 1u;
     }
+    if (op == VN_CD_ASYNC_OP_GET_SPRITE_ASSET)
+    {
+        vn_sprite_asset_result = vn_get_sprite_asset_impl(
+            vn_visual_cache_arg_asset, vn_visual_cache_arg_slot);
+        return vn_sprite_asset_result ? 1u : 0u;
+    }
+    if (op == VN_CD_ASYNC_OP_PLAN_SPRITE_LAYOUT)
+    {
+        return plan_scene_sprite_layout_impl();
+    }
+    if (op == VN_CD_ASYNC_OP_REFRESH_SPRITE_SLOT)
+    {
+        return refresh_scene_sprite_slot_upload_impl(
+            vn_visual_cache_arg_slot, vn_visual_cache_arg_x);
+    }
     return vn_cd_async_status;
 }
 
-/* Stream the overlay code blob (pce_vn_overlay_data) from CD into bank133 RAM.
-   bank133 is mapped into slot 4 (0x8000) as the read destination, then bank130
-   (play code) is restored. Mirrors upload_font_tiles' CD-read loop but writes the
-   bytes straight into the slot-4 window instead of via cd_transfer_scratch+VRAM. */
-static void load_overlay_code(void)
+static const vn_slot4_blob_descriptor_t vn_overlay_blob = {
+    &pce_vn_overlay_data,
+    (uint16_t)PCE_VN_OVERLAY_LOAD_ADDR,
+    133u,
+    VN_OVERLAY_RESERVED_SECTORS,
+    (uint8_t *)0
+};
+static const vn_slot4_blob_descriptor_t vn_logic_overlay_blob = {
+    &pce_vn_logic_overlay_data,
+    (uint16_t)PCE_VN_LOGIC_OVERLAY_LOAD_ADDR,
+    124u,
+    VN_LOGIC_OVERLAY_RESERVED_SECTORS,
+    (uint8_t *)0
+};
+static const vn_slot4_blob_descriptor_t vn_visual_cache_blob = {
+    &pce_vn_visual_code_data,
+    (uint16_t)PCE_VN_VISUAL_CODE_LOAD_ADDR,
+    121u,
+    VN_VISUAL_CODE_RESERVED_SECTORS,
+    &vn_visual_cache_code_loaded
+};
+static const vn_slot4_blob_descriptor_t vn_cd_async_blob = {
+    &pce_vn_cd_async_code_data,
+    (uint16_t)PCE_VN_CD_ASYNC_CODE_LOAD_ADDR,
+    122u,
+    VN_CD_ASYNC_CODE_RESERVED_SECTORS,
+    &vn_cd_async_code_loaded
+};
+
+/* Generic executable-blob loader for every bank that time-shares MPR4.
+   Generated metadata is snapshotted while bank132 is visible, and both MPR4
+   and MPR6 are restored exactly so this remains safe for future overlay
+   callers as well as the current boot path. */
+static uint8_t VN_BANKED_CODE vn_load_slot4_blob(const vn_slot4_blob_descriptor_t *descriptor)
 {
-    pce_vn_cd_data_ref_t ovl;
+    pce_vn_cd_data_ref_t ref;
     pce_sector_t sector = {0};
     uint16_t remaining;
-    uint16_t dest = (uint16_t)PCE_VN_OVERLAY_LOAD_ADDR;
+    uint16_t dest;
+    uint8_t restore_mpr6;
+    uint8_t slot4_bank;
+    if (!descriptor || !descriptor->source_ref || !descriptor->reserved_sectors
+        || descriptor->reserved_sectors > 4u) return 0u;
+    if (descriptor->loaded_flag && *descriptor->loaded_flag) return 1u;
+    slot4_bank = vn_slot4_current_bank();
+    __asm__ volatile("tma #$40" : "=a"(restore_mpr6));
     map_vn_data();
-    ovl = pce_vn_overlay_data;
-    map_resident_data();
-    if (!ovl.byte_size || !ovl.sector_count) return;
+    ref = *descriptor->source_ref;
+    remaining = (uint16_t)(descriptor->reserved_sectors * VN_CD_SECTOR_BYTES);
+    dest = descriptor->load_addr;
+    if (ref.byte_size < remaining || ref.sector_count < descriptor->reserved_sectors)
+    {
+        __asm__ volatile("tam #$40" : : "a"(restore_mpr6));
+        vn_slot4_map_bank(slot4_bank);
+        return 0u;
+    }
     prepare_cd_data_access();
-    sector.lo = ovl.sector.lo;
-    sector.md = ovl.sector.md;
-    sector.hi = ovl.sector.hi;
-    remaining = ovl.byte_size;
-    pce_ram_bank133_map();
+    sector.lo = ref.sector.lo;
+    sector.md = ref.sector.md;
+    sector.hi = ref.sector.hi;
+    vn_slot4_map_bank(descriptor->target_bank);
     while (remaining)
     {
         const uint16_t chunk = remaining > VN_CD_RAM_READ_CHUNK_BYTES ? VN_CD_RAM_READ_CHUNK_BYTES : remaining;
@@ -678,29 +770,26 @@ static void load_overlay_code(void)
         while (sectors--) cd_sector_advance(&sector);
     }
     sync_cd_external_irq_after_bios_call();
-    pce_ram_bank130_map();
     resume_cdda_after_cd_data_access();
+    __asm__ volatile("tam #$40" : : "a"(restore_mpr6));
+    vn_slot4_map_bank(slot4_bank);
+    if (descriptor->loaded_flag) *descriptor->loaded_flag = 1u;
+    return 1u;
+}
+
+static void load_overlay_code(void)
+{
+    (void)vn_load_slot4_blob(&vn_overlay_blob);
+}
+
+static void VN_BANKED_CODE load_logic_overlay_code(void)
+{
+    (void)vn_load_slot4_blob(&vn_logic_overlay_blob);
 }
 
 static void VN_BANKED_CODE load_cd_async_code(void)
 {
-    pce_vn_cd_data_ref_t ref;
-    pce_sector_t sector = {0};
-    uint16_t dest = (uint16_t)PCE_VN_CD_ASYNC_CODE_LOAD_ADDR;
-    if (vn_cd_async_code_loaded) return;
-    map_vn_data();
-    ref = pce_vn_cd_async_code_data;
-    prepare_cd_data_access();
-    sector.lo = ref.sector.lo;
-    sector.md = ref.sector.md;
-    sector.hi = ref.sector.hi;
-    pce_ram_bank122_map();
-    (void)pce_cdb_cd_read(sector, PCE_CDB_ADDRESS_BYTES, dest, (uint16_t)(VN_CD_ASYNC_CODE_RESERVED_SECTORS * VN_CD_SECTOR_BYTES));
-    cd_transfer_wait();
-    sync_cd_external_irq_after_bios_call();
-    pce_ram_bank130_map();
-    resume_cdda_after_cd_data_access();
-    vn_cd_async_code_loaded = 1u;
+    (void)vn_load_slot4_blob(&vn_cd_async_blob);
 }
 
 static uint8_t VN_BANKED_CODE vn_cd_async_call_bank122(uint8_t op)

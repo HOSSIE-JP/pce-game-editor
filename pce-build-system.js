@@ -21,7 +21,8 @@ const PCE_CD_SECTOR_BYTES = 2048;
 const PCE_CD_IPL_PROGRAM_SECTORS = 20;
 const PCE_CD_DATA_BASE_SECTOR = 64;
 const PCE_CD_VN_BANK_HEADROOM_WARN_BYTES = 256;
-const PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES = 512;
+const PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES = 1024;
+const PCE_CD_VN_LOGIC_OVERLAY_MIN_FREE_BYTES = 1024;
 const PCE_INCREMENTAL_BUILD_STAMP_VERSION = 1;
 const PCE_INCREMENTAL_BUILD_STAMP_FILE = path.join('out', 'build-stamp.json');
 const PCE_SLIDESHOW_BUILDER_ID = 'pce-slideshow-builder';
@@ -1279,6 +1280,7 @@ function validatePceCdVnLinkMap(mapPath, elfPath) {
   const bankOrigin = (bank, address) => 0x01000000 + (bank * 0x10000) + address;
   const usage = {
     123: maxEndInRange(bankOrigin(123, 0xc000), 0x2000),
+    124: maxEndInRange(bankOrigin(124, 0x8000), 0x2000),
     128: maxEndInRange(bankOrigin(128, 0x4000), 0x2000),
     129: maxEndInRange(bankOrigin(129, 0x6000), 0x2000),
     130: maxEndInRange(bankOrigin(130, 0x8000), 0x2000),
@@ -1290,17 +1292,23 @@ function validatePceCdVnLinkMap(mapPath, elfPath) {
   const bank132DataUsage = usage[132];
   const bank132Tail = sections.find((section) => section.name === '.ram_bank132_tail');
   if (bank132Tail) usage[132] = Math.max(usage[132], ((bank132Tail.vma & 0xffff) - 0xc000) + bank132Tail.size);
-  const headroom = Object.fromEntries([128, 129, 130, 132, 133].map((bank) => [bank, 0x2000 - usage[bank]]));
+  const headroom = Object.fromEntries([124, 128, 129, 130, 132, 133].map((bank) => [bank, 0x2000 - usage[bank]]));
   if (bank132Tail) {
     headroom[132] = Math.max(0, ((bank132Tail.vma & 0xffff) - 0xc000) - bank132DataUsage);
   }
-  [128, 129, 130, 132, 133].forEach((bank) => {
+  [124, 128, 129, 130, 132, 133].forEach((bank) => {
     if (usage[bank] >= 0x2000) errors.push(`bank${bank} usage ${usage[bank]}/8192 must be below 8192`);
   });
-  [128, 129, 130].forEach((bank) => {
-    const free = 0x2000 - usage[bank];
-    if (free < PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES) {
-      errors.push(`bank${bank} resident headroom ${free} bytes is below required ${PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES} bytes`);
+  [
+    { bank: 124, label: 'bank124 (.vn_logic_overlay)', required: PCE_CD_VN_LOGIC_OVERLAY_MIN_FREE_BYTES },
+    { bank: 128, label: 'bank128', required: PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES },
+    { bank: 129, label: 'bank129', required: PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES },
+    { bank: 130, label: 'bank130', required: PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES },
+  ].forEach(({ bank, label, required }) => {
+    const used = usage[bank];
+    const free = 0x2000 - used;
+    if (free < required) {
+      errors.push(`${label} used ${used}/8192, free ${free} bytes, required ${required} bytes free`);
     }
   });
   [123, 134, 135].forEach((bank) => {
@@ -1339,7 +1347,7 @@ function validatePceCdVnLinkMap(mapPath, elfPath) {
 }
 
 function formatPceCdVnLinkGate(report) {
-  const banks = [123, 128, 129, 130, 132, 133, 134, 135]
+  const banks = [123, 124, 128, 129, 130, 132, 133, 134, 135]
     .map((bank) => {
       const gap = bank === 132 && Number.isFinite(report?.headroom?.[132])
         ? ` (data gap ${report.headroom[132]})`
@@ -1350,7 +1358,7 @@ function formatPceCdVnLinkGate(report) {
 }
 
 function formatPceCdVnHeadroomWarning(report) {
-  const lowBanks = [128, 129, 130, 132, 133]
+  const lowBanks = [124, 128, 129, 130, 132, 133]
     .map((bank) => ({
       bank,
       free: Number.isFinite(report?.headroom?.[bank])
@@ -1450,6 +1458,17 @@ function buildProject(onLog, options = {}) {
         ...assetManager.generateAssetSources(projectDir, assetSourceOptions),
         ...generated,
       };
+      if (isCdVisualNovelProject(projectDir, config)
+        && typeof vnManager.refreshCdPayloadPack === 'function') {
+        const payloadPack = vnManager.refreshCdPayloadPack(projectDir);
+        generated.visualNovel = {
+          ...(generated.visualNovel || {}),
+          payloadPackPath: vnManager.VN_CD_PAYLOAD_PACK_FILE,
+          payloadIndexPath: vnManager.VN_CD_PAYLOAD_INDEX_FILE,
+          payloadFileCount: payloadPack.packableFiles.length,
+          payloadByteSize: payloadPack.index.byteSize,
+        };
+      }
       if (visualNovelStampInfo && generated.visualNovel) {
         vnManager.updateVisualNovelBuildStamp(
           projectDir,
@@ -1677,6 +1696,7 @@ module.exports = {
   PCE_CD_VN_CONSOLE_RAM_MIN_FREE,
   PCE_CD_VN_ZP_MAX_END,
   PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES,
+  PCE_CD_VN_LOGIC_OVERLAY_MIN_FREE_BYTES,
   parseMkcdFirstDataSector,
   findLlvmMosLinkerPath,
   formatLlvmMosLinkerPreflightFailure,

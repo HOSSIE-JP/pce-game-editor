@@ -8,6 +8,7 @@ const assetManager = require('./pce-asset-manager');
 const { mergeCurrentCdDataFiles } = require('./pce-vn-cd-data-files');
 const { createVnCdCatalog } = require('./pce-vn-cd-catalog');
 const { createVnScenePackCodec } = require('./pce-vn-scene-pack');
+const cdPayloadPack = require('./pce-cd-payload-pack');
 const systemCardPsg = require('./pce-system-card-psg');
 const systemCardFont = require('./pce-system-card-font');
 
@@ -18,7 +19,7 @@ const VN_FONT_FILE = path.join('assets', 'pce-font.json');
 const VN_FONT_DIR = path.join('assets', 'fonts');
 const FONT_FILE_EXTS = ['.ttf', '.otf', '.ttc'];
 const VN_BUILD_STAMP_FILE = path.join('assets', 'generated', 'vn', 'build-stamp.json');
-const VN_BUILD_STAMP_VERSION = 5;
+const VN_BUILD_STAMP_VERSION = 6;
 const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
 // BG message / choice glyph streams stay byte-oriented so the common case costs
 // one byte per glyph, but a 0xfd escape prefix lets the project-wide font exceed
@@ -149,7 +150,7 @@ const VN_COMPARE_GTE = 5;
 const VN_NO_COMMAND = 0xffff;
 const VN_SPRITE_FRAME_DELAY_MAX = 0xffff;
 const VN_MAX_U8_COUNT = 255;
-const VN_MAX_SPRITE_ANIMATION_COUNT = 512;
+const VN_MAX_SPRITE_ANIMATION_COUNT = 1024;
 const VN_SCENE_FLAG_FULL_SCREEN_BG = 1;
 const VN_SCENE_PACK_DIR = path.join('assets', 'generated', 'vn', 'scenes');
 // HuCard-only message font payload. CD builds obtain glyphs from EX_GETFNT and
@@ -206,6 +207,16 @@ const VN_CD_ASYNC_CODE_VRAM_LOAD_ADDR = 0x8000;
 const VN_CD_ASYNC_CODE_LINK_ADDR = 0x017a8000;
 const VN_CD_ASYNC_CODE_RESERVED_SECTORS = 4;
 const VN_CD_ASYNC_CODE_RESERVED_BYTES = VN_CD_ASYNC_CODE_RESERVED_SECTORS * 2048;
+// Pure scene/command logic helper code. This fourth fixed runtime blob is
+// streamed into bank124 and mapped into slot 4 only while its fixed entry runs.
+// It remains a separate physical CD file so post-link extraction can overwrite
+// the reserved footprint without rebuilding the consolidated payload pack.
+const VN_LOGIC_OVERLAY_DATA_FILE = path.join('assets', 'generated', 'vn', 'logic_overlay.bin');
+const VN_LOGIC_OVERLAY_SECTION = '.vn_logic_overlay';
+const VN_LOGIC_OVERLAY_VRAM_LOAD_ADDR = 0x8000;
+const VN_LOGIC_OVERLAY_LINK_ADDR = 0x017c8000;
+const VN_LOGIC_OVERLAY_RESERVED_SECTORS = 4;
+const VN_LOGIC_OVERLAY_RESERVED_BYTES = VN_LOGIC_OVERLAY_RESERVED_SECTORS * 2048;
 // CPU run-address (MPR slot 6) of the .ram_bank132_tail NOLOAD buffers. bank132
 // (8 KB) holds GROWING resident metadata (cd_data_refs, sprite cell_maps, the
 // scene-pack directory) climbing up from 0xc000, while the large write-before-read
@@ -224,6 +235,15 @@ const VN_BANK132_TAIL_VMA = 0xd078;
 const VN_FONT_SPRITE_DATA_FILE = path.join('assets', 'generated', 'vn', 'font_sprite.bin');
 const VN_HUCARD_PSG_DIR = path.join('assets', 'generated', 'vn', 'psg');
 const VN_SYSTEM_CARD_PSG_DIR = path.join('assets', 'generated', 'vn', 'system-card-psg');
+const VN_SYSTEM_CARD_PSG_META_FILE = path.join('assets', 'generated', 'vn', 'system_psg_meta.bin');
+const VN_SYSTEM_CARD_PSG_META_SLOT_BYTES = 16;
+const VN_SYSTEM_CARD_PSG_META_PER_SECTOR = 128;
+const VN_MAX_SYSTEM_PSG_PACKAGE_COUNT = 512;
+const VN_CD_PAYLOAD_PACK_FILE = path.join('assets', 'generated', 'vn', 'vn_payload.bin');
+const VN_CD_PAYLOAD_INDEX_FILE = path.join('assets', 'generated', 'vn', 'vn_payload-index.json');
+const VN_SPRITE_ANIMATION_META_FILE = path.join('assets', 'generated', 'vn', 'sprite_animation_meta.bin');
+const VN_SPRITE_ANIMATION_META_SLOT_BYTES = 256;
+const VN_SPRITE_ANIMATION_META_PER_SECTOR = 8;
 // VCE sprite palette bank reserved for spritetext glyphs. Lit pixels use color
 // index 15 of this bank; the runtime writes each command's color into that
 // entry at draw time. Keep clear of the sprite asset palette banks (default 1).
@@ -416,6 +436,7 @@ function vnRuntimeSignature(config = {}) {
   return {
     targetMedia,
     manager: readTextHash(__filename),
+    payloadPack: readTextHash(path.join(__dirname, 'pce-cd-payload-pack.js')),
     // Phase A module split: the umbrella (pce_vn_runtime.c) alone no longer
     // changes when a module does, so hash every synced runtime source
     // (umbrella + vn_* modules). main.c keeps its own field for stamp
@@ -460,6 +481,10 @@ function vnGeneratedOutputsReady(projectDir, generated = {}) {
     path.join('src', 'generated', 'vn.h'),
     path.join('src', 'generated', 'vn.c'),
     ...(generated.targetMedia === 'hucard' ? [VN_FONT_DATA_FILE] : []),
+    ...(generated.targetMedia === 'cd' ? [VN_CD_PAYLOAD_PACK_FILE, VN_CD_PAYLOAD_INDEX_FILE] : []),
+    ...(generated.targetMedia === 'cd' && generated.systemPsgMetaPath
+      ? [generatedDataFilePath(generated.systemPsgMetaPath)]
+      : []),
     ...((generated.scenePackPaths || []).map((entry) => generatedDataFilePath(entry)).filter(Boolean)),
     ...((generated.extraDataFiles || []).map((entry) => generatedDataFilePath(entry)).filter(Boolean)),
   ];
@@ -2663,6 +2688,45 @@ function buildSpriteAnimationIndex(assetDoc = { assets: [] }, spriteIndex = new 
   return { index, meta };
 }
 
+function writeSpriteAnimationMetaFile(projectDir, animations = []) {
+  const relativePath = normalizeRelativePath(VN_SPRITE_ANIMATION_META_FILE);
+  const absPath = path.join(projectDir, relativePath);
+  if (!animations.length) {
+    try { if (fs.existsSync(absPath)) fs.unlinkSync(absPath); } catch (_) {}
+    return { relativePath: '', byteSize: 0, sectorCount: 0 };
+  }
+  const bytes = Buffer.alloc(animations.length * VN_SPRITE_ANIMATION_META_SLOT_BYTES);
+  animations.forEach((animation, index) => {
+    const base = index * VN_SPRITE_ANIMATION_META_SLOT_BYTES;
+    const frameCount = clampInt(animation.frameCount, 1, 64, 1);
+    const frameDelay = clampInt(animation.frameDelay, 1, VN_SPRITE_FRAME_DELAY_MAX, 8);
+    const frameDelays = Array.isArray(animation.frameDelays)
+      ? animation.frameDelays.slice(0, frameCount)
+      : [];
+    bytes.writeUInt16LE(clampInt(animation.spriteIndex, 0, 0xffff, 0), base);
+    bytes[base + 2] = clampInt(animation.firstCell, 0, 255, 0);
+    bytes[base + 3] = frameCount;
+    bytes.writeUInt16LE(frameDelay, base + 4);
+    bytes[base + 6] = clampInt(animation.frameWidthCells, 1, 16, 1);
+    bytes[base + 7] = clampInt(animation.frameHeightCells, 1, 16, 1);
+    bytes[base + 8] = clampInt(animation.frameStrideCells, 1, 255, 1);
+    bytes[base + 9] = animation.loop ? 1 : 0;
+    bytes[base + 10] = frameDelays.length ? 1 : 0;
+    frameDelays.forEach((delay, frameIndex) => {
+      bytes.writeUInt16LE(
+        clampInt(delay, 1, VN_SPRITE_FRAME_DELAY_MAX, frameDelay),
+        base + 12 + (frameIndex * 2),
+      );
+    });
+  });
+  writeFileIfChanged(absPath, bytes);
+  return {
+    relativePath,
+    byteSize: bytes.length,
+    sectorCount: Math.ceil(bytes.length / VN_CD_SECTOR_BYTES),
+  };
+}
+
 function collectVariableDefinitions(doc = {}, systemSettings = normalizeVnSystemSettings(doc.settings)) {
   const index = new Map([
     [VN_VARIABLE_AUTO_ENABLE_NAME, VN_VARIABLE_AUTO_ENABLE_INDEX],
@@ -2908,18 +2972,107 @@ function collectSystemCardPsgVariants(doc, assetDoc) {
   return Array.from(variants.values());
 }
 
+function validateSystemCardPsgVariantCount(variants = []) {
+  if (variants.length > VN_MAX_SYSTEM_PSG_PACKAGE_COUNT) {
+    throw new Error(
+      `PCE CD VN supports up to ${VN_MAX_SYSTEM_PSG_PACKAGE_COUNT} compiled System Card PSG package variants `
+      + `(assetId, channel); got ${variants.length}`,
+    );
+  }
+  return variants;
+}
+
+function ensureSystemCardPsgMetaReservation(projectDir, variantCount) {
+  const count = Math.max(0, Math.trunc(Number(variantCount) || 0));
+  validateSystemCardPsgVariantCount({ length: count });
+  const relativePath = normalizeRelativePath(VN_SYSTEM_CARD_PSG_META_FILE);
+  const absPath = path.join(projectDir, relativePath);
+  if (!count) {
+    try { if (fs.existsSync(absPath)) fs.unlinkSync(absPath); } catch (_) {}
+    return { relativePath: '', byteSize: 0, sectorCount: 0, count: 0 };
+  }
+  const byteSize = count * VN_SYSTEM_CARD_PSG_META_SLOT_BYTES;
+  ensureDirSync(path.dirname(absPath));
+  if (!fs.existsSync(absPath) || fs.statSync(absPath).size !== byteSize) {
+    fs.writeFileSync(absPath, Buffer.alloc(byteSize));
+  }
+  return {
+    relativePath,
+    byteSize,
+    sectorCount: Math.ceil(byteSize / VN_CD_SECTOR_BYTES),
+    count,
+  };
+}
+
+function systemCardPsgMetaInfo(variantCount) {
+  const count = Math.max(0, Math.trunc(Number(variantCount) || 0));
+  validateSystemCardPsgVariantCount({ length: count });
+  if (!count) {
+    return { relativePath: '', byteSize: 0, sectorCount: 0, count: 0 };
+  }
+  const byteSize = count * VN_SYSTEM_CARD_PSG_META_SLOT_BYTES;
+  return {
+    relativePath: normalizeRelativePath(VN_SYSTEM_CARD_PSG_META_FILE),
+    byteSize,
+    sectorCount: Math.ceil(byteSize / VN_CD_SECTOR_BYTES),
+    count,
+  };
+}
+
+function writeSystemCardPsgMetaFile(projectDir, variants = [], cdLayout = new Map()) {
+  validateSystemCardPsgVariantCount(variants);
+  const info = ensureSystemCardPsgMetaReservation(projectDir, variants.length);
+  if (!variants.length) return info;
+  if (VN_SYSTEM_CARD_PSG_META_SLOT_BYTES * VN_SYSTEM_CARD_PSG_META_PER_SECTOR !== VN_CD_SECTOR_BYTES) {
+    throw new Error('System Card PSG metadata record geometry must fill one CD sector exactly');
+  }
+  const bytes = Buffer.alloc(info.byteSize);
+  variants.forEach((variant, index) => {
+    const layout = cdLayout.get(variant.relativePath) || {};
+    const sector = Math.max(0, Math.trunc(Number(layout.sector) || 0));
+    const sectorCount = Math.max(
+      1,
+      Math.trunc(Number(layout.sectorCount) || Math.ceil(variant.bytes.length / VN_CD_SECTOR_BYTES)),
+    );
+    const byteSize = variant.bytes.length;
+    if (sector > 0xffffff) {
+      throw new Error(`System Card PSG package sector exceeds 24-bit metadata range: ${variant.relativePath}`);
+    }
+    if (sectorCount > 0xffff || byteSize > 0xffff) {
+      throw new Error(`System Card PSG package exceeds 16-bit metadata range: ${variant.relativePath}`);
+    }
+    const base = index * VN_SYSTEM_CARD_PSG_META_SLOT_BYTES;
+    bytes[base] = sector & 0xff;
+    bytes[base + 1] = (sector >> 8) & 0xff;
+    bytes[base + 2] = (sector >> 16) & 0xff;
+    bytes.writeUInt16LE(sectorCount, base + 3);
+    bytes.writeUInt16LE(byteSize, base + 5);
+    bytes[base + 7] = variant.bus === 'bgm' ? 0 : 1;
+    bytes[base + 8] = clampInt(variant.channel, 0, 5, 0);
+  });
+  writeFileIfChanged(path.join(projectDir, info.relativePath), bytes);
+  return info;
+}
+
+function compileSystemCardPsgPackages(variants) {
+  return variants.map((variant) => {
+    const result = systemCardPsg.compileSystemCardPsgPackage(variant.asset, variant.channel);
+    const relativePath = systemCardPsgPackagePath(variant.asset, variant.channel);
+    return { ...variant, ...result, relativePath };
+  });
+}
+
 function writeSystemCardPsgPackages(projectDir, variants) {
   const dir = path.join(projectDir, VN_SYSTEM_CARD_PSG_DIR);
   ensureDirSync(dir);
   const expected = new Set();
-  const compiled = variants.map((variant) => {
-    const result = systemCardPsg.compileSystemCardPsgPackage(variant.asset, variant.channel);
-    const relativePath = systemCardPsgPackagePath(variant.asset, variant.channel);
+  const compiled = compileSystemCardPsgPackages(variants);
+  compiled.forEach((variant) => {
+    const relativePath = variant.relativePath;
     const absPath = path.join(projectDir, relativePath);
     expected.add(path.resolve(absPath));
     ensureDirSync(path.dirname(absPath));
-    fs.writeFileSync(absPath, result.bytes);
-    return { ...variant, ...result, relativePath };
+    fs.writeFileSync(absPath, variant.bytes);
   });
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith('.bin')) continue;
@@ -2932,17 +3085,41 @@ function writeSystemCardPsgPackages(projectDir, variants) {
 function generateVnSources(projectDir, options = {}) {
   const targetMedia = String(options.targetMedia || options.target || '').trim().toLowerCase();
   const hucardMode = targetMedia === 'hucard';
-  const assetDoc = assetManager.readAssetDocument(projectDir);
-  const doc = writeSceneDocument(projectDir, readSceneDocument(projectDir));
+  const inspectionOnly = options.inspectionOnly === true;
+  if (inspectionOnly && hucardMode) {
+    throw new Error('PCE VN inspectionOnly generation currently supports CD-ROM2 only');
+  }
+  const suppliedAssetDoc = options.assetDocument && typeof options.assetDocument === 'object'
+    ? options.assetDocument
+    : (Array.isArray(options.assets) ? { version: 1, assets: options.assets } : null);
+  const assetDoc = suppliedAssetDoc || assetManager.readAssetDocument(projectDir);
+  const suppliedSceneDocument = options.sceneDocument && typeof options.sceneDocument === 'object'
+    ? options.sceneDocument
+    : (options.doc && typeof options.doc === 'object' ? options.doc : null);
+  const doc = suppliedSceneDocument
+    ? normalizeSceneDocument(suppliedSceneDocument, assetDoc)
+    : (inspectionOnly
+      ? readSceneDocument(projectDir)
+      : writeSceneDocument(projectDir, readSceneDocument(projectDir)));
   const runtimeAssetIds = collectSceneRuntimeAssetIds(doc);
   const runtimeAssetDoc = {
     ...assetDoc,
     assets: (assetDoc.assets || []).filter((asset) => asset?.id && runtimeAssetIds.has(String(asset.id))),
   };
   const visualAssetUsage = collectSceneVisualAssetUsage(doc);
+  const systemPsgVariantSpecs = hucardMode
+    ? []
+    : validateSystemCardPsgVariantCount(collectSystemCardPsgVariants(doc, runtimeAssetDoc));
   const systemPsgVariants = hucardMode
     ? []
-    : writeSystemCardPsgPackages(projectDir, collectSystemCardPsgVariants(doc, runtimeAssetDoc));
+    : (inspectionOnly
+      ? compileSystemCardPsgPackages(systemPsgVariantSpecs)
+      : writeSystemCardPsgPackages(projectDir, systemPsgVariantSpecs));
+  let systemPsgMetaFile = hucardMode
+    ? { relativePath: '', byteSize: 0, sectorCount: 0, count: 0 }
+    : (inspectionOnly
+      ? systemCardPsgMetaInfo(systemPsgVariants.length)
+      : ensureSystemCardPsgMetaReservation(projectDir, systemPsgVariants.length));
   const systemPsgVariantIndex = new Map(systemPsgVariants.map((variant, index) => [variant.key, index]));
   const systemSettings = normalizeVnSystemSettings(doc.settings);
   if ((doc.scenes || []).length > VN_MAX_U8_COUNT) {
@@ -2985,9 +3162,9 @@ function generateVnSources(projectDir, options = {}) {
   const fontTiles = hucardMode ? encodeGlyphMaskData(fontRender.bitmaps) : Buffer.alloc(0);
   const fontDataPath = normalizeRelativePath(VN_FONT_DATA_FILE);
   const fontDataAbsPath = path.join(projectDir, fontDataPath);
-  if (hucardMode) {
+  if (hucardMode && !inspectionOnly) {
     writeFileIfChanged(fontDataAbsPath, fontTiles);
-  } else if (fs.existsSync(fontDataAbsPath)) {
+  } else if (!inspectionOnly && fs.existsSync(fontDataAbsPath)) {
     fs.unlinkSync(fontDataAbsPath);
   }
 
@@ -3016,7 +3193,7 @@ function generateVnSources(projectDir, options = {}) {
   if (hucardMode && spriteTextGlyphs.length) {
     fontSpriteRenderer = combinedFontRender.renderer;
     fontSpriteTiles = encodeGlyphSpriteData(spriteTextGlyphs.map((glyph) => bitmapByGlyph.get(glyph)));
-    writeFileIfChanged(fontSpriteDataAbsPath, fontSpriteTiles);
+    if (!inspectionOnly) writeFileIfChanged(fontSpriteDataAbsPath, fontSpriteTiles);
     // Warn (non-fatal) when the sprite font would collide with sprite asset
     // patterns or run past the SATB. Author controls glyph count, so this is a
     // budget hint rather than a hard error.
@@ -3024,7 +3201,7 @@ function generateVnSources(projectDir, options = {}) {
     if (spriteFontEndWord > 0x7f00) {
       fontSpriteWarnings.push(`スプライトフォント: ${spriteTextGlyphs.length} グリフが VRAM 末尾 (SATB) を超えます。spritetext の文字種を減らしてください。`);
     }
-  } else if (fs.existsSync(fontSpriteDataAbsPath)) {
+  } else if (!inspectionOnly && fs.existsSync(fontSpriteDataAbsPath)) {
     // No spritetext in the project: drop a stale generated file so the CD layout
     // does not keep reserving a sector for it.
     try { fs.unlinkSync(fontSpriteDataAbsPath); } catch (_) {}
@@ -3057,6 +3234,17 @@ function generateVnSources(projectDir, options = {}) {
   if (spriteAnimations.meta.length > VN_MAX_SPRITE_ANIMATION_COUNT) {
     throw new Error(`PCE VN supports up to ${VN_MAX_SPRITE_ANIMATION_COUNT} sprite animations`);
   }
+  const spriteAnimationMetaFile = hucardMode
+    ? { relativePath: '', byteSize: 0, sectorCount: 0 }
+    : (inspectionOnly
+      ? {
+        relativePath: spriteAnimations.meta.length ? normalizeRelativePath(VN_SPRITE_ANIMATION_META_FILE) : '',
+        byteSize: spriteAnimations.meta.length * VN_SPRITE_ANIMATION_META_SLOT_BYTES,
+        sectorCount: Math.ceil(
+          (spriteAnimations.meta.length * VN_SPRITE_ANIMATION_META_SLOT_BYTES) / VN_CD_SECTOR_BYTES,
+        ),
+      }
+      : writeSpriteAnimationMetaFile(projectDir, spriteAnimations.meta));
   const sceneIndex = new Map(doc.scenes.map((scene, index) => [scene.id, index]));
   const variables = collectVariableDefinitions(doc, systemSettings);
   if (variables.initialValues.length > VN_MAX_U8_COUNT) {
@@ -3064,7 +3252,7 @@ function generateVnSources(projectDir, options = {}) {
   }
   const variableIndex = variables.index;
   const generatedDir = path.join(projectDir, 'src', 'generated');
-  ensureDirSync(generatedDir);
+  if (!inspectionOnly) ensureDirSync(generatedDir);
   const sceneBuilds = [];
   let messageCount = 0;
   let choiceCount = 0;
@@ -3696,30 +3884,34 @@ function generateVnSources(projectDir, options = {}) {
       }
     });
     sceneBuild.packBuffer = buildScenePack(sceneBuild, hucardMode);
-    writeScenePack(projectDir, sceneBuild);
+    if (!inspectionOnly) writeScenePack(projectDir, sceneBuild);
     sceneBuilds.push(sceneBuild);
   });
 
-  // CD per-frame delay tables are project-sized generated data, so keep them in
-  // bank132 with the animation records instead of consuming fixed bank128
-  // resident rodata. The CD runtime maps bank132 before animation ticks. HuCARD
-  // keeps the same tables in its generated ROM data.
-  const animationDelayTables = spriteAnimations.meta.map((animation, index) => (
+  // HuCARD keeps animation records in generated ROM data. CD writes fixed
+  // 256-byte records to sprite_animation_meta.bin and caches only the four
+  // currently active animations in console RAM.
+  const animationDelayTables = (hucardMode ? spriteAnimations.meta : []).map((animation, index) => (
     animation.frameDelays && animation.frameDelays.length
       ? `static const unsigned int${hucardMode ? '' : ' PCE_VN_DATA_SECTION'} pce_vn_sprite_anim_delays_${index}[] = { ${animation.frameDelays.map((delay) => `${clampInt(delay, 1, VN_SPRITE_FRAME_DELAY_MAX, animation.frameDelay)}u`).join(', ')} };`
       : ''
   )).filter(Boolean);
-  const animationMeta = spriteAnimations.meta.map((animation, index) => (
+  const animationMeta = (hucardMode ? spriteAnimations.meta : []).map((animation, index) => (
     `  { ${animation.spriteIndex}u, ${animation.firstCell}u, ${animation.frameCount}u, ${animation.frameDelay}u, ${animation.frameWidthCells}u, ${animation.frameHeightCells}u, ${animation.frameStrideCells}u, ${animation.loop ? '1u' : '0u'}, ${animation.frameDelays && animation.frameDelays.length ? `pce_vn_sprite_anim_delays_${index}` : '(const unsigned int *)0'} }${index + 1 < spriteAnimations.meta.length ? ',' : ''}`
   ));
   const hucardPsgAssets = hucardMode
     ? (runtimeAssetDoc.assets || []).filter((asset) => asset.type === 'psg-song' || asset.type === 'psg-sfx')
     : [];
-  const hucardPsgEntries = hucardMode ? writeHuCardPsgPatternFiles(projectDir, hucardPsgAssets) : [];
-  const cdDataFiles = Array.isArray(options.cdDataFiles)
+  const hucardPsgEntries = hucardMode && !inspectionOnly ? writeHuCardPsgPatternFiles(projectDir, hucardPsgAssets) : [];
+  const cdDataFiles = inspectionOnly
+    ? []
+    : (Array.isArray(options.cdDataFiles)
     ? (hucardMode ? [] : options.cdDataFiles.map((entry) => normalizeRelativePath(entry || '')).filter(Boolean))
-    : (hucardMode ? [] : collectCdDataFiles(projectDir));
+      : (hucardMode ? [] : collectCdDataFiles(projectDir)));
   const cdLayout = hucardMode ? new Map() : cdLayoutForFiles(projectDir, cdDataFiles);
+  if (!hucardMode && !inspectionOnly) {
+    systemPsgMetaFile = writeSystemCardPsgMetaFile(projectDir, systemPsgVariants, cdLayout);
+  }
   const fontLayout = cdLayout.get(fontDataPath) || {};
   const fontSectorCount = hucardMode ? (fontLayout.sectorCount || fontBudget.sectorCount) : 0;
   const fontDataInitializer = hucardMode
@@ -3764,6 +3956,23 @@ function generateVnSources(projectDir, options = {}) {
     ? (cdAsyncCodeLayout.sectorCount || Math.max(1, Math.ceil(cdAsyncCodeByteSize / VN_CD_SECTOR_BYTES)))
     : 0;
   const cdAsyncCodeDataInitializer = `{ ${cdSectorInitializer(cdAsyncCodeLayout)}, ${cdAsyncCodeSectorCount}u, ${cdAsyncCodeByteSize}u }`;
+  const logicOverlayDataPath = normalizeRelativePath(VN_LOGIC_OVERLAY_DATA_FILE);
+  const logicOverlayAbsPath = path.join(projectDir, logicOverlayDataPath);
+  const logicOverlayExists = fs.existsSync(logicOverlayAbsPath);
+  const logicOverlayLayout = logicOverlayExists ? (cdLayout.get(logicOverlayDataPath) || {}) : {};
+  const logicOverlayByteSize = logicOverlayExists ? fs.statSync(logicOverlayAbsPath).size : 0;
+  const logicOverlaySectorCount = logicOverlayExists
+    ? (logicOverlayLayout.sectorCount || Math.max(1, Math.ceil(logicOverlayByteSize / VN_CD_SECTOR_BYTES)))
+    : 0;
+  const logicOverlayDataInitializer = `{ ${cdSectorInitializer(logicOverlayLayout)}, ${logicOverlaySectorCount}u, ${logicOverlayByteSize}u }`;
+  const spriteAnimationMetaLayout = spriteAnimationMetaFile.relativePath
+    ? (cdLayout.get(spriteAnimationMetaFile.relativePath) || {})
+    : {};
+  const spriteAnimationMetaInitializer = `{ ${cdSectorInitializer(spriteAnimationMetaLayout)}, ${spriteAnimations.meta.length}u }`;
+  const systemPsgMetaLayout = systemPsgMetaFile.relativePath
+    ? (cdLayout.get(systemPsgMetaFile.relativePath) || {})
+    : {};
+  const systemPsgMetaInitializer = `{ ${cdSectorInitializer(systemPsgMetaLayout)}, ${systemPsgVariants.length}u }`;
   const scenePackMeta = sceneBuilds.map((sceneBuild, index) => {
     if (hucardMode) {
       return `  { &${hucardScenePackRefSymbol(index)}, ${sceneBuild.packBuffer.length}u, ${sceneBuild.nextScene} }${index + 1 < sceneBuilds.length ? ',' : ''}`;
@@ -3771,12 +3980,6 @@ function generateVnSources(projectDir, options = {}) {
     const layout = cdLayout.get(sceneBuild.packPath) || {};
     const sectorCount = layout.sectorCount || Math.max(1, Math.ceil(sceneBuild.packBuffer.length / VN_CD_SECTOR_BYTES));
     return `  { ${cdSectorInitializer(layout)}, ${sectorCount}u, ${sceneBuild.packBuffer.length}u, ${sceneBuild.nextScene} }${index + 1 < sceneBuilds.length ? ',' : ''}`;
-  });
-  const systemPsgMeta = systemPsgVariants.map((variant, index) => {
-    const layout = cdLayout.get(variant.relativePath) || {};
-    const sectorCount = layout.sectorCount || Math.max(1, Math.ceil(variant.bytes.length / VN_CD_SECTOR_BYTES));
-    const bus = variant.bus === 'bgm' ? 0 : 1;
-    return `  { { ${cdSectorInitializer(layout)}, ${sectorCount}u, ${variant.bytes.length}u }, ${bus}u, ${variant.channel}u }${index + 1 < systemPsgVariants.length ? ',' : ''}`;
   });
   const hucardPsgMeta = hucardPsgEntries.map((entry, index) => (
     `  { ${entry.asset.type === 'psg-song' ? '1u' : '0u'}, ${assetManager.firstPsgPeriod ? assetManager.firstPsgPeriod(entry.asset) : '512'}u, ${entry.options.bpm}u, ${entry.options.steps}u, &${entry.symbol}, ${entry.pattern.length}u }${index + 1 < hucardPsgEntries.length ? ',' : ''}`
@@ -3798,7 +4001,8 @@ function generateVnSources(projectDir, options = {}) {
     '#ifndef PCE_EDITOR_GENERATED_VN_H',
     '#define PCE_EDITOR_GENERATED_VN_H',
     '',
-    ...(hucardMode ? ['#include "assets.h"', ''] : []),
+    '#include "assets.h"',
+    '',
     ...(!hucardMode ? ['#define PCE_VN_SYSTEM_CARD_PROFILE_JP_V3 1u', ''] : []),
     `#define PCE_VN_COMMAND_BACKGROUND ${VN_COMMAND_BACKGROUND}u`,
     `#define PCE_VN_COMMAND_SPRITE ${VN_COMMAND_SPRITE}u`,
@@ -4031,17 +4235,26 @@ function generateVnSources(projectDir, options = {}) {
           : []),
         `#define PCE_VN_CD_ASYNC_CODE_LOAD_ADDR ${VN_CD_ASYNC_CODE_VRAM_LOAD_ADDR}u`,
         'extern const pce_vn_cd_data_ref_t pce_vn_cd_async_code_data;',
+        `#define PCE_VN_LOGIC_OVERLAY_LOAD_ADDR ${VN_LOGIC_OVERLAY_VRAM_LOAD_ADDR}u`,
+        'extern const pce_vn_cd_data_ref_t pce_vn_logic_overlay_data;',
         '#endif',
         'void pce_vn_data_map(void);',
       ]),
-    'extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];',
-    'extern const unsigned int pce_vn_sprite_animation_count;',
+    ...(hucardMode
+      ? [
+        'extern const pce_vn_sprite_anim_t pce_vn_sprite_animations[];',
+        'extern const unsigned int pce_vn_sprite_animation_count;',
+      ]
+      : [
+        'extern const pce_editor_meta_region_t pce_vn_sprite_animation_meta;',
+        'extern const unsigned int pce_vn_sprite_animation_count;',
+      ]),
     'extern const signed int pce_vn_variable_initial_values[];',
     'extern const unsigned char pce_vn_variable_count;',
     'extern const pce_vn_scene_pack_t pce_vn_scene_packs[];',
     ...(!hucardMode
       ? [
-        'extern const pce_vn_system_psg_package_t pce_vn_system_psg_packages[];',
+        'extern const pce_editor_meta_region_t pce_vn_system_psg_meta;',
         'extern const unsigned int pce_vn_system_psg_package_count;',
       ]
       : []),
@@ -4110,6 +4323,7 @@ function generateVnSources(projectDir, options = {}) {
       ? [`const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_visual_code_data = ${visualCodeDataInitializer};`]
       : []),
     `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_cd_async_code_data = ${cdAsyncCodeDataInitializer};`,
+    `const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_logic_overlay_data = ${logicOverlayDataInitializer};`,
     '',
     'void pce_vn_data_map(void)',
     '{',
@@ -4118,10 +4332,7 @@ function generateVnSources(projectDir, options = {}) {
     '#endif',
     '}',
     '',
-    ...animationDelayTables,
-    'const pce_vn_sprite_anim_t PCE_VN_DATA_SECTION pce_vn_sprite_animations[] = {',
-    ...(animationMeta.length ? animationMeta : ['  { 0u, 0u, 1u, 8u, 1u, 1u, 1u, 1u, (const unsigned int *)0 }']),
-    '};',
+    `const pce_editor_meta_region_t PCE_VN_DATA_SECTION pce_vn_sprite_animation_meta = ${spriteAnimationMetaInitializer};`,
     `const unsigned int PCE_VN_DATA_SECTION pce_vn_sprite_animation_count = ${spriteAnimations.meta.length};`,
     '',
     'const signed int PCE_VN_DATA_SECTION pce_vn_variable_initial_values[] = {',
@@ -4135,16 +4346,16 @@ function generateVnSources(projectDir, options = {}) {
     ...(scenePackMeta.length ? scenePackMeta : ['  { { 0u, 0u, 0u }, 0u, 0u, -1 }']),
     '};',
     '',
-    'const pce_vn_system_psg_package_t PCE_VN_DATA_SECTION pce_vn_system_psg_packages[] = {',
-    ...(systemPsgMeta.length ? systemPsgMeta : ['  { { { 0u, 0u, 0u }, 0u, 0u }, 0u, 0u }']),
-    '};',
+    `const pce_editor_meta_region_t PCE_VN_DATA_SECTION pce_vn_system_psg_meta = ${systemPsgMetaInitializer};`,
     `const unsigned int PCE_VN_DATA_SECTION pce_vn_system_psg_package_count = ${systemPsgVariants.length}u;`,
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_scene_count = ${doc.scenes.length};`,
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_start_scene = ${startScene}u;`,
     '',
   ];
-  writeFileIfChanged(headerPath, header.join('\n'), 'utf-8');
-  writeFileIfChanged(sourcePath, source.join('\n'), 'utf-8');
+  if (!inspectionOnly) {
+    writeFileIfChanged(headerPath, header.join('\n'), 'utf-8');
+    writeFileIfChanged(sourcePath, source.join('\n'), 'utf-8');
+  }
   return {
     scenePath: getSceneFilePath(projectDir),
     headerPath,
@@ -4156,9 +4367,18 @@ function generateVnSources(projectDir, options = {}) {
     variableCount: variables.initialValues.length,
     commandCount,
     spriteAnimationCount: spriteAnimations.meta.length,
+    spriteAnimationMetaPath: spriteAnimationMetaFile.relativePath,
+    spriteAnimationMetaBytes: spriteAnimationMetaFile.byteSize,
+    systemPsgPackageCount: systemPsgVariants.length,
+    systemPsgMetaPath: systemPsgMetaFile.relativePath,
+    systemPsgMetaBytes: systemPsgMetaFile.byteSize,
     sceneCount: doc.scenes.length,
     scenePackPaths: sceneBuilds.map((sceneBuild) => sceneBuild.packPath),
     scenePackBytes: sceneBuilds.map((sceneBuild) => sceneBuild.packBuffer.length),
+    sceneCommandCounts: sceneBuilds.map((sceneBuild) => sceneBuild.commands.length),
+    sceneMessageCounts: sceneBuilds.map((sceneBuild) => sceneBuild.messages.length),
+    sceneChoiceCounts: sceneBuilds.map((sceneBuild) => sceneBuild.choices.length),
+    sceneSwitchCounts: sceneBuilds.map((sceneBuild) => sceneBuild.switches.length),
     fontRenderer: fontRender.renderer,
     fontPath: fontRender.fontPath,
     fontDataPath: hucardMode ? fontDataPath : '',
@@ -4180,6 +4400,540 @@ function generateVnSources(projectDir, options = {}) {
     extraDataFiles: hucardExtraData,
     hucardPsgAssetCount: hucardPsgEntries.length,
     warnings: [...fontBudget.warnings, ...fontSpriteWarnings],
+  };
+}
+
+const VN_INSPECTION_COMMAND_TYPES = new Set([
+  'background',
+  'sprite',
+  'spritemove',
+  'message',
+  'audio',
+  'inputcheck',
+  'cache',
+  'choice',
+  'variable',
+  'var',
+  'if',
+  'switch',
+  'label',
+  'goto',
+  'jump',
+  'wait',
+  'effect',
+  'spritetext',
+  'comment',
+]);
+
+function inspectionDiagnostic(severity, code, message, details = {}) {
+  return {
+    severity,
+    code,
+    message,
+    ...details,
+  };
+}
+
+function inspectionAssetDocument(value) {
+  if (Array.isArray(value)) return { version: 1, assets: value };
+  if (value && typeof value === 'object' && Array.isArray(value.assets)) return value;
+  return { version: 1, assets: [] };
+}
+
+function validateVnSceneDocumentInput(rawDoc = {}, assetDoc = { assets: [] }) {
+  const diagnostics = [];
+  const raw = rawDoc && typeof rawDoc === 'object' ? rawDoc : {};
+  const scenes = Array.isArray(raw.scenes) ? raw.scenes : [];
+  const assetById = new Map();
+  (assetDoc.assets || []).forEach((asset, assetIndex) => {
+    const assetId = String(asset?.id || '').trim();
+    if (!assetId) return;
+    if (assetById.has(assetId)) {
+      diagnostics.push(inspectionDiagnostic(
+        'error',
+        'duplicate_asset_id',
+        `PCE asset ID "${assetId}" is duplicated`,
+        { assetId, assetIndex },
+      ));
+      return;
+    }
+    assetById.set(assetId, asset);
+  });
+
+  if (scenes.length > VN_MAX_U8_COUNT) {
+    diagnostics.push(inspectionDiagnostic(
+      'error',
+      'scene_limit',
+      `PCE VN supports up to ${VN_MAX_U8_COUNT} scenes; got ${scenes.length}`,
+      { actual: scenes.length, limit: VN_MAX_U8_COUNT },
+    ));
+  }
+
+  const sceneIdByIndex = [];
+  const sceneIds = new Set();
+  scenes.forEach((scene, sceneIndex) => {
+    const rawSceneId = String(scene?.id || '').trim();
+    const sceneId = safeId(rawSceneId, sceneIndex === 0 ? 'opening' : `scene_${sceneIndex + 1}`);
+    sceneIdByIndex.push(sceneId);
+    if (!rawSceneId) {
+      diagnostics.push(inspectionDiagnostic(
+        'error',
+        'missing_scene_id',
+        `Scene ${sceneIndex + 1} has no ID`,
+        { sceneId, sceneIndex },
+      ));
+    }
+    if (sceneIds.has(sceneId)) {
+      diagnostics.push(inspectionDiagnostic(
+        'error',
+        'duplicate_scene_id',
+        `PCE VN scene ID "${sceneId}" is duplicated after normalization`,
+        { sceneId, sceneIndex },
+      ));
+    }
+    sceneIds.add(sceneId);
+  });
+
+  const startScene = normalizeSceneRef(raw.startScene || '');
+  if (startScene && !sceneIds.has(startScene)) {
+    diagnostics.push(inspectionDiagnostic(
+      'error',
+      'unresolved_start_scene',
+      `PCE VN startScene "${startScene}" does not exist`,
+      { targetSceneId: startScene },
+    ));
+  }
+
+  const userVariables = new Set();
+  const addVariable = (value) => {
+    if (value == null || String(value).trim() === '') return;
+    userVariables.add(normalizeVariableName(value));
+  };
+  const checkAsset = (value, expectedTypes, required, location) => {
+    const assetId = String(value || '').trim();
+    if (!assetId) {
+      if (required) {
+        diagnostics.push(inspectionDiagnostic(
+          'error',
+          'missing_asset_reference',
+          `${location.label} requires a PCE asset ID`,
+          location.details,
+        ));
+      }
+      return;
+    }
+    const asset = assetById.get(assetId);
+    if (!asset) {
+      diagnostics.push(inspectionDiagnostic(
+        'error',
+        'unknown_asset_reference',
+        `${location.label} references unknown PCE asset "${assetId}"`,
+        { ...location.details, assetId, expectedTypes },
+      ));
+      return;
+    }
+    if (!expectedTypes.includes(asset.type)) {
+      diagnostics.push(inspectionDiagnostic(
+        'error',
+        'wrong_asset_type',
+        `${location.label} requires ${expectedTypes.join(' or ')}, but "${assetId}" is ${asset.type || '(unknown)'}`,
+        {
+          ...location.details,
+          assetId,
+          expectedTypes,
+          actualType: String(asset.type || ''),
+        },
+      ));
+    }
+  };
+
+  scenes.forEach((scene, sceneIndex) => {
+    const sceneId = sceneIdByIndex[sceneIndex];
+    const commands = Array.isArray(scene?.commands) ? scene.commands : [];
+    const compiledRawCommands = commands.filter((command) => (
+      command
+      && String(command.type || '').trim() !== 'comment'
+      && !isCommandSkipped(command)
+    ));
+    if (compiledRawCommands.length > VN_MAX_U8_COUNT) {
+      diagnostics.push(inspectionDiagnostic(
+        'error',
+        'command_limit',
+        `PCE VN scene "${sceneId}" has ${compiledRawCommands.length} commands; limit is ${VN_MAX_U8_COUNT}`,
+        { sceneId, sceneIndex, actual: compiledRawCommands.length, limit: VN_MAX_U8_COUNT },
+      ));
+    }
+    const labelNames = new Set();
+    commands.forEach((command, commandIndex) => {
+      if (!command || isCommandSkipped(command) || String(command.type || '').trim() !== 'label') return;
+      const name = normalizeLabelName(command.name || command.label || command.id, `label_${commandIndex + 1}`);
+      if (labelNames.has(name)) {
+        diagnostics.push(inspectionDiagnostic(
+          'error',
+          'duplicate_label',
+          `PCE VN scene "${sceneId}" label "${name}" is duplicated`,
+          { sceneId, sceneIndex, commandIndex, commandNumber: commandIndex + 1, label: name },
+        ));
+      }
+      labelNames.add(name);
+    });
+    const nextSceneId = normalizeSceneRef(scene?.nextSceneId || '');
+    if (nextSceneId && !sceneIds.has(nextSceneId)) {
+      diagnostics.push(inspectionDiagnostic(
+        'error',
+        'unresolved_scene',
+        `PCE VN scene "${sceneId}" nextSceneId "${nextSceneId}" does not exist`,
+        { sceneId, sceneIndex, targetSceneId: nextSceneId, field: 'nextSceneId' },
+      ));
+    }
+
+    const checkLabel = (value, commandIndex, field) => {
+      const label = normalizeLabelName(value || '', '');
+      if (label && !labelNames.has(label)) {
+        diagnostics.push(inspectionDiagnostic(
+          'error',
+          'unresolved_label',
+          `PCE VN scene "${sceneId}" command ${commandIndex + 1} references missing label "${label}"`,
+          { sceneId, sceneIndex, commandIndex, commandNumber: commandIndex + 1, field, label },
+        ));
+      }
+    };
+    const checkScene = (value, commandIndex, field) => {
+      const targetSceneId = normalizeSceneRef(value || '');
+      if (targetSceneId && !sceneIds.has(targetSceneId)) {
+        diagnostics.push(inspectionDiagnostic(
+          'error',
+          'unresolved_scene',
+          `PCE VN scene "${sceneId}" command ${commandIndex + 1} references missing scene "${targetSceneId}"`,
+          {
+            sceneId,
+            sceneIndex,
+            commandIndex,
+            commandNumber: commandIndex + 1,
+            field,
+            targetSceneId,
+          },
+        ));
+      }
+    };
+
+    commands.forEach((command, commandIndex) => {
+      if (!command || isCommandSkipped(command)) return;
+      const type = String(command.type || '').trim();
+      const details = { sceneId, sceneIndex, commandIndex, commandNumber: commandIndex + 1 };
+      const location = (label) => ({ label, details });
+      if (!VN_INSPECTION_COMMAND_TYPES.has(type)) {
+        diagnostics.push(inspectionDiagnostic(
+          'error',
+          'unknown_command',
+          `PCE VN scene "${sceneId}" command ${commandIndex + 1} has unsupported type "${type || '(empty)'}"`,
+          details,
+        ));
+        return;
+      }
+      if (type === 'background') {
+        checkAsset(
+          command.assetId || command.backgroundAssetId,
+          ['image'],
+          true,
+          location(`PCE VN scene "${sceneId}" background command ${commandIndex + 1}`),
+        );
+      } else if (type === 'sprite') {
+        const assetId = command.assetId;
+        checkAsset(
+          assetId,
+          ['sprite'],
+          command.visible !== false,
+          location(`PCE VN scene "${sceneId}" sprite command ${commandIndex + 1}`),
+        );
+      } else if (type === 'spritemove') {
+        const animationId = String(command.animationId || '').trim();
+        const animationAssetId = command.animationAssetId || command.assetId;
+        if (animationId && animationAssetId) {
+          checkAsset(
+            animationAssetId,
+            ['sprite'],
+            true,
+            location(`PCE VN scene "${sceneId}" spritemove command ${commandIndex + 1}`),
+          );
+        }
+      } else if (type === 'message') {
+        checkAsset(
+          command.voiceAssetId,
+          ['adpcm'],
+          false,
+          location(`PCE VN scene "${sceneId}" message voice ${commandIndex + 1}`),
+        );
+        if (String(command.speaker || '').trim().length > 16) {
+          diagnostics.push(inspectionDiagnostic(
+            'error',
+            'speaker_length',
+            `PCE VN scene "${sceneId}" command ${commandIndex + 1} speaker exceeds 16 characters`,
+            details,
+          ));
+        }
+        if (String(command.text ?? '').trim().length > 96) {
+          diagnostics.push(inspectionDiagnostic(
+            'error',
+            'message_length',
+            `PCE VN scene "${sceneId}" command ${commandIndex + 1} message exceeds 96 characters before normalization`,
+            details,
+          ));
+        }
+      } else if (type === 'audio') {
+        const action = String(command.action || 'play') === 'stop' ? 'stop' : 'play';
+        if (action === 'play') {
+          const assetId = command.assetId || command.bgmAssetId || command.voiceAssetId;
+          const actualType = assetById.get(String(assetId || '').trim())?.type || '';
+          const explicitKind = String(command.kind || '').trim();
+          const kind = explicitKind
+            || (actualType === 'adpcm'
+              ? 'adpcm'
+              : (actualType === 'psg-song' || actualType === 'psg-sfx' ? 'psg' : 'cdda'));
+          const expectedTypes = kind === 'adpcm'
+            ? ['adpcm']
+            : (kind === 'psg' ? ['psg-song', 'psg-sfx'] : ['cdda-track']);
+          if (explicitKind && explicitKind !== 'adpcm' && explicitKind !== 'psg' && explicitKind !== 'cdda') {
+            diagnostics.push(inspectionDiagnostic(
+              'error',
+              'invalid_audio_kind',
+              `PCE VN scene "${sceneId}" command ${commandIndex + 1} has invalid audio kind "${explicitKind}"`,
+              details,
+            ));
+          }
+          checkAsset(
+            assetId,
+            expectedTypes,
+            true,
+            location(`PCE VN scene "${sceneId}" audio command ${commandIndex + 1}`),
+          );
+        }
+      } else if (type === 'cache' && normalizeCacheAction(command.action) === 'load') {
+        const assetId = command.assetId || command.bgAssetId || command.spriteAssetId || command.voiceAssetId;
+        const scope = normalizeCacheScope(command.scope);
+        const actualType = assetById.get(String(assetId || '').trim())?.type || '';
+        const expectedTypes = scope === 'bg'
+          ? ['image']
+          : (scope === 'sprite'
+            ? ['sprite']
+            : (scope === 'adpcm'
+              ? ['adpcm']
+              : (scope === 'psg'
+                ? ['psg-song', 'psg-sfx']
+                : (actualType === 'sprite'
+                  ? ['sprite']
+                  : ((actualType === 'psg-song' || actualType === 'psg-sfx')
+                    ? ['psg-song', 'psg-sfx']
+                    : ['image'])))));
+        checkAsset(
+          assetId,
+          expectedTypes,
+          true,
+          location(`PCE VN scene "${sceneId}" cache command ${commandIndex + 1}`),
+        );
+      } else if (type === 'choice') {
+        addVariable(command.variableName || command.variable || command.resultVariable);
+        const choices = Array.isArray(command.choices) ? command.choices : [];
+        if (!choices.length) {
+          diagnostics.push(inspectionDiagnostic(
+            'error',
+            'choice_option_min',
+            `PCE VN scene "${sceneId}" command ${commandIndex + 1} has no choices`,
+            { ...details, actual: 0, limit: 1 },
+          ));
+        }
+        if (choices.length > 4) {
+          diagnostics.push(inspectionDiagnostic(
+            'error',
+            'choice_option_limit',
+            `PCE VN scene "${sceneId}" command ${commandIndex + 1} has ${choices.length} choices; limit is 4`,
+            { ...details, actual: choices.length, limit: 4 },
+          ));
+        }
+        choices.forEach((choice, choiceIndex) => {
+          checkScene(
+            choice?.targetSceneId || choice?.sceneId || choice?.nextSceneId || choice?.target,
+            commandIndex,
+            `choices[${choiceIndex}].targetSceneId`,
+          );
+        });
+      } else if (type === 'variable' || type === 'var') {
+        addVariable(command.variableName || command.variable || command.name);
+      } else if (type === 'if') {
+        addVariable(command.variableName || command.variable || command.name);
+        checkLabel(command.targetLabel || command.thenLabel || command.trueLabel || command.label || command.target, commandIndex, 'targetLabel');
+        checkLabel(command.elseLabel || command.falseLabel, commandIndex, 'elseLabel');
+      } else if (type === 'switch') {
+        addVariable(command.variableName || command.variable || command.name);
+        const cases = Array.isArray(command.cases) ? command.cases : [];
+        if (cases.length > 16) {
+          diagnostics.push(inspectionDiagnostic(
+            'error',
+            'switch_case_limit',
+            `PCE VN scene "${sceneId}" command ${commandIndex + 1} has ${cases.length} switch cases; limit is 16`,
+            { ...details, actual: cases.length, limit: 16 },
+          ));
+        }
+        cases.forEach((branch, branchIndex) => {
+          checkLabel(branch?.targetLabel || branch?.label || branch?.target, commandIndex, `cases[${branchIndex}].targetLabel`);
+        });
+        checkLabel(command.defaultLabel || command.elseLabel || command.default, commandIndex, 'defaultLabel');
+      } else if (type === 'goto') {
+        const targetLabel = command.targetLabel || command.label || command.target;
+        if (!String(targetLabel || '').trim()) {
+          diagnostics.push(inspectionDiagnostic(
+            'error',
+            'missing_label',
+            `PCE VN scene "${sceneId}" command ${commandIndex + 1} has no goto target`,
+            details,
+          ));
+        } else {
+          checkLabel(targetLabel, commandIndex, 'targetLabel');
+        }
+      } else if (type === 'inputcheck') {
+        checkLabel(command.targetLabel || command.label || command.target, commandIndex, 'targetLabel');
+      } else if (type === 'jump') {
+        const targetSceneId = command.sceneId || command.targetSceneId || command.nextSceneId;
+        if (!String(targetSceneId || '').trim()) {
+          diagnostics.push(inspectionDiagnostic(
+            'error',
+            'missing_scene',
+            `PCE VN scene "${sceneId}" command ${commandIndex + 1} has no jump target`,
+            details,
+          ));
+        } else {
+          checkScene(targetSceneId, commandIndex, 'sceneId');
+        }
+      }
+    });
+  });
+
+  if (userVariables.size > VN_MAX_U8_COUNT - 2) {
+    diagnostics.push(inspectionDiagnostic(
+      'error',
+      'variable_limit',
+      `PCE VN supports up to ${VN_MAX_U8_COUNT - 2} user variables; got ${userVariables.size}`,
+      { actual: userVariables.size, limit: VN_MAX_U8_COUNT - 2 },
+    ));
+  }
+  return { diagnostics, userVariableCount: userVariables.size };
+}
+
+function inspectionBuildErrorCode(error) {
+  const message = String(error?.message || error || '');
+  if (/scene pack .*8192 bytes|cache size/i.test(message)) return 'scene_pack_limit';
+  if (/up to 255 commands/i.test(message)) return 'command_limit';
+  if (/up to 255 scenes/i.test(message)) return 'scene_limit';
+  if (/up to 255 variables/i.test(message)) return 'variable_limit';
+  if (/encode|glyph|character|Shift|system card/i.test(message)) return 'text_encoding';
+  if (/asset|background|sprite|ADPCM|PSG|CD-DA/i.test(message)) return 'asset_build_validation';
+  return 'build_validation';
+}
+
+/**
+ * Validate a proposed VN scene document with the same CD-ROM2 normalization,
+ * command compiler, text encoder, and scene-pack codec used by the real build.
+ * This function never writes the scene document or generated output.
+ */
+function inspectVnSceneDocumentBuild(projectDirOrOptions = '', maybeOptions = {}) {
+  const options = typeof projectDirOrOptions === 'string'
+    ? { ...maybeOptions, projectDir: projectDirOrOptions }
+    : { ...(projectDirOrOptions || {}) };
+  const projectDir = String(options.projectDir || '').trim();
+  const targetMedia = String(options.targetMedia || options.target || 'cd').trim().toLowerCase();
+  const suppliedAssets = options.assetDocument ?? options.assetDoc ?? options.assets;
+  const assetDoc = suppliedAssets == null
+    ? (projectDir ? assetManager.readAssetDocument(projectDir) : inspectionAssetDocument())
+    : inspectionAssetDocument(suppliedAssets);
+  const suppliedDoc = options.sceneDocument ?? options.doc;
+  const rawDoc = suppliedDoc && typeof suppliedDoc === 'object'
+    ? suppliedDoc
+    : (projectDir ? readSceneDocument(projectDir) : {});
+  const preflight = validateVnSceneDocumentInput(rawDoc, assetDoc);
+  const diagnostics = [...preflight.diagnostics];
+  const normalizedDocument = normalizeSceneDocument(rawDoc, assetDoc);
+  if (targetMedia !== 'cd') {
+    diagnostics.push(inspectionDiagnostic(
+      'error',
+      'target_media',
+      'PCE VN non-writing inspection is available for CD-ROM2 documents only',
+      { targetMedia },
+    ));
+  }
+
+  let generated = null;
+  if (!diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+    try {
+      generated = generateVnSources(projectDir, {
+        ...options,
+        targetMedia: 'cd',
+        assetDocument: assetDoc,
+        sceneDocument: rawDoc,
+        inspectionOnly: true,
+      });
+      (generated.warnings || []).forEach((message) => {
+        diagnostics.push(inspectionDiagnostic('warning', 'build_warning', String(message)));
+      });
+    } catch (error) {
+      const message = String(error?.message || error);
+      const scenePackMatch = message.match(/scene pack "([^"]+)" is (\d+) bytes;.*within (\d+) bytes/i);
+      diagnostics.push(inspectionDiagnostic(
+        'error',
+        inspectionBuildErrorCode(error),
+        message,
+        scenePackMatch
+          ? {
+            sceneId: scenePackMatch[1],
+            actual: Number(scenePackMatch[2]),
+            limit: Number(scenePackMatch[3]),
+          }
+          : {},
+      ));
+    }
+  }
+
+  const sceneBudgets = normalizedDocument.scenes.map((scene, index) => ({
+    sceneId: scene.id,
+    commandCount: generated?.sceneCommandCounts?.[index] ?? compiledSceneCommands(scene).length,
+    messageCount: generated?.sceneMessageCounts?.[index] ?? compiledSceneCommands(scene).filter((command) => command.type === 'message').length,
+    choiceCount: generated?.sceneChoiceCounts?.[index] ?? compiledSceneCommands(scene).filter((command) => command.type === 'choice').length,
+    switchCount: generated?.sceneSwitchCounts?.[index] ?? compiledSceneCommands(scene).filter((command) => command.type === 'switch').length,
+    packBytes: generated?.scenePackBytes?.[index] ?? null,
+    commandLimit: VN_MAX_U8_COUNT,
+    packByteLimit: VN_SCENE_PACK_CACHE_BYTES,
+  }));
+  const totals = {
+    scenes: generated?.sceneCount ?? normalizedDocument.scenes.length,
+    commands: generated?.commandCount ?? sceneBudgets.reduce((sum, scene) => sum + scene.commandCount, 0),
+    messages: generated?.messageCount ?? sceneBudgets.reduce((sum, scene) => sum + scene.messageCount, 0),
+    choices: generated?.choiceCount ?? sceneBudgets.reduce((sum, scene) => sum + scene.choiceCount, 0),
+    switches: generated?.switchCount ?? sceneBudgets.reduce((sum, scene) => sum + scene.switchCount, 0),
+    userVariables: generated ? Math.max(0, generated.variableCount - 2) : preflight.userVariableCount,
+    variables: generated?.variableCount ?? (preflight.userVariableCount + 2),
+    spriteAnimations: generated?.spriteAnimationCount ?? 0,
+  };
+  return {
+    ok: !diagnostics.some((diagnostic) => diagnostic.severity === 'error'),
+    targetMedia,
+    document: normalizedDocument,
+    normalizedDocument,
+    diagnostics,
+    errors: diagnostics.filter((diagnostic) => diagnostic.severity === 'error'),
+    warnings: diagnostics.filter((diagnostic) => diagnostic.severity === 'warning'),
+    limits: {
+      scenes: VN_MAX_U8_COUNT,
+      commandsPerScene: VN_MAX_U8_COUNT,
+      userVariables: VN_MAX_U8_COUNT - 2,
+      variables: VN_MAX_U8_COUNT,
+      scenePackBytes: VN_SCENE_PACK_CACHE_BYTES,
+    },
+    totals,
+    sceneBudgets,
+    sceneCommandCounts: sceneBudgets.map((scene) => scene.commandCount),
+    sceneMessageCounts: sceneBudgets.map((scene) => scene.messageCount),
+    sceneChoiceCounts: sceneBudgets.map((scene) => scene.choiceCount),
+    sceneSwitchCounts: sceneBudgets.map((scene) => scene.switchCount),
+    scenePackBytes: sceneBudgets.map((scene) => scene.packBytes),
   };
 }
 
@@ -4226,6 +4980,7 @@ function getVnCdCatalog() {
         overlayData: VN_OVERLAY_DATA_FILE,
         visualCodeData: VN_VISUAL_CODE_DATA_FILE,
         cdAsyncCodeData: VN_CD_ASYNC_CODE_DATA_FILE,
+        logicOverlayData: VN_LOGIC_OVERLAY_DATA_FILE,
         fontSpriteData: VN_FONT_SPRITE_DATA_FILE,
       },
     });
@@ -4237,17 +4992,92 @@ function collectSceneRuntimeAssetIds(doc = {}) {
   return getVnCdCatalog().collectSceneRuntimeAssetIds(doc);
 }
 
-function collectCdDataFiles(projectDir) {
+function collectCdPayloadFiles(projectDir) {
   const files = getVnCdCatalog().collectCdDataFiles(projectDir);
+  if (fs.existsSync(path.join(projectDir, VN_SPRITE_ANIMATION_META_FILE))) {
+    files.push(normalizeRelativePath(VN_SPRITE_ANIMATION_META_FILE));
+  }
+  if (fs.existsSync(path.join(projectDir, VN_SYSTEM_CARD_PSG_META_FILE))) {
+    files.push(normalizeRelativePath(VN_SYSTEM_CARD_PSG_META_FILE));
+  }
   const psgDir = path.join(projectDir, VN_SYSTEM_CARD_PSG_DIR);
   if (fs.existsSync(psgDir)) {
-    for (const entry of fs.readdirSync(psgDir, { withFileTypes: true })) {
+    for (const entry of fs.readdirSync(psgDir, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name, 'en'))) {
       if (entry.isFile() && entry.name.endsWith('.bin')) {
         files.push(normalizeRelativePath(path.join(VN_SYSTEM_CARD_PSG_DIR, entry.name)));
       }
     }
   }
   return Array.from(new Set(files));
+}
+
+function isVnRuntimeBlobDataFile(relativePath) {
+  const normalized = normalizeRelativePath(relativePath || '');
+  return normalized === normalizeRelativePath(VN_OVERLAY_DATA_FILE)
+    || normalized === normalizeRelativePath(VN_VISUAL_CODE_DATA_FILE)
+    || normalized === normalizeRelativePath(VN_CD_ASYNC_CODE_DATA_FILE)
+    || normalized === normalizeRelativePath(VN_LOGIC_OVERLAY_DATA_FILE);
+}
+
+function splitCdPayloadFiles(projectDir) {
+  const logicalFiles = collectCdPayloadFiles(projectDir);
+  return {
+    runtimeBlobFiles: logicalFiles.filter(isVnRuntimeBlobDataFile),
+    packableFiles: logicalFiles.filter((entry) => !isVnRuntimeBlobDataFile(entry)),
+  };
+}
+
+function payloadPackMatches(projectDir, packableFiles) {
+  const packPath = path.join(projectDir, VN_CD_PAYLOAD_PACK_FILE);
+  const indexPath = path.join(projectDir, VN_CD_PAYLOAD_INDEX_FILE);
+  if (!fs.existsSync(packPath) || !fs.existsSync(indexPath)) return false;
+  try {
+    const index = cdPayloadPack.readCdPayloadPackIndex({ packPath, indexPath });
+    return index.entries.length === packableFiles.length
+      && index.entries.every((entry, indexEntry) => entry.logicalPath === packableFiles[indexEntry]);
+  } catch (_) {
+    return false;
+  }
+}
+
+function refreshCdPayloadPack(projectDir, options = {}) {
+  const { runtimeBlobFiles, packableFiles } = splitCdPayloadFiles(projectDir);
+  const missingFiles = packableFiles.filter((logicalPath) => !fs.existsSync(path.join(projectDir, logicalPath)));
+  if (missingFiles.length) {
+    if (options.allowMissing) {
+      return { ready: false, runtimeBlobFiles, packableFiles, missingFiles };
+    }
+    throw new Error(`CD payload pack input is missing: ${missingFiles[0]}`);
+  }
+  const entries = packableFiles.map((logicalPath) => ({
+    logicalPath,
+    sourcePath: path.join(projectDir, logicalPath),
+    ...((logicalPath === normalizeRelativePath(assetManager.ASSET_META_FILE)
+      || logicalPath === normalizeRelativePath(VN_SPRITE_ANIMATION_META_FILE))
+      ? { maxBytes: Number.MAX_SAFE_INTEGER }
+      : {}),
+  }));
+  const index = cdPayloadPack.writeCdPayloadPack({
+    entries,
+    packPath: path.join(projectDir, VN_CD_PAYLOAD_PACK_FILE),
+    indexPath: path.join(projectDir, VN_CD_PAYLOAD_INDEX_FILE),
+  });
+  return {
+    ready: true,
+    runtimeBlobFiles,
+    packableFiles,
+    dataFiles: [...runtimeBlobFiles, normalizeRelativePath(VN_CD_PAYLOAD_PACK_FILE)],
+    index,
+  };
+}
+
+function collectCdDataFiles(projectDir) {
+  const { runtimeBlobFiles, packableFiles } = splitCdPayloadFiles(projectDir);
+  if (payloadPackMatches(projectDir, packableFiles)) {
+    return [...runtimeBlobFiles, normalizeRelativePath(VN_CD_PAYLOAD_PACK_FILE)];
+  }
+  return [...runtimeBlobFiles, ...packableFiles];
 }
 
 function syncVisualNovelRuntime(projectDir, logger) {
@@ -4291,6 +5121,7 @@ function writeOverlayFragment(projectDir) {
   const tailVma = `0x${VN_BANK132_TAIL_VMA.toString(16)}`;
   const visualCodeAddr = `0x${VN_VISUAL_CODE_LINK_ADDR.toString(16)}`;
   const cdAsyncCodeAddr = `0x${VN_CD_ASYNC_CODE_LINK_ADDR.toString(16)}`;
+  const logicOverlayAddr = `0x${VN_LOGIC_OVERLAY_LINK_ADDR.toString(16)}`;
   const visualCodeSection = VN_ENABLE_VISUAL_PAYLOAD_CACHE
     ? [
       `  ${VN_VISUAL_CODE_SECTION} ${visualCodeAddr} : {`,
@@ -4310,6 +5141,13 @@ function writeOverlayFragment(projectDir) {
     `    KEEP(*(${VN_CD_ASYNC_CODE_SECTION}.impl ${VN_CD_ASYNC_CODE_SECTION}.impl.*))`,
     '    __vn_cd_async_code_end = .;',
     '  } >ram_bank122',
+    `  ${VN_LOGIC_OVERLAY_SECTION} ${logicOverlayAddr} : {`,
+    '    __vn_logic_overlay_start = .;',
+    `    KEEP(*(${VN_LOGIC_OVERLAY_SECTION}.entry ${VN_LOGIC_OVERLAY_SECTION}.entry.*))`,
+    `    KEEP(*(${VN_LOGIC_OVERLAY_SECTION}.impl ${VN_LOGIC_OVERLAY_SECTION}.impl.*))`,
+    `    KEEP(*(${VN_LOGIC_OVERLAY_SECTION} ${VN_LOGIC_OVERLAY_SECTION}.*))`,
+    '    __vn_logic_overlay_end = .;',
+    '  } >ram_bank124',
     `  ${VN_OVERLAY_SECTION} ${overlayAddr} : {`,
     '    __vn_overlay_start = .;',
     `    KEEP(*(${VN_OVERLAY_SECTION}.entry ${VN_OVERLAY_SECTION}.entry.*))`,
@@ -4360,6 +5198,14 @@ function ensureCdAsyncCodeReservation(projectDir) {
   const ok = fs.existsSync(cdAsyncCodeBin) && fs.statSync(cdAsyncCodeBin).size === VN_CD_ASYNC_CODE_RESERVED_BYTES;
   if (!ok) fs.writeFileSync(cdAsyncCodeBin, Buffer.alloc(VN_CD_ASYNC_CODE_RESERVED_BYTES));
   return { byteSize: VN_CD_ASYNC_CODE_RESERVED_BYTES, sectorCount: VN_CD_ASYNC_CODE_RESERVED_SECTORS };
+}
+
+function ensureLogicOverlayReservation(projectDir) {
+  const logicOverlayBin = path.join(projectDir, VN_LOGIC_OVERLAY_DATA_FILE);
+  ensureDirSync(path.dirname(logicOverlayBin));
+  const ok = fs.existsSync(logicOverlayBin) && fs.statSync(logicOverlayBin).size === VN_LOGIC_OVERLAY_RESERVED_BYTES;
+  if (!ok) fs.writeFileSync(logicOverlayBin, Buffer.alloc(VN_LOGIC_OVERLAY_RESERVED_BYTES));
+  return { byteSize: VN_LOGIC_OVERLAY_RESERVED_BYTES, sectorCount: VN_LOGIC_OVERLAY_RESERVED_SECTORS };
 }
 
 function neutralizeElfLoadSegments(elfPath, startAddress, byteLength) {
@@ -4502,6 +5348,22 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
     fs.writeFileSync(cdAsyncCodeBin, buf);
   }
   const cdAsyncCodeInfo = { realSize: cdAsyncCodeRealSize, byteSize: VN_CD_ASYNC_CODE_RESERVED_BYTES };
+  const logicOverlayBin = path.join(projectDir, VN_LOGIC_OVERLAY_DATA_FILE);
+  ensureDirSync(path.dirname(logicOverlayBin));
+  run(['-O', 'binary', `--only-section=${VN_LOGIC_OVERLAY_SECTION}`, elfPath, logicOverlayBin], 'logic overlay objcopy extract');
+  const logicOverlayRealSize = fs.existsSync(logicOverlayBin) ? fs.statSync(logicOverlayBin).size : 0;
+  if (logicOverlayRealSize === 0) {
+    throw new Error(`logic overlay section ${VN_LOGIC_OVERLAY_SECTION} was empty in ${path.basename(elfPath)} — bank124 logic code not linked`);
+  }
+  if (logicOverlayRealSize > VN_LOGIC_OVERLAY_RESERVED_BYTES) {
+    throw new Error(`logic overlay code ${logicOverlayRealSize} bytes exceeds reserved ${VN_LOGIC_OVERLAY_RESERVED_BYTES} bytes (${VN_LOGIC_OVERLAY_RESERVED_SECTORS} sectors = full physical bank124). Move fewer functions into VN_LOGIC_OVERLAY_CODE or split the logic across another overlay.`);
+  }
+  if (logicOverlayRealSize < VN_LOGIC_OVERLAY_RESERVED_BYTES) {
+    const buf = Buffer.alloc(VN_LOGIC_OVERLAY_RESERVED_BYTES);
+    fs.readFileSync(logicOverlayBin).copy(buf);
+    fs.writeFileSync(logicOverlayBin, buf);
+  }
+  const logicOverlayInfo = { realSize: logicOverlayRealSize, byteSize: VN_LOGIC_OVERLAY_RESERVED_BYTES };
   // Strip BOTH runtime code blobs out of the program image: they are loaded from
   // CD into bank133 (.vn_overlay) and bank121 (.vn_visual_code) at boot, not part
   // of the main program. Remove each section AND its relocation table — mkcd
@@ -4527,6 +5389,8 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
   }
   stripArgs.push('--remove-section', `.rela${VN_CD_ASYNC_CODE_SECTION}`);
   stripArgs.push('--remove-section', VN_CD_ASYNC_CODE_SECTION);
+  stripArgs.push('--remove-section', `.rela${VN_LOGIC_OVERLAY_SECTION}`);
+  stripArgs.push('--remove-section', VN_LOGIC_OVERLAY_SECTION);
   stripArgs.push(elfPath, strippedElf);
   run(stripArgs, 'objcopy strip runtime blobs');
   const strippedSize = fs.existsSync(strippedElf) ? fs.statSync(strippedElf).size : 0;
@@ -4545,17 +5409,21 @@ function finalizeOverlayBlob(projectDir, elfPath, clangPath, logger) {
     visualLoadSegmentsRemoved = neutralizeElfLoadSegments(elfPath, VN_VISUAL_CODE_LINK_ADDR, VN_VISUAL_CODE_RESERVED_BYTES);
   }
   const cdAsyncLoadSegmentsRemoved = neutralizeElfLoadSegments(elfPath, VN_CD_ASYNC_CODE_LINK_ADDR, VN_CD_ASYNC_CODE_RESERVED_BYTES);
+  const logicOverlayLoadSegmentsRemoved = neutralizeElfLoadSegments(elfPath, VN_LOGIC_OVERLAY_LINK_ADDR, VN_LOGIC_OVERLAY_RESERVED_BYTES);
   logger?.info?.(`PCE VN overlay blob: ${realSize} bytes (reserved ${VN_OVERLAY_RESERVED_BYTES}, full bank133) を main.elf から ${VN_OVERLAY_DATA_FILE} に抽出 (${VN_OVERLAY_SECTION} 除去)`);
   if (overlayLoadSegmentsRemoved) logger?.info?.(`PCE VN overlay PT_LOAD ${overlayLoadSegmentsRemoved} 件を main.elf から無効化`);
   if (VN_ENABLE_VISUAL_PAYLOAD_CACHE) logger?.info?.(`PCE VN visual cache code blob: ${visualRealSize} bytes (reserved ${VN_VISUAL_CODE_RESERVED_BYTES}) を main.elf から ${VN_VISUAL_CODE_DATA_FILE} に抽出 (${VN_VISUAL_CODE_SECTION} 除去)`);
   if (visualLoadSegmentsRemoved) logger?.info?.(`PCE VN visual cache code PT_LOAD ${visualLoadSegmentsRemoved} 件を main.elf から無効化`);
   logger?.info?.(`PCE VN CD async code blob: ${cdAsyncCodeRealSize} bytes (reserved ${VN_CD_ASYNC_CODE_RESERVED_BYTES}) を main.elf から ${VN_CD_ASYNC_CODE_DATA_FILE} に抽出 (${VN_CD_ASYNC_CODE_SECTION} 除去)`);
   if (cdAsyncLoadSegmentsRemoved) logger?.info?.(`PCE VN CD async code PT_LOAD ${cdAsyncLoadSegmentsRemoved} 件を main.elf から無効化`);
+  logger?.info?.(`PCE VN logic overlay blob: ${logicOverlayRealSize} bytes (reserved ${VN_LOGIC_OVERLAY_RESERVED_BYTES}, full bank124) を main.elf から ${VN_LOGIC_OVERLAY_DATA_FILE} に抽出 (${VN_LOGIC_OVERLAY_SECTION} 除去)`);
+  if (logicOverlayLoadSegmentsRemoved) logger?.info?.(`PCE VN logic overlay PT_LOAD ${logicOverlayLoadSegmentsRemoved} 件を main.elf から無効化`);
   return {
     realSize,
     byteSize: VN_OVERLAY_RESERVED_BYTES,
     visualCode: visualCodeInfo,
     cdAsyncCode: cdAsyncCodeInfo,
+    logicOverlay: logicOverlayInfo,
   };
 }
 
@@ -4579,6 +5447,11 @@ function collectManagedGeneratedCdDataFiles(projectDir) {
   addManagedGeneratedPath(managed, VN_OVERLAY_DATA_FILE);
   addManagedGeneratedPath(managed, VN_VISUAL_CODE_DATA_FILE);
   addManagedGeneratedPath(managed, VN_CD_ASYNC_CODE_DATA_FILE);
+  addManagedGeneratedPath(managed, VN_LOGIC_OVERLAY_DATA_FILE);
+  addManagedGeneratedPath(managed, VN_CD_PAYLOAD_PACK_FILE);
+  addManagedGeneratedPath(managed, VN_CD_PAYLOAD_INDEX_FILE);
+  addManagedGeneratedPath(managed, VN_SPRITE_ANIMATION_META_FILE);
+  addManagedGeneratedPath(managed, VN_SYSTEM_CARD_PSG_META_FILE);
   addManagedGeneratedPath(managed, VN_FONT_SPRITE_DATA_FILE);
   addManagedGeneratedPath(managed, VN_SYSTEM_CARD_PSG_DIR);
   const scenePackDir = normalizeRelativePath(VN_SCENE_PACK_DIR);
@@ -4656,7 +5529,11 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
   ensureOverlayReservation(projectDir);
   ensureVisualCodeReservation(projectDir);
   ensureCdAsyncCodeReservation(projectDir);
+  ensureLogicOverlayReservation(projectDir);
   writeOverlayFragment(projectDir);
+  // Reuse an existing complete logical catalog for incremental builds. A clean
+  // build has no scene packs yet, so pass 1 below creates them before packing.
+  refreshCdPayloadPack(projectDir, { allowMissing: true });
   logBuildTiming(logger, 'reserve CD layout placeholders', stage);
   const currentDataFiles = collectCdDataFiles(projectDir);
   const currentCddaTracks = collectCddaTracks(projectDir);
@@ -4714,14 +5591,21 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
   generateVnSources(projectDir);
   logBuildTiming(logger, 'generate pass 1', stage);
   stage = Date.now();
+  const packed = refreshCdPayloadPack(projectDir);
   const dataFiles = collectCdDataFiles(projectDir);
   const cddaTracks = collectCddaTracks(projectDir);
   const cd = config.cd && typeof config.cd === 'object' ? config.cd : {};
   const mergedDataFiles = mergeCdDataFiles(projectDir, dataFiles, cd.dataFiles);
   const mergedCddaTracks = Array.from(new Set([...(Array.isArray(cd.cddaTracks) ? cd.cddaTracks : []), ...cddaTracks]));
-  logBuildTiming(logger, 'merge CD data files', stage, `${mergedDataFiles.length} data file(s), ${mergedCddaTracks.length} configured CD-DA track(s)`);
+  logBuildTiming(
+    logger,
+    'pack and merge CD data files',
+    stage,
+    `${packed.packableFiles.length} logical payload(s) in 1 pack, ${mergedDataFiles.length} physical data file(s), ${mergedCddaTracks.length} configured CD-DA track(s)`,
+  );
   stage = Date.now();
   const generated = generateVnSources(projectDir, { cdDataFiles: mergedDataFiles });
+  refreshCdPayloadPack(projectDir);
   logBuildTiming(logger, 'generate pass 2', stage);
   updateVisualNovelBuildStamp(projectDir, config, generated, mergedDataFiles, mergedCddaTracks);
   return {
@@ -4755,10 +5639,24 @@ module.exports = {
   VN_SCENE_FILE,
   VN_SCENE_PACK_DIR,
   VN_SCENE_PACK_CACHE_BYTES,
+  VN_MAX_SPRITE_ANIMATION_COUNT,
   VN_FONT_FILE,
   VN_FONT_DIR,
   VN_FONT_DATA_FILE,
   VN_FONT_SPRITE_DATA_FILE,
+  VN_CD_PAYLOAD_PACK_FILE,
+  VN_CD_PAYLOAD_INDEX_FILE,
+  VN_SPRITE_ANIMATION_META_FILE,
+  VN_SYSTEM_CARD_PSG_META_FILE,
+  VN_SYSTEM_CARD_PSG_META_SLOT_BYTES,
+  VN_SYSTEM_CARD_PSG_META_PER_SECTOR,
+  VN_MAX_SYSTEM_PSG_PACKAGE_COUNT,
+  VN_LOGIC_OVERLAY_DATA_FILE,
+  VN_LOGIC_OVERLAY_SECTION,
+  VN_LOGIC_OVERLAY_VRAM_LOAD_ADDR,
+  VN_LOGIC_OVERLAY_LINK_ADDR,
+  VN_LOGIC_OVERLAY_RESERVED_SECTORS,
+  VN_LOGIC_OVERLAY_RESERVED_BYTES,
   VN_MAX_GLYPH_COUNT,
   DEFAULT_FONT_TILE_BASE,
   DEFAULT_FONT_CONFIG,
@@ -4823,6 +5721,7 @@ module.exports = {
   normalizeMessageColor,
   normalizeVnSystemSettings,
   collectCdDataFiles,
+  collectCdPayloadFiles,
   collectGlyphs,
   collectGlyphsRaw,
   collectFullScreenBgAssetIds,
@@ -4843,6 +5742,7 @@ module.exports = {
   encodeGlyphSpriteData,
   ensureSceneFile,
   generateVnSources,
+  inspectVnSceneDocumentBuild,
   getFontFilePath,
   getSceneFilePath,
   normalizeSceneDocument,
@@ -4852,12 +5752,16 @@ module.exports = {
   importFontFile,
   deleteFontFile,
   prepareVisualNovelBuild,
+  refreshCdPayloadPack,
   previewFontText,
   readFontConfig,
   readSceneDocument,
   renderGlyphBitmaps,
   renderGlyphMaskData,
   finalizeOverlayBlob,
+  ensureLogicOverlayReservation,
+  ensureSystemCardPsgMetaReservation,
+  writeSystemCardPsgMetaFile,
   neutralizeElfLoadSegments,
   overlayLinkerArgs,
   overlayFragmentPath,

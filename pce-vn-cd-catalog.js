@@ -88,6 +88,7 @@ function createVnCdCatalog(options = {}) {
     addExisting(projectDir, files, seen, managedFiles.overlayData);
     if (enableVisualPayloadCache) addExisting(projectDir, files, seen, managedFiles.visualCodeData);
     addExisting(projectDir, files, seen, managedFiles.cdAsyncCodeData);
+    addExisting(projectDir, files, seen, managedFiles.logicOverlayData);
     if (catalogMode) addExisting(projectDir, files, seen, assetManager.ASSET_META_FILE);
     (doc.scenes || []).forEach((scene, sceneIndex) => {
       add(files, seen, scenePackRelativePath(scene, sceneIndex));
