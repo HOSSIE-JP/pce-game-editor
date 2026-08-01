@@ -3271,17 +3271,19 @@ function generateVnSources(projectDir, options = {}) {
       switches: [],
     };
     const slotSpriteAssets = ['', '', '', ''];
-    // Comment and debug-skipped commands are editor-only. Drop them before both
-    // the label pass and the emit pass so program-counter / label targets stay
-    // in sync with the emitted command records.
+    // Comment and debug-skipped commands are editor-only. Drop them before
+    // emission so they never enter the program counter or label resolution.
     const compiledCommands = compiledSceneCommands(scene);
+    // Labels target the emitted command stream, not the editor command stream.
+    // CD builds may inject internal ADPCM preload commands before voiced
+    // messages, so resolve forward references after all emitted commands have
+    // been assigned their final program-counter positions.
     const labels = new Map();
-    compiledCommands.forEach((command, commandIndex) => {
-      if (command.type === 'label' && command.name && !labels.has(command.name)) {
-        labels.set(command.name, commandIndex);
-      }
-    });
-    const labelCommand = (name) => (name && labels.has(name) ? labels.get(name) : VN_NO_COMMAND);
+    const pendingLabelReferences = [];
+    const labelCommand = (entry, field, name) => {
+      entry[field] = VN_NO_COMMAND;
+      if (name) pendingLabelReferences.push({ entry, field, name });
+    };
     const pushCommand = (entry) => {
       if (sceneBuild.commands.length >= VN_MAX_U8_COUNT) {
         throw new Error('PCE VN supports up to 255 commands per scene');
@@ -3539,20 +3541,22 @@ function generateVnSources(projectDir, options = {}) {
         const mode = command.mode === 'async'
           ? VN_INPUT_MODE_ASYNC
           : (command.mode === 'cancel' ? VN_INPUT_MODE_CANCEL : VN_INPUT_MODE_SYNC);
-        pushCommand({
+        const entry = {
           type: VN_COMMAND_INPUTCHECK,
           assetIndex: -1,
           slot: 0,
           flags: mode,
           arg0: inputButtonsMask(command.buttons),
           arg1: 0,
-          x: command.mode === 'cancel' ? VN_NO_COMMAND : labelCommand(command.targetLabel),
+          x: VN_NO_COMMAND,
           y: 0,
           messageIndex: -1,
           animationIndex: -1,
           sceneIndex: -1,
           choiceIndex: -1,
-        });
+        };
+        if (command.mode !== 'cancel') labelCommand(entry, 'x', command.targetLabel);
+        pushCommand(entry);
         return;
       }
       if (command.type === 'cache') {
@@ -3694,20 +3698,23 @@ function generateVnSources(projectDir, options = {}) {
         knownAdpcmPreloadAssetId = '';
         const varIndex = command.variableName && variableIndex.has(command.variableName) ? variableIndex.get(command.variableName) : -1;
         const [arg0, arg1] = int16ArgBytes(command.value);
-        pushCommand({
+        const entry = {
           type: VN_COMMAND_IF,
           assetIndex: varIndex,
           slot: 0,
           flags: compareCode(command.operator),
           arg0,
           arg1,
-          x: labelCommand(command.targetLabel),
-          y: labelCommand(command.elseLabel),
+          x: VN_NO_COMMAND,
+          y: VN_NO_COMMAND,
           messageIndex: -1,
           animationIndex: -1,
           sceneIndex: -1,
           choiceIndex: -1,
-        });
+        };
+        labelCommand(entry, 'x', command.targetLabel);
+        labelCommand(entry, 'y', command.elseLabel);
+        pushCommand(entry);
         return;
       }
       if (command.type === 'switch') {
@@ -3718,14 +3725,19 @@ function generateVnSources(projectDir, options = {}) {
         }
         const cases = (command.cases || []).slice(0, 16);
         const switchIndex = sceneBuild.switches.length;
-        sceneBuild.switches.push({
+        const switchEntry = {
           cases: cases.map((branch) => ({
             value: branch.value,
-            command: labelCommand(branch.targetLabel),
+            command: VN_NO_COMMAND,
           })),
           caseCount: cases.length,
-          defaultCommand: labelCommand(command.defaultLabel),
+          defaultCommand: VN_NO_COMMAND,
+        };
+        cases.forEach((branch, branchIndex) => {
+          labelCommand(switchEntry.cases[branchIndex], 'command', branch.targetLabel);
         });
+        labelCommand(switchEntry, 'defaultCommand', command.defaultLabel);
+        sceneBuild.switches.push(switchEntry);
         const varIndex = command.variableName && variableIndex.has(command.variableName) ? variableIndex.get(command.variableName) : -1;
         pushCommand({
           type: VN_COMMAND_SWITCH,
@@ -3746,6 +3758,7 @@ function generateVnSources(projectDir, options = {}) {
       }
       if (command.type === 'label') {
         previousExplicitAdpcmPreloadAssetId = '';
+        if (command.name && !labels.has(command.name)) labels.set(command.name, sceneBuild.commands.length);
         pushCommand({
           type: VN_COMMAND_LABEL,
           assetIndex: -1,
@@ -3765,20 +3778,22 @@ function generateVnSources(projectDir, options = {}) {
       if (command.type === 'goto') {
         previousExplicitAdpcmPreloadAssetId = '';
         knownAdpcmPreloadAssetId = '';
-        pushCommand({
+        const entry = {
           type: VN_COMMAND_GOTO,
           assetIndex: -1,
           slot: 0,
           flags: 0,
           arg0: 0,
           arg1: 0,
-          x: labelCommand(command.targetLabel),
+          x: VN_NO_COMMAND,
           y: 0,
           messageIndex: -1,
           animationIndex: -1,
           sceneIndex: -1,
           choiceIndex: -1,
-        });
+        };
+        labelCommand(entry, 'x', command.targetLabel);
+        pushCommand(entry);
         return;
       }
       if (command.type === 'jump') {
@@ -3882,6 +3897,9 @@ function generateVnSources(projectDir, options = {}) {
           spriteTextGlyphs: Buffer.from(glyphBytes),
         });
       }
+    });
+    pendingLabelReferences.forEach(({ entry, field, name }) => {
+      entry[field] = name && labels.has(name) ? labels.get(name) : VN_NO_COMMAND;
     });
     sceneBuild.packBuffer = buildScenePack(sceneBuild, hucardMode);
     if (!inspectionOnly) writeScenePack(projectDir, sceneBuild);

@@ -21,6 +21,8 @@ PCE assetへ一括登録する機能も提供します。GD-DA trackの自動登
 - 変換対象は取込画面で明示的に選択したSCRだけです。
 - 選択したSCR群では変数を共有し、labelとscene IDはSCR単位のnamespaceへ
   分離します。
+- 取り込んだscene名は `北へ。PM/<SCR path>/<開始行>` の2段階groupとして保存し、
+  SCR path、開始行、終了行の順に並べます。
 - 外部projectのソースやゲーム本文、絶対source pathをPCE projectへコピー
   しません。
 - 画像・音声のsource binaryは生成しません。変換結果が参照するのは既存の
@@ -231,18 +233,23 @@ warning付きで省略します。
 変換coreはbasic blockを決定的にsceneへ分割します。同一scene外を指すlabel分岐は
 scene内のbridge labelと`jump`へ変換します。scene ID、command数、変数数、
 scene pack byte数の上限は、保存前にPCE VN managerの非書込みbuild検査を通します。
+CD-ROM2 buildで音声付きmessageの前に自動挿入されるADPCM preloadは、元のSCR
+command indexではなく、生成後の実command列へ反映されます。そのため、IF / SWITCH /
+GOTO / WAITBTN のlabel分岐先はpreload挿入後も同じlabel commandを指します。
 
 ## 演出の近似
 
 `SCREEN`の全画面fade、flash、blankはPCE VNの`effect`へ近似します。
-BG・キャラクターのCG slotを対象とする`FADE`は全画面effectへ変換せず、
-行番号付きwarningを残して省略します。`SCG`、`MCG`、`RCG`、`WCG`、
+alpha形式の`FADE`がSprite mapping対象なら、段階的な透明度ではなく同じslotの
+`Visible: false/true`へ近似します。`ICG`の初期opacity 0も非表示で生成します。
+BG対象のalpha `FADE`、9引数の明度系`FADE`、`SCG`、`MCG`、`RCG`、`WCG`、
 `CFADE`など、初版で安全に表現できない演出も省略してwarningへ記録します。
 不明命令も行番号付きwarningとして残します。
 
 `ICG`から生成する`background` commandはFade out / Fade inをともに速度3の`30`へ
-設定し、PCE VN runtimeのpalette fadeへ切替演出を任せます。変換元の`FADE`は
-省略するためBG command自身のfadeと重なりません。`SCREEN`の全画面effect近似は
+設定し、PCE VN runtimeのpalette fadeへ切替演出を任せます。BG対象のalpha `FADE`は
+省略するためBG command自身のfadeと重なりません。Spriteのalpha `FADE`は同じslotの
+Visible切替へ近似し、`SCREEN`の全画面effect近似は
 BG・キャラクター単位のfadeとは別の演出として維持します。
 
 演出の省略は適用を禁止しません。一方、制御フローの破損、未解決label、

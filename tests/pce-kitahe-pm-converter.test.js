@@ -557,6 +557,91 @@ test('Kitahe PM image mappings emit speed 3 BG fade and derive Sprite position f
   )));
 });
 
+test('Kitahe PM maps Sprite alpha FADE to Visible toggles', () => {
+  const analysis = analyze([
+    'CGDIR DIR, \\BG',
+    'LCG 0, AYU, 640, 480',
+    'ICG 0, 320, 200, -100, 0',
+    'FADE 0, 60, 1, 0, 1',
+    'FADE 0, 60, 1, 1, 0',
+    'END',
+  ]);
+  const key = analysis.requirements[0].key;
+  const converted = converter.convertScripts(analysis, {
+    mapping: {
+      assets: {
+        [key]: {
+          action: 'map',
+          assetId: 'hero',
+          display: 'sprite',
+          slot: 1,
+          animationId: 'default',
+        },
+      },
+    },
+    assetCatalog: [{
+      id: 'hero',
+      type: 'sprite',
+      options: { animations: [{ id: 'default' }] },
+    }],
+  });
+
+  assert.equal(converted.ok, true);
+  const sprites = converted.scenes.flatMap((scene) => scene.commands)
+    .filter((command) => command.type === 'sprite');
+  assert.deepEqual(sprites.map((command) => ({
+    slot: command.slot,
+    assetId: command.assetId,
+    x: command.x,
+    y: command.y,
+    visible: command.visible,
+  })), [
+    { slot: 1, assetId: 'hero', x: 112, y: 17, visible: false },
+    { slot: 1, assetId: 'hero', x: 112, y: 17, visible: true },
+    { slot: 1, assetId: 'hero', x: 112, y: 17, visible: false },
+  ]);
+  assert.ok(converted.diagnostics.some((entry) => (
+    entry.code === 'sprite-fade-approximation' && entry.line === 4
+  )));
+  assert.ok(converted.diagnostics.some((entry) => (
+    entry.code === 'sprite-fade-approximation' && entry.line === 5
+  )));
+  assert.ok(!converted.diagnostics.some((entry) => (
+    entry.code === 'fade-omitted' && (entry.line === 4 || entry.line === 5)
+  )));
+});
+
+test('Kitahe PM keeps BG alpha FADE omitted', () => {
+  const analysis = analyze([
+    'CGDIR DIR, \\BG',
+    'LCG 0, BACK, 640, 480',
+    'ICG 0, 0, 0, -100, 1',
+    'FADE 0, 60, 1, 1, 0',
+    'END',
+  ]);
+  const key = analysis.requirements[0].key;
+  const converted = converter.convertScripts(analysis, {
+    mapping: {
+      assets: {
+        [key]: {
+          action: 'map',
+          assetId: 'background',
+          display: 'background',
+          x: 0,
+          y: 0,
+        },
+      },
+    },
+    assetCatalog: [{ id: 'background', type: 'image' }],
+  });
+
+  assert.equal(converted.ok, true);
+  assert.equal(converted.scenes.flatMap((scene) => scene.commands)
+    .filter((command) => command.type === 'sprite').length, 0);
+  assert.ok(converted.diagnostics.some((entry) => (
+    entry.code === 'fade-omitted' && entry.line === 4
+  )));
+});
 test('Kitahe PM omits CG alpha FADE while preserving SCREEN effects', () => {
   const analysis = analyze([
     'DEFINE FLAG',
@@ -2230,4 +2315,43 @@ test('Kitahe PM apply rolls back every JSON file after a mid-transaction rename 
     fs.rmSync(sourceRoot, { recursive: true, force: true });
     fs.rmSync(projectDir, { recursive: true, force: true });
   }
+});
+
+test('Kitahe PM groups imported scenes by source script and sorts source locations', () => {
+  const analysis = converter.inspectScripts({
+    files: [
+      {
+        path: 'ADV_Z.SCR',
+        buffer: scr('GOTO START, ADV_A.SCR'),
+      },
+      {
+        path: 'ADV_A.SCR',
+        buffer: scr([
+          'LABEL START',
+          'MSG WIN_MSG, early',
+          'WAIT WIN_MSG',
+          'GOTO LATE',
+          'LABEL LATE',
+          'MSG WIN_MSG, late',
+          'WAIT WIN_MSG',
+          'END',
+        ].join('\n')),
+      },
+    ],
+    entryScript: 'ADV_Z.SCR',
+  });
+  const converted = converter.convertScripts(analysis, { mapping: {}, assetCatalog: [] });
+
+  assert.equal(converted.ok, true);
+  assert.deepEqual(converted.scenes.map((scene) => scene.name), [
+    '北へ。PM/ADV_A.SCR/1',
+    '北へ。PM/ADV_A.SCR/5',
+    '北へ。PM/ADV_Z.SCR/1',
+  ]);
+  assert.equal(converted.scenes.some((scene) => scene.name.includes(':')), false);
+  assert.deepEqual(converted.sourceRanges.map((range) => [range.script, range.startLine]), [
+    ['ADV_A.SCR', 1],
+    ['ADV_A.SCR', 5],
+    ['ADV_Z.SCR', 1],
+  ]);
 });

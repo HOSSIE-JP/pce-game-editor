@@ -1813,6 +1813,54 @@ test('PCE VN manager injects internal ADPCM preload before voiced messages', () 
   assert.equal(commandRecord(pack, 3).type, vnManager.VN_COMMAND_MESSAGE);
 });
 
+test('PCE VN manager resolves control-flow labels after internal ADPCM preload injection', () => {
+  const projectDir = makeTempDir('pce-vn-control-flow-preload-');
+  const vnManager = loadVnManager();
+  const voiceFile = path.join(projectDir, 'assets', 'generated', 'voice', 'adpcm.bin');
+  fs.mkdirSync(path.dirname(voiceFile), { recursive: true });
+  fs.writeFileSync(voiceFile, Buffer.alloc(256, 0));
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [
+      { id: 'voice', type: 'adpcm', data: { generated: { outputFile: 'assets/generated/voice/adpcm.bin', byteLength: 256 } } },
+    ],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: [
+        { type: 'message', text: 'A', voiceAssetId: 'voice' },
+        {
+          type: 'if',
+          variableName: 'flag',
+          operator: 'eq',
+          value: 0,
+          targetLabel: 'yes',
+          elseLabel: 'no',
+        },
+        { type: 'label', name: 'yes' },
+        { type: 'goto', targetLabel: 'end' },
+        { type: 'label', name: 'no' },
+        { type: 'wait', frames: 2 },
+        { type: 'label', name: 'end' },
+      ],
+    }],
+  });
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const pack = readPack(projectDir, generated.scenePackPaths[0]);
+  assert.equal(generated.commandCount, 8);
+  assert.equal(pack[5], 8);
+  assert.equal(commandRecord(pack, 0).type, vnManager.VN_COMMAND_CACHE);
+  assert.equal(commandRecord(pack, 1).type, vnManager.VN_COMMAND_MESSAGE);
+  assert.equal(commandRecord(pack, 2).type, vnManager.VN_COMMAND_IF);
+  assert.equal(commandRecord(pack, 2).x, 3);
+  assert.equal(commandRecord(pack, 2).y, 5);
+  assert.equal(commandRecord(pack, 4).type, vnManager.VN_COMMAND_GOTO);
+  assert.equal(commandRecord(pack, 4).x, 7);
+});
 test('PCE VN manager hoists the first internal ADPCM preload to the scene head when safe', () => {
   const projectDir = makeTempDir('pce-vn-hoist-adpcm-preload-');
   const vnManager = loadVnManager();

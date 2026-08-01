@@ -955,6 +955,12 @@ function importedSpriteX(value, constants, instruction, diagnostics) {
   return clamped;
 }
 
+function isAlphaFadeInstruction(instruction) {
+  return instruction?.op === 'FADE'
+    && instruction.args.length >= 5
+    && instruction.args.length < 9;
+}
+
 function classifyP04Source(source = '') {
   const normalized = String(source || '').toUpperCase();
   return /(^|\/)(VOICE|[^/]*ADP(?:16|32)?)(\/|$)/.test(normalized) ? 'voice' : 'sfx';
@@ -1787,6 +1793,7 @@ function cloneFactState(state) {
       { ...value, crop: { ...(value.crop || {}) } },
     ])),
     cgLinks: new Map(Array.from(state.cgLinks, ([key, value]) => [key, { ...value }])),
+    cgPlacements: new Map(Array.from(state.cgPlacements, ([key, value]) => [key, { ...value }])),
     currentPcmDirectory: state.currentPcmDirectory,
     p04Slots: new Map(state.p04Slots),
     currentColorToken: state.currentColorToken,
@@ -1808,6 +1815,7 @@ function emptyFactState() {
     cgDirectories: new Map(),
     cgSlots: new Map(),
     cgLinks: new Map(),
+    cgPlacements: new Map(),
     currentPcmDirectory: '',
     p04Slots: new Map(),
     currentColorToken: '',
@@ -2110,9 +2118,17 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
     } else if (instruction.op === 'CLEARCG') {
       state.cgSlots.clear();
       state.cgLinks.clear();
+      state.cgPlacements.clear();
     } else if (instruction.op === 'ICG') {
       const image = imageRecordForSlot(instruction.args[0]);
+      const slot = resolveSlot(instruction.args[0], state.constants);
       if (image) {
+        state.cgPlacements.set(slot, {
+          x: numericValue(instruction.args[1], state.constants)
+            ?? (cleanToken(instruction.args[1]) || '0'),
+          y: numericValue(instruction.args[2], state.constants)
+            ?? (cleanToken(instruction.args[2]) || '0'),
+        });
         instructionFact.image = image;
         const requirement = addRequirement(
           requirements,
@@ -2129,6 +2145,28 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
           `ICG slot ${instruction.args[0] || '(空)'} のLCG/LINKCG状態を解決できません。`,
           instruction,
         ));
+      }
+    } else if (instruction.op === 'FADE') {
+      const slot = resolveSlot(instruction.args[0], state.constants);
+      const alpha = isAlphaFadeInstruction(instruction);
+      const image = imageRecordForSlot(instruction.args[0]);
+      const placement = state.cgPlacements.get(slot);
+      instructionFact.fade = {
+        isAlpha: alpha,
+        slot,
+        fromOpacity: alpha ? numericValue(instruction.args[3], state.constants) : null,
+        toOpacity: alpha ? numericValue(instruction.args[4], state.constants) : null,
+        placement: placement ? { ...placement } : null,
+      };
+      if (alpha && image && placement) {
+        const requirement = addRequirement(
+          requirements,
+          'image',
+          image.parts,
+          occurrence(instruction),
+          { parts: image.parts, crops: image.crops, orderedSlots: image.orderedSlots, split: image.parts.length > 1 },
+        );
+        instructionFact.fade.requirementKey = requirement.key;
       }
     } else if (instruction.op === 'PCMDIR') {
       state.currentPcmDirectory = normalizeSourcePath(instruction.args[0]);
@@ -2421,12 +2459,23 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
     } else if (APPROXIMATE_VISUAL_COMMANDS.has(instruction.op)) {
       diagnostics.push(diagnostic('warning', 'visual-effect-omitted', `${instruction.op} の演出はPCE VNで省略します。`, instruction));
     } else if (instruction.op === 'FADE') {
-      diagnostics.push(diagnostic(
-        'warning',
-        'fade-omitted',
-        'BG・キャラクターを対象とするCG alpha FADEは省略し、BG切替はPCE VNのfadeに任せます。',
-        instruction,
-      ));
+      const fade = instructionFact.fade;
+      const hasKnownAlphaTarget = Boolean(
+        fade?.isAlpha
+        && fade.requirementKey
+        && fade.placement
+        && Number.isFinite(fade.toOpacity)
+        && fade.toOpacity >= 0
+        && fade.toOpacity <= 1
+      );
+      if (!hasKnownAlphaTarget) {
+        diagnostics.push(diagnostic(
+          'warning',
+          'fade-omitted',
+          'BG・キャラクターを対象とするCG alpha FADEは省略し、BG切替はPCE VNのfadeに任せます。',
+          instruction,
+        ));
+      }
     } else if (instruction.op === 'SCREEN') {
       diagnostics.push(diagnostic('warning', 'screen-approximated', 'SCREENをPCE VNのfade/flash/blankへ簡略化します。', instruction));
     } else if (OMITTED_COMMANDS.has(instruction.op)) {
@@ -2614,6 +2663,19 @@ function buildBasicBlocks(analysis, namespace) {
     blockByNode: assigned,
     entryBlockIndex: assigned.get(entryKey) ?? 0,
   };
+}
+
+function compareImportedSceneEntries(left, right) {
+  const leftSource = left.block.source || {};
+  const rightSource = right.block.source || {};
+  const scriptCompare = String(leftSource.script || '').toUpperCase()
+    .localeCompare(String(rightSource.script || '').toUpperCase(), 'en');
+  if (scriptCompare !== 0) return scriptCompare;
+  const startLineCompare = Number(leftSource.startLine || 0) - Number(rightSource.startLine || 0);
+  if (startLineCompare !== 0) return startLineCompare;
+  const endLineCompare = Number(leftSource.endLine || 0) - Number(rightSource.endLine || 0);
+  if (endLineCompare !== 0) return endLineCompare;
+  return left.block.index - right.block.index;
 }
 
 function mappingCollections(mapping = {}) {
@@ -2841,6 +2903,21 @@ function compileScreenEffect(instruction, constants) {
   };
 }
 
+function compileSpriteVisibilityCommand(assetMapping, fade, instruction, constants, diagnostics) {
+  const sourceX = fade.placement?.x ?? 0;
+  return {
+    type: 'sprite',
+    slot: assetMapping.slot,
+    assetId: assetMapping.assetId,
+    x: importedSpriteX(sourceX, constants, instruction, diagnostics),
+    y: PCE_IMPORTED_SPRITE_Y,
+    animationId: assetMapping.animationId,
+    flipX: false,
+    flipY: false,
+    visible: fade.toOpacity > 0,
+  };
+}
+
 function convertScripts(analysis, {
   mapping = {},
   assetCatalog = [],
@@ -2872,7 +2949,7 @@ function convertScripts(analysis, {
     if (voiceInstruction) voiceInstructions.add(`${voiceInstruction.script}:${voiceInstruction.line}`);
   });
 
-  const scenes = [];
+  const sceneEntries = [];
   blocks.forEach((block) => {
     const commands = [];
     const commandSources = [];
@@ -2947,6 +3024,7 @@ function convertScripts(analysis, {
         const assetMapping = normalizedMapping.assets[fact.requirementKey];
         if (assetMapping?.action === 'map') {
           if (assetMapping.display === 'sprite') {
+            const initialOpacity = numericValue(instruction.args[4], nodeConstants);
             commands.push({
               type: 'sprite',
               slot: assetMapping.slot,
@@ -2956,7 +3034,7 @@ function convertScripts(analysis, {
               animationId: assetMapping.animationId,
               flipX: false,
               flipY: false,
-              visible: true,
+              visible: initialOpacity === null || initialOpacity > 0,
             });
           } else {
             commands.push({
@@ -2969,6 +3047,44 @@ function convertScripts(analysis, {
               y: assetMapping.y,
             });
           }
+        }
+      } else if (instruction.op === 'FADE') {
+        const fade = fact.fade;
+        const assetMapping = fade?.requirementKey
+          ? normalizedMapping.assets[fade.requirementKey]
+          : null;
+        const canToggleSprite = Boolean(
+          fade?.isAlpha
+          && fade.placement
+          && Number.isFinite(fade.toOpacity)
+          && fade.toOpacity >= 0
+          && fade.toOpacity <= 1
+          && assetMapping?.action === 'map'
+          && assetMapping.display === 'sprite'
+        );
+        if (canToggleSprite) {
+          commands.push(compileSpriteVisibilityCommand(
+            assetMapping,
+            fade,
+            instruction,
+            nodeConstants,
+            diagnostics,
+          ));
+          diagnostics.push(diagnostic(
+            'warning',
+            'sprite-fade-approximation',
+            `CG slot ${fade.slot} のalpha FADE(${fade.fromOpacity ?? '(unknown)'}→${fade.toOpacity})をSprite Visible ${fade.toOpacity > 0 ? 'ON' : 'OFF'}へ近似します。`,
+            instruction,
+          ));
+        } else if (fade?.isAlpha && fade.requirementKey
+          && assetMapping?.action === 'map'
+          && assetMapping.display === 'background') {
+          diagnostics.push(diagnostic(
+            'warning',
+            'fade-omitted',
+            'BGを対象とするalpha FADEは省略し、BG commandのpalette fadeに任せます。',
+            instruction,
+          ));
         }
       } else if (instruction.op === 'PLAYP') {
         const voiceLocation = `${instruction.script}:${instruction.line}`;
@@ -3216,15 +3332,21 @@ function convertScripts(analysis, {
         block.nodes[0]?.instruction,
       ));
     }
-    scenes.push({
-      id: block.id,
-      name: `北へ。PM/${block.source.script}:${block.source.startLine}`,
-      fullScreenBg: false,
-      commands,
-      nextSceneId,
+    sceneEntries.push({
+      block,
+      scene: {
+        id: block.id,
+        name: `北へ。PM/${block.source.script}/${block.source.startLine}`,
+        fullScreenBg: false,
+        commands,
+        nextSceneId,
+      },
     });
     block.commandSources = commandSources;
   });
+
+  sceneEntries.sort(compareImportedSceneEntries);
+  const scenes = sceneEntries.map((entry) => entry.scene);
 
   const variableNames = new Set();
   scenes.forEach((scene) => {
@@ -3240,11 +3362,11 @@ function convertScripts(analysis, {
     ));
   }
 
-  const sourceMap = blocks.flatMap((block) => (block.commandSources || []).map((entry) => ({
+  const sourceMap = sceneEntries.flatMap(({ block }) => (block.commandSources || []).map((entry) => ({
     sceneId: block.id,
     ...entry,
   })));
-  const sourceRanges = blocks.map((block) => ({ sceneId: block.id, ...block.source }));
+  const sourceRanges = sceneEntries.map(({ block }) => ({ sceneId: block.id, ...block.source }));
   const finalDiagnostics = dedupeDiagnostics(diagnostics);
   return {
     ok: !finalDiagnostics.some((entry) => entry.severity === 'error'),
