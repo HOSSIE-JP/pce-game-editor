@@ -211,6 +211,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             <button class="icon-btn" data-action="import-cdda" type="button" title="CD-DAを追加" aria-label="CD-DAを追加">CD+</button>
             <button class="icon-btn" data-action="new-psg" type="button" title="PSG SFX を追加" aria-label="PSG SFX を追加">♪+</button>
             <button class="icon-btn" data-action="new-palette" type="button" title="Palette を追加" aria-label="Palette を追加">▦</button>
+            <span class="asset-batch-importer-actions" data-role="batch-importer-actions"></span>
           </div>
         </div>
 
@@ -431,6 +432,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   let sortState = { key: 'manual', direction: 'asc' };
   const assetApi = api.assets || {};
   const batchImporter = createAdpcmBatchImporter({ plugin, api, logger });
+  const batchImporterActionsEl = root.querySelector('[data-role="batch-importer-actions"]');
+  const batchImporterProviders = new Map();
+  let projectTargetMedia = '';
   const psgPreviewController = createPsgPreviewController({
     onStateChange: (playing) => {
       if (soundMeterBarEl) soundMeterBarEl.style.width = playing ? '100%' : '0%';
@@ -465,6 +469,81 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   const previewPceAssetSource = (relativePath) => assetApi.previewPceAssetSource
     ? assetApi.previewPceAssetSource(relativePath)
     : api.electronAPI.previewAssetSource(relativePath);
+
+  function availableBatchImporters() {
+    const providers = typeof api.capabilities?.all === 'function'
+      ? api.capabilities.all('asset-batch-importer')
+      : [];
+    return (Array.isArray(providers) ? providers : [])
+      .filter((provider) => provider && typeof provider.open === 'function')
+      .sort((left, right) => (
+        Number(right.priority || 0) - Number(left.priority || 0)
+        || Number(left.order || 100) - Number(right.order || 100)
+        || String(left.label || left.id || '').localeCompare(String(right.label || right.id || ''), 'ja')
+      ));
+  }
+
+  function renderBatchImporterActions() {
+    if (!batchImporterActionsEl) return;
+    batchImporterProviders.clear();
+    const providers = availableBatchImporters();
+    batchImporterActionsEl.hidden = providers.length === 0;
+    batchImporterActionsEl.innerHTML = providers.map((provider, index) => {
+      const id = String(provider.id || provider.pluginId || `batch-importer-${index}`);
+      batchImporterProviders.set(id, provider);
+      const supportedMedia = Array.isArray(provider.supportedTargetMedia)
+        ? provider.supportedTargetMedia.map((entry) => String(entry || '').toLowerCase())
+        : [];
+      const enabled = !supportedMedia.length || supportedMedia.includes(projectTargetMedia);
+      const reason = enabled
+        ? String(provider.title || `${provider.label || id}を一括取り込み`)
+        : String(provider.disabledReason || `${supportedMedia.join(' / ')}プロジェクト専用です`);
+      return `
+        <button
+          class="btn-sm"
+          type="button"
+          data-asset-batch-importer="${esc(id)}"
+          title="${esc(reason)}"
+          ${enabled ? '' : 'disabled'}
+        >${esc(provider.label || id)}</button>
+      `;
+    }).join('');
+  }
+
+  async function refreshBatchImporterActions() {
+    try {
+      const config = await api.electronAPI.getProjectConfig?.();
+      projectTargetMedia = String(config?.targetMedia || '').trim().toLowerCase();
+    } catch (_) {
+      projectTargetMedia = '';
+    }
+    renderBatchImporterActions();
+  }
+
+  async function openBatchImporter(event) {
+    const button = event.target?.closest?.('[data-asset-batch-importer]');
+    if (!button || button.disabled) return;
+    const provider = batchImporterProviders.get(String(button.dataset.assetBatchImporter || ''));
+    if (!provider) return;
+    button.disabled = true;
+    formErrorEl.textContent = '';
+    try {
+      const result = await provider.open({
+        targetMedia: projectTargetMedia,
+        assets: assets.slice(),
+        reload: () => reload({ force: true }),
+      });
+      if (result?.ok || Number(result?.summary?.succeeded || 0) > 0) {
+        await reload({ force: true });
+      }
+    } catch (error) {
+      const message = error?.message || String(error);
+      formErrorEl.textContent = message;
+      logger?.error?.(`Asset batch import failed: ${message}`);
+    } finally {
+      renderBatchImporterActions();
+    }
+  }
 
   function selectedAsset() {
     return assets.find((asset) => asset.id === selectedId) || null;
@@ -509,7 +588,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     if (sortState.key === 'manual') return list;
     const direction = sortState.direction === 'desc' ? -1 : 1;
     const value = (asset) => (sortState.key === 'type'
-      ? `${typeLabel(asset)} ${assetFullName(asset)}`
+      ? `${typeLabel(asset)}\u0000${assetFullName(asset)}`
       : assetFullName(asset));
     return list
       .map((asset, index) => ({ asset, index }))
@@ -1760,10 +1839,18 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   }
 
   const teardownAssetRefreshEvents = setupAssetRefreshEvents();
+  batchImporterActionsEl?.addEventListener('click', openBatchImporter);
+  const offBatchImporterRegistered = api.events?.on?.('capability:registered', (detail) => {
+    if (detail?.capability === 'asset-batch-importer') renderBatchImporterActions();
+  }) || (() => {});
+  void refreshBatchImporterActions();
   void reload();
   return {
     deactivate() {
       teardownAssetRefreshEvents();
+      offBatchImporterRegistered();
+      batchImporterActionsEl?.removeEventListener('click', openBatchImporter);
+      batchImporterProviders.clear();
       batchImporter.destroy();
       psgPreviewController.close();
     },

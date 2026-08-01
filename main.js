@@ -7,7 +7,6 @@ const { spawn } = require('child_process');
 const cdBundle = require('./pce-cd-bundle');
 const pceExport = require('./pce-export');
 const { exportIrodoriBatchZip } = require('./pce-vn-irodori-export');
-const { exportGodotPackageZip } = require('./pce-vn-godot-package');
 const { inspectIrodoriVoiceAssignments } = require('./pce-vn-irodori-assign');
 const systemCardProfile = require('./pce-system-card-profile');
 const { resolveUnderRoot } = require('./pce-file-safety');
@@ -1896,32 +1895,6 @@ async function handleExportVnIrodoriBatch(payload = {}) {
   });
 }
 
-async function handleExportVnGodotPackage(payload = {}) {
-  let projectName = 'pce-vn';
-  try {
-    const cfg = buildSystem.loadProjectConfig();
-    projectName = cfg?.title || cfg?.romName || cfg?.name || buildSystem.getProjectInfo()?.projectName || projectName;
-  } catch (err) {
-    appDiagnostics.report({
-      source: 'export',
-      code: 'godot-package-project-name-read-failed',
-      level: 'warn',
-      error: err,
-    });
-  }
-  const owner = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
-  const defaultPath = `${sanitizeExportFileName(projectName, 'pce-vn')}.pcevn.zip`;
-  return exportGodotPackageZip({
-    projectDir: buildSystem.getProjectDir(),
-    sceneDoc: payload?.doc || {},
-    defaultPath,
-    owner,
-    showSaveDialog: (dialogOwner, options) => dialog.showSaveDialog(dialogOwner, options),
-    createStoredZipBuffer: (entries) => cdBundle.createStoredZipBuffer(entries),
-    writeFileSync: (filePath, data) => fs.writeFileSync(filePath, data),
-  });
-}
-
 ipcMain.handle('build:run', async (_event, options = {}) => {
   return runBuildFull({
     skipClean: Boolean(options?.skipClean),
@@ -1938,10 +1911,6 @@ ipcMain.handle('export:html', async () => {
 
 ipcMain.handle('vn:exportIrodoriBatch', async (_event, payload = {}) => {
   return handleExportVnIrodoriBatch(payload);
-});
-
-ipcMain.handle('vn:exportGodotPackage', async (_event, payload = {}) => {
-  return handleExportVnGodotPackage(payload);
 });
 
 ipcMain.handle('vn:inspectIrodoriVoiceAssignments', async (_event, payload = {}) => {

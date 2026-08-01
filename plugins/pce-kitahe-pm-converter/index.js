@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const vnManager = require('../../pce-vn-manager');
 const converter = require('./converter');
+const assetPackage = require('./asset-package');
 
 const SIDECAR_FILE = path.join('assets', 'kitahe-pm-conversion.json');
 const REPORT_FILE = path.join('assets', 'kitahe-pm-conversion-report.json');
@@ -191,13 +192,17 @@ function suggestAssetRequirements(requirements = [], assets = []) {
     const suggestedAssetName = converter.assetMatchName(requirement);
     const nameKey = converter.assetMatchKey(suggestedAssetName);
     const acceptedTypes = new Set(automaticAssetTypes(requirement));
-    const matches = nameKey
+    const sourceKeyMatches = assets.filter((asset) => (
+      acceptedTypes.has(String(asset?.type || ''))
+      && asset?.data?.import?.kitahePm?.sourceKey === requirement.key));
+    const nameMatches = nameKey
       ? assets.filter((asset) => (
         acceptedTypes.has(String(asset?.type || ''))
+        && !asset?.data?.import?.kitahePm?.sourceKey
         && converter.assetMatchKey(asset?.name) === nameKey
       ))
       : [];
-    matches.sort((left, right) => {
+    nameMatches.sort((left, right) => {
       if (requirement.kind === 'image') {
         const leftRank = String(left?.type || '') === 'image' ? 0 : 1;
         const rightRank = String(right?.type || '') === 'image' ? 0 : 1;
@@ -205,12 +210,14 @@ function suggestAssetRequirements(requirements = [], assets = []) {
       }
       return String(left?.id || '').localeCompare(String(right?.id || ''), 'ja');
     });
-    const suggested = matches[0];
+    const suggested = sourceKeyMatches.length === 1 ? sourceKeyMatches[0] : (sourceKeyMatches.length ? null : nameMatches[0]);
     return {
       ...requirement,
       suggestedAssetName,
       suggestedAssetId: String(suggested?.id || ''),
       suggestedAssetType: String(suggested?.type || ''),
+      suggestedBy: suggested ? (sourceKeyMatches.length === 1 ? 'sourceKey' : 'name') : '',
+      sourceKeyMatchCount: sourceKeyMatches.length,
     };
   });
 }
@@ -290,9 +297,7 @@ function previousImportRecord(sidecar, selectedScripts, entryScript) {
 
 function savedMappingFromRecord(record) {
   return {
-    speakers: record?.speakerMappings && typeof record.speakerMappings === 'object'
-      ? record.speakerMappings
-      : {},
+    speakers: {},
     assets: record?.assetMappings && typeof record.assetMappings === 'object'
       ? record.assetMappings
       : {},
@@ -422,7 +427,7 @@ function inspectKitahePmSource(payload = {}, context = {}) {
     const sidecarSnapshot = readSidecarSnapshot(projectDir);
     const previousSidecar = sidecarSnapshot.document;
     const diskSnapshot = readDiskSceneSnapshot(projectDir);
-    let savedMapping = savedMappingFromRecord(previousSidecar);
+    let savedMapping = savedMappingFromRecord(null);
     const discovered = discoverScriptFiles(payload.sourceRoot);
     const selectedScripts = normalizeSelectedScripts(payload.selectedScripts);
     const scripts = minimalScripts(discovered, selectedScripts);
@@ -472,7 +477,7 @@ function inspectKitahePmSource(payload = {}, context = {}) {
     const selectedCanonical = files.map((file) => file.path);
     const requestedEntry = converter.normalizeRelativeScriptPath(payload.entryScript || selectedCanonical[0]);
     const previousImport = previousImportRecord(previousSidecar, selectedCanonical, requestedEntry);
-    savedMapping = savedMappingFromRecord(previousImport || previousSidecar);
+    savedMapping = savedMappingFromRecord(previousImport);
     const analysis = converter.inspectScripts({
       files,
       entryScript: requestedEntry,
@@ -803,7 +808,7 @@ function applyKitahePmConversion(payload = {}, context = {}) {
       entry: entryScript,
       protagonistName: String(payload.protagonistName || ''),
       namespace,
-      speakerMappings: converted.normalizedMapping.speakers,
+      speakerMappings: {},
       assetMappings: converted.normalizedMapping.assets,
       ownedSceneIds: importedSceneIds,
     });
@@ -834,7 +839,7 @@ function applyKitahePmConversion(payload = {}, context = {}) {
       assetRequirements: analysis.requirements,
       approximations: diagnostics.filter((entry) => (
         entry.severity === 'warning'
-        && /approximation|approximated|omitted|truncated/.test(String(entry.code || ''))
+        && /approximation|approximated|omitted|truncated|replaced/.test(String(entry.code || ''))
       )),
       sceneBudgets: buildInspection.sceneBudgets,
       totals: buildInspection.totals,
@@ -872,6 +877,24 @@ function applyKitahePmConversion(payload = {}, context = {}) {
   }
 }
 
+function inspectKitahePmAssetPackage(payload = {}, context = {}) {
+  try {
+    const projectDir = requireProjectDir(context);
+    const result = assetPackage.inspectAssetPackage(payload, {
+      projectDir,
+      assets: assetCatalog(context),
+      targetMedia: payload.targetMedia,
+    });
+    context.logger?.info?.(
+      `北へ。PM素材検査: ${result.summary.valid}/${result.summary.total}件有効、error ${result.summary.errorCount}件`,
+    );
+    return result;
+  } catch (error) {
+    context.logger?.error?.(`北へ。PM素材検査失敗: ${String(error.message || error)}`);
+    return { ok: false, error: String(error.message || error) };
+  }
+}
+
 module.exports = {
   SIDECAR_FILE,
   REPORT_FILE,
@@ -880,4 +903,5 @@ module.exports = {
   suggestAssetRequirements,
   inspectKitahePmSource,
   applyKitahePmConversion,
+  inspectKitahePmAssetPackage,
 };

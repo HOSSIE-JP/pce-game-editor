@@ -8,6 +8,11 @@
 のADPCM化、MIDIのPSG化、GD-DA trackの登録は行いません。変換前に人手で
 加工・登録したPCE assetを、取込画面でSCR上の参照へ対応付けてください。
 
+上記はSCR取込の責務です。同じpluginは、Kitahe PhotoMemories Asset Viewerが
+P04をWAV、MIDIをStandard MIDI、PVRをcrop・結合済みPNGへ変換したasset packageを
+PCE assetへ一括登録する機能も提供します。GD-DA trackの自動登録は初版対象外です。
+
+
 ## 対象と前提
 
 - 出力先は `targetMedia: "cd"` のCD-ROM2 VNだけです。HuCARD projectへは
@@ -21,19 +26,100 @@
 - 画像・音声のsource binaryは生成しません。変換結果が参照するのは既存の
   PCE asset IDだけです。
 
+## Viewer asset packageの一括取込
+
+CD-ROM2 projectのAssets画面で **北へ。PM素材** を押し、Viewerが出力した
+`kitahe-pm-assets.csv` を選択します。HuCARDではボタンを無効化し、CD-ROM2専用
+である理由をtooltipへ表示します。既存の **AD CSV** は従来どおりADPCM専用で、
+このpackage取込には流用しません。
+
+packageは次の固定構成です。
+
+```text
+kitahe-pm-pce-assets/
+  kitahe-pm-assets.csv
+  adpcm-import.csv
+  conversion-report.json
+  SCRIPT/**/*.SCR
+  audio/*.wav
+  midi/*.mid
+  images/*.png
+```
+
+Wizardで選択したSCRだけを`SCRIPT/...`の相対pathとCP932の元byte列を保って同梱します。ADV stateの事前解析だけに使った選択外context SCRは含めません。このpackage rootをそのままSCR取込のresource rootとして選択できます。
+
+混在manifestはUTF-8 BOM付きRFC 4180で、headerを次の順に固定します。
+
+```csv
+version,kind,targetType,sourceKey,source,file,id,name,usage,playbackRate,loop,sampleRate,splitPolicy,details
+```
+
+Viewerは`ADV_*.SCR`の外部GOTO graphをたどり、選択した後続SCRだけを出力する場合も、
+先行SCRをstate継承専用contextとして解析します。context内のasset参照はmanifestへ
+追加せず、CGDIR、CG slot、変数など、選択SCRの解決に必要な状態だけを引き継ぎます。
+
+画像種別の既定値はLCG crop・LINK結合後の論理寸法で決まり、640×480は
+`background`、512×480は`sprite`です。Viewerでは結合画像上の共通source cropを1px単位で指定し、
+その枠を切り出してからbilinearで指定出力サイズへ変換します。`sourceCrop`、`outputSize`、処理順は`details`へ記録しますが、
+`sourceKey`はordered partsと各LCG cropから生成するため、設定変更時も同じ所有asset IDを
+維持して更新できます。
+LCGの表示寸法がPVR実寸を超える場合は、Quick Playと同じく各軸を実寸へclampします。
+script上の指定寸法はidentityへ維持し、後段の共通export cropは暗黙にclampしません。
+
+
+検査画面は、行ごとにsource、ID、`sourceKey`、新規/更新、Viewerで確定した
+`background` / `sprite` / `adpcm` / `psg-song`、寸法、警告、エラーを表示します。
+画像はaspect比を維持したPNG thumbnail、WAVは再生時間・rate・channel・変換後
+ADPCM bytes、MIDIはPSG変換previewを表示します。WAV/MIDI本体をpreview IPCの
+data URLへ複製しないため、大量素材でもmanifest検査payloadを抑えます。
+
+Viewerで決定した画像種別はPCE側で変更しません。PNGはすでにcrop・出力サイズ変換済みなので
+PCE側では素材種別や寸法を変更せず、生成済みPNGをそのまま変換入力に使います。
+ここでいう変換済みPNGは、LCG crop・結合・最終出力と同じアスペクト比のsource crop・
+指定出力サイズへのbilinear resizeまでをViewerで完了したものです。8px／Sprite Cell境界は出力サイズだけに適用されます。
+resize modalを開かず、既存のPCE画像importerが内蔵16色変換とBG/Sprite生成を
+行います。P04由来WAVは指定sample rateでADPCM化し、32767 bytesのdirect-buffered
+上限を超える行を分割せずerrorにします。MIDIは既存のMIDI→PSG経路を使い、現行の
+quantizer metadataを保存します。
+P04の`sourceKey` identityは`source`、`usage`、`loop`、`PLAYP playbackRate`を含むため、
+同じP04 sourceでも再生rateが異なる参照は別asset要件として扱います。
+
+warningが1件でもある場合は確認checkboxをONにするまで登録を開始できません。
+開始直前にmanifest、各file、asset catalogを再検査し、`inspectionSignature`が
+preview時と変わっていれば登録しません。開始後はmanifest順に1行ずつ登録し、
+変換失敗した行の後も続行します。**残りをキャンセル** は処理中の1行を完了して
+保存した後で止まり、それまでの成功assetを保持します。
+
+登録assetの`data.import.kitahePm`には、絶対pathを含まない次のprovenanceだけを
+保存します。
+
+```json
+{
+  "version": 1,
+  "sourceKey": "image-... / p04-... / midi-...",
+  "kind": "image / p04 / midi",
+  "source": "logical source",
+  "manifestFileName": "kitahe-pm-assets.csv",
+  "row": 2
+}
+```
+
+同じ`sourceKey`を所有するassetが1件なら既存IDを維持して更新します。所有画像は
+Viewer側の再分類に合わせたBG↔Sprite変更を許可します。複数所有、無関係な同一ID、
+P04→画像などの型違いはerrorです。SCR converterの自動mappingもprovenanceの
+`sourceKey`完全一致を最優先し、provenanceのない旧assetだけname照合へfallbackします。
+
 ## 取込手順
 
-Novel画面の `北へ。PM取込` を押し、次の順で設定します。
+Settings > Pluginsで `北へ。PhotoMemories 取込` を有効にすると、CD-ROM2 projectのNovel画面に `北へ。PM取込` が表示されます。プラグインをOFFにした場合とHuCARD projectではボタンを表示しません。ボタンを押し、次の順で設定します。
 
 1. resource rootを選ぶ。root直下に `SCRIPT` directoryが必要です。
 2. 一覧から変換対象のSCRを複数選択し、entry SCRと主人公名を指定する。
-3. 検出されたすべての `COLOR` tokenを、16文字以内の話者名または
-   `ナレーション` へ割り当てる。
-4. 到達可能な画像・P04・MIDI・GD-DA参照を確認する。source名と既存PCE
+3. 到達可能な画像・P04・MIDI・GD-DA参照を確認する。source名と既存PCE
    asset名が一致する参照は自動的に割り当てられ、一致しない参照は省略状態になる。
    必要に応じて対応assetを変更するか、カード右上のチェックをOFFにして省略する。
-5. 行番号付き診断、近似内容、scene予算を確認する。
-6. `置換` または `追加` を選び、warningを確認して適用する。
+4. 行番号付き診断、近似内容、scene予算を確認する。
+5. `置換` または `追加` を選び、warningを確認して適用する。
 
 `置換` は現在のVN settingsを維持してsceneだけを置き換え、取込entryを
 `startScene` にします。`追加` は既存sceneと既存`startScene`を既定で維持し、
@@ -46,12 +132,16 @@ Novel画面の `北へ。PM取込` を押し、次の順で設定します。
 
 ## Mapping
 
-### 話者
+### COLORとメッセージ色
 
-`COLOR WIN_MSG, token` のtokenごとに、次のどちらかを必ず指定します。
+話者mapping UIと必須指定はありません。取り込むmessageはすべて
+`speaker: ""` のナレーションとして生成します。
 
-- `speaker`: 1〜16文字の話者名
-- `narration`: 話者欄を使わない本文
+`COLOR WIN_MSG, GCOLOR` の第2引数は、数値・16進値・静的定数として解決し、
+16-bit ARGB4444のRGB nibbleを`#rrggbb`へ展開して`message.textColor`へ設定します。
+alpha nibbleは本文色には使いません。保存後は通常のVN messageと同じくPCEの
+3-bit/channel表示色へ丸められます。値を解決できない場合は行番号付きwarningを残し、
+そのmessageだけ既定の白を使います。
 
 `NAME` の置換はページ分割より先に行います。主人公を表す既知tokenには、
 取込画面で指定した主人公名を優先します。
@@ -66,8 +156,14 @@ Novel画面の `北へ。PM取込` を押し、次の順で設定します。
 画像mappingでは次を指定します。
 
 - `background`: image asset IDとBG tile座標
-- `sprite`: sprite asset ID、slot、画面座標、animation ID
+- `sprite`: sprite asset ID、slot、animation ID
 - カード右上のチェックOFF: 意図的に表示しない
+
+Spriteの座標はmappingでは指定しません。各`ICG`のXを数値・16進値・静的定数として
+解決し、Dreamcast側の640px座標系から`round(ICG X * 224 / 640)`でPCE座標へ
+変換します。PCE VNのX範囲`0..319`を外れる結果は範囲内へ補正し、行番号付きwarningを
+残します。Yはすべて`17`です。同じsprite assetを異なる`ICG`位置で使った場合も、
+各表示commandへ個別のXが入ります。
 
 単一sourceは拡張子を除いたpathをasset名として照合します。たとえば
 `NEW/AYU/KAPM_001.PVR` は `NEW/AYU/KAPM_001` と一致します。複数画像の
@@ -77,7 +173,7 @@ Novel画面の `北へ。PM取込` を押し、次の順で設定します。
 照合はasset型を考慮し、大文字小文字とslash表記の差は無視します。
 
 asset IDが存在しない場合や、backgroundへsprite、spriteへimageを指定した場合は
-errorです。
+errorです。Mapping画面の **アセット対応をリセットして自動照合** は、現在の画像・音声mappingだけを破棄し、最新のasset catalogを再読込して`sourceKey`完全一致、続いて旧assetの名前一致から候補を作り直します。一致しない参照は明示的な省略へ戻します。SCR選択、主人公名、append sceneの所有情報は維持します。リセットは取込画面の作業コピーだけに作用し、キャンセル時はsidecarを変更せず、変換適用に成功した時だけ新しいasset mappingを保存します。
 
 ### 音声
 
@@ -95,13 +191,20 @@ loop P04を非loop assetへ対応付けた場合は近似warning、非loop P04�
 
 ## メッセージ
 
-`MSG WIN_MSG` は次の `WAIT WIN_MSG` まで連結します。明示改行、NAME置換、
-話者mappingを適用した後、PCE VNの17文字×4行へ再分割します。話者名がある
-messageは本文を残り3行に収めます。1つの元messageが複数ページになった場合、
-対応するvoiceは先頭ページだけへ付けます。
+`MSG WIN_MSG` は次の `WAIT WIN_MSG` まで連結します。元SCRの明示改行と
+改行前後の空白は除去して本文を詰め、`NAME` / 主人公名を置換した後、ナレーションとして
+67 glyphずつに再分割します。PCE runtimeが17文字ごとに自動折り返しし、4行目の
+最終1文字はページ送りcursor用に予約します。このため、Dreamcast側の行幅を前提にした
+改行とPCE側の自動折り返しが重なって空行になることはありません。1つの元messageが
+複数ページになった場合、対応するvoiceは先頭ページだけへ付けます。
 
-CD-ROM2 VNでencodeできない文字はerrorです。文字を黙って代替したり削除したり
-しません。
+北へ。PM取込では、NAME・主人公名置換後の本文とMENU選択肢を
+System Card jp-v3の収録文字で検査します。非対応のUnicode code pointは1文字ごとに
+`□`へ置換し、元のcode point、field、0始まりの文字位置、SCR path・行番号を
+`font-character-replaced` warningへ残します。本文は67 glyphへのページ分割前、
+MENU選択肢は24文字への切り詰め後に検査するため、実際に保存する表示文字だけが対象です。
+不正なCP932 byte列は従来どおりerrorです。この代替は今回取り込むsceneだけに適用し、
+Novel editorで手入力したsceneや既存sceneのjp-v3文字検査は引き続きbuild errorにします。
 
 ## 制御フロー
 
@@ -131,12 +234,19 @@ scene pack byte数の上限は、保存前にPCE VN managerの非書込みbuild�
 
 ## 演出の近似
 
-単純な画面fade、flash、blank、`SCREEN` はPCE VNの`effect`へ近似します。
-`SCG`、`MCG`、`RCG`、`WCG`、`CFADE`など、初版で安全に表現できない演出は
-省略してwarningへ記録します。不明命令も行番号付きwarningとして残します。
+`SCREEN`の全画面fade、flash、blankはPCE VNの`effect`へ近似します。
+BG・キャラクターのCG slotを対象とする`FADE`は全画面effectへ変換せず、
+行番号付きwarningを残して省略します。`SCG`、`MCG`、`RCG`、`WCG`、
+`CFADE`など、初版で安全に表現できない演出も省略してwarningへ記録します。
+不明命令も行番号付きwarningとして残します。
+
+`ICG`から生成する`background` commandはFade out / Fade inをともに速度3の`30`へ
+設定し、PCE VN runtimeのpalette fadeへ切替演出を任せます。変換元の`FADE`は
+省略するためBG command自身のfadeと重なりません。`SCREEN`の全画面effect近似は
+BG・キャラクター単位のfadeとは別の演出として維持します。
 
 演出の省略は適用を禁止しません。一方、制御フローの破損、未解決label、
-必須mapping不足、asset型違い、文字encode失敗、各種build予算超過はerrorであり、
+必須asset mapping不足、asset型違い、不正なCP932 byte列、各種build予算超過はerrorであり、
 scene documentを変更しません。
 
 ## 保存ファイル
@@ -154,8 +264,9 @@ assets/kitahe-pm-conversion.json
 assets/kitahe-pm-conversion-report.json
 ```
 
-`kitahe-pm-conversion.json` v1には、選択SCRの相対path、entry、主人公名、話者mapping、
-asset mapping、import namespace、追加時の所有scene IDを保存します。絶対source
+`kitahe-pm-conversion.json` v1には、選択SCRの相対path、entry、主人公名、
+asset mapping、import namespace、追加時の所有scene IDを保存します。旧v1 schemaとの
+互換用`speakerMappings`は空objectとして保存し、UIや変換には使いません。保存済みmappingは選択SCR集合とentryが一致するimport identityでだけ復元し、直前に扱った別identityのmappingへfallbackしません。絶対source
 pathとmessage本文は保存しません。
 
 reportにはsummary、行番号付き診断、asset要件、近似一覧、scene budget、source mapを
@@ -224,14 +335,50 @@ applyKitahePmConversion({
 })
 ```
 
-renderer capability:
+renderer capabilities:
 
 ```js
+novel-toolbar-action = {
+  label: '北へ。PM取込',
+  placement: 'before-preview',
+  supportedTargetMedia: ['cd'],
+  run(editor),
+}
+
 kitahe-pm-script-converter.openImportModal({
   doc,
   assets,
   targetMedia,
 })
+```
+
+`北へ。PM取込`のボタン定義と実行処理はconverter pluginが所有します。Novel editorは
+`novel-toolbar-action`を汎用列挙するだけで、plugin IDを判定しません。そのため
+pluginをOFFにした場合とHuCARD projectではボタン自体を表示しません。
+
+asset package inspector hook:
+
+```js
+inspectKitahePmAssetPackage({
+  manifestPath,
+  targetMedia: 'cd',
+  assetCatalogSignature,
+})
+```
+
+戻り値はstrict検査済みの`rows`、画像/MIDI/音声metadata preview、`summary`、
+`inspectionSignature`、`assetCatalogSignature`を持ちます。inspectはassetを変更しません。
+
+asset package renderer capabilities:
+
+```js
+kitahe-pm-asset-importer.openImportModal({ targetMedia, assets, reload })
+
+asset-batch-importer = {
+  label: '北へ。PM素材',
+  supportedTargetMedia: ['cd'],
+  open(options),
+}
 ```
 
 rendererからmain hookを呼ぶ際、現在のproject directoryとasset catalogはhostが
@@ -241,6 +388,9 @@ contextとして渡します。plugin専用IPCや本体main/preloadのplugin ID�
 
 - SCR pathは選択resource rootの`SCRIPT`以下へ正規化し、絶対path、`..`、symlink
   escapeを拒否します。
+- packageの`file`はpackage rootからの相対pathだけを許可し、絶対path、`..`、
+  missing file、symlink/junction escapeを拒否します。
+- package manifest、素材file、asset catalogのhash/signatureを適用直前にも検査します。
 - 外部rootは読取り専用です。
 - projectへの書込み先は上記3 sidecarと正規のVN scene fileだけです。
 - inspectはprojectを変更しません。

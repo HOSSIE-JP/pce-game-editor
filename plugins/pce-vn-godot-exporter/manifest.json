@@ -1,0 +1,19 @@
+{
+  "id": "pce-vn-godot-exporter",
+  "name": "NVプロジェクトのGodotエクスポート",
+  "description": "Visual Novel sceneと参照素材をGodotネイティブプレイヤー向けpackageへ出力します。",
+  "version": "1.0.0",
+  "icon": "download",
+  "types": ["converter"],
+  "supportedCores": ["pc-engine"],
+  "hooks": ["exportVnGodotPackage"],
+  "permissions": ["project.read", "dialog.saveFile", "main.invokeHook"],
+  "mainApi": {
+    "hooks": ["exportVnGodotPackage"],
+    "capabilities": ["vn-godot-exporter", "novel-toolbar-action"]
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "capabilities": ["vn-godot-exporter", "novel-toolbar-action"]
+  }
+}

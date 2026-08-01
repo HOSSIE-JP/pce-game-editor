@@ -192,7 +192,7 @@ test('built-in PCE asset editor suite is scoped to the PC Engine core', () => {
   const pluginManager = loadWithMockedElectron(path.join(__dirname, '..', 'plugin-manager.js'), { userData });
   const pcePlugins = new Map(pluginManager.listPlugins({ coreId: 'pc-engine' }).map((plugin) => [plugin.id, plugin]));
 
-  ['novel-editor', 'pce-asset-manager', 'image-editor', 'sound-editor', 'pce-image-converter', 'pce-audio-converter', 'pce-kitahe-pm-converter'].forEach((id) => {
+  ['novel-editor', 'pce-asset-manager', 'image-editor', 'sound-editor', 'pce-image-converter', 'pce-audio-converter', 'pce-kitahe-pm-converter', 'pce-vn-godot-exporter'].forEach((id) => {
     assert.equal(pcePlugins.has(id), true, `${id} should be available for PC Engine`);
     assert.deepEqual(pcePlugins.get(id).supportedCores, ['pc-engine']);
   });
@@ -217,10 +217,20 @@ test('built-in PCE asset editor suite is scoped to the PC Engine core', () => {
   assert.equal(pcePlugins.get('novel-editor').tab.label, 'Novel');
   const kitaheConverter = pcePlugins.get('pce-kitahe-pm-converter');
   assert.deepEqual(kitaheConverter.pluginTypes, ['converter']);
-  assert.deepEqual(kitaheConverter.hooks, ['inspectKitahePmSource', 'applyKitahePmConversion']);
-  assert.deepEqual(kitaheConverter.mainApi.capabilities, ['kitahe-pm-script-converter']);
-  assert.deepEqual(kitaheConverter.renderer.capabilities, ['kitahe-pm-script-converter']);
+  assert.deepEqual(kitaheConverter.hooks, ['inspectKitahePmSource', 'applyKitahePmConversion', 'inspectKitahePmAssetPackage']);
+  assert.deepEqual(kitaheConverter.mainApi.capabilities, ['kitahe-pm-script-converter', 'kitahe-pm-asset-importer', 'novel-toolbar-action']);
+  assert.equal(kitaheConverter.permissions.includes('asset.import'), true);
+  assert.deepEqual(kitaheConverter.renderer.capabilities, ['kitahe-pm-script-converter', 'kitahe-pm-asset-importer', 'asset-batch-importer', 'novel-toolbar-action']);
   assert.equal(kitaheConverter.hasRenderer, true);
+  const godotExporter = pcePlugins.get('pce-vn-godot-exporter');
+  assert.equal(godotExporter.name, 'NVプロジェクトのGodotエクスポート');
+  assert.deepEqual(godotExporter.pluginTypes, ['converter']);
+  assert.deepEqual(godotExporter.hooks, ['exportVnGodotPackage']);
+  assert.deepEqual(godotExporter.mainApi.hooks, ['exportVnGodotPackage']);
+  assert.deepEqual(godotExporter.mainApi.capabilities, ['vn-godot-exporter', 'novel-toolbar-action']);
+  assert.deepEqual(godotExporter.renderer.capabilities, ['vn-godot-exporter', 'novel-toolbar-action']);
+  assert.equal(godotExporter.permissions.includes('dialog.saveFile'), true);
+  assert.equal(godotExporter.hasRenderer, true);
 });
 
 test('setEnabledWithDependencies rejects missing dependencies without changing state', () => {

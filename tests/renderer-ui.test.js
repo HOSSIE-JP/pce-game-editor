@@ -251,6 +251,11 @@ test('PCE asset manager uses plugin-owned panes and PCE IPC workflow', () => {
   assert.match(renderer, /data-action="import-sprite"[\s\S]*title="スプライトを追加"/);
   assert.match(renderer, /data-action="import-adpcm"[\s\S]*title="ADPCMを追加"/);
   assert.match(renderer, /data-action="import-adpcm-batch"[\s\S]*title="CSVからADPCMを一括取込"/);
+  assert.match(renderer, /data-role="batch-importer-actions"/);
+  assert.match(renderer, /api\.capabilities\.all\('asset-batch-importer'\)/);
+  assert.match(renderer, /Number\(right\.priority \|\| 0\) - Number\(left\.priority \|\| 0\)/);
+  assert.match(renderer, /supportedMedia\.includes\(projectTargetMedia\)/);
+  assert.match(renderer, /provider\.open\(\{[\s\S]*targetMedia: projectTargetMedia,[\s\S]*assets: assets\.slice\(\)/);
   assert.match(renderer, /createAdpcmBatchImporter/);
   assert.match(renderer, /importAdpcmBatchCsv/);
   assert.match(renderer, /data-action="import-cdda"[\s\S]*title="CD-DAを追加"/);
@@ -753,7 +758,7 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(renderer, /const ADPCM_END_PAD_SECONDS = 2 \/ 60;/);
   assert.match(renderer, /const BG_FADE_SPEEDS = \[/);
   assert.match(renderer, /const DEFAULT_BG_FADE_FRAMES = 30;/);
-  assert.match(renderer, /速度1\(速い\)：10/);
+  assert.match(renderer, /速度1\(即時\)：1/);
   assert.match(renderer, /速度6\(遅い\)：60/);
   assert.match(renderer, /function bgFadeOptions\(current\)/);
   assert.match(renderer, /name="fadeOutFrames">\$\{bgFadeOptions\(command\.fadeOutFrames\)\}<\/select>/);
@@ -923,14 +928,26 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(index, /deleteFontFile/);
 
   const vnRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
+  const vnCss = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'style.css'), 'utf-8');
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8');
   assert.match(vnRenderer, /data-action="export-irodori"/);
   assert.match(vnRenderer, /data-action="apply-irodori"/);
   assert.match(vnRenderer, /export function activatePlugin\(\{ root, api, logger, registerCapability \}\)/);
   assert.match(vnRenderer, /async function exportIrodoriBatch\(\)/);
-  assert.match(vnRenderer, /async function exportGodotPackage\(\)/);
-  assert.match(vnRenderer, /data-action="export-godot"/);
-  assert.match(vnRenderer, /exportVnGodotPackage\(\{ doc: snapshot \}\)/);
+  assert.match(vnRenderer, /data-role="plugin-actions-before-preview"/);
+  assert.match(vnRenderer, /data-role="plugin-actions-after-preview"/);
+  assert.match(vnRenderer, /api\.capabilities\.all\('novel-toolbar-action'\)/);
+  assert.match(vnRenderer, /data-novel-toolbar-action/);
+  assert.match(vnRenderer, /supportedMedia\.length && !supportedMedia\.includes\(targetMedia\)/);
+  assert.match(vnRenderer, /const result = await provider\.run\(\{/);
+  assert.match(vnRenderer, /getSnapshot: \(options\) => normalizedSceneSnapshot\(options\)/);
+  assert.match(vnRenderer, /saveSnapshot: \(snapshot\) => persistSceneSnapshot\(snapshot\)/);
+  assert.match(vnRenderer, /applyDocument: \(nextDoc, options\) => applyPluginSceneDocument\(nextDoc, options\)/);
+  assert.match(vnRenderer, /detail\?\.capability === 'novel-toolbar-action'/);
+  assert.match(vnRenderer, /offPluginToolbarCapabilityRegistered\(\)/);
+  assert.match(vnCss, /\.pce-vn-plugin-actions\s*\{[\s\S]*display:\s*contents/);
+  assert.doesNotMatch(vnRenderer, /import-kitahe-pm|export-godot|kitahe-pm-script-converter|vn-godot-exporter/);
+  assert.doesNotMatch(vnRenderer, /api\.electronAPI\.exportVnGodotPackage/);
   assert.match(vnRenderer, /normalizeDoc\(doc, assets\)/);
   assert.match(vnRenderer, /exportVnIrodoriBatch\(\{[\s\S]*doc: snapshot,[\s\S]*assetIds:/);
   assert.match(vnRenderer, /logger\?\.info\?\./);
@@ -943,7 +960,7 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(vnRenderer, /command\.voiceAssetId = assignment\.id/);
   assert.match(vnRenderer, /有効な \$\{Number\(summary\.assignableRows\) \|\| 0\} 行を反映/);
   assert.match(main, /ipcMain\.handle\('vn:exportIrodoriBatch'/);
-  assert.match(main, /ipcMain\.handle\('vn:exportGodotPackage'/);
+  assert.doesNotMatch(main, /vn:exportGodotPackage/);
   assert.match(main, /ipcMain\.handle\('vn:inspectIrodoriVoiceAssignments'/);
 
   const fontRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-font-editor', 'renderer.js'), 'utf-8');
@@ -958,33 +975,147 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(fontCss, /\.pce-font-list/);
 });
 
+test('Novel toolbar actions follow enabled runtime capability providers', async () => {
+  const runtimeModule = await import(`${pathToFileURL(path.join(__dirname, '..', 'renderer', 'plugin-runtime.mjs')).href}?novel-toolbar=${Date.now()}`);
+  const runtime = runtimeModule.createPluginRuntime();
+  const enabled = new Set(['pce-kitahe-pm-converter', 'pce-vn-godot-exporter']);
+  runtimeModule.registerRuntimeCapability(runtime, { id: 'pce-kitahe-pm-converter' }, 'novel-toolbar-action', { label: '北へ。PM取込' });
+  runtimeModule.registerRuntimeCapability(runtime, { id: 'pce-vn-godot-exporter' }, 'novel-toolbar-action', { label: 'Godot出力' });
+  const available = () => runtimeModule.getRuntimeCapabilities(runtime, 'novel-toolbar-action', (pluginId) => enabled.has(pluginId));
+
+  assert.deepEqual(available().map((provider) => provider.label), ['北へ。PM取込', 'Godot出力']);
+  enabled.delete('pce-kitahe-pm-converter');
+  assert.deepEqual(available().map((provider) => provider.label), ['Godot出力']);
+  enabled.delete('pce-vn-godot-exporter');
+  assert.deepEqual(available(), []);
+});
+
+test('Godot export is supplied by an optional plugin capability', () => {
+  const manifest = readPluginManifest('pce-vn-godot-exporter');
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-vn-godot-exporter', 'renderer.js'), 'utf-8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-vn-godot-exporter', 'index.js'), 'utf-8');
+  const preload = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf-8');
+  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8');
+
+  assert.equal(manifest.name, 'NVプロジェクトのGodotエクスポート');
+  assert.deepEqual(manifest.hooks, ['exportVnGodotPackage']);
+  assert.deepEqual(manifest.mainApi.hooks, ['exportVnGodotPackage']);
+  assert.deepEqual(manifest.renderer.capabilities, ['vn-godot-exporter', 'novel-toolbar-action']);
+  assert.match(renderer, /registerCapability\(CAPABILITY_NAME, \{/);
+  assert.match(renderer, /registerCapability\('novel-toolbar-action', \{/);
+  assert.match(renderer, /label: 'Godot出力'/);
+  assert.match(renderer, /placement: 'after-preview'/);
+  assert.match(renderer, /const snapshot = await editor\.getSnapshot\(\)/);
+  assert.match(renderer, /await editor\.saveSnapshot\(snapshot\)/);
+  assert.match(renderer, /api\.plugins\.invokeHook\(plugin\.id, 'exportVnGodotPackage'/);
+  assert.ok(renderer.indexOf('const result = await exportPackage({ doc: snapshot })') < renderer.indexOf('await editor.saveSnapshot(snapshot)'));
+  assert.match(index, /async function exportVnGodotPackage/);
+  assert.match(index, /exportGodotPackageZip\(\{/);
+  assert.doesNotMatch(preload, /exportVnGodotPackage|vn:exportGodotPackage/);
+  assert.doesNotMatch(main, /handleExportVnGodotPackage|vn:exportGodotPackage/);
+});
+
+test('Godot toolbar action exports the current snapshot before saving and preserves cancel', async () => {
+  const rendererSource = fs.readFileSync(
+    path.join(__dirname, '..', 'plugins', 'pce-vn-godot-exporter', 'renderer.js'),
+    'utf-8',
+  );
+  const rendererModule = await import(
+    `data:text/javascript;base64,${Buffer.from(rendererSource).toString('base64')}#godot-action-${Date.now()}`,
+  );
+  const capabilities = new Map();
+  const calls = [];
+  let hookResult = {
+    ok: true,
+    path: 'C:/exports/sample.pcevn.zip',
+    sceneCount: 2,
+    commandCount: 3,
+    assetCount: 4,
+  };
+  const snapshot = { version: 1, scenes: [{ id: 'opening', commands: [] }] };
+  rendererModule.activatePlugin({
+    plugin: { id: 'pce-vn-godot-exporter' },
+    api: {
+      plugins: {
+        async invokeHook(pluginId, hook, payload) {
+          calls.push('export');
+          assert.equal(pluginId, 'pce-vn-godot-exporter');
+          assert.equal(hook, 'exportVnGodotPackage');
+          assert.equal(payload.doc, snapshot);
+          return hookResult;
+        },
+      },
+    },
+    logger: { info() {}, error() {} },
+    registerCapability(name, implementation) {
+      capabilities.set(name, implementation);
+    },
+  });
+  const action = capabilities.get('novel-toolbar-action');
+  const editor = {
+    async getSnapshot() {
+      calls.push('snapshot');
+      return snapshot;
+    },
+    async saveSnapshot(value) {
+      calls.push('save');
+      assert.equal(value, snapshot);
+    },
+  };
+
+  const exported = await action.run(editor);
+  assert.equal(exported.ok, true);
+  assert.deepEqual(calls, ['snapshot', 'export', 'save']);
+
+  calls.length = 0;
+  hookResult = { ok: false, canceled: true };
+  const canceled = await action.run(editor);
+  assert.deepEqual(canceled, { ok: true, canceled: true });
+  assert.deepEqual(calls, ['snapshot', 'export']);
+});
+
 test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workflow', () => {
   const vnRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
   const converterRenderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-kitahe-pm-converter', 'renderer.js'), 'utf-8');
+  const packageImporter = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-kitahe-pm-converter', 'asset-package-importer.js'), 'utf-8');
   const converterCss = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-kitahe-pm-converter', 'style.css'), 'utf-8');
+  const converterManifest = readPluginManifest('pce-kitahe-pm-converter');
 
-  assert.match(vnRenderer, /data-action="import-kitahe-pm"[\s\S]*北へ。PM取込/);
-  assert.match(vnRenderer, /api\.capabilities\.get\('kitahe-pm-script-converter'\)/);
-  assert.match(vnRenderer, /api\.capabilities\.require\('kitahe-pm-script-converter', 1500\)/);
-  assert.match(vnRenderer, /openImportModal\(\{[\s\S]*doc: normalizeDoc\(doc, assets\),[\s\S]*assets,[\s\S]*targetMedia/);
-  assert.match(vnRenderer, /targetMedia !== 'cd'/);
-  assert.match(vnRenderer, /doc = normalizeDoc\(result\.doc, assets\)/);
-  const importStart = vnRenderer.indexOf('async function importKitahePmScripts()');
-  const importEnd = vnRenderer.indexOf('async function exportIrodoriBatch()', importStart);
-  const importSource = vnRenderer.slice(importStart, importEnd);
-  assert.match(importSource, /const persisted = await save\(\)/);
-  assert.ok(importSource.indexOf('const persisted = await save()') < importSource.indexOf('converter.openImportModal({'));
-  assert.equal(importSource.indexOf('await save()', importSource.indexOf('doc = normalizeDoc(result.doc, assets)')), -1);
-
+  assert.doesNotMatch(vnRenderer, /北へ。PM取込|kitahe-pm|openImportModal/);
   assert.match(converterRenderer, /registerCapability\(CAPABILITY_NAME, \{ openImportModal \}\)/);
+  assert.match(converterRenderer, /registerCapability\('novel-toolbar-action', \{/);
+  assert.match(converterRenderer, /label: '北へ。PM取込'/);
+  assert.match(converterRenderer, /placement: 'before-preview'/);
+  assert.match(converterRenderer, /supportedTargetMedia: \['cd'\]/);
+  assert.match(converterRenderer, /editor\.targetMedia !== 'cd'/);
+  assert.match(converterRenderer, /const snapshot = await editor\.getSnapshot\(\{ refreshAssets: true \}\)/);
+  assert.match(converterRenderer, /await editor\.saveSnapshot\(snapshot\)/);
+  assert.match(converterRenderer, /const result = await openImportModal\(\{/);
+  assert.match(converterRenderer, /editor\.applyDocument\(result\.doc, \{/);
+  const actionStart = converterRenderer.indexOf('const runNovelToolbarAction = async');
+  const actionEnd = converterRenderer.indexOf("registerCapability(CAPABILITY_NAME", actionStart);
+  const actionSource = converterRenderer.slice(actionStart, actionEnd);
+  assert.ok(actionSource.indexOf('await editor.saveSnapshot(snapshot)') < actionSource.indexOf('await openImportModal({'));
+  const inspectStart = converterRenderer.indexOf('const inspectSelected = async');
+  const inspectEnd = converterRenderer.indexOf('const resetAssetMappings = async', inspectStart);
+  const inspectSource = converterRenderer.slice(inspectStart, inspectEnd);
+  const resetStart = converterRenderer.indexOf('const resetAssetMappings = async');
+  const resetEnd = converterRenderer.indexOf('const showPreview = async', resetStart);
+  const resetSource = converterRenderer.slice(resetStart, resetEnd);
   assert.match(converterRenderer, /api\.createModal\(/);
   assert.match(converterRenderer, /properties: \['openDirectory'\]/);
   assert.match(converterRenderer, /invoke\('inspectKitahePmSource'/);
   assert.match(converterRenderer, /invoke\('applyKitahePmConversion'/);
   assert.match(converterRenderer, /selectedScripts: Array\.from\(state\.selectedScripts\)/);
-  assert.match(converterRenderer, /speakers: compactSpeakerMappings\(state\)/);
+  assert.match(converterRenderer, /speakers: \{\}/);
   assert.match(converterRenderer, /assets: compactAssetMappings\(state\)/);
-  assert.match(converterRenderer, /speakerMappings: Object\.create\(null\)/);
+  assert.ok(inspectStart >= 0 && inspectEnd > inspectStart);
+  assert.match(inspectSource, /const savedAssets = savedMapping\?\.assets && typeof savedMapping\.assets === 'object'/);
+  assert.ok(inspectSource.indexOf('const savedAssets =') < inspectSource.indexOf('savedAssets[requirement.key]'));
+  assert.match(converterRenderer, /すべてのメッセージをナレーションとして変換し、COLOR値は本文色へ反映/);
+  assert.match(converterRenderer, /ICG X × 224 \/ 640 \/ Y 17/);
+  assert.match(converterRenderer, /mapped\.display === 'sprite'[\s\S]*mapped\.slot[\s\S]*else \{[\s\S]*mapped\.x = asInteger\(current\.x, 2\)/);
+  assert.doesNotMatch(converterRenderer, /speakerMappings: Object\.create\(null\)|compactSpeakerMappings/);
   assert.match(converterRenderer, /assetMappings: Object\.create\(null\)/);
   assert.match(converterRenderer, /const showPreview = async \(\) =>/);
   assert.match(converterRenderer, /previewConversion: true/);
@@ -996,8 +1127,8 @@ test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workfl
   assert.match(converterRenderer, /state\.previewMode !== state\.mode[\s\S]*state\.previewSetStartScene !== requestedSetStartScene/);
   assert.match(converterRenderer, /target\.dataset\.kitaheField === 'set-start'[\s\S]*invalidateMappedPreview\(\)/);
   assert.match(converterRenderer, /target\.name === 'kitahe-mode'[\s\S]*invalidateMappedPreview\(\)/);
-  assert.match(converterRenderer, /data-map-x="\$\{index\}"[\s\S]*min="0" max="\$\{sprite \? 319 : 31\}"/);
-  assert.match(converterRenderer, /data-map-y="\$\{index\}"[\s\S]*min="0" max="\$\{sprite \? 223 : 31\}"/);
+  assert.match(converterRenderer, /data-map-x="\$\{index\}" type="number" min="0" max="31"/);
+  assert.match(converterRenderer, /data-map-y="\$\{index\}" type="number" min="0" max="31"/);
   assert.match(converterRenderer, /modePreviewsHtml\(state\.inspection\?\.modePreviews\)/);
   assert.match(converterRenderer, /sceneBudgetsHtml\(state\.inspection\?\.sceneBudgets\)/);
   assert.match(converterRenderer, /budget\.scenePackLimit \?\? budget\.packByteLimit/);
@@ -1009,11 +1140,21 @@ test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workfl
   assert.match(converterRenderer, /value="append"/);
   assert.match(converterRenderer, /data-kitahe-field="set-start"/);
   assert.match(converterRenderer, /maxlength="16"/);
-  assert.match(converterRenderer, /option value="narration"/);
+  assert.doesNotMatch(converterRenderer, /data-speaker-mode|data-speaker-name|option value="narration"/);
   assert.match(converterRenderer, /data-map-enabled="\$\{index\}"[\s\S]*\$\{mapped \? 'checked' : ''\}/);
   assert.match(converterRenderer, /current\.action = target\.checked \? 'map' : 'omit'/);
   assert.match(converterRenderer, /action: suggestedAssetId \? 'map' : 'omit'/);
   assert.match(converterRenderer, /suggestedAssetType[\s\S]*=== 'sprite'/);
+  assert.match(converterRenderer, /data-kitahe-action="reset-asset-mappings"/);
+  assert.match(converterRenderer, /action === 'reset-asset-mappings'\) void resetAssetMappings\(\)/);
+  assert.ok(resetStart >= 0 && resetEnd > resetStart);
+  assert.match(resetSource, /api\.assets\.listPceAssets\(\{ force: true \}\)/);
+  assert.match(resetSource, /invoke\('inspectKitahePmSource', inspectPayload\(\)\)/);
+  assert.match(resetSource, /state\.assetMappings = Object\.create\(null\)/);
+  assert.match(resetSource, /state\.assetMappings\[requirement\.key\] = defaultAssetMapping\(requirement\)/);
+  assert.match(resetSource, /invalidateMappedPreview\(''\)/);
+  assert.match(resetSource, /renderModal\(modal, state, \{ preserveBodyScroll: true \}\)/);
+  assert.doesNotMatch(resetSource, /state\.speakerMappings\s*=/);
   assert.doesNotMatch(converterRenderer, /data-map-action|登録済みアセットへ対応<\/option>|明示的に省略<\/option>/);
   assert.match(converterRenderer, /preserveBodyScroll[\s\S]*previousBody\.scrollTop[\s\S]*nextBody\.scrollTop = bodyScroll\.top/);
   assert.match(converterRenderer, /renderModal\(modal, state, \{ preserveBodyScroll: true \}\)/);
@@ -1025,6 +1166,43 @@ test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workfl
   assert.match(converterCss, /\.pce-kitahe-diagnostic\[data-level="error"\]/);
   assert.match(converterCss, /\.pce-kitahe-preview-modes/);
   assert.match(converterCss, /\.pce-kitahe-budget-table/);
+  assert.ok(converterManifest.hooks.includes('inspectKitahePmAssetPackage'));
+  assert.ok(converterManifest.renderer.capabilities.includes('kitahe-pm-asset-importer'));
+  assert.ok(converterManifest.renderer.capabilities.includes('asset-batch-importer'));
+  assert.match(converterRenderer, /registerCapability\('kitahe-pm-asset-importer'/);
+  assert.match(converterRenderer, /registerCapability\('asset-batch-importer'/);
+  assert.match(converterRenderer, /label: '北へ。PM素材'/);
+  assert.match(converterRenderer, /supportedTargetMedia: \['cd'\]/);
+  assert.match(packageImporter, /invoke\('inspectKitahePmAssetPackage'/);
+  assert.match(packageImporter, /if \(!inspected\?\.ok\)/);
+  assert.match(packageImporter, /inspected\?\.error \|\| 'manifest検査に失敗しました'/);
+  assert.match(packageImporter, /inspectionSignature \|\| ''/);
+  assert.match(packageImporter, /assetCatalogSignature: expectedCatalogSignature/);
+  assert.match(packageImporter, /replacePolicy: 'owned-source-key'/);
+  assert.match(packageImporter, /kitahePm: provenance\(row, inspection\)/);
+  assert.match(packageImporter, /api\.assets\.importPceImage/);
+  assert.match(packageImporter, /api\.assets\.importPceAudio/);
+  assert.match(packageImporter, /api\.assets\.importPceMidi/);
+  assert.match(packageImporter, /targetType === 'sprite' \? 'sprite' : 'background'/);
+  assert.match(packageImporter, /rejectOversize: true/);
+  assert.match(packageImporter, /warningCount\(state\.inspection\) && !state\.warningConfirmed/);
+  assert.match(packageImporter, /Number\(inspection\?\.summary\?\.errorCount\)/);
+  assert.match(packageImporter, /Number\(inspection\?\.summary\?\.warningCount\)/);
+  assert.match(packageImporter, /Math\.max\(rowErrors, diagnostics\)/);
+  assert.match(packageImporter, /Math\.max\(rowWarnings, diagnostics\)/);
+  assert.doesNotMatch(packageImporter, /rowErrors \+ diagnostics|rowWarnings \+ diagnostics/);
+  assert.match(packageImporter, /const previewWarnings = asArray\(preview\.warnings\)/);
+  assert.match(packageImporter, /preview\.encodedAdpcmBytes \?\? preview\.estimatedAdpcmBytes/);
+  assert.match(packageImporter, /INFO: \$\{esc\(diagnosticText\(entry\)\)\}/);
+  assert.match(converterCss, /\.pce-kitahe-package-preview-notes/);
+  assert.match(packageImporter, /const bpm = preview\.bpm \?\? midiPreview\.bpm/);
+  assert.match(packageImporter, /preview\.steps \?\? preview\.stepCount/);
+  assert.match(packageImporter, /preview\.patternCount \?\? midiPreview\.patternCount/);
+  assert.match(packageImporter, /preview\.stats \|\| preview\.conversion\?\.stats/);
+  assert.match(packageImporter, /previousScrollTop[\s\S]*nextList\.scrollTop = previousScrollTop/);
+  assert.match(packageImporter, /state\.cancelRequested[\s\S]*break/);
+  assert.doesNotMatch(packageImporter, /image-import-pipeline|openResizeModal/);
+  assert.match(converterCss, /\.pce-kitahe-package-thumb[\s\S]*object-fit: contain/);
 });
 
 test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page', () => {

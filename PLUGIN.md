@@ -561,6 +561,7 @@ export function activatePlugin({ plugin, hostRoot, api, registerCapability }) {
 | `api.unmountElement(element)` | mount 済み DOM を削除する |
 | `api.createModal(options)` | plugin 専用 root 配下に標準 modal を作成し、`open()` / `close()` / `destroy()` を返す |
 | `api.capabilities.get(name)` | 有効な provider の capability 実装を取得する |
+| `api.capabilities.all(name)` | 有効な provider の capability 実装をすべて取得する |
 | `api.capabilities.require(name, timeoutMs?)` | capability 登録を待つ。見つからない場合は `null` |
 | `api.capabilities.list()` | 現在有効な capability と provider plugin ID を列挙する |
 | `api.plugins.invokeHook(id, hook, payload)` | `mainApi.hooks` で許可された main process hook を呼び出す |
@@ -614,6 +615,40 @@ export function activatePlugin({ root }) {
 
 renderer から main process hook を呼ぶ場合は、`hooks` と `mainApi.hooks` の両方に hook 名を宣言してください。新規 plugin で本体 `main.js` / `preload.js` / `pce-build-system.js` の個別追記が必要に見える場合は、まず host API の不足として扱い、個別 plugin ID の分岐を本体へ追加しないでください。
 
+### Novel toolbar action capability
+
+Novelのスクリプトtoolbarへplugin固有の操作を追加する場合は、`novel-toolbar-action`
+capabilityを登録します。Novel editorはplugin IDや機能名を分岐せず、有効なproviderを
+`api.capabilities.all('novel-toolbar-action')`で列挙します。したがって、provider pluginを
+OFFにするとcapabilityとボタンがともに消えます。`supportedTargetMedia`に現在の
+`targetMedia`が含まれないproviderも表示しません。
+
+```js
+registerCapability('novel-toolbar-action', {
+  id: 'my-novel-action',
+  pluginId: plugin.id,
+  label: '変換',
+  title: '現在のVN sceneを変換',
+  priority: 100,
+  order: 20,
+  placement: 'before-preview', // または 'after-preview'
+  supportedTargetMedia: ['cd'],
+  async run(editor) {
+    const snapshot = await editor.getSnapshot({ refreshAssets: true });
+    // plugin-owned modal / main hookを実行する
+    await editor.saveSnapshot(snapshot);
+    return { ok: true, message: '変換しました' };
+  },
+});
+```
+
+`run(editor)`には`targetMedia`、`getSnapshot(options)`、`getAssets()`、
+`saveSnapshot(snapshot)`、`applyDocument(doc, options)`、`setStatus(message)`を渡します。
+sceneを置換するconverterは`applyDocument()`へ`preferredSceneIds`または`startScene`を
+指定できます。キャンセル時は`{ ok: true, canceled: true }`を返し、失敗時は例外または
+`{ ok: false, error }`を返してください。provider自身が表示名、対応media、実行処理を
+所有し、Novel editorへ固定ボタンやplugin固有click handlerを追加しないでください。
+
 ### Asset 関連 capability
 
 Asset 登録や converter 連携は本体 renderer へ追記せず、renderer capability として登録します。
@@ -623,6 +658,49 @@ Asset 登録や converter 連携は本体 renderer へ追記せず、renderer ca
 | `asset-type-provider` | 拡張子から候補 type、既定 subdir、既定 symbol、追加 UI 情報を返す |
 | `asset-import-handler` | import の優先度・処理可否・copy/変換/登録方針を提供する。`handleImport(payload)` を実装すると標準コピー前に plugin-owned wizard を開ける |
 | `image-import-pipeline` | 画像 import 時の resize / quantize / Indexed PNG 化を提供する |
+| `asset-batch-importer` | Assets toolbarへゲーム固有の一括取込入口を追加する。`id` / `label` / `priority` / `supportedTargetMedia` / `open(options)` を実装する |
+
+`asset-batch-importer` providerは次の形を使います。providerは高い`priority`、同値なら
+小さい`order`の順に表示します。Assets側はplugin IDを分岐せず、有効なproviderを
+`api.capabilities.all('asset-batch-importer')`で列挙します。
+
+```js
+registerCapability('asset-batch-importer', {
+  id: 'my-package-importer',
+  label: '素材package',
+  priority: 100,
+  order: 20,
+  supportedTargetMedia: ['cd'],
+  disabledReason: 'CD-ROM2 project専用です',
+  async open({ targetMedia, assets, reload }) { /* plugin-owned modal */ },
+})
+```
+
+北へ。PM pluginは`kitahe-pm-asset-importer`と上記汎用providerを登録し、Assetsの
+**北へ。PM素材** からViewer packageを検査・登録します。filesystem検査はmain hook
+`inspectKitahePmAssetPackage`へ集約し、専用IPCやpreload分岐は追加しません。
+
+```js
+const inspection = await api.plugins.invokeHook(
+  'pce-kitahe-pm-converter',
+  'inspectKitahePmAssetPackage',
+  { manifestPath, targetMedia: 'cd', assetCatalogSignature },
+)
+```
+
+inspectorはstrict header/version、package相対path、実在file、hash、`sourceKey`、
+画像寸法、ADPCM容量、MIDI変換preview、既存asset所有関係を非書込みで検査します。
+Viewerが出力するPNGはLCG cropとordered pair結合を行い、結合後の640×480をBG、
+512×480をSpriteの既定値として分類します。代表画像上の共通source cropは1px単位で指定でき、
+最終出力サイズと同じアスペクト比を保ったまま切り出した後、bilinearで出力サイズへ変換します。PCE側では
+packageの確定種別を変更せず、再resizeも行いません。LCG表示寸法だけはQuick Playと同じくPVR実寸へ
+軸別clampします。BGの8px境界とSpriteのcell境界は出力サイズだけに適用し、source crop自体には掛けません。
+共通source cropが範囲外になるpackageの生成はViewer側で拒否します。
+rendererは実行直前にsignatureを再検査してから既存`api.assets.importPceImage()` /
+`importPceAudio()` / `importPceMidi()`を行順に呼びます。登録payloadは
+`replacePolicy: 'owned-source-key'`と、絶対pathを含まない`kitahePm` provenanceを
+渡します。warningは明示確認を必須にし、開始後の行失敗・キャンセルでは成功済み
+assetを保持します。既存ADPCM CSV一括取込の契約は変更しません。
 
 新規 asset type や converter を追加するときは、`asset-manager` や converter plugin がこれらを登録します。本体 `renderer.js` に type 分岐を追加しないでください。
 
@@ -945,7 +1023,7 @@ PCE background conversion は、入力画像の各 8x8 cell を表示順の tile
 
 VN sprite runtime は sprite asset descriptor の cell size、sheet cell 数と、SLOT順に割り当てた実 pattern base / palette bank を slot ごとのローカル描画メタへスナップショットしてSATBを組みます。palette / pattern の data ref と `cell_map` も helper 呼び出し前に退避するため、32x64 のSLOT0と16x64のSLOT1のように cell size が違う asset を連続表示しても描画メタが混ざりません。animation metadata が sheet 範囲内なら `frame_count: 1` の default でも 1 frame の表示サイズとして使い、frame size 未指定時は generator 側で sprite sheet 全体表示へ正規化します。VDC memory control は `VN_VDC_MEMORY_CONTROL` (`VDC_CYCLE_4_SLOTS | VDC_BG_SIZE_32_32`) を使い、BG size 更新時に sprite cycle bit を落とさないでください。
 
-CD-ROM2 VN runtime では `map_vram.bin` を `mapBase` から一括転送しません。raw `map_vram.bin`（無圧縮）は `VN_MAP_WIDTH`(=32)タイル幅のソース行として読み、各行の `width_tiles` 分だけを `mapBase + command.y * 32 + command.x + row * 32` へコピーします。これにより、224px背景を256px画面へ配置したときの左右余白は blank tile のまま残り、CD上の0埋めpaddingや古いVRAM tileが縦枠として表示されません。BG 画像は 256px(32 タイル)以下にしてください（`encodePceBackground` が超過時にビルドエラー）。BG command の切替は Fade 前提で、エディタは `cut` を表示しません。`fadeOutFrames` / `fadeInFrames` は速度プリセット `10 / 20 / 30 / 40 / 50 / 60` から選び、未指定時は速度3の `30` です。保存済みの旧 `transition: "cut"` は読み込み時に `transition: "fade"` へ正規化されます。fade は BG palette bank だけを段階変更し、display layer 全体を落とさないため、下部メッセージ領域や UI palette まで暗転させません。BG の VRAM/BAT 転送と fade 完了まで次 command へ進みません。
+CD-ROM2 VN runtime では `map_vram.bin` を `mapBase` から一括転送しません。raw `map_vram.bin`（無圧縮）は `VN_MAP_WIDTH`(=32)タイル幅のソース行として読み、各行の `width_tiles` 分だけを `mapBase + command.y * 32 + command.x + row * 32` へコピーします。これにより、224px背景を256px画面へ配置したときの左右余白は blank tile のまま残り、CD上の0埋めpaddingや古いVRAM tileが縦枠として表示されません。BG 画像は 256px(32 タイル)以下にしてください（`encodePceBackground` が超過時にビルドエラー）。BG command の切替は Fade 前提で、エディタは `cut` を表示しません。`fadeOutFrames` / `fadeInFrames` は速度プリセット `1 / 20 / 30 / 40 / 50 / 60` から選び、未指定時は速度3の `30` です。速度1の`1`はCD-ROM2 / HuCARD runtimeの両方で0-frame fadeへ変換し、paletteを段階変更しない即時切替として扱います。保存済みの旧 `transition: "cut"` は読み込み時に `transition: "fade"` へ正規化されます。速度2〜6のfadeは BG palette bank だけを段階変更し、display layer 全体を落とさないため、下部メッセージ領域や UI palette まで暗転させません。BG の VRAM/BAT 転送とfade完了まで次 command へ進みません。
 
 Sprite asset は `options.animations` で VN runtime 向けの差分アニメーションを定義できます。各 entry は `id`, `name`, `frameWidth`, `frameHeight`, `firstCell`, `frameCount`, `frameDelay`, `frameDelays`, `frameStrideCells`, `loop` を持ちます。Animation Rows の `name` は任意文字列（最大48文字）として編集でき、表示名を変えても scene command が参照する `id`（`default` / `row_N`）は変えません。全ROWの編集名は `spriteEditor.rowNames` にも保存するため、無効ROWを含めて再表示できます。未指定時は sprite sheet 全体を 1 frame とする `default` animation が生成時に補われます。`firstCell` と `frameStrideCells` は、PCE 16x16/16x32/32x32 などの sprite cell を左上から数えた index です。
 
@@ -1020,7 +1098,7 @@ scene の `fullScreenBg` を `true` にすると、その scene は 256x224 の�
 
 VN build が generated `assets.c` / runtime asset index へ出すのは、scene command から参照される BG / sprite / audio asset だけです。未使用の大きな BG や sprite は Asset 一覧には残せますが、VRAM 排他予約、runtime metadata、resident bank128 予算、scene command の index には入りません。未使用 asset を scene から参照した時点で通常のサイズ・VRAM・bank 予算チェック対象になります。
 
-VN buildでは`src/generated/vn.h` / `vn.c`にcommand/message/choice/switchの共通型とscene directoryを出力します。HuCARDはさらに`pce_vn_sprite_animations[]`とper-frame delay配列をROM dataとして出力します。CD-ROM2はanimation配列を出力せず、`pce_vn_sprite_animation_meta` directoryと`unsigned int`のcountだけを`vn.c`へ置き、16-bit indexで最大1024件のCD metadata recordを参照します。`-1` sentinelを持つgenerated index fieldは`signed int`です。scene、variable、およびscene pack内でu8 count/indexを使うcommand/message/choice/switchの255件制約は維持しますが、Sprite Animationをこの255件制約へ含めません。runtimeはcommandを順に実行し、`message`、`choice`、`wait`で停止します。`background.x` / `background.y`は32x32 BAT上のtile座標で、未指定時は通常BG向けの`(2, 1)`です。`background.transition`は互換用に`"fade"`を保存し、`fadeOutFrames` / `fadeInFrames`は`10 / 20 / 30 / 40 / 50 / 60`へ正規化し、未指定時は速度3の`30`です。`sprite` commandは表示・差し替え・非表示を即時反映し、旧`durationFrames` / `moveFrames`は読み込み時に破棄します。
+VN buildでは`src/generated/vn.h` / `vn.c`にcommand/message/choice/switchの共通型とscene directoryを出力します。HuCARDはさらに`pce_vn_sprite_animations[]`とper-frame delay配列をROM dataとして出力します。CD-ROM2はanimation配列を出力せず、`pce_vn_sprite_animation_meta` directoryと`unsigned int`のcountだけを`vn.c`へ置き、16-bit indexで最大1024件のCD metadata recordを参照します。`-1` sentinelを持つgenerated index fieldは`signed int`です。scene、variable、およびscene pack内でu8 count/indexを使うcommand/message/choice/switchの255件制約は維持しますが、Sprite Animationをこの255件制約へ含めません。runtimeはcommandを順に実行し、`message`、`choice`、`wait`で停止します。`background.x` / `background.y`は32x32 BAT上のtile座標で、未指定時は通常BG向けの`(2, 1)`です。`background.transition`は互換用に`"fade"`を保存し、`fadeOutFrames` / `fadeInFrames`は`1 / 20 / 30 / 40 / 50 / 60`へ正規化し、未指定時は速度3の`30`です。値`1`はruntimeで0-frame fadeとして即時切替になり、値`20..60`は指定frame数のpalette fadeです。`sprite` commandは表示・差し替え・非表示を即時反映し、旧`durationFrames` / `moveFrames`は読み込み時に破棄します。
 
 メッセージ表示領域は 17 文字 × 4 行（メッセージ窓 208x64px、タイル (3, 19) 起点、1 文字 12×12px・横 12px ピッチ・縦 16px 行ピッチ）です。`message.text` は 17 文字で自動折り返しし、4 行を超えた分は表示しません。`speaker` がある場合は `speaker：\ntext` を 1 つの glyph stream として流し込み、話者行を即時表示して本文だけをtypewriter対象にします。改行は `PCE_VN_GLYPH_NEWLINE`(0xfe) としてencodeし、空文字はメッセージ領域をクリアした空ページとして保持します。`message.textColor` はPCE表示可能色へスナップした9-bit palette wordで、未指定のmessageと選択肢では既定の白へ戻します。
 
@@ -1134,7 +1212,8 @@ window.electronAPI.onPluginLog((payload) => {
 | `pce-palette-editor` | パレットエディター | `editor`, `asset` | 内部 | `image-editor` の Palette タブ用モジュール |
 | `pce-visual-novel-editor` | ビジュアルノベル | `editor`, `asset` | 内部 | `novel-editor` の VN タブ用モジュール |
 | `pce-font-editor` | フォント | `editor`, `asset` | 内部 | `novel-editor` の Font タブ用モジュール |
-| `pce-kitahe-pm-converter` | 北へ。PhotoMemories SCR取込 | `converter` | 表示 | Novel toolbarからCD-ROM2 VN用SCR変換modalとmain hooksを提供 |
+| `pce-kitahe-pm-converter` | 北へ。PhotoMemories 取込 | `converter` | 表示 | Novel toolbarからCD-ROM2 VN用SCR変換modalとmain hooksを提供。有効時だけ`北へ。PM取込`を表示 |
+| `pce-vn-godot-exporter` | NVプロジェクトのGodotエクスポート | `converter` | 表示 | Novel toolbarからGodot package出力を提供。有効時だけ`Godot出力`を表示 |
 
 ### PCE アセット系
 
@@ -1150,11 +1229,11 @@ Sound > ADPCM の詳細フォームと取込ダイアログは、通常編集す
 
 `novel-editor`はscript scene編集、システム設定、font管理を1つのsidebarタブに統合します。scene budgetは`project.json`を読み、CD=8192 bytes/16-bit Shift-JIS、HuCard=4096 bytes/glyph index streamで見積ります。CD VNはSystem Card `EX_GETFNT`を正とし、FontタブのTTF/OTF設定をゲーム生成物へ反映しません。CDで第二水準、CP932拡張、半角カナ、絵文字、結合文字を保存してもbuild時に位置付きerrorになります。HuCardのbanked font生成は維持します。
 
-`pce-kitahe-pm-converter`はrenderer capability `kitahe-pm-script-converter`を登録し、`novel-editor`のスクリプトtoolbarからplugin-owned modalを開きます。外部resource rootの選択には既存`api.electronAPI.pickFile({ properties: ["openDirectory"] })`、解析と適用にはmain hooks `inspectKitahePmSource` / `applyKitahePmConversion`を使います。両hookはmanifestの`hooks`と`mainApi.hooks`へ宣言し、専用IPCや本体main/preloadのplugin ID分岐を追加しません。main hook contextの`projectDir`と`assets`を保存先・asset catalogの権威とし、renderer payloadのpathからproject保存先を決めないでください。
+`pce-kitahe-pm-converter`はrenderer capability `novel-toolbar-action`へ`北へ。PM取込` actionを登録し、ボタンの表示名、CD-ROM2限定条件、実行処理をplugin側で所有します。`novel-editor`はplugin IDを知らず、有効な汎用action providerだけをtoolbarへ配置するため、プラグインOFF時とHuCARD projectではボタン自体が存在しません。pluginは別途`kitahe-pm-script-converter.openImportModal()`も提供します。外部resource rootの選択には既存`api.electronAPI.pickFile({ properties: ["openDirectory"] })`、解析と適用にはmain hooks `inspectKitahePmSource` / `applyKitahePmConversion`を使います。両hookはmanifestの`hooks`と`mainApi.hooks`へ宣言し、専用IPCや本体main/preloadのplugin ID分岐を追加しません。main hook contextの`projectDir`と`assets`を保存先・asset catalogの権威とし、renderer payloadのpathからproject保存先を決めないでください。
 
-inspectは選択rootの`SCRIPT`以下に限定してCP932 SCRを読み、選択SCR、本文を除いた到達可能命令、話者token、画像・音声要件、診断、入力signatureを返します。各asset要件にはsourceの拡張子と連結画像間で異なる末尾を除いた`suggestedAssetName`を付け、contextのasset catalogに同名・適合型のassetがあれば`suggestedAssetId` / `suggestedAssetType`も返します。mapping後は`previewConversion: true`、mode、`setStartScene`を指定して非書込みbuild previewを行います。applyはSCR、mapping、mode、disk scene、renderer doc、asset catalog、既存sidecarを再検査し、preview signatureが一致し、全必須mappingと`inspectVnSceneDocumentBuild()`を通過した場合だけsceneとsidecarをtemp file経由で保存します。変換前backupは`assets/pce-vn-scenes.kitahe-backup.json`、再取込設定は`assets/kitahe-pm-conversion.json` v1、詳細reportは`assets/kitahe-pm-conversion-report.json`です。sidecarへ絶対source pathと本文を保存してはいけません。変換core、mapping、scene所有権、診断仕様は`docs/pce-kitahe-pm-converter.md`を参照してください。
+inspectは選択rootの`SCRIPT`以下に限定してCP932 SCRを読み、選択SCR、本文を除いた到達可能命令、COLOR token、画像・音声要件、診断、入力signatureを返します。各asset要件にはsourceの拡張子と連結画像間で異なる末尾を除いた`suggestedAssetName`を付け、contextのasset catalogに同名・適合型のassetがあれば`suggestedAssetId` / `suggestedAssetType`も返します。保存済みmappingは選択SCR集合とentryが一致するimport identityだけから復元します。rendererのasset mapping resetは`api.assets.listPceAssets({ force: true })`とinspect hookで最新catalogを再検査し、全asset mappingをsuggestionから再生成しますが、scene所有情報は維持し、sidecarはapply成功時まで書き換えません。話者mapping UIと必須指定はなく、converterは全messageを`speaker: ""`のナレーションとして生成します。`COLOR WIN_MSG`の第2引数は16-bit ARGB4444として静的に解決し、RGBを`message.textColor`へ変換します。解決不能な値は行番号付きwarningにして既定色を使います。`MSG WIN_MSG`は`WAIT WIN_MSG`まで連結し、元SCRの改行とその前後の空白を除去した後、runtimeの17文字折り返しと4行目末尾のcursorを前提に67 glyphずつへ分割します。mapping後は`previewConversion: true`、mode、`setStartScene`を指定して非書込みbuild previewを行います。applyはSCR、mapping、mode、disk scene、renderer doc、asset catalog、既存sidecarを再検査し、preview signatureが一致し、全必須asset mappingと`inspectVnSceneDocumentBuild()`を通過した場合だけsceneとsidecarをtemp file経由で保存します。変換前backupは`assets/pce-vn-scenes.kitahe-backup.json`、再取込設定は`assets/kitahe-pm-conversion.json` v1、詳細reportは`assets/kitahe-pm-conversion-report.json`です。sidecarへ絶対source pathと本文を保存してはいけません。画像mappingでSpriteを選ぶ場合はasset ID、slot、animationだけを保存し、各`ICG`のXを`round(ICG X * 224 / 640)`で変換して`0..319`へ補正し、Yを`17`へ固定します。補正時は行番号付きwarningを残します。Background commandは`fadeOutFrames: 30` / `fadeInFrames: 30`（速度3）で生成し、切替演出をPCE VN runtimeのpalette fadeへ任せます。BG・キャラクターのCG slotを対象とする`FADE`は全画面effectへ変換せずwarning付きで省略し、`SCREEN`の全画面fade / flash / blank近似だけを維持します。converterはNAME/主人公名置換後の本文と切り詰め後のMENU選択肢をSystem Card jp-v3 encoderでcode point単位に検査し、非対応文字だけを`□`へ置換して`font-character-replaced` warningへ元文字・field・位置・SCR行を残します。この例外はimport sceneだけに限定し、通常のNovel sceneに対するbuild時の厳格な文字errorは変更しません。変換core、mapping、scene所有権、診断仕様は`docs/pce-kitahe-pm-converter.md`を参照してください。
 
-Novel内蔵の`Godot出力`はpreload API `window.pce.exportVnGodotPackage({ doc })`（IPC `vn:exportGodotPackage`）を使います。main processは`pce-vn-godot-package.js`で`doc`とasset documentを現行形式へ正規化し、SkipされていないCommandが参照するassetだけを収集してstored ZIPを保存します。manifestは`pce-vn-godot-package` version 1、project/entrypoints/stats/filesを持ち、filesには各entryのbyte数とSHA-256を記録します。visualはPNG/JPEG/WebP、audioはWAV/OGG/MP3だけを許可し、project外pathと未登録/再生sourceなしassetは出力前に拒否します。`entrypoints.font`は`readFontConfig(projectDir).fontPath`で選択中のproject fontだけを指し、未選択font libraryの先頭fileへfallbackしません。任意の`assets/images/player-border.png`はScene参照やasset登録がなくても`presentation/player-border.png`として同梱し、`entrypoints.border`へそのpathを設定します。存在しない場合は空文字です。project IDは既存`id`/`projectId`/`uuid`を優先し、ない場合はproject directoryとproject metadataから安定生成するため、同名の別directory projectはGodotライブラリ上で衝突しません。
+`pce-vn-godot-exporter`は表示名`NVプロジェクトのGodotエクスポート`の組み込みプラグインです。renderer capability `novel-toolbar-action`へ`Godot出力` actionを登録し、ボタンとsnapshot取得・ZIP出力・scene保存の実行順をplugin側で所有します。`novel-editor`は有効な汎用action providerを列挙するだけなので、プラグインOFF時はボタン自体が存在しません。pluginは再利用向けに`vn-godot-exporter.exportPackage({ doc })`も登録します。rendererは汎用`api.plugins.invokeHook()`からmain hook `exportVnGodotPackage`を呼び、専用preload APIや`vn:exportGodotPackage` IPCを追加しません。main hookは`pce-vn-godot-package.js`で`doc`とasset documentを現行形式へ正規化し、SkipされていないCommandが参照するassetだけを収集してstored ZIPを保存します。manifestは`pce-vn-godot-package` version 1、project/entrypoints/stats/filesを持ち、filesには各entryのbyte数とSHA-256を記録します。visualはPNG/JPEG/WebP、audioはWAV/OGG/MP3だけを許可し、project外pathと未登録/再生sourceなしassetは出力前に拒否します。`entrypoints.font`は`readFontConfig(projectDir).fontPath`で選択中のproject fontだけを指し、未選択font libraryの先頭fileへfallbackしません。任意の`assets/images/player-border.png`はScene参照やasset登録がなくても`presentation/player-border.png`として同梱し、`entrypoints.border`へそのpathを設定します。存在しない場合は空文字です。project IDは既存`id`/`projectId`/`uuid`を優先し、ない場合はproject directoryとproject metadataから安定生成するため、同名の別directory projectはGodotライブラリ上で衝突しません。
 
 ### Test Play
 

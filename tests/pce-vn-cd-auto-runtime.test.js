@@ -306,6 +306,18 @@ test('CD VN skips only physically current duplicate BG and Sprite commands', () 
   const bgFade = setBackground.indexOf('fade_palette(&ref, current_bg_palette_base, bg_fade_out_frames, 0u);');
   const bgUpload = setBackground.indexOf('upload_bg_graphics(next_bg');
   assert.ok(bgFade >= 0 && bgUpload >= 0);
+  assert.match(
+    setBackground,
+    /const uint8_t bg_fade_out_frames = fade_transition \? \(fade_out_frames == 1u \? 0u : fade_out_frames\)/,
+  );
+  assert.match(
+    setBackground,
+    /const uint8_t bg_fade_in_frames = fade_transition \? \(fade_in_frames == 1u \? 0u : fade_in_frames\)/,
+  );
+  assert.match(
+    setBackground,
+    /if \(\(fade_transition \|\| implicit_fade\) && !pending_display_enable\)[\s\S]*VN_BG_UPLOAD_DISPLAY_DISABLE\(\);/,
+  );
 
   assert.match(
     asyncMatcher,

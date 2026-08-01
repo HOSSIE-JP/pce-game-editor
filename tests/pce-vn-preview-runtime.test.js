@@ -241,6 +241,12 @@ test('PCE VN playback preview skips display-equivalent BG and Sprite commands', 
     'function buildPreviewHtml(payload)',
   );
 
+  assert.match(previewRuntimeSource, /const bgFadeFrameOptions = \[1, 20, 30, 40, 50, 60\];/);
+  assert.match(
+    previewRuntimeSource,
+    /function bgFadeFrames\(value\)[\s\S]*const normalized = bgFadeFrameOptions\.reduce[\s\S]*return normalized === 1 \? 0 : normalized;/,
+  );
+
   assert.match(
     previewRuntimeSource,
     /function backgroundCommandMatchesDisplay\(c\)[\s\S]*current\.assetId === c\.assetId[\s\S]*current\.fullScreen === Boolean\(scene && scene\.fullScreenBg\)/,

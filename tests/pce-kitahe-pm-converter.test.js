@@ -28,6 +28,43 @@ function analyze(lines, extraFiles = []) {
   });
 }
 
+test('Kitahe PM sourceKey contract matches Viewer fixed vectors and separates PLAYP rates', () => {
+  assert.equal(converter.assetSourceKey('image', [
+    'BG/KYOTSUU/BGF011_A.PVR',
+    'BG/KYOTSUU/BGF011_B.PVR',
+  ], {
+    crops: [{ width: 320, height: 240 }, { width: 320, height: 240 }],
+  }), 'image-aab5c68d56ce9a54');
+  assert.equal(converter.assetSourceKey('p04', 'VOICE/AY/V001.P04', {
+    usage: 'voice', loop: false, playbackRate: 22050,
+  }), 'p04-83dbeb09338a0511');
+  assert.equal(
+    converter.assetSourceKey('midi', 'MIDI/PM_bank00_track11.mid'),
+    'midi-f4c1d8d28017e69f',
+  );
+
+  const analysis = analyze([
+    'PCMDIR \\SE',
+    'LPCM 0, SHARED',
+    'PLAYP 0',
+    'PLAYP 0, 22050, OFF, 1',
+    'END',
+  ]);
+  const requirements = analysis.requirements.filter((entry) => entry.kind === 'p04');
+  assert.equal(requirements.length, 2);
+  assert.deepEqual(requirements.map((entry) => entry.details.playbackRate).sort(), [22050, 32000]);
+  assert.notEqual(requirements[0].key, requirements[1].key);
+
+  const invalidRate = analyze([
+    'PCMDIR \\SE',
+    'LPCM 0, SHARED',
+    'PLAYP 0, UNKNOWN_RATE',
+    'END',
+  ]);
+  assert.ok(invalidRate.diagnostics.some((entry) => entry.code === 'invalid-playp-rate'));
+  assert.equal(invalidRate.requirements.filter((entry) => entry.kind === 'p04').length, 0);
+});
+
 test('Kitahe PM parser accepts CP932, unclosed strings, and both IF GOTO forms', () => {
   const parsed = converter.parseScrBuffer('ADV_TEST.SCR', scr([
     '# comment',
@@ -50,6 +87,49 @@ test('Kitahe PM parser accepts CP932, unclosed strings, and both IF GOTO forms',
   assert.equal(parsed.instructions[4].assignment.value, 'KAPM_001');
   assert.ok(parsed.diagnostics.some((entry) => entry.code === 'unclosed-quote'));
   assert.ok(!parsed.diagnostics.some((entry) => entry.code === 'invalid-if'));
+});
+
+test('Kitahe PM converts cross-script IF THEN assignment to a different shared variable', () => {
+  const analysis = analyze([
+    'DEFINE SANTAKU_OK',
+    'SANTAKU_OK = 0',
+    'DEFINE TOTAL_OK',
+    'TOTAL_OK = 0',
+    'GOTO TOP, B.SCR',
+  ], [{
+    path: 'B.SCR',
+    lines: [
+      'LABEL TOP',
+      'IF SANTAKU_OK != 3 THEN TOTAL_OK = 1',
+      'END',
+    ],
+  }]);
+
+  assert.ok(analysis.runtimeVariables.has('SANTAKU_OK'));
+  assert.ok(analysis.runtimeVariables.has('TOTAL_OK'));
+  const converted = converter.convertScripts(analysis, { mapping: {}, assetCatalog: [] });
+  assert.equal(converted.ok, true);
+  assert.ok(!converted.diagnostics.some((entry) => entry.code === 'unsupported-if-action'));
+  const commands = converted.scenes.flatMap((scene) => scene.commands);
+  const conditionIndex = commands.findIndex((command) => command.type === 'if');
+  assert.ok(conditionIndex >= 0);
+  assert.equal(commands[conditionIndex].variableName, 'SANTAKU_OK');
+  assert.ok(commands.slice(conditionIndex + 1).some((command) => (
+    command.type === 'variable'
+    && command.variableName === 'TOTAL_OK'
+    && command.operation === 'set'
+    && command.value === 1
+  )));
+
+  const invalid = analyze([
+    'DEFINE SOURCE',
+    'DEFINE TARGET',
+    'IF SOURCE == 0 THEN TARGET = UNKNOWN_VALUE',
+    'END',
+  ]);
+  const rejected = converter.convertScripts(invalid, { mapping: {}, assetCatalog: [] });
+  assert.equal(rejected.ok, false);
+  assert.ok(rejected.diagnostics.some((entry) => entry.code === 'unsupported-if-action'));
 });
 
 test('Kitahe PM inspection keeps LINKCG ordered pairs and does not carry voice across a branch', () => {
@@ -117,14 +197,64 @@ test('Kitahe PM derives automatic asset names from single and joined source file
   assert.equal(suggested[1].suggestedAssetType, 'image');
 });
 
-test('Kitahe PM conversion enforces mappings and paginates speaker text to three body rows', () => {
+
+test('Kitahe PM auto mapping prioritizes unique sourceKey and limits name fallback to legacy assets', () => {
+  const details = {
+    parts: ['BG/KYOTSUU/BGF011_A.PVR', 'BG/KYOTSUU/BGF011_B.PVR'],
+    crops: [{ width: 320, height: 240 }, { width: 320, height: 240 }],
+  };
+  const requirement = {
+    key: converter.assetSourceKey('image', details.parts, details),
+    kind: 'image',
+    source: details.parts.join(' + '),
+    details,
+  };
+  const provenance = (sourceKey) => ({ import: { kitahePm: { sourceKey } } });
+
+  const exact = plugin.suggestAssetRequirements([requirement], [{
+    id: 'exact', type: 'image', name: 'completely/different', data: provenance(requirement.key),
+  }])[0];
+  assert.equal(exact.suggestedAssetId, 'exact');
+  assert.equal(exact.suggestedBy, 'sourceKey');
+
+  const duplicate = plugin.suggestAssetRequirements([requirement], [
+    { id: 'one', type: 'image', name: 'one', data: provenance(requirement.key) },
+    { id: 'two', type: 'sprite', name: 'two', data: provenance(requirement.key) },
+  ])[0];
+  assert.equal(duplicate.suggestedAssetId, '');
+  assert.equal(duplicate.sourceKeyMatchCount, 2);
+
+  const wrongOwned = plugin.suggestAssetRequirements([requirement], [{
+    id: 'wrong-owned',
+    type: 'image',
+    name: 'BG/KYOTSUU/BGF011',
+    data: provenance('image-0000000000000000'),
+  }])[0];
+  assert.equal(wrongOwned.suggestedAssetId, '');
+
+  const legacy = plugin.suggestAssetRequirements([requirement], [
+    { id: 'wrong-owned', type: 'image', name: 'BG/KYOTSUU/BGF011', data: provenance('image-0000000000000000') },
+    { id: 'legacy', type: 'image', name: 'BG/KYOTSUU/BGF011' },
+  ])[0];
+  assert.equal(legacy.suggestedAssetId, 'legacy');
+  assert.equal(legacy.suggestedBy, 'name');
+});
+
+test('Kitahe PM maps static COLOR values while treating every message as narration', () => {
   const analysis = converter.inspectScripts({
     files: [{
       path: 'ADV_TEST.SCR',
       buffer: scr([
         'LABEL TOP',
-        'COLOR WIN_MSG, HERO_COLOR',
-        `MSG WIN_MSG, ${'あ'.repeat(52)}`,
+        'DEFINE GCOLOR',
+        'DEFINE PCOLOR',
+        'GCOLOR = 0xFAAA',
+        'PCOLOR = 0xF1B8',
+        'COLOR WIN_MSG, GCOLOR',
+        'MSG WIN_MSG, ヒロインの台詞',
+        'WAIT WIN_MSG',
+        'COLOR WIN_MSG, PCOLOR',
+        'MSG WIN_MSG, 主人公の台詞',
         'WAIT WIN_MSG',
         'END',
       ].join('\n')),
@@ -132,22 +262,54 @@ test('Kitahe PM conversion enforces mappings and paginates speaker text to three
     entryScript: 'ADV_TEST.SCR',
   });
 
-  const missing = converter.convertScripts(analysis, { mapping: {}, assetCatalog: [] });
-  assert.equal(missing.ok, false);
-  assert.ok(missing.diagnostics.some((entry) => entry.code === 'missing-speaker-mapping'));
-
   const converted = converter.convertScripts(analysis, {
-    mapping: { speakers: { HERO_COLOR: { mode: 'speaker', name: 'ヒロイン' } }, assets: {} },
+    mapping: {},
     assetCatalog: [],
     namespace: 'khpm_test',
   });
+  const legacyMapped = converter.convertScripts(analysis, {
+    mapping: {
+      speakers: {
+        GCOLOR: { mode: 'speaker', name: 'ヒロイン' },
+        PCOLOR: { mode: 'speaker', name: '主人公' },
+      },
+      assets: {},
+    },
+    assetCatalog: [],
+    namespace: 'khpm_legacy_mapping',
+  });
+  assert.equal(converted.ok, true);
+  assert.equal(legacyMapped.ok, true);
+  const messages = converted.scenes.flatMap((scene) => scene.commands)
+    .filter((command) => command.type === 'message');
+  const legacyMessages = legacyMapped.scenes.flatMap((scene) => scene.commands)
+    .filter((command) => command.type === 'message');
+  assert.equal(messages.length, 2);
+  assert.deepEqual(messages.map((message) => message.speaker), ['', '']);
+  assert.deepEqual(messages.map((message) => message.textColor), ['#aaaaaa', '#11bb88']);
+  assert.deepEqual(legacyMessages.map((message) => message.speaker), ['', '']);
+  assert.deepEqual(legacyMessages.map((message) => message.textColor), ['#aaaaaa', '#11bb88']);
+  assert.deepEqual(Object.keys(converted.normalizedMapping.speakers), []);
+  assert.ok(!converted.diagnostics.some((entry) => entry.code === 'missing-speaker-mapping'));
+});
+
+test('Kitahe PM compacts SCR line breaks and paginates narration at 67 glyphs', () => {
+  const first = 'あ'.repeat(34);
+  const second = 'い'.repeat(34);
+  const analysis = analyze([
+    `MSG WIN_MSG, ${first}\\n`,
+    `MSG WIN_MSG, ${second}`,
+    'WAIT WIN_MSG',
+    'END',
+  ]);
+  const converted = converter.convertScripts(analysis, { mapping: {}, assetCatalog: [] });
   assert.equal(converted.ok, true);
   const messages = converted.scenes.flatMap((scene) => scene.commands)
     .filter((command) => command.type === 'message');
   assert.equal(messages.length, 2);
-  assert.equal(messages[0].speaker, 'ヒロイン');
-  assert.equal(Array.from(messages[0].text.replace(/\n/g, '')).length, 51);
-  assert.equal(Array.from(messages[1].text).length, 1);
+  assert.deepEqual(messages.map((message) => Array.from(message.text).length), [67, 1]);
+  assert.ok(messages.every((message) => message.speaker === '' && !message.text.includes('\n')));
+  assert.equal(messages.map((message) => message.text).join(''), `${first}${second}`);
 });
 
 test('Kitahe PM protagonist replacement wins over the general NAME table across joined MSG lines', () => {
@@ -172,7 +334,7 @@ test('Kitahe PM protagonist replacement wins over the general NAME table across 
   assert.equal(message.text, 'PLAYERとPLAYER');
 });
 
-test('Kitahe PM preserves prototype-like COLOR tokens as ordinary mapping keys', () => {
+test('Kitahe PM ignores legacy speaker mappings even for prototype-like COLOR tokens', () => {
   const analysis = analyze([
     'COLOR WIN_MSG, __proto__',
     'MSG WIN_MSG, text',
@@ -182,8 +344,12 @@ test('Kitahe PM preserves prototype-like COLOR tokens as ordinary mapping keys',
   const mapping = JSON.parse('{"speakers":{"__proto__":{"mode":"narration"}},"assets":{}}');
   const converted = converter.convertScripts(analysis, { mapping, assetCatalog: [] });
   assert.equal(converted.ok, true);
-  assert.equal(Object.prototype.hasOwnProperty.call(converted.normalizedMapping.speakers, '__proto__'), true);
-  assert.match(JSON.stringify(converted.normalizedMapping), /"__proto__"/);
+  assert.equal(Object.prototype.hasOwnProperty.call(converted.normalizedMapping.speakers, '__proto__'), false);
+  const message = converted.scenes.flatMap((scene) => scene.commands)
+    .find((command) => command.type === 'message');
+  assert.equal(message.speaker, '');
+  assert.equal(message.textColor, '');
+  assert.ok(converted.diagnostics.some((entry) => entry.code === 'unresolved-message-color'));
 });
 
 test('Kitahe PM CG analysis preserves CCG links, clears both link ends on reuse, and separates crop identities', () => {
@@ -254,11 +420,11 @@ test('Kitahe PM CCG and CPCM clears prevent stale slot reuse', () => {
   assert.ok(invalidPcm.diagnostics.some((entry) => entry.code === 'missing-lpcm-source'));
 });
 
-test('Kitahe PM image mappings emit BG/Sprite and reject wrong types while explicit omit stays a warning', () => {
+test('Kitahe PM image mappings emit speed 3 BG fade and derive Sprite position from ICG', () => {
   const analysis = analyze([
     'CGDIR DIR, \\BG',
     'LCG 0, A, 640, 480',
-    'ICG 0, 0, 0',
+    'ICG 0, 320, 200',
     'END',
   ]);
   const key = analysis.requirements[0].key;
@@ -269,14 +435,39 @@ test('Kitahe PM image mappings emit BG/Sprite and reject wrong types while expli
     assetCatalog: catalog,
   });
   assert.equal(bg.ok, true);
-  assert.ok(bg.scenes.some((scene) => scene.commands.some((command) => command.type === 'background')));
+  const backgroundCommand = bg.scenes.flatMap((scene) => scene.commands)
+    .find((command) => command.type === 'background');
+  assert.deepEqual(backgroundCommand, {
+    type: 'background',
+    assetId: 'bg',
+    transition: 'fade',
+    fadeOutFrames: 30,
+    fadeInFrames: 30,
+    x: 2,
+    y: 3,
+  });
 
   const sprite = converter.convertScripts(analysis, {
-    mapping: { assets: { [key]: { action: 'map', assetId: 'hero', display: 'sprite', slot: 2, x: 10, y: 20 } } },
+    mapping: {
+      assets: {
+        [key]: {
+          action: 'map',
+          assetId: 'hero',
+          display: 'sprite',
+          slot: 2,
+          x: 319,
+          y: 223,
+        },
+      },
+    },
     assetCatalog: catalog,
   });
   assert.equal(sprite.ok, true);
-  assert.ok(sprite.scenes.some((scene) => scene.commands.some((command) => command.type === 'sprite' && command.slot === 2)));
+  const spriteCommand = sprite.scenes.flatMap((scene) => scene.commands)
+    .find((command) => command.type === 'sprite');
+  assert.equal(spriteCommand.slot, 2);
+  assert.equal(spriteCommand.x, Math.round(320 * 224 / 640));
+  assert.equal(spriteCommand.y, 17);
 
   const mismatch = converter.convertScripts(analysis, {
     mapping: { assets: { [key]: { action: 'map', assetId: 'voice', display: 'background' } } },
@@ -324,32 +515,82 @@ test('Kitahe PM image mappings emit BG/Sprite and reject wrong types while expli
   assert.equal(invalidPosition.ok, false);
   assert.ok(invalidPosition.diagnostics.some((entry) => entry.code === 'invalid-image-position'));
 
-  const positionedSprite = converter.convertScripts(analysis, {
-    mapping: {
-      assets: {
-        [key]: { action: 'map', assetId: 'hero', display: 'sprite', slot: 1, x: 319, y: 223 },
-      },
-    },
-    assetCatalog: catalog,
-  });
-  assert.equal(positionedSprite.ok, true);
-  const positionedSpriteCommand = positionedSprite.scenes.flatMap((scene) => scene.commands)
-    .find((command) => command.type === 'sprite');
-  assert.equal(positionedSpriteCommand.x, 319);
-  assert.equal(positionedSpriteCommand.y, 223);
-
-  for (const [x, y] of [[-1, 0], [320, 0], [0, -1], [0, 224]]) {
-    const outOfRangeSprite = converter.convertScripts(analysis, {
+  const convertSpriteAt = (sourceX) => {
+    const positioned = analyze([
+      'CGDIR DIR, \\BG',
+      'LCG 0, A, 640, 480',
+      `ICG 0, ${sourceX}, 999`,
+      'END',
+    ]);
+    const positionedKey = positioned.requirements[0].key;
+    return converter.convertScripts(positioned, {
       mapping: {
         assets: {
-          [key]: { action: 'map', assetId: 'hero', display: 'sprite', slot: 1, x, y },
+          [positionedKey]: {
+            action: 'map',
+            assetId: 'hero',
+            display: 'sprite',
+            slot: 1,
+            x: 319,
+            y: 223,
+          },
         },
       },
       assetCatalog: catalog,
     });
-    assert.equal(outOfRangeSprite.ok, false, `sprite position ${x},${y} must be rejected`);
-    assert.ok(outOfRangeSprite.diagnostics.some((entry) => entry.code === 'invalid-image-position'));
-  }
+  };
+
+  const negative = convertSpriteAt(-100);
+  assert.equal(negative.ok, true);
+  const negativeSprite = negative.scenes.flatMap((scene) => scene.commands)
+    .find((command) => command.type === 'sprite');
+  assert.equal(negativeSprite.x, 0);
+  assert.equal(negativeSprite.y, 17);
+  assert.ok(negative.diagnostics.some((entry) => (
+    entry.severity === 'warning' && entry.code === 'sprite-x-clamped'
+  )));
+
+  const unresolved = convertSpriteAt('UNKNOWN_X');
+  assert.equal(unresolved.ok, false);
+  assert.ok(unresolved.diagnostics.some((entry) => (
+    entry.severity === 'error' && entry.code === 'invalid-sprite-source-x'
+  )));
+});
+
+test('Kitahe PM omits CG alpha FADE while preserving SCREEN effects', () => {
+  const analysis = analyze([
+    'DEFINE FLAG',
+    'DEFINE T',
+    'IF FLAG == 1 GOTO BRANCH',
+    'T = 1',
+    'GOTO MERGE',
+    'LABEL BRANCH',
+    'T = 2',
+    'LABEL MERGE',
+    'FADE 0, T, 0, 0, T',
+    'SCREEN OFF',
+    'END',
+  ]);
+
+  assert.ok(!analysis.diagnostics.some((entry) => entry.code === 'ambiguous-constant-state'));
+  assert.ok(analysis.diagnostics.some((entry) => (
+    entry.code === 'fade-omitted'
+    && entry.severity === 'warning'
+    && entry.line === 9
+  )));
+  assert.ok(!analysis.diagnostics.some((entry) => entry.code === 'fade-approximated'));
+
+  const converted = converter.convertScripts(analysis, { mapping: {}, assetCatalog: [] });
+  assert.equal(converted.ok, true);
+  const effects = converted.scenes.flatMap((scene) => scene.commands)
+    .filter((command) => command.type === 'effect');
+  assert.deepEqual(effects, [{
+    type: 'effect',
+    effect: 'blank',
+    frames: 0,
+    intensity: 0,
+    color: '#000000',
+  }]);
 });
 
 test('Kitahe PM CFG handles local/external GOTO and gates unselected or unresolved targets', () => {
@@ -584,7 +825,7 @@ test('Kitahe PM inspection rejects path-dependent CG or message state at CFG joi
 
 test('Kitahe PM MENU emits Choice and CALL/RETURN expands without runtime call commands', () => {
   const menu = analyze([
-    'MENU 0, 0xF000, 0xF999, 一, 二, 三',
+    'MENU 0, 0xF000, 0xF999, 綺, 二, 三',
     'ONRMG 0, -1, -1, NULL, C1, C2, C3',
     'LABEL C1',
     'END',
@@ -597,8 +838,16 @@ test('Kitahe PM MENU emits Choice and CALL/RETURN expands without runtime call c
   assert.equal(convertedMenu.ok, true);
   const choice = convertedMenu.scenes.flatMap((scene) => scene.commands)
     .find((command) => command.type === 'choice');
-  assert.deepEqual(choice.choices.map((entry) => entry.label), ['一', '二', '三']);
+  assert.deepEqual(choice.choices.map((entry) => entry.label), ['□', '二', '三']);
   assert.ok(choice.choices.every((entry) => entry.targetSceneId));
+  assert.ok(convertedMenu.diagnostics.some((entry) => (
+    entry.severity === 'warning'
+    && entry.code === 'font-character-replaced'
+    && entry.script === 'A.SCR'
+    && entry.line === 1
+    && entry.field === 'choice[0]'
+    && entry.codePoint === 'U+7DBA'
+  )));
 
   const longLabel = '長'.repeat(25);
   const longMenu = analyze([
@@ -652,6 +901,7 @@ test('Kitahe PM CFG facts carry CG and message state through CALL/RETURN expansi
     'WAIT WIN_MSG',
     'END',
     'LABEL SUB',
+    'HERO = 0xFAAA',
     'COLOR WIN_MSG, HERO',
     'MSG WIN_MSG, sub message',
     'RETURN',
@@ -665,7 +915,8 @@ test('Kitahe PM CFG facts carry CG and message state through CALL/RETURN expansi
   const message = converted.scenes.flatMap((scene) => scene.commands)
     .find((command) => command.type === 'message');
   assert.equal(message.text, 'sub message');
-  assert.equal(message.speaker, '話者');
+  assert.equal(message.speaker, '');
+  assert.equal(message.textColor, '#aaaaaa');
 
   const constantCall = analyze([
     'CALL SUB',
@@ -1700,7 +1951,7 @@ test('Kitahe PM rejects project asset junctions that escape the project root', (
   }
 });
 
-test('Kitahe PM preview rejects CP932 text that the PCE jp-v3 font cannot encode', () => {
+test('Kitahe PM replaces unsupported jp-v3 characters with placeholders and keeps the import applicable', () => {
   const sourceRoot = tempDir('pce-khpm-text-encoding-source-');
   const projectDir = tempDir('pce-khpm-text-encoding-project-');
   const scriptDir = path.join(sourceRoot, 'SCRIPT');
@@ -1708,7 +1959,10 @@ test('Kitahe PM preview rejects CP932 text that the PCE jp-v3 font cannot encode
   fs.mkdirSync(scriptDir, { recursive: true });
   fs.mkdirSync(assetDir, { recursive: true });
   fs.writeFileSync(path.join(scriptDir, 'A.SCR'), scr([
-    'MSG WIN_MSG, ①',
+    'DEFINE GCOLOR',
+    'GCOLOR = 0xFAAA',
+    'COLOR WIN_MSG, GCOLOR',
+    'MSG WIN_MSG, 綺①A',
     'WAIT WIN_MSG',
     'END',
   ].join('\n')));
@@ -1718,8 +1972,17 @@ test('Kitahe PM preview rejects CP932 text that the PCE jp-v3 font cannot encode
     startScene: 'opening',
     scenes: [{ id: 'opening', commands: [], nextSceneId: '' }],
   };
+  const mapping = {
+    speakers: { GCOLOR: { mode: 'speaker', name: '😀' } },
+    assets: {},
+  };
   const scenePath = path.join(assetDir, 'pce-vn-scenes.json');
   fs.writeFileSync(scenePath, JSON.stringify(initial));
+  const context = {
+    projectDir,
+    assets: [],
+    logger: { info() {}, error() {} },
+  };
 
   try {
     const preview = plugin.inspectKitahePmSource({
@@ -1728,23 +1991,140 @@ test('Kitahe PM preview rejects CP932 text that the PCE jp-v3 font cannot encode
       entryScript: 'A.SCR',
       targetMedia: 'cd',
       doc: initial,
-      mapping: { speakers: {}, assets: {} },
+      mapping,
       mode: 'replace',
       previewConversion: true,
-    }, {
-      projectDir,
-      assets: [],
-      logger: { info() {}, error() {} },
-    });
+    }, context);
 
     assert.equal(preview.ok, true);
-    assert.equal(preview.canApply, false);
-    assert.ok(preview.diagnostics.some((entry) => (
-      entry.severity === 'error'
-      && entry.code === 'text_encoding'
-      && /U\+2460/.test(entry.message)
-    )));
+    assert.equal(preview.canApply, true);
+    const replacements = preview.diagnostics.filter((entry) => entry.code === 'font-character-replaced');
+    assert.deepEqual(
+      replacements.map((entry) => [
+        entry.severity,
+        entry.script,
+        entry.line,
+        entry.field,
+        entry.characterIndex,
+        entry.codePoint,
+        entry.replacement,
+      ]),
+      [
+        ['warning', 'A.SCR', 5, 'message', 0, 'U+7DBA', '□'],
+        ['warning', 'A.SCR', 5, 'message', 1, 'U+2460', '□'],
+      ],
+    );
+    assert.ok(!preview.diagnostics.some((entry) => entry.code === 'text_encoding'));
     assert.deepEqual(fs.readdirSync(assetDir), ['pce-vn-scenes.json']);
+
+    const unconfirmed = plugin.applyKitahePmConversion({
+      sourceRoot,
+      selectedScripts: ['A.SCR'],
+      entryScript: 'A.SCR',
+      targetMedia: 'cd',
+      doc: initial,
+      signature: preview.signature,
+      mapping,
+      mode: 'replace',
+      confirmWarnings: false,
+    }, context);
+    assert.equal(unconfirmed.ok, false);
+    assert.equal(unconfirmed.warningConfirmationRequired, true);
+    assert.deepEqual(JSON.parse(fs.readFileSync(scenePath, 'utf8')), initial);
+
+    const applied = plugin.applyKitahePmConversion({
+      sourceRoot,
+      selectedScripts: ['A.SCR'],
+      entryScript: 'A.SCR',
+      targetMedia: 'cd',
+      doc: initial,
+      signature: preview.signature,
+      mapping,
+      mode: 'replace',
+      confirmWarnings: true,
+    }, context);
+    assert.equal(applied.ok, true);
+    const message = applied.doc.scenes.flatMap((scene) => scene.commands)
+      .find((command) => command.type === 'message');
+    assert.equal(message.speaker, '');
+    assert.equal(message.text, '□□A');
+    assert.ok(!applied.diagnostics.some((entry) => entry.code === 'text_encoding'));
+
+    const report = JSON.parse(fs.readFileSync(
+      path.join(assetDir, 'kitahe-pm-conversion-report.json'),
+      'utf8',
+    ));
+    assert.equal(report.summary.warningCount, 2);
+    assert.equal(report.approximations.filter((entry) => entry.code === 'font-character-replaced').length, 2);
+    const sidecar = JSON.parse(fs.readFileSync(
+      path.join(assetDir, 'kitahe-pm-conversion.json'),
+      'utf8',
+    ));
+    assert.deepEqual(sidecar.speakerMappings, {});
+    assert.ok(Object.values(sidecar.imports).every((record) => (
+      record && typeof record === 'object' && Object.keys(record.speakerMappings || {}).length === 0
+    )));
+  } finally {
+    fs.rmSync(sourceRoot, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test('Kitahe PM restores only saved asset mappings for the matching SCR import identity', () => {
+  const sourceRoot = tempDir('pce-khpm-mapping-identity-source-');
+  const projectDir = tempDir('pce-khpm-mapping-identity-project-');
+  const scriptDir = path.join(sourceRoot, 'SCRIPT');
+  const assetDir = path.join(projectDir, 'assets');
+  fs.mkdirSync(scriptDir, { recursive: true });
+  fs.mkdirSync(assetDir, { recursive: true });
+  fs.writeFileSync(path.join(scriptDir, 'A.SCR'), scr('MSG WIN_MSG, A\nWAIT WIN_MSG\nEND'));
+  fs.writeFileSync(path.join(scriptDir, 'B.SCR'), scr('MSG WIN_MSG, B\nWAIT WIN_MSG\nEND'));
+
+  const savedRecord = {
+    selectedScripts: ['A.SCR'],
+    entry: 'A.SCR',
+    protagonistName: '',
+    namespace: 'khpm_a',
+    speakerMappings: { A_ONLY: { mode: 'speaker', name: '保存話者' } },
+    assetMappings: { 'saved-asset-key': { action: 'omit' } },
+    ownedSceneIds: ['khpm_a_entry'],
+  };
+  const identity = converter.sha256(converter.stableJson({
+    selectedScripts: ['A.SCR'],
+    entryScript: 'A.SCR',
+  })).slice(0, 16);
+  fs.writeFileSync(path.join(assetDir, 'kitahe-pm-conversion.json'), JSON.stringify({
+    version: 1,
+    imports: { [identity]: savedRecord },
+    ...savedRecord,
+  }, null, 2));
+  const doc = {
+    version: 2,
+    settings: {},
+    startScene: 'opening',
+    scenes: [{ id: 'opening', commands: [], nextSceneId: '' }],
+  };
+  const context = { projectDir, assets: [], logger: { info() {}, error() {} } };
+
+  try {
+    const unrelated = plugin.inspectKitahePmSource({
+      sourceRoot,
+      selectedScripts: ['B.SCR'],
+      entryScript: 'B.SCR',
+      targetMedia: 'cd',
+      doc,
+    }, context);
+    assert.deepEqual(unrelated.mapping, { speakers: {}, assets: {} });
+
+    const matching = plugin.inspectKitahePmSource({
+      sourceRoot,
+      selectedScripts: ['A.SCR'],
+      entryScript: 'A.SCR',
+      targetMedia: 'cd',
+      doc,
+    }, context);
+    assert.deepEqual(matching.mapping.speakers, {});
+    assert.deepEqual(matching.mapping.assets, savedRecord.assetMappings);
   } finally {
     fs.rmSync(sourceRoot, { recursive: true, force: true });
     fs.rmSync(projectDir, { recursive: true, force: true });

@@ -101,7 +101,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportRom: () => ipcRenderer.invoke('export:rom'),
   exportHtml: () => ipcRenderer.invoke('export:html'),
   exportVnIrodoriBatch: (payload) => ipcRenderer.invoke('vn:exportIrodoriBatch', payload || {}),
-  exportVnGodotPackage: (payload) => ipcRenderer.invoke('vn:exportGodotPackage', payload || {}),
   inspectVnIrodoriVoiceAssignments: (payload) => ipcRenderer.invoke('vn:inspectIrodoriVoiceAssignments', payload || {}),
   quitApp: () => ipcRenderer.invoke('app:quit'),
 });

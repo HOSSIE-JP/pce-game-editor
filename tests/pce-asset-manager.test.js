@@ -2748,3 +2748,115 @@ test('PCE CD-DA validates track range, uniqueness, and physical track count', ()
   }, null, 2));
   assert.throws(() => assetManager.generateAssetSources(projectDir), /CD-DA supports up to 98 audio tracks/);
 });
+
+test('PCE Kitahe PM owned-source-key guard preserves owner IDs and stores sanitized provenance', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-kitahe-owned-');
+  const imageKey = 'image-aab5c68d56ce9a54';
+  const imageProvenance = {
+    version: 1,
+    sourceKey: imageKey,
+    kind: 'image',
+    source: 'BG/KYOTSUU/BGF011_A.PVR + BG/KYOTSUU/BGF011_B.PVR',
+    manifestFileName: 'kitahe-pm-assets.csv',
+    row: 2,
+  };
+  assert.throws(
+    () => assetManager.normalizeKitahePmProvenance({ ...imageProvenance, source: 'C:private.PVR' }),
+    /relative logical path/u,
+  );
+  assert.throws(() => assetManager.normalizeKitahePmProvenance({ ...imageProvenance, source: 'BG/../secret.PVR' }), /traversal/u);
+
+  const first = assetManager.importImage(projectDir, {
+    convertedDataUrl: makePngDataUrl(16, 16),
+    sourceFileName: 'joined.png',
+    id: 'joined_bg',
+    kind: 'background',
+    replacePolicy: 'owned-source-key',
+    kitahePm: imageProvenance,
+  });
+  assert.equal(first.asset.id, 'joined_bg');
+  assert.deepEqual(first.asset.data.import.kitahePm, imageProvenance);
+
+  const changedType = assetManager.importImage(projectDir, {
+    convertedDataUrl: makePngDataUrl(16, 16),
+    sourceFileName: 'joined.png',
+    id: 'new_requested_id',
+    kind: 'sprite',
+    cellWidth: 16,
+    cellHeight: 16,
+    replacePolicy: 'owned-source-key',
+    kitahePm: { ...imageProvenance, row: 5 },
+  });
+  assert.equal(changedType.asset.id, 'joined_bg');
+  assert.equal(changedType.asset.type, 'sprite');
+  assert.equal(changedType.assets.filter((asset) => asset.data?.import?.kitahePm?.sourceKey === imageKey).length, 1);
+  assert.equal(changedType.asset.data.import.kitahePm.row, 5);
+
+  assert.throws(() => assetManager.resolveKitahePmImportTarget(changedType.assets, 'other', 'sprite', {
+    kitahePm: imageProvenance,
+  }), /replacePolicy owned-source-key/);
+  assert.throws(() => assetManager.resolveKitahePmImportTarget([
+    { id: 'foreign', type: 'image' },
+  ], 'foreign', 'image', {
+    replacePolicy: 'owned-source-key',
+    kitahePm: imageProvenance,
+  }), /package外/);
+  assert.throws(() => assetManager.resolveKitahePmImportTarget([
+    { id: 'one', type: 'image', data: { import: { kitahePm: imageProvenance } } },
+    { id: 'two', type: 'sprite', data: { import: { kitahePm: imageProvenance } } },
+  ], 'ignored', 'image', {
+    replacePolicy: 'owned-source-key',
+    kitahePm: imageProvenance,
+  }), /複数/);
+
+  const p04Provenance = {
+    version: 1,
+    sourceKey: 'p04-83dbeb09338a0511',
+    kind: 'p04',
+    source: 'VOICE/AY/V001.P04',
+    manifestFileName: 'kitahe-pm-assets.csv',
+    row: 3,
+  };
+  const voice = assetManager.importAudio(projectDir, {
+    dataUrl: makeWavDataUrl(22050, 128),
+    sourceFileName: 'voice.wav',
+    id: 'voice_asset',
+    kind: 'adpcm',
+    sampleRate: 8000,
+    splitPolicy: 'error',
+    rejectOversize: true,
+    replacePolicy: 'owned-source-key',
+    kitahePm: p04Provenance,
+  });
+  assert.deepEqual(voice.asset.data.import.kitahePm, p04Provenance);
+
+  const track = [
+    0x00, 0x90, 69, 100,
+    0x81, 0x70, 0x80, 69, 0,
+    0x00, 0xff, 0x2f, 0x00,
+  ];
+  const midi = Buffer.concat([
+    Buffer.from([0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0x01, 0xe0]),
+    Buffer.from([0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, track.length]),
+    Buffer.from(track),
+  ]);
+  const midiSource = path.join(makeTempDir('pce-assets-kitahe-midi-'), 'track11.mid');
+  fs.writeFileSync(midiSource, midi);
+  const midiProvenance = {
+    version: 1,
+    sourceKey: 'midi-f4c1d8d28017e69f',
+    kind: 'midi',
+    source: 'MIDI/PM_bank00_track11.mid',
+    manifestFileName: 'kitahe-pm-assets.csv',
+    row: 4,
+  };
+  const song = assetManager.importMidi(projectDir, {
+    sourcePath: midiSource,
+    id: 'track11',
+    type: 'psg-song',
+    replacePolicy: 'owned-source-key',
+    kitahePm: midiProvenance,
+  });
+  assert.deepEqual(song.asset.data.import.kitahePm, midiProvenance);
+});

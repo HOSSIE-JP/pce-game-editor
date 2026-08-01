@@ -551,15 +551,17 @@ static void VN_HUCARD_CODE_VIDEO set_background(int16_t bg_index, uint8_t transi
 {
     const pce_editor_bg_asset_t *bg;
     const uint8_t fade_transition = (uint8_t)(transition == PCE_VN_BG_TRANSITION_FADE);
+    const uint8_t bg_fade_out_frames = fade_out_frames == 1u ? 0u : fade_out_frames;
+    const uint8_t bg_fade_in_frames = fade_in_frames == 1u ? 0u : fade_in_frames;
     const uint8_t next_x = tile_x < VN_MAP_WIDTH ? (uint8_t)tile_x : 0u;
     const uint8_t next_y = tile_y < VN_VISIBLE_HEIGHT ? (uint8_t)tile_y : 0u;
     if (bg_index < 0 || (uint16_t)bg_index >= pce_editor_bg_asset_count) return;
     if (background_display_matches(bg_index, tile_x, tile_y)) return;
     bg = &pce_editor_bg_assets[bg_index];
-    if (current_bg_index >= 0 && fade_transition)
+    if (current_bg_index >= 0 && fade_transition && bg_fade_out_frames)
     {
         const pce_editor_bg_asset_t *old_bg = &pce_editor_bg_assets[current_bg_index];
-        fade_palette(&old_bg->palette, (uint16_t)(current_bg_palette_bank * 16u), fade_out_frames, 0u);
+        fade_palette(&old_bg->palette, (uint16_t)(current_bg_palette_bank * 16u), bg_fade_out_frames, 0u);
     }
     if (fade_transition) display_disable();
 #if PCE_VN_HAS_FULL_SCREEN_BG
@@ -570,7 +572,7 @@ static void VN_HUCARD_CODE_VIDEO set_background(int16_t bg_index, uint8_t transi
     upload_bg_graphics(bg,
         next_x,
         next_y,
-        fade_transition ? 0u : 16u);
+        fade_transition && bg_fade_in_frames ? 0u : 16u);
     current_bg_x = next_x;
     current_bg_y = next_y;
     current_bg_display_valid = 1u;
@@ -580,7 +582,10 @@ static void VN_HUCARD_CODE_VIDEO set_background(int16_t bg_index, uint8_t transi
     if (fade_transition)
     {
         display_enable();
-        fade_palette(&bg->palette, (uint16_t)(bg->palette_bank * 16u), fade_in_frames, 1u);
+        if (bg_fade_in_frames)
+        {
+            fade_palette(&bg->palette, (uint16_t)(bg->palette_bank * 16u), bg_fade_in_frames, 1u);
+        }
     }
 }
 

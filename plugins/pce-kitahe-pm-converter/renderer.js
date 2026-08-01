@@ -1,3 +1,5 @@
+import { createKitahePmAssetPackageImporter } from './asset-package-importer.js';
+
 const PLUGIN_ID = 'pce-kitahe-pm-converter';
 const CAPABILITY_NAME = 'kitahe-pm-script-converter';
 
@@ -344,36 +346,6 @@ function entryOptions(state) {
   )).join('');
 }
 
-function speakerMappingRows(state) {
-  const tokens = normalizeColorTokens(state.inspection);
-  if (!tokens.length) return '<p class="pce-kitahe-empty">到達可能な COLOR token はありません。</p>';
-  return tokens.map((entry, index) => {
-    const mapping = state.speakerMappings[entry.token] || { mode: '', name: '' };
-    return `
-      <tr>
-        <td><code>${esc(entry.token)}</code>${entry.count ? `<small>${entry.count} uses</small>` : ''}</td>
-        <td>
-          <select class="form-select" data-speaker-mode="${index}">
-            <option value="" ${mapping.mode ? '' : 'selected'}>対応を選択</option>
-            <option value="speaker" ${mapping.mode === 'speaker' ? 'selected' : ''}>話者</option>
-            <option value="narration" ${mapping.mode === 'narration' ? 'selected' : ''}>ナレーション</option>
-          </select>
-        </td>
-        <td>
-          <input
-            class="form-input"
-            data-speaker-name="${index}"
-            maxlength="16"
-            value="${esc(mapping.name || '')}"
-            placeholder="16文字以内"
-            ${mapping.mode === 'speaker' ? '' : 'disabled'}
-          />
-        </td>
-      </tr>
-    `;
-  }).join('');
-}
-
 function assetMappingRows(state) {
   const requirements = normalizeAssetRequirements(state.inspection);
   if (!requirements.length) return '<p class="pce-kitahe-empty">到達可能な画像・音声参照はありません。</p>';
@@ -410,33 +382,35 @@ function assetMappingRows(state) {
               ${assetOptions(state.assets, requirement, mapping)}
             </select>
           </label>
-          ${visual ? `
+          ${visual && !sprite ? `
             <label class="form-group">
-              <span class="form-label">${sprite ? 'X (px)' : 'Tile X'}</span>
-              <input class="form-input" data-map-x="${index}" type="number"
-                min="0" max="${sprite ? 319 : 31}"
-                value="${asInteger(mapping.x, sprite ? 128 : 2)}" ${mapped ? '' : 'disabled'} />
+              <span class="form-label">Tile X</span>
+              <input class="form-input" data-map-x="${index}" type="number" min="0" max="31"
+                value="${asInteger(mapping.x, 2)}" ${mapped ? '' : 'disabled'} />
             </label>
             <label class="form-group">
-              <span class="form-label">${sprite ? 'Y (px)' : 'Tile Y'}</span>
-              <input class="form-input" data-map-y="${index}" type="number"
-                min="0" max="${sprite ? 223 : 31}"
-                value="${asInteger(mapping.y, sprite ? 24 : 1)}" ${mapped ? '' : 'disabled'} />
+              <span class="form-label">Tile Y</span>
+              <input class="form-input" data-map-y="${index}" type="number" min="0" max="31"
+                value="${asInteger(mapping.y, 1)}" ${mapped ? '' : 'disabled'} />
             </label>
-            ${sprite ? `
-              <label class="form-group">
-                <span class="form-label">Sprite slot</span>
-                <select class="form-select" data-map-slot="${index}" ${mapped ? '' : 'disabled'}>
-                  ${[0, 1, 2, 3].map((slot) => `<option value="${slot}" ${asInteger(mapping.slot, 0) === slot ? 'selected' : ''}>${slot}</option>`).join('')}
-                </select>
-              </label>
-              <label class="form-group">
-                <span class="form-label">Animation</span>
-                <select class="form-select" data-map-animation="${index}" ${mapped ? '' : 'disabled'}>
-                  ${animationOptions(state.assets, mapping.assetId, mapping.animationId)}
-                </select>
-              </label>
-            ` : ''}
+          ` : ''}
+          ${sprite ? `
+            <label class="form-group">
+              <span class="form-label">Sprite X / Y</span>
+              <output class="pce-kitahe-auto-position">ICG X × 224 / 640 / Y 17</output>
+            </label>
+            <label class="form-group">
+              <span class="form-label">Sprite slot</span>
+              <select class="form-select" data-map-slot="${index}" ${mapped ? '' : 'disabled'}>
+                ${[0, 1, 2, 3].map((slot) => `<option value="${slot}" ${asInteger(mapping.slot, 0) === slot ? 'selected' : ''}>${slot}</option>`).join('')}
+              </select>
+            </label>
+            <label class="form-group">
+              <span class="form-label">Animation</span>
+              <select class="form-select" data-map-animation="${index}" ${mapped ? '' : 'disabled'}>
+                ${animationOptions(state.assets, mapping.assetId, mapping.animationId)}
+              </select>
+            </label>
           ` : ''}
         </div>
       </article>
@@ -505,14 +479,12 @@ function sourceStepHtml(state) {
 function mappingStepHtml(state) {
   return `
     <section class="pce-kitahe-step">
-      <div class="pce-kitahe-section-head"><div><span>2</span><h3>話者とアセットの対応</h3></div></div>
-      <h4>COLOR token</h4>
-      <div class="pce-kitahe-table-wrap">
-        <table class="pce-kitahe-speaker-table">
-          <thead><tr><th>Token</th><th>扱い</th><th>話者名</th></tr></thead>
-          <tbody>${speakerMappingRows(state)}</tbody>
-        </table>
+      <div class="pce-kitahe-section-head">
+        <div><span>2</span><h3>アセットの対応</h3></div>
+        <button class="btn-sm" type="button" data-kitahe-action="reset-asset-mappings"
+          ${state.busy ? 'disabled' : ''}>アセット対応をリセットして自動照合</button>
       </div>
+      <p class="pce-kitahe-help">すべてのメッセージをナレーションとして変換し、COLOR値は本文色へ反映します。</p>
       <h4>画像・音声</h4>
       <p class="pce-kitahe-help">
         source名と登録済みPCE asset名が一致する参照は自動選択されます。
@@ -533,7 +505,7 @@ function previewStepHtml(state) {
       <div class="pce-kitahe-section-head"><div><span>3</span><h3>変換プレビューと診断</h3></div></div>
       <div class="pce-kitahe-summary-cards">
         <div><strong>${state.selectedScripts.size}</strong><span>SCR</span></div>
-        <div><strong>${normalizeColorTokens(state.inspection).length}</strong><span>話者 token</span></div>
+        <div><strong>${normalizeColorTokens(state.inspection).length}</strong><span>COLOR token</span></div>
         <div><strong>${requirements.length}</strong><span>asset 参照</span></div>
         <div data-level="${counts.error ? 'error' : (counts.warning ? 'warning' : 'ok')}">
           <strong>${counts.error} / ${counts.warning}</strong><span>error / warning</span>
@@ -663,29 +635,13 @@ function renderModal(modal, state, options = {}) {
 }
 
 function collectMappingChange(target, state) {
-  const colorTokens = normalizeColorTokens(state.inspection);
+
   const requirements = normalizeAssetRequirements(state.inspection);
   const indexed = (attribute, rows) => {
     const raw = target.getAttribute(attribute);
     if (raw == null) return null;
     return rows[Number(raw)] || null;
   };
-
-  const speakerMode = indexed('data-speaker-mode', colorTokens);
-  if (speakerMode) {
-    const current = state.speakerMappings[speakerMode.token] || { mode: '', name: '' };
-    current.mode = target.value === 'speaker' || target.value === 'narration' ? target.value : '';
-    if (current.mode !== 'speaker') current.name = '';
-    state.speakerMappings[speakerMode.token] = current;
-    return true;
-  }
-  const speakerName = indexed('data-speaker-name', colorTokens);
-  if (speakerName) {
-    const current = state.speakerMappings[speakerName.token] || { mode: 'speaker', name: '' };
-    current.name = String(target.value || '').slice(0, 16);
-    state.speakerMappings[speakerName.token] = current;
-    return false;
-  }
 
   const mapEnabled = indexed('data-map-enabled', requirements);
   if (mapEnabled) {
@@ -695,8 +651,6 @@ function collectMappingChange(target, state) {
       current.assetId = String(mapEnabled.suggestedAssetId);
       if (mapEnabled.kind === 'visual' && mapEnabled.suggestedAssetType === 'sprite') {
         current.display = 'sprite';
-        current.x = 128;
-        current.y = 24;
       }
     }
     state.assetMappings[mapEnabled.key] = current;
@@ -719,8 +673,10 @@ function collectMappingChange(target, state) {
     if (field === 'display') {
       current.assetId = '';
       current.animationId = '';
-      current.x = current.display === 'sprite' ? 128 : 2;
-      current.y = current.display === 'sprite' ? 24 : 1;
+      if (current.display === 'background') {
+        current.x = 2;
+        current.y = 1;
+      }
     }
     if (field === 'assetId') current.animationId = '';
     state.assetMappings[requirement.key] = current;
@@ -731,14 +687,6 @@ function collectMappingChange(target, state) {
 
 function validateMappings(state) {
   const errors = [];
-  normalizeColorTokens(state.inspection).forEach(({ token }) => {
-    const mapping = state.speakerMappings[token];
-    if (!mapping || !['speaker', 'narration'].includes(mapping.mode)) {
-      errors.push(`COLOR ${token}: 話者またはナレーションを選択してください。`);
-    } else if (mapping.mode === 'speaker' && (!String(mapping.name || '').trim() || [...String(mapping.name)].length > 16)) {
-      errors.push(`COLOR ${token}: 話者名を1〜16文字で入力してください。`);
-    }
-  });
   normalizeAssetRequirements(state.inspection).forEach((requirement) => {
     const mapping = state.assetMappings[requirement.key];
     if (!mapping || !['map', 'omit'].includes(mapping.action)) {
@@ -759,15 +707,6 @@ function validateMappings(state) {
   return errors;
 }
 
-function compactSpeakerMappings(state) {
-  return Object.fromEntries(normalizeColorTokens(state.inspection).map(({ token }) => {
-    const current = state.speakerMappings[token] || { mode: '' };
-    return [token, current.mode === 'narration'
-      ? { mode: 'narration' }
-      : { mode: 'speaker', name: String(current.name || '').trim() }];
-  }));
-}
-
 function compactAssetMappings(state) {
   return Object.fromEntries(normalizeAssetRequirements(state.inspection).map((requirement) => {
     const current = state.assetMappings[requirement.key] || { action: '' };
@@ -775,11 +714,12 @@ function compactAssetMappings(state) {
     const mapped = { action: 'map', assetId: String(current.assetId || '') };
     if (requirement.kind === 'visual') {
       mapped.display = current.display === 'sprite' ? 'sprite' : 'background';
-      mapped.x = asInteger(current.x, mapped.display === 'sprite' ? 128 : 2);
-      mapped.y = asInteger(current.y, mapped.display === 'sprite' ? 24 : 1);
       if (mapped.display === 'sprite') {
         mapped.slot = Math.max(0, Math.min(3, asInteger(current.slot, 0)));
         if (current.animationId) mapped.animationId = String(current.animationId);
+      } else {
+        mapped.x = asInteger(current.x, 2);
+        mapped.y = asInteger(current.y, 1);
       }
     }
     return [requirement.key, mapped];
@@ -798,6 +738,13 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
     }
     return result?.result && typeof result.result === 'object' ? result.result : result;
   };
+
+  const assetPackageImporter = createKitahePmAssetPackageImporter({
+    plugin,
+    api,
+    logger,
+    invoke,
+  });
 
   const openImportModal = (options = {}) => {
     if (activeSession) {
@@ -821,7 +768,7 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       entryScript: '',
       protagonistName: '',
       inspection: null,
-      speakerMappings: Object.create(null),
+
       assetMappings: Object.create(null),
       assets: asArray(options.assets),
       doc: options.doc && typeof options.doc === 'object'
@@ -935,26 +882,9 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
         state.inspection = inspection;
         state.entryScript = String(inspection?.entryScript || state.entryScript || '');
         const savedMapping = inspection?.mapping || inspection?.savedMapping || {};
-        const savedSpeakers = savedMapping?.speakers && typeof savedMapping.speakers === 'object'
-          ? savedMapping.speakers
-          : {};
         const savedAssets = savedMapping?.assets && typeof savedMapping.assets === 'object'
           ? savedMapping.assets
           : {};
-        state.speakerMappings = Object.create(null);
-        normalizeColorTokens(inspection).forEach(({ token }) => {
-          const saved = savedSpeakers[token];
-          if (typeof saved === 'string') {
-            state.speakerMappings[token] = saved.trim()
-              ? { mode: 'speaker', name: saved.trim().slice(0, 16) }
-              : { mode: 'narration', name: '' };
-          } else {
-            state.speakerMappings[token] = {
-              mode: saved?.mode === 'speaker' || saved?.mode === 'narration' ? saved.mode : '',
-              name: String(saved?.name || '').slice(0, 16),
-            };
-          }
-        });
         state.assetMappings = Object.create(null);
         normalizeAssetRequirements(inspection).forEach((requirement) => {
           const saved = savedAssets[requirement.key];
@@ -970,6 +900,51 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       }
     };
 
+    const resetAssetMappings = async () => {
+      if (!state.inspection || !state.selectedScripts.size || state.busy) return;
+      const previousInspection = state.inspection;
+      const previousAssets = state.assets;
+      const previousMappings = state.assetMappings;
+      state.busy = true;
+      setStatus('最新の登録済みassetから対応を自動照合しています…');
+      renderModal(modal, state, { preserveBodyScroll: true });
+      try {
+        const assetResult = await api.assets.listPceAssets({ force: true });
+        if (!assetResult?.ok) {
+          throw new Error(assetResult?.error || 'asset一覧を更新できませんでした');
+        }
+        const inspection = await invoke('inspectKitahePmSource', inspectPayload());
+        state.assets = asArray(assetResult.assets);
+        state.inspection = {
+          ...previousInspection,
+          ...inspection,
+          signature: '',
+        };
+        state.assetMappings = Object.create(null);
+        const requirements = normalizeAssetRequirements(inspection);
+        requirements.forEach((requirement) => {
+          state.assetMappings[requirement.key] = defaultAssetMapping(requirement);
+        });
+        invalidateMappedPreview('');
+        const mappedCount = requirements.filter(
+          (requirement) => state.assetMappings[requirement.key]?.action === 'map',
+        ).length;
+        setStatus(
+          `アセット対応を自動照合しました（対応 ${mappedCount}件 / 省略 ${requirements.length - mappedCount}件）。`
+          + ' 保存済み設定は変換適用時に更新されます。',
+          'info',
+        );
+      } catch (error) {
+        state.inspection = previousInspection;
+        state.assets = previousAssets;
+        state.assetMappings = previousMappings;
+        fail(error, 'アセット対応のリセット失敗');
+      } finally {
+        state.busy = false;
+        renderModal(modal, state, { preserveBodyScroll: true });
+      }
+    };
+
     const showPreview = async () => {
       const errors = validateMappings(state);
       if (errors.length) {
@@ -979,7 +954,7 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       }
       const previousInspection = state.inspection;
       const mapping = {
-        speakers: compactSpeakerMappings(state),
+        speakers: {},
         assets: compactAssetMappings(state),
       };
       state.busy = true;
@@ -1066,7 +1041,7 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
           ...inspectPayload(),
           signature: state.inspection?.signature,
           mapping: {
-            speakers: compactSpeakerMappings(state),
+            speakers: {},
             assets: compactAssetMappings(state),
           },
           mode: state.mode,
@@ -1100,6 +1075,7 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       if (action === 'cancel') cancel();
       else if (action === 'pick-root') void pickRoot();
       else if (action === 'inspect') void inspectSelected();
+      else if (action === 'reset-asset-mappings') void resetAssetMappings();
       else if (action === 'preview') void showPreview();
       else if (action === 'confirm') {
         state.step = 3;
@@ -1166,11 +1142,75 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
     return promise;
   };
 
+  const runNovelToolbarAction = async (editor = {}) => {
+    try {
+      if (editor.targetMedia !== 'cd') {
+        throw new Error('北へ。PM取込は CD-ROM2 VN プロジェクト専用です。');
+      }
+      if (typeof editor.getSnapshot !== 'function'
+        || typeof editor.getAssets !== 'function'
+        || typeof editor.saveSnapshot !== 'function'
+        || typeof editor.applyDocument !== 'function') {
+        throw new Error('Novel editorのplugin action APIが不足しています');
+      }
+      const snapshot = await editor.getSnapshot({ refreshAssets: true });
+      await editor.saveSnapshot(snapshot);
+      const result = await openImportModal({
+        doc: snapshot,
+        assets: editor.getAssets(),
+        targetMedia: editor.targetMedia,
+      });
+      if (result?.canceled) return { ok: true, canceled: true };
+      if (!result?.ok) throw new Error(result?.error || '変換結果を取得できませんでした');
+      if (!result.doc || !Array.isArray(result.doc.scenes)) {
+        throw new Error('変換結果に VN scene document がありません');
+      }
+      editor.applyDocument(result.doc, {
+        preferredSceneIds: result.importedSceneIds,
+        startScene: result.startScene,
+      });
+      const count = Array.isArray(result.importedSceneIds) ? result.importedSceneIds.length : 0;
+      const message = `北へ。PM取込を適用しました: ${count} scene`;
+      logger?.info?.(message);
+      return { ok: true, message };
+    } catch (error) {
+      logger?.error?.(`北へ。PM取込失敗: ${error?.message || error}`);
+      throw error;
+    }
+  };
+
   registerCapability(CAPABILITY_NAME, { openImportModal });
+  registerCapability('novel-toolbar-action', {
+    id: 'kitahe-pm-import',
+    pluginId: plugin.id,
+    label: '北へ。PM取込',
+    title: '北へ。PhotoMemories の SCR をCD-ROM2 VNシーンへ変換',
+    priority: 100,
+    order: 10,
+    placement: 'before-preview',
+    supportedTargetMedia: ['cd'],
+    run: runNovelToolbarAction,
+  });
+  registerCapability('kitahe-pm-asset-importer', {
+    pluginId: plugin.id,
+    openImportModal: assetPackageImporter.open,
+  });
+  registerCapability('asset-batch-importer', {
+    id: 'kitahe-pm-assets',
+    pluginId: plugin.id,
+    label: '北へ。PM素材',
+    title: 'Viewerが出力した北へ。PM asset packageを一括登録',
+    priority: 100,
+    order: 20,
+    supportedTargetMedia: ['cd'],
+    disabledReason: '北へ。PM素材の一括取込はCD-ROM2 project専用です',
+    open: assetPackageImporter.open,
+  });
   return {
     deactivate() {
       activeSession?.finish?.({ ok: false, canceled: true });
       activeSession = null;
+      assetPackageImporter.destroy();
     },
   };
 }

@@ -225,6 +225,14 @@ test('HuCARD VN skips only display-equivalent BG and Sprite commands', () => {
   const fade = setBackground.indexOf('fade_palette(&old_bg->palette');
   const upload = setBackground.indexOf('upload_bg_graphics(bg');
   assert.ok(bgNoOp >= 0 && bgNoOp < fade && bgNoOp < upload);
+  assert.match(setBackground, /const uint8_t bg_fade_out_frames = fade_out_frames == 1u \? 0u : fade_out_frames;/);
+  assert.match(setBackground, /const uint8_t bg_fade_in_frames = fade_in_frames == 1u \? 0u : fade_in_frames;/);
+  assert.match(setBackground, /if \(fade_transition\) display_disable\(\);/);
+  assert.match(setBackground, /fade_transition && bg_fade_in_frames \? 0u : 16u/);
+  assert.match(
+    setBackground,
+    /display_enable\(\);[\s\S]*if \(bg_fade_in_frames\)[\s\S]*fade_palette\(&bg->palette, \(uint16_t\)\(bg->palette_bank \* 16u\), bg_fade_in_frames, 1u\);/,
+  );
   assert.match(
     setBackground,
     /upload_bg_graphics\(bg,[\s\S]*next_x,[\s\S]*next_y,[\s\S]*current_bg_x = next_x;[\s\S]*current_bg_y = next_y;[\s\S]*current_bg_display_valid = 1u;/,

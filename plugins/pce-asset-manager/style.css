@@ -4,6 +4,12 @@
   --asset-preview-width: 430px;
 }
 
+.asset-batch-importer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* "/"-separated asset names render as collapsible folder groups. */
 .asset-group-row {
   cursor: pointer;

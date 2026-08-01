@@ -1,20 +1,20 @@
 {
   "id": "pce-kitahe-pm-converter",
-  "name": "北へ。PhotoMemories スクリプト取込",
-  "description": "北へ。PhotoMemories の SCR を、加工済み PCE アセットへの対応付けを使って CD-ROM2 VN シーンへ変換します。",
-  "version": "1.0.0",
+  "name": "北へ。PhotoMemories 取込",
+  "description": "北へ。PhotoMemories の SCR 変換と、Viewerが出力したBG・Sprite・ADPCM・PSG素材の一括取込を提供します。",
+  "version": "1.2.0",
   "icon": "book",
   "types": ["converter"],
   "supportedCores": ["pc-engine"],
-  "hooks": ["inspectKitahePmSource", "applyKitahePmConversion"],
-  "permissions": ["project.read", "project.write", "dialog.openFile", "main.invokeHook"],
+  "hooks": ["inspectKitahePmSource", "applyKitahePmConversion", "inspectKitahePmAssetPackage"],
+  "permissions": ["project.read", "project.write", "dialog.openFile", "main.invokeHook", "asset.import", "asset.preview"],
   "mainApi": {
-    "hooks": ["inspectKitahePmSource", "applyKitahePmConversion"],
-    "capabilities": ["kitahe-pm-script-converter"]
+    "hooks": ["inspectKitahePmSource", "applyKitahePmConversion", "inspectKitahePmAssetPackage"],
+    "capabilities": ["kitahe-pm-script-converter", "kitahe-pm-asset-importer", "novel-toolbar-action"]
   },
   "renderer": {
     "entry": "renderer.js",
     "styles": ["style.css"],
-    "capabilities": ["kitahe-pm-script-converter"]
+    "capabilities": ["kitahe-pm-script-converter", "kitahe-pm-asset-importer", "asset-batch-importer", "novel-toolbar-action"]
   }
 }

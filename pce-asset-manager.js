@@ -70,6 +70,8 @@ const PCE_ADPCM_MIN_SAMPLE_RATE = audioConverter.PCE_ADPCM_MIN_SAMPLE_RATE || 40
 const PCE_ADPCM_MAX_SAMPLE_RATE = audioConverter.PCE_ADPCM_MAX_SAMPLE_RATE || 32000;
 const PCE_ADPCM_DIRECT_BUFFERED_MAX_BYTES = 32767;
 const canceledAdpcmBatchIds = new Set();
+const KITAHE_PM_SOURCE_KEY_PATTERN = /^(image|p04|midi)-[a-f0-9]{16}$/;
+const KITAHE_PM_PROVENANCE_VERSION = 1;
 const DEFAULT_BG_OPTIONS = Object.freeze({
   kind: 'background',
   paletteBank: 0,
@@ -173,6 +175,97 @@ function sanitizeAssetId(value, fallback = 'asset') {
     .replace(/^_+|_+$/g, '')
     .slice(0, 48);
   return base || fallback;
+}
+
+function normalizeKitahePmLogicalSource(value, kind) {
+  const source = String(value || '').trim();
+  if (!source || source.length > 2048 || /[\u0000-\u001f\u007f]/u.test(source)) {
+    throw new Error('kitahePm sourceが不正です');
+  }
+  const parts = kind === 'image' ? source.split(/\s+\+\s+/u) : [source];
+  const normalizedParts = parts.map((part) => {
+    const normalized = String(part || '').trim().replace(/\\/g, '/').replace(/\/+/g, '/');
+    if (!normalized || normalized.includes(':')
+      || isLikelyAbsolutePath(normalized) || normalized.startsWith('/')) {
+      throw new Error('kitahePm sourceにはrelative logical pathを指定してください');
+    }
+    const segments = normalized.split('/');
+    if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+      throw new Error('kitahePm sourceのpath traversalを拒否しました');
+    }
+    return normalized;
+  });
+  return kind === 'image' ? normalizedParts.join(' + ') : normalizedParts[0];
+}
+
+function normalizeKitahePmProvenance(value) {
+  const raw = value && typeof value === 'object' ? value : null;
+  if (!raw || Number(raw.version) !== KITAHE_PM_PROVENANCE_VERSION) {
+    throw new Error(`kitahePm provenance versionは${KITAHE_PM_PROVENANCE_VERSION}である必要があります`);
+  }
+  const sourceKey = String(raw.sourceKey || '').trim();
+  const match = sourceKey.match(KITAHE_PM_SOURCE_KEY_PATTERN);
+  if (!match) throw new Error('kitahePm sourceKeyが不正です');
+  const kind = String(raw.kind || '').trim().toLowerCase();
+  if (kind !== match[1]) throw new Error('kitahePm kindとsourceKeyが一致しません');
+  const manifestFileName = String(raw.manifestFileName || raw.manifest || '').trim();
+  if (!manifestFileName
+    || manifestFileName !== path.basename(manifestFileName)
+    || /[\\/]/u.test(manifestFileName)
+    || /[\u0000-\u001f\u007f]/u.test(manifestFileName)
+    || manifestFileName.length > 255) {
+    throw new Error('kitahePm manifestFileNameが不正です');
+  }
+  const row = Number(raw.row);
+  if (!Number.isInteger(row) || row <= 0) throw new Error('kitahePm rowが不正です');
+  return {
+    version: KITAHE_PM_PROVENANCE_VERSION,
+    sourceKey,
+    kind,
+    source: normalizeKitahePmLogicalSource(raw.source, kind),
+    manifestFileName,
+    row,
+  };
+}
+
+function allowedKitahePmTargetTypes(kind) {
+  if (kind === 'image') return new Set(['image', 'sprite']);
+  if (kind === 'p04') return new Set(['adpcm']);
+  if (kind === 'midi') return new Set(['psg-song']);
+  return new Set();
+}
+
+function resolveKitahePmImportTarget(existingAssets, requestedId, targetType, payload = {}) {
+  const assets = Array.isArray(existingAssets) ? existingAssets : [];
+  const replacePolicy = String(payload.replacePolicy || '').trim();
+  const provenance = payload.kitahePm == null ? null : normalizeKitahePmProvenance(payload.kitahePm);
+  if (!replacePolicy) {
+    if (provenance) throw new Error('kitahePm provenanceにはreplacePolicy owned-source-keyが必要です');
+    return { id: requestedId, action: assets.some((asset) => asset.id === requestedId) ? 'replace' : 'create', provenance: null };
+  }
+  if (replacePolicy !== 'owned-source-key') throw new Error(`未対応のreplacePolicyです: ${replacePolicy}`);
+  if (!provenance) throw new Error('owned-source-keyにはkitahePm provenanceが必要です');
+
+  const allowedTypes = allowedKitahePmTargetTypes(provenance.kind);
+  if (!allowedTypes.has(String(targetType || ''))) {
+    throw new Error(`kitahePm ${provenance.kind}をasset type ${targetType || '(空)'}へ取り込めません`);
+  }
+  const owners = assets.filter((asset) => asset?.data?.import?.kitahePm?.sourceKey === provenance.sourceKey);
+  if (owners.length > 1) {
+    throw new Error(`kitahePm sourceKey ${provenance.sourceKey}を所有するassetが複数あります`);
+  }
+  if (owners.length === 1) {
+    const owner = owners[0];
+    if (!allowedTypes.has(String(owner.type || ''))) {
+      throw new Error(`kitahePm sourceKey ${provenance.sourceKey}の所有asset typeが一致しません`);
+    }
+    return { id: owner.id, action: 'update', existingAssetId: owner.id, provenance };
+  }
+  const collision = assets.find((asset) => asset.id === requestedId);
+  if (collision) {
+    throw new Error(`asset ID ${requestedId} は北へ。PM package外のassetが使用しています`);
+  }
+  return { id: requestedId, action: 'create', existingAssetId: '', provenance };
 }
 
 // Parse the sprite editor's per-frame time matrix string ("[[8,8,8][4,4,4]]")
@@ -1414,8 +1507,12 @@ function importImage(projectDir, payload = {}, options = {}) {
   if (sourceExt !== '.png' && !payload.convertedDataUrl) {
     throw new Error('BMP/WebP import requires renderer-side PNG conversion before PCE image conversion');
   }
-  const id = sanitizeAssetId(payload.id || sourceName, kind === 'sprite' ? 'sprite_asset' : 'bg_asset');
+  const requestedId = sanitizeAssetId(payload.id || sourceName, kind === 'sprite' ? 'sprite_asset' : 'bg_asset');
   const assetType = kind === 'sprite' ? 'sprite' : 'image';
+  const doc = readAssetDocument(projectDir);
+  const importTarget = resolveKitahePmImportTarget(doc.assets, requestedId, assetType, payload);
+  const id = importTarget.id;
+  const kitahePm = importTarget.provenance;
   const sourceSubdir = kind === 'sprite' ? 'assets/sprites' : 'assets/images';
   const storedExt = payload.convertedDataUrl ? '.png' : sourceExt;
   const sourceRel = normalizeRelativePath(path.join(sourceSubdir, `${id}${storedExt}`));
@@ -1463,10 +1560,10 @@ function importImage(projectDir, payload = {}, options = {}) {
         originalFileName: sourceName,
         importedAt: new Date().toISOString(),
         converter: PCE_INTERNAL_IMAGE_CONVERTER,
+        ...(kitahePm ? { kitahePm } : {}),
       },
     },
   });
-  const doc = readAssetDocument(projectDir);
   const index = doc.assets.findIndex((entry) => entry.id === asset.id);
   if (index >= 0) doc.assets[index] = asset;
   else doc.assets.push(asset);
@@ -1498,7 +1595,11 @@ function importAudio(projectDir, payload = {}, options = {}) {
   if (!payload.dataUrl && sourceExt !== '.wav') {
     throw new Error('MP3 audio must be converted to WAV before import');
   }
-  const id = sanitizeAssetId(payload.id || sourceName, kind === 'cdda-track' ? 'cdda_track' : 'adpcm_sample');
+  const requestedId = sanitizeAssetId(payload.id || sourceName, kind === 'cdda-track' ? 'cdda_track' : 'adpcm_sample');
+  const doc = readAssetDocument(projectDir);
+  const importTarget = resolveKitahePmImportTarget(doc.assets, requestedId, kind, payload);
+  const id = importTarget.id;
+  const kitahePm = importTarget.provenance;
   const sourceSubdir = kind === 'cdda-track' ? 'assets/cdda' : 'assets/adpcm';
   const sourceRel = normalizeRelativePath(path.join(sourceSubdir, `${id}.wav`));
   const { absPath: destAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
@@ -1529,7 +1630,6 @@ function importAudio(projectDir, payload = {}, options = {}) {
         skipped: Boolean(payload.processing.skipped),
       }
     : {};
-  const doc = readAssetDocument(projectDir);
   let assetsToWrite = [];
 
   if (kind === 'cdda-track') {
@@ -1582,6 +1682,7 @@ function importAudio(projectDir, payload = {}, options = {}) {
           originalFileName,
           importedAt,
           converter: 'Internal WAV/CD-DA normalizer',
+          ...(kitahePm ? { kitahePm } : {}),
           processing,
           ...(batchFileName ? { batchFileName, batchRow } : {}),
         },
@@ -1615,6 +1716,9 @@ function importAudio(projectDir, payload = {}, options = {}) {
           durationSeconds: converted.durationSeconds,
           waveform: converted.waveform,
         }];
+    if (kitahePm && parts.length !== 1) {
+      throw new Error('北へ。PM packageのADPCMは分割登録できません');
+    }
     if (payload.rejectOversize && parts.some((part) => part.output.length > maxAdpcmBytes)) {
       throw new Error(`ADPCM: ${parts[0].output.length} bytes exceeds runtime-safe limit ${maxAdpcmBytes}`);
     }
@@ -1688,6 +1792,7 @@ function importAudio(projectDir, payload = {}, options = {}) {
             originalFileName,
             importedAt,
             converter: 'Internal WAV/ADPCM encoder',
+            ...(kitahePm ? { kitahePm } : {}),
             encoderVersion: part.encoderVersion || PCE_ADPCM_ENCODER_VERSION,
             processing,
             ...(batchFileName ? { batchFileName, batchRow } : {}),
@@ -2036,7 +2141,7 @@ function importMidi(projectDir, payload = {}) {
   if (!MIDI_EXTENSIONS.has(sourceExt)) {
     throw new Error('MIDI (.mid / .midi) ファイルを選択してください');
   }
-  const id = sanitizeAssetId(payload.id || originalFileName, 'psg_track');
+  const requestedId = sanitizeAssetId(payload.id || originalFileName, 'psg_track');
   // Blank/omitted bpm lets the MIDI tempo drive the grid (do not force 150).
   const bpm = payload.bpm != null && payload.bpm !== ''
     ? clampInt(payload.bpm, 30, 300, DEFAULT_PSG_OPTIONS.bpm)
@@ -2051,6 +2156,10 @@ function importMidi(projectDir, payload = {}) {
   const type = requestedType === 'psg-song' || requestedType === 'psg-sfx'
     ? requestedType
     : 'psg-song';
+  const doc = readAssetDocument(projectDir);
+  const importTarget = resolveKitahePmImportTarget(doc.assets, requestedId, type, payload);
+  const id = importTarget.id;
+  const kitahePm = importTarget.provenance;
 
   // Keep the original MIDI next to the project for traceability.
   const sourceRel = normalizeRelativePath(path.join('assets/psg', `${id}${sourceExt}`));
@@ -2076,6 +2185,7 @@ function importMidi(projectDir, payload = {}) {
         originalFileName,
         importedAt: new Date().toISOString(),
         converter: PCE_PSG_MIDI_IMPORTER,
+        ...(kitahePm ? { kitahePm } : {}),
         midi: converted.stats,
         midiOptions: converted.stats?.midiOptions || midiOptions,
         warnings: converted.warnings,
@@ -2083,7 +2193,6 @@ function importMidi(projectDir, payload = {}) {
     },
   });
 
-  const doc = readAssetDocument(projectDir);
   const index = doc.assets.findIndex((entry) => entry.id === asset.id);
   if (index >= 0) doc.assets[index] = asset;
   else doc.assets.push(asset);
@@ -4324,6 +4433,10 @@ module.exports = {
   PCE_RESIDENT_MAX_ASSETS_PER_TYPE,
   SPRITE_CELL_SIZES,
   SUPPORTED_TYPES,
+  KITAHE_PM_PROVENANCE_VERSION,
+  KITAHE_PM_SOURCE_KEY_PATTERN,
+  normalizeKitahePmProvenance,
+  resolveKitahePmImportTarget,
   buildInternalPceConversionPlan,
   buildCdDataLayout,
   assetMetaDecision,

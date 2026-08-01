@@ -33,7 +33,7 @@ const MIN_RIGHT_WIDTH = 320;
 const MAX_RIGHT_WIDTH = 720;
 const ADPCM_END_PAD_SECONDS = 2 / 60;
 const BG_FADE_SPEEDS = [
-  { value: 10, label: '速度1(速い)：10' },
+  { value: 1, label: '速度1(即時)：1' },
   { value: 20, label: '速度2：20' },
   { value: 30, label: '速度3：30' },
   { value: 40, label: '速度4：40' },
@@ -1266,7 +1266,7 @@ function previewRuntime() {
   const SCREEN_W = (data.screen && data.screen.w) || 256;
   const SCREEN_H = (data.screen && data.screen.h) || 224;
   const MSG = data.message || { x: 24, y: 152, cols: 17, rows: 4, cellW: 12, cellH: 16 };
-  const bgFadeFrameOptions = [10, 20, 30, 40, 50, 60];
+  const bgFadeFrameOptions = [1, 20, 30, 40, 50, 60];
   const scenesById = {};
   (data.doc.scenes || []).forEach((s) => { scenesById[s.id] = s; });
   function isSkippedCommand(command) {
@@ -1924,9 +1924,10 @@ function previewRuntime() {
   function bgFadeFrames(value) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return 30;
-    return bgFadeFrameOptions.reduce((best, option) => (
+    const normalized = bgFadeFrameOptions.reduce((best, option) => (
       Math.abs(option - parsed) < Math.abs(best - parsed) ? option : best
     ), 30);
+    return normalized === 1 ? 0 : normalized;
   }
   function frameMs(frames) {
     return Math.max(0, Number(frames) || 0) * 1000 / 60;
@@ -2879,9 +2880,9 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
               <input type="checkbox" data-role="scene-fullscreen-bg" />
               <span>Full BG</span>
             </label>
-            <button class="btn-sm" type="button" data-action="import-kitahe-pm" title="北へ。PhotoMemories の SCR をCD-ROM2 VNシーンへ変換" hidden>北へ。PM取込</button>
+            <span class="pce-vn-plugin-actions" data-role="plugin-actions-before-preview"></span>
             <button class="btn-sm" type="button" data-action="preview" title="シーンをプレビュー再生">▶ プレビュー</button>
-            <button class="btn-sm" type="button" data-action="export-godot" title="Godotネイティブ再生用の正規化済みシーンと参照素材をZIPへ出力">Godot出力</button>
+            <span class="pce-vn-plugin-actions" data-role="plugin-actions-after-preview"></span>
             <button class="btn-sm" type="button" data-action="export-irodori" title="全シーンのMessageをIrodori-TTS用の話者別CSVへ出力">音声バッチ出力</button>
             <button class="btn-sm" type="button" data-action="apply-irodori" title="manifest.csvから登録済みADPCMをMessageへ一括設定">音声バッチ反映</button>
             <button class="btn-primary" type="button" data-action="save">保存</button>
@@ -2935,6 +2936,10 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
   const sceneIdInput = root.querySelector('[data-role="scene-id"]');
   const scriptJsonPane = root.querySelector('[data-role="script-json-pane"]');
   const scriptJsonInput = root.querySelector('[data-role="script-json"]');
+  const pluginToolbarEl = root.querySelector('.pce-vn-edit-title .pce-vn-actions');
+  const pluginActionsBeforePreviewEl = root.querySelector('[data-role="plugin-actions-before-preview"]');
+  const pluginActionsAfterPreviewEl = root.querySelector('[data-role="plugin-actions-after-preview"]');
+  const pluginToolbarProviders = new Map();
   let assets = [];
   let doc = defaultDoc();
   let targetMedia = '';
@@ -2990,6 +2995,73 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
   const scene = () => doc.scenes.find((item) => item.id === selectedId) || doc.scenes[0] || null;
   const assetById = (id) => assets.find((asset) => asset.id === id) || null;
   const systemSettings = () => normalizeSystemSettings(doc.settings);
+
+  function availablePluginToolbarActions() {
+    const providers = typeof api.capabilities?.all === 'function'
+      ? api.capabilities.all('novel-toolbar-action')
+      : [];
+    return (Array.isArray(providers) ? providers : [])
+      .filter((provider) => provider && typeof provider.run === 'function')
+      .sort((left, right) => (
+        Number(right.priority || 0) - Number(left.priority || 0)
+        || Number(left.order || 100) - Number(right.order || 100)
+        || String(left.label || left.id || '').localeCompare(String(right.label || right.id || ''), 'ja')
+      ));
+  }
+
+  function renderPluginToolbarActions() {
+    if (!pluginActionsBeforePreviewEl || !pluginActionsAfterPreviewEl) return;
+    pluginToolbarProviders.clear();
+    const markup = { before: [], after: [] };
+    availablePluginToolbarActions().forEach((provider, index) => {
+      const supportedMedia = Array.isArray(provider.supportedTargetMedia)
+        ? provider.supportedTargetMedia.map((entry) => String(entry || '').trim().toLowerCase()).filter(Boolean)
+        : [];
+      if (supportedMedia.length && !supportedMedia.includes(targetMedia)) return;
+      const baseKey = `${String(provider.pluginId || 'plugin')}:${String(provider.id || `action-${index}`)}`;
+      let key = baseKey;
+      let suffix = 2;
+      while (pluginToolbarProviders.has(key)) {
+        key = `${baseKey}:${suffix}`;
+        suffix += 1;
+      }
+      pluginToolbarProviders.set(key, provider);
+      const button = `<button class="btn-sm" type="button" data-novel-toolbar-action="${esc(key)}" title="${esc(provider.title || provider.label || provider.id || '')}">${esc(provider.label || provider.id || 'Plugin')}</button>`;
+      const placement = provider.placement === 'before-preview' ? 'before' : 'after';
+      markup[placement].push(button);
+    });
+    pluginActionsBeforePreviewEl.innerHTML = markup.before.join('');
+    pluginActionsAfterPreviewEl.innerHTML = markup.after.join('');
+  }
+
+  async function runPluginToolbarAction(event) {
+    const button = event.target?.closest?.('[data-novel-toolbar-action]');
+    if (!button || button.disabled || !pluginToolbarEl?.contains(button)) return;
+    const provider = pluginToolbarProviders.get(String(button.dataset.novelToolbarAction || ''));
+    if (!provider) return;
+    const label = String(provider.label || provider.id || 'Plugin');
+    errorEl.textContent = '';
+    button.disabled = true;
+    try {
+      const result = await provider.run({
+        targetMedia,
+        getSnapshot: (options) => normalizedSceneSnapshot(options),
+        getAssets: () => assets.slice(),
+        saveSnapshot: (snapshot) => persistSceneSnapshot(snapshot),
+        applyDocument: (nextDoc, options) => applyPluginSceneDocument(nextDoc, options),
+        setStatus: (message) => { errorEl.textContent = String(message || ''); },
+      });
+      if (result?.canceled) return;
+      if (result?.ok === false) throw new Error(result?.error || `${label}を実行できませんでした`);
+      if (result?.message) errorEl.textContent = String(result.message);
+    } catch (error) {
+      const message = `${label}失敗: ${error?.message || error}`;
+      errorEl.textContent = message;
+      logger?.error?.(message);
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
+  }
 
   function spriteAssetIdForSlotAt(slot, commandIndex = selectedCommandIndex) {
     const current = scene();
@@ -4605,15 +4677,14 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
       const hucard = String(project.targetMedia || '').toLowerCase() === 'hucard'
         || project?.pluginRoles?.builder === 'pce-visual-novel-hucard-builder';
       targetMedia = hucard ? 'hucard' : 'cd';
-      root.querySelector('[data-action="import-kitahe-pm"]').hidden = hucard;
       vnScenePackLimit = hucard ? VN_HUCARD_SCENE_PACK_LIMIT : VN_CD_SCENE_PACK_LIMIT;
       vnScenePackUsesShiftJis = !hucard;
     } catch (_) {
       targetMedia = 'cd';
-      root.querySelector('[data-action="import-kitahe-pm"]').hidden = false;
       vnScenePackLimit = VN_CD_SCENE_PACK_LIMIT;
       vnScenePackUsesShiftJis = true;
     }
+    renderPluginToolbarActions();
     const assetResult = await listPceAssets({ force: Boolean(options.force) });
     assets = Array.isArray(assetResult?.assets) ? assetResult.assets : [];
     const read = await api.electronAPI.readCodeFile({ path: SCENE_FILE });
@@ -4692,61 +4763,6 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
     }
   }
 
-  async function importKitahePmScripts() {
-    const importButton = root.querySelector('[data-action="import-kitahe-pm"]');
-    try {
-      errorEl.textContent = '';
-      if (targetMedia !== 'cd') {
-        const message = '北へ。PM取込は CD-ROM2 VN プロジェクト専用です。';
-        errorEl.textContent = message;
-        logger?.warn?.(message);
-        return;
-      }
-      importButton.disabled = true;
-      const assetResult = await listPceAssets({ force: true });
-      assets = Array.isArray(assetResult?.assets) ? assetResult.assets : assets;
-      const persisted = await save();
-      if (!persisted?.ok) {
-        throw new Error(persisted?.error || '取込前のシーンを保存できませんでした');
-      }
-      const converter = api.capabilities.get('kitahe-pm-script-converter')
-        || await api.capabilities.require('kitahe-pm-script-converter', 1500);
-      if (!converter?.openImportModal) {
-        throw new Error('北へ。PhotoMemories コンバータープラグインが無効または未インストールです');
-      }
-      const result = await converter.openImportModal({
-        doc: normalizeDoc(doc, assets),
-        assets,
-        targetMedia,
-      });
-      if (result?.canceled) return;
-      if (!result?.ok) throw new Error(result?.error || '変換結果を取得できませんでした');
-      if (!result.doc || !Array.isArray(result.doc.scenes)) {
-        throw new Error('変換結果に VN scene document がありません');
-      }
-
-      doc = normalizeDoc(result.doc, assets);
-      editorMode = 'gui';
-      selectedId = (result.importedSceneIds || []).find((id) => doc.scenes.some((item) => item.id === id))
-        || (doc.scenes.some((item) => item.id === result.startScene) ? result.startScene : '')
-        || doc.startScene
-        || doc.scenes[0]?.id
-        || 'opening';
-      selectedCommandIndex = 0;
-      render();
-      const count = Array.isArray(result.importedSceneIds) ? result.importedSceneIds.length : 0;
-      const message = `北へ。PM取込を適用しました: ${count} scene`;
-      errorEl.textContent = message;
-      logger?.info?.(message);
-    } catch (error) {
-      const message = `北へ。PM取込失敗: ${error?.message || error}`;
-      errorEl.textContent = message;
-      logger?.error?.(message);
-    } finally {
-      importButton.disabled = false;
-    }
-  }
-
   async function exportIrodoriBatch() {
     const exportButton = root.querySelector('[data-action="export-irodori"]');
     try {
@@ -4801,58 +4817,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
     }
   }
 
-  async function exportGodotPackage() {
-    const exportButton = root.querySelector('[data-action="export-godot"]');
-    try {
-      errorEl.textContent = '';
-      if (editorMode === 'json') {
-        if (!applyScriptJsonToDoc({ refreshText: true })) {
-          logger?.error?.(`Godot出力失敗: ${errorEl.textContent || 'JSONを検証できませんでした。'}`);
-          return;
-        }
-      } else {
-        commitCurrentUiToDoc();
-      }
-      const snapshot = normalizeDoc(doc, assets);
-      exportButton.disabled = true;
-      const result = await api.electronAPI.exportVnGodotPackage({ doc: snapshot });
-      if (result?.canceled) {
-        logger?.info?.('Godot再生パッケージ出力をキャンセルしました。');
-        return;
-      }
-      if (!result?.ok) {
-        const message = `Godot出力失敗: ${result?.error || '再生パッケージを出力できませんでした。'}`;
-        errorEl.textContent = message;
-        logger?.error?.(message);
-        return;
-      }
-      const saved = await api.electronAPI.writeCodeFile({
-        path: SCENE_FILE,
-        content: JSON.stringify(snapshot, null, 2),
-        encoding: 'utf8',
-      });
-      if (!saved?.ok) {
-        const message = `Godot再生パッケージは出力しましたが、シーンを保存できませんでした: ${saved?.error || 'unknown'}`;
-        errorEl.textContent = message;
-        logger?.error?.(message);
-        return;
-      }
-      doc = snapshot;
-      render();
-      const message = `Godot再生パッケージを出力しました: ${result.path} `
-        + `(Scene ${result.sceneCount} / Command ${result.commandCount} / Asset ${result.assetCount})`;
-      errorEl.textContent = message;
-      logger?.info?.(message);
-    } catch (err) {
-      const message = `Godot出力失敗: ${err?.message || err}`;
-      errorEl.textContent = message;
-      logger?.error?.(message);
-    } finally {
-      exportButton.disabled = false;
-    }
-  }
-
-  async function normalizedVoiceBatchSnapshot({ refreshAssets = false } = {}) {
+  async function normalizedSceneSnapshot({ refreshAssets = false } = {}) {
     if (editorMode === 'json') {
       if (!applyScriptJsonToDoc({ refreshText: true })) {
         throw new Error(errorEl.textContent || 'JSONを検証できませんでした。');
@@ -4866,6 +4831,40 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
       assets = Array.isArray(assetResult.assets) ? assetResult.assets : [];
     }
     return normalizeDoc(doc, assets);
+  }
+
+  async function persistSceneSnapshot(snapshot) {
+    const normalized = normalizeDoc(snapshot, assets);
+    const saved = await api.electronAPI.writeCodeFile({
+      path: SCENE_FILE,
+      content: JSON.stringify(normalized, null, 2),
+      encoding: 'utf8',
+    });
+    if (!saved?.ok) throw new Error(saved?.error || 'シーンを保存できませんでした');
+    doc = normalized;
+    if (!doc.scenes.some((item) => item.id === selectedId)) {
+      selectedId = doc.startScene || doc.scenes[0]?.id || 'opening';
+      selectedCommandIndex = 0;
+    }
+    render();
+    return { ok: true, doc };
+  }
+
+  function applyPluginSceneDocument(nextDoc, options = {}) {
+    if (!nextDoc || !Array.isArray(nextDoc.scenes)) {
+      throw new Error('plugin actionの結果にVN scene documentがありません');
+    }
+    doc = normalizeDoc(nextDoc, assets);
+    editorMode = 'gui';
+    const preferredSceneIds = Array.isArray(options.preferredSceneIds) ? options.preferredSceneIds : [];
+    selectedId = preferredSceneIds.find((id) => doc.scenes.some((item) => item.id === id))
+      || (doc.scenes.some((item) => item.id === options.startScene) ? options.startScene : '')
+      || doc.startScene
+      || doc.scenes[0]?.id
+      || 'opening';
+    selectedCommandIndex = 0;
+    render();
+    return doc;
   }
 
   function voiceAssignmentStatus(row = {}) {
@@ -4964,10 +4963,10 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
       if (picked?.canceled || !manifestPath) return;
       applyButton.disabled = true;
 
-      let snapshot = await normalizedVoiceBatchSnapshot({ refreshAssets: true });
+      let snapshot = await normalizedSceneSnapshot({ refreshAssets: true });
       let inspection = await inspectIrodoriVoiceAssignments(manifestPath, snapshot);
       while (await confirmIrodoriVoiceAssignments(inspection)) {
-        snapshot = await normalizedVoiceBatchSnapshot({ refreshAssets: true });
+        snapshot = await normalizedSceneSnapshot({ refreshAssets: true });
         const currentInspection = await inspectIrodoriVoiceAssignments(manifestPath, snapshot);
         if (currentInspection.inspectionSignature !== inspection.inspectionSignature) {
           inspection = currentInspection;
@@ -5495,9 +5494,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
 
   root.querySelector('[data-action="reload"]').addEventListener('click', () => { void load({ force: true }); });
   root.querySelector('[data-action="save"]').addEventListener('click', save);
-  root.querySelector('[data-action="import-kitahe-pm"]').addEventListener('click', () => { void importKitahePmScripts(); });
   root.querySelector('[data-action="preview"]').addEventListener('click', () => { void openScenePreview(); });
-  root.querySelector('[data-action="export-godot"]').addEventListener('click', () => { void exportGodotPackage(); });
   root.querySelector('[data-action="export-irodori"]').addEventListener('click', () => { void exportIrodoriBatch(); });
   root.querySelector('[data-action="apply-irodori"]').addEventListener('click', () => { void applyIrodoriVoiceBatch(); });
   root.querySelectorAll('[data-script-mode]').forEach((button) => {
@@ -5547,11 +5544,19 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
   registerCapability('visual-novel-editor', { reload: load, save });
   const teardownAssetRefreshEvents = setupAssetRefreshEvents();
   const teardownSystemSettingsEvents = setupSystemSettingsEvents();
+  pluginToolbarEl?.addEventListener('click', runPluginToolbarAction);
+  const offPluginToolbarCapabilityRegistered = api.events?.on?.('capability:registered', (detail) => {
+    if (detail?.capability === 'novel-toolbar-action') renderPluginToolbarActions();
+  }) || (() => {});
+  renderPluginToolbarActions();
   void load();
   return {
     deactivate() {
       teardownAssetRefreshEvents();
       teardownSystemSettingsEvents();
+      offPluginToolbarCapabilityRegistered();
+      pluginToolbarEl?.removeEventListener('click', runPluginToolbarAction);
+      pluginToolbarProviders.clear();
       window.removeEventListener('resize', handleWindowResize);
       stopMessagePreview();
       commandPsgPreviewController.close();

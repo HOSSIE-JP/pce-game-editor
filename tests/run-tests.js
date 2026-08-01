@@ -31,6 +31,7 @@ loadAppConfig(require('../app.config'));
   'pce-file-safety.test.js',
   'pce-ipl-extractor.test.js',
   'pce-kitahe-pm-converter.test.js',
+  'pce-kitahe-pm-asset-package.test.js',
   'pce-setup-manager.test.js',
   'pce-standard-emulator.test.js',
   'pce-preview-animation.test.js',

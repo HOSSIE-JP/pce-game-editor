@@ -758,9 +758,9 @@ static void set_background(signed int bg_index, uint8_t transition, uint8_t fade
     const uint8_t implicit_fade = (uint8_t)(transition == PCE_VN_BG_TRANSITION_CUT
         && current_bg_index >= 0
         && !pending_display_enable);
-    const uint8_t bg_fade_out_frames = fade_transition ? fade_out_frames
+    const uint8_t bg_fade_out_frames = fade_transition ? (fade_out_frames == 1u ? 0u : fade_out_frames)
         : (implicit_fade ? VN_BG_IMPLICIT_FADE_FRAMES : 0u);
-    const uint8_t bg_fade_in_frames = fade_transition ? fade_in_frames
+    const uint8_t bg_fade_in_frames = fade_transition ? (fade_in_frames == 1u ? 0u : fade_in_frames)
         : (implicit_fade ? VN_BG_IMPLICIT_FADE_FRAMES : 0u);
     const uint8_t next_x = tile_x < VN_MAP_WIDTH ? (uint8_t)tile_x : 0u;
     const uint8_t next_y = tile_y < VN_MAP_HEIGHT ? (uint8_t)tile_y : 0u;

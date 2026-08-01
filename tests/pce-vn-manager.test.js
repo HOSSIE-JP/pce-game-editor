@@ -1160,13 +1160,13 @@ test('PCE VN manager forces BG commands to Fade speed presets', () => {
   });
 
   const normalized = vnManager.readSceneDocument(projectDir);
-  assert.deepEqual(vnManager.VN_BG_FADE_FRAME_OPTIONS, [10, 20, 30, 40, 50, 60]);
+  assert.deepEqual(vnManager.VN_BG_FADE_FRAME_OPTIONS, [1, 20, 30, 40, 50, 60]);
   assert.deepEqual(normalized.scenes[0].commands.map((command) => ({
     transition: command.transition,
     fadeOutFrames: command.fadeOutFrames,
     fadeInFrames: command.fadeInFrames,
   })), [
-    { transition: 'fade', fadeOutFrames: 10, fadeInFrames: 50 },
+    { transition: 'fade', fadeOutFrames: 1, fadeInFrames: 50 },
     { transition: 'fade', fadeOutFrames: 20, fadeInFrames: 60 },
     { transition: 'fade', fadeOutFrames: 30, fadeInFrames: 30 },
   ]);
@@ -1488,7 +1488,7 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   assert.equal(normalized.scenes[1].commands[1].x, 2);
   assert.equal(normalized.scenes[1].commands[1].y, 4);
   assert.equal(normalized.scenes[1].commands[1].transition, 'fade');
-  assert.equal(normalized.scenes[1].commands[1].fadeOutFrames, 10);
+  assert.equal(normalized.scenes[1].commands[1].fadeOutFrames, 1);
   assert.equal(normalized.scenes[1].commands[1].fadeInFrames, 20);
   assert.equal(normalized.scenes[1].commands[3].effect, 'shake');
   assert.equal(normalized.scenes[1].commands[3].intensity, 6);
@@ -1590,7 +1590,7 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   assert.equal(commandRecord(nextPack, 1).flags, 0);
   assert.equal(commandRecord(nextPack, 1).x, vnManager.effectColorWord('#0000ff'));
   assert.equal(commandRecord(nextPack, 2).flags, vnManager.VN_BG_TRANSITION_FADE);
-  assert.equal(commandRecord(nextPack, 2).arg0, 10);
+  assert.equal(commandRecord(nextPack, 2).arg0, 1);
   assert.equal(commandRecord(nextPack, 2).arg1, 20);
   assert.equal(commandRecord(nextPack, 4).flags, 3);
   assert.equal(commandRecord(nextPack, 4).arg0, 20);
@@ -3553,8 +3553,8 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.notEqual(hucardSetBgEnd, -1);
   const hucardSetBgSource = runtime.slice(hucardSetBgStart, hucardSetBgEnd);
   assert.match(hucardSetBgSource, /if \(fade_transition\) display_disable\(\);/);
-  assert.match(hucardSetBgSource, /fade_transition \? 0u : 16u/);
-  assert.match(hucardSetBgSource, /display_enable\(\);[\s\S]*fade_palette\(&bg->palette, \(uint16_t\)\(bg->palette_bank \* 16u\), fade_in_frames, 1u\);/);
+  assert.match(hucardSetBgSource, /fade_transition && bg_fade_in_frames \? 0u : 16u/);
+  assert.match(hucardSetBgSource, /display_enable\(\);[\s\S]*if \(bg_fade_in_frames\)[\s\S]*fade_palette\(&bg->palette, \(uint16_t\)\(bg->palette_bank \* 16u\), bg_fade_in_frames, 1u\);/);
   const hucardFinishMessageStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT finish_active_message(void)');
   const hucardTickMessageStart = runtime.indexOf('static void VN_HUCARD_CODE_TEXT tick_active_message(void)', hucardFinishMessageStart);
   assert.notEqual(hucardFinishMessageStart, -1);

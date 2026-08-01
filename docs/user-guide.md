@@ -73,9 +73,23 @@ PC Engine の色は各チャンネル3bitの512色マスターパレットから
 
 ChatGPT などでシナリオ、スクリプト JSON、画像・音声アセット案を作る場合は、`docs/pce-vn-chatgpt-authoring-guide.md` の制作ルールとプロンプト例を使ってください。
 
-CD-ROM2 projectでは、スクリプト画面上部の **北へ。PM取込** から「北へ。PhotoMemories」の解析済みSCRをsceneへ変換できます。resource rootを選び、変換対象のSCR、entry、主人公名、`COLOR` tokenごとの話者、到達可能な画像・音声参照の対応先を順に指定します。sourceの拡張子を除いたpathと登録済みPCE asset名が一致する参照は自動選択され、複数画像は `_A` / `_B` など一致しない末尾を除いた共通名で事前結合assetへ照合されます。カード右上のチェックをOFFにするとカードの色が変わり、その参照を明示的に省略します。Mapping設定を変えてもスクロール位置は維持されます。画像の結合・crop・減色、P04/MIDI/GD-DA自体の変換は行いません。HuCARD projectでは利用できません。
+CD-ROM2 projectでは、組み込みプラグイン **北へ。PhotoMemories 取込** が有効な場合だけスクリプト画面上部に **北へ。PM取込** が表示され、解析済みSCRをsceneへ変換できます。resource rootを選び、変換対象のSCR、entry、主人公名、到達可能な画像・音声参照の対応先を順に指定します。話者の対応設定はなく、取り込むMessageはすべてナレーションになります。`COLOR WIN_MSG, GCOLOR`などの16-bit ARGB4444値はRGBを本文色へ変換し、PCE表示色へ丸めて反映します。解決できないCOLOR値はwarningを表示して既定の白を使います。sourceの拡張子を除いたpathと登録済みPCE asset名が一致する参照は自動選択され、複数画像は `_A` / `_B` など一致しない末尾を除いた共通名で事前結合assetへ照合されます。カード右上のチェックをOFFにするとカードの色が変わり、その参照を明示的に省略します。Mapping設定を変えてもスクロール位置は維持されます。過去の手動asset対応が残っている場合は **アセット対応をリセットして自動照合** を押すと、最新の登録済みassetから全画像・音声対応を作り直し、一致しない参照を省略へ戻せます。sidecarは変換適用に成功した時だけ更新され、保存済みmappingは同じ選択SCR集合とentryにだけ復元され、別の取込へ流用されません。画像の結合・crop・減色、P04/MIDI/GD-DA自体の変換は行いません。取込本文・選択肢にSystem Card jp-v3非対応文字がある場合は、Unicode code pointごとに`□`へ置換し、元SCR行と文字位置をwarningへ表示します。HuCARD projectではプラグインが有効でもボタンを表示しません。
 
-変換前の診断には元SCRの相対pathと行番号、未対応演出の省略・近似、scene予算が表示されます。warningは確認後に適用できますが、壊れた分岐、未解決label、未設定mapping、asset型違い、PCEで使えない文字、scene/command/変数/8192-byte pack上限の超過がある場合は適用されません。**置換** は現在のVN settingsを維持して取込entryを開始sceneにし、**追加** は既存開始sceneを既定で維持します。適用前のsceneは `assets/pce-vn-scenes.kitahe-backup.json`、再取込用設定と詳細reportは `assets/kitahe-pm-conversion*.json` へ保存されます。詳しい変換規則と制約は [pce-kitahe-pm-converter.md](pce-kitahe-pm-converter.md) を参照してください。
+北へ。PMの連続する`MSG WIN_MSG`は`WAIT WIN_MSG`まで連結し、元SCRの改行とその前後の空白を除去して詰めます。PCE側では17文字ごとのruntime折り返しに任せ、ページ送りcursor用の1文字を除いた67 glyphごとにページ化するため、元の行幅による改行とPCEの折り返しが重なって余分な空行になることはありません。Spriteは各`ICG`のXを`round(ICG X * 224 / 640)`でPCE座標へ変換し、範囲外ならwarning付きで`0..319`へ補正します。Yは一律`17`で、MappingではSlotとAnimationだけを指定します。BG commandはFade out / Fade inを速度3（30/30）にし、切替演出をPCEノベルエンジンへ任せます。変換元のBG・キャラクター用`FADE`はwarning付きで省略し、`SCREEN`の全画面fade / flash / blank近似だけを維持します。
+
+素材を先に登録する場合は、Kitahe PhotoMemories Asset Viewerの **ツール > PCE Game Editor向けアセット一括出力** でSCRを複数選択し、P04/WAV、MIDI/MID、crop・連結済みPVR/PNGと`kitahe-pm-assets.csv`を1つのfolderへ出力します。選択したSCRもCP932の元byte列のまま`SCRIPT/...`へ同梱されるため、同じfolderを **北へ。PM素材** と **北へ。PM取込** のsource rootに使えます。画像のBG/Sprite分類とcropはViewer側で確定します。
+
+ADV連番は外部GOTOの順序で解析し、選択範囲より前のSCRはCGDIR・slotなどを引き継ぐためのcontextとして自動的に読み込みます。contextだけで参照されたassetは出力対象になりません。
+
+結合後の論理画像が640×480ならBG、512×480ならSpriteを既定にし、一覧で個別に変更できます。PVRのLCG cropとLINK結合後、代表画像上でBG／Spriteごとの共通切り出し枠を指定します。切り出し枠は1px単位で移動・拡縮でき、最終出力サイズのアスペクト比を維持します。切り出した後にbilinearで最終サイズへリサイズします。既定出力はBGが224×136、Spriteが224×128（Cell 32×64）です。
+LCGの表示幅・高さがPVR実寸を超える場合だけ、Quick Playと同様に各軸を実寸へclampします。共通切り出し枠は暗黙にclampせず、別画像で範囲外ならViewerでerrorになります。BGの8px境界とSpriteのCell境界は最終出力サイズだけに適用し、元画像上の切り出し座標・寸法には適用しません。
+
+PCE Game EditorのCD-ROM2 projectで **Assets > 北へ。PM素材** を押し、その`kitahe-pm-assets.csv`を選択します。確認一覧にはPNG thumbnail、WAV/MIDI変換情報、Viewerで確定したBG/Sprite種別、寸法、新規/更新、警告、エラーが表示されます。PCE側では画像種別を変更しません。warningがある場合は確認checkboxが必要で、errorがあるpackageは開始できません。実行直前にもmanifest・素材・asset catalogを再検査します。
+
+登録開始後は行単位で確定するため、途中の変換失敗後も残りを続行します。**残りをキャンセル** は現在行の完了後に止まり、それまでの成功assetを保持します。同じ`sourceKey`で前回登録したassetはIDを維持して更新し、無関係な同一IDや型違いは保護します。P04は容量超過時に自動分割せずerror、MIDIはPSG Song、PNGは内蔵16色変換でBG/Spriteになります。HuCARDでは **北へ。PM素材** を無効化します。既存の **AD CSV** 一括取込は変更ありません。
+
+
+変換前の診断には元SCRの相対pathと行番号、未対応演出の省略・近似、scene予算が表示されます。warningは確認後に適用できます。jp-v3非対応文字は`□`へ置換するwarningとして続行しますが、壊れた分岐、未解決label、未設定asset mapping、asset型違い、不正なCP932 byte列、scene/command/変数/8192-byte pack上限の超過がある場合は適用されません。**置換** は現在のVN settingsを維持して取込entryを開始sceneにし、**追加** は既存開始sceneを既定で維持します。適用前のsceneは `assets/pce-vn-scenes.kitahe-backup.json`、再取込用設定と詳細reportは `assets/kitahe-pm-conversion*.json` へ保存されます。詳しい変換規則と制約は [pce-kitahe-pm-converter.md](pce-kitahe-pm-converter.md) を参照してください。
 
 スクリプト画面上部の **音声バッチ出力** は、全シーンの有効な `Message` を走査し、Irodori-TTS Batch Clientへ読み込める話者別CSVをZIPで保存します。GUI / JSONの未保存編集も出力へ含み、ZIP保存が成功すると、その出力に使った同じscene snapshotを `assets/pce-vn-scenes.json` へ自動保存します。この時点では新しく採番した `voiceAssetId` はMessageへ設定しません。スキップ指定または本文が空のMessageは除外し、話者が空のMessageは `narrator` バッチへ入ります。
 
@@ -98,7 +112,7 @@ Irodori-TTSは1回のバッチで参照話者が共通なので、キャラク�
 
 Visual Novel CD テンプレートには、`BG` / `Sprite` / `Sprite Move` / `Message` / `Audio` / `Variable` / `Choice` / `IF` / `Switch` / `Label` / `GOTO` / `Input` / `Jump` / `Wait` / `Effect` / `SpriteText` を使うコマンド仕様サンプルシナリオが入っています。エディタではこれらに加えて `Cache` コマンドも追加できます。Akari / Mika の立ち絵は `default`（通常）/ `mouth`（口パク）/ `blink` の順でROWを持つスプライトシートになっており、`Message` の Mouth slotによる「現在ROW→次ROW」と自動復帰を確認できます。
 
-Novel画面上部の`Godot出力`は、現在のGUI/JSON編集状態を先に`assets/pce-vn-scenes.json`へ保存し、Godotネイティブプレイヤーへ取り込む`*.pcevn.zip`を作成します。CD-ROM2 / HuCARD VNの両方で利用でき、Sceneと参照中のアセットだけを収録します。画像はPNG/JPEG/WebP、CD-DA/ADPCMはWAV/OGG/MP3の再生可能source（CD-DAは生成WAVを優先）、PSGはpattern metadataを使います。Novelの`フォント`タブで選択中のproject font（`assets/pce-font.json`の`fontPath`）がTTF/OTF/WOFF/WOFF2なら同梱し、Godot側の本文・SpriteText・選択肢・再生UIで優先します。未選択のfont libraryから別のfontを勝手に選ぶことはありません。System Card、IPL、ROM/CUE/ISO、PCE向けtiles/map/pattern/ADPCM binaryは含みません。同じeditor projectから再出力したpackageはGodot側で更新として扱われ、別projectはライブラリに併存します。
+組み込みプラグイン **NVプロジェクトのGodotエクスポート** が有効な場合だけ、Novel画面上部に`Godot出力`を表示します。現在のGUI/JSON編集状態からGodotネイティブプレイヤーへ取り込む`*.pcevn.zip`を作成し、ZIP保存が成功した後、その出力に使った同じscene snapshotを`assets/pce-vn-scenes.json`へ保存します。CD-ROM2 / HuCARD VNの両方で利用でき、Sceneと参照中のアセットだけを収録します。画像はPNG/JPEG/WebP、CD-DA/ADPCMはWAV/OGG/MP3の再生可能source（CD-DAは生成WAVを優先）、PSGはpattern metadataを使います。Novelの`フォント`タブで選択中のproject font（`assets/pce-font.json`の`fontPath`）がTTF/OTF/WOFF/WOFF2なら同梱し、Godot側の本文・SpriteText・選択肢・再生UIで優先します。未選択のfont libraryから別のfontを勝手に選ぶことはありません。System Card、IPL、ROM/CUE/ISO、PCE向けtiles/map/pattern/ADPCM binaryは含みません。同じeditor projectから再出力したpackageはGodot側で更新として扱われ、別projectはライブラリに併存します。プラグインをOFFにするとボタンも非表示になります。
 
 Godot Playerのワイド画面余白へ枠を表示する場合は、project内へ`assets/images/player-border.png`を置きます。画像assetへの登録やScene Commandからの参照は不要です。`Godot出力`は固定名を検出してZIP内`presentation/player-border.png`へ追加し、manifestの`entrypoints.border`から参照します。推奨サイズは`1280×720`で、Playerは縦横比を維持したcover配置の上へ中央ゲーム画面を重ねます。ファイルがなければentrypointは空のままで、従来どおり暗色の余白になります。
 
@@ -114,7 +128,7 @@ BG / Sprite / ADPCM / PSGなどの読み込みはruntimeがscene入場時と各�
 
 `Load` は `ADPCM`、`BG`、`Sprite` の asset を明示して先読みできます。ADPCM load は再生中のADPCMがある場合は何もせず、停止中だけADPCM RAMへ読み込みます。BG load は BG tiles と map を、Sprite load は sprite pattern payload を visual RAM cache へ読み込みます。どちらも VRAM / BAT / SATB / 現在の表示を変更しません。
 
-`BG` コマンドの切替は Fade 前提です。`cut` の設定項目は表示されず、Fade out / Fade in は `速度1(速い)：10`、`速度2：20`、`速度3：30`、`速度4：40`、`速度5：50`、`速度6(遅い)：60` のリストから選びます。既定値は `速度3：30` です。通常 BG の新規コマンドと座標未指定時の既定位置は `x: 2`, `y: 1` です。保存済みの旧 `cut` 指定は読み込み時に Fade へ正規化されます。
+`BG` コマンドの切替は Fade 前提です。`cut` の設定項目は表示されず、Fade out / Fade in は `速度1(即時)：1`、`速度2：20`、`速度3：30`、`速度4：40`、`速度5：50`、`速度6(遅い)：60` のリストから選びます。速度1の値`1`はCD-ROM2 / HuCARD runtimeの両方で0-frame fadeとして扱い、paletteを段階変更せず即座にBGを入れ替えます。既定値は `速度3：30` です。通常 BG の新規コマンドと座標未指定時の既定位置は `x: 2`, `y: 1` です。保存済みの旧 `cut` 指定は読み込み時に Fade へ正規化されます。
 
 - **コピー（⧉）**: 選択中のコマンドをクリップボードに複製します。
 - **前にペースト（⤒）/ 後にペースト（⤓）**: コピーしたコマンドをその行の前 / 後ろに挿入します。クリップボードが空のときは無効です。

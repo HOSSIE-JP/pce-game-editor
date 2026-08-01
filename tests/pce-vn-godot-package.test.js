@@ -17,6 +17,10 @@ const {
   exportGodotPackageZip,
   stableProjectId,
 } = require('../pce-vn-godot-package');
+const {
+  exportVnGodotPackage,
+  sanitizeExportFileName,
+} = require('../plugins/pce-vn-godot-exporter');
 
 function makeProject({ border = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-vn-godot-'));
@@ -188,4 +192,38 @@ test('Godot package export writes one ZIP after save confirmation', async () => 
   assert.equal(result.assetCount, 3);
   assert.equal(zippedEntries[0].name, MANIFEST_FILE);
   assert.deepEqual(writes, [{ filePath: 'C:/out/game.pcevn.zip', data: 'zip' }]);
+});
+
+test('Godot exporter plugin hook owns the save dialog and delegates package creation', async () => {
+  const dir = makeProject();
+  const writes = [];
+  let dialogOptions = null;
+  let packagedEntries = [];
+  const result = await exportVnGodotPackage({ doc: scenes() }, {
+    projectDir: dir,
+    appModules: {
+      'pce-vn-godot-package.js': require('../pce-vn-godot-package'),
+      'pce-cd-bundle.js': {
+        createStoredZipBuffer: (entries) => {
+          packagedEntries = entries;
+          return Buffer.from('plugin-zip');
+        },
+      },
+    },
+    showSaveDialog: async (_owner, options) => {
+      dialogOptions = options;
+      return { canceled: false, filePath: 'C:/out/godot-test.pcevn.zip' };
+    },
+    writeFileSync: (filePath, data) => writes.push({ filePath, data: data.toString() }),
+  });
+
+  assert.equal(sanitizeExportFileName('..bad/name'), 'bad_name');
+  assert.equal(dialogOptions.defaultPath, 'Godot Test.pcevn.zip');
+  assert.equal(result.ok, true);
+  assert.equal(result.sceneCount, 1);
+  assert.equal(packagedEntries[0].name, MANIFEST_FILE);
+  assert.deepEqual(writes, [{
+    filePath: 'C:/out/godot-test.pcevn.zip',
+    data: 'plugin-zip',
+  }]);
 });

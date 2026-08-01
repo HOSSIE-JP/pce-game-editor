@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { encodeSystemCardText } = require('../../pce-system-card-font');
 
 const MAX_CALL_STACK = 16;
 const MAX_EXPANDED_STATES = 4096;
@@ -10,6 +11,12 @@ const MAX_VARIABLES = 253;
 const MAX_BLOCK_SOURCE_INSTRUCTIONS = 120;
 const MESSAGE_COLUMNS = 17;
 const MESSAGE_ROWS = 4;
+const MESSAGE_PAGE_GLYPHS = MESSAGE_COLUMNS * MESSAGE_ROWS - 1;
+const KITAHE_SOURCE_SCREEN_WIDTH = 640;
+const PCE_IMPORTED_BG_WIDTH = 224;
+const PCE_IMPORTED_SPRITE_Y = 17;
+const PCE_IMPORTED_BG_FADE_FRAMES = 30;
+const UNSUPPORTED_FONT_PLACEHOLDER = '□';
 
 const BUTTON_NAMES = new Set([
   'ABTN', 'BBTN', 'XBTN', 'YBTN', 'START', 'STARTBTN',
@@ -144,6 +151,46 @@ function diagnostic(severity, code, message, instruction = null, extra = {}) {
     ...(instruction ? { script: instruction.script, line: instruction.line } : {}),
     ...extra,
   };
+}
+
+function replaceUnsupportedSystemCardCharacters(value, instruction, field, diagnostics) {
+  let output = '';
+  let characterIndex = 0;
+  for (const character of String(value ?? '')) {
+    if (character === '\r') {
+      output += character;
+      continue;
+    }
+    try {
+      encodeSystemCardText(character, field, {
+        terminate: false,
+        maxCharacters: 1,
+      });
+      output += character;
+    } catch {
+      const codePoint = `U+${character.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+      const choiceMatch = /^choice\[(\d+)\]$/u.exec(field);
+      const fieldLabel = field === 'message'
+        ? '本文'
+        : (field === 'speaker' ? '話者名' : (choiceMatch ? `選択肢${Number(choiceMatch[1]) + 1}` : field));
+      output += UNSUPPORTED_FONT_PLACEHOLDER;
+      diagnostics.push(diagnostic(
+        'warning',
+        'font-character-replaced',
+        `System Card jp-v3非対応文字 ${codePoint}「${character}」を${fieldLabel}の文字位置${characterIndex}で「${UNSUPPORTED_FONT_PLACEHOLDER}」へ置換しました。`,
+        instruction,
+        {
+          field,
+          characterIndex,
+          codePoint,
+          originalCharacter: character,
+          replacement: UNSUPPORTED_FONT_PLACEHOLDER,
+        },
+      ));
+    }
+    characterIndex += 1;
+  }
+  return output;
 }
 
 function diagnosticKey(entry) {
@@ -758,6 +805,39 @@ function requirementKey(kind, source) {
   return `${kind}-${sha256(`${kind}\0${stableJson(source)}`).slice(0, 16)}`;
 }
 
+function assetSourceIdentity(kind, source, details = {}) {
+  if (kind === 'image') {
+    const rawParts = Array.isArray(source)
+      ? source
+      : (Array.isArray(details.parts) ? details.parts : [source]);
+    const rawCrops = Array.isArray(details.crops) ? details.crops : [];
+    return {
+      parts: rawParts.map((part) => normalizeSourcePath(cleanToken(part))),
+      crops: rawCrops.map((crop) => ({
+        width: crop?.width != null && crop.width !== '' && Number.isFinite(Number(crop.width)) ? Number(crop.width) : null,
+        height: crop?.height != null && crop.height !== '' && Number.isFinite(Number(crop.height)) ? Number(crop.height) : null,
+      })),
+    };
+  }
+  if (kind === 'p04') {
+    const playbackRate = Number(details.playbackRate);
+    return {
+      source: normalizeSourcePath(cleanToken(source)),
+      usage: String(details.usage || '').trim().toLowerCase(),
+      loop: details.loop === true,
+      playbackRate: Number.isFinite(playbackRate) && playbackRate > 0
+        ? Math.round(playbackRate)
+        : 32000,
+    };
+  }
+  if (kind === 'midi') return normalizeSourcePath(cleanToken(source));
+  return source;
+}
+
+function assetSourceKey(kind, source, details = {}) {
+  return requirementKey(kind, assetSourceIdentity(kind, source, details));
+}
+
 function assetMatchStem(value = '') {
   return normalizeSourcePath(cleanToken(value)).replace(/\.[^./]+$/u, '');
 }
@@ -791,12 +871,7 @@ function assetMatchName(requirement = {}) {
 }
 
 function addRequirement(requirements, kind, source, occurrence, details = {}) {
-  const identity = kind === 'image'
-    ? { parts: Array.isArray(source) ? source : [source], crops: details.crops || [] }
-    : (kind === 'p04'
-      ? { source, usage: details.usage || '', loop: details.loop === true }
-      : source);
-  const key = requirementKey(kind, identity);
+  const key = assetSourceKey(kind, source, details);
   if (!requirements.has(key)) {
     requirements.set(key, {
       key,
@@ -834,38 +909,62 @@ function normalizeMessageText(value = '') {
   return String(value || '')
     .replace(/\\n/g, '\n')
     .replace(/\r/g, '')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n+$/g, '');
+    .replace(/[ \t]*\n+[ \t]*/g, '');
 }
 
-function wrapTextLines(text, columns) {
-  const lines = [];
-  String(text || '').split('\n').forEach((explicitLine) => {
-    const glyphs = Array.from(explicitLine);
-    if (!glyphs.length) {
-      lines.push('');
-      return;
-    }
-    for (let offset = 0; offset < glyphs.length; offset += columns) {
-      lines.push(glyphs.slice(offset, offset + columns).join(''));
-    }
-  });
-  return lines.length ? lines : [''];
-}
-
-function paginateMessage(text, hasSpeaker) {
-  const rowCount = hasSpeaker ? MESSAGE_ROWS - 1 : MESSAGE_ROWS;
-  const lines = wrapTextLines(normalizeMessageText(text), MESSAGE_COLUMNS);
+function paginateMessage(text) {
+  const glyphs = Array.from(normalizeMessageText(text));
   const pages = [];
-  for (let offset = 0; offset < lines.length; offset += rowCount) {
-    pages.push(lines.slice(offset, offset + rowCount).join('\n'));
+  for (let offset = 0; offset < glyphs.length; offset += MESSAGE_PAGE_GLYPHS) {
+    pages.push(glyphs.slice(offset, offset + MESSAGE_PAGE_GLYPHS).join(''));
   }
   return pages.length ? pages : [''];
+}
+
+function scriptTextColor(value, constants = new Map()) {
+  const resolved = numericValue(value, constants);
+  if (resolved === null || resolved < 0 || resolved > 0xffff) return '';
+  const word = Math.round(resolved);
+  const component = (shift) => ((word >> shift) & 0x0f) * 17;
+  return `#${[component(8), component(4), component(0)]
+    .map((entry) => entry.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+function importedSpriteX(value, constants, instruction, diagnostics) {
+  const sourceX = cleanToken(value) ? numericValue(value, constants) : 0;
+  if (sourceX === null) {
+    diagnostics.push(diagnostic(
+      'error',
+      'invalid-sprite-source-x',
+      'ICGのSprite X座標を数値・16進・静的定数として解決できません。',
+      instruction,
+    ));
+    return 0;
+  }
+  const scaled = Math.round(sourceX * PCE_IMPORTED_BG_WIDTH / KITAHE_SOURCE_SCREEN_WIDTH);
+  const clamped = Math.max(0, Math.min(319, scaled));
+  if (clamped !== scaled) {
+    diagnostics.push(diagnostic(
+      'warning',
+      'sprite-x-clamped',
+      `ICGのSprite X座標 ${sourceX} をPCE座標 ${scaled} へ縮小後、表示範囲 ${clamped} へ補正します。`,
+      instruction,
+    ));
+  }
+  return clamped;
 }
 
 function classifyP04Source(source = '') {
   const normalized = String(source || '').toUpperCase();
   return /(^|\/)(VOICE|[^/]*ADP(?:16|32)?)(\/|$)/.test(normalized) ? 'voice' : 'sfx';
+}
+
+function resolvePlaypPlaybackRate(value, constants = new Map()) {
+  const token = cleanToken(value);
+  if (!token) return 32000;
+  const resolved = numericValue(token, constants);
+  return resolved !== null && resolved > 0 ? Math.round(resolved) : null;
 }
 
 function expectedAssetTypes(requirement, mappingEntry = {}) {
@@ -1069,8 +1168,6 @@ function ambiguousConstantArguments(instruction, constants) {
     values = instruction.args.slice(1);
   } else if (instruction.op === 'SCREEN') {
     values = [instruction.args[0], instruction.args[6], ...instruction.args.slice(7, 10)];
-  } else if (instruction.op === 'FADE') {
-    values = [instruction.args[1], instruction.args[4]];
   }
   return values.filter((value) => {
     const key = cleanToken(value).toUpperCase();
@@ -1493,11 +1590,23 @@ function analyzeInstructionFacts(programs, reachability, options = {}) {
         const source = p04Slots.get(slot);
         const loop = String(instruction.args[2] || '').trim().toUpperCase() === 'ON';
         const usage = source ? classifyP04Source(source) : 'sfx';
+        const rawPlaybackRate = cleanToken(instruction.args[1]);
+        const resolvedPlaybackRate = resolvePlaypPlaybackRate(instruction.args[1], constants);
+        const playbackRate = resolvedPlaybackRate ?? 32000;
+        if (reachable && rawPlaybackRate && resolvedPlaybackRate === null) {
+          diagnostics.push(diagnostic(
+            'error',
+            'invalid-playp-rate',
+            'PLAYP rateを正の数値・16進・静的定数として解決できません。',
+            instruction,
+          ));
+        }
         if (source) {
           instructionFact.p04Source = source;
           instructionFact.loop = loop;
           instructionFact.usage = usage;
-          if (reachable) {
+          instructionFact.playbackRate = playbackRate;
+          if (reachable && resolvedPlaybackRate !== null) {
             const requirement = addRequirement(
               requirements,
               'p04',
@@ -1506,6 +1615,7 @@ function analyzeInstructionFacts(programs, reachability, options = {}) {
               {
                 usage,
                 loop,
+                playbackRate,
                 channel: String(instruction.args[3] || '0'),
               },
             );
@@ -1641,8 +1751,8 @@ function analyzeInstructionFacts(programs, reachability, options = {}) {
       } else if (instruction.op === 'FADE') {
         diagnostics.push(diagnostic(
           'warning',
-          'fade-approximated',
-          'CG alpha FADEを画面fadeIn/fadeOutへ簡略化します。',
+          'fade-omitted',
+          'BG・キャラクターを対象とするCG alpha FADEは省略し、BG切替はPCE VNのfadeに任せます。',
           instruction,
         ));
       } else if (OMITTED_COMMANDS.has(instruction.op)) {
@@ -1718,6 +1828,10 @@ function collectReachableRuntimeVariables(reachability) {
       && /^[A-Za-z_][A-Za-z0-9_]*$/.test(instruction.condition.left)) {
       variables.add(instruction.condition.left.toUpperCase());
     }
+    const thenAssignment = instruction.op === 'IF' && instruction.condition
+      ? parseAssignment(instruction.condition.then)
+      : null;
+    if (thenAssignment) variables.add(thenAssignment.name.toUpperCase());
     if (instruction.op === 'WAITBTN' || instruction.op === 'ONC') {
       const name = String(instruction.args[0] || '');
       if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) variables.add(name.toUpperCase());
@@ -2040,20 +2154,37 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
       const source = state.p04Slots.get(resolveSlot(instruction.args[0], state.constants));
       const loop = String(instruction.args[2] || '').trim().toUpperCase() === 'ON';
       const usage = source ? classifyP04Source(source) : 'sfx';
-      if (source) {
+      const rawPlaybackRate = cleanToken(instruction.args[1]);
+      const resolvedPlaybackRate = resolvePlaypPlaybackRate(instruction.args[1], state.constants);
+      const playbackRate = resolvedPlaybackRate ?? 32000;
+      if (rawPlaybackRate && resolvedPlaybackRate === null) {
+        diagnostics.push(diagnostic(
+          'error',
+          'invalid-playp-rate',
+          'PLAYP rateを正の数値・16進・静的定数として解決できません。',
+          instruction,
+        ));
+      }
+      if (source && resolvedPlaybackRate !== null) {
         const requirement = addRequirement(
           requirements,
           'p04',
           source,
           occurrence(instruction),
-          { usage, loop, channel: String(instruction.args[3] || '0') },
+          { usage, loop, playbackRate, channel: String(instruction.args[3] || '0') },
         );
-        Object.assign(instructionFact, { p04Source: source, loop, usage, requirementKey: requirement.key });
+        Object.assign(instructionFact, {
+          p04Source: source,
+          loop,
+          usage,
+          playbackRate,
+          requirementKey: requirement.key,
+        });
         if (!loop && usage === 'voice') {
           state.pendingVoiceKey = requirement.key;
           state.pendingVoiceInstruction = instruction;
         }
-      } else {
+      } else if (!source) {
         diagnostics.push(diagnostic(
           'error',
           'unresolved-p04-slot',
@@ -2290,7 +2421,12 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
     } else if (APPROXIMATE_VISUAL_COMMANDS.has(instruction.op)) {
       diagnostics.push(diagnostic('warning', 'visual-effect-omitted', `${instruction.op} の演出はPCE VNで省略します。`, instruction));
     } else if (instruction.op === 'FADE') {
-      diagnostics.push(diagnostic('warning', 'fade-approximated', 'CG alpha FADEを画面fadeIn/fadeOutへ簡略化します。', instruction));
+      diagnostics.push(diagnostic(
+        'warning',
+        'fade-omitted',
+        'BG・キャラクターを対象とするCG alpha FADEは省略し、BG切替はPCE VNのfadeに任せます。',
+        instruction,
+      ));
     } else if (instruction.op === 'SCREEN') {
       diagnostics.push(diagnostic('warning', 'screen-approximated', 'SCREENをPCE VNのfade/flash/blankへ簡略化します。', instruction));
     } else if (OMITTED_COMMANDS.has(instruction.op)) {
@@ -2481,25 +2617,11 @@ function buildBasicBlocks(analysis, namespace) {
 }
 
 function mappingCollections(mapping = {}) {
-  const speakers = mapping.speakers && typeof mapping.speakers === 'object'
-    ? mapping.speakers
-    : (mapping.colorTokens && typeof mapping.colorTokens === 'object' ? mapping.colorTokens : {});
   const assets = mapping.assets && typeof mapping.assets === 'object'
     ? mapping.assets
     : (mapping.assetMappings && typeof mapping.assetMappings === 'object' ? mapping.assetMappings : {});
-  return { speakers, assets };
+  return { assets };
 }
-
-function normalizeSpeakerMapping(value) {
-  if (typeof value === 'string') {
-    const name = value.trim();
-    return name ? { mode: 'speaker', name } : { mode: 'narration', name: '' };
-  }
-  const raw = value && typeof value === 'object' ? value : {};
-  const mode = raw.mode === 'narration' || raw.narration === true ? 'narration' : 'speaker';
-  return { mode, name: String(raw.name || raw.speaker || '').trim() };
-}
-
 function normalizeAssetMapping(value) {
   const raw = value && typeof value === 'object' ? value : {};
   const action = raw.action === 'omit' || raw.omit === true ? 'omit' : 'map';
@@ -2540,28 +2662,6 @@ function validateMappings(analysis, mapping, assetCatalog = []) {
   const collections = mappingCollections(mapping);
   const assetById = new Map((assetCatalog || []).map((asset) => [String(asset.id || ''), asset]));
 
-  analysis.colorTokens.forEach(({ token, occurrences }) => {
-    if (!Object.prototype.hasOwnProperty.call(collections.speakers, token)) {
-      diagnostics.push(diagnostic(
-        'error',
-        'missing-speaker-mapping',
-        `COLOR token ${token} の話者対応が未指定です。`,
-        occurrences[0],
-      ));
-      return;
-    }
-    const speaker = normalizeSpeakerMapping(collections.speakers[token]);
-    if (speaker.mode === 'speaker' && (!speaker.name || Array.from(speaker.name).length > 16)) {
-      diagnostics.push(diagnostic(
-        'error',
-        'invalid-speaker-name',
-        `COLOR token ${token} の話者名は1〜16文字で指定してください。`,
-        occurrences[0],
-      ));
-      return;
-    }
-    normalized.speakers[token] = speaker;
-  });
 
   analysis.requirements.forEach((requirement) => {
     if (!Object.prototype.hasOwnProperty.call(collections.assets, requirement.key)) {
@@ -2646,24 +2746,18 @@ function validateMappings(analysis, mapping, assetCatalog = []) {
         ));
       }
     }
-    if (requirement.kind === 'image') {
+    if (requirement.kind === 'image' && assetMapping.display === 'background') {
       const rawX = rawAssetMapping?.x ?? rawAssetMapping?.tileX ?? 0;
       const rawY = rawAssetMapping?.y ?? rawAssetMapping?.tileY ?? 0;
       const x = Number(rawX);
       const y = Number(rawY);
-      const minX = 0;
-      const maxX = assetMapping.display === 'sprite' ? 319 : 31;
-      const minY = 0;
-      const maxY = assetMapping.display === 'sprite' ? 223 : 31;
       if (!Number.isFinite(x) || !Number.isInteger(x)
         || !Number.isFinite(y) || !Number.isInteger(y)
-        || x < minX || x > maxX || y < minY || y > maxY) {
+        || x < 0 || x > 31 || y < 0 || y > 31) {
         diagnostics.push(diagnostic(
           'error',
           'invalid-image-position',
-          `${requirement.source} の${assetMapping.display === 'sprite'
-            ? `sprite座標は X=${minX}..${maxX}, Y=${minY}..${maxY}`
-            : `BG tile座標は ${minX}..${maxX}`} の整数で指定してください。`,
+          `${requirement.source} のBG tile座標は0〜31の整数で指定してください。`,
           requirement.occurrences[0],
         ));
       }
@@ -2747,18 +2841,6 @@ function compileScreenEffect(instruction, constants) {
   };
 }
 
-function compileFadeEffect(instruction, constants) {
-  const frames = Math.max(0, Math.min(255, Math.round(numericValue(instruction.args[1], constants) ?? 16)));
-  const toAlpha = numericValue(instruction.args[4], constants);
-  return {
-    type: 'effect',
-    effect: toAlpha !== null && toAlpha <= 0 ? 'fadeOut' : 'fadeIn',
-    frames,
-    intensity: 0,
-    color: '#000000',
-  };
-}
-
 function convertScripts(analysis, {
   mapping = {},
   assetCatalog = [],
@@ -2829,20 +2911,31 @@ function convertScripts(analysis, {
         if (command) commands.push(command);
       } else if (instruction.op === 'WAIT' && String(instruction.args[0] || '').toUpperCase() === 'WIN_MSG') {
         if (fact.message?.text) {
-          const speakerEntry = fact.message.colorToken
-            ? normalizedMapping.speakers[fact.message.colorToken]
-            : null;
-          const speaker = speakerEntry?.mode === 'speaker' ? speakerEntry.name : '';
-          const pages = paginateMessage(fact.message.text, Boolean(speaker));
+          const messageText = replaceUnsupportedSystemCardCharacters(
+            fact.message.text,
+            instruction,
+            'message',
+            diagnostics,
+          );
+          const textColor = scriptTextColor(fact.message.colorToken, nodeConstants);
+          if (fact.message.colorToken && !textColor) {
+            diagnostics.push(diagnostic(
+              'warning',
+              'unresolved-message-color',
+              `COLOR ${fact.message.colorToken} を16-bit ARGB値として解決できないため既定色を使用します。`,
+              instruction,
+            ));
+          }
+          const pages = paginateMessage(messageText);
           const voiceMapping = fact.message.voiceRequirementKey
             ? normalizedMapping.assets[fact.message.voiceRequirementKey]
             : null;
           pages.forEach((text, pageIndex) => {
             commands.push({
               type: 'message',
-              speaker,
+              speaker: '',
               text,
-              textColor: '',
+              textColor,
               voiceAssetId: pageIndex === 0 && voiceMapping?.action === 'map'
                 ? voiceMapping.assetId
                 : '',
@@ -2858,8 +2951,8 @@ function convertScripts(analysis, {
               type: 'sprite',
               slot: assetMapping.slot,
               assetId: assetMapping.assetId,
-              x: assetMapping.x,
-              y: assetMapping.y,
+              x: importedSpriteX(instruction.args[1], nodeConstants, instruction, diagnostics),
+              y: PCE_IMPORTED_SPRITE_Y,
               animationId: assetMapping.animationId,
               flipX: false,
               flipY: false,
@@ -2870,8 +2963,8 @@ function convertScripts(analysis, {
               type: 'background',
               assetId: assetMapping.assetId,
               transition: 'fade',
-              fadeOutFrames: 16,
-              fadeInFrames: 16,
+              fadeOutFrames: PCE_IMPORTED_BG_FADE_FRAMES,
+              fadeInFrames: PCE_IMPORTED_BG_FADE_FRAMES,
               x: assetMapping.x,
               y: assetMapping.y,
             });
@@ -2919,8 +3012,6 @@ function convertScripts(analysis, {
         );
       } else if (instruction.op === 'SCREEN') {
         commands.push(compileScreenEffect(instruction, nodeConstants));
-      } else if (instruction.op === 'FADE') {
-        commands.push(compileFadeEffect(instruction, nodeConstants));
       } else if (instruction.op === 'WAIT' && instruction.args.length >= 3
         && String(instruction.args[1] || '') !== '4') {
         const frames = numericValue(instruction.args[2], nodeConstants);
@@ -3015,11 +3106,19 @@ function convertScripts(analysis, {
           commands.push({
             type: 'choice',
             variableName: normalizeVariableName(`kitahe_choice_${instruction.line}`),
-            choices: menuChoices.map((label, index) => ({
-              label: Array.from(label).slice(0, 24).join(''),
-              value: index,
-              targetSceneId: blockByChoice.get(index)?.id || '',
-            })),
+            choices: menuChoices.map((label, index) => {
+              const visibleLabel = Array.from(label).slice(0, 24).join('');
+              return {
+                label: replaceUnsupportedSystemCardCharacters(
+                  visibleLabel,
+                  fact.menu?.instruction || instruction,
+                  `choice[${index}]`,
+                  diagnostics,
+                ),
+                value: index,
+                targetSceneId: blockByChoice.get(index)?.id || '',
+              };
+            }),
             defaultIndex: 0,
           });
         }
@@ -3216,6 +3315,9 @@ module.exports = {
   safeIdentifier,
   stableJson,
   sha256,
+  assetSourceIdentity,
+  assetSourceKey,
+  resolvePlaypPlaybackRate,
   assetMatchKey,
   assetMatchName,
   paginateMessage,
