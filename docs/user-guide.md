@@ -227,9 +227,11 @@ CD VNの本文はlength付き16-bit Shift-JISでscene pack v3へ保存され、p
 
 `Build` は現在の project 設定と有効な builder plugin を使って ROM / CUE を生成します。Super CD-ROM2 project では `.cue` と `.iso`、必要に応じて CD-DA track WAV や Test Play 用 zip が `out/` に作られます。
 
+CD-DAを含むCD-ROM2 buildは、CD-Rへ焼くmixed-mode imageを実機向けのtrack境界へ正規化します。`pce-mkcd`がISO末尾へ付ける150個のzero sectorはISO本体から外し、CUEのTrack 2へ`PREGAP 00:02:00`として明示します。各CD-DA WAVのPCM末尾も2352-byte CD audio sector境界まで無音で埋めます。Track 2の物理開始LBAとruntime catalogの`start_sector`は変わらないため、エミュレーター再生と実機CD-Rのsector指定を同じ配置に保てます。期待した150 zero sectorが見つからない場合は、non-zero dataを誤って削らずbuild errorで停止します。
+
 CD-ROM2 / HuCARD のVN builderを使う場合、`Build` と `Test Play` はNovel画面のGUI / JSON編集状態を先に `assets/pce-vn-scenes.json` へ保存し、その完了後にbuilderを起動します。AudioのAsset選択などを変更した直後でも、画面上の最新値がビルド対象になります。保存に失敗した場合は古いsceneで続行せず、ビルドを中止してエラーを表示します。
 
-Build Log には `VN generation`、`asset source generation`、`compile/link ELF`、`VN overlay extraction`、`PCE-CD padding update`、`PCE-CD ISO assembly` の各段階の所要時間が表示されます。ビルドが長い場合は、この timing 行で VN スクリプト生成、画像/音声アセット生成、llvm-mos link、ISO 作成のどこが重いかを切り分けてください。
+Build Log には `VN generation`、`asset source generation`、`compile/link ELF`、`VN overlay extraction`、`PCE-CD padding update`、`PCE-CD ISO assembly`、`PCE-CD disc layout normalization` の各段階の所要時間が表示されます。ビルドが長い場合は、この timing 行で VN スクリプト生成、画像/音声アセット生成、llvm-mos link、ISO 作成、mixed-mode track境界の正規化のどこが重いかを切り分けてください。
 
 Test Play は直前の出力を残したままビルドします。VN シーン、アセット定義、フォント、runtime template、CD data file のサイズが前回から変わっていない場合は `assets/generated/vn/build-stamp.json` を使って VN スクリプト生成をスキップし、Build Log に `VN generation skipped: inputs unchanged` と表示します。さらに生成後の `src/`、CD data、ツール設定、ビルド引数、出力 ROM/CUE/ISO が `out/build-stamp.json` と一致する場合は clang/link/mkcd も起動せず、`Build skipped: inputs unchanged` と表示して既存出力をそのまま Test Play に渡します。通常の Build や入力変更後の Test Play は、スタンプを更新するためフル生成します。
 

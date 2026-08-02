@@ -3119,9 +3119,10 @@ function cdDataEndSector(cdLayout) {
 
 function buildCddaTrackLayout(projectDir, cddaAssets, cdLayout) {
   const layout = new Map();
-  // pce-mkcd pads the data track by 150 sectors before the first audio track.
-  // For small images this is hidden by the minimum 450-sector ISO size, but a
-  // larger data track must include the post-gap or every CD-DA LBA is early.
+  // Track 2 INDEX 01 remains 150 sectors after the data track content. The
+  // final builder moves pce-mkcd's trailing zero sectors out of the ISO and
+  // represents the same physical interval as an explicit CUE PREGAP, so the
+  // BIOS LBA stays unchanged while CD-R writers see the mixed-mode boundary.
   let sector = Math.max(
     CD_AUDIO_MIN_SECTOR,
     cdDataEndSector(cdLayout) + CD_DATA_POSTGAP_SECTORS,

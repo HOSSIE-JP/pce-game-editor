@@ -18,12 +18,15 @@ const DEFAULT_EXTERNAL_EMULATOR_PATH = process.platform === 'darwin'
   ? '/Applications/Geargrafx.app/Contents/MacOS/geargrafx'
   : '';
 const PCE_CD_SECTOR_BYTES = 2048;
+const PCE_CDDA_SECTOR_BYTES = 2352;
+const PCE_CD_AUDIO_PREGAP_SECTORS = 150;
+const PCE_CD_AUDIO_PREGAP_CUE_TIME = '00:02:00';
 const PCE_CD_IPL_PROGRAM_SECTORS = 20;
 const PCE_CD_DATA_BASE_SECTOR = 64;
 const PCE_CD_VN_BANK_HEADROOM_WARN_BYTES = 256;
 const PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES = 1024;
 const PCE_CD_VN_LOGIC_OVERLAY_MIN_FREE_BYTES = 1024;
-const PCE_INCREMENTAL_BUILD_STAMP_VERSION = 1;
+const PCE_INCREMENTAL_BUILD_STAMP_VERSION = 2;
 const PCE_INCREMENTAL_BUILD_STAMP_FILE = path.join('out', 'build-stamp.json');
 const PCE_SLIDESHOW_BUILDER_ID = 'pce-slideshow-builder';
 const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
@@ -1065,13 +1068,135 @@ function collectCddaTracks(projectDir, cuePath) {
   return tracks;
 }
 
+function readCddaWavLayout(buffer, label = 'CD-DA WAV') {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 44
+      || buffer.toString('ascii', 0, 4) !== 'RIFF'
+      || buffer.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error(`${label} is not a valid RIFF/WAVE file.`);
+  }
+  let offset = 12;
+  let format = null;
+  let data = null;
+  while (offset + 8 <= buffer.length) {
+    const id = buffer.toString('ascii', offset, offset + 4);
+    const size = buffer.readUInt32LE(offset + 4);
+    const dataOffset = offset + 8;
+    const dataEnd = dataOffset + size;
+    if (dataEnd > buffer.length) {
+      throw new Error(`${label} has a truncated ${id.trim() || 'unknown'} chunk.`);
+    }
+    if (id === 'fmt ' && size >= 16 && !format) {
+      format = {
+        audioFormat: buffer.readUInt16LE(dataOffset),
+        channels: buffer.readUInt16LE(dataOffset + 2),
+        sampleRate: buffer.readUInt32LE(dataOffset + 4),
+        blockAlign: buffer.readUInt16LE(dataOffset + 12),
+        bitsPerSample: buffer.readUInt16LE(dataOffset + 14),
+      };
+    } else if (id === 'data' && !data) {
+      data = { headerOffset: offset, dataOffset, dataEnd, size };
+    }
+    offset = dataEnd + (size & 1);
+  }
+  if (!format || !data) {
+    throw new Error(`${label} must contain fmt and data chunks.`);
+  }
+  if (format.audioFormat !== 1 || format.channels !== 2 || format.sampleRate !== 44100
+      || format.blockAlign !== 4 || format.bitsPerSample !== 16) {
+    throw new Error(`${label} must be 44.1 kHz, stereo, 16-bit PCM before CD image assembly.`);
+  }
+  if ((data.size % format.blockAlign) !== 0) {
+    throw new Error(`${label} PCM data is not aligned to its ${format.blockAlign}-byte sample frame.`);
+  }
+  return { format, data };
+}
+
+function normalizeCddaWavForDisc(buffer, label = 'CD-DA WAV') {
+  const layout = readCddaWavLayout(buffer, label);
+  const paddingBytes = (PCE_CDDA_SECTOR_BYTES - (layout.data.size % PCE_CDDA_SECTOR_BYTES))
+    % PCE_CDDA_SECTOR_BYTES;
+  if (paddingBytes === 0) {
+    return { output: Buffer.from(buffer), paddingBytes, sectorCount: layout.data.size / PCE_CDDA_SECTOR_BYTES };
+  }
+
+  // Generated CD-DA assets are 16-bit stereo PCM, so the data chunk is always
+  // even-sized and has no RIFF pad byte. Insert silence at the end of the data
+  // chunk while preserving any optional chunks which follow it.
+  const output = Buffer.alloc(buffer.length + paddingBytes);
+  buffer.copy(output, 0, 0, layout.data.dataEnd);
+  buffer.copy(output, layout.data.dataEnd + paddingBytes, layout.data.dataEnd);
+  output.writeUInt32LE(layout.data.size + paddingBytes, layout.data.headerOffset + 4);
+  output.writeUInt32LE(output.length - 8, 4);
+  return {
+    output,
+    paddingBytes,
+    sectorCount: (layout.data.size + paddingBytes) / PCE_CDDA_SECTOR_BYTES,
+  };
+}
+
+function fileRangeIsZero(filePath, start, length) {
+  const fd = fs.openSync(filePath, 'r');
+  const buffer = Buffer.alloc(Math.min(64 * 1024, length));
+  let position = start;
+  let remaining = length;
+  try {
+    while (remaining > 0) {
+      const requested = Math.min(buffer.length, remaining);
+      const bytesRead = fs.readSync(fd, buffer, 0, requested, position);
+      if (bytesRead !== requested) return false;
+      for (let i = 0; i < bytesRead; i += 1) {
+        if (buffer[i] !== 0) return false;
+      }
+      position += bytesRead;
+      remaining -= bytesRead;
+    }
+    return true;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function normalizePceCdImageForCdda(commandInfo) {
+  if (!(commandInfo.cddaTracks || []).length) {
+    return { normalized: false, pregapSectors: 0, strippedSectors: 0 };
+  }
+  if (commandInfo.cddaImageLayout?.normalized) return commandInfo.cddaImageLayout;
+  const isoPath = commandInfo.isoPath;
+  if (!isoPath || !fs.existsSync(isoPath)) {
+    throw new Error('PCE-CD ISO was not generated before CD-DA layout normalization.');
+  }
+  const size = fs.statSync(isoPath).size;
+  const stripBytes = PCE_CD_AUDIO_PREGAP_SECTORS * PCE_CD_SECTOR_BYTES;
+  if ((size % PCE_CD_SECTOR_BYTES) !== 0 || size <= stripBytes) {
+    throw new Error(`PCE-CD ISO size ${size} cannot be normalized to a ${PCE_CD_AUDIO_PREGAP_SECTORS}-sector audio pregap.`);
+  }
+  const tailOffset = size - stripBytes;
+  if (!fileRangeIsZero(isoPath, tailOffset, stripBytes)) {
+    throw new Error(`PCE-CD ISO does not end with the expected ${PCE_CD_AUDIO_PREGAP_SECTORS} zero sectors from pce-mkcd; refusing to move non-zero data into the track 2 pregap.`);
+  }
+  fs.truncateSync(isoPath, tailOffset);
+  commandInfo.cddaImageLayout = {
+    normalized: true,
+    dataSectors: tailOffset / PCE_CD_SECTOR_BYTES,
+    pregapSectors: PCE_CD_AUDIO_PREGAP_SECTORS,
+    strippedSectors: PCE_CD_AUDIO_PREGAP_SECTORS,
+  };
+  return commandInfo.cddaImageLayout;
+}
+
 function writeCueFile(commandInfo) {
+  let paddedTrackCount = 0;
   for (const track of commandInfo.cddaTracks || []) {
     if (track.sourcePath && track.outputPath) {
       ensureDirSync(path.dirname(track.outputPath));
-      if (!fs.existsSync(track.outputPath) || fs.statSync(track.outputPath).mtimeMs < fs.statSync(track.sourcePath).mtimeMs) {
-        fs.copyFileSync(track.sourcePath, track.outputPath);
-      }
+      const normalized = normalizeCddaWavForDisc(
+        fs.readFileSync(track.sourcePath),
+        `CD-DA track ${track.track} (${track.id || path.basename(track.sourcePath)})`,
+      );
+      fs.writeFileSync(track.outputPath, normalized.output);
+      track.discPaddingBytes = normalized.paddingBytes;
+      track.discSectorCount = normalized.sectorCount;
+      if (normalized.paddingBytes > 0) paddedTrackCount += 1;
     }
   }
   const lines = [
@@ -1082,10 +1207,12 @@ function writeCueFile(commandInfo) {
   for (const track of commandInfo.cddaTracks || []) {
     lines.push(`FILE "${track.file}" WAVE`);
     lines.push(`  TRACK ${String(track.track).padStart(2, '0')} AUDIO`);
+    if (track.track === 2) lines.push(`    PREGAP ${PCE_CD_AUDIO_PREGAP_CUE_TIME}`);
     lines.push('    INDEX 01 00:00:00');
   }
   lines.push('');
   fs.writeFileSync(commandInfo.cuePath, lines.join('\n'), 'utf-8');
+  return { paddedTrackCount };
 }
 
 function buildCommandForProject(projectDir, config = {}, toolPath = null) {
@@ -1639,7 +1766,16 @@ function buildProject(onLog, options = {}) {
               return;
             }
             try {
-              writeCueFile(commandInfo);
+              const layoutStage = stageStart('PCE-CD disc layout normalization');
+              const imageLayout = normalizePceCdImageForCdda(commandInfo);
+              const cueLayout = writeCueFile(commandInfo);
+              stageDone(
+                'PCE-CD disc layout normalization',
+                layoutStage,
+                imageLayout.normalized
+                  ? `${imageLayout.dataSectors} data sector(s) + ${imageLayout.pregapSectors} pregap sector(s), ${cueLayout.paddedTrackCount} WAV track(s) padded`
+                  : 'data-only image',
+              );
               try {
                 writeBuildOutputStamp(projectDir, config, commandInfo);
               } catch (stampErr) {
@@ -1708,6 +1844,7 @@ module.exports = {
   readBuildOutputStamp,
   writeBuildOutputStamp,
   collectCddaTracks,
+  normalizePceCdImageForCdda,
   buildProject,
   createProjectFromTemplate,
   createProjectInRoot,
