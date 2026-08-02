@@ -12,8 +12,6 @@ const PACKAGE_VERSION = 1;
 const MANIFEST_FILE = 'pcevn-package.json';
 const SCENES_FILE = 'data/scenes.json';
 const ASSETS_FILE = 'data/assets.json';
-const BORDER_SOURCE_FILE = 'assets/images/player-border.png';
-const BORDER_PACKAGE_FILE = 'presentation/player-border.png';
 const SUPPORTED_VISUAL_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 const SUPPORTED_AUDIO_EXTENSIONS = new Set(['.wav', '.ogg', '.mp3']);
 
@@ -183,17 +181,6 @@ function buildGodotPackageBundle({
     });
   }
 
-  const borderPath = resolveProjectFile(root, BORDER_SOURCE_FILE);
-  let packageBorderPath = '';
-  if (borderPath) {
-    packageBorderPath = BORDER_PACKAGE_FILE;
-    mediaEntries.push({
-      name: packageBorderPath,
-      data: fs.readFileSync(borderPath),
-      mtime: fs.statSync(borderPath).mtime,
-    });
-  }
-
   const scenesBuffer = jsonBuffer(scenes);
   const assetsBuffer = jsonBuffer({ version: 1, assets: packagedAssets });
   const contentEntries = [
@@ -222,7 +209,7 @@ function buildGodotPackageBundle({
       scenes: SCENES_FILE,
       assets: ASSETS_FILE,
       font: packageFontPath,
-      border: packageBorderPath,
+      border: '',
     },
     stats: {
       scenes: scenes.scenes.length,
@@ -287,8 +274,6 @@ async function exportGodotPackageZip({
 
 module.exports = {
   ASSETS_FILE,
-  BORDER_PACKAGE_FILE,
-  BORDER_SOURCE_FILE,
   MANIFEST_FILE,
   PACKAGE_FORMAT,
   PACKAGE_VERSION,

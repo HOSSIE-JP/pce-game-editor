@@ -114,7 +114,7 @@ Visual Novel CD テンプレートには、`BG` / `Sprite` / `Sprite Move` / `Me
 
 組み込みプラグイン **NVプロジェクトのGodotエクスポート** が有効な場合だけ、Novel画面上部に`Godot出力`を表示します。現在のGUI/JSON編集状態からGodotネイティブプレイヤーへ取り込む`*.pcevn.zip`を作成し、ZIP保存が成功した後、その出力に使った同じscene snapshotを`assets/pce-vn-scenes.json`へ保存します。CD-ROM2 / HuCARD VNの両方で利用でき、Sceneと参照中のアセットだけを収録します。画像はPNG/JPEG/WebP、CD-DA/ADPCMはWAV/OGG/MP3の再生可能source（CD-DAは生成WAVを優先）、PSGはpattern metadataを使います。Novelの`フォント`タブで選択中のproject font（`assets/pce-font.json`の`fontPath`）がTTF/OTF/WOFF/WOFF2なら同梱し、Godot側の本文・SpriteText・選択肢・再生UIで優先します。未選択のfont libraryから別のfontを勝手に選ぶことはありません。System Card、IPL、ROM/CUE/ISO、PCE向けtiles/map/pattern/ADPCM binaryは含みません。同じeditor projectから再出力したpackageはGodot側で更新として扱われ、別projectはライブラリに併存します。プラグインをOFFにするとボタンも非表示になります。
 
-Godot Playerのワイド画面余白へ枠を表示する場合は、project内へ`assets/images/player-border.png`を置きます。画像assetへの登録やScene Commandからの参照は不要です。`Godot出力`は固定名を検出してZIP内`presentation/player-border.png`へ追加し、manifestの`entrypoints.border`から参照します。推奨サイズは`1280×720`で、Playerは縦横比を維持したcover配置の上へ中央ゲーム画面を重ねます。ファイルがなければentrypointは空のままで、従来どおり暗色の余白になります。
+Godot Playerのワイド画面余白へ枠を表示する場合は、Player配布側の`package/library.json`へトップレベル`border`を追加し、`package`内の画像を相対パスで指定します。例: "border": "assets/player-border.png"。画像assetへの登録やScene Commandからの参照は不要です。推奨サイズは`1280×720`で、Playerは縦横比を維持したcover配置の上へ中央ゲーム画面を重ねます。未指定、存在しない、または読み込めない場合は暗色の余白になります。
 
 `システム設定` タブでは、ノベルエンジン全体のメッセージ速度と Advance の初期値を設定します。メッセージ速度は `速度1(速い)：0`、`速度2：10`、`速度3：20`、`速度4：30`、`速度5：40`、`速度6(遅い)：50` から選びます。Advance は既定が `button` で、`auto` にすると Auto wait のフレーム数を使います。これらは全 `Message` command 共通で、Message のプロパティには表示されません。Auto wait はAdvanceの初期値がbuttonでも編集できます。
 
