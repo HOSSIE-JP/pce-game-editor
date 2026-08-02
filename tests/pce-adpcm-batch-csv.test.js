@@ -9,6 +9,7 @@ const batchCsv = require('../pce-adpcm-batch-csv');
 const { buildIrodoriBatchBundle } = require('../pce-vn-irodori-batch');
 const { inspectIrodoriVoiceAssignments } = require('../pce-vn-irodori-assign');
 const { loadWithMockedElectron } = require('./helpers/mock-electron');
+const { addCdWarningAudio } = require('./helpers/cdda-warning');
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -341,6 +342,7 @@ test('CD VN dry build catalogs a batch-imported ADPCM referenced by message voic
   const assetManager = loadAssetManager();
   const projectDir = path.join(makeTempDir('pce-adpcm-batch-vn-build-'), 'project');
   fs.cpSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd'), projectDir, { recursive: true });
+  addCdWarningAudio(projectDir);
   const sourceDir = makeTempDir('pce-adpcm-batch-vn-source-');
   writeFile(sourceDir, 'voice.wav', makeWavBuffer(8000, 8000));
   const csvPath = writeFile(sourceDir, 'voices.csv', [
@@ -388,6 +390,7 @@ test('Irodori export to ADPCM CSV import and manifest assignment completes a CD 
   const assetManager = loadAssetManager();
   const projectDir = path.join(makeTempDir('pce-irodori-workflow-project-'), 'project');
   fs.cpSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd'), projectDir, { recursive: true });
+  addCdWarningAudio(projectDir);
   const scenePath = path.join(projectDir, 'assets', 'pce-vn-scenes.json');
   const sceneDoc = JSON.parse(fs.readFileSync(scenePath, 'utf8'));
   sceneDoc.scenes[0].commands = [{

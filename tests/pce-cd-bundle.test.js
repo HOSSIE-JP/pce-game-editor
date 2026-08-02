@@ -20,35 +20,48 @@ function makeTempDir(prefix) {
 test('PCE CD bundle includes CUE sidecars for EmulatorJS Test Play', () => {
   const dir = makeTempDir('pce-cd-bundle-');
   fs.writeFileSync(path.join(dir, 'game.iso'), Buffer.from([1, 2, 3]));
-  fs.writeFileSync(path.join(dir, 'track02.wav'), Buffer.from([4, 5, 6]));
+  fs.writeFileSync(path.join(dir, 'track01_cdda_warning.wav'), Buffer.from([4, 5, 6]));
+  fs.writeFileSync(path.join(dir, 'track03_bgm.wav'), Buffer.from([7, 8, 9]));
   const cuePath = path.join(dir, 'game.cue');
-  fs.writeFileSync(cuePath, 'FILE "game.iso" BINARY\n  TRACK 01 MODE1/2048\nFILE "track02.wav" WAVE\n  TRACK 02 AUDIO\n', 'utf-8');
+  fs.writeFileSync(cuePath, 'FILE "track01_cdda_warning.wav" WAVE\n  TRACK 01 AUDIO\nFILE "game.iso" BINARY\n  TRACK 02 MODE1/2048\nFILE "track03_bgm.wav" WAVE\n  TRACK 03 AUDIO\n', 'utf-8');
 
-  assert.deepEqual(parseCueFileReferences(cuePath).map((filePath) => path.basename(filePath)), ['game.iso', 'track02.wav']);
+  assert.deepEqual(parseCueFileReferences(cuePath).map((filePath) => path.basename(filePath)), [
+    'track01_cdda_warning.wav',
+    'game.iso',
+    'track03_bgm.wav',
+  ]);
   const bundle = createCdTestPlayBundle(cuePath);
   const zip = fs.readFileSync(bundle.zipPath);
   assert.equal(bundle.entryName, 'game.cue');
   assert.match(zip.toString('latin1'), /game\.cue/);
   assert.match(zip.toString('latin1'), /game\.iso/);
-  assert.match(zip.toString('latin1'), /track02\.wav/);
+  assert.match(zip.toString('latin1'), /track01_cdda_warning\.wav/);
+  assert.match(zip.toString('latin1'), /track03_bgm\.wav/);
 });
 
 test('PCE CD bundle can be created in memory for standalone export', () => {
   const dir = makeTempDir('pce-cd-bundle-memory-');
   fs.writeFileSync(path.join(dir, 'game.iso'), Buffer.from([1, 2, 3]));
-  fs.writeFileSync(path.join(dir, 'track02.wav'), Buffer.from([4, 5, 6]));
+  fs.writeFileSync(path.join(dir, 'track01_cdda_warning.wav'), Buffer.from([4, 5, 6]));
+  fs.writeFileSync(path.join(dir, 'track03_bgm.wav'), Buffer.from([7, 8, 9]));
   const cuePath = path.join(dir, 'game.cue');
-  fs.writeFileSync(cuePath, 'FILE "game.iso" BINARY\n  TRACK 01 MODE1/2048\nFILE "track02.wav" WAVE\n  TRACK 02 AUDIO\n', 'utf-8');
+  fs.writeFileSync(cuePath, 'FILE "track01_cdda_warning.wav" WAVE\n  TRACK 01 AUDIO\nFILE "game.iso" BINARY\n  TRACK 02 MODE1/2048\nFILE "track03_bgm.wav" WAVE\n  TRACK 03 AUDIO\n', 'utf-8');
 
   const bundle = createCdBundleBuffer(cuePath);
 
   assert.equal(bundle.entryName, 'game.cue');
   assert.equal(bundle.zipName, 'game.zip');
-  assert.deepEqual(bundle.entries.map((entry) => entry.name), ['game.cue', 'game.iso', 'track02.wav']);
+  assert.deepEqual(bundle.entries.map((entry) => entry.name), [
+    'game.cue',
+    'track01_cdda_warning.wav',
+    'game.iso',
+    'track03_bgm.wav',
+  ]);
   assert.equal(bundle.zipBuffer.readUInt32LE(0), 0x04034b50);
   assert.match(bundle.zipBuffer.toString('latin1'), /game\.cue/);
   assert.match(bundle.zipBuffer.toString('latin1'), /game\.iso/);
-  assert.match(bundle.zipBuffer.toString('latin1'), /track02\.wav/);
+  assert.match(bundle.zipBuffer.toString('latin1'), /track01_cdda_warning\.wav/);
+  assert.match(bundle.zipBuffer.toString('latin1'), /track03_bgm\.wav/);
 });
 
 test('PCE CD bundle rejects CUE references outside output directory', () => {

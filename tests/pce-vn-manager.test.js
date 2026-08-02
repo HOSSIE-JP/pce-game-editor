@@ -43,6 +43,56 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf-8');
 }
 
+function makeCdAudioWav(sectors = 1) {
+  const dataSize = Math.max(1, sectors) * 2352;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0, 4, 'ascii');
+  buffer.writeUInt32LE(buffer.length - 8, 4);
+  buffer.write('WAVE', 8, 4, 'ascii');
+  buffer.write('fmt ', 12, 4, 'ascii');
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(2, 22);
+  buffer.writeUInt32LE(44100, 24);
+  buffer.writeUInt32LE(44100 * 4, 28);
+  buffer.writeUInt16LE(4, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36, 4, 'ascii');
+  buffer.writeUInt32LE(dataSize, 40);
+  return buffer;
+}
+
+function addCdWarningAudio(projectDir, sectors = 1) {
+  const source = 'assets/cdda/cdda_warning.wav';
+  const outputFile = 'assets/generated/cdda_warning/cdda.wav';
+  const wav = makeCdAudioWav(sectors);
+  fs.mkdirSync(path.join(projectDir, path.dirname(source)), { recursive: true });
+  fs.mkdirSync(path.join(projectDir, path.dirname(outputFile)), { recursive: true });
+  fs.writeFileSync(path.join(projectDir, source), wav);
+  fs.writeFileSync(path.join(projectDir, outputFile), wav);
+  const assetPath = path.join(projectDir, 'assets', 'pce-assets.json');
+  const doc = fs.existsSync(assetPath)
+    ? JSON.parse(fs.readFileSync(assetPath, 'utf-8'))
+    : { version: 2, assets: [] };
+  doc.assets = (doc.assets || []).filter((asset) => asset.type !== 'cdda-warning');
+  doc.assets.unshift({
+    id: 'cdda_warning',
+    type: 'cdda-warning',
+    name: 'Warning Audio',
+    source,
+    data: {
+      generated: {
+        outputFile,
+        sampleRate: 44100,
+        channels: 2,
+        durationSeconds: sectors / 75,
+        byteLength: wav.length,
+      },
+    },
+  });
+  writeJson(assetPath, doc);
+}
+
 function u16(buffer, offset) {
   return buffer.readUInt16LE(offset);
 }
@@ -263,7 +313,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
         },
       },
       { id: 'voice', type: 'adpcm', source: 'assets/adpcm/voice.wav', data: { generated: { outputFile: 'assets/generated/voice/adpcm.bin' } } },
-      { id: 'track', type: 'cdda-track', source: 'assets/cdda/track.wav', options: { track: 2 }, data: { generated: { outputFile: 'assets/generated/track/cdda.wav' } } },
+      { id: 'track', type: 'cdda-track', source: 'assets/cdda/track.wav', options: { track: 3 }, data: { generated: { outputFile: 'assets/generated/track/cdda.wav' } } },
     ],
   });
   writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
@@ -1123,7 +1173,7 @@ test('PCE VN manager default scene does not auto-play the first CD-DA asset', ()
   const doc = vnManager.defaultSceneDocument({
     assets: [
       { id: 'bg', type: 'image', source: 'assets/images/bg.png' },
-      { id: 'track2', type: 'cdda-track', source: 'assets/cdda/track2.wav', options: { track: 2 } },
+      { id: 'track2', type: 'cdda-track', source: 'assets/cdda/track2.wav', options: { track: 3 } },
     ],
   });
 
@@ -2244,7 +2294,7 @@ test('PCE HuCARD VN generation keeps scene-pack commands and strips CD audio out
     version: 2,
     assets: [
       { id: 'voice', type: 'adpcm' },
-      { id: 'track', type: 'cdda-track', options: { track: 2 } },
+      { id: 'track', type: 'cdda-track', options: { track: 3 } },
       {
         id: 'theme',
         type: 'psg-song',
@@ -3019,6 +3069,8 @@ test('PCE VN CD-DA bounds the track and never rewrites display timing in the vis
   const playStart = command.indexOf('(void)pce_cdb_cdda_play(PCE_CDB_LOCATION_TYPE_SECTOR, start');
   const playTail = command.slice(playStart);
   assert.match(command, /end\.lo = p\[PCE_EDITOR_META_CDDA_END_SECTOR\];[\s\S]*end\.hi = p\[PCE_EDITOR_META_CDDA_END_SECTOR \+ 2u\];/);
+  assert.match(command, /if \(track < 3u\) return;/);
+  assert.match(source, /pce_sector_t absolute_disc_base = \{0\};[\s\S]*pce_cdb_cd_base\([\s\S]*absolute_disc_base,[\s\S]*PCE_CDB_LOCATION_TYPE_SECTOR \| PCE_CDB_BASE_SET_BOTH[\s\S]*init_runtime_state\(\);/);
   assert.match(command, /pce_cdb_cdda_play\(PCE_CDB_LOCATION_TYPE_SECTOR, start, PCE_CDB_LOCATION_TYPE_SECTOR, end, VN_CDDA_PLAY_MODE\(\)\)/);
   assert.match(source, /#define VN_CDDA_PLAY_MODE\(\) \(\(cdda_state & VN_CDDA_STATE_REPEAT\) \? PCE_CDB_CDDA_PLAY_REPEAT : PCE_CDB_CDDA_PLAY_ONE_SHOT\)/);
   assert.doesNotMatch(source, /service_cdda_playback|cdda_frames_remaining|cdda_play_start/);
@@ -3299,6 +3351,13 @@ test('PCE VN runtime cache clear only invalidates non-destructive cache flags', 
 test('PCE build system regenerates visual novel sources from saved scenes', async () => {
   const projectDir = path.join(makeTempDir('pce-vn-build-project-'), 'project');
   fs.cpSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd'), projectDir, { recursive: true });
+  const templateSmokeBuildSystem = loadPceBuildSystem();
+  const templateConfig = templateSmokeBuildSystem.loadProjectConfigFromDir(projectDir);
+  assert.throws(
+    () => templateSmokeBuildSystem.buildCommandForProject(projectDir, templateConfig),
+    /requires Track 1 warning audio/,
+  );
+  addCdWarningAudio(projectDir);
   const configPath = path.join(projectDir, 'project.json');
   const staleConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
   staleConfig.cd.systemCardProfile = '';
@@ -3330,19 +3389,20 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.equal(result.success, true);
   assert.equal(buildSystem.loadProjectConfigFromDir(projectDir).cd.systemCardProfile, 'jp-v3');
   assert.equal(result.commandInfo.targetMedia, 'cd');
-  assert.equal(JSON.parse(fs.readFileSync(path.join(projectDir, 'assets', 'generated', 'vn', 'build-stamp.json'), 'utf-8')).version, 6);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(projectDir, 'assets', 'generated', 'vn', 'build-stamp.json'), 'utf-8')).version, 7);
   assert.ok(result.commandInfo.mkcdArgs.some((arg) => /pce_cd_data_padding\.bin$/.test(arg)));
   assert.equal(result.generated.visualNovel.messageCount, 1);
   assert.deepEqual(result.generated.visualNovel.scenePackPaths, ['assets/generated/vn/scenes/000_opening.bin']);
   const source = fs.readFileSync(path.join(projectDir, 'src', 'generated', 'vn.c'), 'utf-8');
   assert.match(source, /const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs\[\]/);
-  // BIOS fonts have no CD payload. overlay@64, visual helper@68, async@72,
-  // logic@76, and the scene pack follows in the payload pack at sector 80.
+  // One warning sector + the 225-sector Track 2 pregap moves the data track to
+  // LBA 226. BIOS fonts have no CD payload; the old 64/68/72/76/80 refs shift
+  // to 290/294/298/302/306.
   assert.doesNotMatch(source, /pce_vn_font_data|pce_vn_font_sprite_data/);
-  assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_visual_code_data = \{ \{ 68u, 0u, 0u \}, 4u, 8192u \};/);
-  assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_cd_async_code_data = \{ \{ 72u, 0u, 0u \}, 4u, 8192u \};/);
-  assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_logic_overlay_data = \{ \{ 76u, 0u, 0u \}, 4u, 8192u \};/);
-  assert.match(source, /\{ \{ 80u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_visual_code_data = \{ \{ 38u, 1u, 0u \}, 4u, 8192u \};/);
+  assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_cd_async_code_data = \{ \{ 42u, 1u, 0u \}, 4u, 8192u \};/);
+  assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_logic_overlay_data = \{ \{ 46u, 1u, 0u \}, 4u, 8192u \};/);
+  assert.match(source, /\{ \{ 50u, 1u, 0u \}, 1u, \d+u, -1 \}/);
   assert.equal(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'font.bin')), false);
   assert.equal(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'font_sprite.bin')), false);
   assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'visual_code.bin')));
@@ -3392,6 +3452,7 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
 test('PCE CD clean build regenerates payloads before computing the VN data catalog', async () => {
   const projectDir = path.join(makeWorkspaceTempDir('pce-vn-cd-clean-assets-'), 'project');
   fs.cpSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd'), projectDir, { recursive: true });
+  addCdWarningAudio(projectDir);
   const scenePath = path.join(projectDir, 'assets', 'pce-vn-scenes.json');
   const sceneDoc = JSON.parse(fs.readFileSync(scenePath, 'utf-8'));
   sceneDoc.startScene = 'opening';
@@ -3803,6 +3864,7 @@ test('PCE build system expands llvm-mos Windows clang wrappers to clang --config
   fs.writeFileSync(path.join(binDir, 'mos-pce-cd.cfg'), '# cfg\n');
   fs.writeFileSync(path.join(binDir, 'mos-pce-clang.bat'), '@echo off\r\n');
   fs.writeFileSync(path.join(binDir, 'mos-pce.cfg'), '# cfg\n');
+  addCdWarningAudio(projectDir);
 
   const cdInfo = buildSystem.buildCommandForProject(
     projectDir,

@@ -556,7 +556,7 @@ test('PCE CD asset generation recreates a missing normalized CD-DA track from it
     sourceFileName: 'opening.wav',
     kind: 'cdda-track',
     id: 'opening',
-    track: 2,
+    track: 3,
     loop: true,
   });
   const outputPath = path.join(projectDir, imported.asset.data.generated.outputFile);
@@ -785,7 +785,7 @@ test('PCE CD-DA loop flag edited after import updates CD catalog metadata', () =
     sourceFileName: 'theme.wav',
     kind: 'cdda-track',
     id: 'theme',
-    track: 2,
+    track: 3,
     loop: true,
   });
   assert.equal(imported.asset.options.loop, true);
@@ -802,7 +802,7 @@ test('PCE CD-DA loop flag edited after import updates CD catalog metadata', () =
 
   assetManager.generateAssetSources(projectDir);
   const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
-  assert.equal(meta[0], 2); // track
+  assert.equal(meta[0], 3); // track
   assert.equal(meta[1], 0); // loop
 });
 
@@ -829,19 +829,19 @@ test('PCE CD-DA metadata keeps physical gaps when an intermediate track is not r
       {
         id: 'track_02',
         type: 'cdda-track',
-        options: { track: 2, loop: false },
+        options: { track: 3, loop: false },
         data: { generated: { outputFile: 'assets/generated/track_02/cdda.wav' } },
       },
       {
         id: 'track_03',
         type: 'cdda-track',
-        options: { track: 3, loop: false },
+        options: { track: 4, loop: false },
         data: { generated: { outputFile: 'assets/generated/track_03/cdda.wav' } },
       },
       {
         id: 'track_04',
         type: 'cdda-track',
-        options: { track: 4, loop: false },
+        options: { track: 5, loop: false },
         data: { generated: { outputFile: 'assets/generated/track_04/cdda.wav' } },
       },
     ],
@@ -858,13 +858,13 @@ test('PCE CD-DA metadata keeps physical gaps when an intermediate track is not r
   const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
 
   assert.match(source, /pce_editor_cdda_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 64u, 0u, 0u \}, 2u \}/);
-  assert.equal(meta[0], 2);
-  assert.equal(meta[32], 4);
+  assert.equal(meta[0], 3);
+  assert.equal(meta[32], 5);
   // asset_meta.bin occupies sector 64, followed by 400 data sectors. pce-mkcd
-  // adds a 150-sector post-gap, so physical track 02 begins at sector 615.
+  // adds a 150-sector post-gap, so physical track 03 begins at sector 615.
   assert.equal(meta.readUIntLE(2, 3), 615);
-  // Track 04 starts after physical tracks 02 (75 sectors) and 03 (150 sectors),
-  // even though track 03 is not present in the generated two-entry catalog.
+  // Track 05 starts after physical tracks 03 (75 sectors) and 04 (150 sectors),
+  // even though track 04 is not present in the generated two-entry catalog.
   assert.equal(meta.readUIntLE(34, 3), 840);
 });
 
@@ -1297,7 +1297,7 @@ test('PCE generated assets emit BG and sprite C arrays for resident templates', 
         id: 'track',
         type: 'cdda-track',
         source: 'assets/cdda/track.wav',
-        options: { track: 2 },
+        options: { track: 3 },
       },
     ],
   });
@@ -1409,14 +1409,14 @@ test('PCE CD VN asset source generation streams large payloads through cd.dataFi
         id: 'ending',
         type: 'cdda-track',
         source: 'assets/cdda/ending.wav',
-        options: { track: 3 },
+        options: { track: 4 },
         data: { generated: { outputFile: 'assets/generated/ending/cdda.wav' } },
       },
       {
         id: 'opening',
         type: 'cdda-track',
         source: 'assets/cdda/opening.wav',
-        options: { track: 2, loop: true },
+        options: { track: 3, loop: true },
         data: { generated: { outputFile: 'assets/generated/opening/cdda.wav' } },
       },
     ],
@@ -1501,12 +1501,12 @@ test('PCE CD VN asset source generation streams large payloads through cd.dataFi
   assert.equal(meta[adBase + 14], 68); // adpcm cd sector lo
   // CDDA records (region at sector 73 -> byte offset 3*2048).
   const cddaBase = 3 * 2048;
-  assert.equal(meta[cddaBase + 0], 3); // ending track
+  assert.equal(meta[cddaBase + 0], 4); // ending track
   assert.equal(meta[cddaBase + 2], 13); // ending start sector lo (525)
   assert.equal(meta.readUIntLE(cddaBase + 5, 3), 675); // ending exclusive end sector
   assert.equal(meta[cddaBase + 8], 0); // ending exclusive end frame
   assert.equal(meta.readUInt16LE(cddaBase + 11), 118); // ending play_frames
-  assert.equal(meta[cddaBase + 32], 2); // opening track
+  assert.equal(meta[cddaBase + 32], 3); // opening track
   assert.equal(meta[cddaBase + 33], 1); // opening loop
   assert.equal(meta[cddaBase + 34], 194); // opening start sector lo (450)
   assert.equal(meta.readUIntLE(cddaBase + 37, 3), 525); // opening exclusive end = ending start
@@ -2481,7 +2481,7 @@ test('PCE asset catalog leaves PSG to System Card packages and streams CD-DA met
         id: 'opening',
         type: 'cdda-track',
         source: 'assets/cdda/opening.wav',
-        options: { track: 2, loop: true },
+        options: { track: 3, loop: true },
         data: { generated: { outputFile: 'assets/generated/opening/cdda.wav' } },
       },
     ],
@@ -2502,7 +2502,7 @@ test('PCE asset catalog leaves PSG to System Card packages and streams CD-DA met
   assert.doesNotMatch(source, /pce_editor_cdda_assets\[\] = \{/);
   assert.equal(meta.length, 2048);
   const cddaBase = 0;
-  assert.equal(meta[cddaBase + 0], 2);
+  assert.equal(meta[cddaBase + 0], 3);
   assert.equal(meta[cddaBase + 1], 1);
   assert.equal(meta[cddaBase + 2], 194); // CD-DA audio starts at sector 450.
 });
@@ -2720,33 +2720,107 @@ test('PCE CD-DA validates track range, uniqueness, and physical track count', ()
   writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
     version: 2,
     assets: [
-      { id: 'a', type: 'cdda-track', options: { track: 2 } },
-      { id: 'b', type: 'cdda-track', options: { track: 2 } },
+      { id: 'legacy', type: 'cdda-track', options: { track: 2 } },
     ],
   }, null, 2));
-  assert.throws(() => assetManager.generateAssetSources(projectDir), /track 2 is used by both "a" and "b"/);
+  assert.throws(
+    () => assetManager.generateAssetSources(projectDir),
+    /invalid track 2.*Track 1 is warning audio and Track 2 is game data/,
+  );
+
+  writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
+    version: 2,
+    assets: [
+      { id: 'a', type: 'cdda-track', options: { track: 3 } },
+      { id: 'b', type: 'cdda-track', options: { track: 3 } },
+    ],
+  }, null, 2));
+  assert.throws(() => assetManager.generateAssetSources(projectDir), /track 3 is used by both "a" and "b"/);
 
   writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
     version: 2,
     assets: [
       { id: 'jazz09', type: 'cdda-track', options: { track: 3 } },
-      { id: 'wind04', type: 'cdda-track', options: { track: 4 } },
+      { id: 'wind05', type: 'cdda-track', options: { track: 5 } },
     ],
   }, null, 2));
   assert.throws(
     () => assetManager.generateAssetSources(projectDir),
-    /contiguous from track 2 without gaps; expected track 2, but "jazz09" uses track 3/,
+    /contiguous from track 3 without gaps; expected track 4, but "wind05" uses track 5/,
   );
 
   writeFile(projectDir, 'assets/pce-assets.json', JSON.stringify({
     version: 2,
-    assets: Array.from({ length: 99 }, (_unused, index) => ({
+    assets: Array.from({ length: 98 }, (_unused, index) => ({
       id: `track_${index}`,
       type: 'cdda-track',
-      options: { track: 2 + (index % 98) },
+      options: { track: 3 + (index % 97) },
     })),
   }, null, 2));
-  assert.throws(() => assetManager.generateAssetSources(projectDir), /CD-DA supports up to 98 audio tracks/);
+  assert.throws(() => assetManager.generateAssetSources(projectDir), /Game CD-DA supports up to 97 audio tracks/);
+});
+
+test('PCE CD warning audio is a single fixed-ID asset outside the game CD-DA catalog', () => {
+  const assetManager = loadAssetManager();
+  assert.throws(
+    () => assetManager.validateCddaWarningDocument({ version: 2, assets: [] }),
+    /requires Track 1 warning audio/,
+  );
+  assert.throws(
+    () => assetManager.validateCddaWarningDocument({
+      version: 2,
+      assets: [
+        { id: 'cdda_warning', type: 'cdda-warning' },
+        { id: 'cdda_warning_copy', type: 'cdda-warning' },
+      ],
+    }),
+    /exactly one Track 1 warning audio asset; found 2/,
+  );
+  assert.throws(
+    () => assetManager.validateCddaWarningDocument({
+      version: 2,
+      assets: [{ id: 'warning', type: 'cdda-warning' }],
+    }),
+    /fixed asset ID "cdda_warning"/,
+  );
+  const warning = assetManager.normalizeAsset({
+    id: 'anything',
+    type: 'cdda-warning',
+    options: { track: 1, loop: true },
+  });
+  assert.equal(warning.id, 'cdda_warning');
+  assert.deepEqual(warning.options, {});
+});
+
+test('PCE CD warning audio shifts data/game LBA but stays out of runtime catalogs', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeTempDir('pce-assets-cdda-warning-layout-');
+  writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
+  writeFile(projectDir, 'assets/pce-vn-scenes.json', JSON.stringify({ scenes: [{ id: 's0', commands: [] }] }, null, 2));
+  assetManager.importAudio(projectDir, {
+    dataUrl: makeWavDataUrl(44100, 588),
+    sourceFileName: 'warning.wav',
+    kind: 'cdda-warning',
+    id: 'ignored',
+  });
+  assetManager.importAudio(projectDir, {
+    dataUrl: makeWavDataUrl(44100, 588),
+    sourceFileName: 'opening.wav',
+    kind: 'cdda-track',
+    id: 'opening',
+    track: 3,
+  });
+
+  const discLayout = assetManager.getCddaWarningDiscLayout(projectDir);
+  const generated = assetManager.generateAssetSources(projectDir, { requireCddaWarning: true });
+  const source = fs.readFileSync(generated.sourcePath, 'utf-8');
+  const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
+  assert.equal(discLayout.warningSectors, 1);
+  assert.equal(discLayout.dataTrackStartLba, 226);
+  assert.doesNotMatch(source, /cdda_warning/);
+  assert.match(source, /pce_editor_cdda_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 34u, 1u, 0u \}, 1u \}/);
+  assert.equal(meta[0], 3);
+  assert.equal(meta.readUIntLE(2, 3), 676);
 });
 
 test('PCE Kitahe PM owned-source-key guard preserves owner IDs and stores sanitized provenance', () => {

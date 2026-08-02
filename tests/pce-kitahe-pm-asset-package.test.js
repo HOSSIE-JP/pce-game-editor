@@ -11,6 +11,7 @@ const plugin = require('../plugins/pce-kitahe-pm-converter');
 const assetPackage = require('../plugins/pce-kitahe-pm-converter/asset-package');
 const assetManager = require('../pce-asset-manager');
 const { loadWithMockedElectron } = require('./helpers/mock-electron');
+const { addCdWarningAudio } = require('./helpers/cdda-warning');
 
 function tempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -369,6 +370,7 @@ test('Kitahe PM inspected package imports BG, Sprite, ADPCM, and PSG into a CD V
   const fixture = makePackage();
   try {
     fs.cpSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd'), fixture.projectDir, { recursive: true });
+    addCdWarningAudio(fixture.projectDir);
 
     const spriteBytes = makePng(16, 16);
     fs.writeFileSync(path.join(fixture.packageRoot, 'images', 'ayu_sprite.png'), spriteBytes);

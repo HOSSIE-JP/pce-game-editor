@@ -278,6 +278,16 @@ int main(void)
     uint8_t pad;
     uint8_t last_pad;
     uint8_t pressed;
+#if defined(__PCE_CD__)
+    pce_sector_t absolute_disc_base = {0};
+
+    /* pce-mkcd's IPL leaves the BIOS CD base at Track 2 so legacy reads can
+       use data-track-relative sectors. Generated VN references use absolute
+       disc LBAs, so clear both BIOS bases before the first overlay/data read. */
+    pce_cdb_cd_base(
+        absolute_disc_base,
+        (uint8_t)(PCE_CDB_LOCATION_TYPE_SECTOR | PCE_CDB_BASE_SET_BOTH));
+#endif
 
     init_runtime_state();
     init_video();

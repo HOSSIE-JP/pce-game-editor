@@ -93,11 +93,17 @@ await window.electronAPI.importAssetAudio({
   sampleRate: processedVoice.processing.sampleRate
 });
 
+const warning = await window.electronAPI.importAssetAudio({
+  sourcePath: "/absolute/path/warning.wav",
+  kind: "cdda-warning",
+  id: "cdda_warning"
+});
+
 const cdda = await window.electronAPI.importAssetAudio({
   sourcePath: "/absolute/path/opening.wav",
   kind: "cdda-track",
   id: "opening_theme",
-  track: 2,
+  track: 3,
   loop: false
 });
 ```
@@ -141,7 +147,7 @@ const cdda = await window.electronAPI.importAssetAudio({
 | field | 型 | 説明 |
 |---|---|---|
 | `id` | `string` | scene command から参照する asset ID |
-| `type` | `string` | `image`, `sprite`, `adpcm`, `cdda-track` など |
+| `type` | `string` | `image`, `sprite`, `adpcm`, `cdda-warning`, `cdda-track` など |
 | `name` | `string` | UI 表示名 |
 | `source` | `string` | project 相対の元ファイル |
 | `options` | `object` | asset type ごとの設定 |
@@ -305,13 +311,32 @@ ADPCM 再生後の VN 進行確認は、標準 EmulatorJS/WASM だけで判断�
 
 CD-DA は WAV から `assets/generated/<id>/cdda.wav` へ44.1kHz・stereo・16-bit PCMとして正規化され、CD の audio track として bundle されます。MP3 入力の場合も renderer 側で加工済み WAV にしてから登録します。最終bundleではPCM末尾を2352-byte CD audio sector境界まで無音で埋めます。CD-DA は ADPCM のような自動分割を行いません。
 
+CD-ROM2のTOCは次の固定構造です。
+
+```text
+Track 01  AUDIO       cdda-warning（必須警告音声）
+Track 02  MODE1/2048  Game Data、PREGAP 00:03:00
+Track 03+ AUDIO       cdda-track、Track 03のみPREGAP 00:02:00
+```
+
+警告音声は専用type `cdda-warning`、固定ID `cdda_warning`の1件だけです。`track` / `loop` optionを持たず、VN sceneの音声選択肢とruntime CD-DA catalogには入りません。最終出力名は`track01_cdda_warning.wav`です。標準警告音声は同梱せず、未設定のCD buildはエラーにします。
+
+```jsonc
+{
+  "id": "cdda_warning",
+  "type": "cdda-warning",
+  "source": "assets/cdda/cdda_warning.wav",
+  "options": {}
+}
+```
+
 ```jsonc
 {
   "id": "opening_theme",
   "type": "cdda-track",
   "source": "assets/cdda/opening_theme.wav",
   "options": {
-    "track": 2,
+    "track": 3,
     "loop": false
   }
 }
@@ -319,8 +344,8 @@ CD-DA は WAV から `assets/generated/<id>/cdda.wav` へ44.1kHz・stereo・16-b
 
 | option | 範囲/既定 | 説明 |
 |---|---:|---|
-| `track` | `2..99`, 既定 `2` | CD-DA track 番号。track 1 は data track なので使わない |
-| `loop` | `false` | `true` の場合、現行 VN runtime は `play_frames` 到達時に同じ track の再生命令を再発行する |
+| `track` | `3..99`, 既定 `3` | ゲーム用CD-DA track番号。Track 1は警告音声、Track 2はdataなので使わない。最大97本、Track 3から欠番なし |
+| `loop` | `false` | `true` はgeneratedの開始/排他的終了sector範囲をSystem CardのREPEAT modeで反復する |
 
 ## Scene Command API
 
@@ -529,7 +554,7 @@ HuCARD VN build は System Card package へは変換しませんが、共通の 
 | `action` | `"play"` / `"stop"` | `play` は track 再生、`stop` は pause |
 | `assetId` | `cdda-track` asset ID | `play` のとき `options.track` が runtime へ渡る |
 
-現行 VN runtime の CD-DA 再生は、明示的な audio command がある場合だけ開始します。asset 生成時に `start_sector` と、次track先頭（最終trackではlead-out）を指す排他的 `end_sector` をcatalogへ保存し、両方を `PCE_CDB_LOCATION_TYPE_SECTOR` として `pce_cdb_cdda_play()` へ渡します。最初のCD-DA開始位置は、データ内容の末尾から150 sector後（小さいimageでは最低LBA 450）です。最終bundleは`pce-mkcd`のISO末尾150 zero sectorを取り除き、同じ物理区間をTrack 2の`PREGAP 00:02:00`としてCUEへ移すため、runtimeの絶対LBAは変わりません。`cdda-track.options.loop` が `true` ならこの範囲へ `PCE_CDB_CDDA_PLAY_REPEAT`、`false` なら `PCE_CDB_CDDA_PLAY_ONE_SHOT` を指定するため、選択trackを越えて後続trackへ流れません。CD VNはgraphics/full VBlank handlerを使わず、generic IRQ user vectorでVDC statusをackして`PSG_DRIVE`を1回実行します。CD-DA play後はCD/IRQ stateだけを同期し、VDC/VCEを再初期化しません。CD data / ADPCM BIOS helper後にfull video復元が必要な場合は、まずR5とuser IRQを再設定して次VBlankを待ち、blank中にVCE・R9〜R14・R19・scrollを復元してから表示を再開します。可視走査中に同じtiming値を書き直して1frameの同期崩れを起こさないための順序です。
+現行 VN runtime の CD-DA 再生は、明示的な audio command がある場合だけ開始します。asset 生成時に `start_sector` と、次track先頭（最終trackではlead-out）を指す排他的 `end_sector` をcatalogへ保存し、両方を `PCE_CDB_LOCATION_TYPE_SECTOR` として `pce_cdb_cdda_play()` へ渡します。警告WAVのsector数を`warningSectors`とすると、Track 2 INDEX 01の絶対LBAは`dataTrackStartLba = warningSectors + 225`です。全CD data refはこの値を加算し、最初のゲーム用CD-DA（Track 3）は`max(dataTrackStartLba + 450, data payload end + 150)`から始まります。`pce-mkcd`のIPLは起動時にBIOSのCD baseをTrack 2へ設定するため、VN runtimeは最初のCD data読込より前にprimary/secondary baseをsector 0へ戻し、生成済みの絶対LBAが二重加算されないようにします。ゲーム用CD-DAがあるときだけ、最終bundleは`pce-mkcd`のISO末尾150 zero sectorを取り除き、同じ物理区間をTrack 3の`PREGAP 00:02:00`としてCUEへ移します。`cdda-track.options.loop` が `true` ならこの範囲へ `PCE_CDB_CDDA_PLAY_REPEAT`、`false` なら `PCE_CDB_CDDA_PLAY_ONE_SHOT` を指定するため、選択trackを越えて後続trackへ流れません。CD VNはgraphics/full VBlank handlerを使わず、generic IRQ user vectorでVDC statusをackして`PSG_DRIVE`を1回実行します。CD-DA play後はCD/IRQ stateだけを同期し、VDC/VCEを再初期化しません。CD data / ADPCM BIOS helper後にfull video復元が必要な場合は、まずR5とuser IRQを再設定して次VBlankを待ち、blank中にVCE・R9〜R14・R19・scrollを復元してから表示を再開します。可視走査中に同じtiming値を書き直して1frameの同期崩れを起こさないための順序です。
 
 ### 読み込みと cache
 
@@ -792,7 +817,7 @@ sequenceDiagram
   RT->>CDB: pce_cdb_cdda_pause()
 ```
 
-CD-DA は `cdda-track.options.track` 順で CUE に並べられ、asset 生成時に各trackの絶対開始sectorと排他的終了sectorがcatalog recordへ保存されます。現行 runtime では track が 2 未満なら再生しません。再生開始時に古い CD-DA があれば `pce_cdb_cdda_pause()` で止め、開始・終了とも `PCE_CDB_LOCATION_TYPE_SECTOR` を指定して `pce_cdb_cdda_play()` を呼びます。track番号やtime addressingは、track 3指定時にtrack 2から流れたりGearGrafx上でPLAYINGへ遷移しなかったりするケースがあったため使いません。また `UNTIL_END` は選択track以後の全audio trackを範囲に含めるため使わず、SubQ pollingも再生をIRQ stopさせることがあったため使いません。CD-DA BIOS playはVDC/VCE stateを変更しないため、play直後に`pce_vdc_set_resolution()`を呼びません。同値でも可視走査中のVCE/R9〜R14再書込みは内部sync phaseを乱すためです。
+ゲーム用CD-DAは `cdda-track.options.track` 順でTrack 3以降へ並べられ、asset 生成時に各trackの絶対開始sectorと排他的終了sectorがcatalog recordへ保存されます。`cdda-warning`はcatalogへ入らず、現行 runtime は track が 3 未満なら再生しません。再生開始時に古い CD-DA があれば `pce_cdb_cdda_pause()` で止め、開始・終了とも `PCE_CDB_LOCATION_TYPE_SECTOR` を指定して `pce_cdb_cdda_play()` を呼びます。track番号やtime addressingは、track 3指定時に別trackから流れたりGearGrafx上でPLAYINGへ遷移しなかったりするケースがあったため使いません。また `UNTIL_END` は選択track以後の全audio trackを範囲に含めるため使わず、SubQ pollingも再生をIRQ stopさせることがあったため使いません。CD-DA BIOS playはVDC/VCE stateを変更しないため、play直後に`pce_vdc_set_resolution()`を呼びません。同値でも可視走査中のVCE/R9〜R14再書込みは内部sync phaseを乱すためです。
 
 CD-DA の play/stop command 本体はbank133 overlayに置き、bank129には薄いdispatchだけを残します。System Card repeat modeは範囲指定なしの `UNTIL_END` と組み合わせるとディスク末尾までを繰り返しますが、現行runtimeはgeneratedの排他的end sectorを渡すため、同じmodeで選択assetだけを反復できます。境界でpause/playを再発行するVBlank serviceは使いません。CD-DA は data read と同じ CD drive を使うため、BG / sprite / ADPCM / scene pack などの CD data file 読み込み中に継続再生はできません。現行既定では `VN_CDDA_RESUME_AFTER_DATA_READ 0` として、CD data read 前にCD-DAをpauseして停止扱いにしますが、自動resume管理は常駐 bank へ載せません。ロード中にも音楽を維持したい場合は PSG BGM を使います。
 
@@ -834,9 +859,10 @@ ADPCM の `divider` は再生周波数/速度側の値で、音量ではあり�
 
 ### CD-DA BGM を再生する
 
-1. `importAssetAudio({ kind: "cdda-track", id: "opening_theme", track: 2 })` で登録する。
-2. scene に `{ "type": "audio", "kind": "cdda", "action": "play", "assetId": "opening_theme" }` を追加する。
-3. 停止したい位置に `{ "type": "audio", "kind": "cdda", "action": "stop", "assetId": "" }` を追加する。
+1. Sound > CD-DAで必須のWarning Audio（`cdda-warning` / `cdda_warning`）を設定する。
+2. `importAssetAudio({ kind: "cdda-track", id: "opening_theme", track: 3 })` で登録する。
+3. scene に `{ "type": "audio", "kind": "cdda", "action": "play", "assetId": "opening_theme" }` を追加する。
+4. 停止したい位置に `{ "type": "audio", "kind": "cdda", "action": "stop", "assetId": "" }` を追加する。
 
 ## 現行仕様の制約と注意
 

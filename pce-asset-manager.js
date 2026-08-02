@@ -25,7 +25,7 @@ const PCE_PSG_MIDI_IMPORTER = 'Internal MIDI -> PSG step importer';
 const PCE_PSG_VGM_IMPORTER = 'Internal VGM/VGZ -> PSG step importer';
 const PCE_PSG_JSON_IMPORTER = 'PCE PSG JSON importer';
 const PCE_PSG_QUANTIZER_VERSION = psgQuantize.PSG_QUANTIZER_VERSION || 2;
-const SUPPORTED_TYPES = new Set(['image', 'sprite', 'psg-sequence', 'psg-song', 'psg-sfx', 'adpcm', 'cdda-track', 'tileset', 'tilemap', 'palette']);
+const SUPPORTED_TYPES = new Set(['image', 'sprite', 'psg-sequence', 'psg-song', 'psg-sfx', 'adpcm', 'cdda-warning', 'cdda-track', 'tileset', 'tilemap', 'palette']);
 const IMAGE_EXTENSIONS = new Set(['.png', '.bmp', '.webp']);
 const AUDIO_EXTENSIONS = new Set(['.wav', '.mp3']);
 const VGM_EXTENSIONS = new Set(['.vgm', '.vgz']);
@@ -46,7 +46,11 @@ const PCE_CATALOG_MAX_SPRITE_ASSETS = 1024;
 const PCE_CATALOG_MAX_ADPCM_ASSETS = 2048;
 const PCE_CATALOG_MAX_PSG_ASSETS = 512;
 const PCE_RESIDENT_MAX_ASSETS_PER_TYPE = 512;
-const PCE_CDDA_MAX_AUDIO_TRACKS = 98; // CD-DA track numbers 2..99.
+const PCE_CDDA_WARNING_ASSET_TYPE = 'cdda-warning';
+const PCE_CDDA_WARNING_ASSET_ID = 'cdda_warning';
+const PCE_CDDA_FIRST_GAME_TRACK = 3;
+const PCE_CDDA_MAX_AUDIO_TRACKS = 97; // Game CD-DA track numbers 3..99.
+const CD_DATA_TRACK_PREGAP_SECTORS = 225;
 const PCE_BG_MAP_WIDTH_TILES = 32;
 const PCE_BG_MAP_HEIGHT_TILES = 32;
 const PCE_BG_AUTO_MAP_BASE = 0;
@@ -140,7 +144,7 @@ const DEFAULT_ADPCM_OPTIONS = Object.freeze({
   divider: 0,
 });
 const DEFAULT_CDDA_OPTIONS = Object.freeze({
-  track: 2,
+  track: PCE_CDDA_FIRST_GAME_TRACK,
   loop: false,
 });
 
@@ -458,18 +462,24 @@ function normalizeAdpcmOptions(asset = {}) {
 
 function normalizeCddaOptions(asset = {}) {
   const rawOptions = asset.options && typeof asset.options === 'object' ? { ...asset.options } : {};
+  const parsedTrack = Number(rawOptions.track);
   return {
     ...DEFAULT_CDDA_OPTIONS,
     ...rawOptions,
-    track: clampInt(rawOptions.track, 2, 99, DEFAULT_CDDA_OPTIONS.track),
+    // Preserve explicitly stored legacy/invalid numbers for red UI display and
+    // build rejection. Only an explicit editor save/renumber writes 3..99.
+    track: Number.isFinite(parsedTrack) && Math.trunc(parsedTrack) === parsedTrack
+      ? parsedTrack
+      : DEFAULT_CDDA_OPTIONS.track,
     loop: Boolean(rawOptions.loop),
   };
 }
 
 function normalizeAsset(asset = {}) {
-  const id = sanitizeAssetId(asset.id || asset.name || '');
+  let id = sanitizeAssetId(asset.id || asset.name || '');
   let type = String(asset.type || '').trim().toLowerCase();
   if (type === 'psg-sequence') type = 'psg-sfx';
+  if (type === PCE_CDDA_WARNING_ASSET_TYPE) id = PCE_CDDA_WARNING_ASSET_ID;
   if (!id) throw new Error('asset id is required');
   if (!SUPPORTED_TYPES.has(type)) throw new Error(`unsupported asset type: ${type}`);
   const normalized = {
@@ -490,6 +500,8 @@ function normalizeAsset(asset = {}) {
     normalized.options = normalizeAdpcmOptions({ ...normalized, type });
   } else if (type === 'cdda-track') {
     normalized.options = normalizeCddaOptions({ ...normalized, type });
+  } else if (type === PCE_CDDA_WARNING_ASSET_TYPE) {
+    normalized.options = {};
   }
   return normalized;
 }
@@ -1584,7 +1596,11 @@ function importImage(projectDir, payload = {}, options = {}) {
 }
 
 function importAudio(projectDir, payload = {}, options = {}) {
-  const kind = payload.kind === 'cdda-track' || payload.type === 'cdda-track' ? 'cdda-track' : 'adpcm';
+  const requestedKind = String(payload.kind || payload.type || '').trim().toLowerCase();
+  const kind = requestedKind === PCE_CDDA_WARNING_ASSET_TYPE
+    ? PCE_CDDA_WARNING_ASSET_TYPE
+    : (requestedKind === 'cdda-track' ? 'cdda-track' : 'adpcm');
+  const isCdda = kind === 'cdda-track' || kind === PCE_CDDA_WARNING_ASSET_TYPE;
   const sourceAbs = sourcePathForImport(payload);
   const originalFileName = path.basename(String(payload.originalFileName || payload.sourceFileName || (sourceAbs ? path.basename(sourceAbs) : 'sound.wav')));
   const sourceName = path.basename(String(payload.sourceFileName || originalFileName || 'sound.wav'));
@@ -1595,12 +1611,21 @@ function importAudio(projectDir, payload = {}, options = {}) {
   if (!payload.dataUrl && sourceExt !== '.wav') {
     throw new Error('MP3 audio must be converted to WAV before import');
   }
-  const requestedId = sanitizeAssetId(payload.id || sourceName, kind === 'cdda-track' ? 'cdda_track' : 'adpcm_sample');
+  const requestedId = kind === PCE_CDDA_WARNING_ASSET_TYPE
+    ? PCE_CDDA_WARNING_ASSET_ID
+    : sanitizeAssetId(payload.id || sourceName, kind === 'cdda-track' ? 'cdda_track' : 'adpcm_sample');
   const doc = readAssetDocument(projectDir);
+  if (kind === PCE_CDDA_WARNING_ASSET_TYPE) {
+    const idCollision = doc.assets.find((asset) => asset.id === PCE_CDDA_WARNING_ASSET_ID
+      && asset.type !== PCE_CDDA_WARNING_ASSET_TYPE);
+    if (idCollision) {
+      throw new Error(`asset ID ${PCE_CDDA_WARNING_ASSET_ID} is reserved for the required CD warning audio track.`);
+    }
+  }
   const importTarget = resolveKitahePmImportTarget(doc.assets, requestedId, kind, payload);
   const id = importTarget.id;
   const kitahePm = importTarget.provenance;
-  const sourceSubdir = kind === 'cdda-track' ? 'assets/cdda' : 'assets/adpcm';
+  const sourceSubdir = isCdda ? 'assets/cdda' : 'assets/adpcm';
   const sourceRel = normalizeRelativePath(path.join(sourceSubdir, `${id}.wav`));
   const { absPath: destAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
   let input = null;
@@ -1632,7 +1657,7 @@ function importAudio(projectDir, payload = {}, options = {}) {
     : {};
   let assetsToWrite = [];
 
-  if (kind === 'cdda-track') {
+  if (isCdda) {
     const outputFile = relativeGeneratedPath(id, 'cdda.wav');
     const previewFile = relativeGeneratedPath(id, 'preview.json');
     const { absPath: outputAbs } = resolveUnderRoot(projectDir, outputFile, 'project');
@@ -1653,14 +1678,16 @@ function importAudio(projectDir, payload = {}, options = {}) {
       warnings: converted.warnings,
       processing,
     }, null, 2), 'utf-8');
-    const baseOptions = normalizeCddaOptions({
-      type: kind,
-      options: {
-        ...payload.options,
-        track: payload.track ?? payload.options?.track,
-        loop: payload.loop ?? payload.options?.loop,
-      },
-    });
+    const baseOptions = kind === PCE_CDDA_WARNING_ASSET_TYPE
+      ? {}
+      : normalizeCddaOptions({
+          type: kind,
+          options: {
+            ...payload.options,
+            track: payload.track ?? payload.options?.track,
+            loop: payload.loop ?? payload.options?.loop,
+          },
+        });
     assetsToWrite = [normalizeAsset({
       id,
       type: kind,
@@ -3110,7 +3137,7 @@ function cddaSectorCountForAsset(projectDir, asset) {
 }
 
 function cdDataEndSector(cdLayout) {
-  let sector = CD_DATA_BASE_SECTOR;
+  let sector = Math.max(0, Math.trunc(Number(cdLayout?.dataTrackStartLba) || 0)) + CD_DATA_BASE_SECTOR;
   for (const entry of cdLayout?.values?.() || []) {
     sector = Math.max(sector, entry.sector + entry.sectorCount);
   }
@@ -3119,12 +3146,13 @@ function cdDataEndSector(cdLayout) {
 
 function buildCddaTrackLayout(projectDir, cddaAssets, cdLayout) {
   const layout = new Map();
-  // Track 2 INDEX 01 remains 150 sectors after the data track content. The
+  // Track 3 INDEX 01 remains 150 sectors after the Track 2 data content. The
   // final builder moves pce-mkcd's trailing zero sectors out of the ISO and
   // represents the same physical interval as an explicit CUE PREGAP, so the
   // BIOS LBA stays unchanged while CD-R writers see the mixed-mode boundary.
+  const dataTrackStartLba = Math.max(0, Math.trunc(Number(cdLayout?.dataTrackStartLba) || 0));
   let sector = Math.max(
-    CD_AUDIO_MIN_SECTOR,
+    dataTrackStartLba + CD_AUDIO_MIN_SECTOR,
     cdDataEndSector(cdLayout) + CD_DATA_POSTGAP_SECTORS,
   );
   const sorted = [...cddaAssets].sort((a, b) => {
@@ -3301,6 +3329,42 @@ function assetMetaShouldUseCd(projectDir, doc, options = {}) {
   return assetMetaDecision(projectDir, doc, options).useCd;
 }
 
+function validateCddaGameTrackDocument(doc = {}) {
+  const tracks = new Map();
+  const physicalCddaAssets = (Array.isArray(doc.assets) ? doc.assets : [])
+    .filter((asset) => asset?.type === 'cdda-track');
+  if (physicalCddaAssets.length > PCE_CDDA_MAX_AUDIO_TRACKS) {
+    throw new Error(`Game CD-DA supports up to ${PCE_CDDA_MAX_AUDIO_TRACKS} audio tracks (track 3..99; got ${physicalCddaAssets.length}). Use ADPCM or PSG for large audio libraries.`);
+  }
+  physicalCddaAssets.forEach((asset) => {
+    const rawTrack = asset.options?.track;
+    const parsed = rawTrack == null || rawTrack === '' ? DEFAULT_CDDA_OPTIONS.track : Number(rawTrack);
+    if (!Number.isFinite(parsed) || Math.trunc(parsed) !== parsed
+        || parsed < PCE_CDDA_FIRST_GAME_TRACK || parsed > 99) {
+      throw new Error(`CD-DA asset "${asset.id}" has invalid track ${rawTrack}; Track 1 is warning audio and Track 2 is game data, so use an integer track number from 3 to 99. Use "Renumber from Track 3" in Sound > CD-DA.`);
+    }
+    const track = Math.trunc(parsed);
+    const previous = tracks.get(track);
+    if (previous) {
+      throw new Error(`CD-DA track ${track} is used by both "${previous}" and "${asset.id}". Track numbers must be unique.`);
+    }
+    tracks.set(track, asset.id);
+  });
+  Array.from(tracks.entries()).sort((a, b) => a[0] - b[0]).forEach(([track, assetId], index) => {
+    const expectedTrack = index + PCE_CDDA_FIRST_GAME_TRACK;
+    if (track !== expectedTrack) {
+      throw new Error(`Game CD-DA track numbers must be contiguous from track 3 without gaps; expected track ${expectedTrack}, but "${assetId}" uses track ${track}. Use "Renumber from Track 3" in Sound > CD-DA.`);
+    }
+  });
+  return physicalCddaAssets;
+}
+
+function validateCddaDiscAssetDocument(doc = {}) {
+  const warningAsset = validateCddaWarningDocument(doc);
+  const gameTracks = validateCddaGameTrackDocument(doc);
+  return { warningAsset, gameTracks };
+}
+
 function validateGeneratedAssetScale(projectDir, doc, options = {}) {
   const layout = computeAssetMetaLayout(doc);
   const cdVnCatalog = assetMetaShouldUseCd(projectDir, doc, options);
@@ -3322,34 +3386,11 @@ function validateGeneratedAssetScale(projectDir, doc, options = {}) {
       throw new Error(`PCE-CD VN supports up to ${limit} referenced ${label} assets (got ${count}).`);
     }
   });
-  const tracks = new Map();
   const rawDoc = readRawAssetDocument(projectDir);
-  const physicalCddaAssets = (Array.isArray(rawDoc.assets) ? rawDoc.assets : [])
-    .filter((asset) => asset?.type === 'cdda-track');
-  if (physicalCddaAssets.length > PCE_CDDA_MAX_AUDIO_TRACKS) {
-    throw new Error(`CD-DA supports up to ${PCE_CDDA_MAX_AUDIO_TRACKS} audio tracks (track 2..99; got ${physicalCddaAssets.length}). Use ADPCM or PSG for large audio libraries.`);
+  if (assetSourceTargetsCd(projectDir, options) && options.requireCddaWarning) {
+    validateCddaWarningDocument(rawDoc);
   }
-  physicalCddaAssets.forEach((asset) => {
-    if (!asset || asset.type !== 'cdda-track') return;
-    const rawTrack = asset.options?.track;
-    const parsed = rawTrack == null || rawTrack === '' ? DEFAULT_CDDA_OPTIONS.track : Number(rawTrack);
-    if (!Number.isFinite(parsed) || Math.trunc(parsed) !== parsed || parsed < 2 || parsed > 99) {
-      throw new Error(`CD-DA asset "${asset.id}" has invalid track ${rawTrack}; use an integer track number from 2 to 99.`);
-    }
-    const track = Math.trunc(parsed);
-    const previous = tracks.get(track);
-    if (previous) {
-      throw new Error(`CD-DA track ${track} is used by both "${previous}" and "${asset.id}". Track numbers must be unique.`);
-    }
-    tracks.set(track, asset.id);
-  });
-  const orderedTracks = Array.from(tracks.entries()).sort((a, b) => a[0] - b[0]);
-  orderedTracks.forEach(([track, assetId], index) => {
-    const expectedTrack = index + 2;
-    if (track !== expectedTrack) {
-      throw new Error(`CD-DA track numbers must be contiguous from track 2 without gaps; expected track ${expectedTrack}, but "${assetId}" uses track ${track}. Reorder or resave the CD-DA tracks.`);
-    }
-  });
+  validateCddaGameTrackDocument(rawDoc);
 }
 
 // Write ASSET_META_FILE at its final (count-derived) size up front, BEFORE any
@@ -3864,7 +3905,7 @@ function regenerateCddaGeneratedAsset(projectDir, asset) {
   fs.writeFileSync(outputAbs, converted.output);
   fs.writeFileSync(previewAbs, JSON.stringify({
     source: sourceRel,
-    kind: 'cdda-track',
+    kind: asset.type,
     sampleRate: converted.sampleRate,
     channels: converted.channels,
     durationSeconds: converted.durationSeconds,
@@ -3900,7 +3941,8 @@ function regenerateCddaGeneratedAsset(projectDir, asset) {
 function ensureCddaGeneratedAssets(projectDir, doc) {
   let changed = false;
   doc.assets = (doc.assets || []).map((asset) => {
-    if (asset.type !== 'cdda-track' || !cddaAssetNeedsRegeneration(projectDir, asset)) return asset;
+    if ((asset.type !== 'cdda-track' && asset.type !== PCE_CDDA_WARNING_ASSET_TYPE)
+        || !cddaAssetNeedsRegeneration(projectDir, asset)) return asset;
     const regenerated = regenerateCddaGeneratedAsset(projectDir, asset);
     if (regenerated !== asset) changed = true;
     return regenerated;
@@ -3909,10 +3951,69 @@ function ensureCddaGeneratedAssets(projectDir, doc) {
   return changed;
 }
 
-function buildCdDataLayout(projectDir, dataFiles) {
+function validateCddaWarningDocument(doc = {}) {
+  const assets = Array.isArray(doc.assets) ? doc.assets : [];
+  const warnings = assets.filter((asset) => asset?.type === PCE_CDDA_WARNING_ASSET_TYPE);
+  if (warnings.length === 0) {
+    throw new Error('CD-ROM2 build requires Track 1 warning audio. Open Sound > CD-DA and import the required warning audio.');
+  }
+  if (warnings.length !== 1) {
+    throw new Error(`CD-ROM2 build requires exactly one Track 1 warning audio asset; found ${warnings.length}.`);
+  }
+  if (String(warnings[0].id || '') !== PCE_CDDA_WARNING_ASSET_ID) {
+    throw new Error(`Track 1 warning audio must use the fixed asset ID "${PCE_CDDA_WARNING_ASSET_ID}".`);
+  }
+  return warnings[0];
+}
+
+function getCddaWarningDiscLayout(projectDir, doc = null, options = {}) {
+  if (options.required === false && !fs.existsSync(path.join(projectDir, ASSET_FILE))) {
+    return {
+      warningAsset: null,
+      warningSectors: 0,
+      dataPregapSectors: 0,
+      dataTrackStartLba: 0,
+    };
+  }
+  const rawDoc = readRawAssetDocument(projectDir);
+  const rawWarnings = (Array.isArray(rawDoc.assets) ? rawDoc.assets : [])
+    .filter((asset) => asset?.type === PCE_CDDA_WARNING_ASSET_TYPE);
+  if (rawWarnings.length === 0 && options.required === false) {
+    return {
+      warningAsset: null,
+      warningSectors: 0,
+      dataPregapSectors: 0,
+      dataTrackStartLba: 0,
+    };
+  }
+  validateCddaWarningDocument(rawDoc);
+  const normalizedDoc = doc || readAssetDocument(projectDir);
+  const warningAsset = (normalizedDoc.assets || [])
+    .find((asset) => asset?.type === PCE_CDDA_WARNING_ASSET_TYPE);
+  if (!warningAsset) {
+    throw new Error('CD-ROM2 Track 1 warning audio could not be normalized. Re-import it from Sound > CD-DA.');
+  }
+  const generated = warningAsset.data?.generated || {};
+  const relativePath = normalizeRelativePath(generated.outputFile || warningAsset.source || '');
+  const absolutePath = relativePath ? path.join(projectDir, relativePath) : '';
+  if (!absolutePath || !fs.existsSync(absolutePath)) {
+    throw new Error('CD-ROM2 Track 1 warning audio has no generated WAV. Re-import it from Sound > CD-DA.');
+  }
+  const warningSectors = cddaSectorCountForAsset(projectDir, warningAsset);
+  return {
+    warningAsset,
+    warningSectors,
+    dataPregapSectors: CD_DATA_TRACK_PREGAP_SECTORS,
+    dataTrackStartLba: warningSectors + CD_DATA_TRACK_PREGAP_SECTORS,
+  };
+}
+
+function buildCdDataLayout(projectDir, dataFiles, options = {}) {
   const layout = new Map();
   const physicalPaths = new Set();
-  let sector = CD_DATA_BASE_SECTOR;
+  const dataTrackStartLba = Math.max(0, Math.trunc(Number(options.dataTrackStartLba) || 0));
+  layout.dataTrackStartLba = dataTrackStartLba;
+  let sector = dataTrackStartLba + CD_DATA_BASE_SECTOR;
   (dataFiles || []).forEach((relativePath) => {
     const normalized = normalizeRelativePath(relativePath || '');
     if (!normalized || physicalPaths.has(normalized)) return;
@@ -4018,7 +4119,12 @@ function generateAssetSources(projectDir, options = {}) {
   const cdDataFiles = targetsCd
     ? normalizeCdDataFileList(projectDir, requestedCdDataFiles || collectCdDataFilesForDocument(projectDir, sourceDoc))
     : [];
-  const cdLayout = targetsCd ? buildCdDataLayout(projectDir, cdDataFiles) : new Map();
+  const discLayout = targetsCd
+    ? getCddaWarningDiscLayout(projectDir, doc, { required: Boolean(options.requireCddaWarning) })
+    : null;
+  const cdLayout = targetsCd
+    ? buildCdDataLayout(projectDir, cdDataFiles, { dataTrackStartLba: discLayout.dataTrackStartLba })
+    : new Map();
   const bgGenerated = generateConvertedAssetArrays(projectDir, sourceDoc.assets, 'image', bankAllocator, {
     allowBanking,
     targetsCd,
@@ -4432,6 +4538,11 @@ module.exports = {
   PCE_CATALOG_MAX_ADPCM_ASSETS,
   PCE_CATALOG_MAX_PSG_ASSETS,
   PCE_RESIDENT_MAX_ASSETS_PER_TYPE,
+  PCE_CDDA_WARNING_ASSET_TYPE,
+  PCE_CDDA_WARNING_ASSET_ID,
+  PCE_CDDA_FIRST_GAME_TRACK,
+  PCE_CDDA_MAX_AUDIO_TRACKS,
+  CD_DATA_TRACK_PREGAP_SECTORS,
   SPRITE_CELL_SIZES,
   SUPPORTED_TYPES,
   KITAHE_PM_PROVENANCE_VERSION,
@@ -4440,6 +4551,10 @@ module.exports = {
   resolveKitahePmImportTarget,
   buildInternalPceConversionPlan,
   buildCdDataLayout,
+  getCddaWarningDiscLayout,
+  validateCddaWarningDocument,
+  validateCddaGameTrackDocument,
+  validateCddaDiscAssetDocument,
   assetMetaDecision,
   assetMetaShouldUseCd,
   buildAssetMetaBuffer,
@@ -4477,6 +4592,7 @@ module.exports = {
   normalizeAssetDocument,
   previewSource,
   readAssetDocument,
+  readRawAssetDocument,
   readPceImageJson,
   reorderAssets,
   resolveAssetSource,

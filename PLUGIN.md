@@ -847,10 +847,10 @@ const importedSprite = await window.electronAPI.importAssetImage({
 // WAV を ADPCM / CD-DA 用に project 配下へコピー・変換する
 const audio = await window.electronAPI.importAssetAudio({
   sourcePath: '/absolute/path/source.wav',
-  kind: 'adpcm', // "adpcm" | "cdda-track"
+  kind: 'adpcm', // "adpcm" | "cdda-warning" | "cdda-track"
   id: 'voice_01',
   sampleRate: 8000,
-  track: 2,
+  track: 3,
   loop: false,
 });
 
@@ -973,15 +973,15 @@ CSV 内で同じ `id` が複数行にある場合、または自動分割後の 
 ADPCM の `divider` は再生速度の rate code です。取り込み時は、`divider` 未指定なら `32000 / (16 - code)` が `sampleRate` に最も近い `0..15` の code を自動計算し、代表値は `32000Hz -> 15`, `16000Hz -> 14`, `8000Hz -> 12`, `4000Hz -> 8` です。エディターUIでは現行の入力範囲で実機rate codeに対応する `4000`, `4571`, `5333`, `6400`, `8000`, `10666`, `16000`, `32000` Hz から選択します。`divider` を明示した場合は保存値をそのまま使い、runtime 側でも旧式値としての補正は行いません。direct-buffered playback で安定して鳴らせる 1 asset / part の長さは `min(32767, 65536 - adpcmAddress)` bytes、つまり `bytes * 2 / sampleRate` 秒が目安です。`adpcmAddress: 0` なら 16000Hz で約 4.09 秒、8000Hz で約 8.19 秒です。`assets/generated/<id>/adpcm.bin` は OKI/MSM5205 互換 4-bit adaptive data を高位 nibble 先 (`msn-first`) で保存します。旧 `pce-cd-adpcm-experimental`、古い `lsn-first`、nibble order 未記録、または `encoderVersion` が古い generated file は、source WAV が残っていれば build/source 生成時に自動再生成されます。
 ADPCM の true CD streaming (`pce_cdb_adpcm_stream`) は VN runtime / editor 機能から削除しました。ADPCM は常に ADPCM RAM へ読み込んでから buffered direct playback します。長い音声は `splitPolicy: "auto"` で分割する、sample rate を下げる、または CD-DA を使ってください。安全上限を超える ADPCM asset は build error になります。
 
-`assets/pce-assets.json` の v2 画像/音声タイプは `image` (BG), `sprite`, `palette`, `psg-song`, `psg-sfx`, `adpcm`, `cdda-track` です。旧 `psg-sequence` は読み込み時に `psg-sfx` として正規化されます。PCE/CD-ROM2 は `llvm-mos-sdk` 固定で扱い、IPL / System Card は Setup でユーザー所有ファイルを指定します。
+`assets/pce-assets.json` の v2 画像/音声タイプは `image` (BG), `sprite`, `palette`, `psg-song`, `psg-sfx`, `adpcm`, `cdda-warning`, `cdda-track` です。旧 `psg-sequence` は読み込み時に `psg-sfx` として正規化されます。`cdda-warning`はCD-ROM2 Track 1専用で、固定ID `cdda_warning`の1件だけを許可し、`track` / `loop` optionを持ちません。通常の`cdda-track`、VN sceneの音声候補、runtime CD-DA catalogには公開しません。PCE/CD-ROM2 は `llvm-mos-sdk` 固定で扱い、IPL / System Card は Setup でユーザー所有ファイルを指定します。
 
 MIDIからPSGへ取り込む場合、`midiOptions`でvoice削減、drum noise、velocity threshold、pattern detail、音色割り当てを調整できます。`timbreMode: "gm-family"`は発音開始時のMIDI Program Changeを16個のGM familyへまとめ、`programWaveMap`の対応するSystem Card wave番号をpatternの`wave`へ保存します。wave `0..44`はSystem Card内蔵、`45`はエディタが登録する32-byte squareです。`legacy-square`は全toneを45へ統一します。previewは同じoptionsでstep sourceを返します。CD VNはこのsourceをSystem Card packageへcompileし、BGM 8156 bytes/SFX 8192 bytesの最終byte上限で検査します。HuCardは`wave`を無視して既存step/event上限とsquare toneを維持します。WebAudio previewは内蔵wave番号ごとの大まかなsine/saw/triangle/square近似であり、System Cardの32-sample波形や実機mixを完全再現しません。
 
 BG の `tileBase` / `mapBase` は PCE asset manager 側で自動管理されます。CD-ROM2 VN runtime の 32x32 BAT を `mapBase: 0` に置き、BG tile は BAT の後ろ (`tileBase: 128`) に配置するため、UI ではこれらをユーザー選択させません。古い asset に値が残っていても読み込み・生成時に BG は自動値へ正規化されます。
 
-CD-ROM2 VN build は asset catalog を常に使います。同一ビルドから参照できる正式上限は、ADPCM 2048件、BG 1024件、Sprite 1024件、Sprite Animation合計1024件、System Card PSG package variant 512件です。PSG variantは`assetId`と再生channelの組ごとに1件で、参照PSG source asset自体も512件までです。`pce_editor_*_asset_count` と `pce_editor_meta_region_t.count` は `unsigned int` とし、runtime はscene commandのsigned indexを`0..count-1`で検証してから使います。CD-DAは物理trackの制約によりtrack 2..99（最大98本）だけを有効とし、track 2から欠番なしの連番にします。重複または欠番のあるtrackは、標準EmulatorJS/WASM coreがCUEをゲームディスクとして認識できないためbuild errorです。これらの件数はディスク容量、個別assetのbyte/VRAM制約、Spriteの同時表示4 slotなどとは別です。
+CD-ROM2 VN build は asset catalog を常に使います。同一ビルドから参照できる正式上限は、ADPCM 2048件、BG 1024件、Sprite 1024件、Sprite Animation合計1024件、System Card PSG package variant 512件です。PSG variantは`assetId`と再生channelの組ごとに1件で、参照PSG source asset自体も512件までです。`pce_editor_*_asset_count` と `pce_editor_meta_region_t.count` は `unsigned int` とし、runtime はscene commandのsigned indexを`0..count-1`で検証してから使います。ゲーム用CD-DAはtrack 3..99（最大97本）だけを有効とし、track 3から欠番なしの連番にします。Track 1は必須の`cdda-warning`、Track 2は唯一のMODE1/2048 data trackです。警告未設定、Track 2を使うゲーム音声、重複・欠番・98本以上はbuild errorです。旧projectは自動移行せず、Sound > CD-DAの「Track 3から再採番」という明示操作だけが保存値を変更します。これらの件数はディスク容量、個別assetのbyte/VRAM制約、Spriteの同時表示4 slotなどとは別です。
 
-CD-DAを1本以上含む最終bundleは、`pce-mkcd`がISO末尾へ出す150 zero sectorをISOから切り離し、Track 2のCUEへ`PREGAP 00:02:00`として明示します。CD-DA WAVも44.1kHz stereo 16-bit PCMを2352-byte CD audio sector境界まで無音paddingします。これはTurboRipで再抽出したmixed-mode discと同じtrack境界表現で、Track 2の物理開始LBAとgenerated CD-DA catalogの絶対sectorは変更しません。ISO末尾が期待した150 zero sectorでない場合はnon-zero dataを削らずbuild errorにします。CD-DAを含まないdata-only imageにはこの正規化を適用しません。
+最終CUEは警告WAV（Track 1 AUDIO）、ISO（Track 2 MODE1/2048、`PREGAP 00:03:00`）、ゲームWAV（Track 3以降 AUDIO、Track 3だけ`PREGAP 00:02:00`）の順です。警告音声とゲーム音声は44.1kHz stereo 16-bit PCMへ変換し、PCMを2352-byte CD audio sector境界まで無音paddingします。警告音声の長さを`warningSectors`とし、`dataTrackStartLba = warningSectors + 225`を唯一の基準として、scene pack、画像、sprite、ADPCM、PSG、asset metadata、全overlayのCD refへ加算します。`pce-mkcd` IPLが設定したTrack 2相対のBIOS CD baseは、VN runtime起動時にprimary/secondaryともsector 0へ戻し、これらの絶対LBAをそのまま読める状態にします。警告音声の変更、pregap、計算済みLBAはincremental build署名へ入ります。ゲーム用CD-DAが1本以上ある場合だけ、`pce-mkcd`がISO末尾へ出す150 zero sectorを安全確認後に切り離してTrack 3 pregapへ移します。ISO末尾が期待したzero sectorでない場合はnon-zero dataを削らずbuild errorにします。ゲーム用CD-DAがない場合はTrack 1/2だけを生成し、ISO末尾を変更しません。追加data track（サンプル市販discのTrack 9など）は対象外です。
 
 BG / Sprite / ADPCM / CD-DA descriptorは論理`asset_meta.bin`、Sprite Animation metadataとSystem Card PSG metadataはそれぞれCD on-demand catalogとして生成します。CD管理下のこれらmetadata、scene pack、BG/Sprite/ADPCM payload、System Card PSG packageは、2048-byte境界で`assets/generated/vn/vn_payload.bin`へ集約します。CD-DA音声trackはpack対象外です。`vn_payload-index.json`の`logicalPath`と`sectorOffset`から、従来の論理ファイルごとのCD refをpack内の絶対sectorへaliasするため、runtime側は物理ファイル数に依存しません。runtime code blobの`overlay.bin`、`logic_overlay.bin`、`visual_code.bin`、`cd_async_code.bin`はlink後抽出・固定8KB予約の都合でpackせず、独立した物理CD fileとして残します。詳細は`docs/pce-asset-meta-cd-ondemand.md`と`docs/pce-vn-large-project-limits.md`を参照してください。
 

@@ -32,7 +32,7 @@ Mega Drive ROM ヘッダー向けだったタイトル、作者名、シリア�
 現行テンプレートとエディターが書き出すデータを正とします。
 
 - project core は `project.json` の `coreId: "pc-engine"` 固定です。
-- asset の正本は `assets/pce-assets.json` の `version: 2` です。BG / sprite / palette / PSG / ADPCM / CD-DA を同じ document で管理します。
+- asset の正本は `assets/pce-assets.json` の `version: 2` です。BG / sprite / palette / PSG / ADPCM / CD-DA を同じ document で管理します。Track 1警告音声は専用type `cdda-warning`、固定ID `cdda_warning`の1件だけで、通常の`cdda-track`やNovelの音声選択肢には出ません。
 - VN scene の正本は `assets/pce-vn-scenes.json` の `version: 2` です。scene の実行順は `commands`、scene pack の生成順は `scenes` 配列順です。
 - build plugin と Test Play plugin の選択は `project.json.pluginRoles.builder` / `pluginRoles.testplay` です。
 - HuCard は `targetMedia: "hucard"`、Super CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を使います。CD VNの`cd.systemCardProfile`はbuilderが固定値`"jp-v3"`へ正規化する生成契約で、ユーザーが設定する項目ではありません。System Card ROM本体はビルドには不要で、Setupで指定したユーザー所有ROMを CD-ROM2 Test Play 時だけ検証・使用します。
@@ -138,7 +138,9 @@ BG / Sprite / ADPCM / PSGなどの読み込みはruntimeがscene入場時と各�
 
 Asset一覧に未使用の大きなBG / Sprite / ADPCM / PSGが残っていても、VN buildのruntime metadataとVRAM予約はsceneから参照されるassetだけを対象にします。CD-DAだけは例外で、CUEの物理track配置を維持するため、未参照でも登録済みの全CD-DA assetをtrack数・連番検査とディスク出力の対象にします。
 
-CD-ROM2 VN buildでは、同一ビルドから参照できる正式上限をADPCM 2048件、BG 1024件、Sprite 1024件、Sprite Animation合計1024件、System Card PSG package variant 512件、CD-DA 98本（track 2〜99）とします。PSG variantは`assetId`と再生channelの組ごとに1件で、参照PSG source asset自体も512件までです。これはCD容量、1 assetのサイズ、Spriteの同時表示4 slotなどとは別の上限です。CD-DA以外の未参照assetは数えません。BG / Sprite / ADPCM / CD-DA metadata、Sprite Animation metadata、System Card PSG metadata/package、scene pack、BG/Sprite/ADPCM payloadは2048-byte境界で`vn_payload.bin`へ集約し、論理sector aliasで読み込みます。CD-DA音声trackはpack対象外です。詳しい数え方と個別制約は[pce-vn-large-project-limits.md](pce-vn-large-project-limits.md)を参照してください。
+Sound > CD-DAには通常アセットと分離した固定Track 1 **Warning Audio**、固定Track 2 **Game Data**、Track 3以降のゲーム音声を表示します。Warning AudioはWAV/MP3をインポート・差し替え・削除・プレビューできますが、Track番号とLoopは変更できません。標準警告音声は同梱しないため、新規CDプロジェクトもユーザー自身の音声を設定するまでビルドできません。旧プロジェクトのTrack 2始まりや欠番は赤字で表示されます。画面を開いただけでは書き換えず、「Track 3から再採番」を押したときだけTrack 3〜99へ欠番なしで保存します。自動移行は行いません。
+
+CD-ROM2 VN buildでは、同一ビルドから参照できる正式上限をADPCM 2048件、BG 1024件、Sprite 1024件、Sprite Animation合計1024件、System Card PSG package variant 512件、ゲーム用CD-DA 97本（Track 3〜99）とします。PSG variantは`assetId`と再生channelの組ごとに1件で、参照PSG source asset自体も512件までです。これはCD容量、1 assetのサイズ、Spriteの同時表示4 slotなどとは別の上限です。CD-DA以外の未参照assetは数えません。BG / Sprite / ADPCM / CD-DA metadata、Sprite Animation metadata、System Card PSG metadata/package、scene pack、BG/Sprite/ADPCM payloadは2048-byte境界で`vn_payload.bin`へ集約し、論理sector aliasで読み込みます。警告音声とゲーム用CD-DA音声trackはpack対象外です。詳しい数え方と個別制約は[pce-vn-large-project-limits.md](pce-vn-large-project-limits.md)を参照してください。
 
 CD-ROM2 VNのビルドは、ランタイム常駐bank128/129/130とbank124 logic overlayにそれぞれ最低1024 bytesの更新余白を予約します。スクリプトや機能追加でこの余白を割る場合は、実際の8KB overflowを待たずにbank名・使用量・空き・必要空きを含むheadroom errorとして停止します。これは素材数の上限ではなく、エンジンコードの配置退行を早期検出するための安全ゲートです。
 
@@ -227,7 +229,11 @@ CD VNの本文はlength付き16-bit Shift-JISでscene pack v3へ保存され、p
 
 `Build` は現在の project 設定と有効な builder plugin を使って ROM / CUE を生成します。Super CD-ROM2 project では `.cue` と `.iso`、必要に応じて CD-DA track WAV や Test Play 用 zip が `out/` に作られます。
 
-CD-DAを含むCD-ROM2 buildは、CD-Rへ焼くmixed-mode imageを実機向けのtrack境界へ正規化します。`pce-mkcd`がISO末尾へ付ける150個のzero sectorはISO本体から外し、CUEのTrack 2へ`PREGAP 00:02:00`として明示します。各CD-DA WAVのPCM末尾も2352-byte CD audio sector境界まで無音で埋めます。Track 2の物理開始LBAとruntime catalogの`start_sector`は変わらないため、エミュレーター再生と実機CD-Rのsector指定を同じ配置に保てます。期待した150 zero sectorが見つからない場合は、non-zero dataを誤って削らずbuild errorで停止します。
+CD-ROM2 buildは、Track 1 AUDIO（必須警告音声）、Track 2 MODE1/2048（Game Data、`PREGAP 00:03:00`）、Track 3以降 AUDIO（ゲーム音声、Track 3だけ`PREGAP 00:02:00`）の順でCUEを生成します。警告WAVの長さを`warningSectors`とし、Track 2の絶対開始LBAは常に`warningSectors + 225`です。scene pack、画像、sprite、ADPCM、PSG、asset metadata、overlayを含む全CD参照は同じ値だけシフトされます。警告音声とゲーム音声は44.1kHz・stereo・16-bit PCMへ変換し、PCM末尾を2352-byte CD audio sector境界まで無音で埋めます。
+
+ゲーム用CD-DAが1本以上ある場合だけ、`pce-mkcd`がISO末尾へ付ける150個のzero sectorを安全確認後にISOから外し、Track 3の2秒pregapとしてCUEへ移します。期待した150 zero sectorが見つからない場合はnon-zero dataを削らずbuild errorで停止します。ゲーム用CD-DAがない場合はTrack 1/2だけを生成し、ISO末尾を変更しません。
+
+CD-Rへ書き込むときは`.iso`単体ではなく、`out/`のCUEを入口にして、CUEが参照する`track01_cdda_warning.wav`、ISO、Track 3以降のWAVを同じ構成のままDisc-at-Once対応ソフトへ渡してください。書き込みソフト側でtrack順、pregap、data/audio種別を追加変更しないでください。最終的なCD-RとPCエンジン実機での再生確認はエミュレーター/Test Playとは別の外部確認項目です。
 
 CD-ROM2 / HuCARD のVN builderを使う場合、`Build` と `Test Play` はNovel画面のGUI / JSON編集状態を先に `assets/pce-vn-scenes.json` へ保存し、その完了後にbuilderを起動します。AudioのAsset選択などを変更した直後でも、画面上の最新値がビルド対象になります。保存に失敗した場合は古いsceneで続行せず、ビルドを中止してエラーを表示します。
 

@@ -42,7 +42,9 @@ npm start
 
 CD-ROM2 VNは日本版Super System Card 3.0 profile `jp-v3`専用です。HuC6280 PSGはSystem Cardのmain/sub track driverをVSync IRQで駆動し、本文とSpriteTextは`EX_GETFNT`のJIS第一水準glyphを必要時に使います。BIOS、PSG driver、抽出glyphはゲーム生成物へ含めません。CD VNのPSG/font/scene/bank契約は[System Card BIOS設計](docs/pce-vn-engine-redesign.md)を参照してください。
 
-大規模CD-ROM2 VNでは、同一ビルドから参照できる正式上限をADPCM 2048件、BG 1024件、Sprite 1024件、Sprite Animation合計1024件、System Card PSG package variant 512件、CD-DA 98本とします。PSG variantは`assetId`と再生channelの組ごとに1件で、参照PSG source asset自体も512件までです。これはディスク容量、1 assetのサイズ、同時描画・再生数とは別のcatalog上限です。scene pack、BG/Sprite/ADPCM payload、CD on-demand metadata、System Card PSG packageは2048-byte境界で`assets/generated/vn/vn_payload.bin`へ集約し、論理ファイルのsector aliasで参照します。CD-DA音声trackはpack対象外です。4つのruntime code blob（render overlay、logic overlay、visual helper、async/runtime support）はlink後に抽出するため独立した物理CD fileのままです。詳細は[CD-ROM2 VN大規模プロジェクト上限](docs/pce-vn-large-project-limits.md)を参照してください。
+大規模CD-ROM2 VNでは、同一ビルドから参照できる正式上限をADPCM 2048件、BG 1024件、Sprite 1024件、Sprite Animation合計1024件、System Card PSG package variant 512件、ゲーム用CD-DA 97本（Track 3〜99）とします。PSG variantは`assetId`と再生channelの組ごとに1件で、参照PSG source asset自体も512件までです。これはディスク容量、1 assetのサイズ、同時描画・再生数とは別のcatalog上限です。scene pack、BG/Sprite/ADPCM payload、CD on-demand metadata、System Card PSG packageは2048-byte境界で`assets/generated/vn/vn_payload.bin`へ集約し、論理ファイルのsector aliasで参照します。CD-DA音声trackはpack対象外です。4つのruntime code blob（render overlay、logic overlay、visual helper、async/runtime support）はlink後に抽出するため独立した物理CD fileのままです。詳細は[CD-ROM2 VN大規模プロジェクト上限](docs/pce-vn-large-project-limits.md)を参照してください。
+
+CD-ROM2出力は市販ソフトと同じ基本構造に固定しています。Track 1は必須の警告音声、Track 2は`MODE1/2048`のゲームデータ（`PREGAP 00:03:00`）、Track 3以降はゲーム用CD-DAで、Track 3だけに`PREGAP 00:02:00`を置きます。警告音声はSound > CD-DAでユーザーが設定し、標準音声は同梱しません。未設定、ゲーム音声がTrack 2始まり、重複・欠番がある場合は具体的な修正案を表示してビルドを停止します。旧projectは自動移行せず、同画面の「Track 3から再採番」を明示的に実行してください。
 
 `Export` は HuCard project 専用です。`.pce`、または itch.io の HTML5 upload 用 ZIP（ルートの `index.html`、HuCard ROM、EmulatorJS runtime/core、両コンポーネントのGPL本文）を出力できます。CD-ROM2 project は System Card / IPL を必要とする配布境界を避けるため Export の対象外です。ZIP を再配布する場合は、EmulatorJS/core の GPL 条件に従って、正確に対応する完全なソースとライセンス表示も提供してください。
 

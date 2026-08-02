@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { loadWithMockedElectron } = require('./helpers/mock-electron');
+const { addCdWarningAudio } = require('./helpers/cdda-warning');
 const {
   loadAppConfig,
   normalizeAppConfig,
@@ -122,6 +123,16 @@ test('all current PCE templates support create, save, dry build, and Test Play h
     assert.equal(saved.coreId, 'pc-engine');
     assert.equal(saved.targetMedia, targetMedia);
     assert.equal(saved.pluginRoles.testplay, 'pce-standard-emulator');
+
+    if (targetMedia === 'cd') {
+      const missingWarning = await coreManager.buildProject(() => {}, {
+        dryRun: true,
+        allowMissingToolchain: true,
+      });
+      assert.equal(missingWarning.success, false);
+      assert.match(missingWarning.error, /requires Track 1 warning audio/);
+      addCdWarningAudio(created.projectDir);
+    }
 
     const result = await coreManager.buildProject(() => {}, {
       dryRun: true,

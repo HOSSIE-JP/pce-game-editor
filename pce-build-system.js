@@ -21,12 +21,14 @@ const PCE_CD_SECTOR_BYTES = 2048;
 const PCE_CDDA_SECTOR_BYTES = 2352;
 const PCE_CD_AUDIO_PREGAP_SECTORS = 150;
 const PCE_CD_AUDIO_PREGAP_CUE_TIME = '00:02:00';
+const PCE_CD_DATA_PREGAP_SECTORS = 225;
+const PCE_CD_DATA_PREGAP_CUE_TIME = '00:03:00';
 const PCE_CD_IPL_PROGRAM_SECTORS = 20;
 const PCE_CD_DATA_BASE_SECTOR = 64;
 const PCE_CD_VN_BANK_HEADROOM_WARN_BYTES = 256;
 const PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES = 1024;
 const PCE_CD_VN_LOGIC_OVERLAY_MIN_FREE_BYTES = 1024;
-const PCE_INCREMENTAL_BUILD_STAMP_VERSION = 2;
+const PCE_INCREMENTAL_BUILD_STAMP_VERSION = 3;
 const PCE_INCREMENTAL_BUILD_STAMP_FILE = path.join('out', 'build-stamp.json');
 const PCE_SLIDESHOW_BUILDER_ID = 'pce-slideshow-builder';
 const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
@@ -765,6 +767,9 @@ function compileBinaryInputFiles(projectDir, config = {}, commandInfo = {}) {
     (commandInfo.cddaTracks || []).forEach((track) => {
       if (track?.sourcePath && fs.existsSync(track.sourcePath)) files.push(track.sourcePath);
     });
+    if (commandInfo.warningTrack?.sourcePath && fs.existsSync(commandInfo.warningTrack.sourcePath)) {
+      files.push(commandInfo.warningTrack.sourcePath);
+    }
     if (commandInfo.iplPath && fs.existsSync(commandInfo.iplPath)) files.push(commandInfo.iplPath);
   }
   return Array.from(new Set(files.map((filePath) => path.resolve(filePath))))
@@ -816,6 +821,9 @@ function computeBuildOutputSignature(projectDir, config = {}, commandInfo = {}) 
   const binaryInputs = compileBinaryInputFiles(projectDir, config, commandInfo)
     .map((filePath) => statSignatureForFile(projectDir, filePath))
     .filter(Boolean);
+  const warningAudioInput = commandInfo.warningTrack?.sourcePath
+    ? contentSignatureForFile(projectDir, commandInfo.warningTrack.sourcePath)
+    : null;
   const toolInputs = [
     commandInfo.command,
     findLlvmMosLinkerPath(commandInfo),
@@ -834,9 +842,11 @@ function computeBuildOutputSignature(projectDir, config = {}, commandInfo = {}) 
     args: (commandInfo.args || []).map((arg) => normalizeArgForStamp(projectDir, arg)),
     mkcdCommand: normalizeArgForStamp(projectDir, commandInfo.mkcdCommand || ''),
     mkcdArgs: (commandInfo.mkcdArgs || []).map((arg) => normalizeArgForStamp(projectDir, arg)),
+    discLayout: commandInfo.discLayout || null,
     config: stampRelevantConfig(config),
     sourceInputs,
     binaryInputs,
+    warningAudioInput,
     toolInputs,
   });
 }
@@ -846,6 +856,7 @@ function buildOutputsReady(commandInfo = {}) {
   if (commandInfo.targetMedia === 'cd') {
     return isFile(commandInfo.cuePath)
       && isFile(commandInfo.isoPath)
+      && (!commandInfo.warningTrack?.outputPath || isFile(commandInfo.warningTrack.outputPath))
       && (commandInfo.cddaTracks || []).every((track) => !track?.outputPath || isFile(track.outputPath));
   }
   return isFile(commandInfo.romPath);
@@ -1031,8 +1042,15 @@ function cueRelativePath(fromDir, absPath) {
 
 function collectCddaTracks(projectDir, cuePath) {
   let doc;
+  let rawTracks = new Map();
   try {
     doc = assetManager.readAssetDocument(projectDir);
+    const rawDoc = typeof assetManager.readRawAssetDocument === 'function'
+      ? assetManager.readRawAssetDocument(projectDir)
+      : doc;
+    rawTracks = new Map((rawDoc.assets || [])
+      .filter((asset) => asset?.type === 'cdda-track')
+      .map((asset) => [asset.id, asset.options?.track]));
   } catch (_) {
     return [];
   }
@@ -1045,7 +1063,12 @@ function collectCddaTracks(projectDir, cuePath) {
       if (!rel) return null;
       const absPath = path.resolve(projectDir, rel);
       if (!fs.existsSync(absPath)) return null;
-      const trackNumber = Math.max(2, Math.min(99, Number(asset.options?.track) || 2));
+      const rawTrackValue = rawTracks.has(asset.id) ? rawTracks.get(asset.id) : asset.options?.track;
+      const rawTrack = Number(rawTrackValue);
+      if (!Number.isFinite(rawTrack) || Math.trunc(rawTrack) !== rawTrack || rawTrack < 3 || rawTrack > 99) {
+        throw new Error(`CD-DA asset "${asset.id}" has invalid track ${rawTrackValue}; Track 1 is warning audio and Track 2 is game data. Use "Renumber from Track 3" in Sound > CD-DA.`);
+      }
+      const trackNumber = Math.trunc(rawTrack);
       const safeId = sanitizeRomName(asset.id || `track_${trackNumber}`);
       const outputName = `track${String(trackNumber).padStart(2, '0')}_${safeId}.wav`;
       const outputPath = path.join(cueDir, outputName);
@@ -1060,12 +1083,33 @@ function collectCddaTracks(projectDir, cuePath) {
     .filter(Boolean)
     .sort((a, b) => a.track - b.track || a.id.localeCompare(b.id, 'ja'));
   tracks.forEach((track, index) => {
-    const expectedTrack = index + 2;
+    const expectedTrack = index + 3;
     if (track.track !== expectedTrack) {
-      throw new Error(`CD-DA track numbers must be contiguous from track 2 without gaps; expected track ${expectedTrack}, but "${track.id}" uses track ${track.track}. Reorder or resave the CD-DA tracks.`);
+      throw new Error(`Game CD-DA track numbers must be contiguous from track 3 without gaps; expected track ${expectedTrack}, but "${track.id}" uses track ${track.track}. Use "Renumber from Track 3" in Sound > CD-DA.`);
     }
   });
   return tracks;
+}
+
+function collectCddaWarningTrack(projectDir, cuePath, discLayout = null) {
+  const resolvedLayout = discLayout || assetManager.getCddaWarningDiscLayout(projectDir);
+  const asset = resolvedLayout.warningAsset;
+  const generated = asset.data?.generated || {};
+  const rel = generated.outputFile || asset.source || '';
+  const sourcePath = rel ? path.resolve(projectDir, rel) : '';
+  if (!sourcePath || !fs.existsSync(sourcePath)) {
+    throw new Error('CD-ROM2 Track 1 warning audio has no generated WAV. Re-import it from Sound > CD-DA.');
+  }
+  const cueDir = path.dirname(cuePath);
+  const outputPath = path.join(cueDir, 'track01_cdda_warning.wav');
+  return {
+    id: assetManager.PCE_CDDA_WARNING_ASSET_ID || 'cdda_warning',
+    track: 1,
+    sourcePath,
+    outputPath,
+    file: cueRelativePath(cueDir, outputPath),
+    discSectorCount: resolvedLayout.warningSectors,
+  };
 }
 
 function readCddaWavLayout(buffer, label = 'CD-DA WAV') {
@@ -1172,7 +1216,7 @@ function normalizePceCdImageForCdda(commandInfo) {
   }
   const tailOffset = size - stripBytes;
   if (!fileRangeIsZero(isoPath, tailOffset, stripBytes)) {
-    throw new Error(`PCE-CD ISO does not end with the expected ${PCE_CD_AUDIO_PREGAP_SECTORS} zero sectors from pce-mkcd; refusing to move non-zero data into the track 2 pregap.`);
+    throw new Error(`PCE-CD ISO does not end with the expected ${PCE_CD_AUDIO_PREGAP_SECTORS} zero sectors from pce-mkcd; refusing to move non-zero data into the Track 3 pregap.`);
   }
   fs.truncateSync(isoPath, tailOffset);
   commandInfo.cddaImageLayout = {
@@ -1186,7 +1230,8 @@ function normalizePceCdImageForCdda(commandInfo) {
 
 function writeCueFile(commandInfo) {
   let paddedTrackCount = 0;
-  for (const track of commandInfo.cddaTracks || []) {
+  const audioTracks = [commandInfo.warningTrack, ...(commandInfo.cddaTracks || [])].filter(Boolean);
+  for (const track of audioTracks) {
     if (track.sourcePath && track.outputPath) {
       ensureDirSync(path.dirname(track.outputPath));
       const normalized = normalizeCddaWavForDisc(
@@ -1196,18 +1241,26 @@ function writeCueFile(commandInfo) {
       fs.writeFileSync(track.outputPath, normalized.output);
       track.discPaddingBytes = normalized.paddingBytes;
       track.discSectorCount = normalized.sectorCount;
+      if (track.track === 1 && commandInfo.discLayout
+          && normalized.sectorCount !== commandInfo.discLayout.warningSectors) {
+        throw new Error(`Track 1 warning audio sector count changed during CUE assembly (expected ${commandInfo.discLayout.warningSectors}, got ${normalized.sectorCount}). Rebuild the generated CD-DA asset.`);
+      }
       if (normalized.paddingBytes > 0) paddedTrackCount += 1;
     }
   }
   const lines = [
+    `FILE "${commandInfo.warningTrack.file}" WAVE`,
+    '  TRACK 01 AUDIO',
+    '    INDEX 01 00:00:00',
     `FILE "${path.basename(commandInfo.isoPath)}" BINARY`,
-    '  TRACK 01 MODE1/2048',
+    '  TRACK 02 MODE1/2048',
+    `    PREGAP ${PCE_CD_DATA_PREGAP_CUE_TIME}`,
     '    INDEX 01 00:00:00',
   ];
   for (const track of commandInfo.cddaTracks || []) {
     lines.push(`FILE "${track.file}" WAVE`);
     lines.push(`  TRACK ${String(track.track).padStart(2, '0')} AUDIO`);
-    if (track.track === 2) lines.push(`    PREGAP ${PCE_CD_AUDIO_PREGAP_CUE_TIME}`);
+    if (track.track === 3) lines.push(`    PREGAP ${PCE_CD_AUDIO_PREGAP_CUE_TIME}`);
     lines.push('    INDEX 01 00:00:00');
   }
   lines.push('');
@@ -1223,6 +1276,7 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
   ensureDirSync(outDir);
   const sources = collectSourceFiles(projectDir, config);
   if (targetMedia === 'cd') {
+    assetManager.validateCddaDiscAssetDocument(assetManager.readRawAssetDocument(projectDir));
     if (toolchain !== 'llvm-mos') {
       throw new Error('PCE-CD target requires llvm-mos toolchain');
     }
@@ -1259,6 +1313,17 @@ function buildCommandForProject(projectDir, config = {}, toolPath = null) {
     const mkcd = buildPceMkcdArgs(projectDir, config, commandInfo);
     commandInfo.mkcdArgs = mkcd.args;
     commandInfo.iplPath = mkcd.iplPath;
+    const warningLayout = assetManager.getCddaWarningDiscLayout(projectDir);
+    if (warningLayout.dataPregapSectors !== PCE_CD_DATA_PREGAP_SECTORS) {
+      throw new Error(`Track 2 data pregap must be ${PCE_CD_DATA_PREGAP_SECTORS} sectors.`);
+    }
+    commandInfo.discLayout = {
+      warningSectors: warningLayout.warningSectors,
+      dataPregapSectors: warningLayout.dataPregapSectors,
+      dataTrackStartLba: warningLayout.dataTrackStartLba,
+      gameAudioPregapSectors: PCE_CD_AUDIO_PREGAP_SECTORS,
+    };
+    commandInfo.warningTrack = collectCddaWarningTrack(projectDir, cuePath, warningLayout);
     commandInfo.cddaTracks = collectCddaTracks(projectDir, cuePath);
     return commandInfo;
   }
@@ -1505,6 +1570,16 @@ function buildProject(onLog, options = {}) {
     ensureProjectStructure(projectDir, loadProjectConfigFromDir(projectDir));
     let config = normalizeProjectConfig({ ...loadProjectConfigFromDir(projectDir), ...options.config });
     const log = (message, level = 'info') => onLog?.(String(message), level);
+    if (normalizeTargetMedia(config.targetMedia) === 'cd'
+        && !isHuCardVisualNovelProject(projectDir, config)
+        && !isHuCardSlideshowProject(config)) {
+      try {
+        assetManager.validateCddaDiscAssetDocument(assetManager.readRawAssetDocument(projectDir));
+      } catch (err) {
+        resolve({ success: false, error: `CD disc layout validation failed: ${err.message || err}` });
+        return;
+      }
+    }
     if (repairHuCardSlideshowMainIfNeeded(projectDir, config)) {
       log('HuCard slideshow main.c was restored from the template because it only contained the VN runtime wrapper.', 'warn');
     }
@@ -1773,8 +1848,8 @@ function buildProject(onLog, options = {}) {
                 'PCE-CD disc layout normalization',
                 layoutStage,
                 imageLayout.normalized
-                  ? `${imageLayout.dataSectors} data sector(s) + ${imageLayout.pregapSectors} pregap sector(s), ${cueLayout.paddedTrackCount} WAV track(s) padded`
-                  : 'data-only image',
+                  ? `Track 1 ${commandInfo.discLayout.warningSectors} sector(s), Track 2 LBA ${commandInfo.discLayout.dataTrackStartLba}, ${imageLayout.dataSectors} data sector(s) + Track 3 pregap ${imageLayout.pregapSectors} sector(s), ${cueLayout.paddedTrackCount} WAV track(s) padded`
+                  : `Track 1 ${commandInfo.discLayout.warningSectors} sector(s), Track 2 LBA ${commandInfo.discLayout.dataTrackStartLba}, no game CD-DA`,
               );
               try {
                 writeBuildOutputStamp(projectDir, config, commandInfo);
@@ -1843,6 +1918,7 @@ module.exports = {
   computeBuildOutputSignature,
   readBuildOutputStamp,
   writeBuildOutputStamp,
+  collectCddaWarningTrack,
   collectCddaTracks,
   normalizePceCdImageForCdda,
   buildProject,

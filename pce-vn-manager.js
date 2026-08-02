@@ -19,7 +19,7 @@ const VN_FONT_FILE = path.join('assets', 'pce-font.json');
 const VN_FONT_DIR = path.join('assets', 'fonts');
 const FONT_FILE_EXTS = ['.ttf', '.otf', '.ttc'];
 const VN_BUILD_STAMP_FILE = path.join('assets', 'generated', 'vn', 'build-stamp.json');
-const VN_BUILD_STAMP_VERSION = 6;
+const VN_BUILD_STAMP_VERSION = 7;
 const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
 // BG message / choice glyph streams stay byte-oriented so the common case costs
 // one byte per glyph, but a 0xfd escape prefix lets the project-wide font exceed
@@ -383,6 +383,34 @@ function fileSizeSignature(projectDir, relativePath) {
   }
 }
 
+function warningDiscSignature(projectDir, config = {}) {
+  const builderId = String(config?.pluginRoles?.builder || '').trim();
+  if (String(config?.targetMedia || '').trim().toLowerCase() === 'hucard'
+      || builderId === 'pce-visual-novel-hucard-builder'
+      || builderId === 'pce-slideshow-builder') return null;
+  try {
+    const layout = assetManager.getCddaWarningDiscLayout(projectDir, null, { required: false });
+    if (!layout.warningAsset) return null;
+    const generated = layout.warningAsset.data?.generated || {};
+    const relativePath = normalizeRelativePath(generated.outputFile || layout.warningAsset.source || '');
+    const absolutePath = relativePath ? path.join(projectDir, relativePath) : '';
+    return {
+      warningSectors: layout.warningSectors,
+      dataPregapSectors: layout.dataPregapSectors,
+      dataTrackStartLba: layout.dataTrackStartLba,
+      gameAudioPregapSectors: 150,
+      file: {
+        ...fileSizeSignature(projectDir, relativePath),
+        sha1: absolutePath && fs.existsSync(absolutePath)
+          ? crypto.createHash('sha1').update(fs.readFileSync(absolutePath)).digest('hex')
+          : null,
+      },
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
 function vnBuildStampPath(projectDir) {
   return path.join(projectDir, VN_BUILD_STAMP_FILE);
 }
@@ -458,6 +486,7 @@ function vnBuildSignature(projectDir, _config = {}, mergedDataFiles = [], merged
       assets: readProjectTextHash(projectDir, assetManager.ASSET_FILE || path.join('assets', 'pce-assets.json')),
       font: readProjectTextHash(projectDir, VN_FONT_FILE),
     },
+    discLayout: warningDiscSignature(projectDir, _config),
     outputSizes: (Array.isArray(mergedDataFiles) ? mergedDataFiles : [])
       .map((entry) => normalizeRelativePath(entry || ''))
       .filter(Boolean)
@@ -2905,9 +2934,11 @@ function hucardExtraDataFiles(sceneBuilds = [], psgEntries = [], includeFontSpri
 }
 
 function cdLayoutForFiles(projectDir, dataFiles = []) {
-  return typeof assetManager.buildCdDataLayout === 'function'
-    ? assetManager.buildCdDataLayout(projectDir, dataFiles)
-    : new Map();
+  if (typeof assetManager.buildCdDataLayout !== 'function') return new Map();
+  const discLayout = assetManager.getCddaWarningDiscLayout(projectDir, null, { required: false });
+  return assetManager.buildCdDataLayout(projectDir, dataFiles, {
+    dataTrackStartLba: discLayout.dataTrackStartLba,
+  });
 }
 
 function cdSectorInitializer(layoutEntry = {}) {

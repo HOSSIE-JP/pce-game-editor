@@ -1,4 +1,8 @@
 const AUDIO_EXTS = ['.wav', '.mp3'];
+const CDDA_WARNING_TYPE = 'cdda-warning';
+const CDDA_WARNING_ID = 'cdda_warning';
+const FIRST_GAME_TRACK = 3;
+const MAX_GAME_TRACKS = 97;
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -30,8 +34,8 @@ function safeId(value, fallback = 'cdda_track') {
   return id || fallback;
 }
 
-function clampTrack(value, fallback = 2) {
-  return Math.max(2, Math.min(99, Math.trunc(asNumber(value, fallback))));
+function clampTrack(value, fallback = FIRST_GAME_TRACK) {
+  return Math.max(FIRST_GAME_TRACK, Math.min(99, Math.trunc(asNumber(value, fallback))));
 }
 
 function formatSeconds(value) {
@@ -101,8 +105,21 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             <div class="pce-cdda-summary" data-role="summary">-</div>
           </div>
           <div class="pce-cdda-actions">
+            <button class="btn-sm" type="button" data-action="renumber">Track 3から再採番</button>
             <button class="icon-btn" type="button" data-action="add" title="追加" aria-label="追加">＋</button>
             <button class="icon-btn" type="button" data-action="refresh" title="更新" aria-label="更新">↻</button>
+          </div>
+        </div>
+        <div class="pce-cdda-warning-slot" data-role="warning-slot">
+          <div>
+            <strong>Track 01 · Warning Audio</strong>
+            <span data-role="warning-status">必須・未設定</span>
+            <code data-role="warning-source"></code>
+          </div>
+          <div class="pce-cdda-warning-actions">
+            <button class="btn-sm" type="button" data-warning-import>インポート</button>
+            <button class="icon-btn-xs" type="button" data-warning-play title="プレビュー" aria-label="警告音をプレビュー">▶</button>
+            <button class="icon-btn-xs" type="button" data-warning-delete title="削除" aria-label="警告音を削除">✕</button>
           </div>
         </div>
         <div class="pce-cdda-table-wrap">
@@ -145,7 +162,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             </label>
             <label class="form-group">
               <span class="form-label">Track</span>
-              <input class="form-input" name="track" type="number" min="2" max="99" />
+              <input class="form-input" name="track" type="number" min="3" max="99" />
             </label>
             <label class="form-group pce-cdda-wide">
               <span class="form-label">Name</span>
@@ -174,6 +191,9 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   const paneResizerEl = root.querySelector('[data-role="pane-resizer"]');
   const rowsEl = root.querySelector('[data-role="rows"]');
   const summaryEl = root.querySelector('[data-role="summary"]');
+  const warningSlotEl = root.querySelector('[data-role="warning-slot"]');
+  const warningStatusEl = root.querySelector('[data-role="warning-status"]');
+  const warningSourceEl = root.querySelector('[data-role="warning-source"]');
   const statusEl = root.querySelector('[data-role="status"]');
   const emptyDetailEl = root.querySelector('[data-role="empty-detail"]');
   const formEl = root.querySelector('[data-role="form"]');
@@ -291,7 +311,12 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   }
 
   function trackNumber(asset = {}) {
-    return clampTrack(asset.options?.track, 2);
+    const parsed = Number(asset.options?.track);
+    return Number.isFinite(parsed) && Math.trunc(parsed) === parsed ? parsed : FIRST_GAME_TRACK;
+  }
+
+  function warningAsset() {
+    return assets.find((asset) => asset.type === CDDA_WARNING_TYPE) || null;
   }
 
   function cddaAssets() {
@@ -395,7 +420,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
 
   function nextTrackNumber() {
     const tracks = cddaAssets().map(trackNumber);
-    return Math.min(99, Math.max(1, ...tracks) + 1);
+    return Math.min(99, Math.max(FIRST_GAME_TRACK - 1, ...tracks) + 1);
   }
 
   async function pickAudioFile() {
@@ -422,14 +447,16 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     previewEl.hidden = true;
   }
 
-  async function loadPreview(asset, { autoplay = false } = {}) {
+  async function loadPreview(asset, { autoplay = false, ignoreSelection = false } = {}) {
     clearPreview();
     if (!asset?.source) return;
     const previewTargetId = asset.id;
     const result = await previewPceAssetSource(asset.source);
-    if (selectedId !== previewTargetId) return;
+    if (!ignoreSelection && selectedId !== previewTargetId) return;
     if (!result?.ok || !result.dataUrl) {
-      formErrorEl.textContent = result?.error || 'プレビューを取得できませんでした';
+      const message = result?.error || 'プレビューを取得できませんでした';
+      if (ignoreSelection) setStatus(message, 'error');
+      else formErrorEl.textContent = message;
       return;
     }
     previewEl.src = result.dataUrl;
@@ -488,22 +515,47 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     fillForm(selectedAsset(), options);
   }
 
+  function renderWarningSlot() {
+    const asset = warningAsset();
+    const generated = generatedInfo(asset || {});
+    warningSlotEl.dataset.configured = asset ? 'true' : 'false';
+    warningStatusEl.textContent = asset
+      ? `${formatSeconds(generated.durationSeconds)} · 44.1 kHz stereo PCM`
+      : '必須・未設定（CDビルドできません）';
+    warningSourceEl.textContent = asset?.source || '';
+    root.querySelector('[data-warning-import]').textContent = asset ? '差し替え' : 'インポート';
+    root.querySelector('[data-warning-play]').disabled = !asset;
+    root.querySelector('[data-warning-delete]').disabled = !asset;
+  }
+
   function renderRows() {
     const tracks = sortedCddaAssets();
-    summaryEl.textContent = tracks.length ? `${tracks.length} tracks` : '0 tracks';
+    const physicalOrder = cddaAssets();
+    const expectedTracks = new Map(physicalOrder.map((asset, index) => [asset.id, index + FIRST_GAME_TRACK]));
+    summaryEl.textContent = `${tracks.length} game track${tracks.length === 1 ? '' : 's'} · warning ${warningAsset() ? 'ready' : 'required'}`;
+    renderWarningSlot();
     updateSortHeaders();
-    if (!tracks.length) {
-      rowsEl.innerHTML = '<tr><td colspan="7" class="pce-cdda-empty">CD-DA track がありません</td></tr>';
-      return;
-    }
     const dragEnabled = canDragReorder();
-    rowsEl.innerHTML = renderGroupedRows(tracks, 7, (asset) => {
+    const dataTrackRow = `
+      <tr class="pce-cdda-fixed-row" data-fixed-track="2">
+        <td class="pce-cdda-drag-cell is-disabled"></td>
+        <td><strong>02</strong></td>
+        <td class="pce-cdda-name-cell"><span>Game Data</span></td>
+        <td class="pce-cdda-id-cell"><code>MODE1/2048</code></td>
+        <td><span class="pce-cdda-muted">PREGAP 00:03:00</span></td>
+        <td><span class="pce-cdda-muted">-</span></td>
+        <td class="pce-cdda-row-actions"></td>
+      </tr>
+    `;
+    const gameRows = renderGroupedRows(tracks, 7, (asset) => {
       const displayAsset = displayAssetForRow(asset);
       const generated = generatedInfo(displayAsset);
+      const rawTrack = trackNumber(displayAsset);
+      const invalid = rawTrack !== expectedTracks.get(asset.id) || rawTrack < FIRST_GAME_TRACK || rawTrack > 99;
       return `
-        <tr class="pce-cdda-row ${asset.id === selectedId ? 'active' : ''}" draggable="${dragEnabled ? 'true' : 'false'}" data-id="${esc(asset.id)}">
+        <tr class="pce-cdda-row ${asset.id === selectedId ? 'active' : ''} ${invalid ? 'is-invalid' : ''}" draggable="${dragEnabled ? 'true' : 'false'}" data-id="${esc(asset.id)}">
           <td class="pce-cdda-drag-cell ${dragEnabled ? '' : 'is-disabled'}"><span class="drag-handle" title="並び替え">&#8942;&#8942;</span></td>
-          <td><strong>${String(trackNumber(displayAsset)).padStart(2, '0')}</strong></td>
+          <td><strong>${String(rawTrack).padStart(2, '0')}</strong>${invalid ? '<span class="pce-cdda-invalid-mark" title="Track 3から欠番なしで再採番してください">!</span>' : ''}</td>
           <td class="pce-cdda-name-cell"><span>${esc(assetDisplayName(displayAsset))}</span></td>
           <td class="pce-cdda-id-cell"><code>${esc(displayAsset.id)}</code></td>
           <td>${esc(formatSeconds(generated.durationSeconds))}</td>
@@ -515,6 +567,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
         </tr>
       `;
     }).join('');
+    rowsEl.innerHTML = dataTrackRow + (gameRows || '<tr><td colspan="7" class="pce-cdda-empty">ゲーム用CD-DA track がありません</td></tr>');
     rowsEl.querySelectorAll('.pce-cdda-group-row').forEach((row) => {
       row.addEventListener('click', () => toggleGroupCollapse(row.dataset.groupPath || ''));
     });
@@ -606,10 +659,10 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
   }
 
   async function saveTrackOrder(order, preferredId = selectedId) {
-    if (order.length > 98) throw new Error('CD-DA track は 98 件までです');
+    if (order.length > MAX_GAME_TRACKS) throw new Error('ゲーム用CD-DA track は 97 件までです');
     let changed = false;
     for (const [index, asset] of order.entries()) {
-      const nextTrack = index + 2;
+      const nextTrack = index + FIRST_GAME_TRACK;
       if (trackNumber(asset) === nextTrack) continue;
       changed = true;
       const result = await upsertPceAsset({
@@ -774,7 +827,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
               </label>
               <label class="form-group">
                 <span class="form-label">Track</span>
-                <input class="form-input" name="track" type="number" min="2" max="99" value="${esc(nextTrackNumber())}" />
+                <input class="form-input" name="track" type="number" min="3" max="99" value="${esc(nextTrackNumber())}" />
               </label>
               <label class="form-group pce-cdda-wide">
                 <span class="form-label">Name</span>
@@ -875,6 +928,79 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     }
   }
 
+  async function importWarningAudio() {
+    if (importBusy) return null;
+    importBusy = true;
+    setStatus('');
+    try {
+      const picked = await pickAudioFile();
+      if (!picked) return null;
+      const audioCapability = api.capabilities.get('audio-convert-ui');
+      if (!audioCapability?.openAudioConvertModal) {
+        throw new Error('音声コンバータープラグインが無効または未インストールです');
+      }
+      const converted = await audioCapability.openAudioConvertModal({
+        mode: 'pce-asset',
+        returnResult: true,
+        kind: CDDA_WARNING_TYPE,
+        picked,
+        targetFileName: 'cdda_warning.wav',
+        defaults: {
+          sampleRate: 44100,
+          mono: false,
+        },
+      });
+      if (!converted?.ok || !converted.dataUrl) return null;
+      const result = await importPceAudio({
+        dataUrl: converted.dataUrl,
+        sourceFileName: 'cdda_warning.wav',
+        originalFileName: converted.originalFileName || picked.fileName,
+        kind: CDDA_WARNING_TYPE,
+        id: CDDA_WARNING_ID,
+        name: 'Warning Audio',
+        processing: converted.processing || {},
+      });
+      if (!result?.ok) throw new Error(result?.error || '警告音声を取り込めませんでした');
+      assets = result.assets || assets;
+      renderRows();
+      fillForm(selectedAsset());
+      logger.info('CD-DA Track 1 warning audio imported');
+      setStatus('Track 1警告音声を設定しました', 'ok');
+      return result.asset || warningAsset();
+    } catch (err) {
+      const message = err.message || String(err);
+      logger.error(`CD-DA warning audio import failed: ${message}`);
+      setStatus(message, 'error');
+      return null;
+    } finally {
+      importBusy = false;
+    }
+  }
+
+  async function deleteWarningAudio() {
+    const asset = warningAsset();
+    if (!asset || !(await askDelete(asset.id))) return;
+    try {
+      const result = await deletePceAsset(asset.id);
+      if (!result?.ok) throw new Error(result?.error || '警告音声を削除できませんでした');
+      assets = result.assets || assets;
+      renderRows();
+      fillForm(selectedAsset());
+      setStatus('Track 1警告音声を削除しました。CDビルドには再設定が必要です', 'warn');
+    } catch (err) {
+      setStatus(err.message || String(err), 'error');
+    }
+  }
+
+  async function renumberFromTrack3() {
+    try {
+      await saveTrackOrder(cddaAssets(), selectedId);
+      setStatus('ゲーム用CD-DAをTrack 3から再採番しました', 'ok');
+    } catch (err) {
+      setStatus(err.message || String(err), 'error');
+    }
+  }
+
   formEl.addEventListener('submit', saveSelected);
   ['id', 'name', 'track', 'loop'].forEach((name) => {
     formEl.elements[name]?.addEventListener('input', updateDraftFromForm);
@@ -889,7 +1015,14 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     });
   });
   root.querySelector('[data-action="add"]').addEventListener('click', () => { void importCddaTrack(); });
+  root.querySelector('[data-action="renumber"]').addEventListener('click', () => { void renumberFromTrack3(); });
   root.querySelector('[data-action="refresh"]').addEventListener('click', () => { void reload({ force: true }); });
+  root.querySelector('[data-warning-import]').addEventListener('click', () => { void importWarningAudio(); });
+  root.querySelector('[data-warning-play]').addEventListener('click', () => {
+    const asset = warningAsset();
+    if (asset) void loadPreview(asset, { autoplay: true, ignoreSelection: true });
+  });
+  root.querySelector('[data-warning-delete]').addEventListener('click', () => { void deleteWarningAudio(); });
   root.querySelector('[data-action="play"]').addEventListener('click', () => {
     const asset = selectedAsset();
     if (asset) void loadPreview(asset, { autoplay: true });
@@ -900,6 +1033,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
     pluginId: plugin.id,
     reload,
     importCddaTrack,
+    importWarningAudio,
   });
   const teardownAssetRefreshEvents = setupAssetRefreshEvents();
   const teardownPaneResizer = setupPaneResizer();

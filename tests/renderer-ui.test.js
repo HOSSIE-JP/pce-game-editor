@@ -1285,7 +1285,7 @@ test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page
   assert.match(musicCss, /\.pce-tracker-summary/);
 });
 
-test('CD-DA manager module exposes track-only import, edit, preview, and reorder UI', () => {
+test('CD-DA manager exposes fixed warning/data tracks and Track 3 game-audio management', () => {
   const manifest = readPluginManifest('pce-cdda-manager');
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-cdda-manager', 'renderer.js'), 'utf-8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-cdda-manager', 'style.css'), 'utf-8');
@@ -1300,6 +1300,14 @@ test('CD-DA manager module exposes track-only import, edit, preview, and reorder
   assert.match(renderer, /openImportSettingsModal/);
   assert.match(renderer, /openAudioConvertModal/);
   assert.match(renderer, /kind:\s*'cdda-track'/);
+  assert.match(renderer, /const CDDA_WARNING_TYPE = 'cdda-warning'/);
+  assert.match(renderer, /const CDDA_WARNING_ID = 'cdda_warning'/);
+  assert.match(renderer, /Track 01 · Warning Audio/);
+  assert.match(renderer, /Game Data/);
+  assert.match(renderer, /PREGAP 00:03:00/);
+  assert.match(renderer, /Track 3から再採番/);
+  assert.match(renderer, /async function importWarningAudio\(\)/);
+  assert.match(renderer, /kind: CDDA_WARNING_TYPE/);
   assert.match(renderer, /importAssetAudio/);
   assert.match(renderer, /previewAssetSource/);
   assert.match(renderer, /data-row-play/);
@@ -1319,9 +1327,11 @@ test('CD-DA manager module exposes track-only import, edit, preview, and reorder
   assert.match(renderer, /localStorage\?\.setItem\(storageKey/);
   assert.match(renderer, /function saveTrackOrder/);
   assert.match(renderer, /track:\s*nextTrack/);
-  assert.match(renderer, /index \+ 2/);
+  assert.match(renderer, /index \+ FIRST_GAME_TRACK/);
   assert.match(renderer, /registerCapability\('cdda-manager'/);
   assert.match(css, /\.pce-cdda-layout/);
+  assert.match(css, /\.pce-cdda-warning-slot/);
+  assert.match(css, /\.pce-cdda-row\.is-invalid/);
   assert.match(css, /grid-template-columns:\s*minmax\(360px,\s*1fr\)\s*6px\s*minmax\(300px,\s*390px\)/);
   assert.match(css, /\.pce-cdda-resizer/);
   assert.match(css, /\.pce-cdda-sort/);

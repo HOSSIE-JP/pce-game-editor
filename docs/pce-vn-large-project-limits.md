@@ -11,9 +11,9 @@
 | Sprite | 1024 | 参照される`sprite` assetごとに1件 |
 | Sprite Animation | 1024 | 参照Spriteから生成されるruntime Animation recordの合計。静止defaultはrecordを作らない |
 | System Card PSG package variant | 512 | `assetId`と再生channelの組ごとに1件。参照PSG source asset自体も512件まで |
-| CD-DA | 98 | 物理track 2..99 |
+| ゲーム用CD-DA | 97 | 物理Track 3..99。Track 1警告音声とTrack 2 dataは別枠 |
 
-CD-DA以外の未参照assetはcatalog件数に含めません。CD-DAはCUEの物理track配置を維持するため、未参照でも登録済みの全CD-DA assetを98本上限・連番検査とディスク出力の対象にします。これらは最大値と上限+1の生成テスト、および16-bit runtime indexを前提にした正式保証ラインです。理論上のCD容量限界やindex表現の最大値そのものではありません。
+CD-DA以外の未参照assetはcatalog件数に含めません。ゲーム用CD-DAはCUEの物理track配置を維持するため、未参照でも登録済みの全`cdda-track` assetを97本上限・Track 3始まりの連番検査とディスク出力の対象にします。必須の`cdda-warning`はruntime catalog件数に含めません。これらは最大値と上限+1の生成テスト、および16-bit runtime indexを前提にした正式保証ラインです。理論上のCD容量限界やindex表現の最大値そのものではありません。
 
 ## 件数上限と別に考える制約
 

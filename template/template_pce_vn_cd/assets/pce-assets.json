@@ -72,7 +72,7 @@
       "name": "オープニングBGM",
       "source": "assets/cdda/opening_cdda.wav",
       "options": {
-        "track": 2,
+        "track": 3,
         "loop": true
       },
       "data": {
