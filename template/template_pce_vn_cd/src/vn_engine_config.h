@@ -97,16 +97,12 @@ typedef struct {
 #define VN_ADPCM_MAX_RATE_CODE 15u
 #define VN_ADPCM_SNAPSHOT_DIVIDER() (adpcm_voice_snapshot.divider > VN_ADPCM_MAX_RATE_CODE ? VN_ADPCM_MAX_RATE_CODE : adpcm_voice_snapshot.divider)
 #define VN_ADPCM_SNAPSHOT_PLAY_FRAMES() (adpcm_voice_snapshot.play_frames ? (uint16_t)adpcm_voice_snapshot.play_frames : 1u)
-#define VN_ADPCM_BUFFERED_END_GUARD_FRAMES 4u
-#define VN_ADPCM_BUFFERED_PLAY_FRAMES() (adpcm_voice_snapshot.play_frames > VN_ADPCM_BUFFERED_END_GUARD_FRAMES ? (uint16_t)(adpcm_voice_snapshot.play_frames - VN_ADPCM_BUFFERED_END_GUARD_FRAMES) : 1u)
 #define VN_ADPCM_BUFFERED_SAFE_BYTES 32767u
-#define VN_ADPCM_BUFFERED_HARDWARE_LENGTH 0xffffu
 /* Compatibility knobs retained for call-site shape. CD-backed voices now use the
    direct SCSI async ADPCM_RAM destination, so these no longer size BIOS CD read
    commands; local RAM fallback still uses the ADPCM busy wait below. */
 #define VN_ADPCM_MESSAGE_READ_CHUNK_SECTORS 8u
 #define VN_ADPCM_PRELOAD_READ_CHUNK_SECTORS 8u
-#define VN_PCD_IRQ_STATUS_ADPCM_END 0x08u
 #define VN_SATB_ADDR 0x7f00u
 #define VN_SPRITE_PATTERN_END_BASE (VN_SATB_ADDR / 32u)
 /* Max positional cells per sprite sheet whose cell_map we cache (1 byte/cell).
@@ -179,6 +175,7 @@ typedef struct {
 #define VN_EXEC_CONTINUE 0u
 #define VN_EXEC_WAIT 1u
 #define VN_EXEC_RESTART 2u
+#define VN_EXEC_CACHE_WAIT 3u
 #define VN_COMMAND_STEP_GUARD 1024u
 #define VN_BG_IMPLICIT_FADE_FRAMES 6u
 /* Post-BIOS settle sampler bound for one CD transfer chunk. The CD BIOS helper

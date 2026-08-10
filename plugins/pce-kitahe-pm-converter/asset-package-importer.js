@@ -219,7 +219,22 @@ function spriteCell(details = {}) {
   return { width, height };
 }
 
+function imageTransformFromDetails(details = {}) {
+  const hasTransform = details.sourceSize != null
+    || details.sourceCrop != null
+    || details.outputSize != null;
+  if (!hasTransform) return null;
+  return {
+    sourceSize: details.sourceSize,
+    sourceCrop: details.sourceCrop,
+    outputSize: details.outputSize,
+  };
+}
+
 function provenance(row, inspection) {
+  const imageTransform = String(row.kind || '') === 'image'
+    ? imageTransformFromDetails(row.details || {})
+    : null;
   return {
     version: Number(inspection?.version || 1),
     sourceKey: String(row.sourceKey || ''),
@@ -227,6 +242,7 @@ function provenance(row, inspection) {
     source: String(row.source || ''),
     manifestFileName: String(inspection?.manifestFileName || fileName(inspection?.manifestPath)),
     row: Number(row.lineNumber || row.row || 0),
+    ...(imageTransform ? { imageTransform } : {}),
   };
 }
 

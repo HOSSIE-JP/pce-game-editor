@@ -1,0 +1,4 @@
+interface:
+  display_name: "PCE VN Author"
+  short_description: "Design and script a PC Engine visual novel"
+  default_prompt: "Design a visual novel scenario and produce a validated PCE VN scene JSON for this project."

@@ -25,6 +25,7 @@ const PCE_PSG_MIDI_IMPORTER = 'Internal MIDI -> PSG step importer';
 const PCE_PSG_VGM_IMPORTER = 'Internal VGM/VGZ -> PSG step importer';
 const PCE_PSG_JSON_IMPORTER = 'PCE PSG JSON importer';
 const PCE_PSG_QUANTIZER_VERSION = psgQuantize.PSG_QUANTIZER_VERSION || 2;
+const PCE_MIDI_PSG_IMPORT_VERSION = midiImporter.MIDI_PSG_IMPORT_VERSION || 1;
 const SUPPORTED_TYPES = new Set(['image', 'sprite', 'psg-sequence', 'psg-song', 'psg-sfx', 'adpcm', 'cdda-warning', 'cdda-track', 'tileset', 'tilemap', 'palette']);
 const IMAGE_EXTENSIONS = new Set(['.png', '.bmp', '.webp']);
 const AUDIO_EXTENSIONS = new Set(['.wav', '.mp3']);
@@ -202,6 +203,43 @@ function normalizeKitahePmLogicalSource(value, kind) {
   return kind === 'image' ? normalizedParts.join(' + ') : normalizedParts[0];
 }
 
+function normalizeKitahePmImageTransform(value, kind) {
+  if (value == null) return null;
+  if (kind !== 'image') throw new Error('kitahePm imageTransformはimage provenance専用です');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('kitahePm imageTransformが不正です');
+  }
+  const integer = (raw, label, minimum) => {
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed) || parsed < minimum || parsed > 65535) {
+      throw new Error(`kitahePm imageTransform.${label}が不正です`);
+    }
+    return parsed;
+  };
+  const size = (raw, label) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`kitahePm imageTransform.${label}が不正です`);
+    }
+    return {
+      width: integer(raw.width, `${label}.width`, 1),
+      height: integer(raw.height, `${label}.height`, 1),
+    };
+  };
+  const sourceSize = size(value.sourceSize, 'sourceSize');
+  const outputSize = size(value.outputSize, 'outputSize');
+  const sourceCropSize = size(value.sourceCrop, 'sourceCrop');
+  const sourceCrop = {
+    x: integer(value.sourceCrop?.x, 'sourceCrop.x', 0),
+    y: integer(value.sourceCrop?.y, 'sourceCrop.y', 0),
+    ...sourceCropSize,
+  };
+  if (sourceCrop.x + sourceCrop.width > sourceSize.width
+    || sourceCrop.y + sourceCrop.height > sourceSize.height) {
+    throw new Error('kitahePm imageTransform.sourceCropがsourceSize外です');
+  }
+  return { sourceSize, sourceCrop, outputSize };
+}
+
 function normalizeKitahePmProvenance(value) {
   const raw = value && typeof value === 'object' ? value : null;
   if (!raw || Number(raw.version) !== KITAHE_PM_PROVENANCE_VERSION) {
@@ -222,6 +260,7 @@ function normalizeKitahePmProvenance(value) {
   }
   const row = Number(raw.row);
   if (!Number.isInteger(row) || row <= 0) throw new Error('kitahePm rowが不正です');
+  const imageTransform = normalizeKitahePmImageTransform(raw.imageTransform, kind);
   return {
     version: KITAHE_PM_PROVENANCE_VERSION,
     sourceKey,
@@ -229,6 +268,7 @@ function normalizeKitahePmProvenance(value) {
     source: normalizeKitahePmLogicalSource(raw.source, kind),
     manifestFileName,
     row,
+    ...(imageTransform ? { imageTransform } : {}),
   };
 }
 
@@ -2147,6 +2187,7 @@ function midiImportOptionsFromPayload(payload = {}) {
     'drumMode',
     'drumVolumeScale',
     'toneVolumeScale',
+    'velocityMode',
     'minVelocity',
     'voicePriority',
     'patternDetail',
@@ -3675,6 +3716,7 @@ function psgAssetNeedsRegeneration(projectDir, asset) {
   const stats = psgImportedStats(asset, kind);
   if (!Array.isArray(options.pattern) || !options.pattern.length) return true;
   if (stats.quantizerVersion !== PCE_PSG_QUANTIZER_VERSION) return true;
+  if (kind === 'midi' && stats.midiImportVersion !== PCE_MIDI_PSG_IMPORT_VERSION) return true;
   if (!psgImportedGridMatchesCurrentBpm(asset)) return true;
   return false;
 }
@@ -3689,10 +3731,19 @@ function regeneratePsgImportedAsset(projectDir, asset) {
   const input = fs.readFileSync(sourceAbs);
   const type = asset.type === 'psg-sfx' ? 'psg-sfx' : 'psg-song';
   const imported = asset.data?.import || {};
+  const importedStats = psgImportedStats(asset, kind);
+  const midiOptions = { ...(imported.midiOptions || {}) };
+  if (kind === 'midi' && importedStats.midiImportVersion !== PCE_MIDI_PSG_IMPORT_VERSION) {
+    // Version 1 always persisted its quiet 35% drum default, even when the
+    // caller omitted it. Promote that old default along with the new full
+    // velocity mode; retain genuinely distinct user scales.
+    if (midiOptions.drumVolumeScale === 35) midiOptions.drumVolumeScale = 100;
+    if (!midiOptions.velocityMode) midiOptions.velocityMode = 'full';
+  }
   const converted = kind === 'midi'
     ? midiImporter.convertMidiToPsg(input, {
         bpm: options.bpm,
-        ...(imported.midiOptions || {}),
+        ...midiOptions,
       })
     : vgmImporter.convertVgmToPsg(input, { bpm: options.bpm });
   return normalizeAsset({

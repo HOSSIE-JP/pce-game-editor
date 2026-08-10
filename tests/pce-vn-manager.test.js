@@ -1863,6 +1863,102 @@ test('PCE VN manager injects internal ADPCM preload before voiced messages', () 
   assert.equal(commandRecord(pack, 3).type, vnManager.VN_COMMAND_MESSAGE);
 });
 
+test('PCE VN manager preserves authored ADPCM Audio timing without deferred playback flags', () => {
+  const projectDir = makeTempDir('pce-vn-immediate-adpcm-');
+  const vnManager = loadVnManager();
+  const generatedFiles = {
+    'assets/generated/voice/adpcm.bin': 256,
+    'assets/generated/bg/tiles.bin': 18432,
+    'assets/generated/bg/map_vram.bin': 2048,
+  };
+  for (const [relativePath, size] of Object.entries(generatedFiles)) {
+    const filePath = path.join(projectDir, relativePath);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, Buffer.alloc(size, 0));
+  }
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), {
+    version: 2,
+    assets: [
+      {
+        id: 'voice',
+        type: 'adpcm',
+        data: { generated: { outputFile: 'assets/generated/voice/adpcm.bin', byteLength: 256 } },
+      },
+      {
+        id: 'bg',
+        type: 'image',
+        data: { generated: {
+          tilesFile: 'assets/generated/bg/tiles.bin',
+          mapVramFile: 'assets/generated/bg/map_vram.bin',
+        } },
+      },
+    ],
+  });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'visual_chain',
+    scenes: [
+      {
+        id: 'visual_chain',
+        commands: [
+          { type: 'audio', kind: 'adpcm', action: 'play', assetId: 'voice' },
+          { type: 'effect', effect: 'fadeIn', frames: 0 },
+          { type: 'background', assetId: 'bg', transition: 'fade', fadeOutFrames: 30, fadeInFrames: 30 },
+          { type: 'message', text: 'A' },
+        ],
+      },
+      {
+        id: 'immediate',
+        commands: [
+          { type: 'audio', kind: 'adpcm', action: 'play', assetId: 'voice' },
+          { type: 'wait', frames: 30 },
+          { type: 'background', assetId: 'bg' },
+          { type: 'message', text: 'B' },
+        ],
+      },
+      {
+        id: 'cache_load',
+        commands: [
+          { type: 'audio', kind: 'adpcm', action: 'play', assetId: 'voice' },
+          { type: 'cache', action: 'load', scope: 'bg', assetId: 'bg' },
+          { type: 'wait', frames: 30 },
+        ],
+      },
+      {
+        id: 'cache_clear',
+        commands: [
+          { type: 'audio', kind: 'adpcm', action: 'play', assetId: 'voice' },
+          { type: 'cache', action: 'clear', scope: 'visual' },
+          { type: 'wait', frames: 30 },
+        ],
+      },
+    ],
+  });
+
+  const generated = vnManager.generateVnSources(projectDir);
+  const header = fs.readFileSync(generated.headerPath, 'utf8');
+  const visualPack = readPack(projectDir, generated.scenePackPaths[0]);
+  const immediatePack = readPack(projectDir, generated.scenePackPaths[1]);
+  const cacheLoadPack = readPack(projectDir, generated.scenePackPaths[2]);
+  const cacheClearPack = readPack(projectDir, generated.scenePackPaths[3]);
+  const visualAudio = commandRecord(visualPack, 0);
+  const immediateAudio = commandRecord(immediatePack, 0);
+  const cacheLoadAudio = commandRecord(cacheLoadPack, 0);
+  const cacheClearAudio = commandRecord(cacheClearPack, 0);
+
+  assert.equal(vnManager.VN_AUDIO_DEFER_UNTIL_WAIT, undefined);
+  assert.doesNotMatch(header, /PCE_VN_AUDIO_DEFER_UNTIL_WAIT/);
+  assert.equal(visualAudio.type, vnManager.VN_COMMAND_AUDIO);
+  assert.equal(visualAudio.arg1, 0);
+  assert.equal(commandRecord(visualPack, 1).type, vnManager.VN_COMMAND_EFFECT);
+  assert.equal(commandRecord(visualPack, 2).type, vnManager.VN_COMMAND_BACKGROUND);
+  assert.equal(commandRecord(visualPack, 3).type, vnManager.VN_COMMAND_MESSAGE);
+  assert.equal(immediateAudio.type, vnManager.VN_COMMAND_AUDIO);
+  assert.equal(immediateAudio.arg1, 0);
+  assert.equal(cacheLoadAudio.arg1, 0);
+  assert.equal(cacheClearAudio.arg1, 0);
+});
+
 test('PCE VN manager resolves control-flow labels after internal ADPCM preload injection', () => {
   const projectDir = makeTempDir('pce-vn-control-flow-preload-');
   const vnManager = loadVnManager();
@@ -3343,7 +3439,7 @@ test('PCE VN runtime cache clear only invalidates non-destructive cache flags', 
   assert.doesNotMatch(clearHelperSource, /load_visual_cache_code\(\)|VN_VISUAL_CACHE_OP_CLEAR_RUNTIME_CACHE|pce_cdb_cd_read/);
   assert.doesNotMatch(clearImplSource + clearHelperSource, /pce_cdb_adpcm_stop|pce_cdb_adpcm_reset|stop_adpcm_voice|display_disable|clear_screen_map|clear_sprites|sprite_slots\[|pce_editor_vram_copy|upload_sprite_table/);
   assert.match(executeCommandSource, /command->type == PCE_VN_COMMAND_CACHE[\s\S]*command->flags == PCE_VN_CACHE_ACTION_CLEAR[\s\S]*clear_runtime_cache\(command->arg0\);/);
-  assert.match(executeCommandSource, /command->flags == PCE_VN_CACHE_ACTION_LOAD[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);[\s\S]*begin_runtime_cache_load\(command->arg0, command->asset_index, command->slot, command->x, command->y\);[\s\S]*wait_frames_remaining = 1u;[\s\S]*return VN_EXEC_WAIT;/);
+  assert.match(executeCommandSource, /command->flags == PCE_VN_CACHE_ACTION_LOAD[\s\S]*VN_MAP_BANK130_FOR_CODE\(\);[\s\S]*begin_runtime_cache_load\(command->arg0, command->asset_index, command->slot, command->x, command->y\);[\s\S]*wait_frames_remaining = 1u;[\s\S]*return VN_EXEC_CACHE_WAIT;/);
   assert.match(source, /static uint8_t VN_BANKED_CODE run_commands_until_wait\(void\)[\s\S]*if \(service_runtime_cache_load\(\)\)[\s\S]*wait_frames_remaining = 1u;[\s\S]*return 1u;/);
   assert.doesNotMatch(executeCommandSource, /PCE_VN_COMMAND_PRELOAD/);
 });

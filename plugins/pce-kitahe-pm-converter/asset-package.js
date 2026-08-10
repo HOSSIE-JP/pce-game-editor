@@ -121,6 +121,18 @@ function parsePositiveInteger(value, label, row, fallback = 0) {
   return parsed;
 }
 
+function imageTransformFromDetails(details = {}) {
+  const hasTransform = details.sourceSize != null
+    || details.sourceCrop != null
+    || details.outputSize != null;
+  if (!hasTransform) return null;
+  return {
+    sourceSize: details.sourceSize,
+    sourceCrop: details.sourceCrop,
+    outputSize: details.outputSize,
+  };
+}
+
 function expectedSourceKey(row) {
   if (row.kind === 'image') return converter.assetSourceKey('image', row.details.parts, row.details);
   if (row.kind === 'p04') {
@@ -148,6 +160,10 @@ function inspectImage(row, bytes) {
       height: decoded.height,
       byteLength: bytes.length,
     };
+    if (row.details.outputSize && (Number(row.details.outputSize.width) !== decoded.width
+      || Number(row.details.outputSize.height) !== decoded.height)) {
+      addError(row, 'image details.outputSizeとPNG寸法が一致しません');
+    }
     if (row.targetType === 'background') {
       if ((decoded.width % 8) !== 0 || (decoded.height % 8) !== 0) {
         addError(row, 'BG PNGは幅・高さとも8px境界である必要があります');
@@ -362,6 +378,9 @@ function inspectAssetPackage(payload = {}, options = {}) {
     const targetAssetType = row.targetType === 'background' ? 'image' : row.targetType;
     row.targetAssetType = targetAssetType;
     try {
+      const imageTransform = row.kind === 'image'
+        ? imageTransformFromDetails(row.details)
+        : null;
       const importTarget = assetManager.resolveKitahePmImportTarget(existingAssets, row.id, targetAssetType, {
         replacePolicy: 'owned-source-key',
         kitahePm: {
@@ -371,6 +390,7 @@ function inspectAssetPackage(payload = {}, options = {}) {
           source: row.source,
           manifestFileName: manifest.manifestFileName,
           row: record.lineNumber,
+          ...(imageTransform ? { imageTransform } : {}),
         },
       });
       row.action = importTarget.action;

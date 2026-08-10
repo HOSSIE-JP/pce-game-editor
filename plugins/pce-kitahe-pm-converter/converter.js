@@ -14,9 +14,20 @@ const MESSAGE_ROWS = 4;
 const MESSAGE_PAGE_GLYPHS = MESSAGE_COLUMNS * MESSAGE_ROWS - 1;
 const KITAHE_SOURCE_SCREEN_WIDTH = 640;
 const PCE_IMPORTED_BG_WIDTH = 224;
+const PCE_IMPORTED_BG_TILE_SIZE = 8;
+const PCE_IMPORTED_DEFAULT_BG_X_TILES = 2;
 const PCE_IMPORTED_SPRITE_Y = 17;
 const PCE_IMPORTED_BG_FADE_FRAMES = 30;
 const UNSUPPORTED_FONT_PLACEHOLDER = '□';
+const DEFAULT_PROTAGONIST_NAME = 'ハドソン';
+const PROTAGONIST_NAME_TOKENS = Object.freeze([
+  '【主人公】',
+  '\\主人公',
+  '＼主人公',
+  '￥主人公',
+  '主人公',
+].sort((left, right) => Array.from(right).length - Array.from(left).length));
+const PROTAGONIST_NAME_TOKEN_SET = new Set(PROTAGONIST_NAME_TOKENS);
 
 const BUTTON_NAMES = new Set([
   'ABTN', 'BBTN', 'XBTN', 'YBTN', 'START', 'STARTBTN',
@@ -60,6 +71,16 @@ const OMITTED_COMMANDS = new Set([
   'OPTION', 'VIEW', 'VIEWC', 'VIEWS', 'VIEWX', 'SETS', 'CLEARV',
   'READREC', 'WRITEREC', 'RMODE',
 ]);
+
+function isSupportedSpriteVisibilityInstruction(instruction) {
+  if (!instruction) return false;
+  if (instruction.op === 'CLEARCG'
+    || instruction.op === 'UNLOADCG'
+    || instruction.op === 'UNLOAD'
+    || instruction.op === 'UNL') return true;
+  return instruction.op === 'DCG'
+    && String(instruction.args[1] || '').trim().toUpperCase() === 'OFF';
+}
 
 const FLOW_BOUNDARY_COMMANDS = new Set([
   'LABEL', 'GOTO', 'GOT', 'CALL', 'RETURN', 'END', 'IF',
@@ -890,15 +911,15 @@ function addRequirement(requirements, kind, source, occurrence, details = {}) {
 
 function replaceNames(text, replacements, protagonistName) {
   let result = String(text || '');
+  const protagonist = String(protagonistName ?? '').trim();
   Array.from(replacements.entries())
-    .filter(([key]) => key)
+    .filter(([key]) => key && !(protagonist && PROTAGONIST_NAME_TOKEN_SET.has(key)))
     .sort((left, right) => right[0].length - left[0].length)
     .forEach(([key, value]) => {
       result = result.split(key).join(value);
     });
-  const protagonist = String(protagonistName || '').trim();
   if (protagonist) {
-    ['【主人公】', '主人公', '\\主人公', '￥主人公'].forEach((key) => {
+    PROTAGONIST_NAME_TOKENS.forEach((key) => {
       result = result.split(key).join(protagonist);
     });
   }
@@ -931,7 +952,48 @@ function scriptTextColor(value, constants = new Map()) {
     .join('')}`;
 }
 
-function importedSpriteX(value, constants, instruction, diagnostics) {
+function importedBackgroundLayout(assetMapping, assetById) {
+  const asset = assetById.get(String(assetMapping?.assetId || ''));
+  const rawWidth = asset?.options?.width ?? asset?.data?.generated?.width;
+  const width = Number(rawWidth);
+  const xTiles = Number.isFinite(Number(assetMapping?.x))
+    ? Math.round(Number(assetMapping.x))
+    : PCE_IMPORTED_DEFAULT_BG_X_TILES;
+  return {
+    width: Number.isFinite(width) && width > 0 ? Math.round(width) : PCE_IMPORTED_BG_WIDTH,
+    offsetX: xTiles * PCE_IMPORTED_BG_TILE_SIZE,
+  };
+}
+
+function defaultImportedBackgroundLayout() {
+  return {
+    width: PCE_IMPORTED_BG_WIDTH,
+    offsetX: PCE_IMPORTED_DEFAULT_BG_X_TILES * PCE_IMPORTED_BG_TILE_SIZE,
+  };
+}
+
+function importedSpriteLayout(assetMapping, assetById) {
+  const asset = assetById.get(String(assetMapping?.assetId || ''));
+  const transform = asset?.data?.import?.kitahePm?.imageTransform;
+  const sourceCropX = Number(transform?.sourceCrop?.x);
+  const rawWidth = asset?.options?.width
+    ?? asset?.data?.generated?.width
+    ?? transform?.outputSize?.width;
+  const width = Number(rawWidth);
+  return {
+    sourceCropX: Number.isFinite(sourceCropX) && sourceCropX >= 0 ? Math.round(sourceCropX) : 0,
+    width: Number.isFinite(width) && width > 0 ? Math.round(width) : 0,
+  };
+}
+
+function importedSpriteX(
+  value,
+  constants,
+  instruction,
+  diagnostics,
+  backgroundLayout = null,
+  spriteLayout = null,
+) {
   const sourceX = cleanToken(value) ? numericValue(value, constants) : 0;
   if (sourceX === null) {
     diagnostics.push(diagnostic(
@@ -942,13 +1004,21 @@ function importedSpriteX(value, constants, instruction, diagnostics) {
     ));
     return 0;
   }
-  const scaled = Math.round(sourceX * PCE_IMPORTED_BG_WIDTH / KITAHE_SOURCE_SCREEN_WIDTH);
-  const clamped = Math.max(0, Math.min(319, scaled));
-  if (clamped !== scaled) {
+  const layout = backgroundLayout || defaultImportedBackgroundLayout();
+  const sprite = spriteLayout || { sourceCropX: 0, width: 0 };
+  const scaled = Math.round(
+    (sourceX + sprite.sourceCropX) * layout.width / KITAHE_SOURCE_SCREEN_WIDTH,
+  );
+  const translated = layout.offsetX + scaled;
+  const minX = Math.max(0, Math.min(319, layout.offsetX));
+  const bgRight = layout.offsetX + layout.width - Math.max(1, sprite.width);
+  const maxX = Math.max(minX, Math.min(319, bgRight));
+  const clamped = Math.max(minX, Math.min(maxX, translated));
+  if (clamped !== translated) {
     diagnostics.push(diagnostic(
       'warning',
       'sprite-x-clamped',
-      `ICGのSprite X座標 ${sourceX} をPCE座標 ${scaled} へ縮小後、表示範囲 ${clamped} へ補正します。`,
+      `ICGのSprite X座標 ${sourceX} と元crop X ${sprite.sourceCropX}pxをBG幅${layout.width}px・表示X${layout.offsetX}pxでPCE座標 ${translated} へ変換後、Sprite幅${sprite.width || '不明'}pxを含むBG内 ${clamped} へ補正します。`,
       instruction,
     ));
   }
@@ -1707,7 +1777,10 @@ function analyzeInstructionFacts(programs, reachability, options = {}) {
         pendingMenu = {
           instruction,
           id: String(instruction.args[0] || ''),
-          choices: instruction.args.slice(3).map((choice) => cleanToken(choice)).filter(Boolean),
+          choices: instruction.args.slice(3)
+            .map((choice) => cleanToken(choice))
+            .filter(Boolean)
+            .map((choice) => replaceNames(choice, replacements, options.protagonistName)),
         };
       } else if ((instruction.op === 'ONRMG' || instruction.op === 'ONMG') && pendingMenu) {
         instructionFact.menu = pendingMenu;
@@ -1761,7 +1834,8 @@ function analyzeInstructionFacts(programs, reachability, options = {}) {
           'BG・キャラクターを対象とするCG alpha FADEは省略し、BG切替はPCE VNのfadeに任せます。',
           instruction,
         ));
-      } else if (OMITTED_COMMANDS.has(instruction.op)) {
+      } else if (OMITTED_COMMANDS.has(instruction.op)
+        && !isSupportedSpriteVisibilityInstruction(instruction)) {
         diagnostics.push(diagnostic(
           'warning',
           'command-omitted',
@@ -1794,6 +1868,7 @@ function cloneFactState(state) {
     ])),
     cgLinks: new Map(Array.from(state.cgLinks, ([key, value]) => [key, { ...value }])),
     cgPlacements: new Map(Array.from(state.cgPlacements, ([key, value]) => [key, { ...value }])),
+    cgRequirementKeys: new Map(state.cgRequirementKeys || []),
     currentPcmDirectory: state.currentPcmDirectory,
     p04Slots: new Map(state.p04Slots),
     currentColorToken: state.currentColorToken,
@@ -1816,6 +1891,7 @@ function emptyFactState() {
     cgSlots: new Map(),
     cgLinks: new Map(),
     cgPlacements: new Map(),
+    cgRequirementKeys: new Map(),
     currentPcmDirectory: '',
     p04Slots: new Map(),
     currentColorToken: '',
@@ -1924,7 +2000,18 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
     if (!node || !input) continue;
     const state = cloneFactState(input);
     const instruction = node.instruction;
-    const instructionFact = { constants: new Map(state.constants) };
+    const instructionFact = {
+      constants: new Map(state.constants),
+      activeCg: new Map(
+        Array.from(state.cgRequirementKeys || [], ([slot, requirementKey]) => {
+          const placement = state.cgPlacements.get(slot);
+          return [slot, {
+            requirementKey,
+            placement: placement ? { ...placement } : null,
+          }];
+        }).filter(([, value]) => value.placement),
+      ),
+    };
     facts.set(nodeKey, instructionFact);
     // Keep a location fallback for callers/tests that do not have the expanded
     // CALL-state key. Conversion itself always reads the node-keyed fact.
@@ -1956,6 +2043,27 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
       if (!relation) return;
       state.cgLinks.delete(relation.left);
       state.cgLinks.delete(relation.right);
+    };
+    const resolveUnloadSlots = (rawStart, rawCount) => {
+      const start = resolveSlot(rawStart, state.constants);
+      if (!start) return [];
+      const countValue = rawCount && cleanToken(rawCount)
+        ? numericValue(rawCount, state.constants)
+        : 1;
+      const count = countValue === null ? 1 : Math.max(1, Math.round(countValue));
+      const linked = state.cgLinks.get(start);
+      if (count > 1 && linked) return [linked.left, linked.right];
+      return Array.from({ length: count }, (_, index) => (
+        numericValue(start, state.constants) !== null
+          ? String(Math.round(numericValue(start, state.constants) + index))
+          : (index ? `${start}_${index}` : start)
+      ));
+    };
+    const clearCgVisibility = (slots) => {
+      slots.forEach((slot) => {
+        state.cgRequirementKeys.delete(slot);
+        state.cgPlacements.delete(slot);
+      });
     };
 
     if (state.pendingVoiceKey && isFlowBoundaryInstruction(instruction)) {
@@ -2097,6 +2205,8 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
       const destinationSlot = resolveSlot(instruction.args[1], state.constants);
       unlinkCgSlot(destinationSlot);
       state.cgSlots.delete(destinationSlot);
+      state.cgRequirementKeys.delete(destinationSlot);
+      state.cgPlacements.delete(destinationSlot);
       const sourceRecord = state.cgSlots.get(sourceSlot);
       if (sourceRecord) state.cgSlots.set(destinationSlot, { ...sourceRecord, crop: { ...sourceRecord.crop } });
       const sourceLink = state.cgLinks.get(sourceSlot);
@@ -2115,10 +2225,27 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
           state.cgLinks.set(copiedOther, link);
         }
       }
+    } else if (instruction.op === 'DCG') {
+      if (String(instruction.args[1] || '').trim().toUpperCase() === 'OFF') {
+        clearCgVisibility([resolveSlot(instruction.args[0], state.constants)]);
+      }
+    } else if (instruction.op === 'UNLOADCG' || instruction.op === 'UNLOAD' || instruction.op === 'UNL') {
+      const slots = resolveUnloadSlots(instruction.args[0], instruction.args[1]);
+      clearCgVisibility(slots);
+      const countValue = instruction.args[1] && cleanToken(instruction.args[1])
+        ? numericValue(instruction.args[1], state.constants)
+        : 1;
+      if (countValue !== 0) {
+        slots.forEach((slot) => {
+          unlinkCgSlot(slot);
+          state.cgSlots.delete(slot);
+        });
+      }
     } else if (instruction.op === 'CLEARCG') {
       state.cgSlots.clear();
       state.cgLinks.clear();
       state.cgPlacements.clear();
+      state.cgRequirementKeys.clear();
     } else if (instruction.op === 'ICG') {
       const image = imageRecordForSlot(instruction.args[0]);
       const slot = resolveSlot(instruction.args[0], state.constants);
@@ -2138,6 +2265,7 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
           { parts: image.parts, crops: image.crops, orderedSlots: image.orderedSlots, split: image.parts.length > 1 },
         );
         instructionFact.requirementKey = requirement.key;
+        state.cgRequirementKeys.set(slot, requirement.key);
       } else {
         diagnostics.push(diagnostic(
           'error',
@@ -2296,7 +2424,10 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
     }
 
     if (instruction.op === 'MENU') {
-      const choices = instruction.args.slice(3).map((choice) => cleanToken(choice)).filter(Boolean);
+      const choices = instruction.args.slice(3)
+        .map((choice) => cleanToken(choice))
+        .filter(Boolean)
+        .map((choice) => replaceNames(choice, state.replacements, options.protagonistName));
       state.pendingMenu = {
         instruction,
         id: String(instruction.args[0] || ''),
@@ -2478,7 +2609,8 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
       }
     } else if (instruction.op === 'SCREEN') {
       diagnostics.push(diagnostic('warning', 'screen-approximated', 'SCREENをPCE VNのfade/flash/blankへ簡略化します。', instruction));
-    } else if (OMITTED_COMMANDS.has(instruction.op)) {
+    } else if (OMITTED_COMMANDS.has(instruction.op)
+      && !isSupportedSpriteVisibilityInstruction(instruction)) {
       diagnostics.push(diagnostic('warning', 'command-omitted', `${instruction.op} は初版変換で省略します。`, instruction));
     }
 
@@ -2526,7 +2658,11 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
   };
 }
 
-function inspectScripts({ files = [], entryScript = '', protagonistName = '' } = {}) {
+function inspectScripts({
+  files = [],
+  entryScript = '',
+  protagonistName = DEFAULT_PROTAGONIST_NAME,
+} = {}) {
   const programs = files.map((file) => parseScrBuffer(file.path, file.buffer));
   const reachability = buildReachability(programs, entryScript || files[0]?.path || '');
   const analysis = analyzeInstructionFactsCfg(programs, reachability, { protagonistName });
@@ -2903,19 +3039,92 @@ function compileScreenEffect(instruction, constants) {
   };
 }
 
-function compileSpriteVisibilityCommand(assetMapping, fade, instruction, constants, diagnostics) {
+function compileSpriteVisibilityCommand(
+  assetMapping,
+  fade,
+  instruction,
+  constants,
+  diagnostics,
+  backgroundLayout,
+  assetById,
+) {
   const sourceX = fade.placement?.x ?? 0;
   return {
     type: 'sprite',
     slot: assetMapping.slot,
     assetId: assetMapping.assetId,
-    x: importedSpriteX(sourceX, constants, instruction, diagnostics),
+    x: importedSpriteX(
+      sourceX,
+      constants,
+      instruction,
+      diagnostics,
+      backgroundLayout,
+      importedSpriteLayout(assetMapping, assetById),
+    ),
     y: PCE_IMPORTED_SPRITE_Y,
     animationId: assetMapping.animationId,
     flipX: false,
     flipY: false,
     visible: fade.toOpacity > 0,
   };
+}
+
+function mappedSpriteSlots(normalizedMapping) {
+  const slots = new Set();
+  Object.values(normalizedMapping?.assets || {}).forEach((assetMapping) => {
+    if (assetMapping?.action !== 'map' || assetMapping.display !== 'sprite') return;
+    const slot = Number(assetMapping.slot);
+    if (Number.isInteger(slot) && slot >= 0 && slot <= 3) slots.add(slot);
+  });
+  return slots;
+}
+
+function sourceSlotsForUnload(instruction, constants) {
+  const start = resolveSlot(instruction.args[0], constants);
+  if (!start) return new Set();
+  const countValue = instruction.args[1] && cleanToken(instruction.args[1])
+    ? numericValue(instruction.args[1], constants)
+    : 1;
+  const count = countValue === null ? 1 : Math.max(1, Math.round(countValue));
+  const startNumber = numericValue(start, constants);
+  if (startNumber === null) return new Set([start]);
+  return new Set(Array.from({ length: count }, (_, index) => String(Math.round(startNumber + index))));
+}
+
+function compileExplicitSpriteHideCommands({
+  instruction,
+  fact,
+  constants,
+  normalizedMapping,
+  clearAll = false,
+} = {}) {
+  const byPceSlot = new Map();
+  if (clearAll) {
+    mappedSpriteSlots(normalizedMapping).forEach((slot) => byPceSlot.set(slot, true));
+  } else {
+    const targetSourceSlots = instruction.op === 'DCG'
+      ? new Set([resolveSlot(instruction.args[0], constants)])
+      : sourceSlotsForUnload(instruction, constants);
+    const activeCg = fact?.activeCg instanceof Map ? fact.activeCg : new Map();
+    activeCg.forEach((active, sourceSlot) => {
+      if (!targetSourceSlots.has(sourceSlot)) return;
+      const assetMapping = normalizedMapping.assets[active.requirementKey];
+      if (assetMapping?.action !== 'map' || assetMapping.display !== 'sprite') return;
+      const slot = Number(assetMapping.slot);
+      if (Number.isInteger(slot) && slot >= 0 && slot <= 3) byPceSlot.set(slot, true);
+    });
+  }
+  return [...byPceSlot.keys()].sort((left, right) => left - right).map((slot) => ({
+    type: 'sprite',
+    slot,
+    assetId: '',
+    x: 0,
+    y: PCE_IMPORTED_SPRITE_Y,
+    animationId: '',
+    flipX: false,
+    flipY: false,
+    visible: false,
+  }));
 }
 
 function convertScripts(analysis, {
@@ -2932,6 +3141,8 @@ function convertScripts(analysis, {
   }
 
   const normalizedMapping = mappingValidation.normalized;
+  const assetById = new Map((assetCatalog || []).map((asset) => [String(asset?.id || ''), asset]));
+  let activeBackgroundLayout = defaultImportedBackgroundLayout();
   const grouped = buildBasicBlocks(analysis, safeIdentifier(namespace, 'khpm', 24));
   const { blocks, blockByNode, entryBlockIndex } = grouped;
   if (blocks.length > MAX_SCENES) {
@@ -3029,7 +3240,14 @@ function convertScripts(analysis, {
               type: 'sprite',
               slot: assetMapping.slot,
               assetId: assetMapping.assetId,
-              x: importedSpriteX(instruction.args[1], nodeConstants, instruction, diagnostics),
+              x: importedSpriteX(
+                instruction.args[1],
+                nodeConstants,
+                instruction,
+                diagnostics,
+                activeBackgroundLayout,
+                importedSpriteLayout(assetMapping, assetById),
+              ),
               y: PCE_IMPORTED_SPRITE_Y,
               animationId: assetMapping.animationId,
               flipX: false,
@@ -3037,6 +3255,7 @@ function convertScripts(analysis, {
               visible: initialOpacity === null || initialOpacity > 0,
             });
           } else {
+            activeBackgroundLayout = importedBackgroundLayout(assetMapping, assetById);
             commands.push({
               type: 'background',
               assetId: assetMapping.assetId,
@@ -3069,6 +3288,8 @@ function convertScripts(analysis, {
             instruction,
             nodeConstants,
             diagnostics,
+            activeBackgroundLayout,
+            assetById,
           ));
           diagnostics.push(diagnostic(
             'warning',
@@ -3086,6 +3307,29 @@ function convertScripts(analysis, {
             instruction,
           ));
         }
+      } else if (instruction.op === 'CLEARCG') {
+        commands.push(...compileExplicitSpriteHideCommands({
+          instruction,
+          fact,
+          constants: nodeConstants,
+          normalizedMapping,
+          clearAll: true,
+        }));
+      } else if (instruction.op === 'DCG'
+        && String(instruction.args[1] || '').trim().toUpperCase() === 'OFF') {
+        commands.push(...compileExplicitSpriteHideCommands({
+          instruction,
+          fact,
+          constants: nodeConstants,
+          normalizedMapping,
+        }));
+      } else if (instruction.op === 'UNLOADCG' || instruction.op === 'UNLOAD' || instruction.op === 'UNL') {
+        commands.push(...compileExplicitSpriteHideCommands({
+          instruction,
+          fact,
+          constants: nodeConstants,
+          normalizedMapping,
+        }));
       } else if (instruction.op === 'PLAYP') {
         const voiceLocation = `${instruction.script}:${instruction.line}`;
         const assetMapping = normalizedMapping.assets[fact.requirementKey];
@@ -3392,7 +3636,7 @@ function conversionSignature({
   files = [],
   selectedScripts = [],
   entryScript = '',
-  protagonistName = '',
+  protagonistName = DEFAULT_PROTAGONIST_NAME,
   targetMedia = '',
   document = {},
   assetCatalog = [],
@@ -3408,7 +3652,7 @@ function conversionSignature({
     })).sort((left, right) => left.path.localeCompare(right.path)),
     selectedScripts: selectedScripts.map(normalizeRelativeScriptPath).sort((left, right) => left.localeCompare(right)),
     entryScript: normalizeRelativeScriptPath(entryScript),
-    protagonistName: String(protagonistName || ''),
+    protagonistName: String(protagonistName ?? ''),
     targetMedia: String(targetMedia || ''),
     document,
     assets: [...(assetCatalog || [])].sort((left, right) => String(left?.id || '').localeCompare(String(right?.id || ''))),
@@ -3420,6 +3664,7 @@ function conversionSignature({
 }
 
 module.exports = {
+  DEFAULT_PROTAGONIST_NAME,
   MAX_CALL_STACK,
   MAX_EXPANDED_STATES,
   MAX_SCENES,

@@ -80,9 +80,9 @@ PCE側では素材種別や寸法を変更せず、生成済みPNGをそのま�
 ここでいう変換済みPNGは、LCG crop・結合・最終出力と同じアスペクト比のsource crop・
 指定出力サイズへのbilinear resizeまでをViewerで完了したものです。8px／Sprite Cell境界は出力サイズだけに適用されます。
 resize modalを開かず、既存のPCE画像importerが内蔵16色変換とBG/Sprite生成を
-行います。P04由来WAVは指定sample rateでADPCM化し、32767 bytesのdirect-buffered
-上限を超える行を分割せずerrorにします。MIDIは既存のMIDI→PSG経路を使い、現行の
-quantizer metadataを保存します。
+行います。P04由来WAVは指定sample rateでADPCM化し、32767 bytesのbuffered
+上限を超える行を分割せずerrorにします。MIDIは既存のMIDI→PSG経路を使い、採用した
+全発音を既定でPSG最大振幅31へ変換して、現行のquantizer / MIDI importer metadataを保存します。
 P04の`sourceKey` identityは`source`、`usage`、`loop`、`PLAYP playbackRate`を含むため、
 同じP04 sourceでも再生rateが異なる参照は別asset要件として扱います。
 
@@ -116,7 +116,8 @@ P04→画像などの型違いはerrorです。SCR converterの自動mappingもp
 Settings > Pluginsで `北へ。PhotoMemories 取込` を有効にすると、CD-ROM2 projectのNovel画面に `北へ。PM取込` が表示されます。プラグインをOFFにした場合とHuCARD projectではボタンを表示しません。ボタンを押し、次の順で設定します。
 
 1. resource rootを選ぶ。root直下に `SCRIPT` directoryが必要です。
-2. 一覧から変換対象のSCRを複数選択し、entry SCRと主人公名を指定する。
+2. 一覧から変換対象のSCRを複数選択し、entry SCRと主人公名を指定する。新規取込の
+   既定名は「ハドソン」で、同じSCR集合・entryの再取込ではsidecarに保存した名前を復元する。
 3. 到達可能な画像・P04・MIDI・GD-DA参照を確認する。source名と既存PCE
    asset名が一致する参照は自動的に割り当てられ、一致しない参照は省略状態になる。
    必要に応じて対応assetを変更するか、カード右上のチェックをOFFにして省略する。
@@ -145,8 +146,11 @@ alpha nibbleは本文色には使いません。保存後は通常のVN message�
 3-bit/channel表示色へ丸められます。値を解決できない場合は行番号付きwarningを残し、
 そのmessageだけ既定の白を使います。
 
-`NAME` の置換はページ分割より先に行います。主人公を表す既知tokenには、
-取込画面で指定した主人公名を優先します。
+`NAME` の置換はページ分割より先に行います。主人公を表す既知token
+（`【主人公】`、`主人公`、`\主人公`、`￥主人公`）は、SCR内の`NAME`命令で
+「こあら」「真人」などへ定義・再定義されていても、取込画面の主人公名を優先します。
+指定名を別の`NAME` keyとして再置換することもありません。空欄を明示した場合だけ
+元SCRの`NAME`定義を使います。この置換は本文だけでなく`MENU`選択肢にも適用します。
 
 ### 画像
 
@@ -162,10 +166,16 @@ alpha nibbleは本文色には使いません。保存後は通常のVN message�
 - カード右上のチェックOFF: 意図的に表示しない
 
 Spriteの座標はmappingでは指定しません。各`ICG`のXを数値・16進値・静的定数として
-解決し、Dreamcast側の640px座標系から`round(ICG X * 224 / 640)`でPCE座標へ
-変換します。PCE VNのX範囲`0..319`を外れる結果は範囲内へ補正し、行番号付きwarningを
-残します。Yはすべて`17`です。同じsprite assetを異なる`ICG`位置で使った場合も、
-各表示commandへ個別のXが入ります。
+解決し、Dreamcast側の640px座標系から、現在のPCE BG assetの幅と表示位置を使って
+`BG表示X（tile X * 8） + round((ICG X + 元source crop X) * BG幅 / 640)`で
+PCE座標へ変換します。元source crop Xは **北へ。PM素材** 一括取込時にViewer manifestの
+`sourceSize` / `sourceCrop` / `outputSize`とともにasset provenanceへ保存します。
+BG assetの幅はassetのpixel幅（通常`224`）から取得し、直前までに変換したBGのtile Xを
+表示位置として使います。対応するBGがまだない場合はPCE VN標準の`224px`幅・tile X=`2`
+（pixel X=`16`）を使います。変換後はSprite assetの出力幅も考慮し、左端だけでなく
+Sprite全幅がBGの左右内側へ収まる範囲へ補正して、行番号付きwarningを残します。
+Yはすべて`17`です。同じsprite assetを異なる`ICG`位置で使った場合も、各表示commandへ
+個別のXが入ります。
 
 単一sourceは拡張子を除いたpathをasset名として照合します。たとえば
 `NEW/AYU/KAPM_001.PVR` は `NEW/AYU/KAPM_001` と一致します。複数画像の
@@ -242,6 +252,9 @@ GOTO / WAITBTN のlabel分岐先はpreload挿入後も同じlabel commandを指�
 `SCREEN`の全画面fade、flash、blankはPCE VNの`effect`へ近似します。
 alpha形式の`FADE`がSprite mapping対象なら、段階的な透明度ではなく同じslotの
 `Visible: false/true`へ近似します。`ICG`の初期opacity 0も非表示で生成します。
+`CLEARCG`、`DCG <slot>, OFF`、`UNLOADCG` / `UNLOAD` / `UNL`で元スクリプトが
+CGを消去・非表示にする場合も、対応するSprite slotへ`Visible: false`を生成します。
+通常のscene切替はSprite状態を保持するため、元スクリプトに消去命令がない場合は表示を引き継ぎます。
 BG対象のalpha `FADE`、9引数の明度系`FADE`、`SCG`、`MCG`、`RCG`、`WCG`、
 `CFADE`など、初版で安全に表現できない演出も省略してwarningへ記録します。
 不明命令も行番号付きwarningとして残します。
@@ -273,7 +286,9 @@ assets/kitahe-pm-conversion-report.json
 
 `kitahe-pm-conversion.json` v1には、選択SCRの相対path、entry、主人公名、
 asset mapping、import namespace、追加時の所有scene IDを保存します。旧v1 schemaとの
-互換用`speakerMappings`は空objectとして保存し、UIや変換には使いません。保存済みmappingは選択SCR集合とentryが一致するimport identityでだけ復元し、直前に扱った別identityのmappingへfallbackしません。絶対source
+互換用`speakerMappings`は空objectとして保存し、UIや変換には使いません。保存済み主人公名と
+mappingは選択SCR集合とentryが一致するimport identityでだけ復元し、直前に扱った別identityの
+値へfallbackしません。保存名が空または未保存の新規取込では「ハドソン」を使います。絶対source
 pathとmessage本文は保存しません。
 
 reportにはsummary、行番号付き診断、asset要件、近似一覧、scene budget、source mapを

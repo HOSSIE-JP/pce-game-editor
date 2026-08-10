@@ -334,6 +334,37 @@ test('Kitahe PM protagonist replacement wins over the general NAME table across 
   assert.equal(message.text, 'PLAYERとPLAYER');
 });
 
+test('Kitahe PM defaults protagonist aliases to Hudson across SCR NAME redefinitions', () => {
+  const analysis = converter.inspectScripts({
+    files: [{
+      path: 'ADV_TEST.SCR',
+      buffer: scr([
+        'NAME 0, 【主人公】, こあら',
+        'NAME 1, 主人公, こあら',
+        'NAME 2, 《※枚》, ５枚',
+        'MSG WIN_MSG, 【主人公】さん／主人公／\\主人公／￥主人公／＼主人公／《※枚》',
+        'WAIT WIN_MSG',
+        'NAME 0, 【主人公】, 真人',
+        'NAME 1, 主人公, 真人',
+        'MSG WIN_MSG, 【主人公】さん',
+        'WAIT WIN_MSG',
+        'END',
+      ].join('\n')),
+    }],
+    entryScript: 'ADV_TEST.SCR',
+  });
+  const converted = converter.convertScripts(analysis, { mapping: {}, assetCatalog: [] });
+  assert.equal(converted.ok, true);
+  const messages = converted.scenes.flatMap((scene) => scene.commands)
+    .filter((command) => command.type === 'message')
+    .map((command) => command.text);
+  assert.deepEqual(messages, [
+    'ハドソンさん／ハドソン／ハドソン／ハドソン／ハドソン／５枚',
+    'ハドソンさん',
+  ]);
+  assert.ok(messages.every((message) => !/こあら|真人|主人公/.test(message)));
+});
+
 test('Kitahe PM ignores legacy speaker mappings even for prototype-like COLOR tokens', () => {
   const analysis = analyze([
     'COLOR WIN_MSG, __proto__',
@@ -466,8 +497,99 @@ test('Kitahe PM image mappings emit speed 3 BG fade and derive Sprite position f
   const spriteCommand = sprite.scenes.flatMap((scene) => scene.commands)
     .find((command) => command.type === 'sprite');
   assert.equal(spriteCommand.slot, 2);
-  assert.equal(spriteCommand.x, Math.round(320 * 224 / 640));
+  assert.equal(spriteCommand.x, (2 * 8) + Math.round(320 * 224 / 640));
   assert.equal(spriteCommand.y, 17);
+
+  const positionedAnalysis = analyze([
+    'CGDIR DIR, \\BG',
+    'LCG 1, BACK, 640, 480',
+    'ICG 1, 0, 0',
+    'LCG 0, HERO, 640, 480',
+    'ICG 0, 320, 200',
+    'END',
+  ]);
+  const positionedKeys = positionedAnalysis.requirements.filter((entry) => entry.kind === 'image');
+  const positionedConversion = converter.convertScripts(positionedAnalysis, {
+    mapping: {
+      assets: {
+        [positionedKeys[0].key]: {
+          action: 'map',
+          assetId: 'bg-wide',
+          display: 'background',
+          x: 3,
+          y: 1,
+        },
+        [positionedKeys[1].key]: {
+          action: 'map',
+          assetId: 'hero',
+          display: 'sprite',
+          slot: 0,
+        },
+      },
+    },
+    assetCatalog: [
+      { id: 'bg-wide', type: 'image', options: { width: 208 } },
+      { id: 'hero', type: 'sprite' },
+    ],
+  });
+  assert.equal(positionedConversion.ok, true);
+  const positionedSprite = positionedConversion.scenes.flatMap((scene) => scene.commands)
+    .find((command) => command.type === 'sprite');
+  assert.equal(positionedSprite.x, (3 * 8) + Math.round(320 * 208 / 640));
+
+  const croppedAnalysis = analyze([
+    'CGDIR DIR, \\BG',
+    'LCG 1, BACK, 640, 480',
+    'ICG 1, 0, 0',
+    'LCG 0, HERO, 640, 480',
+    'ICG 0, -64, 200',
+    'ICG 0, 640, 200',
+    'END',
+  ]);
+  const croppedKeys = croppedAnalysis.requirements.filter((entry) => entry.kind === 'image');
+  const croppedConversion = converter.convertScripts(croppedAnalysis, {
+    mapping: {
+      assets: {
+        [croppedKeys[0].key]: {
+          action: 'map',
+          assetId: 'bg',
+          display: 'background',
+          x: 2,
+          y: 0,
+        },
+        [croppedKeys[1].key]: {
+          action: 'map',
+          assetId: 'kapm-hero',
+          display: 'sprite',
+          slot: 0,
+        },
+      },
+    },
+    assetCatalog: [
+      { id: 'bg', type: 'image', options: { width: 224 } },
+      {
+        id: 'kapm-hero',
+        type: 'sprite',
+        options: { width: 96 },
+        data: {
+          import: {
+            kitahePm: {
+              imageTransform: {
+                sourceSize: { width: 512, height: 480 },
+                sourceCrop: { x: 114, y: 0, width: 251, height: 334 },
+                outputSize: { width: 96, height: 128 },
+              },
+            },
+          },
+        },
+      },
+    ],
+  });
+  assert.equal(croppedConversion.ok, true);
+  const croppedSprites = croppedConversion.scenes.flatMap((scene) => scene.commands)
+    .filter((command) => command.type === 'sprite');
+  assert.deepEqual(croppedSprites.map((command) => command.x), [34, 144]);
+  assert.ok(croppedConversion.diagnostics.some((entry) => entry.code === 'sprite-x-clamped'));
 
   const mismatch = converter.convertScripts(analysis, {
     mapping: { assets: { [key]: { action: 'map', assetId: 'voice', display: 'background' } } },
@@ -544,7 +666,7 @@ test('Kitahe PM image mappings emit speed 3 BG fade and derive Sprite position f
   assert.equal(negative.ok, true);
   const negativeSprite = negative.scenes.flatMap((scene) => scene.commands)
     .find((command) => command.type === 'sprite');
-  assert.equal(negativeSprite.x, 0);
+  assert.equal(negativeSprite.x, 16);
   assert.equal(negativeSprite.y, 17);
   assert.ok(negative.diagnostics.some((entry) => (
     entry.severity === 'warning' && entry.code === 'sprite-x-clamped'
@@ -596,9 +718,9 @@ test('Kitahe PM maps Sprite alpha FADE to Visible toggles', () => {
     y: command.y,
     visible: command.visible,
   })), [
-    { slot: 1, assetId: 'hero', x: 112, y: 17, visible: false },
-    { slot: 1, assetId: 'hero', x: 112, y: 17, visible: true },
-    { slot: 1, assetId: 'hero', x: 112, y: 17, visible: false },
+    { slot: 1, assetId: 'hero', x: 128, y: 17, visible: false },
+    { slot: 1, assetId: 'hero', x: 128, y: 17, visible: true },
+    { slot: 1, assetId: 'hero', x: 128, y: 17, visible: false },
   ]);
   assert.ok(converted.diagnostics.some((entry) => (
     entry.code === 'sprite-fade-approximation' && entry.line === 4
@@ -641,6 +763,55 @@ test('Kitahe PM keeps BG alpha FADE omitted', () => {
   assert.ok(converted.diagnostics.some((entry) => (
     entry.code === 'fade-omitted' && entry.line === 4
   )));
+});
+test('Kitahe PM converts explicit CG removal to Sprite Visible OFF', () => {
+  const catalog = [{
+    id: 'hero',
+    type: 'sprite',
+    options: { animations: [{ id: 'default' }] },
+  }];
+  const convert = (visualCommand) => {
+    const analysis = analyze([
+      'CGDIR DIR, \\BG',
+      'LCG 20, HERO, 640, 480',
+      'ICG 20, 0, 0, -100, 1',
+      visualCommand,
+      'END',
+    ]);
+    const key = analysis.requirements[0].key;
+    return converter.convertScripts(analysis, {
+      mapping: {
+        assets: {
+          [key]: {
+            action: 'map',
+            assetId: 'hero',
+            display: 'sprite',
+            slot: 2,
+            animationId: 'default',
+          },
+        },
+      },
+      assetCatalog: catalog,
+    });
+  };
+  const spriteSummary = (converted) => converted.scenes.flatMap((scene) => scene.commands)
+    .filter((command) => command.type === 'sprite')
+    .map((command) => ({ slot: command.slot, assetId: command.assetId, visible: command.visible }));
+  const assertRemoved = (visualCommand) => {
+    const converted = convert(visualCommand);
+    assert.equal(converted.ok, true);
+    assert.deepEqual(spriteSummary(converted), [
+      { slot: 2, assetId: 'hero', visible: true },
+      { slot: 2, assetId: '', visible: false },
+    ]);
+    assert.ok(!converted.diagnostics.some((entry) => entry.code === 'command-omitted'));
+  };
+
+  assertRemoved('UNLOADCG 20, 2');
+  assertRemoved('UNLOAD 20');
+  assertRemoved('UNL 20, 0');
+  assertRemoved('DCG 20, OFF');
+  assertRemoved('CLEARCG');
 });
 test('Kitahe PM omits CG alpha FADE while preserving SCREEN effects', () => {
   const analysis = analyze([
@@ -933,6 +1104,22 @@ test('Kitahe PM MENU emits Choice and CALL/RETURN expands without runtime call c
     && entry.field === 'choice[0]'
     && entry.codePoint === 'U+7DBA'
   )));
+
+  const namedMenu = analyze([
+    'NAME 0, 【主人公】, 真人',
+    'NAME 1, 《※枚》, ５枚',
+    'MENU 0, 0, 0, 【主人公】さん, 《※枚》',
+    'ONRMG 0, -1, -1, NULL, C1, C2',
+    'LABEL C1',
+    'END',
+    'LABEL C2',
+    'END',
+  ]);
+  const convertedNamedMenu = converter.convertScripts(namedMenu, { mapping: {}, assetCatalog: [] });
+  assert.equal(convertedNamedMenu.ok, true);
+  const namedChoice = convertedNamedMenu.scenes.flatMap((scene) => scene.commands)
+    .find((command) => command.type === 'choice');
+  assert.deepEqual(namedChoice.choices.map((entry) => entry.label), ['ハドソンさん', '５枚']);
 
   const longLabel = '長'.repeat(25);
   const longMenu = analyze([
@@ -1784,6 +1971,7 @@ test('Kitahe PM apply rejects stale signatures and atomically writes scene backu
   }, context);
   assert.equal(inspection.ok, true);
   assert.equal(inspection.canApply, true);
+  assert.equal(inspection.protagonistName, converter.DEFAULT_PROTAGONIST_NAME);
 
   const originalInspector = vnManager.inspectVnSceneDocumentBuild;
   vnManager.inspectVnSceneDocumentBuild = (_projectDir, options) => ({
@@ -1811,6 +1999,15 @@ test('Kitahe PM apply rejects stale signatures and atomically writes scene backu
     assert.deepEqual(JSON.parse(fs.readFileSync(backupPath, 'utf-8')), initial);
     assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'kitahe-pm-conversion.json')));
     assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'kitahe-pm-conversion-report.json')));
+    const sidecar = JSON.parse(fs.readFileSync(
+      path.join(projectDir, 'assets', 'kitahe-pm-conversion.json'),
+      'utf-8',
+    ));
+    assert.equal(applied.protagonistName, converter.DEFAULT_PROTAGONIST_NAME);
+    assert.equal(sidecar.protagonistName, converter.DEFAULT_PROTAGONIST_NAME);
+    assert.ok(Object.values(sidecar.imports).every(
+      (record) => record.protagonistName === converter.DEFAULT_PROTAGONIST_NAME,
+    ));
     const persistedMetadata = [
       fs.readFileSync(path.join(projectDir, 'assets', 'kitahe-pm-conversion.json'), 'utf-8'),
       fs.readFileSync(path.join(projectDir, 'assets', 'kitahe-pm-conversion-report.json'), 'utf-8'),
@@ -2168,7 +2365,7 @@ test('Kitahe PM restores only saved asset mappings for the matching SCR import i
   const savedRecord = {
     selectedScripts: ['A.SCR'],
     entry: 'A.SCR',
-    protagonistName: '',
+    protagonistName: '保存主人公',
     namespace: 'khpm_a',
     speakerMappings: { A_ONLY: { mode: 'speaker', name: '保存話者' } },
     assetMappings: { 'saved-asset-key': { action: 'omit' } },
@@ -2200,6 +2397,7 @@ test('Kitahe PM restores only saved asset mappings for the matching SCR import i
       doc,
     }, context);
     assert.deepEqual(unrelated.mapping, { speakers: {}, assets: {} });
+    assert.equal(unrelated.protagonistName, converter.DEFAULT_PROTAGONIST_NAME);
 
     const matching = plugin.inspectKitahePmSource({
       sourceRoot,
@@ -2210,6 +2408,17 @@ test('Kitahe PM restores only saved asset mappings for the matching SCR import i
     }, context);
     assert.deepEqual(matching.mapping.speakers, {});
     assert.deepEqual(matching.mapping.assets, savedRecord.assetMappings);
+    assert.equal(matching.protagonistName, savedRecord.protagonistName);
+
+    const explicitlyBlank = plugin.inspectKitahePmSource({
+      sourceRoot,
+      selectedScripts: ['A.SCR'],
+      entryScript: 'A.SCR',
+      protagonistName: '',
+      targetMedia: 'cd',
+      doc,
+    }, context);
+    assert.equal(explicitlyBlank.protagonistName, '');
   } finally {
     fs.rmSync(sourceRoot, { recursive: true, force: true });
     fs.rmSync(projectDir, { recursive: true, force: true });

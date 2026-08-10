@@ -18,7 +18,7 @@ CD-DA以外の未参照assetはcatalog件数に含めません。ゲーム用CD-
 ## 件数上限と別に考える制約
 
 - **ディスク容量**: 上限件数以内でも、payload合計が使用するCD容量に収まる必要があります。
-- **個別ADPCM**: buffered direct playbackの安全上限以下である必要があります。自動分割された`_partNN`は、それぞれADPCM 1件として数えます。partは自動連続再生されません。
+- **個別ADPCM**: buffered playbackの安全上限以下である必要があります。自動分割された`_partNN`は、それぞれADPCM 1件として数えます。partは自動連続再生されません。
 - **個別画像**: BGのBAT/VRAM、Sprite pattern/palette/SATBなど、既存の画像寸法・VRAM layout検査を通る必要があります。
 - **同時表示**: Sprite catalogが1024件あっても、VN runtimeが同時に表示・保持する立ち絵は4 slotです。
 - **同時再生**: ADPCMは1つのbuffered playback、PSGはBGM/SFX bus、CD-DAは物理trackというruntime上の制約があります。catalog件数は同時再生数を増やしません。

@@ -1107,13 +1107,17 @@ test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workfl
   assert.match(converterRenderer, /invoke\('inspectKitahePmSource'/);
   assert.match(converterRenderer, /invoke\('applyKitahePmConversion'/);
   assert.match(converterRenderer, /selectedScripts: Array\.from\(state\.selectedScripts\)/);
+  assert.match(converterRenderer, /const DEFAULT_PROTAGONIST_NAME = 'ハドソン'/);
+  assert.match(converterRenderer, /protagonistName: DEFAULT_PROTAGONIST_NAME/);
+  assert.match(converterRenderer, /protagonistNameTouched \? \{ protagonistName: state\.protagonistName \} : \{\}/);
+  assert.match(converterRenderer, /inspection\?\.protagonistName \?\? state\.protagonistName/);
   assert.match(converterRenderer, /speakers: \{\}/);
   assert.match(converterRenderer, /assets: compactAssetMappings\(state\)/);
   assert.ok(inspectStart >= 0 && inspectEnd > inspectStart);
   assert.match(inspectSource, /const savedAssets = savedMapping\?\.assets && typeof savedMapping\.assets === 'object'/);
   assert.ok(inspectSource.indexOf('const savedAssets =') < inspectSource.indexOf('savedAssets[requirement.key]'));
   assert.match(converterRenderer, /すべてのメッセージをナレーションとして変換し、COLOR値は本文色へ反映/);
-  assert.match(converterRenderer, /ICG X × 224 \/ 640 \/ Y 17/);
+  assert.match(converterRenderer, /\(ICG X \+ 元crop X\) × BG幅 \/ 640 \+ BG表示X \/ Y 17/);
   assert.match(converterRenderer, /mapped\.display === 'sprite'[\s\S]*mapped\.slot[\s\S]*else \{[\s\S]*mapped\.x = asInteger\(current\.x, 2\)/);
   assert.doesNotMatch(converterRenderer, /speakerMappings: Object\.create\(null\)|compactSpeakerMappings/);
   assert.match(converterRenderer, /assetMappings: Object\.create\(null\)/);
@@ -1180,6 +1184,8 @@ test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workfl
   assert.match(packageImporter, /assetCatalogSignature: expectedCatalogSignature/);
   assert.match(packageImporter, /replacePolicy: 'owned-source-key'/);
   assert.match(packageImporter, /kitahePm: provenance\(row, inspection\)/);
+  assert.match(packageImporter, /imageTransformFromDetails/);
+  assert.match(packageImporter, /sourceCrop: details\.sourceCrop/);
   assert.match(packageImporter, /api\.assets\.importPceImage/);
   assert.match(packageImporter, /api\.assets\.importPceAudio/);
   assert.match(packageImporter, /api\.assets\.importPceMidi/);
@@ -1266,6 +1272,7 @@ test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page
   assert.match(musicRenderer, /drumMode/);
   assert.match(musicRenderer, /toneVolumeScale/);
   assert.match(musicRenderer, /drumVolumeScale/);
+  assert.match(musicRenderer, /drumVolumeScale:\s*100/);
   assert.match(musicRenderer, /minVelocity/);
   assert.match(musicRenderer, /voicePriority/);
   assert.match(musicRenderer, /patternDetail/);

@@ -60,11 +60,14 @@ const MIDI_PSG_PATTERN_DETAIL_STRIDES = Object.freeze({
   quarter: 4,
   eighth: 8,
 });
+const MIDI_PSG_IMPORT_VERSION = 2;
+const MIDI_PSG_VELOCITY_MODES = new Set(['full', 'midi']);
 const DEFAULT_MIDI_PSG_OPTIONS = Object.freeze({
   maxToneVoices: 4,
   drumMode: 'soft',
-  drumVolumeScale: 35,
+  drumVolumeScale: 100,
   toneVolumeScale: 100,
+  velocityMode: 'full',
   minVelocity: 8,
   voicePriority: 'melodyBass',
   patternDetail: 'auto',
@@ -87,8 +90,14 @@ function velToVolume(vel) {
   return clampInt(Math.round((vel / 127) * 31), 0, 31, 0);
 }
 
-function scaledVelocityToVolume(vel, scale) {
-  const base = velToVolume(vel);
+function scaledVelocityToVolume(vel, scale, velocityMode) {
+  // HuC6280's channel amplitude is only 5 bits. Mapping ordinary MIDI
+  // velocities linearly into that small range left imported songs at roughly
+  // half hardware volume. Full mode keeps MIDI velocity for filtering and
+  // voice priority, but emits every sounding note at the selected scale.
+  const base = velocityMode === 'midi'
+    ? velToVolume(vel)
+    : (clampInt(vel, 0, 127, 0) > 0 ? 31 : 0);
   if (!base) return 0;
   return clampInt(Math.round((base * scale) / 100), 0, 31, 0);
 }
@@ -98,12 +107,14 @@ function normalizeMidiPsgOptions(options = {}) {
   const rawVoicePriority = String(options.voicePriority || DEFAULT_MIDI_PSG_OPTIONS.voicePriority);
   const rawPatternDetail = String(options.patternDetail || DEFAULT_MIDI_PSG_OPTIONS.patternDetail);
   const rawTimbreMode = String(options.timbreMode || DEFAULT_MIDI_PSG_OPTIONS.timbreMode);
+  const rawVelocityMode = String(options.velocityMode || DEFAULT_MIDI_PSG_OPTIONS.velocityMode);
   const sourceWaveMap = Array.isArray(options.programWaveMap) ? options.programWaveMap : [];
   return {
     maxToneVoices: clampInt(options.maxToneVoices, 1, 6, DEFAULT_MIDI_PSG_OPTIONS.maxToneVoices),
     drumMode: MIDI_PSG_DRUM_MODES.has(rawDrumMode) ? rawDrumMode : DEFAULT_MIDI_PSG_OPTIONS.drumMode,
     drumVolumeScale: clampInt(options.drumVolumeScale, 0, 100, DEFAULT_MIDI_PSG_OPTIONS.drumVolumeScale),
     toneVolumeScale: clampInt(options.toneVolumeScale, 0, 100, DEFAULT_MIDI_PSG_OPTIONS.toneVolumeScale),
+    velocityMode: MIDI_PSG_VELOCITY_MODES.has(rawVelocityMode) ? rawVelocityMode : DEFAULT_MIDI_PSG_OPTIONS.velocityMode,
     minVelocity: clampInt(options.minVelocity, 0, 127, DEFAULT_MIDI_PSG_OPTIONS.minVelocity),
     voicePriority: MIDI_PSG_VOICE_PRIORITIES.has(rawVoicePriority) ? rawVoicePriority : DEFAULT_MIDI_PSG_OPTIONS.voicePriority,
     patternDetail: MIDI_PSG_PATTERN_DETAILS.has(rawPatternDetail) ? rawPatternDetail : DEFAULT_MIDI_PSG_OPTIONS.patternDetail,
@@ -328,7 +339,7 @@ function choosePatternReduction(snapshots, detail) {
 
 // Convert a raw MIDI buffer into a PSG asset description (same shape as
 // convertVgmToPsg). options: { bpm, maxToneVoices, drumMode,
-// drumVolumeScale, toneVolumeScale, minVelocity, voicePriority, patternDetail,
+// drumVolumeScale, toneVolumeScale, velocityMode, minVelocity, voicePriority, patternDetail,
 // timbreMode, programWaveMap }
 // — omit/blank bpm to use the MIDI tempo.
 function convertMidiToPsg(rawBuffer, options = {}) {
@@ -362,7 +373,7 @@ function convertMidiToPsg(rawBuffer, options = {}) {
 
   const hasDrums = events.some((ev) => ev.ch === DRUM_CHANNEL && ev.type === 'on');
   const renderDrums = hasDrums && midiOptions.drumMode !== 'off' && midiOptions.drumVolumeScale > 0;
-  // PSG noise only exists on channels 4/5. "soft" keeps one quiet rhythm lane
+  // PSG noise only exists on channels 4/5. "soft" keeps one rhythm lane
   // on ch5; "full" keeps the historical ch4/ch5 noise mapping.
   const drumChannels = renderDrums
     ? (midiOptions.drumMode === 'full' ? [4, 5] : [5])
@@ -395,7 +406,7 @@ function convertMidiToPsg(rawBuffer, options = {}) {
     stats.noteCount += 1;
     const { period, clamped } = midiNoteToPeriod(ev.note);
     if (clamped) stats.clampedNotes += 1;
-    const volume = scaledVelocityToVolume(ev.vel, midiOptions.toneVolumeScale);
+    const volume = scaledVelocityToVolume(ev.vel, midiOptions.toneVolumeScale, midiOptions.velocityMode);
     if (!volume) return;
     const program = channelPrograms[ev.ch] || 0;
     const family = Math.floor(program / 8);
@@ -443,7 +454,7 @@ function convertMidiToPsg(rawBuffer, options = {}) {
     stats.noteCount += 1;
     stats.drumNotes += 1;
     if (!drumChannels.length) { stats.ignoredDrums += 1; return; }
-    const volume = scaledVelocityToVolume(ev.vel, midiOptions.drumVolumeScale);
+    const volume = scaledVelocityToVolume(ev.vel, midiOptions.drumVolumeScale, midiOptions.velocityMode);
     if (!volume) return;
     let target = -1;
     for (const sl of drumChannels) { if (!voices[sl].active) { target = sl; break; } }
@@ -489,7 +500,7 @@ function convertMidiToPsg(rawBuffer, options = {}) {
 
   const warnings = [];
   if (hasDrums && !renderDrums) warnings.push('MIDI のドラム (10ch) は取り込み設定により無視しました');
-  else if (hasDrums && midiOptions.drumMode === 'soft') warnings.push('MIDI のドラム (10ch) は PSG ノイズ (ch5) で控えめに近似しました');
+  else if (hasDrums && midiOptions.drumMode === 'soft') warnings.push('MIDI のドラム (10ch) は PSG ノイズ (ch5) で近似しました');
   else if (hasDrums) warnings.push('MIDI のドラム (10ch) は PSG ノイズ (ch4/5) で近似しました');
   if (stats.stolenVoices > 0 || stats.droppedNotes > 0) warnings.push(`同時発音数が ${melodicChannels.length} tone voice を超えたため一部の音を間引きました`);
   if (stats.clampedNotes > 0) warnings.push('音域外の音は period 範囲 (1..4095) にクランプされました');
@@ -541,6 +552,7 @@ function convertMidiToPsg(rawBuffer, options = {}) {
       usedPrograms: Array.from(usedPrograms).sort((a, b) => a - b),
       usedProgramFamilies: Array.from(new Set(Array.from(usedPrograms).map((program) => Math.floor(program / 8)))).sort((a, b) => a - b),
       usedWaves: Array.from(usedWaves).sort((a, b) => a - b),
+      midiImportVersion: MIDI_PSG_IMPORT_VERSION,
       midiOptions,
       patternReductionStride: reduction.stride,
       framesPerStep,
@@ -550,6 +562,7 @@ function convertMidiToPsg(rawBuffer, options = {}) {
 }
 
 module.exports = {
+  MIDI_PSG_IMPORT_VERSION,
   DEFAULT_MIDI_PSG_OPTIONS,
   DEFAULT_MIDI_GM_PROGRAM_WAVE_MAP,
   MIDI_GM_FAMILY_LABELS,

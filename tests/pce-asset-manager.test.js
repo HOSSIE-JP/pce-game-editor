@@ -607,7 +607,7 @@ test('PCE ADPCM import auto-splits assets that exceed runtime-safe size', () => 
   assert.deepEqual(assetManager.collectCdDataFiles(projectDir), parts.map((part) => part.data.generated.outputFile));
 });
 
-test('PCE ADPCM auto-split uses the direct-buffered safe ceiling', () => {
+test('PCE ADPCM auto-split uses the buffered safe ceiling', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeTempDir('pce-assets-audio-direct-safe-');
   writeFile(projectDir, 'project.json', JSON.stringify({ targetMedia: 'cd', toolchain: 'llvm-mos' }, null, 2));
@@ -2296,6 +2296,7 @@ test('PCE PSG JSON import rejects malformed documents, invalid events, and uncon
 test('PCE source generation refreshes stale imported PSG timing before build', () => {
   const assetManager = loadAssetManager();
   const { PSG_QUANTIZER_VERSION } = require('../pce-psg-quantize');
+  const { MIDI_PSG_IMPORT_VERSION } = require('../pce-midi-import');
   const projectDir = makeTempDir('pce-assets-psg-refresh-');
   const vlq = (n) => {
     const bytes = [n & 0x7f];
@@ -2327,7 +2328,9 @@ test('PCE source generation refreshes stale imported PSG timing before build', (
   asset.options.steps = 6;
   asset.data.import.midi.framesPerStep = 6;
   asset.data.import.midi.psgBpm = 120;
-  asset.data.import.midi.quantizerVersion = 1;
+  asset.data.import.midi.quantizerVersion = PSG_QUANTIZER_VERSION;
+  delete asset.data.import.midi.midiImportVersion;
+  asset.data.import.midiOptions.drumVolumeScale = 35;
   assetManager.writeAssetDocument(projectDir, doc);
 
   assetManager.generateAssetSources(projectDir);
@@ -2337,6 +2340,9 @@ test('PCE source generation refreshes stale imported PSG timing before build', (
   assert.equal(noteOff.step, 4);
   assert.equal(refreshed.data.import.midi.framesPerStep, 7.5);
   assert.equal(refreshed.data.import.midi.quantizerVersion, PSG_QUANTIZER_VERSION);
+  assert.equal(refreshed.data.import.midi.midiImportVersion, MIDI_PSG_IMPORT_VERSION);
+  assert.equal(refreshed.data.import.midiOptions.drumVolumeScale, 100);
+  assert.equal(refreshed.options.pattern.find((entry) => entry.volume > 0).volume, 31);
   assert.equal(typeof refreshed.data.import.regeneratedAt, 'string');
 });
 
@@ -2834,12 +2840,24 @@ test('PCE Kitahe PM owned-source-key guard preserves owner IDs and stores saniti
     source: 'BG/KYOTSUU/BGF011_A.PVR + BG/KYOTSUU/BGF011_B.PVR',
     manifestFileName: 'kitahe-pm-assets.csv',
     row: 2,
+    imageTransform: {
+      sourceSize: { width: 512, height: 480 },
+      sourceCrop: { x: 114, y: 0, width: 251, height: 334 },
+      outputSize: { width: 16, height: 16 },
+    },
   };
   assert.throws(
     () => assetManager.normalizeKitahePmProvenance({ ...imageProvenance, source: 'C:private.PVR' }),
     /relative logical path/u,
   );
   assert.throws(() => assetManager.normalizeKitahePmProvenance({ ...imageProvenance, source: 'BG/../secret.PVR' }), /traversal/u);
+  assert.throws(() => assetManager.normalizeKitahePmProvenance({
+    ...imageProvenance,
+    imageTransform: {
+      ...imageProvenance.imageTransform,
+      sourceCrop: { x: 400, y: 0, width: 251, height: 334 },
+    },
+  }), /sourceSize外/u);
 
   const first = assetManager.importImage(projectDir, {
     convertedDataUrl: makePngDataUrl(16, 16),

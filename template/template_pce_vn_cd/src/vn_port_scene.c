@@ -1092,7 +1092,7 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
             VN_MAP_BANK130_FOR_CODE();
             begin_runtime_cache_load(command->arg0, command->asset_index, command->slot, command->x, command->y);
             wait_frames_remaining = 1u;
-            return VN_EXEC_WAIT;
+            return VN_EXEC_CACHE_WAIT;
         }
     }
     else if (command->type == PCE_VN_COMMAND_MESSAGE)
@@ -1253,7 +1253,11 @@ static uint8_t VN_BANKED_CODE run_commands_until_wait(void)
                 }
                 current_command++;
                 result = execute_command(command);
-                if (result == VN_EXEC_WAIT) return 1u;
+                if (result == VN_EXEC_CACHE_WAIT) return 1u;
+                if (result == VN_EXEC_WAIT)
+                {
+                    return 1u;
+                }
                 if (result == VN_EXEC_RESTART)
                 {
                     restart = 1u;
@@ -1276,16 +1280,41 @@ static signed int current_scene_next_scene(void)
 
 static void advance_story(void)
 {
+    uint8_t remaining_scene_transitions = 0xffu;
     update_active_message_mouth(1u);
 #if defined(__PCE_CD__)
     if (active_message_index >= 0 && adpcm_playback_active()) stop_adpcm_voice();
 #endif
-    if (!run_commands_until_wait())
+    for (;;)
     {
-        const signed int next_scene = current_scene_next_scene();
-        if (next_scene >= 0) show_scene((uint8_t)next_scene);
-        else current_command = 0u;
-        run_commands_until_wait();
+        signed int next_scene;
+        uint8_t target_scene;
+        if (run_commands_until_wait()) break;
+        next_scene = current_scene_next_scene();
+        if (next_scene < 0)
+        {
+            current_command = 0u;
+            break;
+        }
+        /* nextSceneId is an automatic edge, not an input boundary. Keep
+           draining command-only scenes until a message/choice/wait (or another
+           semantic wait) is reached. The bounded guard also contains malformed
+           nextScene cycles without hanging one frame forever. */
+        if (!remaining_scene_transitions)
+        {
+            wait_frames_remaining = 1u;
+            break;
+        }
+        remaining_scene_transitions--;
+        target_scene = (uint8_t)next_scene;
+        show_scene(target_scene);
+        if (current_scene != target_scene)
+        {
+            /* A failed CD scene-pack read leaves the prior scene active. Yield
+               and retry its nextScene edge on the following frame. */
+            wait_frames_remaining = 1u;
+            break;
+        }
     }
     if (pending_sprite_refresh) refresh_scene_sprites();
     enable_display_if_pending();

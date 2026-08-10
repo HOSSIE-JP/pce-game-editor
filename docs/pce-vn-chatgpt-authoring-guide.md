@@ -383,7 +383,7 @@ ChatGPT に画像や音声案も作らせる場合は、スクリプト JSON と
 音声案の注意:
 
 - `cdda-track` は BGM や長い音楽向けです。
-- `adpcm` は voice や短い効果音向けです。PSG や表示中の message voice と併用する direct-buffered 再生では、1 asset / part を既定 address で 32767 bytes 以下に収めるのが安全です。
+- `adpcm` は voice や短い効果音向けです。PSG や表示中の message voice と併用する buffered 再生では、1 asset / part を既定 address で 32767 bytes 以下に収めるのが安全です。
 - `psg-song` / `psg-sfx` はチップ音源風の BGM / SE 向けです。
 - voice を message に合わせる場合、`voiceAssetId` と本文を 1 対 1 で対応させると管理しやすくなります。
 

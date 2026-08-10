@@ -146,6 +146,12 @@ test('CD VN runtime clamps reserved variables and snapshots MSG_SPEED per messag
   const scene = readRuntimeFile('vn_port_scene.c');
   const message = readRuntimeFile('vn_msg_core.c');
   const main = readRuntimeFile('vn_main.c');
+  const startMessage = readRuntimeFunction(message, 'static void start_message');
+  const voiceStartOffset = startMessage.indexOf('if (play_adpcm_message_voice(message->voice_index))');
+  const windowPrepOffset = startMessage.indexOf('restore_window_display = begin_message_window_vram_update()');
+
+  assert.ok(voiceStartOffset >= 0);
+  assert.ok(windowPrepOffset > voiceStartOffset);
 
   assert.match(state, /#define VN_MESSAGE_VOICE_NONE 0u/);
   assert.match(state, /#define VN_MESSAGE_VOICE_ONESHOT 1u/);
@@ -230,13 +236,102 @@ test('CD VN runtime consumes SELECT before input watchers and applies dynamic AU
 test('CD VN one-shot natural completion remains free of BIOS status polling and reset', () => {
   const adpcm = readRuntimeFile('vn_adpcm_core.c');
   const serviceStart = adpcm.indexOf('static void VN_CD_ASYNC_CODE service_adpcm_playback_impl(void)');
-  const service = adpcm.slice(serviceStart);
+  const service = readRuntimeFunction(
+    adpcm,
+    'static void VN_CD_ASYNC_CODE service_adpcm_playback_impl(void)',
+  );
 
   assert.notEqual(serviceStart, -1);
   assert.doesNotMatch(service, /pce_cdb_adpcm_status\(/);
+  assert.doesNotMatch(service, /pce_cdb_adpcm_stop\(/);
   assert.doesNotMatch(service, /pce_cdb_adpcm_reset\(/);
   assert.doesNotMatch(service, /stop_adpcm_voice\(/);
-  assert.match(service, /adpcm_play_active = 0u;[\s\S]*stop_buffered_adpcm_playback_direct\(\);/);
+  assert.match(service, /adpcm_play_active = 0u;[\s\S]*adpcm_play_frames_remaining = 0u;/);
+});
+
+test('CD VN buffered ADPCM playback uses BIOS with the real sample length and mode', () => {
+  const adpcm = readRuntimeFile('vn_adpcm_core.c');
+  const config = readRuntimeFile('vn_engine_config.h');
+  const play = readRuntimeFunction(
+    adpcm,
+    'static uint8_t VN_BANKED_CODE2 play_adpcm_buffered_voice',
+  );
+
+  assert.match(play, /vn_cd_bios_irq_open\(\);[\s\S]*pce_cdb_adpcm_play\(/);
+  assert.match(play, /\(uint16_t\)adpcm_voice_snapshot\.adpcm_address/);
+  assert.match(play, /\(uint16_t\)adpcm_voice_snapshot\.data_size/);
+  assert.match(play, /adpcm_voice_snapshot\.loop \? PCE_CDB_ADPCM_REPEAT : PCE_CDB_ADPCM_ONE_SHOT/);
+  assert.match(play, /adpcm_voice_snapshot\.loop \? 0u : VN_ADPCM_SNAPSHOT_PLAY_FRAMES\(\)/);
+  assert.doesNotMatch(adpcm, /start_buffered_adpcm_playback_direct|stop_buffered_adpcm_playback_direct/);
+  assert.doesNotMatch(config, /VN_ADPCM_BUFFERED_HARDWARE_LENGTH|VN_ADPCM_BUFFERED_END_GUARD_FRAMES/);
+});
+
+test('CD VN executes ADPCM Audio immediately and never replays it from a later wait', () => {
+  const adpcm = readRuntimeFile('vn_adpcm_core.c');
+  const config = readRuntimeFile('vn_engine_config.h');
+  const state = readRuntimeFile('vn_engine_state.c');
+  const main = readRuntimeFile('vn_main.c');
+  const message = readRuntimeFile('vn_msg_core.c');
+  const scene = readRuntimeFile('vn_port_scene.c');
+  const biosFit = readRuntimeFunction(adpcm, 'static uint8_t VN_BANKED_CODE adpcm_voice_bios_cd_load_fits');
+  const biosLoad = readRuntimeFunction(
+    adpcm,
+    'static uint8_t VN_BANKED_CODE load_adpcm_voice_bios_cd',
+  );
+  const load = readRuntimeFunction(
+    adpcm,
+    'static uint8_t VN_BANKED_CODE2 load_adpcm_voice',
+  );
+  const audio = readRuntimeFunction(
+    scene,
+    'static void VN_BANKED_CODE2 handle_audio_command',
+  );
+  const execute = readRuntimeFunction(
+    scene,
+    'static uint8_t VN_BANKED_CODE execute_command',
+  );
+  const run = readRuntimeFunction(
+    scene,
+    'static uint8_t VN_BANKED_CODE run_commands_until_wait',
+  );
+  const startMessage = readRuntimeFunction(message, 'static void start_message');
+  const messageVoiceOffset = startMessage.indexOf('if (play_adpcm_message_voice(message->voice_index))');
+  const windowPrepOffset = startMessage.indexOf('restore_window_display = begin_message_window_vram_update()');
+
+  assert.match(
+    biosFit,
+    /if \(!sector_count \|\| sector_count > 32u\) return 0u;[\s\S]*if \(!adpcm_address\) return 1u;[\s\S]*sector_count <= \(\(uint16_t\)\(0u - adpcm_address\) >> 11\)/,
+  );
+  assert.match(
+    biosLoad,
+    /if \(!chunk_sectors\) chunk_sectors = remaining;[\s\S]*pce_cdb_adpcm_reset\(\);[\s\S]*pce_cdb_adpcm_read_from_cd\(sector, chunk, adpcm_address\)[\s\S]*cd_transfer_wait\(\);[\s\S]*wait_adpcm_transfer_ready\(\)/,
+  );
+  assert.match(
+    biosLoad,
+    /A preload has no immediate PLAY command[\s\S]*ADPCM RAM contents are preserved[\s\S]*pce_cdb_adpcm_reset\(\);[\s\S]*wait_adpcm_transfer_ready\(\)/,
+  );
+  assert.match(
+    load,
+    /if \(!psg_active && adpcm_voice_bios_cd_load_fits\(\)\)[\s\S]*load_adpcm_voice_bios_cd\(0u\)[\s\S]*else[\s\S]*load_adpcm_voice_async_cd\(\)/,
+  );
+  assert.match(
+    audio,
+    /kind == PCE_VN_AUDIO_KIND_ADPCM[\s\S]*action == PCE_VN_AUDIO_ACTION_STOP\) stop_adpcm_voice\(\);[\s\S]*else play_adpcm_voice\(asset_index\);/,
+  );
+  assert.doesNotMatch(audio, /options|load_adpcm_cache_asset/);
+  assert.doesNotMatch(
+    state + main + message + scene,
+    /VN_AUDIO_DEFER_UNTIL_WAIT|pending_adpcm_play_index|start_pending_adpcm_voice|message_adpcm_started/,
+  );
+  assert.match(config, /#define VN_EXEC_CACHE_WAIT 3u/);
+  assert.match(execute, /PCE_VN_CACHE_ACTION_LOAD[\s\S]*return VN_EXEC_CACHE_WAIT;/);
+  assert.match(
+    run,
+    /result == VN_EXEC_CACHE_WAIT\) return 1u;[\s\S]*result == VN_EXEC_WAIT[\s\S]*return 1u;/,
+  );
+  assert.ok(messageVoiceOffset >= 0);
+  assert.ok(windowPrepOffset > messageVoiceOffset);
+  assert.doesNotMatch(startMessage.slice(messageVoiceOffset, windowPrepOffset), /delay_frame\(\)/);
 });
 
 test('CD VN skips only physically current duplicate BG and Sprite commands', () => {
@@ -524,10 +619,29 @@ test('CD VN message mouth uses the next ROW and restores it on text, voice, or s
   );
   assert.match(
     adpcm,
-    /static void VN_CD_ASYNC_CODE service_adpcm_playback_impl\(void\)[\s\S]*stop_buffered_adpcm_playback_direct\(\);[\s\S]*sync_cd_external_irq_after_bios_call\(\);[\s\S]*if \(message_voice_mode == VN_MESSAGE_VOICE_ONESHOT\)[\s\S]*update_active_message_mouth\(1u\);/,
+    /static void VN_CD_ASYNC_CODE service_adpcm_playback_impl\(void\)[\s\S]*adpcm_play_active = 0u;[\s\S]*sync_cd_external_irq_after_bios_call\(\);[\s\S]*if \(message_voice_mode == VN_MESSAGE_VOICE_ONESHOT\)[\s\S]*update_active_message_mouth\(1u\);/,
   );
   assert.match(adpcm, /static uint8_t VN_BANKED_CODE copy_adpcm_voice\(signed int voice_index\)/);
-  assert.match(scene, /advance_story\(void\)\s*\{\s*update_active_message_mouth\(1u\);/);
+  assert.match(
+    scene,
+    /advance_story\(void\)\s*\{\s*uint8_t remaining_scene_transitions = 0xffu;\s*update_active_message_mouth\(1u\);/,
+  );
   assert.match(scene, /message->mouth_slot = scene_pack_s16\(cache, \(uint16_t\)\(offset \+ 8u\)\);/);
   assert.match(scene, /message->instant_glyph_count = scene_pack_u8\(cache, \(uint16_t\)\(offset \+ 10u\)\);/);
+});
+
+test('CD VN runtime drains consecutive no-wait nextScene transitions without another input', () => {
+  const scene = readRuntimeFile('vn_port_scene.c');
+  const advance = readRuntimeFunction(scene, 'static void advance_story');
+
+  assert.equal((advance.match(/run_commands_until_wait\(\)/g) || []).length, 1);
+  assert.match(advance, /uint8_t remaining_scene_transitions = 0xffu;/);
+  assert.match(
+    advance,
+    /for \(;;\)[\s\S]*if \(run_commands_until_wait\(\)\) break;[\s\S]*next_scene = current_scene_next_scene\(\);[\s\S]*if \(next_scene < 0\)[\s\S]*if \(!remaining_scene_transitions\)[\s\S]*show_scene\(target_scene\);/,
+  );
+  assert.match(
+    advance,
+    /if \(current_scene != target_scene\)[\s\S]*wait_frames_remaining = 1u;[\s\S]*break;/,
+  );
 });

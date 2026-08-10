@@ -380,8 +380,11 @@ test('Kitahe PM inspected package imports BG, Sprite, ADPCM, and PSG into a CD V
       exportCrop: { height: 16, width: 16, x: 0, y: 0 },
       fileSha256: converter.sha256(spriteBytes),
       orderedSlots: ['0'],
+      outputSize: { height: 16, width: 16 },
       parts: [spriteSource],
       source: spriteSource,
+      sourceCrop: { height: 334, width: 251, x: 114, y: 0 },
+      sourceSize: { height: 480, width: 512 },
       spriteCell: { height: 16, width: 16 },
     };
     fixture.rows.push({
@@ -413,6 +416,12 @@ test('Kitahe PM inspected package imports BG, Sprite, ADPCM, and PSG into a CD V
     assert.equal(inspected.ok, true);
     assert.equal(inspected.canImport, true);
     assert.equal(inspected.rows.length, 4);
+    const inspectedSprite = inspected.rows.find((row) => row.id === 'ayu_sprite');
+    assert.deepEqual(inspectedSprite.provenance.imageTransform, {
+      sourceSize: { width: 512, height: 480 },
+      sourceCrop: { x: 114, y: 0, width: 251, height: 334 },
+      outputSize: { width: 16, height: 16 },
+    });
 
     for (const row of inspected.rows) {
       const common = {
@@ -454,6 +463,7 @@ test('Kitahe PM inspected package imports BG, Sprite, ADPCM, and PSG into a CD V
     const importedById = new Map(assetManager.listAssets(fixture.projectDir).assets.map((asset) => [asset.id, asset]));
     assert.equal(importedById.get('bgf011').type, 'image');
     assert.equal(importedById.get('ayu_sprite').type, 'sprite');
+    assert.deepEqual(importedById.get('ayu_sprite').data.import.kitahePm.imageTransform, inspectedSprite.provenance.imageTransform);
     assert.equal(importedById.get('voice_v001').type, 'adpcm');
     assert.equal(importedById.get('track11').type, 'psg-song');
 

@@ -32,7 +32,7 @@ const MIDI_IMPORT_DEFAULTS = Object.freeze({
   maxToneVoices: 4,
   drumMode: 'soft',
   toneVolumeScale: 100,
-  drumVolumeScale: 35,
+  drumVolumeScale: 100,
   minVelocity: 8,
   voicePriority: 'melodyBass',
   patternDetail: 'auto',

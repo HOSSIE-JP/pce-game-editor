@@ -638,16 +638,19 @@ static void start_message(uint8_t message_index)
         message_text_speed = (vn_msg_speed >= 1u && vn_msg_speed <= 6u)
             ? (uint8_t)((vn_msg_speed - 1u) * 10u)
             : message->text_speed_frames;
-        restore_window_display = begin_message_window_vram_update();
-        clear_window_tile_pixels();
-        call_overlay_preload_message_glyph_masks(message);
-        engine_service();
+        /* PLAYP precedes MSG in the source script. Start an already-preloaded
+           message voice before the window/VBlank and glyph-mask preparation so
+           its audible onset is not delayed by text rendering setup. */
         if (play_adpcm_message_voice(message->voice_index))
         {
             message_voice_mode = adpcm_play_looping
                 ? VN_MESSAGE_VOICE_LOOP
                 : VN_MESSAGE_VOICE_ONESHOT;
         }
+        restore_window_display = begin_message_window_vram_update();
+        clear_window_tile_pixels();
+        call_overlay_preload_message_glyph_masks(message);
+        engine_service();
         if (instant_glyph_count)
         {
             VN_MAP_BANK130_FOR_CODE();

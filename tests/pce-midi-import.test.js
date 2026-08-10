@@ -56,7 +56,7 @@ test('convertMidiToPsg maps a single note to period and a note-off to silence', 
   const first = result.pattern.find((e) => e.volume > 0);
   assert.equal(first.channel, 0);
   assert.equal(first.period, 254);
-  assert.equal(first.volume, 24); // default toneVolumeScale preserves MIDI note velocity.
+  assert.equal(first.volume, 31); // imported notes default to full HuC6280 channel amplitude.
   assert.equal(first.wave, 9); // GM program 0 (Piano) -> jp-v3 BIOS wave profile.
   assert.ok(!first.noise);
   assert.ok(result.pattern.some((e) => e.channel === 0 && e.volume === 0)); // note-off
@@ -208,8 +208,24 @@ test('convertMidiToPsg can disable drums or render them as soft ch5 noise', () =
   const hit = soft.pattern.find((e) => e.noise);
   assert.ok(hit, 'expected a soft noise entry');
   assert.equal(hit.channel, 5);
-  assert.equal(hit.volume, 8); // velocity 100 scaled by the default 35%.
+  assert.equal(hit.volume, 31);
   assert.equal(soft.stats.midiOptions.drumMode, 'soft');
+});
+
+test('convertMidiToPsg defaults to full volume while retaining opt-in MIDI velocity dynamics', () => {
+  const track = [
+    0x00, 0x90, 60, 40,
+    0x00, 0x90, 64, 100,
+    ...vlq(240), ...END,
+  ];
+  const midi = buildSmf({ tracks: [track] });
+  const full = midiImporter.convertMidiToPsg(midi, { bpm: 150 });
+  assert.deepEqual(full.pattern.filter((entry) => entry.step === 0).map((entry) => entry.volume), [31, 31]);
+  assert.equal(full.stats.midiImportVersion, midiImporter.MIDI_PSG_IMPORT_VERSION);
+  assert.equal(full.stats.midiOptions.velocityMode, 'full');
+
+  const dynamic = midiImporter.convertMidiToPsg(midi, { bpm: 150, velocityMode: 'midi' });
+  assert.deepEqual(dynamic.pattern.filter((entry) => entry.step === 0).map((entry) => entry.volume), [10, 24]);
 });
 
 test('convertMidiToPsg applies volume scale, min velocity, and voice priority options', () => {
@@ -229,7 +245,7 @@ test('convertMidiToPsg applies volume scale, min velocity, and voice priority op
   const sounding = result.pattern.filter((e) => e.step === 0 && e.volume > 0);
   assert.equal(sounding.length, 1);
   assert.equal(sounding[0].period, expectedPeriod(64));
-  assert.equal(sounding[0].volume, 12); // round(round(100/127*31) * 0.5)
+  assert.equal(sounding[0].volume, 16); // full 31-step amplitude scaled to 50%.
   assert.equal(result.stats.filteredVelocity, 1);
   assert.equal(result.stats.midiOptions.voicePriority, 'loud');
 });

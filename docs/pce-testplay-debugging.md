@@ -136,7 +136,7 @@ Geargrafxで正常でも標準`mednafen_pce-wasm.data`だけADPCM自然終了後
 
 - buffered one-shot開始後に`pce_cdb_adpcm_status()`を毎frame pollしない。
 - 自然終了後に追加の`pce_cdb_adpcm_stop()`/`reset()`を投げない。
-- 明示的なAudio stopだけdirect stopする。
+- 明示的なAudio stopだけSystem Card BIOSのstop/resetを行う。
 - ADPCM開始後のjoypad edge baselineは現在押されているbutton。`last_pad=0`にしない。
 - direct async ADPCM RAM load中もVSync user IRQを維持する。
 

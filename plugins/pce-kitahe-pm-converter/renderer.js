@@ -2,6 +2,7 @@ import { createKitahePmAssetPackageImporter } from './asset-package-importer.js'
 
 const PLUGIN_ID = 'pce-kitahe-pm-converter';
 const CAPABILITY_NAME = 'kitahe-pm-script-converter';
+const DEFAULT_PROTAGONIST_NAME = 'ハドソン';
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -397,7 +398,7 @@ function assetMappingRows(state) {
           ${sprite ? `
             <label class="form-group">
               <span class="form-label">Sprite X / Y</span>
-              <output class="pce-kitahe-auto-position">ICG X × 224 / 640 / Y 17</output>
+              <output class="pce-kitahe-auto-position">(ICG X + 元crop X) × BG幅 / 640 + BG表示X / Y 17</output>
             </label>
             <label class="form-group">
               <span class="form-label">Sprite slot</span>
@@ -466,7 +467,7 @@ function sourceStepHtml(state) {
             <label class="form-group">
               <span class="form-label">主人公名（NAME 置換）</span>
               <input class="form-input" data-kitahe-field="protagonist" maxlength="16"
-                value="${esc(state.protagonistName)}" placeholder="未指定なら原文の扱いに従う" />
+                value="${esc(state.protagonistName)}" placeholder="${DEFAULT_PROTAGONIST_NAME}" />
             </label>
             <p class="pce-kitahe-help">選択外 SCR への GOTO は警告付き終端になります。画像・音声のバイナリ変換は行いません。</p>
           </div>
@@ -766,7 +767,8 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       scripts: [],
       selectedScripts: new Set(),
       entryScript: '',
-      protagonistName: '',
+      protagonistName: DEFAULT_PROTAGONIST_NAME,
+      protagonistNameTouched: false,
       inspection: null,
 
       assetMappings: Object.create(null),
@@ -825,7 +827,7 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       sourceRoot: state.sourceRoot,
       selectedScripts: Array.from(state.selectedScripts),
       entryScript: state.entryScript || undefined,
-      protagonistName: state.protagonistName || undefined,
+      ...(state.protagonistNameTouched ? { protagonistName: state.protagonistName } : {}),
       doc: state.doc,
       targetMedia: state.targetMedia,
     });
@@ -842,6 +844,8 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       state.scripts = [];
       state.selectedScripts = new Set();
       state.entryScript = '';
+      state.protagonistName = DEFAULT_PROTAGONIST_NAME;
+      state.protagonistNameTouched = false;
       state.inspection = null;
       setStatus('SCRIPT を検索しています…');
       renderModal(modal, state);
@@ -857,6 +861,9 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
           asArray(inspection?.selectedScripts).map(scriptValue).filter(Boolean),
         );
         state.entryScript = scriptValue(asArray(inspection?.entryCandidates)[0]) || '';
+        state.protagonistName = String(
+          inspection?.protagonistName ?? DEFAULT_PROTAGONIST_NAME,
+        ).slice(0, 16);
         setStatus(`${state.scripts.length} 件の SCR を検出しました。`, 'info');
         logger?.info?.(`北へ。PM source検査: SCR ${state.scripts.length}件`);
       } catch (error) {
@@ -881,6 +888,9 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
         const inspection = await invoke('inspectKitahePmSource', inspectPayload());
         state.inspection = inspection;
         state.entryScript = String(inspection?.entryScript || state.entryScript || '');
+        state.protagonistName = String(
+          inspection?.protagonistName ?? state.protagonistName,
+        ).slice(0, 16);
         const savedMapping = inspection?.mapping || inspection?.savedMapping || {};
         const savedAssets = savedMapping?.assets && typeof savedMapping.assets === 'object'
           ? savedMapping.assets
@@ -1126,6 +1136,7 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       if (!(target instanceof HTMLInputElement)) return;
       if (target.dataset.kitaheField === 'protagonist') {
         state.protagonistName = String(target.value || '').slice(0, 16);
+        state.protagonistNameTouched = true;
         return;
       }
       collectMappingChange(target, state);

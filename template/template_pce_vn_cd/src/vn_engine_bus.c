@@ -238,8 +238,6 @@ static void cd_transfer_wait(void)
 static void VN_BANKED_CODE quiet_cd_unit_irqs(void);
 static void VN_BANKED_CODE sync_cd_external_irq_after_bios_call(void);
 static void VN_BANKED_CODE mask_buffered_adpcm_completion_irq(void);
-static void VN_BANKED_CODE start_buffered_adpcm_playback_direct(unsigned int address, uint16_t length, uint8_t divider);
-static void VN_RESIDENT_CODE stop_buffered_adpcm_playback_direct(void);
 static void VN_BANKED_CODE begin_cdda_deferred_resume(void);
 static void VN_BANKED_CODE end_cdda_deferred_resume(void);
 static void VN_RESIDENT_CODE prepare_cd_data_access(void);

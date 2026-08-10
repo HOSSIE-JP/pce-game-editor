@@ -268,6 +268,15 @@ function normalizeTargetMedia(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function resolvedProtagonistName(payload = {}, previousImport = null) {
+  if (Object.prototype.hasOwnProperty.call(payload, 'protagonistName')
+    && payload.protagonistName !== undefined) {
+    return String(payload.protagonistName ?? '').trim();
+  }
+  const saved = String(previousImport?.protagonistName || '').trim();
+  return saved || converter.DEFAULT_PROTAGONIST_NAME;
+}
+
 function sourceRootDisplayName(sourceRoot) {
   const normalized = String(sourceRoot || '').replace(/[\\/]+$/, '');
   return path.basename(normalized) || 'SCRIPT';
@@ -436,11 +445,13 @@ function inspectKitahePmSource(payload = {}, context = {}) {
     const targetDiagnostics = targetMediaDiagnostic(payload.targetMedia);
 
     if (!selectedScripts.length) {
+      const protagonistName = resolvedProtagonistName(payload);
+      const effectivePayload = { ...payload, protagonistName };
       const signature = makeSignature({
         files: [],
         selectedScripts,
         entryScript: '',
-        payload,
+        payload: effectivePayload,
         doc,
         assets,
         sidecarSnapshot,
@@ -456,6 +467,7 @@ function inspectKitahePmSource(payload = {}, context = {}) {
         entryCandidates: [],
         entryScript: '',
         selectedScripts: [],
+        protagonistName,
         colorTokens: [],
         assetRequirements: [],
         reachableInstructions: [],
@@ -477,11 +489,13 @@ function inspectKitahePmSource(payload = {}, context = {}) {
     const selectedCanonical = files.map((file) => file.path);
     const requestedEntry = converter.normalizeRelativeScriptPath(payload.entryScript || selectedCanonical[0]);
     const previousImport = previousImportRecord(previousSidecar, selectedCanonical, requestedEntry);
+    const protagonistName = resolvedProtagonistName(payload, previousImport);
+    const effectivePayload = { ...payload, protagonistName };
     savedMapping = savedMappingFromRecord(previousImport);
     const analysis = converter.inspectScripts({
       files,
       entryScript: requestedEntry,
-      protagonistName: payload.protagonistName,
+      protagonistName,
     });
     const publicResult = converter.publicInspection(analysis);
     publicResult.assetRequirements = suggestAssetRequirements(publicResult.assetRequirements, assets);
@@ -502,7 +516,7 @@ function inspectKitahePmSource(payload = {}, context = {}) {
           const proposed = proposedDocument(
             doc,
             converted,
-            payload,
+            effectivePayload,
             previousImport,
             namespace,
           );
@@ -532,7 +546,7 @@ function inspectKitahePmSource(payload = {}, context = {}) {
       files,
       selectedScripts: selectedCanonical,
       entryScript: analysis.entryScript,
-      payload,
+      payload: effectivePayload,
       doc,
       assets,
       sidecarSnapshot,
@@ -550,6 +564,7 @@ function inspectKitahePmSource(payload = {}, context = {}) {
       selectedScripts: selectedCanonical,
       entryCandidates: selectedCanonical,
       entryScript: analysis.entryScript,
+      protagonistName,
       mapping: payload.mapping && typeof payload.mapping === 'object' ? payload.mapping : savedMapping,
       diagnostics,
       sceneBudgets,
@@ -705,11 +720,14 @@ function applyKitahePmConversion(payload = {}, context = {}) {
     const assets = assetCatalog(context);
     const sidecarSnapshot = readSidecarSnapshot(projectDir);
     const previousSidecar = sidecarSnapshot.document;
+    const previousImport = previousImportRecord(previousSidecar, selectedCanonical, entryScript);
+    const protagonistName = resolvedProtagonistName(payload, previousImport);
+    const effectivePayload = { ...payload, protagonistName };
     const signature = makeSignature({
       files,
       selectedScripts: selectedCanonical,
       entryScript,
-      payload,
+      payload: effectivePayload,
       doc: existing,
       assets,
       sidecarSnapshot,
@@ -728,7 +746,7 @@ function applyKitahePmConversion(payload = {}, context = {}) {
     const analysis = converter.inspectScripts({
       files,
       entryScript,
-      protagonistName: payload.protagonistName,
+      protagonistName,
     });
     if (analysis.diagnostics.some((entry) => entry.severity === 'error')) {
       return {
@@ -746,7 +764,6 @@ function applyKitahePmConversion(payload = {}, context = {}) {
       };
     }
 
-    const previousImport = previousImportRecord(previousSidecar, selectedCanonical, entryScript);
     const namespace = conversionNamespace(selectedCanonical, entryScript);
     const converted = converter.convertScripts(analysis, {
       mapping: payload.mapping,
@@ -770,7 +787,7 @@ function applyKitahePmConversion(payload = {}, context = {}) {
     }
 
     const mode = payload.mode === 'append' ? 'append' : 'replace';
-    const proposed = proposedDocument(existing, converted, payload, previousImport, namespace);
+    const proposed = proposedDocument(existing, converted, effectivePayload, previousImport, namespace);
 
     const buildInspection = vnManager.inspectVnSceneDocumentBuild(projectDir, {
       doc: proposed,
@@ -806,7 +823,7 @@ function applyKitahePmConversion(payload = {}, context = {}) {
     const importRecord = sanitizeImportRecord({
       selectedScripts: selectedCanonical,
       entry: entryScript,
-      protagonistName: String(payload.protagonistName || ''),
+      protagonistName,
       namespace,
       speakerMappings: {},
       assetMappings: converted.normalizedMapping.assets,
@@ -864,6 +881,7 @@ function applyKitahePmConversion(payload = {}, context = {}) {
       importedSceneIds,
       diagnostics,
       summary: report.summary,
+      protagonistName,
       files: {
         scene: vnManager.VN_SCENE_FILE.replace(/\\/g, '/'),
         backup: BACKUP_FILE.replace(/\\/g, '/'),

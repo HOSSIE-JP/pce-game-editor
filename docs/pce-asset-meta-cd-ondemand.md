@@ -70,7 +70,7 @@ ADPCMのmulti-byte fieldを構造体連続copyへ戻さず、offsetからscalar 
 - ADPCM参照数が2048件、BG/Sprite参照数が各1024件、Sprite Animation合計が1024件、PSG source assetまたはcompiled `(assetId, channel)` package variantが512件を超える。
 - 必須の`cdda-warning`がない/重複する、ゲーム用CD-DAが97本を超える、trackが3..99外、trackが重複する、またはtrack 3からの連番に欠番がある。
 - Sprite cell mapが256 cellを超える。
-- ADPCM 1 asset/partがdirect-buffered安全上限を超える。
+- ADPCM 1 asset/partがbuffered安全上限を超える。
 - System Card PSG packageがBGM 8156 bytes / SFX 8192 bytesを超える。
 - 同じPSG busの再生中に別packageをpreloadする。
 - payload packの論理path重複、missing file、index/pack不整合、sector範囲外。
