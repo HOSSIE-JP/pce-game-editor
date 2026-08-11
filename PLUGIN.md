@@ -1227,6 +1227,8 @@ window.electronAPI.onPluginLog((payload) => {
 
 ### Sound / Novel 統合 UI
 
+`pce-kitahe-pm-converter`の選択SCRは、entry SCRからexternal GOTOで到達できる集合だけへ絞りません。entryの連結graphを先に解析し、未到達の選択SCRを先頭から独立rootとして順次解析するため、接続済みSCRの状態継承を維持しながら全選択SCRをscene生成対象にします。entry指定は変換後の`entrySceneId`を決めます。初回inspectの`summary.estimatedSceneCount`でmapping前のbasic block scene数を返し、PCE VN runtime上限255を超える場合は`scene-count-limit` errorにして一部だけの暗黙取込を禁止します。
+
 `sound-editor`はADPCM / CD-DA / PSGを1つのsidebarタブに統合します。PSGタブのstep編集、`*.psg.json`/VGM/VGZ/MIDI取込、SFXデザイナー、WebAudio previewは共通source形式を維持します。PSG JSONの正式入力は`version: 2`かつ`assets`が1件だけの文書で、typeは`psg-song`または`psg-sfx`です。BPM 30–300、steps 1–4096、pattern最大2048 events、channel 0–5、period 1–4095、event volume 0–31、wave 0–45を厳格検査し、noiseはch4/5だけを許可します。同一step/channel、曲長以上のstep、範囲外値は切り詰めずerrorです。取込元は`assets/psg/<id>.psg.json`へ元のbytesのまま保存し、MIDI/VGMの`quantizerVersion`を付けないため再量子化されません。同一IDの登録には取込画面またはAPIの明示的な置換確認が必要です。HuCard buildは既存`pce_editor_psg_step_t`/banked patternを使い、optionalな`wave`は無視します。CD VN buildだけは`pce-system-card-psg.js`でmain/sub track bytecodeへ変換し、旧PSG C struct/catalog record/`assets/generated/psg/<id>.bin`を出しません。実際に参照された`(assetId, channel)` variantを`assets/generated/vn/system-card-psg/`へ生成し、BGMはbank134最大8156 bytes、SFXはbank135最大8192 bytesです。duration split/tie、loop/end、period+detune、発音ごとのSystem Card `WAVE`（内蔵0..44/user 45）、ch4/ch5 mode-2 noiseをcompileし、表現不能値と容量超過は位置付きerrorにします。user waveformは45の32-byte squareだけを登録し、外部envelope/FMは使いません。
 
 Sound > ADPCM の詳細フォームと取込ダイアログは、通常編集する ID / Name / Sample rate / Loop / Split だけを表示します。新規取り込みの標準 sample rate は 8000Hz です。Streaming 再生指定は削除済みです。低レベルの `adpcmAddress` と `divider` は UI には出さず、address は既定値、divider は `sampleRate` からの自動値を使います。

@@ -19,6 +19,8 @@ PCE assetへ一括登録する機能も提供します。GD-DA trackの自動登
   適用できません。
 - ユーザーが選んだresource root直下の `SCRIPT` 以下だけを読みます。
 - 変換対象は取込画面で明示的に選択したSCRだけです。
+- 選択した各SCRの先頭を変換rootとして扱います。entry SCRからexternal GOTOで
+  到達しないSCRもscene化し、entry指定は取込後の開始sceneだけを決めます。
 - 選択したSCR群では変数を共有し、labelとscene IDはSCR単位のnamespaceへ
   分離します。
 - 取り込んだscene名は `北へ。PM/<SCR path>/<開始行>` の2段階groupとして保存し、
@@ -116,9 +118,12 @@ P04→画像などの型違いはerrorです。SCR converterの自動mappingもp
 Settings > Pluginsで `北へ。PhotoMemories 取込` を有効にすると、CD-ROM2 projectのNovel画面に `北へ。PM取込` が表示されます。プラグインをOFFにした場合とHuCARD projectではボタンを表示しません。ボタンを押し、次の順で設定します。
 
 1. resource rootを選ぶ。root直下に `SCRIPT` directoryが必要です。
-2. 一覧から変換対象のSCRを複数選択し、entry SCRと主人公名を指定する。新規取込の
-   既定名は「ハドソン」で、同じSCR集合・entryの再取込ではsidecarに保存した名前を復元する。
-3. 到達可能な画像・P04・MIDI・GD-DA参照を確認する。source名と既存PCE
+2. 一覧から変換対象のSCRを複数選択し、entry SCRと主人公名を指定する。resource rootを
+   選んだ直後は、SCRIPT配下で検出したSCRをすべて選択します。個別のチェックを変更しても
+   SCR一覧のスクロール位置は維持します。新規取込の既定名は「ハドソン」で、同じSCR集合・
+   entryの再取込ではsidecarに保存した名前を復元する。選択したSCRはentryとの接続有無に
+   かかわらずすべて変換対象になり、entryは開始sceneの指定に使う。
+3. 各選択SCRの変換rootから到達可能な画像・P04・MIDI・GD-DA参照を確認する。source名と既存PCE
    asset名が一致する参照は自動的に割り当てられ、一致しない参照は省略状態になる。
    必要に応じて対応assetを変更するか、カード右上のチェックをOFFにして省略する。
 4. 行番号付き診断、近似内容、scene予算を確認する。
@@ -229,7 +234,14 @@ Novel editorで手入力したsceneや既存sceneのjp-v3文字検査は引き�
 - 認識可能な `WAITBTN` 分岐
 - 同一SCR内の `CALL` / `RETURN`
 
-`CALL` / `RETURN` は静的に展開し、最大call stackは16、展開stateは4096です。
+到達性解析はentry SCRの連結graphを先に処理し、そのgraphから未到達の選択SCRを
+先頭から独立rootとして順次処理します。すでにexternal GOTOで接続済みのSCRには
+新しい初期stateを重ねないため、CGDIR、CG slot、定数、messageなどの状態継承を維持します。
+空でない選択SCRは必ずscene生成対象になり、変換可能な命令がないSCRだけをwarningにします。
+
+`CALL` / `RETURN` は静的に展開し、最大call stackは16です。選択SCRの元命令数は
+そのまま解析対象にし、CALL/分岐で増える展開state用の安全枠を選択SCR 1本あたり4096件
+加えます。大量の直線命令だけで展開上限を消費することはありません。
 再帰、stack超過、state超過はerrorです。重複label、未解決label、戻り先のない
 `RETURN`、判定不能な入力cycleもerrorです。
 
@@ -243,6 +255,9 @@ warning付きで省略します。
 変換coreはbasic blockを決定的にsceneへ分割します。同一scene外を指すlabel分岐は
 scene内のbridge labelと`jump`へ変換します。scene ID、command数、変数数、
 scene pack byte数の上限は、保存前にPCE VN managerの非書込みbuild検査を通します。
+PCE VN runtimeのscene indexは8-bitなので、1 documentのscene上限は255です。
+初回検査で`estimatedSceneCount`を計算し、選択SCRから生成するsceneが255を超える場合は
+一部SCRを黙って除外せず`scene-count-limit` errorとして選択の分割を求めます。
 CD-ROM2 buildで音声付きmessageの前に自動挿入されるADPCM preloadは、元のSCR
 command indexではなく、生成後の実command列へ反映されます。そのため、IF / SWITCH /
 GOTO / WAITBTN のlabel分岐先はpreload挿入後も同じlabel commandを指します。
@@ -302,9 +317,10 @@ stale errorとして停止します。
 
 ## Plugin API
 
-main hookの初回検査では、SCR一覧、到達可能命令の相対SCR path・行番号・opcode、
+main hookの初回検査では、SCR一覧、各選択SCRの変換rootから到達可能な命令の相対SCR path・行番号・opcode、
 asset要件、COLOR token、診断を取得します。`reachableInstructions`には本文や
-絶対pathを含めません。各`assetRequirements[]`にはsourceから導出した
+絶対pathを含めません。`summary.estimatedSceneCount`にはmapping前のbasic block
+scene推定数を返します。各`assetRequirements[]`にはsourceから導出した
 `suggestedAssetName`と、同名・適合型のassetが存在する場合は
 `suggestedAssetId` / `suggestedAssetType`が追加されます。
 

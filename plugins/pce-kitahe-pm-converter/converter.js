@@ -561,6 +561,7 @@ function buildReachability(programs, entryScript) {
       order: [],
       reachableLocations: new Set(),
       entryKey: '',
+      rootKeys: [],
     };
   }
 
@@ -583,16 +584,20 @@ function buildReachability(programs, entryScript) {
   const order = [];
   const reachableLocations = new Set();
   const queued = [];
+  let queuedCursor = 0;
+  const hasQueuedState = () => queuedCursor < queued.length;
+  const sourceInstructionCount = programs.reduce((sum, program) => sum + program.instructions.length, 0);
+  const maxExpandedStates = sourceInstructionCount + (MAX_EXPANDED_STATES * programs.length);
   const queueState = (fileIndex, pc, stack, edgeKind = 'next') => {
     const program = programs[fileIndex];
     if (!program || pc < 0 || pc >= program.instructions.length) return null;
     const key = stateKey(fileIndex, pc, stack);
     if (!nodes.has(key)) {
-      if (nodes.size >= MAX_EXPANDED_STATES) {
+      if (nodes.size >= maxExpandedStates) {
         diagnostics.push(diagnostic(
           'error',
           'expanded-state-limit',
-          `CALL/分岐の展開状態が上限 ${MAX_EXPANDED_STATES} を超えました。`,
+          `CALL/分岐の展開状態が安全上限 ${maxExpandedStates}（元命令 ${sourceInstructionCount} + 選択SCRごとの追加 ${MAX_EXPANDED_STATES}）を超えました。`,
           program.instructions[pc],
         ));
         return null;
@@ -612,8 +617,30 @@ function buildReachability(programs, entryScript) {
     return { key, kind: edgeKind };
   };
 
-  const entry = queueState(entryFileIndex, 0, []);
+  const rootFileIndexes = [
+    entryFileIndex,
+    ...programs.map((_program, fileIndex) => fileIndex).filter((fileIndex) => fileIndex !== entryFileIndex),
+  ];
+  const rootKeys = [];
+  const rootKeySet = new Set();
+  const recordRoot = (root) => {
+    if (root && !rootKeySet.has(root.key)) {
+      rootKeySet.add(root.key);
+      rootKeys.push(root.key);
+    }
+    return root;
+  };
+  let rootFileCursor = 0;
+  const entry = recordRoot(queueState(rootFileIndexes[rootFileCursor], 0, []));
+  rootFileCursor += 1;
   const entryKey = entry?.key || '';
+  const queueNextSelectedRoot = () => {
+    while (!hasQueuedState() && rootFileCursor < rootFileIndexes.length) {
+      const fileIndex = rootFileIndexes[rootFileCursor];
+      rootFileCursor += 1;
+      recordRoot(queueState(fileIndex, 0, []));
+    }
+  };
 
   function labelTarget(program, requested, instruction) {
     const label = String(requested || '').trim().toUpperCase();
@@ -659,8 +686,11 @@ function buildReachability(programs, entryScript) {
     return queueState(fileIndex, pc, node.stack, kind);
   }
 
-  while (queued.length) {
-    const key = queued.shift();
+  while (hasQueuedState() || rootFileCursor < rootFileIndexes.length) {
+    if (!hasQueuedState()) queueNextSelectedRoot();
+    const key = queued[queuedCursor];
+    queuedCursor += 1;
+    if (!key) continue;
     const node = nodes.get(key);
     if (!node) continue;
     const { instruction } = node;
@@ -803,12 +833,12 @@ function buildReachability(programs, entryScript) {
     add(next());
   }
 
-  programs.forEach((program, fileIndex) => {
-    if (!program.instructions.some((_instruction, pc) => reachableLocations.has(`${fileIndex}:${pc}`))) {
+  programs.forEach((program) => {
+    if (!program.instructions.length) {
       diagnostics.push(diagnostic(
         'warning',
-        'unreachable-selected-script',
-        `選択SCR ${program.path} はentryから到達しません。`,
+        'empty-selected-script',
+        `選択SCR ${program.path} に変換可能な命令がありません。`,
       ));
     }
   });
@@ -819,6 +849,7 @@ function buildReachability(programs, entryScript) {
     order,
     reachableLocations,
     entryKey,
+    rootKeys,
   };
 }
 
@@ -1252,11 +1283,29 @@ function ambiguousConstantArguments(instruction, constants) {
 }
 
 function abstractStateDiagnostics(reachability) {
-  if (!reachability.entryKey) return [];
+  const rootKeys = Array.from(new Set(
+    (Array.isArray(reachability.rootKeys) && reachability.rootKeys.length
+      ? reachability.rootKeys
+      : [reachability.entryKey]).filter(Boolean),
+  ));
+  if (!rootKeys.length) return [];
   const diagnostics = [];
   const diagnosed = new Set();
-  const inputStates = new Map([[reachability.entryKey, emptyAbstractState()]]);
-  const queued = [reachability.entryKey];
+  const inputStates = new Map();
+  const queued = [];
+  let queuedCursor = 0;
+  const hasQueuedState = () => queuedCursor < queued.length;
+  let rootCursor = 0;
+  const queueNextRoot = () => {
+    while (!hasQueuedState() && rootCursor < rootKeys.length) {
+      const rootKey = rootKeys[rootCursor];
+      rootCursor += 1;
+      if (!reachability.nodes.has(rootKey) || inputStates.has(rootKey)) continue;
+      inputStates.set(rootKey, emptyAbstractState());
+      queued.push(rootKey);
+    }
+  };
+  queueNextRoot();
 
   const report = (code, message, instruction) => {
     const key = `${code}:${instruction.script}:${instruction.line}`;
@@ -1265,8 +1314,11 @@ function abstractStateDiagnostics(reachability) {
     diagnostics.push(diagnostic('error', code, message, instruction));
   };
 
-  while (queued.length) {
-    const key = queued.shift();
+  while (hasQueuedState() || rootCursor < rootKeys.length) {
+    if (!hasQueuedState()) queueNextRoot();
+    const key = queued[queuedCursor];
+    queuedCursor += 1;
+    if (!key) continue;
     const node = reachability.nodes.get(key);
     const input = inputStates.get(key);
     if (!node || !input) continue;
@@ -1983,16 +2035,33 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
   const resolvedConstants = new Map();
   const inputStates = new Map();
   const queued = [];
+  let queuedCursor = 0;
+  const hasQueuedState = () => queuedCursor < queued.length;
   const processed = new Set();
-  if (reachability.entryKey) {
-    inputStates.set(reachability.entryKey, emptyFactState());
-    queued.push(reachability.entryKey);
-  }
+  const rootKeys = Array.from(new Set(
+    (Array.isArray(reachability.rootKeys) && reachability.rootKeys.length
+      ? reachability.rootKeys
+      : [reachability.entryKey]).filter(Boolean),
+  ));
+  let rootCursor = 0;
+  const queueNextRoot = () => {
+    while (!hasQueuedState() && rootCursor < rootKeys.length) {
+      const rootKey = rootKeys[rootCursor];
+      rootCursor += 1;
+      if (!reachability.nodes.has(rootKey) || inputStates.has(rootKey) || processed.has(rootKey)) continue;
+      inputStates.set(rootKey, emptyFactState());
+      queued.push(rootKey);
+    }
+  };
+  queueNextRoot();
 
   const occurrence = (instruction) => ({ script: instruction.script, line: instruction.line });
 
-  while (queued.length) {
-    const nodeKey = queued.shift();
+  while (hasQueuedState() || rootCursor < rootKeys.length) {
+    if (!hasQueuedState()) queueNextRoot();
+    const nodeKey = queued[queuedCursor];
+    queuedCursor += 1;
+    if (!nodeKey) continue;
     if (processed.has(nodeKey)) continue;
     processed.add(nodeKey);
     const node = reachability.nodes.get(nodeKey);
@@ -2666,9 +2735,11 @@ function inspectScripts({
   const programs = files.map((file) => parseScrBuffer(file.path, file.buffer));
   const reachability = buildReachability(programs, entryScript || files[0]?.path || '');
   const analysis = analyzeInstructionFactsCfg(programs, reachability, { protagonistName });
+  const estimatedSceneCount = buildBasicBlocks({ programs, reachability }, 'khpm_inspect').blocks.length;
   const diagnostics = dedupeDiagnostics([
     ...analysis.diagnostics,
     ...validateRuntimeVariableNames(analysis),
+    ...(estimatedSceneCount > MAX_SCENES ? [sceneCountLimitDiagnostic(estimatedSceneCount)] : []),
   ]);
   return {
     programs,
@@ -2680,6 +2751,7 @@ function inspectScripts({
     runtimeVariables: analysis.runtimeVariables,
     constants: analysis.constants,
     entryScript: normalizeRelativeScriptPath(entryScript || files[0]?.path || ''),
+    estimatedSceneCount,
     canApply: !diagnostics.some((entry) => entry.severity === 'error'),
   };
 }
@@ -2713,6 +2785,7 @@ function publicInspection(analysis) {
     summary: {
       selectedScriptCount: analysis.programs.length,
       reachableInstructionCount,
+      estimatedSceneCount: analysis.estimatedSceneCount,
       colorTokenCount: analysis.colorTokens.length,
       assetRequirementCount: analysis.requirements.length,
       warningCount: analysis.diagnostics.filter((entry) => entry.severity === 'warning').length,
@@ -2734,8 +2807,18 @@ function isControlInstruction(instruction) {
     && Boolean(instruction.condition?.then?.match(/^GOT(?:O)?\s+/i));
 }
 
+function sceneCountLimitDiagnostic(sceneCount) {
+  return diagnostic(
+    'error',
+    'scene-count-limit',
+    `変換scene数 ${sceneCount} がPCE VN runtime上限 ${MAX_SCENES} を超えます。選択SCRを分けてください。`,
+  );
+}
+
 function buildBasicBlocks(analysis, namespace) {
-  const { nodes, order, entryKey } = analysis.reachability;
+  const {
+    nodes, order, entryKey, rootKeys = [],
+  } = analysis.reachability;
   const indegree = new Map(order.map((key) => [key, 0]));
   order.forEach((key) => {
     const node = nodes.get(key);
@@ -2743,7 +2826,7 @@ function buildBasicBlocks(analysis, namespace) {
   });
 
   const leaders = new Set();
-  if (entryKey) leaders.add(entryKey);
+  (rootKeys.length ? rootKeys : [entryKey]).filter(Boolean).forEach((key) => leaders.add(key));
   order.forEach((key) => {
     const node = nodes.get(key);
     if ((indegree.get(key) || 0) !== 1 || node.instruction.op === 'LABEL') leaders.add(key);
@@ -3146,11 +3229,7 @@ function convertScripts(analysis, {
   const grouped = buildBasicBlocks(analysis, safeIdentifier(namespace, 'khpm', 24));
   const { blocks, blockByNode, entryBlockIndex } = grouped;
   if (blocks.length > MAX_SCENES) {
-    diagnostics.push(diagnostic(
-      'error',
-      'scene-count-limit',
-      `変換scene数 ${blocks.length} が上限 ${MAX_SCENES} を超えます。`,
-    ));
+    diagnostics.push(sceneCountLimitDiagnostic(blocks.length));
     return { ok: false, diagnostics: dedupeDiagnostics(diagnostics), scenes: [], sourceMap: [] };
   }
 

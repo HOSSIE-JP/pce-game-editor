@@ -849,7 +849,7 @@ test('Kitahe PM omits CG alpha FADE while preserving SCREEN effects', () => {
   }]);
 });
 
-test('Kitahe PM CFG handles local/external GOTO and gates unselected or unresolved targets', () => {
+test('Kitahe PM CFG handles local/external GOTO, selected roots, and unresolved targets', () => {
   const selectedExternal = analyze([
     'LABEL TOP',
     'GOTO TOP, B.SCR',
@@ -879,7 +879,10 @@ test('Kitahe PM CFG handles local/external GOTO and gates unselected or unresolv
     { path: 'D1/X.SCR', lines: ['LABEL TARGET', 'END'] },
   ]);
   assert.ok(qualifiedMissing.diagnostics.some((entry) => entry.code === 'unselected-external-script'));
-  assert.ok(!qualifiedMissing.reachability.reachableLocations.has('1:0'));
+  assert.ok(qualifiedMissing.reachability.reachableLocations.has('1:0'));
+  const qualifiedMissingGoto = Array.from(qualifiedMissing.reachability.nodes.values())
+    .find((node) => node.fileIndex === 0 && node.instruction.op === 'GOTO');
+  assert.equal(qualifiedMissingGoto.edges.length, 0);
 
   const explicitTop = analyze([
     'MSG WIN_MSG, before',
@@ -2524,6 +2527,72 @@ test('Kitahe PM apply rolls back every JSON file after a mid-transaction rename 
     fs.rmSync(sourceRoot, { recursive: true, force: true });
     fs.rmSync(projectDir, { recursive: true, force: true });
   }
+});
+
+test('Kitahe PM imports every selected SCR even when it is disconnected from the entry graph', () => {
+  const analysis = converter.inspectScripts({
+    files: [
+      {
+        path: 'ADV_AYU01.SCR',
+        buffer: scr('MSG WIN_MSG, ayu\nWAIT WIN_MSG\nEND'),
+      },
+      {
+        path: 'ADV_HAYAKA03.SCR',
+        buffer: scr('MSG WIN_MSG, hayaka\nWAIT WIN_MSG\nEND'),
+      },
+      {
+        path: 'ADV_KAORU01.SCR',
+        buffer: scr('MSG WIN_MSG, kaoru\nWAIT WIN_MSG\nEND'),
+      },
+    ],
+    entryScript: 'ADV_AYU01.SCR',
+  });
+
+  assert.equal(analysis.reachability.rootKeys.length, 3);
+  assert.equal(analysis.reachability.reachableLocations.size, 9);
+  assert.ok(!analysis.diagnostics.some((entry) => entry.code === 'unreachable-selected-script'));
+
+  const converted = converter.convertScripts(analysis, { mapping: {}, assetCatalog: [] });
+  assert.equal(converted.ok, true);
+  assert.deepEqual(converted.scenes.map((scene) => scene.name), [
+    '北へ。PM/ADV_AYU01.SCR/1',
+    '北へ。PM/ADV_HAYAKA03.SCR/1',
+    '北へ。PM/ADV_KAORU01.SCR/1',
+  ]);
+  assert.deepEqual(
+    converted.scenes.flatMap((scene) => scene.commands)
+      .filter((command) => command.type === 'message')
+      .map((command) => command.text),
+    ['ayu', 'hayaka', 'kaoru'],
+  );
+  assert.equal(
+    converted.scenes.find((scene) => scene.id === converted.entrySceneId)?.name,
+    '北へ。PM/ADV_AYU01.SCR/1',
+  );
+});
+
+test('Kitahe PM keeps source instruction volume outside the per-script expansion allowance', () => {
+  const sourceLines = Array.from({ length: 4200 }, (_entry, index) => `LABEL L${index + 1}`);
+  sourceLines.push('END');
+  const analysis = analyze(sourceLines);
+
+  assert.equal(analysis.reachability.nodes.size, sourceLines.length);
+  assert.ok(!analysis.diagnostics.some((entry) => entry.code === 'expanded-state-limit'));
+});
+
+test('Kitahe PM reports the runtime scene limit during initial inspection', () => {
+  const files = Array.from({ length: converter.MAX_SCENES + 1 }, (_entry, index) => ({
+    path: `ADV_ROUTE_${String(index + 1).padStart(3, '0')}.SCR`,
+    buffer: scr('END'),
+  }));
+  const analysis = converter.inspectScripts({ files, entryScript: files[0].path });
+
+  assert.equal(analysis.estimatedSceneCount, converter.MAX_SCENES + 1);
+  assert.ok(analysis.diagnostics.some((entry) => (
+    entry.code === 'scene-count-limit'
+    && entry.message.includes(`runtime上限 ${converter.MAX_SCENES}`)
+  )));
+  assert.equal(analysis.canApply, false);
 });
 
 test('Kitahe PM groups imported scenes by source script and sorts source locations', () => {

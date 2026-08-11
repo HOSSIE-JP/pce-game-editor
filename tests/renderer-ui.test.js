@@ -1099,6 +1099,12 @@ test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workfl
   const inspectStart = converterRenderer.indexOf('const inspectSelected = async');
   const inspectEnd = converterRenderer.indexOf('const resetAssetMappings = async', inspectStart);
   const inspectSource = converterRenderer.slice(inspectStart, inspectEnd);
+  const pickRootStart = converterRenderer.indexOf('const pickRoot = async');
+  const pickRootEnd = converterRenderer.indexOf('const inspectSelected = async', pickRootStart);
+  const pickRootSource = converterRenderer.slice(pickRootStart, pickRootEnd);
+  const scriptChangeStart = converterRenderer.indexOf("const scriptIndex = target.getAttribute('data-script-index')");
+  const scriptChangeEnd = converterRenderer.indexOf("if (target.dataset.kitaheField === 'entry')", scriptChangeStart);
+  const scriptChangeSource = converterRenderer.slice(scriptChangeStart, scriptChangeEnd);
   const resetStart = converterRenderer.indexOf('const resetAssetMappings = async');
   const resetEnd = converterRenderer.indexOf('const showPreview = async', resetStart);
   const resetSource = converterRenderer.slice(resetStart, resetEnd);
@@ -1107,6 +1113,11 @@ test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workfl
   assert.match(converterRenderer, /invoke\('inspectKitahePmSource'/);
   assert.match(converterRenderer, /invoke\('applyKitahePmConversion'/);
   assert.match(converterRenderer, /selectedScripts: Array\.from\(state\.selectedScripts\)/);
+  assert.ok(pickRootStart >= 0 && pickRootEnd > pickRootStart);
+  assert.match(
+    pickRootSource,
+    /state\.scripts = asArray\(inspection\?\.scripts\);[\s\S]*const discoveredScriptValues = state\.scripts\.map\(scriptValue\)\.filter\(Boolean\);[\s\S]*state\.selectedScripts = new Set\(discoveredScriptValues\);[\s\S]*state\.entryScript = discoveredScriptValues\[0\] \|\| '';/,
+  );
   assert.match(converterRenderer, /const DEFAULT_PROTAGONIST_NAME = 'ハドソン'/);
   assert.match(converterRenderer, /protagonistName: DEFAULT_PROTAGONIST_NAME/);
   assert.match(converterRenderer, /protagonistNameTouched \? \{ protagonistName: state\.protagonistName \} : \{\}/);
@@ -1162,6 +1173,15 @@ test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workfl
   assert.doesNotMatch(converterRenderer, /data-map-action|登録済みアセットへ対応<\/option>|明示的に省略<\/option>/);
   assert.match(converterRenderer, /preserveBodyScroll[\s\S]*previousBody\.scrollTop[\s\S]*nextBody\.scrollTop = bodyScroll\.top/);
   assert.match(converterRenderer, /renderModal\(modal, state, \{ preserveBodyScroll: true \}\)/);
+  assert.match(
+    converterRenderer,
+    /preserveScriptListScroll[\s\S]*previousScriptList\.scrollTop[\s\S]*nextScriptList\.scrollTop = scriptListScroll\.top/,
+  );
+  assert.ok(scriptChangeStart >= 0 && scriptChangeEnd > scriptChangeStart);
+  assert.match(
+    scriptChangeSource,
+    /renderModal\(modal, state, \{[\s\S]*preserveBodyScroll: true,[\s\S]*preserveScriptListScroll: true,[\s\S]*\}\);/,
+  );
   assert.match(converterRenderer, /requirement\.kind === 'psg'\) return \['psg-song'\]/);
   assert.doesNotMatch(converterRenderer, /window\.prompt|window\.alert|window\.confirm/);
   assert.match(converterCss, /\.pce-kitahe-import-panel/);

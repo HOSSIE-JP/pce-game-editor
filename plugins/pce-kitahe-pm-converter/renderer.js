@@ -571,6 +571,10 @@ function renderModal(modal, state, options = {}) {
   const bodyScroll = options.preserveBodyScroll === true && previousBody
     ? { top: previousBody.scrollTop, left: previousBody.scrollLeft }
     : null;
+  const previousScriptList = modal.panel.querySelector('.pce-kitahe-script-list');
+  const scriptListScroll = options.preserveScriptListScroll === true && previousScriptList
+    ? { top: previousScriptList.scrollTop, left: previousScriptList.scrollLeft }
+    : null;
   const labels = ['SCR', 'Mapping', 'Preview', 'Apply'];
   const body = state.step === 0
     ? sourceStepHtml(state)
@@ -631,6 +635,13 @@ function renderModal(modal, state, options = {}) {
     if (nextBody) {
       nextBody.scrollTop = bodyScroll.top;
       nextBody.scrollLeft = bodyScroll.left;
+    }
+  }
+  if (scriptListScroll) {
+    const nextScriptList = modal.panel.querySelector('.pce-kitahe-script-list');
+    if (nextScriptList) {
+      nextScriptList.scrollTop = scriptListScroll.top;
+      nextScriptList.scrollLeft = scriptListScroll.left;
     }
   }
 }
@@ -857,10 +868,9 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
         });
         state.inspection = inspection;
         state.scripts = asArray(inspection?.scripts);
-        state.selectedScripts = new Set(
-          asArray(inspection?.selectedScripts).map(scriptValue).filter(Boolean),
-        );
-        state.entryScript = scriptValue(asArray(inspection?.entryCandidates)[0]) || '';
+        const discoveredScriptValues = state.scripts.map(scriptValue).filter(Boolean);
+        state.selectedScripts = new Set(discoveredScriptValues);
+        state.entryScript = discoveredScriptValues[0] || '';
         state.protagonistName = String(
           inspection?.protagonistName ?? DEFAULT_PROTAGONIST_NAME,
         ).slice(0, 16);
@@ -1109,7 +1119,10 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
         if (target.checked) state.selectedScripts.add(value);
         else state.selectedScripts.delete(value);
         if (!state.selectedScripts.has(state.entryScript)) state.entryScript = Array.from(state.selectedScripts)[0] || '';
-        renderModal(modal, state);
+        renderModal(modal, state, {
+          preserveBodyScroll: true,
+          preserveScriptListScroll: true,
+        });
         return;
       }
       if (target.dataset.kitaheField === 'entry') state.entryScript = target.value;
