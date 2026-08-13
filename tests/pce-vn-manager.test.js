@@ -2230,7 +2230,15 @@ test('PCE VN manager compiles PSG audio to System Card main/sub packages', () =>
     version: 2,
     assets: [
       { id: 'chime', name: 'chime', type: 'psg-sfx', options: {} },
-      { id: 'theme', name: 'theme', type: 'psg-song', options: {} },
+      {
+        id: 'theme',
+        name: 'theme',
+        type: 'psg-song',
+        options: {
+          steps: 4,
+          pattern: [{ step: 0, channel: 0, period: 3624, volume: 20 }],
+        },
+      },
     ],
   });
   writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
@@ -2274,6 +2282,10 @@ test('PCE VN manager compiles PSG audio to System Card main/sub packages', () =>
   assert.equal(generated.systemPsgPackageCount, 2);
   assert.equal(generated.systemPsgMetaPath, 'assets/generated/vn/system_psg_meta.bin');
   assert.equal(generated.systemPsgMetaBytes, 32);
+  assert.ok(generated.warnings.some((warning) => (
+    warning.includes('System Card PSG asset "theme"')
+    && warning.includes('pattern[0] 3624→')
+  )));
 
   const bgm = commandRecord(pack, 0);
   const sfx = commandRecord(pack, 1);

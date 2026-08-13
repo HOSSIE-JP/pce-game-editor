@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const { pathToFileURL } = require('node:url');
+const vm = require('node:vm');
 
 function readRendererFile(name) {
   return fs.readFileSync(path.join(__dirname, '..', 'renderer', name), 'utf-8');
@@ -1132,6 +1133,16 @@ test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workfl
   assert.match(converterRenderer, /mapped\.display === 'sprite'[\s\S]*mapped\.slot[\s\S]*else \{[\s\S]*mapped\.x = asInteger\(current\.x, 2\)/);
   assert.doesNotMatch(converterRenderer, /speakerMappings: Object\.create\(null\)|compactSpeakerMappings/);
   assert.match(converterRenderer, /assetMappings: Object\.create\(null\)/);
+  assert.match(converterRenderer, /const MAPPING_PAGE_SIZE = 40/);
+  assert.match(converterRenderer, /const DIAGNOSTIC_PAGE_SIZE = 200/);
+  assert.match(converterRenderer, /requirements\.slice\(start, start \+ MAPPING_PAGE_SIZE\)/);
+  assert.match(converterRenderer, /rows\.slice\(start, start \+ DIAGNOSTIC_PAGE_SIZE\)/);
+  assert.match(converterRenderer, /action === 'mapping-page-next'/);
+  assert.match(converterRenderer, /action === 'diagnostic-page-next'/);
+  assert.match(converterRenderer, /diagnosticOverviewHtml\(diagnostics\)/);
+  assert.match(converterRenderer, /適用を止めるエラーはありません/);
+  assert.match(converterRenderer, /action\.startsWith\('diagnostic-filter-'\)/);
+  assert.match(converterRenderer, /state\.diagnosticFilter = diagnosticCounts\(state\.inspection\.diagnostics\)\.error \? 'error' : 'all'/);
   assert.match(converterRenderer, /const showPreview = async \(\) =>/);
   assert.match(converterRenderer, /previewConversion: true/);
   assert.match(converterRenderer, /mapping,\s*previewConversion: true/);
@@ -1187,6 +1198,10 @@ test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workfl
   assert.match(converterCss, /\.pce-kitahe-import-panel/);
   assert.match(converterCss, /\.pce-kitahe-map-card\.is-omitted/);
   assert.match(converterCss, /\.pce-kitahe-map-toggle input/);
+  assert.match(converterCss, /\.pce-kitahe-paging/);
+  assert.match(converterCss, /\.pce-kitahe-error-summary/);
+  assert.match(converterCss, /\.pce-kitahe-warning-groups/);
+  assert.match(converterCss, /\.pce-kitahe-diagnostic-filters/);
   assert.match(converterCss, /\.pce-kitahe-diagnostic\[data-level="error"\]/);
   assert.match(converterCss, /\.pce-kitahe-preview-modes/);
   assert.match(converterCss, /\.pce-kitahe-budget-table/);
@@ -1229,6 +1244,60 @@ test('Novel editor opens the plugin-owned Kitahe PhotoMemories conversion workfl
   assert.match(packageImporter, /state\.cancelRequested[\s\S]*break/);
   assert.doesNotMatch(packageImporter, /image-import-pipeline|openResizeModal/);
   assert.match(converterCss, /\.pce-kitahe-package-thumb[\s\S]*object-fit: contain/);
+});
+
+test('Kitahe PM import renders only the active Mapping and diagnostic pages', () => {
+  const rendererPath = path.join(__dirname, '..', 'plugins', 'pce-kitahe-pm-converter', 'renderer.js');
+  const rendererSource = fs.readFileSync(rendererPath, 'utf-8')
+    .replace(/^import \{ createKitahePmAssetPackageImporter \} from '.\/asset-package-importer\.js';\r?\n/,
+      'const createKitahePmAssetPackageImporter = () => ({});\n')
+    .replace('export function activatePlugin', 'function activatePlugin')
+    + '\nglobalThis.__kitahePaging = { assetMappingRows, diagnosticRows, diagnosticOverviewHtml };\n';
+  const context = {};
+  vm.runInNewContext(rendererSource, context, { filename: rendererPath });
+
+  const assets = Array.from({ length: 532 }, (_, index) => ({
+    id: `voice_${index}`,
+    name: `Voice ${index}`,
+    type: 'adpcm',
+  }));
+  const assetRequirements = Array.from({ length: 2270 }, (_, index) => ({
+    key: `voice_requirement_${index}`,
+    label: `Voice requirement ${index}`,
+    acceptableAssetTypes: ['adpcm'],
+  }));
+  const mappingState = {
+    inspection: { assetRequirements },
+    assetMappings: Object.create(null),
+    assets,
+    mappingPage: 0,
+  };
+  const mappingHtml = context.__kitahePaging.assetMappingRows(mappingState);
+  assert.equal((mappingHtml.match(/data-map-card=/g) || []).length, 40);
+  assert.equal((mappingHtml.match(/<option /g) || []).length, 40 * (assets.length + 1));
+  assert.doesNotMatch(mappingHtml, /data-map-card="40"/);
+
+  const diagnostics = Array.from({ length: 11258 }, (_, index) => ({
+    level: index % 2 ? 'warning' : 'error',
+    message: `Diagnostic ${index}`,
+  }));
+  const diagnosticHtml = context.__kitahePaging.diagnosticRows(diagnostics, { diagnosticPage: 0 });
+  assert.equal((diagnosticHtml.match(/class="pce-kitahe-diagnostic"/g) || []).length, 200);
+  assert.doesNotMatch(diagnosticHtml, /Diagnostic 200<\/p>/);
+  const errorOnlyHtml = context.__kitahePaging.diagnosticRows(diagnostics, {
+    diagnosticPage: 0,
+    diagnosticFilter: 'error',
+  });
+  assert.equal((errorOnlyHtml.match(/class="pce-kitahe-diagnostic"/g) || []).length, 200);
+  assert.doesNotMatch(errorOnlyHtml, /Diagnostic 1<\/p>/);
+  const overviewHtml = context.__kitahePaging.diagnosticOverviewHtml([
+    { severity: 'error', code: 'scene-pack-limit', message: 'Scene too large' },
+    { severity: 'warning', code: 'command-omitted', message: 'Skipped A' },
+    { severity: 'warning', code: 'command-omitted', message: 'Skipped B' },
+  ]);
+  assert.match(overviewHtml, /適用を止めるエラー 1件/);
+  assert.match(overviewHtml, /command-omitted/);
+  assert.match(overviewHtml, /<strong>2<\/strong>/);
 });
 
 test('Sound plugin integrates ADPCM, CD-DA, and PSG tools behind one tabbed page', () => {

@@ -87,12 +87,36 @@ function resolveTonePeriod(period, context = {}, entry = {}) {
     const distance = Math.abs(detune);
     if (!best || distance < best.distance) best = { ...note, detune, distance };
   });
-  if (!best || best.detune < -128 || best.detune > 127) {
-    throw new Error(sourceLocation(context, entry)
-      + ': tone period ' + target
-      + ' cannot be represented by a System Card octave/note with detune -128..127');
+  if (best && best.detune >= -128 && best.detune <= 127) return best;
+
+  // The System Card driver can only add signed 8-bit detune to its BIOS note
+  // table. Very low HuC6280 periods (for example MIDI bass note period 3624)
+  // sit just outside that range. Keep the event playable by selecting the
+  // closest period the driver can express instead of failing the whole VN.
+  let approximation = null;
+  BIOS_NOTE_TABLE.forEach((note) => {
+    const detune = clampInt(target - note.period, -128, 127, 0);
+    const representedPeriod = note.period + detune;
+    const approximationError = Math.abs(target - representedPeriod);
+    const candidate = {
+      ...note,
+      detune,
+      distance: Math.abs(detune),
+      requestedPeriod: target,
+      representedPeriod,
+      approximationError,
+    };
+    if (!approximation
+      || candidate.approximationError < approximation.approximationError
+      || (candidate.approximationError === approximation.approximationError
+        && candidate.distance < approximation.distance)) {
+      approximation = candidate;
+    }
+  });
+  if (!approximation) {
+    throw new Error(sourceLocation(context, entry) + ': tone period ' + target + ' cannot be resolved');
   }
-  return best;
+  return approximation;
 }
 
 function frameAtStep(step, bpm) {
@@ -166,6 +190,14 @@ function compileToneEvent(bytes, entry, duration, state, context) {
     return;
   }
   const note = resolveTonePeriod(entry.period, context, entry);
+  if (note.approximationError > 0 && Array.isArray(context.toneApproximations)) {
+    context.toneApproximations.push({
+      sourceIndex: entry.sourceIndex,
+      requestedPeriod: note.requestedPeriod,
+      representedPeriod: note.representedPeriod,
+      approximationError: note.approximationError,
+    });
+  }
   if (state.mode !== 0) {
     bytes.push(COMMAND.MODE, 0);
     state.mode = 0;
@@ -275,7 +307,7 @@ function compileSystemCardPsgPackage(asset, baseChannel = 0, compileOptions = {}
     0xffff,
     isSong ? PSG_BGM_MAX_BYTES : PSG_SFX_MAX_BYTES,
   );
-  const context = { assetId: String(asset?.id || '') };
+  const context = { assetId: String(asset?.id || ''), toneApproximations: [] };
   const normalized = mergeClampedChannelEvents(normalizePattern(options.pattern, options, baseChannel));
   const channelEvents = Array.from({ length: PSG_CHANNEL_COUNT }, () => []);
   normalized.forEach((entry) => channelEvents[entry.channel].push(entry));
@@ -332,6 +364,7 @@ function compileSystemCardPsgPackage(asset, baseChannel = 0, compileOptions = {}
     loadAddress,
     usedChannels,
     channelMask: mask,
+    toneApproximations: context.toneApproximations,
     streamOffsets: streams.map((stream, index) => ({
       channel: stream.channel,
       offset: output.readUInt16LE(1 + (index * 2)) - loadAddress,

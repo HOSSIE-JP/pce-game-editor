@@ -125,8 +125,11 @@ Settings > Pluginsで `北へ。PhotoMemories 取込` を有効にすると、CD
    かかわらずすべて変換対象になり、entryは開始sceneの指定に使う。
 3. 各選択SCRの変換rootから到達可能な画像・P04・MIDI・GD-DA参照を確認する。source名と既存PCE
    asset名が一致する参照は自動的に割り当てられ、一致しない参照は省略状態になる。
-   必要に応じて対応assetを変更するか、カード右上のチェックをOFFにして省略する。
-4. 行番号付き診断、近似内容、scene予算を確認する。
+   必要に応じて対応assetを変更するか、カード右上のチェックをOFFにして省略する。大量取込時は
+   Mappingを40件ずつページ表示し、画面外のasset候補をDOMへ一括生成しない。
+4. 行番号付き診断、近似内容、scene予算を確認する。適用を止めるerrorは警告より上へ固定表示し、
+   errorがある場合は詳細一覧もERRORだけを既定表示する。警告はcode別件数へ集約でき、
+   すべて／ERROR／WARN／INFOで絞り込みながら200件ずつページ表示する。
 5. `置換` または `追加` を選び、warningを確認して適用する。
 
 `置換` は現在のVN settingsを維持してsceneだけを置き換え、取込entryを
@@ -163,6 +166,11 @@ alpha nibbleは本文色には使いません。保存後は通常のVN message�
 ファイル名suffixから推測せず、その命令時点の左右slotをordered pairとして
 1つの「事前結合済みPCE asset」へ対応付けます。`CCG` でslotを複製した場合も
 この結合関係を引き継ぎます。
+
+`UNLOADCG` / `UNLOAD` / `UNL` は表示中のCGを消す命令として扱い、Spriteの
+`Visible: false`を生成します。ただし元SCRは同じslotを再度`LCG`せず`ICG`で再表示するため、
+変換解析ではLCGのsource metadataを保持します。後続の`LCG`は同じslotのmetadataを上書きし、
+`CLEARCG`は全slotのmetadataと表示状態を初期化します。
 
 画像mappingでは次を指定します。
 
@@ -234,6 +242,12 @@ Novel editorで手入力したsceneや既存sceneのjp-v3文字検査は引き�
 - 認識可能な `WAITBTN` 分岐
 - 同一SCR内の `CALL` / `RETURN`
 
+`IF`の比較ではruntime variableが左辺・右辺のどちらに書かれていても判定します。
+片側がSCRごとに固定された数値定数、もう片側が更新されるvariableなら、variableを左辺へ
+正規化します。左右を入れ替える場合は`<` / `<=` / `>` / `>=`も反転するため、
+`IF CG_NORMAL == CG_NOW ...`や`IF LIMIT > SCORE ...`を元と同じ意味で変換できます。
+固定数値定数からruntime variableへの代入も、各命令位置の定数値へ解決して保持します。
+
 到達性解析はentry SCRの連結graphを先に処理し、そのgraphから未到達の選択SCRを
 先頭から独立rootとして順次処理します。すでにexternal GOTOで接続済みのSCRには
 新しい初期stateを重ねないため、CGDIR、CG slot、定数、messageなどの状態継承を維持します。
@@ -252,12 +266,29 @@ warning付きで省略します。
 非撮影側へ固定します。このとき待機用の自己loopを取り除きます。撮影patternか
 通常menuかを安全に判定できない入力cycleはerrorです。
 
-変換coreはbasic blockを決定的にsceneへ分割します。同一scene外を指すlabel分岐は
-scene内のbridge labelと`jump`へ変換します。scene ID、command数、変数数、
-scene pack byte数の上限は、保存前にPCE VN managerの非書込みbuild検査を通します。
+引数を持たない `ONTG` は分岐命令ではなくタイマーリセットとして扱い、
+`timer-reset-omitted` warning付きで省略します。この命令からGOTOやscene jumpは
+生成しません。
+
+変換coreは制御フロー解析用のbasic blockをそのままsceneへせず、同じSCRのblockを
+source位置順にまとめます。packing目標はbuild時command見積り220件以下、scene pack
+見積り7000 bytes以下で、runtimeのhard limit（255 command / 8192 bytes）に余白を
+残します。選択SCRのrootと、容量分割後に別sceneから参照されるblockは必ずscene先頭に
+置きます。同一scene内の分岐はblock entry labelへの`goto`、別sceneへの分岐だけを
+`jump`へ変換するため、元のlabel / GOTOを保ったままscene数を減らします。
+`END`など後続edgeを持たないblockはpacked scene末尾の共通labelへ`goto`し、source順で
+後ろに置かれた別blockへ意図せずfall-throughしないようにします。
+
+Choiceは選択値を従来どおり一時variableへ保存し、直接scene遷移は指定しません。直後の
+`switch`が同一sceneのblock entry labelまたは別sceneへのbridge `jump`へ振り分けます。
+このためChoiceの分岐先だけを理由にsceneを細分化しません。
+
+初回検査の`summary.basicBlockCount`は解析上のblock数、`summary.minimumSceneCount`は
+独立して保持すべき選択SCR root数です。raw basic block数が255を超えても初回検査を
+止めず、minimumが255を超える場合だけ`scene-count-limit` errorにします。mapping後の
+previewではpacking済みscene数を検査し、さらにPCE VN managerの非書込みbuild検査で
+document全体のscene ID、command数、変数数、実scene pack byte数を確定します。
 PCE VN runtimeのscene indexは8-bitなので、1 documentのscene上限は255です。
-初回検査で`estimatedSceneCount`を計算し、選択SCRから生成するsceneが255を超える場合は
-一部SCRを黙って除外せず`scene-count-limit` errorとして選択の分割を求めます。
 CD-ROM2 buildで音声付きmessageの前に自動挿入されるADPCM preloadは、元のSCR
 command indexではなく、生成後の実command列へ反映されます。そのため、IF / SWITCH /
 GOTO / WAITBTN のlabel分岐先はpreload挿入後も同じlabel commandを指します。

@@ -9,6 +9,19 @@ const MAX_SCENES = 255;
 const MAX_COMMANDS_PER_SCENE = 255;
 const MAX_VARIABLES = 253;
 const MAX_BLOCK_SOURCE_INSTRUCTIONS = 120;
+// Imported basic blocks are packed below the runtime's hard 255-command / 8192-byte
+// limits. The headroom covers conservative ADPCM preload estimation and keeps the
+// final VN manager build inspection authoritative.
+const PACKED_SCENE_COMMAND_TARGET = 220;
+const PACKED_SCENE_BYTE_TARGET = 7000;
+const MAX_SCENE_PACK_BYTES = 8192;
+const VN_SCENE_PACK_HEADER_BYTES = 20;
+const VN_SCENE_PACK_COMMAND_BYTES = 19;
+const VN_SCENE_PACK_MESSAGE_BYTES = 13;
+const VN_SCENE_PACK_CHOICE_BYTES = 6;
+const VN_SCENE_PACK_CHOICE_OPTION_BYTES = 7;
+const VN_SCENE_PACK_SWITCH_BYTES = 5;
+const VN_SCENE_PACK_SWITCH_CASE_BYTES = 4;
 const MESSAGE_COLUMNS = 17;
 const MESSAGE_ROWS = 4;
 const MESSAGE_PAGE_GLYPHS = MESSAGE_COLUMNS * MESSAGE_ROWS - 1;
@@ -1255,10 +1268,10 @@ function abstractScalarValue(value, constants) {
   return Object.prototype.hasOwnProperty.call(constants, key) ? constants[key] : token;
 }
 
-function ambiguousConstantArguments(instruction, constants) {
+function ambiguousConstantArguments(instruction, constants, runtimeVariables = new Set()) {
   let values = [];
   if (instruction.op === 'IF' && instruction.condition) {
-    values = [instruction.condition.right];
+    values = [normalizeRuntimeCondition(instruction.condition, runtimeVariables).right];
   } else if (['CGDIR', 'LPCM', 'PLAYM', 'PLAYGD'].includes(instruction.op)) {
     values = [instruction.args[0]];
   } else if (instruction.op === 'LCG') {
@@ -1282,7 +1295,7 @@ function ambiguousConstantArguments(instruction, constants) {
   });
 }
 
-function abstractStateDiagnostics(reachability) {
+function abstractStateDiagnostics(reachability, runtimeVariables = new Set()) {
   const rootKeys = Array.from(new Set(
     (Array.isArray(reachability.rootKeys) && reachability.rootKeys.length
       ? reachability.rootKeys
@@ -1326,7 +1339,11 @@ function abstractStateDiagnostics(reachability) {
     const instruction = node.instruction;
     const location = `${instruction.script}:${instruction.line}`;
     const slot = abstractSlot(instruction.args[0]);
-    const ambiguousArguments = ambiguousConstantArguments(instruction, state.constants);
+    const ambiguousArguments = ambiguousConstantArguments(
+      instruction,
+      state.constants,
+      runtimeVariables,
+    );
     if (ambiguousArguments.length) {
       report(
         'ambiguous-constant-state',
@@ -1955,14 +1972,100 @@ function emptyFactState() {
   };
 }
 
-function collectReachableRuntimeVariables(reachability) {
-  const variables = new Set();
+function directNumericAssignmentValue(assignment) {
+  if (!assignment || assignment.arithmetic) return null;
+  const token = cleanToken(assignment.value);
+  if (/^-?0x[0-9a-f]+$/i.test(token)) {
+    const sign = token.startsWith('-') ? -1 : 1;
+    return sign * parseInt(token.replace(/^-/, ''), 16);
+  }
+  return /^-?\d+(?:\.\d+)?$/.test(token) ? Number(token) : null;
+}
+
+function collectStaticNumericSymbols(reachability) {
+  const records = new Map();
+  const dynamic = new Set();
+  const visited = new Set();
+  const recordAssignment = (instruction, assignment) => {
+    const name = String(assignment?.name || '').trim().toUpperCase();
+    if (!name) return;
+    const value = directNumericAssignmentValue(assignment);
+    if (value === null) {
+      dynamic.add(name);
+      return;
+    }
+    if (!records.has(name)) records.set(name, new Map());
+    const byScript = records.get(name);
+    if (!byScript.has(instruction.script)) byScript.set(instruction.script, new Set());
+    byScript.get(instruction.script).add(value);
+  };
+
   reachability.order.forEach((key) => {
     const instruction = reachability.nodes.get(key)?.instruction;
     if (!instruction) return;
-    if (instruction.op === 'IF' && instruction.condition
-      && /^[A-Za-z_][A-Za-z0-9_]*$/.test(instruction.condition.left)) {
-      variables.add(instruction.condition.left.toUpperCase());
+    const location = `${instruction.script}:${instruction.line}`;
+    if (visited.has(location)) return;
+    visited.add(location);
+    if (instruction.op === 'ASSIGN') {
+      recordAssignment(instruction, instruction.assignment || parseAssignment(instruction.raw));
+    }
+    if (instruction.op === 'IF' && instruction.condition) {
+      const conditionalAssignment = parseAssignment(instruction.condition.then);
+      if (conditionalAssignment) dynamic.add(conditionalAssignment.name.toUpperCase());
+    }
+    if (instruction.op === 'WAITBTN' || instruction.op === 'RANDOM') {
+      const name = String(instruction.args[0] || '').trim().toUpperCase();
+      if (name) dynamic.add(name);
+    }
+  });
+
+  return new Set(Array.from(records).filter(([name, byScript]) => (
+    !dynamic.has(name)
+    && Array.from(byScript.values()).every((values) => values.size === 1)
+  )).map(([name]) => name));
+}
+
+function invertComparisonOperator(operator) {
+  if (operator === '<') return '>';
+  if (operator === '<=') return '>=';
+  if (operator === '>') return '<';
+  if (operator === '>=') return '<=';
+  return operator;
+}
+
+function normalizeRuntimeCondition(condition, runtimeVariables = new Set()) {
+  if (!condition) return condition;
+  const left = String(condition.left || '').trim().toUpperCase();
+  const right = String(condition.right || '').trim().toUpperCase();
+  if (!runtimeVariables.has(left) && runtimeVariables.has(right)) {
+    return {
+      ...condition,
+      left: condition.right,
+      operator: invertComparisonOperator(condition.operator),
+      right: condition.left,
+    };
+  }
+  return condition;
+}
+
+function collectReachableRuntimeVariables(reachability) {
+  const variables = new Set();
+  const staticNumericSymbols = collectStaticNumericSymbols(reachability);
+  reachability.order.forEach((key) => {
+    const instruction = reachability.nodes.get(key)?.instruction;
+    if (!instruction) return;
+    if (instruction.op === 'IF' && instruction.condition) {
+      const left = String(instruction.condition.left || '').trim().toUpperCase();
+      const right = String(instruction.condition.right || '').trim().toUpperCase();
+      const leftIdentifier = isVariableIdentifier(left);
+      const rightIdentifier = isVariableIdentifier(right);
+      if ((!leftIdentifier || staticNumericSymbols.has(left))
+        && rightIdentifier
+        && !staticNumericSymbols.has(right)) {
+        variables.add(right);
+      } else if (leftIdentifier) {
+        variables.add(left);
+      }
     }
     const thenAssignment = instruction.op === 'IF' && instruction.condition
       ? parseAssignment(instruction.condition.then)
@@ -2004,7 +2107,10 @@ function runtimeVariableDefinitionDiagnostics(reachability, runtimeVariables) {
     const instruction = reachability.nodes.get(key)?.instruction;
     if (!instruction) return;
     let name = '';
-    if (instruction.op === 'IF') name = String(instruction.condition?.left || '').trim().toUpperCase();
+    if (instruction.op === 'IF') {
+      const condition = normalizeRuntimeCondition(instruction.condition, runtimeVariables);
+      name = String(condition?.left || '').trim().toUpperCase();
+    }
     else if (instruction.op === 'ONC') name = String(instruction.args[0] || '').trim().toUpperCase();
     else if (instruction.op === 'ONG') {
       const candidate = String(instruction.args[0] || '').trim().toUpperCase();
@@ -2029,7 +2135,7 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
   const runtimeVariables = collectReachableRuntimeVariables(reachability);
   const diagnostics = [
     ...reachability.diagnostics,
-    ...abstractStateDiagnostics(reachability),
+    ...abstractStateDiagnostics(reachability, runtimeVariables),
     ...runtimeVariableDefinitionDiagnostics(reachability, runtimeVariables),
   ];
   const resolvedConstants = new Map();
@@ -2301,15 +2407,9 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
     } else if (instruction.op === 'UNLOADCG' || instruction.op === 'UNLOAD' || instruction.op === 'UNL') {
       const slots = resolveUnloadSlots(instruction.args[0], instruction.args[1]);
       clearCgVisibility(slots);
-      const countValue = instruction.args[1] && cleanToken(instruction.args[1])
-        ? numericValue(instruction.args[1], state.constants)
-        : 1;
-      if (countValue !== 0) {
-        slots.forEach((slot) => {
-          unlinkCgSlot(slot);
-          state.cgSlots.delete(slot);
-        });
-      }
+      // UNLOAD/DCG describe display lifetime in the source scripts. The same
+      // LCG slot is routinely shown again without another LCG, so retain its
+      // source metadata while clearing only the active PCE sprite placement.
     } else if (instruction.op === 'CLEARCG') {
       state.cgSlots.clear();
       state.cgLinks.clear();
@@ -2735,11 +2835,20 @@ function inspectScripts({
   const programs = files.map((file) => parseScrBuffer(file.path, file.buffer));
   const reachability = buildReachability(programs, entryScript || files[0]?.path || '');
   const analysis = analyzeInstructionFactsCfg(programs, reachability, { protagonistName });
-  const estimatedSceneCount = buildBasicBlocks({ programs, reachability }, 'khpm_inspect').blocks.length;
+  const structuralBlocks = buildBasicBlocks({ programs, reachability }, 'khpm_inspect');
+  const rootBlockIndexes = new Set(
+    (reachability.rootKeys?.length ? reachability.rootKeys : [reachability.entryKey])
+      .map((key) => structuralBlocks.blockByNode.get(key))
+      .filter((index) => Number.isInteger(index)),
+  );
+  // Every selected SCR root must remain independently addressable. Basic blocks
+  // inside one SCR can be packed later, so their raw count is not a scene count.
+  const minimumSceneCount = rootBlockIndexes.size || (structuralBlocks.blocks.length ? 1 : 0);
+  const basicBlockCount = structuralBlocks.blocks.length;
   const diagnostics = dedupeDiagnostics([
     ...analysis.diagnostics,
     ...validateRuntimeVariableNames(analysis),
-    ...(estimatedSceneCount > MAX_SCENES ? [sceneCountLimitDiagnostic(estimatedSceneCount)] : []),
+    ...(minimumSceneCount > MAX_SCENES ? [sceneCountLimitDiagnostic(minimumSceneCount)] : []),
   ]);
   return {
     programs,
@@ -2751,7 +2860,11 @@ function inspectScripts({
     runtimeVariables: analysis.runtimeVariables,
     constants: analysis.constants,
     entryScript: normalizeRelativeScriptPath(entryScript || files[0]?.path || ''),
-    estimatedSceneCount,
+    basicBlockCount,
+    minimumSceneCount,
+    // Retained for callers of the v1 inspection shape. It is now the guaranteed
+    // lower bound, not the pre-packing basic-block count.
+    estimatedSceneCount: minimumSceneCount,
     canApply: !diagnostics.some((entry) => entry.severity === 'error'),
   };
 }
@@ -2785,7 +2898,8 @@ function publicInspection(analysis) {
     summary: {
       selectedScriptCount: analysis.programs.length,
       reachableInstructionCount,
-      estimatedSceneCount: analysis.estimatedSceneCount,
+      basicBlockCount: analysis.basicBlockCount,
+      minimumSceneCount: analysis.minimumSceneCount,
       colorTokenCount: analysis.colorTokens.length,
       assetRequirementCount: analysis.requirements.length,
       warningCount: analysis.diagnostics.filter((entry) => entry.severity === 'warning').length,
@@ -2881,6 +2995,307 @@ function buildBasicBlocks(analysis, namespace) {
     blocks,
     blockByNode: assigned,
     entryBlockIndex: assigned.get(entryKey) ?? 0,
+  };
+}
+
+function packedTextBytes(value = '') {
+  const glyphCount = Array.from(String(value || '')).filter((character) => character !== '\r').length;
+  return (glyphCount + 1) * 2;
+}
+
+function estimatePackedSceneCost(commands = [], { includeHeader = true } = {}) {
+  let commandCount = 0;
+  let byteCount = includeHeader ? VN_SCENE_PACK_HEADER_BYTES : 0;
+  commands.forEach((command) => {
+    if (!command || command.type === 'comment' || command.skip === true
+      || command.skipped === true || command.debugSkip === true) return;
+    commandCount += 1;
+    byteCount += VN_SCENE_PACK_COMMAND_BYTES;
+    if (command.type === 'message') {
+      byteCount += VN_SCENE_PACK_MESSAGE_BYTES;
+      const fullText = command.speaker
+        ? String(command.speaker) + '\n' + String(command.text || '')
+        : String(command.text || '');
+      byteCount += packedTextBytes(fullText);
+      // CD builds can insert one internal CACHE command before a voiced message.
+      if (command.voiceAssetId) {
+        commandCount += 1;
+        byteCount += VN_SCENE_PACK_COMMAND_BYTES;
+      }
+    } else if (command.type === 'choice') {
+      const choices = (command.choices || []).slice(0, 4);
+      byteCount += VN_SCENE_PACK_CHOICE_BYTES;
+      choices.forEach((choice) => {
+        byteCount += VN_SCENE_PACK_CHOICE_OPTION_BYTES;
+        byteCount += packedTextBytes(String(choice?.label || '').replace(/[\r\n]/g, ''));
+      });
+    } else if (command.type === 'switch') {
+      const cases = (command.cases || []).slice(0, 16);
+      byteCount += VN_SCENE_PACK_SWITCH_BYTES
+        + (cases.length * VN_SCENE_PACK_SWITCH_CASE_BYTES);
+    }
+  });
+  return { commands: commandCount, bytes: byteCount };
+}
+
+function estimatePackedFragmentCost(fragment) {
+  const cost = estimatePackedSceneCost(fragment.commands, { includeHeader: false });
+  // Every raw block gets an addressable entry label. A non-control successor is
+  // made explicit because packed block order is based on source location. A
+  // terminal block jumps to the packed scene's common end label instead.
+  const flowCommandCount = fragment.nextBlockId || fragment.needsTerminalFlow ? 1 : 0;
+  cost.commands += 1 + flowCommandCount;
+  cost.bytes += VN_SCENE_PACK_COMMAND_BYTES * (1 + flowCommandCount);
+  fragment.commands.forEach((command) => {
+    if (command?.type !== 'choice') return;
+    const choices = (command.choices || []).slice(0, 4);
+    const targetIds = new Set(choices.map((choice) => choice?.targetSceneId).filter(Boolean));
+    // Choice falls through into a local Switch. Assume every distinct target
+    // needs a bridge label plus Jump; local targets will use fewer commands.
+    const addedCommands = 2 + (targetIds.size * 2);
+    cost.commands += addedCommands;
+    cost.bytes += (addedCommands * VN_SCENE_PACK_COMMAND_BYTES)
+      + VN_SCENE_PACK_SWITCH_BYTES
+      + (choices.filter((choice) => choice?.targetSceneId).length
+        * VN_SCENE_PACK_SWITCH_CASE_BYTES);
+  });
+  return cost;
+}
+
+function fragmentTargetBlockIds(fragment) {
+  const targetIds = [];
+  if (fragment.nextBlockId) targetIds.push(fragment.nextBlockId);
+  fragment.commands.forEach((command) => {
+    if (command?.type === 'jump' && command.sceneId) targetIds.push(command.sceneId);
+    if (command?.type === 'choice') {
+      (command.choices || []).forEach((choice) => {
+        if (choice?.targetSceneId) targetIds.push(choice.targetSceneId);
+      });
+    }
+  });
+  return targetIds;
+}
+
+function blockEntryLabel(block) {
+  return normalizeLabel('b' + (block.index + 1) + '_entry');
+}
+
+function packedGroupEndLabel(group) {
+  const firstBlock = group.fragments[0]?.block;
+  return normalizeLabel('pack_b' + ((firstBlock?.index ?? group.index ?? 0) + 1) + '_end');
+}
+
+function packBlockFragments(fragments, rootBlockIds = []) {
+  const roots = new Set(rootBlockIds);
+  const byScript = new Map();
+  fragments.forEach((fragment) => {
+    const script = String(fragment.block.source?.script || '');
+    if (!byScript.has(script)) byScript.set(script, []);
+    fragment.cost = estimatePackedFragmentCost(fragment);
+    byScript.get(script).push(fragment);
+  });
+  byScript.forEach((entries) => entries.sort((left, right) => (
+    compareImportedSceneEntries(left, right)
+  )));
+
+  let groups = [];
+  let groupByBlockId = new Map();
+  const maxIterations = Math.max(1, fragments.length + 1);
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    groups = [];
+    groupByBlockId = new Map();
+    [...byScript.entries()]
+      .sort(([left], [right]) => left.toUpperCase().localeCompare(right.toUpperCase(), 'en'))
+      .forEach(([script, entries]) => {
+        let group = null;
+        entries.forEach((fragment) => {
+          const forceBoundary = Boolean(group?.fragments.length && roots.has(fragment.block.id));
+          const exceedsTarget = Boolean(group?.fragments.length && (
+            group.estimatedCommands + fragment.cost.commands > PACKED_SCENE_COMMAND_TARGET
+            || group.estimatedBytes + fragment.cost.bytes > PACKED_SCENE_BYTE_TARGET
+          ));
+          if (!group || forceBoundary || exceedsTarget) {
+            group = {
+              script,
+              fragments: [],
+              // Every packed scene ends at one explicit label so terminal
+              // fragments cannot fall through into another raw block.
+              estimatedCommands: 1,
+              estimatedBytes: VN_SCENE_PACK_HEADER_BYTES + VN_SCENE_PACK_COMMAND_BYTES,
+            };
+            groups.push(group);
+          }
+          group.fragments.push(fragment);
+          group.estimatedCommands += fragment.cost.commands;
+          group.estimatedBytes += fragment.cost.bytes;
+          groupByBlockId.set(fragment.block.id, group);
+        });
+      });
+
+    let changed = false;
+    fragments.forEach((fragment) => {
+      const sourceGroup = groupByBlockId.get(fragment.block.id);
+      fragmentTargetBlockIds(fragment).forEach((targetId) => {
+        const targetGroup = groupByBlockId.get(targetId);
+        if (!sourceGroup || !targetGroup || sourceGroup === targetGroup) return;
+        if (targetGroup.fragments[0]?.block.id === targetId || roots.has(targetId)) return;
+        roots.add(targetId);
+        changed = true;
+      });
+    });
+    if (!changed) break;
+  }
+
+  groups.forEach((group, index) => {
+    group.index = index;
+    group.id = group.fragments[0]?.block.id || 'khpm_scene_' + (index + 1);
+  });
+  return { groups, groupByBlockId, rootBlockIds: roots };
+}
+
+function sourceForFragmentCommand(fragment, commandIndex) {
+  const source = fragment.commandSources.find((entry) => entry.commandIndex === commandIndex);
+  if (source) return { script: source.script, line: source.line };
+  return {
+    script: fragment.block.source.script,
+    line: fragment.block.source.startLine,
+  };
+}
+
+function rewritePackedFlow(targetBlockId, sourceGroup, packed) {
+  const targetGroup = packed.groupByBlockId.get(targetBlockId);
+  const targetFragment = targetGroup?.fragments.find((entry) => entry.block.id === targetBlockId);
+  if (!targetGroup || !targetFragment) return null;
+  if (targetGroup === sourceGroup) {
+    return { type: 'goto', targetLabel: blockEntryLabel(targetFragment.block) };
+  }
+  return { type: 'jump', sceneId: targetGroup.id };
+}
+
+function appendPackedChoice({
+  command,
+  commandIndex,
+  fragment,
+  group,
+  packed,
+  append,
+  source,
+}) {
+  const choices = (command.choices || []).slice(0, 4);
+  append({
+    ...command,
+    choices: choices.map((choice) => ({ ...choice, targetSceneId: '' })),
+  }, source);
+
+  const prefix = 'b' + (fragment.block.index + 1) + '_choice_' + (commandIndex + 1);
+  const endLabel = normalizeLabel(prefix + '_end');
+  const bridges = new Map();
+  const cases = [];
+  choices.forEach((choice) => {
+    const targetBlockId = choice?.targetSceneId;
+    if (!targetBlockId) return;
+    const targetGroup = packed.groupByBlockId.get(targetBlockId);
+    let targetLabel = '';
+    if (targetGroup === group) {
+      const targetFragment = targetGroup?.fragments.find((entry) => entry.block.id === targetBlockId);
+      if (targetFragment) targetLabel = blockEntryLabel(targetFragment.block);
+    } else if (targetGroup) {
+      if (!bridges.has(targetBlockId)) {
+        bridges.set(targetBlockId, normalizeLabel(prefix + '_bridge_' + (bridges.size + 1)));
+      }
+      targetLabel = bridges.get(targetBlockId);
+    }
+    if (targetLabel) cases.push({ value: choice.value, targetLabel });
+  });
+  append({
+    type: 'switch',
+    variableName: command.variableName,
+    cases,
+    defaultLabel: endLabel,
+  }, source);
+  bridges.forEach((label, targetBlockId) => {
+    append({ type: 'label', name: label }, source);
+    const flow = rewritePackedFlow(targetBlockId, group, packed);
+    if (flow) append(flow, source);
+  });
+  append({ type: 'label', name: endLabel }, source);
+}
+
+function buildPackedSceneEntry(group, packed) {
+  const commands = [];
+  const commandSources = [];
+  const endLabel = packedGroupEndLabel(group);
+  const append = (command, source) => {
+    if (!command) return;
+    const commandIndex = commands.length;
+    commands.push(command);
+    commandSources.push({ commandIndex, ...source });
+  };
+
+  group.fragments.forEach((fragment) => {
+    const blockSource = {
+      script: fragment.block.source.script,
+      line: fragment.block.source.startLine,
+    };
+    append({ type: 'label', name: blockEntryLabel(fragment.block) }, blockSource);
+    fragment.commands.forEach((command, commandIndex) => {
+      const source = sourceForFragmentCommand(fragment, commandIndex);
+      if (command?.type === 'jump' && command.sceneId) {
+        append(rewritePackedFlow(command.sceneId, group, packed), source);
+      } else if (command?.type === 'choice') {
+        appendPackedChoice({
+          command,
+          commandIndex,
+          fragment,
+          group,
+          packed,
+          append,
+          source,
+        });
+      } else {
+        append(command, source);
+      }
+    });
+    if (fragment.nextBlockId) {
+      const lastNode = fragment.block.nodes[fragment.block.nodes.length - 1];
+      append(rewritePackedFlow(fragment.nextBlockId, group, packed), {
+        script: fragment.block.source.script,
+        line: lastNode?.instruction?.line || fragment.block.source.endLine,
+      });
+    } else if (fragment.needsTerminalFlow) {
+      const lastNode = fragment.block.nodes[fragment.block.nodes.length - 1];
+      append({ type: 'goto', targetLabel: endLabel }, {
+        script: fragment.block.source.script,
+        line: lastNode?.instruction?.line || fragment.block.source.endLine,
+      });
+    }
+  });
+  const lastFragment = group.fragments[group.fragments.length - 1];
+  append({ type: 'label', name: endLabel }, {
+    script: lastFragment.block.source.script,
+    line: lastFragment.block.source.endLine,
+  });
+
+  const source = {
+    script: group.script,
+    startLine: Math.min(...group.fragments.map((fragment) => fragment.block.source.startLine)),
+    endLine: Math.max(...group.fragments.map((fragment) => fragment.block.source.endLine)),
+  };
+  const block = {
+    id: group.id,
+    index: group.index,
+    source,
+    commandSources,
+  };
+  return {
+    block,
+    scene: {
+      id: group.id,
+      name: '北へ。PM/' + source.script + '/' + source.startLine,
+      fullScreenBg: false,
+      commands,
+      nextSceneId: '',
+    },
   };
 }
 
@@ -3228,10 +3643,6 @@ function convertScripts(analysis, {
   let activeBackgroundLayout = defaultImportedBackgroundLayout();
   const grouped = buildBasicBlocks(analysis, safeIdentifier(namespace, 'khpm', 24));
   const { blocks, blockByNode, entryBlockIndex } = grouped;
-  if (blocks.length > MAX_SCENES) {
-    diagnostics.push(sceneCountLimitDiagnostic(blocks.length));
-    return { ok: false, diagnostics: dedupeDiagnostics(diagnostics), scenes: [], sourceMap: [] };
-  }
 
   const voiceInstructions = new Set();
   analysis.facts.forEach((fact) => {
@@ -3239,7 +3650,7 @@ function convertScripts(analysis, {
     if (voiceInstruction) voiceInstructions.add(`${voiceInstruction.script}:${voiceInstruction.line}`);
   });
 
-  const sceneEntries = [];
+  const fragments = [];
   blocks.forEach((block) => {
     const commands = [];
     const commandSources = [];
@@ -3255,7 +3666,6 @@ function convertScripts(analysis, {
       const edgeBlocks = node.edges
         .map((edge) => ({ edge, block: blocks[blockByNode.get(edge.key)] }))
         .filter((entry) => entry.block);
-      const externalEdges = edgeBlocks.filter((entry) => entry.block.index !== block.index);
 
       if (instruction.op === 'DEFINE') {
         const name = String(instruction.args[0] || '').toUpperCase();
@@ -3458,7 +3868,10 @@ function convertScripts(analysis, {
           commands.push({ type: 'wait', frames: Math.max(0, Math.min(65535, Math.round(frames))) });
         }
       } else if (instruction.op === 'IF' && instruction.condition) {
-        const condition = instruction.condition;
+        const condition = normalizeRuntimeCondition(
+          instruction.condition,
+          analysis.runtimeVariables,
+        );
         const value = numericValue(condition.right, nodeConstants);
         const variableName = normalizeVariableName(condition.left);
         if (value === null || !isVariableIdentifier(condition.left)) {
@@ -3628,8 +4041,10 @@ function convertScripts(analysis, {
           });
           commands.push({ type: 'label', name: defaultLabel });
         }
-      } else if (instruction.op === 'GOTO' || instruction.op === 'GOT' || instruction.op === 'ONTG') {
-        if (externalEdges[0]) commands.push({ type: 'jump', sceneId: externalEdges[0].block.id });
+      } else if (instruction.op === 'GOTO'
+        || instruction.op === 'GOT'
+        || isBranchingTimerInstruction(instruction)) {
+        if (edgeBlocks[0]) commands.push({ type: 'jump', sceneId: edgeBlocks[0].block.id });
       }
       for (let commandIndex = commandStart; commandIndex < commands.length; commandIndex += 1) {
         commandSources.push({
@@ -3641,35 +4056,56 @@ function convertScripts(analysis, {
     });
 
     const lastNode = block.nodes[block.nodes.length - 1];
-    let nextSceneId = '';
+    let nextBlockId = '';
     if (lastNode && !isControlInstruction(lastNode.instruction) && lastNode.edges.length === 1) {
       const nextBlockIndex = blockByNode.get(lastNode.edges[0].key);
-      if (nextBlockIndex != null && nextBlockIndex !== block.index) nextSceneId = blocks[nextBlockIndex].id;
+      if (nextBlockIndex != null && nextBlockIndex !== block.index) nextBlockId = blocks[nextBlockIndex].id;
     }
 
-    if (commands.length > MAX_COMMANDS_PER_SCENE) {
+    fragments.push({
+      block,
+      commands,
+      commandSources,
+      nextBlockId,
+      needsTerminalFlow: !nextBlockId && commands[commands.length - 1]?.type !== 'jump',
+    });
+  });
+
+  const rootBlockIds = [
+    ...new Set(
+      (analysis.reachability.rootKeys?.length
+        ? analysis.reachability.rootKeys
+        : [analysis.reachability.entryKey])
+        .map((key) => blocks[blockByNode.get(key)]?.id)
+        .filter(Boolean),
+    ),
+  ];
+  const packed = packBlockFragments(fragments, rootBlockIds);
+  const sceneEntries = packed.groups.map((group) => buildPackedSceneEntry(group, packed));
+  sceneEntries.sort(compareImportedSceneEntries);
+  const scenes = sceneEntries.map((entry) => entry.scene);
+  if (scenes.length > MAX_SCENES) diagnostics.push(sceneCountLimitDiagnostic(scenes.length));
+  sceneEntries.forEach(({ block, scene }) => {
+    const cost = estimatePackedSceneCost(scene.commands);
+    const firstInstruction = packed.groupByBlockId.get(block.id)
+      ?.fragments[0]?.block.nodes[0]?.instruction;
+    if (cost.commands > MAX_COMMANDS_PER_SCENE) {
       diagnostics.push(diagnostic(
         'error',
         'command-count-limit',
-        `scene ${block.id} のcommand数 ${commands.length} が上限 ${MAX_COMMANDS_PER_SCENE} を超えます。`,
-        block.nodes[0]?.instruction,
+        `scene ${scene.id} のbuild時command見積り ${cost.commands} が上限 ${MAX_COMMANDS_PER_SCENE} を超えます。`,
+        firstInstruction,
       ));
     }
-    sceneEntries.push({
-      block,
-      scene: {
-        id: block.id,
-        name: `北へ。PM/${block.source.script}/${block.source.startLine}`,
-        fullScreenBg: false,
-        commands,
-        nextSceneId,
-      },
-    });
-    block.commandSources = commandSources;
+    if (cost.bytes > MAX_SCENE_PACK_BYTES) {
+      diagnostics.push(diagnostic(
+        'error',
+        'scene-pack-byte-limit',
+        `scene ${scene.id} のpack見積り ${cost.bytes} bytesが上限 ${MAX_SCENE_PACK_BYTES} bytesを超えます。`,
+        firstInstruction,
+      ));
+    }
   });
-
-  sceneEntries.sort(compareImportedSceneEntries);
-  const scenes = sceneEntries.map((entry) => entry.scene);
 
   const variableNames = new Set();
   scenes.forEach((scene) => {
@@ -3694,13 +4130,14 @@ function convertScripts(analysis, {
   return {
     ok: !finalDiagnostics.some((entry) => entry.severity === 'error'),
     scenes,
-    entrySceneId: blocks[entryBlockIndex]?.id || scenes[0]?.id || '',
+    entrySceneId: packed.groupByBlockId.get(blocks[entryBlockIndex]?.id)?.id || scenes[0]?.id || '',
     sourceMap,
     sourceRanges,
     diagnostics: finalDiagnostics,
     normalizedMapping,
     totals: {
       scenes: scenes.length,
+      basicBlocks: blocks.length,
       commands: scenes.reduce((sum, scene) => sum + scene.commands.length, 0),
       messages: scenes.reduce(
         (sum, scene) => sum + scene.commands.filter((command) => command.type === 'message').length,
@@ -3748,6 +4185,8 @@ module.exports = {
   MAX_EXPANDED_STATES,
   MAX_SCENES,
   MAX_COMMANDS_PER_SCENE,
+  PACKED_SCENE_COMMAND_TARGET,
+  PACKED_SCENE_BYTE_TARGET,
   MAX_VARIABLES,
   MESSAGE_COLUMNS,
   MESSAGE_ROWS,

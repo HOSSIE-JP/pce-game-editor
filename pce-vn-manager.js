@@ -3093,6 +3093,26 @@ function compileSystemCardPsgPackages(variants) {
   });
 }
 
+function systemCardPsgApproximationWarnings(variants) {
+  const groups = new Map();
+  variants.forEach((variant) => {
+    const assetId = String(variant.asset?.id || variant.assetId || '');
+    const group = groups.get(assetId) || { entries: new Map(), maxError: 0 };
+    (variant.toneApproximations || []).forEach((entry) => {
+      const key = `${entry.sourceIndex}:${entry.requestedPeriod}:${entry.representedPeriod}`;
+      if (!group.entries.has(key)) group.entries.set(key, entry);
+      group.maxError = Math.max(group.maxError, Number(entry.approximationError) || 0);
+    });
+    if (group.entries.size) groups.set(assetId, group);
+  });
+  return Array.from(groups.entries()).map(([assetId, group]) => {
+    const example = group.entries.values().next().value;
+    return `System Card PSG asset "${assetId}": ${group.entries.size} tone periodを`
+      + `表現可能な最近傍値へ近似しました（最大差 ${group.maxError}、`
+      + `例 pattern[${example.sourceIndex}] ${example.requestedPeriod}→${example.representedPeriod}）。`;
+  });
+}
+
 function writeSystemCardPsgPackages(projectDir, variants) {
   const dir = path.join(projectDir, VN_SYSTEM_CARD_PSG_DIR);
   ensureDirSync(dir);
@@ -3146,6 +3166,7 @@ function generateVnSources(projectDir, options = {}) {
     : (inspectionOnly
       ? compileSystemCardPsgPackages(systemPsgVariantSpecs)
       : writeSystemCardPsgPackages(projectDir, systemPsgVariantSpecs));
+  const systemPsgWarnings = systemCardPsgApproximationWarnings(systemPsgVariants);
   let systemPsgMetaFile = hucardMode
     ? { relativePath: '', byteSize: 0, sectorCount: 0, count: 0 }
     : (inspectionOnly
@@ -4448,7 +4469,7 @@ function generateVnSources(projectDir, options = {}) {
     psgAssetIds: hucardPsgEntries.map((entry) => String(entry.asset.id || '')),
     extraDataFiles: hucardExtraData,
     hucardPsgAssetCount: hucardPsgEntries.length,
-    warnings: [...fontBudget.warnings, ...fontSpriteWarnings],
+    warnings: [...fontBudget.warnings, ...fontSpriteWarnings, ...systemPsgWarnings],
   };
 }
 

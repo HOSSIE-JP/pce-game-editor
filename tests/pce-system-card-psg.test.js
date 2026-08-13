@@ -91,13 +91,29 @@ test('System Card PSG represents exact tone period with octave/note plus signed 
   assert.equal(detuned.octave, 4);
   assert.equal(detuned.period + detuned.detune, a4 + 17);
   assert.ok(detuned.detune >= -128 && detuned.detune <= 127);
-  assert.throws(
-    () => compiler.compileSystemCardPsgPackage(makeAsset({
-      id: 'unrepresentable',
-      options: { pattern: [{ step: 0, channel: 0, period: 4095, volume: 20 }] },
-    })),
-    /asset "unrepresentable", pattern\[0\].*period 4095.*detune/,
-  );
+
+  const lowMidiBass = compiler.resolveTonePeriod(3624);
+  assert.equal(lowMidiBass.detune, 127);
+  assert.ok(lowMidiBass.representedPeriod < 3624);
+  assert.equal(lowMidiBass.approximationError, 3624 - lowMidiBass.representedPeriod);
+  const approximated = compiler.compileSystemCardPsgPackage(makeAsset({
+    id: 'low-midi-bass',
+    options: { pattern: [{ step: 0, channel: 0, period: 3624, volume: 20 }] },
+  }));
+  assert.equal(approximated.toneApproximations.length, 1);
+  assert.deepEqual(approximated.toneApproximations[0], {
+    sourceIndex: 0,
+    requestedPeriod: 3624,
+    representedPeriod: lowMidiBass.representedPeriod,
+    approximationError: lowMidiBass.approximationError,
+  });
+
+  const lowest = compiler.resolveTonePeriod(4095);
+  assert.ok(lowest.approximationError > 0);
+  assert.doesNotThrow(() => compiler.compileSystemCardPsgPackage(makeAsset({
+    id: 'lowest-period',
+    options: { pattern: [{ step: 0, channel: 0, period: 4095, volume: 20 }] },
+  })));
 });
 
 test('System Card PSG noise uses channel 4/5 mode 2 and transpose for noise 0..31', () => {

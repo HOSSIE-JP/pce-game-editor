@@ -67,6 +67,8 @@ PC Engine の色は各チャンネル3bitの512色マスターパレットから
 
 ## Novel（スクリプト編集）
 
+北へ。PMで大量SCRを取り込む場合、Mappingは40件ずつ、診断結果は200件ずつページ表示します。画面外の大量なasset選択肢や診断DOMを同時生成しないため、ページ内のMapping設定とスクロール位置を保ったまま診断プレビューへ進めます。Previewでは適用を止めるエラーを警告より上へ固定表示し、エラーがある場合は詳細一覧もERRORだけを既定表示します。大量の警告はcode別の件数へ集約して確認でき、すべて／ERROR／WARN／INFOで絞り込めます。
+
 `Novel` プラグインの `スクリプト` タブは VN シーンをコマンド単位で編集します。Scenes 一覧はドラッグ＆ドロップで順番を入れ替えられます。シーン名はヘッダの Name で編集でき、`chapter/opening` のように `/` で区切ると Scenes 一覧ではグループ見出しと leaf 名に分けて表示します。シーンの ID はヘッダの `ID` で変更できます。**開始シーン（runtime が最初に表示するシーン）は Scenes 一覧の各シーン右側にある ★ ボタンで選びます**。開始シーンの ★ は金色で点灯し、別シーンの ☆ をクリックするとそのシーンが開始シーンになり、以前の指定は自動で解除されます（開始シーンは常に 1 つ必要なため、点灯中の ★ をクリックして解除することはできません）。ID 変更時は `Jump` / `Choice` / `nextSceneId` / `startScene` の参照もエディタ側で更新します。グループ見出しはアコーディオンとして開閉でき、折りたたんだ階層のシーンは一覧から一時的に隠せます。Commands パネルも Commands ヘッダ行のクリックで折りたため、閉じると Scenes 一覧が縦に広がります。`Jump` などの参照は安定した scene `id` を使うため、名前を変えても遷移先は壊れません。中央のコマンド一覧では、各コマンド行の右側にアイコンボタンが並びます。
 
 CD VN runtime は `nextSceneId` を入力待ちではなく自動遷移として扱います。コマンドを持たない中継シーンや `Jump` だけのシーンが連続していても、`Message` / `Choice` / `Wait` / 同期待機命令へ到達するまで同じ送り操作の中で継続するため、暗転用の中継シーンごとに追加のボタン入力は必要ありません。
@@ -77,12 +79,12 @@ ChatGPT などでシナリオ、スクリプト JSON、画像・音声アセッ�
 
 北へ。PM取込の主人公名は「ハドソン」が既定です。同じSCR集合・entryの再取込では保存名を復元します。`【主人公】` / `主人公`などは元SCRの`NAME`で「こあら」「真人」などへ再定義されていても指定した主人公名を優先し、本文とMENU選択肢の両方へ反映します。空欄を明示した場合だけ元SCRの`NAME`定義を使います。
 
-SCR選択では、resource rootを指定した直後にSCRIPT配下で検出した全ファイルがチェックONになります。個別のチェックを変更してもSCR一覧のスクロール位置は維持されます。チェックONのSCRはentryからGOTOで接続されていなくても各ファイルの先頭からscene化され、entry SCRは取込entry sceneを決めるために使われます。全選択から生成されるsceneがPCE VN runtime上限255を超える場合は、一部だけを黙って取り込まず初回検査でエラーにします。
+SCR選択では、resource rootを指定した直後にSCRIPT配下で検出した全ファイルがチェックONになります。個別のチェックを変更してもSCR一覧のスクロール位置は維持されます。チェックONのSCRはentryからGOTOで接続されていなくても各ファイルの先頭から変換対象になり、entry SCRは取込entry sceneを決めるために使われます。同じSCR内の細かな分岐blockは、1 sceneあたりbuild時command見積り220件／pack見積り7000 bytesを目安にまとめます。同一scene内のGOTOとChoice分岐はlocal labelへ変換されるため、元SCRの分岐を保ったままscene数を抑えます。初回検査は独立SCR rootだけで明らかに255 sceneを超える場合を検出し、Mapping後のpreviewでpacking済みscene数と実8192-byte packを確定します。上限を超える場合も一部だけを黙って取り込みません。
 
 CD-ROM2 projectでは、組み込みプラグイン **北へ。PhotoMemories 取込** が有効な場合だけスクリプト画面上部に **北へ。PM取込** が表示され、解析済みSCRをsceneへ変換できます。resource rootを選び、変換対象のSCR、entry、主人公名、到達可能な画像・音声参照の対応先を順に指定します。話者の対応設定はなく、取り込むMessageはすべてナレーションになります。`COLOR WIN_MSG, GCOLOR`などの16-bit ARGB4444値はRGBを本文色へ変換し、PCE表示色へ丸めて反映します。解決できないCOLOR値はwarningを表示して既定の白を使います。sourceの拡張子を除いたpathと登録済みPCE asset名が一致する参照は自動選択され、複数画像は `_A` / `_B` など一致しない末尾を除いた共通名で事前結合assetへ照合されます。カード右上のチェックをOFFにするとカードの色が変わり、その参照を明示的に省略します。Mapping設定を変えてもスクロール位置は維持されます。過去の手動asset対応が残っている場合は **アセット対応をリセットして自動照合** を押すと、最新の登録済みassetから全画像・音声対応を作り直し、一致しない参照を省略へ戻せます。sidecarは変換適用に成功した時だけ更新され、保存済みmappingは同じ選択SCR集合とentryにだけ復元され、別の取込へ流用されません。画像の結合・crop・減色、P04/MIDI/GD-DA自体の変換は行いません。取込本文・選択肢にSystem Card jp-v3非対応文字がある場合は、Unicode code pointごとに`□`へ置換し、元SCR行と文字位置をwarningへ表示します。HuCARD projectではプラグインが有効でもボタンを表示しません。
 
 北へ。PMの連続する`MSG WIN_MSG`は`WAIT WIN_MSG`まで連結し、元SCRの改行とその前後の空白を除去して詰めます。PCE側では17文字ごとのruntime折り返しに任せ、ページ送りcursor用の1文字を除いた67 glyphごとにページ化するため、元の行幅による改行とPCEの折り返しが重なって余分な空行になることはありません。Spriteは各`ICG`のXを、PCE BGの幅・表示位置と素材packageに保存した元source crop Xを使う`BG表示X + round((ICG X + 元source crop X) * BG幅 / 640)`で取込時にPCE座標へ変換します。通常のPCE BGは224px幅・tile X=2（表示X=16px）です。変換後はSpriteの出力幅を含めてBGの左右内側へ補正し、補正時はwarningを残します。Yは一律`17`で、MappingではSlotとAnimationだけを指定します。BG commandはFade out / Fade inを速度3（30/30）にし、切替演出をPCEノベルエンジンへ任せます。変換元のalpha形式の`FADE`がSprite mapping対象なら、段階的な透明度ではなく同じSlotの`Visible: false/true`へ近似し、`ICG`の初期opacity 0も非表示で生成します。BG対象のalpha `FADE`、9引数の明度系`FADE`、その他のフェードはwarning付きで省略し、`SCREEN`の全画面fade / flash / blank近似だけを維持します。
-北へ。PMの元SCRにある`CLEARCG`、`DCG <slot>, OFF`、`UNLOADCG` / `UNLOAD` / `UNL`は、対応するSprite slotの`Visible: false`へ変換されます。通常のscene切替はSprite状態を保持するため、元SCRに消去命令がない場合は表示を引き継ぎます。
+北へ。PMの元SCRにある`CLEARCG`、`DCG <slot>, OFF`、`UNLOADCG` / `UNLOAD` / `UNL`は、対応するSprite slotの`Visible: false`へ変換されます。`UNLOADCG` / `UNLOAD` / `UNL`後も元SCRと同様に同じLCG slotを再度`ICG`で表示でき、後続の`LCG`または`CLEARCG`までsource対応を保持します。通常のscene切替はSprite状態を保持するため、元SCRに消去命令がない場合は表示を引き継ぎます。`IF`はruntime variableが比較の右辺にある表記も自動的に左右と比較演算子を正規化して取り込みます。引数なしの`ONTG`はタイマーリセットとしてwarning付きで省略し、自己GOTOやscene jumpへ変換しません。
 
 素材を先に登録する場合は、Kitahe PhotoMemories Asset Viewerの **ツール > PCE Game Editor向けアセット一括出力** でSCRを複数選択し、P04/WAV、MIDI/MID、crop・連結済みPVR/PNGと`kitahe-pm-assets.csv`を1つのfolderへ出力します。選択したSCRもCP932の元byte列のまま`SCRIPT/...`へ同梱されるため、同じfolderを **北へ。PM素材** と **北へ。PM取込** のsource rootに使えます。画像のBG/Sprite分類とcropはViewer側で確定します。
 

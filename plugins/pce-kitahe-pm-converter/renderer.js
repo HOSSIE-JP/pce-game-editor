@@ -3,6 +3,8 @@ import { createKitahePmAssetPackageImporter } from './asset-package-importer.js'
 const PLUGIN_ID = 'pce-kitahe-pm-converter';
 const CAPABILITY_NAME = 'kitahe-pm-script-converter';
 const DEFAULT_PROTAGONIST_NAME = 'ハドソン';
+const MAPPING_PAGE_SIZE = 40;
+const DIAGNOSTIC_PAGE_SIZE = 200;
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -21,6 +23,27 @@ function asArray(value) {
 function asInteger(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.round(parsed) : fallback;
+}
+
+function clampedPage(value, totalItems, pageSize) {
+  const pageCount = Math.max(1, Math.ceil(Math.max(0, totalItems) / pageSize));
+  return Math.min(Math.max(0, asInteger(value, 0)), pageCount - 1);
+}
+
+function pagingControls({ actionPrefix, page, totalItems, pageSize, label }) {
+  if (totalItems <= pageSize) return '';
+  const pageCount = Math.ceil(totalItems / pageSize);
+  const start = page * pageSize + 1;
+  const end = Math.min(totalItems, start + pageSize - 1);
+  return `
+    <nav class="pce-kitahe-paging" aria-label="${esc(label)}">
+      <button class="btn-sm" type="button" data-kitahe-action="${actionPrefix}-previous"
+        ${page <= 0 ? 'disabled' : ''}>前へ</button>
+      <span>${start}–${end} / ${totalItems}件（${page + 1} / ${pageCount}ページ）</span>
+      <button class="btn-sm" type="button" data-kitahe-action="${actionPrefix}-next"
+        ${page >= pageCount - 1 ? 'disabled' : ''}>次へ</button>
+    </nav>
+  `;
 }
 
 function scriptValue(script) {
@@ -127,6 +150,21 @@ function diagnosticLocation(diagnostic) {
 
 function diagnosticMessage(diagnostic) {
   return String(diagnostic?.message || diagnostic?.reason || diagnostic?.code || '診断').trim();
+}
+
+function diagnosticCode(diagnostic) {
+  return String(diagnostic?.code || 'diagnostic').trim() || 'diagnostic';
+}
+
+function diagnosticItemHtml(diagnostic) {
+  const level = diagnosticLevel(diagnostic);
+  return `
+    <div class="pce-kitahe-diagnostic" data-level="${level}">
+      <span>${level === 'error' ? 'ERROR' : (level === 'warning' ? 'WARN' : 'INFO')}</span>
+      <code>${esc(diagnosticLocation(diagnostic))}</code>
+      <p>${esc(diagnosticMessage(diagnostic))}</p>
+    </div>
+  `;
 }
 
 function summaryRows(summary) {
@@ -350,7 +388,10 @@ function entryOptions(state) {
 function assetMappingRows(state) {
   const requirements = normalizeAssetRequirements(state.inspection);
   if (!requirements.length) return '<p class="pce-kitahe-empty">到達可能な画像・音声参照はありません。</p>';
-  return requirements.map((requirement, index) => {
+  state.mappingPage = clampedPage(state.mappingPage, requirements.length, MAPPING_PAGE_SIZE);
+  const start = state.mappingPage * MAPPING_PAGE_SIZE;
+  return requirements.slice(start, start + MAPPING_PAGE_SIZE).map((requirement, offset) => {
+    const index = start + offset;
     const mapping = state.assetMappings[requirement.key] || defaultAssetMapping(requirement);
     const mapped = mapping.action === 'map';
     const visual = requirement.kind === 'visual';
@@ -419,23 +460,78 @@ function assetMappingRows(state) {
   }).join('');
 }
 
-function diagnosticRows(diagnostics) {
-  if (!asArray(diagnostics).length) {
-    return '<p class="pce-kitahe-empty">診断はありません。</p>';
-  }
-  return `
-    <div class="pce-kitahe-diagnostic-list">
-      ${asArray(diagnostics).map((diagnostic) => {
-        const level = diagnosticLevel(diagnostic);
-        return `
-          <div class="pce-kitahe-diagnostic" data-level="${level}">
-            <span>${level === 'error' ? 'ERROR' : (level === 'warning' ? 'WARN' : 'INFO')}</span>
-            <code>${esc(diagnosticLocation(diagnostic))}</code>
-            <p>${esc(diagnosticMessage(diagnostic))}</p>
-          </div>
-        `;
-      }).join('')}
+function diagnosticRows(diagnostics, state) {
+  const filter = ['all', 'error', 'warning', 'info'].includes(state.diagnosticFilter)
+    ? state.diagnosticFilter
+    : 'all';
+  const allRows = asArray(diagnostics);
+  const counts = diagnosticCounts(allRows);
+  const rows = allRows.filter((diagnostic) => filter === 'all' || diagnosticLevel(diagnostic) === filter);
+  const filters = `
+    <div class="pce-kitahe-diagnostic-filters" role="group" aria-label="診断レベル">
+      ${[
+        ['all', 'すべて', allRows.length],
+        ['error', 'ERROR', counts.error],
+        ['warning', 'WARN', counts.warning],
+        ['info', 'INFO', counts.info],
+      ].map(([level, label, count]) => `
+        <button class="btn-sm ${filter === level ? 'is-selected' : ''}" type="button"
+          data-kitahe-action="diagnostic-filter-${level}">${label} ${count}</button>
+      `).join('')}
     </div>
+  `;
+  if (!rows.length) return `${filters}<p class="pce-kitahe-empty">このレベルの診断はありません。</p>`;
+  state.diagnosticPage = clampedPage(state.diagnosticPage, rows.length, DIAGNOSTIC_PAGE_SIZE);
+  const start = state.diagnosticPage * DIAGNOSTIC_PAGE_SIZE;
+  const controls = pagingControls({
+    actionPrefix: 'diagnostic-page',
+    page: state.diagnosticPage,
+    totalItems: rows.length,
+    pageSize: DIAGNOSTIC_PAGE_SIZE,
+    label: '診断結果ページ',
+  });
+  return `
+    ${filters}
+    ${controls}
+    <div class="pce-kitahe-diagnostic-list">
+      ${rows.slice(start, start + DIAGNOSTIC_PAGE_SIZE).map(diagnosticItemHtml).join('')}
+    </div>
+    ${controls}
+  `;
+}
+
+function diagnosticOverviewHtml(diagnostics) {
+  const rows = asArray(diagnostics);
+  const errors = rows.filter((diagnostic) => diagnosticLevel(diagnostic) === 'error');
+  const warningGroups = new Map();
+  rows.filter((diagnostic) => diagnosticLevel(diagnostic) === 'warning').forEach((diagnostic) => {
+    const code = diagnosticCode(diagnostic);
+    const current = warningGroups.get(code);
+    if (current) current.count += 1;
+    else warningGroups.set(code, { code, count: 1, example: diagnosticMessage(diagnostic) });
+  });
+  const groups = Array.from(warningGroups.values()).sort((left, right) => (
+    right.count - left.count || left.code.localeCompare(right.code, 'ja')
+  ));
+  return `
+    <section class="pce-kitahe-error-summary" data-level="${errors.length ? 'error' : 'ok'}">
+      <h4>${errors.length ? `適用を止めるエラー ${errors.length}件` : '適用を止めるエラーはありません'}</h4>
+      ${errors.length ? `<div class="pce-kitahe-diagnostic-list">${errors.map(diagnosticItemHtml).join('')}</div>` : ''}
+    </section>
+    ${groups.length ? `
+      <details class="pce-kitahe-warning-groups">
+        <summary>警告を種類別に確認（${groups.length}種類 / ${groups.reduce((sum, group) => sum + group.count, 0)}件）</summary>
+        <div>
+          ${groups.map((group) => `
+            <article>
+              <strong>${group.count}</strong>
+              <code>${esc(group.code)}</code>
+              <p>${esc(group.example)}</p>
+            </article>
+          `).join('')}
+        </div>
+      </details>
+    ` : ''}
   `;
 }
 
@@ -478,6 +574,15 @@ function sourceStepHtml(state) {
 }
 
 function mappingStepHtml(state) {
+  const requirements = normalizeAssetRequirements(state.inspection);
+  state.mappingPage = clampedPage(state.mappingPage, requirements.length, MAPPING_PAGE_SIZE);
+  const controls = pagingControls({
+    actionPrefix: 'mapping-page',
+    page: state.mappingPage,
+    totalItems: requirements.length,
+    pageSize: MAPPING_PAGE_SIZE,
+    label: 'アセット対応ページ',
+  });
   return `
     <section class="pce-kitahe-step">
       <div class="pce-kitahe-section-head">
@@ -491,7 +596,9 @@ function mappingStepHtml(state) {
         source名と登録済みPCE asset名が一致する参照は自動選択されます。
         カード右上のチェックをOFFにすると、その参照を明示的に省略します。
       </p>
+      ${controls}
       <div class="pce-kitahe-mapping-list">${assetMappingRows(state)}</div>
+      ${controls}
     </section>
   `;
 }
@@ -525,7 +632,8 @@ function previewStepHtml(state) {
       ` : ''}
       ${modePreviewsHtml(state.inspection?.modePreviews)}
       ${sceneBudgetsHtml(state.inspection?.sceneBudgets)}
-      ${diagnosticRows(diagnostics)}
+      ${diagnosticOverviewHtml(diagnostics)}
+      ${diagnosticRows(diagnostics, state)}
     </section>
   `;
 }
@@ -783,6 +891,9 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       inspection: null,
 
       assetMappings: Object.create(null),
+      mappingPage: 0,
+      diagnosticPage: 0,
+      diagnosticFilter: 'all',
       assets: asArray(options.assets),
       doc: options.doc && typeof options.doc === 'object'
         ? JSON.parse(JSON.stringify(options.doc))
@@ -910,6 +1021,7 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
           const saved = savedAssets[requirement.key];
           state.assetMappings[requirement.key] = initialAssetMapping(requirement, saved);
         });
+        state.mappingPage = 0;
         state.step = 1;
         setStatus('');
       } catch (error) {
@@ -945,6 +1057,7 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
         requirements.forEach((requirement) => {
           state.assetMappings[requirement.key] = defaultAssetMapping(requirement);
         });
+        state.mappingPage = 0;
         invalidateMappedPreview('');
         const mappedCount = requirements.filter(
           (requirement) => state.assetMappings[requirement.key]?.action === 'map',
@@ -979,6 +1092,8 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       };
       state.busy = true;
       state.previewDiagnostics = [];
+      state.diagnosticPage = 0;
+      state.diagnosticFilter = 'all';
       state.inspection = { ...state.inspection, signature: '' };
       state.previewMode = '';
       state.previewSetStartScene = false;
@@ -1013,6 +1128,7 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
         };
         state.previewMode = state.mode;
         state.previewSetStartScene = state.mode === 'replace' ? true : state.setStartScene;
+        state.diagnosticFilter = diagnosticCounts(state.inspection.diagnostics).error ? 'error' : 'all';
         state.step = 2;
         state.warningConfirmed = false;
         setStatus('');
@@ -1096,7 +1212,23 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       else if (action === 'pick-root') void pickRoot();
       else if (action === 'inspect') void inspectSelected();
       else if (action === 'reset-asset-mappings') void resetAssetMappings();
-      else if (action === 'preview') void showPreview();
+      else if (action === 'mapping-page-previous') {
+        state.mappingPage = Math.max(0, state.mappingPage - 1);
+        renderModal(modal, state);
+      } else if (action === 'mapping-page-next') {
+        state.mappingPage += 1;
+        renderModal(modal, state);
+      } else if (action === 'diagnostic-page-previous') {
+        state.diagnosticPage = Math.max(0, state.diagnosticPage - 1);
+        renderModal(modal, state);
+      } else if (action === 'diagnostic-page-next') {
+        state.diagnosticPage += 1;
+        renderModal(modal, state);
+      } else if (action.startsWith('diagnostic-filter-')) {
+        state.diagnosticFilter = action.slice('diagnostic-filter-'.length);
+        state.diagnosticPage = 0;
+        renderModal(modal, state);
+      } else if (action === 'preview') void showPreview();
       else if (action === 'confirm') {
         state.step = 3;
         setStatus('');

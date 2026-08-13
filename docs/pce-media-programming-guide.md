@@ -533,7 +533,7 @@ CD VNの`spritetext`文字列はscene pack v3へ16-bit Shift-JISで格納され�
 
 CD VN buildはstep sourceをSystem Card track bytecodeへ変換します。`psg-song`はmain track/BGM、`psg-sfx`はsub track/SFXで、両方を同時再生できます。新しいplayは同じbusだけを置換します。再生時間はVSync user IRQが各VBlankで1回呼ぶ`PSG_DRIVE/$E0E1`だけで進み、main-thread sequencer、TIMER、credit、catch-upはありません。
 
-packageは実際にsceneから参照された`(assetId, channel)`ごとに作ります。`channel` shift/clampはbuild時にvariantへ焼き込みます。長さはBPM規則からframeへ変換し、長いnoteはdirect-length分割+tie、song loopはSEGNO、SFX終端はend commandになります。tone periodをnote+detuneで正確に表現できない場合、noiseがchannel 4/5以外に配置される場合、容量を超える場合は位置付きbuild errorです。
+packageは実際にsceneから参照された`(assetId, channel)`ごとに作ります。`channel` shift/clampはbuild時にvariantへ焼き込みます。長さはBPM規則からframeへ変換し、長いnoteはdirect-length分割+tie、song loopはSEGNO、SFX終端はend commandになります。tone periodをnote+detuneで正確に表現できない場合は、System Cardが表現できる最近傍periodへ量子化してasset単位のbuild warningを出します。noiseがchannel 4/5以外に配置される場合と容量超過は位置付きbuild errorです。
 
 CD packageはbank134 `$8024`以降のBGM（最大8156 bytes）とbank135 `$A000`以降のSFX（最大8192 bytes）へdirect async loadします。対象busだけを停止し、宣言byte数だけを転送するので、他方のbusは継続します。同じbusの再生中に別packageを`cache load`するscriptはvalidation errorです。
 

@@ -236,6 +236,21 @@
   gap: 9px;
 }
 
+.pce-kitahe-paging {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-height: 32px;
+  margin: 8px 0;
+}
+
+.pce-kitahe-paging span {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .pce-kitahe-map-card {
   display: grid;
   gap: 10px;
@@ -449,6 +464,81 @@
 .pce-kitahe-budget-table tr[data-level="error"] {
   background: color-mix(in srgb, var(--danger, #ff6b6b) 8%, transparent);
   color: var(--danger, #ff7b7b);
+}
+
+.pce-kitahe-error-summary {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--success, #63d69a) 50%, var(--border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--success, #63d69a) 7%, transparent);
+}
+
+.pce-kitahe-error-summary[data-level="error"] {
+  border-color: color-mix(in srgb, var(--danger, #ff6b6b) 65%, var(--border));
+  background: color-mix(in srgb, var(--danger, #ff6b6b) 10%, transparent);
+}
+
+.pce-kitahe-error-summary h4 {
+  margin: 0;
+  color: var(--success, #63d69a);
+}
+
+.pce-kitahe-error-summary[data-level="error"] h4 {
+  margin-bottom: 8px;
+  color: var(--danger, #ff7b7b);
+}
+
+.pce-kitahe-warning-groups {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.pce-kitahe-warning-groups summary {
+  color: var(--warning, #ffd166);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.pce-kitahe-warning-groups > div {
+  display: grid;
+  gap: 5px;
+  margin-top: 9px;
+}
+
+.pce-kitahe-warning-groups article {
+  display: grid;
+  grid-template-columns: 58px minmax(150px, 0.3fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 11px;
+}
+
+.pce-kitahe-warning-groups article strong {
+  color: var(--warning, #ffd166);
+  text-align: right;
+}
+
+.pce-kitahe-warning-groups article p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.pce-kitahe-diagnostic-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 6px;
+}
+
+.pce-kitahe-diagnostic-filters .is-selected {
+  border-color: var(--accent, #4ba3ff);
+  background: color-mix(in srgb, var(--accent, #4ba3ff) 14%, transparent);
+  color: var(--accent, #4ba3ff);
 }
 
 .pce-kitahe-diagnostic-list {

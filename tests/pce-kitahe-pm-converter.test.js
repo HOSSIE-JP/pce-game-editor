@@ -132,6 +132,60 @@ test('Kitahe PM converts cross-script IF THEN assignment to a different shared v
   assert.ok(rejected.diagnostics.some((entry) => entry.code === 'unsupported-if-action'));
 });
 
+test('Kitahe PM normalizes constant-left IF comparisons and keeps CG constants static', () => {
+  const analysis = analyze([
+    'DEFINE CG_NORMAL',
+    'DEFINE CG_NOW',
+    'CG_NORMAL = 20',
+    'CG_NOW = CG_NORMAL',
+    'IF CG_NORMAL == CG_NOW GOTO MATCH',
+    'END',
+    'LABEL MATCH',
+    'END',
+  ], [{
+    path: 'B.SCR',
+    lines: [
+      'DEFINE CG_NORMAL',
+      'DEFINE CG_NOW',
+      'CG_NORMAL = 10',
+      'CG_NOW = CG_NORMAL',
+      'IF CG_NORMAL > CG_NOW GOTO MATCH',
+      'END',
+      'LABEL MATCH',
+      'END',
+    ],
+  }]);
+
+  assert.equal(analysis.canApply, true);
+  assert.ok(analysis.runtimeVariables.has('CG_NOW'));
+  assert.ok(!analysis.runtimeVariables.has('CG_NORMAL'));
+  assert.ok(!analysis.diagnostics.some((entry) => (
+    entry.code === 'unsupported-assignment' || entry.code === 'ambiguous-constant-state'
+  )));
+
+  const converted = converter.convertScripts(analysis, { mapping: {}, assetCatalog: [] });
+  assert.equal(converted.ok, true);
+  const commands = converted.scenes.flatMap((scene) => scene.commands);
+  assert.ok(commands.some((command) => (
+    command.type === 'variable'
+    && command.variableName === 'CG_NOW'
+    && command.operation === 'set'
+    && command.value === 20
+  )));
+  assert.ok(commands.some((command) => (
+    command.type === 'if'
+    && command.variableName === 'CG_NOW'
+    && command.operator === 'eq'
+    && command.value === 20
+  )));
+  assert.ok(commands.some((command) => (
+    command.type === 'if'
+    && command.variableName === 'CG_NOW'
+    && command.operator === 'lt'
+    && command.value === 10
+  )));
+});
+
 test('Kitahe PM inspection keeps LINKCG ordered pairs and does not carry voice across a branch', () => {
   const analysis = converter.inspectScripts({
     files: [{
@@ -449,6 +503,23 @@ test('Kitahe PM CCG and CPCM clears prevent stale slot reuse', () => {
   ]);
   assert.ok(invalidPcm.diagnostics.some((entry) => entry.code === 'invalid-lpcm-slot'));
   assert.ok(invalidPcm.diagnostics.some((entry) => entry.code === 'missing-lpcm-source'));
+});
+
+test('Kitahe PM UNLOAD hides a CG slot without discarding reusable LCG metadata', () => {
+  const analysis = analyze([
+    'CGDIR DIR, \\BG',
+    'LCG 20, HERO, 640, 480',
+    'ICG 20, 0, 0, -100, 1',
+    'UNLOADCG 20',
+    'ICG 20, 32, 0, -100, 1',
+    'END',
+  ]);
+
+  assert.equal(analysis.canApply, true);
+  assert.ok(!analysis.diagnostics.some((entry) => entry.code === 'unresolved-cg-slot'));
+  const image = analysis.requirements.find((entry) => entry.kind === 'image');
+  assert.equal(image.source, 'BG/HERO.PVR');
+  assert.deepEqual(image.occurrences.map((entry) => entry.line), [3, 5]);
 });
 
 test('Kitahe PM image mappings emit speed 3 BG fade and derive Sprite position from ICG', () => {
@@ -912,7 +983,11 @@ test('Kitahe PM CFG handles local/external GOTO, selected roots, and unresolved 
   const falseLabelIndex = ifScene.commands.findIndex((command) => (
     command.type === 'label' && command.name === ifCommand.elseLabel
   ));
-  assert.equal(ifScene.commands[falseLabelIndex + 1].type, 'jump');
+  assert.equal(ifScene.commands[falseLabelIndex + 1].type, 'goto');
+  assert.ok(ifScene.commands.some((command) => (
+    command.type === 'label'
+    && command.name === ifScene.commands[falseLabelIndex + 1].targetLabel
+  )));
 
   const missingFalse = analyze([
     'DEFINE X',
@@ -930,10 +1005,9 @@ test('Kitahe PM CFG handles local/external GOTO, selected roots, and unresolved 
   const missingFalseCommand = missingFalseScene.commands.find((command) => command.type === 'if');
   assert.match(missingFalseCommand.targetLabel, /_true$/);
   assert.match(missingFalseCommand.elseLabel, /_end$/);
-  assert.equal(
-    missingFalseScene.commands[missingFalseScene.commands.length - 1].name,
-    missingFalseCommand.elseLabel,
-  );
+  assert.ok(missingFalseScene.commands.some((command) => (
+    command.type === 'label' && command.name === missingFalseCommand.elseLabel
+  )));
 });
 
 test('Kitahe PM facts ignore physically intervening but unreachable CG and MSG instructions', () => {
@@ -1095,10 +1169,29 @@ test('Kitahe PM MENU emits Choice and CALL/RETURN expands without runtime call c
   ]);
   const convertedMenu = converter.convertScripts(menu, { mapping: {}, assetCatalog: [] });
   assert.equal(convertedMenu.ok, true);
-  const choice = convertedMenu.scenes.flatMap((scene) => scene.commands)
-    .find((command) => command.type === 'choice');
+  const choiceScene = convertedMenu.scenes.find((scene) => (
+    scene.commands.some((command) => command.type === 'choice')
+  ));
+  const choiceIndex = choiceScene.commands.findIndex((command) => command.type === 'choice');
+  const choice = choiceScene.commands[choiceIndex];
   assert.deepEqual(choice.choices.map((entry) => entry.label), ['□', '二', '三']);
-  assert.ok(choice.choices.every((entry) => entry.targetSceneId));
+  assert.ok(choice.choices.every((entry) => entry.targetSceneId === ''));
+  const choiceDispatch = choiceScene.commands[choiceIndex + 1];
+  assert.equal(choiceDispatch.type, 'switch');
+  assert.deepEqual(choiceDispatch.cases.map((entry) => entry.value), [0, 1, 2]);
+  assert.ok(choiceDispatch.cases.every((entry) => choiceScene.commands.some((command) => (
+    command.type === 'label' && command.name === entry.targetLabel
+  ))));
+  const terminalFlows = convertedMenu.sourceMap
+    .filter((entry) => [4, 6, 8].includes(entry.line))
+    .map((entry) => convertedMenu.scenes.find((scene) => scene.id === entry.sceneId)
+      ?.commands[entry.commandIndex])
+    .filter((command) => command?.type === 'goto');
+  assert.equal(terminalFlows.length, 3);
+  assert.equal(new Set(terminalFlows.map((command) => command.targetLabel)).size, 1);
+  assert.ok(choiceScene.commands.some((command) => (
+    command.type === 'label' && command.name === terminalFlows[0].targetLabel
+  )));
   assert.ok(convertedMenu.diagnostics.some((entry) => (
     entry.severity === 'warning'
     && entry.code === 'font-character-replaced'
@@ -1270,10 +1363,20 @@ test('Kitahe PM WAITBTN requires a matching straight-line variable and photo tim
   ]);
   const sparseConverted = converter.convertScripts(sparse, { mapping: {}, assetCatalog: [] });
   assert.equal(sparseConverted.ok, true);
-  const sparseChoice = sparseConverted.scenes.flatMap((scene) => scene.commands)
-    .find((command) => command.type === 'choice');
+  const sparseChoiceScene = sparseConverted.scenes.find((scene) => (
+    scene.commands.some((command) => command.type === 'choice')
+  ));
+  const sparseChoiceIndex = sparseChoiceScene.commands
+    .findIndex((command) => command.type === 'choice');
+  const sparseChoice = sparseChoiceScene.commands[sparseChoiceIndex];
   assert.deepEqual(sparseChoice.choices.map((entry) => entry.value), [1, 3]);
-  assert.ok(sparseChoice.choices.every((entry) => entry.targetSceneId));
+  assert.ok(sparseChoice.choices.every((entry) => entry.targetSceneId === ''));
+  const sparseDispatch = sparseChoiceScene.commands[sparseChoiceIndex + 1];
+  assert.equal(sparseDispatch.type, 'switch');
+  assert.deepEqual(sparseDispatch.cases.map((entry) => entry.value), [1, 3]);
+  assert.ok(sparseDispatch.cases.every((entry) => sparseChoiceScene.commands.some((command) => (
+    command.type === 'label' && command.name === entry.targetLabel
+  ))));
 
   const dynamicSelector = analyze([
     'DEFINE BTN',
@@ -1334,8 +1437,11 @@ test('Kitahe PM photo ONG button registration keeps the straight-line timeout co
     .map((command) => command.text);
   assert.deepEqual(messageTexts, ['timeout']);
   const entryScene = converted.scenes.find((scene) => scene.id === converted.entrySceneId);
-  assert.ok(entryScene.nextSceneId
-    || entryScene.commands.some((command) => command.type === 'jump' && command.sceneId));
+  const timeoutFlow = entryScene.commands.find((command) => command.type === 'goto');
+  assert.ok(timeoutFlow?.targetLabel);
+  assert.ok(entryScene.commands.some((command) => (
+    command.type === 'label' && command.name === timeoutFlow.targetLabel
+  )));
 
   const pairedPhoto = analyze([
     'ONG LBTN, PHOTO',
@@ -1362,8 +1468,13 @@ test('Kitahe PM photo ONG button registration keeps the straight-line timeout co
   const bareConverted = converter.convertScripts(bareTimer, { mapping: {}, assetCatalog: [] });
   assert.equal(bareConverted.ok, true);
   assert.ok(bareTimer.diagnostics.some((entry) => entry.code === 'timer-reset-omitted'));
-  assert.ok(bareConverted.scenes.some((scene) => (
-    scene.commands.some((command) => command.type === 'message' && command.text === 'continues')
+  const bareScene = bareConverted.scenes.find((scene) => scene.id === bareConverted.entrySceneId);
+  const messageIndex = bareScene.commands.findIndex((command) => (
+    command.type === 'message' && command.text === 'continues'
+  ));
+  assert.ok(messageIndex >= 0);
+  assert.ok(!bareScene.commands.slice(0, messageIndex).some((command) => (
+    command.type === 'goto' || command.type === 'jump'
   )));
 });
 
@@ -2578,6 +2689,45 @@ test('Kitahe PM keeps source instruction volume outside the per-script expansion
 
   assert.equal(analysis.reachability.nodes.size, sourceLines.length);
   assert.ok(!analysis.diagnostics.some((entry) => entry.code === 'expanded-state-limit'));
+  assert.ok(analysis.basicBlockCount > converter.MAX_SCENES);
+  assert.equal(analysis.minimumSceneCount, 1);
+  assert.ok(!analysis.diagnostics.some((entry) => entry.code === 'scene-count-limit'));
+
+  const converted = converter.convertScripts(analysis, { mapping: {}, assetCatalog: [] });
+  assert.equal(converted.ok, true);
+  assert.ok(converted.totals.basicBlocks > converter.MAX_SCENES);
+  assert.ok(converted.scenes.length > 1);
+  assert.ok(converted.scenes.length < converter.MAX_SCENES);
+  const sceneIds = new Set(converted.scenes.map((scene) => scene.id));
+  converted.scenes.forEach((scene) => {
+    assert.ok(scene.commands.length <= converter.PACKED_SCENE_COMMAND_TARGET);
+    const labels = new Set(scene.commands
+      .filter((command) => command.type === 'label')
+      .map((command) => command.name));
+    scene.commands.forEach((command) => {
+      if (command.type === 'goto') assert.ok(labels.has(command.targetLabel));
+      if (command.type === 'jump') assert.ok(sceneIds.has(command.sceneId));
+    });
+  });
+  const projectDir = tempDir('pce-kitahe-packed-scenes-');
+  try {
+    const buildInspection = vnManager.inspectVnSceneDocumentBuild(projectDir, {
+      doc: {
+        version: 1,
+        startScene: converted.entrySceneId,
+        scenes: converted.scenes,
+      },
+      assetDoc: { version: 2, assets: [] },
+      targetMedia: 'cd',
+    });
+    assert.equal(buildInspection.ok, true);
+    assert.ok(buildInspection.sceneBudgets.every((scene) => scene.commandCount <= 255));
+    assert.ok(buildInspection.sceneBudgets.every((scene) => (
+      scene.packBytes <= converter.PACKED_SCENE_BYTE_TARGET
+    )));
+  } finally {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
 });
 
 test('Kitahe PM reports the runtime scene limit during initial inspection', () => {
@@ -2588,6 +2738,8 @@ test('Kitahe PM reports the runtime scene limit during initial inspection', () =
   const analysis = converter.inspectScripts({ files, entryScript: files[0].path });
 
   assert.equal(analysis.estimatedSceneCount, converter.MAX_SCENES + 1);
+  assert.equal(analysis.minimumSceneCount, converter.MAX_SCENES + 1);
+  assert.equal(analysis.basicBlockCount, converter.MAX_SCENES + 1);
   assert.ok(analysis.diagnostics.some((entry) => (
     entry.code === 'scene-count-limit'
     && entry.message.includes(`runtime上限 ${converter.MAX_SCENES}`)
@@ -2623,13 +2775,21 @@ test('Kitahe PM groups imported scenes by source script and sorts source locatio
   assert.equal(converted.ok, true);
   assert.deepEqual(converted.scenes.map((scene) => scene.name), [
     '北へ。PM/ADV_A.SCR/1',
-    '北へ。PM/ADV_A.SCR/5',
     '北へ。PM/ADV_Z.SCR/1',
   ]);
   assert.equal(converted.scenes.some((scene) => scene.name.includes(':')), false);
-  assert.deepEqual(converted.sourceRanges.map((range) => [range.script, range.startLine]), [
-    ['ADV_A.SCR', 1],
-    ['ADV_A.SCR', 5],
-    ['ADV_Z.SCR', 1],
+  assert.deepEqual(converted.sourceRanges.map((range) => [range.script, range.startLine, range.endLine]), [
+    ['ADV_A.SCR', 1, 8],
+    ['ADV_Z.SCR', 1, 1],
   ]);
+  const aScene = converted.scenes[0];
+  const localGoto = aScene.commands.find((command) => command.type === 'goto');
+  assert.ok(localGoto?.targetLabel);
+  assert.ok(aScene.commands.some((command) => (
+    command.type === 'label' && command.name === localGoto.targetLabel
+  )));
+  const zScene = converted.scenes[1];
+  assert.ok(zScene.commands.some((command) => (
+    command.type === 'jump' && command.sceneId === aScene.id
+  )));
 });
