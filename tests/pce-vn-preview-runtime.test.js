@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const { Blob } = require('node:buffer');
 const { pathToFileURL } = require('node:url');
 
 const root = path.join(__dirname, '..');
@@ -107,6 +108,59 @@ test('PCE VN preview serialized Sprite and SpriteText helpers are self-contained
   assert.equal(callbacks.length, 1);
   callbacks.shift()();
   assert.equal(callbacks.length, 1);
+});
+
+test('PCE VN playback preview identifies only commands that need binary asset data', async () => {
+  const assetIdSource = sourceBetween(
+    'function pcePreviewAssetIdForCommand(command = {})',
+    'function pcePreviewDataUrlToBlob(dataUrl = \'\')',
+  );
+  const dataUrlSource = sourceBetween(
+    'function pcePreviewDataUrlToBlob(dataUrl = \'\')',
+    '// 編集専用のコメント色',
+  );
+  const assetIdForCommand = evaluateFunction(assetIdSource);
+  const dataUrlToBlob = evaluateFunction(dataUrlSource, {
+    Blob,
+    Uint8Array,
+    atob: (value) => Buffer.from(value, 'base64').toString('latin1'),
+  });
+
+  assert.equal(assetIdForCommand({ type: 'background', assetId: 'bg' }), 'bg');
+  assert.equal(assetIdForCommand({ type: 'sprite', assetId: 'actor', visible: true }), 'actor');
+  assert.equal(assetIdForCommand({ type: 'sprite', assetId: 'actor', visible: false }), '');
+  assert.equal(assetIdForCommand({ type: 'audio', action: 'play', kind: 'adpcm', assetId: 'voice' }), 'voice');
+  assert.equal(assetIdForCommand({ type: 'audio', action: 'play', kind: 'psg', assetId: 'bgm' }), '');
+  assert.equal(assetIdForCommand({ type: 'message', voiceAssetId: 'line' }), 'line');
+  assert.equal(assetIdForCommand({ type: 'cache', action: 'load', assetId: 'cached' }), '');
+
+  const blob = dataUrlToBlob('data:text/plain;base64,cHJldmlldw==');
+  assert.ok(blob instanceof Blob);
+  assert.equal(blob.type, 'text/plain');
+  assert.equal(await blob.text(), 'preview');
+});
+
+test('PCE VN playback preview defers referenced asset data instead of embedding every Data URL', () => {
+  const openPreviewSource = sourceBetween(
+    'async function openScenePreview()',
+    'function removeCommand(index)',
+  );
+  const previewRuntimeSource = sourceBetween(
+    'function previewRuntime()',
+    'function buildPreviewHtml(payload)',
+  );
+
+  assert.match(openPreviewSource, /referenced\.forEach\(\(id\) => \{/);
+  assert.match(openPreviewSource, /urls: \{\}/);
+  assert.match(openPreviewSource, /createPreviewAssetSession\(win, referenced\)/);
+  assert.match(openPreviewSource, /payload\.assetSessionId = previewSessionId/);
+  assert.doesNotMatch(openPreviewSource, /Promise\.all\(\[\.\.\.referenced\]/);
+  assert.doesNotMatch(openPreviewSource, /resolveAssetDataUrl\(/);
+  assert.match(previewRuntimeSource, /function requestPreviewAssetUrl\(assetId\)/);
+  assert.match(previewRuntimeSource, /pcePreviewAssetIdForCommand\(c\)/);
+  assert.match(previewRuntimeSource, /waitForPreviewAsset\(requiredAssetId\)/);
+  assert.match(previewRuntimeSource, /URL\.createObjectURL\(message\.blob\)/);
+  assert.match(previewRuntimeSource, /action: 'release'/);
 });
 
 test('PCE VN preview keeps CD-DA and PSG BGM mutually exclusive', async () => {
@@ -289,7 +343,7 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
   );
   const psgNoiseSource = sourceBetween(
     'function psgPreviewNoiseHz(value)',
-    '// 編集専用のコメント色',
+    'function pcePreviewAssetIdForCommand(command = {})',
   );
   const spriteGeometrySource = sourceBetween(
     'function spriteFrameGeometry(source, animationId)',
@@ -302,6 +356,10 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
   const nextSpriteRowSource = sourceBetween(
     'function nextSpriteAnimationRowId(source, animationId)',
     'function defaultCharacterPlacement(asset)',
+  );
+  const previewAssetIdSource = sourceBetween(
+    'function pcePreviewAssetIdForCommand(command = {})',
+    'function pcePreviewDataUrlToBlob(dataUrl = \'\')',
   );
   const previewRuntimeSource = sourceBetween(
     'function previewRuntime()',
@@ -325,12 +383,14 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
   const spriteFrameGeometry = evaluateFunction(spriteGeometrySource);
   const applySpriteFrame = evaluateFunction(applySpriteSource);
   const nextSpriteAnimationRowId = evaluateFunction(nextSpriteRowSource);
+  const pcePreviewAssetIdForCommand = evaluateFunction(previewAssetIdSource);
   const previewRuntime = evaluateFunction(previewRuntimeSource);
   const buildPreviewHtml = evaluateFunction(buildPreviewHtmlSource, {
     PREVIEW_KEYBOARD_BUTTON_BY_CODE,
     pcePreviewButtonForKeyboardEvent,
     pcePreviewInputMatch,
     pcePreviewBgmConflict,
+    pcePreviewAssetIdForCommand,
     renderSpriteTextCells,
     psgPreviewNoiseHz,
     spriteFrameGeometry,
@@ -342,6 +402,7 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
   const html = buildPreviewHtml({ doc: { scenes: [] }, urls: {}, meta: {} });
   assert.match(html, /function pcePreviewInputMatch/);
   assert.match(html, /function pcePreviewBgmConflict/);
+  assert.match(html, /function pcePreviewAssetIdForCommand/);
   assert.match(html, /function renderSpriteTextCells/);
   assert.match(html, /function psgPreviewNoiseHz/);
   assert.match(html, /function spriteFrameGeometry/);

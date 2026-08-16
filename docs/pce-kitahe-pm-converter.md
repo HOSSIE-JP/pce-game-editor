@@ -167,10 +167,14 @@ alpha nibbleは本文色には使いません。保存後は通常のVN message�
 1つの「事前結合済みPCE asset」へ対応付けます。`CCG` でslotを複製した場合も
 この結合関係を引き継ぎます。
 
-`UNLOADCG` / `UNLOAD` / `UNL` は表示中のCGを消す命令として扱い、Spriteの
-`Visible: false`を生成します。ただし元SCRは同じslotを再度`LCG`せず`ICG`で再表示するため、
-変換解析ではLCGのsource metadataを保持します。後続の`LCG`は同じslotのmetadataを上書きし、
-`CLEARCG`は全slotのmetadataと表示状態を初期化します。
+`UNLOADCG` / `UNLOAD` / `UNL` は表示中のCGを消す命令として扱います。変換時は
+元CG slotとPCE Sprite slotの現在の所有関係を制御フローごとに追跡し、対象CGがその
+PCE slotの現在の表示所有者である場合だけ`Visible: false`を生成します。別の表情や立ち絵が
+同じPCE slotを後から上書きしている場合、古いCGへの消去命令で新しい表示を消しません。
+範囲付き`UNLOADCG`は`LINKCG`の実際の左右slotも使って対象を解決します。
+元SCRは同じslotを再度`LCG`せず`ICG`で再表示するため、変換解析ではLCGのsource metadataを
+保持します。後続の`LCG`は同じslotのmetadataを上書きし、`CLEARCG`は全slotのmetadataと
+表示状態を初期化します。
 
 画像mappingでは次を指定します。
 
@@ -297,9 +301,15 @@ GOTO / WAITBTN のlabel分岐先はpreload挿入後も同じlabel commandを指�
 
 `SCREEN`の全画面fade、flash、blankはPCE VNの`effect`へ近似します。
 alpha形式の`FADE`がSprite mapping対象なら、段階的な透明度ではなく同じslotの
-`Visible: false/true`へ近似します。`ICG`の初期opacity 0も非表示で生成します。
+`Visible: false/true`へ近似します。`ICG`の初期opacity 0は、元ゲームと同様に後続の
+FADE INへ向けた透明状態での準備として追跡し、そのCGがすでにPCE slotの表示所有者でない限り
+物理的な非表示commandを生成しません。これにより、同じPCE slotに表示中の旧表情を
+透明な次表情の`ICG`だけで消すことを防ぎます。
 `CLEARCG`、`DCG <slot>, OFF`、`UNLOADCG` / `UNLOAD` / `UNL`で元スクリプトが
-CGを消去・非表示にする場合も、対応するSprite slotへ`Visible: false`を生成します。
+CGを消去・非表示にする場合も同じ所有者判定を使います。FADE IN後に旧CGのFADE OUTが
+続くクロスフェード順でも、新しく表示したSpriteを旧CGの命令で消しません。分岐の合流で
+同じPCE slotの所有者が経路ごとに異なる場合は、別所有者を消す可能性がある非表示commandを
+保守的に生成しません。`CLEARCG`だけは全対応Sprite slotを明示的に非表示にします。
 通常のscene切替はSprite状態を保持するため、元スクリプトに消去命令がない場合は表示を引き継ぎます。
 BG対象のalpha `FADE`、9引数の明度系`FADE`、`SCG`、`MCG`、`RCG`、`WCG`、
 `CFADE`など、初版で安全に表現できない演出も省略してwarningへ記録します。

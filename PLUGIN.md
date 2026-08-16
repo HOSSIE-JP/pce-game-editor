@@ -1049,7 +1049,7 @@ HuCARD VN の bank layout は [docs/pce-vn-hucard-bank-layout.md](docs/pce-vn-hu
 
 `assets/pce-vn-scenes.json` は v2 から `commands` を正式形式にします。旧 `backgroundAssetId` / `characters` / `messages` / `bgmAssetId` を持つ scene は読み込み時に commands へ正規化されます。
 
-Novel > スクリプトは同じ scene document を `GUI` / `JSON` の 2 モードで編集できます。`JSON` モードは `assets/pce-vn-scenes.json` 全体を直接編集するビューで、保存・プレビュー・GUI へ戻る操作では `normalizeSceneDocument` 相当の正規化を通します。ビルド入力の正本は引き続きこの JSON で、runtime 向け scene pack / `src/generated/vn.c` は build 時に生成されます。スクリプト再生プレビューの debug panel は、変数に加えて visual RAM cache、ADPCM RAM、active scene pack の使用量見積もりを表示します。Cache 欄は runtime RAM を直接読むのではなく、preview payload に含めた generated asset metadata と command 実行順から `cache load` / `cache clear` / BG・Sprite表示時の RAM cache hit / CD fallback をシミュレートします。
+Novel > スクリプトは同じ scene document を `GUI` / `JSON` の 2 モードで編集できます。`JSON` モードは `assets/pce-vn-scenes.json` 全体を直接編集するビューで、保存・プレビュー・GUI へ戻る操作では `normalizeSceneDocument` 相当の正規化を通します。ビルド入力の正本は引き続きこの JSON で、runtime 向け scene pack / `src/generated/vn.c` は build 時に生成されます。スクリプト再生プレビューの debug panel は、変数に加えて visual RAM cache、ADPCM RAM、active scene pack の使用量見積もりを表示します。Cache 欄は runtime RAM を直接読むのではなく、preview payload に含めた generated asset metadata と command 実行順から `cache load` / `cache clear` / BG・Sprite表示時の RAM cache hit / CD fallback をシミュレートします。scene documentと軽量metadataだけをHTMLへ埋め込み、画像・ADPCM・CD-DAは各commandの実行直前に親rendererへ要求してBlob URL化するため、大量assetのData URLを単一HTML文字列へ連結しません。preview終了時は親側sessionと子側Blob URLを破棄します。
 
 ```jsonc
 {

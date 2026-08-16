@@ -2184,7 +2184,7 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
             requirementKey,
             placement: placement ? { ...placement } : null,
           }];
-        }).filter(([, value]) => value.placement),
+        }).filter(([, value]) => value.placement?.visible),
       ),
     };
     facts.set(nodeKey, instructionFact);
@@ -2402,10 +2402,13 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
       }
     } else if (instruction.op === 'DCG') {
       if (String(instruction.args[1] || '').trim().toUpperCase() === 'OFF') {
-        clearCgVisibility([resolveSlot(instruction.args[0], state.constants)]);
+        const slots = [resolveSlot(instruction.args[0], state.constants)].filter(Boolean);
+        instructionFact.cgRemovalSlots = slots;
+        clearCgVisibility(slots);
       }
     } else if (instruction.op === 'UNLOADCG' || instruction.op === 'UNLOAD' || instruction.op === 'UNL') {
       const slots = resolveUnloadSlots(instruction.args[0], instruction.args[1]);
+      instructionFact.cgRemovalSlots = slots;
       clearCgVisibility(slots);
       // UNLOAD/DCG describe display lifetime in the source scripts. The same
       // LCG slot is routinely shown again without another LCG, so retain its
@@ -2419,12 +2422,15 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
       const image = imageRecordForSlot(instruction.args[0]);
       const slot = resolveSlot(instruction.args[0], state.constants);
       if (image) {
+        const initialOpacity = numericValue(instruction.args[4], state.constants);
         state.cgPlacements.set(slot, {
           x: numericValue(instruction.args[1], state.constants)
             ?? (cleanToken(instruction.args[1]) || '0'),
           y: numericValue(instruction.args[2], state.constants)
             ?? (cleanToken(instruction.args[2]) || '0'),
+          visible: initialOpacity === null || initialOpacity > 0,
         });
+        instructionFact.cgSlot = slot;
         instructionFact.image = image;
         const requirement = addRequirement(
           requirements,
@@ -2464,6 +2470,12 @@ function analyzeInstructionFactsCfg(programs, reachability, options = {}) {
           { parts: image.parts, crops: image.crops, orderedSlots: image.orderedSlots, split: image.parts.length > 1 },
         );
         instructionFact.fade.requirementKey = requirement.key;
+      }
+      if (alpha && placement && Number.isFinite(instructionFact.fade.toOpacity)) {
+        state.cgPlacements.set(slot, {
+          ...placement,
+          visible: instructionFact.fade.toOpacity > 0,
+        });
       }
     } else if (instruction.op === 'PCMDIR') {
       state.currentPcmDirectory = normalizeSourcePath(instruction.args[0]);
@@ -3589,30 +3601,185 @@ function sourceSlotsForUnload(instruction, constants) {
   return new Set(Array.from({ length: count }, (_, index) => String(Math.round(startNumber + index))));
 }
 
-function compileExplicitSpriteHideCommands({
-  instruction,
-  fact,
-  constants,
-  normalizedMapping,
-  clearAll = false,
-} = {}) {
-  const byPceSlot = new Map();
-  if (clearAll) {
-    mappedSpriteSlots(normalizedMapping).forEach((slot) => byPceSlot.set(slot, true));
-  } else {
-    const targetSourceSlots = instruction.op === 'DCG'
-      ? new Set([resolveSlot(instruction.args[0], constants)])
-      : sourceSlotsForUnload(instruction, constants);
-    const activeCg = fact?.activeCg instanceof Map ? fact.activeCg : new Map();
-    activeCg.forEach((active, sourceSlot) => {
-      if (!targetSourceSlots.has(sourceSlot)) return;
-      const assetMapping = normalizedMapping.assets[active.requirementKey];
-      if (assetMapping?.action !== 'map' || assetMapping.display !== 'sprite') return;
-      const slot = Number(assetMapping.slot);
-      if (Number.isInteger(slot) && slot >= 0 && slot <= 3) byPceSlot.set(slot, true);
+const EMPTY_SPRITE_OWNER = '';
+
+function emptySpriteOwnershipState() {
+  return Array.from({ length: 4 }, () => new Set([EMPTY_SPRITE_OWNER]));
+}
+
+function cloneSpriteOwnershipState(state) {
+  return state.map((owners) => new Set(owners));
+}
+
+function mergeSpriteOwnershipState(left, right) {
+  let changed = false;
+  const merged = left.map((owners, slot) => {
+    const result = new Set(owners);
+    right[slot].forEach((owner) => {
+      if (!result.has(owner)) {
+        result.add(owner);
+        changed = true;
+      }
     });
+    return result;
+  });
+  return { changed, state: merged };
+}
+
+function spriteOwnerToken(sourceSlot, requirementKey) {
+  return String(sourceSlot || '') + '\u0000' + String(requirementKey || '');
+}
+
+function spriteOwnerSourceSlot(owner) {
+  const separator = String(owner || '').indexOf('\u0000');
+  return separator >= 0 ? owner.slice(0, separator) : String(owner || '');
+}
+
+function mappedSpriteSlot(normalizedMapping, requirementKey) {
+  const assetMapping = normalizedMapping?.assets?.[requirementKey];
+  if (assetMapping?.action !== 'map' || assetMapping.display !== 'sprite') return null;
+  const slot = Number(assetMapping.slot);
+  return Number.isInteger(slot) && slot >= 0 && slot <= 3 ? slot : null;
+}
+
+function removeSourceSpriteOwners(state, sourceSlots) {
+  if (!sourceSlots.size) return;
+  state.forEach((owners, slot) => {
+    let removed = false;
+    const next = new Set();
+    owners.forEach((owner) => {
+      if (owner && sourceSlots.has(spriteOwnerSourceSlot(owner))) {
+        removed = true;
+      } else {
+        next.add(owner);
+      }
+    });
+    if (removed || !next.size) next.add(EMPTY_SPRITE_OWNER);
+    state[slot] = next;
+  });
+}
+
+function showSourceSpriteOwner(state, pceSlot, sourceSlot, requirementKey) {
+  if (pceSlot === null || !sourceSlot) return;
+  removeSourceSpriteOwners(state, new Set([sourceSlot]));
+  state[pceSlot] = new Set([spriteOwnerToken(sourceSlot, requirementKey)]);
+}
+
+function factForReachabilityNode(analysis, node) {
+  return analysis.facts.get(node.key)
+    || analysis.facts.get(String(node.fileIndex) + ':' + String(node.pc))
+    || {};
+}
+
+function analyzeSpriteSlotOwnership(analysis, normalizedMapping) {
+  if (!mappedSpriteSlots(normalizedMapping).size) return new Map();
+  const inputStates = new Map();
+  const beforeByNode = new Map();
+  const queue = [];
+  let queueCursor = 0;
+  const queued = new Set();
+  const enqueue = (key, incoming) => {
+    if (!key || !analysis.reachability.nodes.has(key)) return;
+    const existing = inputStates.get(key);
+    if (!existing) {
+      inputStates.set(key, cloneSpriteOwnershipState(incoming));
+      if (!queued.has(key)) {
+        queue.push(key);
+        queued.add(key);
+      }
+      return;
+    }
+    const merged = mergeSpriteOwnershipState(existing, incoming);
+    if (!merged.changed) return;
+    inputStates.set(key, merged.state);
+    if (!queued.has(key)) {
+      queue.push(key);
+      queued.add(key);
+    }
+  };
+  const rootKeys = Array.from(new Set(
+    (analysis.reachability.rootKeys?.length
+      ? analysis.reachability.rootKeys
+      : [analysis.reachability.entryKey]).filter(Boolean),
+  ));
+  rootKeys.forEach((key) => enqueue(key, emptySpriteOwnershipState()));
+
+  while (queueCursor < queue.length) {
+    const key = queue[queueCursor];
+    queueCursor += 1;
+    queued.delete(key);
+    const node = analysis.reachability.nodes.get(key);
+    const input = inputStates.get(key);
+    if (!node || !input) continue;
+    beforeByNode.set(key, cloneSpriteOwnershipState(input));
+    const state = cloneSpriteOwnershipState(input);
+    const instruction = node.instruction;
+    const fact = factForReachabilityNode(analysis, node);
+    const constants = fact.constants instanceof Map ? fact.constants : analysis.constants;
+
+    if (instruction.op === 'CLEARCG') {
+      for (let slot = 0; slot < state.length; slot += 1) {
+        state[slot] = new Set([EMPTY_SPRITE_OWNER]);
+      }
+    } else if (instruction.op === 'ICG') {
+      const sourceSlot = String(fact.cgSlot || resolveSlot(instruction.args[0], constants));
+      const initialOpacity = numericValue(instruction.args[4], constants);
+      if (initialOpacity !== null && initialOpacity <= 0) {
+        removeSourceSpriteOwners(state, new Set([sourceSlot]));
+      } else {
+        showSourceSpriteOwner(
+          state,
+          mappedSpriteSlot(normalizedMapping, fact.requirementKey),
+          sourceSlot,
+          fact.requirementKey,
+        );
+      }
+    } else if (instruction.op === 'FADE' && fact.fade?.isAlpha
+      && Number.isFinite(fact.fade.toOpacity)) {
+      const sourceSlot = String(fact.fade.slot || '');
+      if (fact.fade.toOpacity > 0) {
+        showSourceSpriteOwner(
+          state,
+          mappedSpriteSlot(normalizedMapping, fact.fade.requirementKey),
+          sourceSlot,
+          fact.fade.requirementKey,
+        );
+      } else {
+        removeSourceSpriteOwners(state, new Set([sourceSlot]));
+      }
+    } else if ((instruction.op === 'DCG'
+      && String(instruction.args[1] || '').trim().toUpperCase() === 'OFF')
+      || instruction.op === 'UNLOADCG'
+      || instruction.op === 'UNLOAD'
+      || instruction.op === 'UNL') {
+      const sourceSlots = Array.isArray(fact.cgRemovalSlots)
+        ? new Set(fact.cgRemovalSlots.map(String))
+        : (instruction.op === 'DCG'
+          ? new Set([resolveSlot(instruction.args[0], constants)])
+          : sourceSlotsForUnload(instruction, constants));
+      removeSourceSpriteOwners(state, sourceSlots);
+    }
+
+    node.edges.forEach((edge) => enqueue(edge.key, state));
   }
-  return [...byPceSlot.keys()].sort((left, right) => left - right).map((slot) => ({
+  return beforeByNode;
+}
+
+function spriteSlotsOwnedOnlyBy(spriteOwnership, sourceSlots) {
+  if (!Array.isArray(spriteOwnership) || !sourceSlots.size) return [];
+  const result = [];
+  spriteOwnership.forEach((owners, slot) => {
+    const visibleOwners = [...owners].filter(Boolean);
+    if (!visibleOwners.length) return;
+    const hasTarget = visibleOwners.some((owner) => sourceSlots.has(spriteOwnerSourceSlot(owner)));
+    const hasOther = visibleOwners.some((owner) => !sourceSlots.has(spriteOwnerSourceSlot(owner)));
+    if (hasTarget && !hasOther) result.push(slot);
+  });
+  return result;
+}
+
+function spriteHideCommand(slot) {
+  return {
     type: 'sprite',
     slot,
     assetId: '',
@@ -3622,7 +3789,35 @@ function compileExplicitSpriteHideCommands({
     flipX: false,
     flipY: false,
     visible: false,
-  }));
+  };
+}
+
+function sourceSpriteRelocationHideCommands(spriteOwnership, sourceSlot, destinationSlot) {
+  return spriteSlotsOwnedOnlyBy(
+    spriteOwnership,
+    new Set([String(sourceSlot || '')]),
+  ).filter((slot) => slot !== Number(destinationSlot)).map(spriteHideCommand);
+}
+
+function compileExplicitSpriteHideCommands({
+  instruction,
+  fact,
+  constants,
+  normalizedMapping,
+  spriteOwnership,
+  clearAll = false,
+} = {}) {
+  if (clearAll) {
+    return [...mappedSpriteSlots(normalizedMapping)]
+      .sort((left, right) => left - right)
+      .map(spriteHideCommand);
+  }
+  const targetSourceSlots = Array.isArray(fact?.cgRemovalSlots)
+    ? new Set(fact.cgRemovalSlots.map(String))
+    : (instruction.op === 'DCG'
+      ? new Set([resolveSlot(instruction.args[0], constants)])
+      : sourceSlotsForUnload(instruction, constants));
+  return spriteSlotsOwnedOnlyBy(spriteOwnership, targetSourceSlots).map(spriteHideCommand);
 }
 
 function convertScripts(analysis, {
@@ -3640,6 +3835,7 @@ function convertScripts(analysis, {
 
   const normalizedMapping = mappingValidation.normalized;
   const assetById = new Map((assetCatalog || []).map((asset) => [String(asset?.id || ''), asset]));
+  const spriteOwnershipByNode = analyzeSpriteSlotOwnership(analysis, normalizedMapping);
   let activeBackgroundLayout = defaultImportedBackgroundLayout();
   const grouped = buildBasicBlocks(analysis, safeIdentifier(namespace, 'khpm', 24));
   const { blocks, blockByNode, entryBlockIndex } = grouped;
@@ -3663,6 +3859,8 @@ function convertScripts(analysis, {
         || analysis.facts.get(`${node.fileIndex}:${node.pc}`)
         || {};
       const nodeConstants = fact.constants instanceof Map ? fact.constants : analysis.constants;
+      const spriteOwnership = spriteOwnershipByNode.get(node.key)
+        || emptySpriteOwnershipState();
       const edgeBlocks = node.edges
         .map((edge) => ({ edge, block: blocks[blockByNode.get(edge.key)] }))
         .filter((entry) => entry.block);
@@ -3725,24 +3923,38 @@ function convertScripts(analysis, {
         if (assetMapping?.action === 'map') {
           if (assetMapping.display === 'sprite') {
             const initialOpacity = numericValue(instruction.args[4], nodeConstants);
-            commands.push({
-              type: 'sprite',
-              slot: assetMapping.slot,
-              assetId: assetMapping.assetId,
-              x: importedSpriteX(
-                instruction.args[1],
-                nodeConstants,
-                instruction,
-                diagnostics,
-                activeBackgroundLayout,
-                importedSpriteLayout(assetMapping, assetById),
-              ),
-              y: PCE_IMPORTED_SPRITE_Y,
-              animationId: assetMapping.animationId,
-              flipX: false,
-              flipY: false,
-              visible: initialOpacity === null || initialOpacity > 0,
-            });
+            if (initialOpacity !== null && initialOpacity <= 0) {
+              const sourceSlot = String(fact.cgSlot || resolveSlot(instruction.args[0], nodeConstants));
+              commands.push(...spriteSlotsOwnedOnlyBy(
+                spriteOwnership,
+                new Set([sourceSlot]),
+              ).map(spriteHideCommand));
+            } else {
+              const sourceSlot = String(fact.cgSlot || resolveSlot(instruction.args[0], nodeConstants));
+              commands.push(...sourceSpriteRelocationHideCommands(
+                spriteOwnership,
+                sourceSlot,
+                assetMapping.slot,
+              ));
+              commands.push({
+                type: 'sprite',
+                slot: assetMapping.slot,
+                assetId: assetMapping.assetId,
+                x: importedSpriteX(
+                  instruction.args[1],
+                  nodeConstants,
+                  instruction,
+                  diagnostics,
+                  activeBackgroundLayout,
+                  importedSpriteLayout(assetMapping, assetById),
+                ),
+                y: PCE_IMPORTED_SPRITE_Y,
+                animationId: assetMapping.animationId,
+                flipX: false,
+                flipY: false,
+                visible: true,
+              });
+            }
           } else {
             activeBackgroundLayout = importedBackgroundLayout(assetMapping, assetById);
             commands.push({
@@ -3771,21 +3983,39 @@ function convertScripts(analysis, {
           && assetMapping.display === 'sprite'
         );
         if (canToggleSprite) {
-          commands.push(compileSpriteVisibilityCommand(
-            assetMapping,
-            fade,
-            instruction,
-            nodeConstants,
-            diagnostics,
-            activeBackgroundLayout,
-            assetById,
-          ));
-          diagnostics.push(diagnostic(
-            'warning',
-            'sprite-fade-approximation',
-            `CG slot ${fade.slot} のalpha FADE(${fade.fromOpacity ?? '(unknown)'}→${fade.toOpacity})をSprite Visible ${fade.toOpacity > 0 ? 'ON' : 'OFF'}へ近似します。`,
-            instruction,
-          ));
+          let generatedSpriteVisibility = false;
+          if (fade.toOpacity > 0) {
+            commands.push(...sourceSpriteRelocationHideCommands(
+              spriteOwnership,
+              fade.slot,
+              assetMapping.slot,
+            ));
+            commands.push(compileSpriteVisibilityCommand(
+              assetMapping,
+              fade,
+              instruction,
+              nodeConstants,
+              diagnostics,
+              activeBackgroundLayout,
+              assetById,
+            ));
+            generatedSpriteVisibility = true;
+          } else {
+            const hideCommands = spriteSlotsOwnedOnlyBy(
+              spriteOwnership,
+              new Set([String(fade.slot || '')]),
+            ).map(spriteHideCommand);
+            commands.push(...hideCommands);
+            generatedSpriteVisibility = hideCommands.length > 0;
+          }
+          if (generatedSpriteVisibility) {
+            diagnostics.push(diagnostic(
+              'warning',
+              'sprite-fade-approximation',
+              `CG slot ${fade.slot} のalpha FADE(${fade.fromOpacity ?? '(unknown)'}→${fade.toOpacity})をSprite Visible ${fade.toOpacity > 0 ? 'ON' : 'OFF'}へ近似します。`,
+              instruction,
+            ));
+          }
         } else if (fade?.isAlpha && fade.requirementKey
           && assetMapping?.action === 'map'
           && assetMapping.display === 'background') {
@@ -3802,6 +4032,7 @@ function convertScripts(analysis, {
           fact,
           constants: nodeConstants,
           normalizedMapping,
+          spriteOwnership,
           clearAll: true,
         }));
       } else if (instruction.op === 'DCG'
@@ -3811,6 +4042,7 @@ function convertScripts(analysis, {
           fact,
           constants: nodeConstants,
           normalizedMapping,
+          spriteOwnership,
         }));
       } else if (instruction.op === 'UNLOADCG' || instruction.op === 'UNLOAD' || instruction.op === 'UNL') {
         commands.push(...compileExplicitSpriteHideCommands({
@@ -3818,6 +4050,7 @@ function convertScripts(analysis, {
           fact,
           constants: nodeConstants,
           normalizedMapping,
+          spriteOwnership,
         }));
       } else if (instruction.op === 'PLAYP') {
         const voiceLocation = `${instruction.script}:${instruction.line}`;

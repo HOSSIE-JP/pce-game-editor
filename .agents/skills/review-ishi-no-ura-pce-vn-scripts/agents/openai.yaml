@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ishi no Ura Script Review"
+  short_description: "Extract and review each episode with traceable before-after edits"
+  default_prompt: "Use $review-ishi-no-ura-pce-vn-scripts to extract and review every current episode with traceable before-and-after revisions."

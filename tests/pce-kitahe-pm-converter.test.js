@@ -789,9 +789,8 @@ test('Kitahe PM maps Sprite alpha FADE to Visible toggles', () => {
     y: command.y,
     visible: command.visible,
   })), [
-    { slot: 1, assetId: 'hero', x: 128, y: 17, visible: false },
     { slot: 1, assetId: 'hero', x: 128, y: 17, visible: true },
-    { slot: 1, assetId: 'hero', x: 128, y: 17, visible: false },
+    { slot: 1, assetId: '', x: 0, y: 17, visible: false },
   ]);
   assert.ok(converted.diagnostics.some((entry) => (
     entry.code === 'sprite-fade-approximation' && entry.line === 4
@@ -802,6 +801,157 @@ test('Kitahe PM maps Sprite alpha FADE to Visible toggles', () => {
   assert.ok(!converted.diagnostics.some((entry) => (
     entry.code === 'fade-omitted' && (entry.line === 4 || entry.line === 5)
   )));
+});
+
+test('Kitahe PM keeps staged transparent expressions from hiding the current Sprite owner', () => {
+  const analysis = analyze([
+    'CGDIR DIR, \\BG',
+    'LCG 20, NORMAL, 640, 480',
+    'LCG 21, SMILE, 640, 480',
+    'ICG 20, 320, 200, -100, 1',
+    'ICG 21, 320, 200, -100, 0',
+    'FADE 20, 60, 1, 1, 0',
+    'FADE 21, 60, 1, 0, 1',
+    'FADE 20, 60, 1, 1, 0',
+    'UNLOADCG 20',
+    'UNLOADCG 21',
+    'END',
+  ]);
+  const normal = analysis.requirements.find((entry) => entry.source.endsWith('NORMAL.PVR'));
+  const smile = analysis.requirements.find((entry) => entry.source.endsWith('SMILE.PVR'));
+  const converted = converter.convertScripts(analysis, {
+    mapping: {
+      assets: {
+        [normal.key]: {
+          action: 'map',
+          assetId: 'normal',
+          display: 'sprite',
+          slot: 0,
+          animationId: 'default',
+        },
+        [smile.key]: {
+          action: 'map',
+          assetId: 'smile',
+          display: 'sprite',
+          slot: 0,
+          animationId: 'default',
+        },
+      },
+    },
+    assetCatalog: [
+      { id: 'normal', type: 'sprite', options: { animations: [{ id: 'default' }] } },
+      { id: 'smile', type: 'sprite', options: { animations: [{ id: 'default' }] } },
+    ],
+  });
+
+  assert.equal(converted.ok, true);
+  const sprites = converted.scenes.flatMap((scene) => scene.commands)
+    .filter((command) => command.type === 'sprite')
+    .map((command) => ({
+      slot: command.slot,
+      assetId: command.assetId,
+      visible: command.visible,
+    }));
+  assert.deepEqual(sprites, [
+    { slot: 0, assetId: 'normal', visible: true },
+    { slot: 0, assetId: '', visible: false },
+    { slot: 0, assetId: 'smile', visible: true },
+    { slot: 0, assetId: '', visible: false },
+  ]);
+  assert.ok(!converted.diagnostics.some((entry) => (
+    entry.code === 'sprite-fade-approximation' && entry.line === 8
+  )));
+});
+
+test('Kitahe PM hides a visible Sprite when the same source ICG becomes transparent', () => {
+  const analysis = analyze([
+    'CGDIR DIR, \\BG',
+    'LCG 20, HERO, 640, 480',
+    'ICG 20, 320, 200, -100, 1',
+    'ICG 20, 320, 200, -100, 0',
+    'END',
+  ]);
+  const key = analysis.requirements[0].key;
+  const converted = converter.convertScripts(analysis, {
+    mapping: {
+      assets: {
+        [key]: {
+          action: 'map',
+          assetId: 'hero',
+          display: 'sprite',
+          slot: 2,
+          animationId: 'default',
+        },
+      },
+    },
+    assetCatalog: [{
+      id: 'hero',
+      type: 'sprite',
+      options: { animations: [{ id: 'default' }] },
+    }],
+  });
+
+  assert.equal(converted.ok, true);
+  assert.deepEqual(converted.scenes.flatMap((scene) => scene.commands)
+    .filter((command) => command.type === 'sprite')
+    .map((command) => ({
+      slot: command.slot,
+      assetId: command.assetId,
+      visible: command.visible,
+    })), [
+    { slot: 2, assetId: 'hero', visible: true },
+    { slot: 2, assetId: '', visible: false },
+  ]);
+});
+
+test('Kitahe PM clears the old PCE slot when one source CG is remapped to another slot', () => {
+  const analysis = analyze([
+    'CGDIR DIR, \\BG',
+    'LCG 20, FIRST, 640, 480',
+    'ICG 20, 320, 200, -100, 1',
+    'LCG 20, SECOND, 640, 480',
+    'ICG 20, 320, 200, -100, 1',
+    'END',
+  ]);
+  const first = analysis.requirements.find((entry) => entry.source.endsWith('FIRST.PVR'));
+  const second = analysis.requirements.find((entry) => entry.source.endsWith('SECOND.PVR'));
+  const converted = converter.convertScripts(analysis, {
+    mapping: {
+      assets: {
+        [first.key]: {
+          action: 'map',
+          assetId: 'first',
+          display: 'sprite',
+          slot: 0,
+          animationId: 'default',
+        },
+        [second.key]: {
+          action: 'map',
+          assetId: 'second',
+          display: 'sprite',
+          slot: 1,
+          animationId: 'default',
+        },
+      },
+    },
+    assetCatalog: [
+      { id: 'first', type: 'sprite', options: { animations: [{ id: 'default' }] } },
+      { id: 'second', type: 'sprite', options: { animations: [{ id: 'default' }] } },
+    ],
+  });
+
+  assert.equal(converted.ok, true);
+  assert.deepEqual(converted.scenes.flatMap((scene) => scene.commands)
+    .filter((command) => command.type === 'sprite')
+    .map((command) => ({
+      slot: command.slot,
+      assetId: command.assetId,
+      visible: command.visible,
+    })), [
+    { slot: 0, assetId: 'first', visible: true },
+    { slot: 0, assetId: '', visible: false },
+    { slot: 1, assetId: 'second', visible: true },
+  ]);
 });
 
 test('Kitahe PM keeps BG alpha FADE omitted', () => {
@@ -884,6 +1034,50 @@ test('Kitahe PM converts explicit CG removal to Sprite Visible OFF', () => {
   assertRemoved('DCG 20, OFF');
   assertRemoved('CLEARCG');
 });
+
+test('Kitahe PM uses resolved LINKCG members for ranged UNLOAD visibility', () => {
+  const analysis = analyze([
+    'CGDIR DIR, \\BG',
+    'LCG 20, LEFT, 320, 480',
+    'LCG 30, RIGHT, 320, 480',
+    'LINKCG 20, 30',
+    'ICG 30, 0, 0, -100, 1',
+    'UNLOADCG 20, 2',
+    'END',
+  ]);
+  const key = analysis.requirements[0].key;
+  const converted = converter.convertScripts(analysis, {
+    mapping: {
+      assets: {
+        [key]: {
+          action: 'map',
+          assetId: 'hero',
+          display: 'sprite',
+          slot: 3,
+          animationId: 'default',
+        },
+      },
+    },
+    assetCatalog: [{
+      id: 'hero',
+      type: 'sprite',
+      options: { animations: [{ id: 'default' }] },
+    }],
+  });
+
+  assert.equal(converted.ok, true);
+  assert.deepEqual(converted.scenes.flatMap((scene) => scene.commands)
+    .filter((command) => command.type === 'sprite')
+    .map((command) => ({
+      slot: command.slot,
+      assetId: command.assetId,
+      visible: command.visible,
+    })), [
+    { slot: 3, assetId: 'hero', visible: true },
+    { slot: 3, assetId: '', visible: false },
+  ]);
+});
+
 test('Kitahe PM omits CG alpha FADE while preserving SCREEN effects', () => {
   const analysis = analyze([
     'DEFINE FLAG',

@@ -52,6 +52,7 @@ const MESSAGE_SPEEDS = [
 const DEFAULT_MESSAGE_SPEED_FRAMES = 10;
 const DEFAULT_MESSAGE_AUTO_WAIT_FRAMES = 60;
 const VN_SYSTEM_SETTINGS_EVENT = 'pce-vn-system-settings:changed';
+const VN_PREVIEW_ASSET_MESSAGE_TYPE = 'pce-vn-preview-asset-v1';
 
 // 入力チェックコマンドのボタン定義（runtime の PAD_* と同順・OR 条件用）。
 const INPUT_BUTTONS = [
@@ -135,6 +136,35 @@ function psgPreviewNoiseHz(value) {
   const psgNoiseClock = 3579545 / 64;
   const v = (Number(value) | 0) & 0x1f;
   return psgNoiseClock / (32 - v);
+}
+
+// Standalone preview helper. Return only assets that must be materialized as
+// image/audio data before the command executes. PSG preview uses serialized
+// pattern metadata and cache commands only simulate RAM state.
+function pcePreviewAssetIdForCommand(command = {}) {
+  if (command.type === 'background') return String(command.assetId || '');
+  if (command.type === 'sprite' && command.visible !== false) return String(command.assetId || '');
+  if (command.type === 'audio'
+    && command.action === 'play'
+    && command.kind !== 'psg') return String(command.assetId || '');
+  if (command.type === 'message') return String(command.voiceAssetId || '');
+  return '';
+}
+
+function pcePreviewDataUrlToBlob(dataUrl = '') {
+  const source = String(dataUrl || '');
+  const comma = source.indexOf(',');
+  if (!source.startsWith('data:') || comma < 5) return null;
+  const header = source.slice(5, comma);
+  const payload = source.slice(comma + 1);
+  const mime = header.split(';')[0] || 'application/octet-stream';
+  if (!/(?:^|;)base64(?:;|$)/i.test(header)) {
+    return new Blob([decodeURIComponent(payload)], { type: mime });
+  }
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: mime });
 }
 
 // 編集専用のコメント色は PCE 表示色へスナップせず、自由な "#rrggbb" を許容する。
@@ -1246,9 +1276,90 @@ function normalizeDoc(doc, assets) {
 }
 
 // 別ウィンドウのプレビュー再生エンジン。activatePlugin のスコープを参照しないよう
-// toString() でそのまま埋め込むため、window.__PCE_VN_PREVIEW__ だけを入力にする。
+// toString() でそのまま埋め込み、初期dataはwindow.__PCE_VN_PREVIEW__、asset本体は
+// openerとのpostMessage bridgeから必要時だけ受け取る。
 function previewRuntime() {
   const data = window.__PCE_VN_PREVIEW__ || { doc: { scenes: [] }, urls: {}, meta: {} };
+  if (!data.urls || typeof data.urls !== 'object') data.urls = {};
+  const assetSessionId = String(data.assetSessionId || '');
+  const assetRequestPending = new Map();
+  const assetRequestById = new Map();
+  const failedAssetUrls = new Set();
+  const previewObjectUrls = new Set();
+  let assetRequestSerial = 0;
+
+  function previewOpener() {
+    try { return window.opener || null; } catch (_) { return null; }
+  }
+  function settlePreviewAssetRequest(requestId, url = '', error = '') {
+    const pendingRequest = assetRequestPending.get(requestId);
+    if (!pendingRequest) return;
+    assetRequestPending.delete(requestId);
+    clearTimeout(pendingRequest.timeout);
+    if (url) data.urls[pendingRequest.assetId] = url;
+    else failedAssetUrls.add(pendingRequest.assetId);
+    if (error && typeof console !== 'undefined' && typeof console.warn === 'function') {
+      console.warn(`VN preview asset load failed (${pendingRequest.assetId}): ${error}`);
+    }
+    pendingRequest.resolve(url);
+  }
+  function handlePreviewAssetMessage(event) {
+    const message = event?.data;
+    if (!message || message.type !== 'pce-vn-preview-asset-v1' || message.action !== 'response') return;
+    if (!assetSessionId || message.sessionId !== assetSessionId) return;
+    const opener = previewOpener();
+    if (!opener || event.source !== opener) return;
+    const pendingRequest = assetRequestPending.get(String(message.requestId || ''));
+    if (!pendingRequest || pendingRequest.assetId !== String(message.assetId || '')) return;
+    let objectUrl = '';
+    let error = String(message.error || '');
+    try {
+      if (message.blob && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        objectUrl = URL.createObjectURL(message.blob);
+        previewObjectUrls.add(objectUrl);
+      }
+    } catch (cause) {
+      error = String(cause?.message || cause || error);
+    }
+    settlePreviewAssetRequest(String(message.requestId || ''), objectUrl, error);
+  }
+  window.addEventListener('message', handlePreviewAssetMessage);
+
+  function requestPreviewAssetUrl(assetId) {
+    const id = String(assetId || '');
+    if (!id || data.urls[id]) return Promise.resolve(data.urls[id] || '');
+    if (failedAssetUrls.has(id)) return Promise.resolve('');
+    if (assetRequestById.has(id)) return assetRequestById.get(id);
+    const opener = previewOpener();
+    if (!assetSessionId || !opener || typeof opener.postMessage !== 'function') {
+      failedAssetUrls.add(id);
+      return Promise.resolve('');
+    }
+    const requestId = `${assetSessionId}:${++assetRequestSerial}`;
+    let requestPromise;
+    requestPromise = new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        settlePreviewAssetRequest(requestId, '', 'timeout');
+      }, 60000);
+      assetRequestPending.set(requestId, { assetId: id, resolve, timeout });
+      try {
+        opener.postMessage({
+          type: 'pce-vn-preview-asset-v1',
+          action: 'request',
+          sessionId: assetSessionId,
+          requestId,
+          assetId: id,
+        }, '*');
+      } catch (cause) {
+        settlePreviewAssetRequest(requestId, '', String(cause?.message || cause));
+      }
+    }).finally(() => {
+      if (assetRequestById.get(id) === requestPromise) assetRequestById.delete(id);
+    });
+    assetRequestById.set(id, requestPromise);
+    return requestPromise;
+  }
+
   const settings = data.doc.settings || {};
   const messageWaitGlyph = String(data.messageWaitGlyph || '▼').slice(0, 1) || '▼';
   const messageAutoGlyph = String(data.messageAutoGlyph || '◆').slice(0, 1) || '◆';
@@ -1374,6 +1485,8 @@ function previewRuntime() {
   let choiceState = null;
   let syncInputWatcher = null;
   let asyncInputWatcher = null;
+  let runtimeGeneration = 0;
+  let blockedAssetWait = null;
   const audio = { cdda: null, adpcm: null };
   const blockedAudio = { cdda: false, adpcm: false };
   const PSG_CLOCK = 3579545;
@@ -2010,6 +2123,28 @@ function previewRuntime() {
     }
     root.querySelector('#pv-hint').textContent = messageFastForward ? hint + ' ・ 早送り中' : hint;
   }
+  function waitForPreviewAsset(assetId) {
+    const id = String(assetId || '');
+    const generation = runtimeGeneration;
+    if (!id || (blockedAssetWait?.assetId === id && blockedAssetWait?.generation === generation)) return;
+    blockedAssetWait = { assetId: id, generation };
+    const label = String(data.meta[id]?.name || id);
+    root.querySelector('#pv-hint').textContent = `素材読み込み中: ${label}`;
+    void requestPreviewAssetUrl(id).catch((cause) => {
+      failedAssetUrls.add(id);
+      if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+        console.warn(`VN preview asset load failed (${id}): ${cause?.message || cause}`);
+      }
+      return '';
+    }).then(() => {
+      if (runtimeGeneration !== generation
+        || blockedAssetWait?.assetId !== id
+        || blockedAssetWait?.generation !== generation) return;
+      blockedAssetWait = null;
+      updateAudioHint();
+      run();
+    });
+  }
   function tryPlayAudio(kind) {
     const a = audio[kind];
     if (!a) return;
@@ -2644,6 +2779,13 @@ function previewRuntime() {
         continue;
       }
       const t = c.type;
+      const requiredAssetId = t === 'message' && messageFastForward
+        ? ''
+        : pcePreviewAssetIdForCommand(c);
+      if (requiredAssetId && !data.urls[requiredAssetId] && !failedAssetUrls.has(requiredAssetId)) {
+        waitForPreviewAsset(requiredAssetId);
+        return;
+      }
       if (t === 'background') {
         pc += 1;
         if (backgroundCommandMatchesDisplay(c)) continue;
@@ -2728,6 +2870,8 @@ function previewRuntime() {
   }
 
   function start() {
+    runtimeGeneration += 1;
+    blockedAssetWait = null;
     clearTimers();
     cancelAllSpriteMoves();
     restoreActiveMessageMouth();
@@ -2790,12 +2934,35 @@ function previewRuntime() {
   root.querySelector('#pv-fast-forward')?.addEventListener('change', (e) => { setMessageFastForward(e.currentTarget.checked); });
   debugToggle?.addEventListener('change', (e) => { setVarDebugVisible(e.currentTarget.checked); });
   window.addEventListener('beforeunload', () => {
+    runtimeGeneration += 1;
+    blockedAssetWait = null;
     restoreActiveMessageMouth();
     cancelAllSpriteMoves();
     stopAudio('cdda');
     stopAudio('adpcm');
     stopAudio('psg');
     if (psgAudioContext && typeof psgAudioContext.close === 'function') void psgAudioContext.close().catch(() => {});
+    window.removeEventListener('message', handlePreviewAssetMessage);
+    assetRequestPending.forEach((pendingRequest) => {
+      clearTimeout(pendingRequest.timeout);
+      pendingRequest.resolve('');
+    });
+    assetRequestPending.clear();
+    assetRequestById.clear();
+    const opener = previewOpener();
+    if (assetSessionId && opener && typeof opener.postMessage === 'function') {
+      try {
+        opener.postMessage({
+          type: 'pce-vn-preview-asset-v1',
+          action: 'release',
+          sessionId: assetSessionId,
+        }, '*');
+      } catch (_) {}
+    }
+    if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+      previewObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+    }
+    previewObjectUrls.clear();
   });
   setVarDebugVisible(Boolean(debugToggle?.checked));
 
@@ -2809,7 +2976,7 @@ function buildPreviewHtml(payload) {
     + '<scr' + 'ipt>window.__PCE_VN_PREVIEW__=' + json + ';</scr' + 'ipt>'
     + '<scr' + 'ipt>const PREVIEW_KEYBOARD_BUTTON_BY_CODE=' + JSON.stringify(PREVIEW_KEYBOARD_BUTTON_BY_CODE) + ';'
     + pcePreviewButtonForKeyboardEvent.toString() + '\n' + pcePreviewInputMatch.toString() + '\n'
-    + pcePreviewBgmConflict.toString() + '</scr' + 'ipt>'
+    + pcePreviewBgmConflict.toString() + '\n' + pcePreviewAssetIdForCommand.toString() + '</scr' + 'ipt>'
     + '<scr' + 'ipt>' + renderSpriteTextCells.toString() + '\n' + psgPreviewNoiseHz.toString() + '\n'
     + spriteFrameGeometry.toString() + '\n' + nextSpriteAnimationRowId.toString() + '\n' + applySpriteFrame.toString() + '</scr' + 'ipt>'
     + '<scr' + 'ipt>(' + previewRuntime.toString() + ')();</scr' + 'ipt>'
@@ -2995,6 +3162,118 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
   const scene = () => doc.scenes.find((item) => item.id === selectedId) || doc.scenes[0] || null;
   const assetById = (id) => assets.find((asset) => asset.id === id) || null;
   const systemSettings = () => normalizeSystemSettings(doc.settings);
+  const previewAssetSessions = new Map();
+  let previewAssetSessionSerial = 0;
+
+  function releasePreviewAssetSession(sessionId) {
+    const id = String(sessionId || '');
+    const session = previewAssetSessions.get(id);
+    if (!session) return;
+    previewAssetSessions.delete(id);
+    session.blobs.clear();
+  }
+
+  function createPreviewAssetSession(previewWindow, assetIds) {
+    [...previewAssetSessions.entries()].forEach(([sessionId, session]) => {
+      if (session.window === previewWindow) releasePreviewAssetSession(sessionId);
+    });
+    const sessionId = `vn-preview-${Date.now().toString(36)}-${(++previewAssetSessionSerial).toString(36)}`;
+    const sessionAssets = new Map();
+    assetIds.forEach((assetId) => {
+      const asset = assetById(assetId);
+      if (asset) sessionAssets.set(String(assetId), asset);
+    });
+    previewAssetSessions.set(sessionId, {
+      window: previewWindow,
+      assets: sessionAssets,
+      blobs: new Map(),
+    });
+    return sessionId;
+  }
+
+  function postPreviewAssetResponse(target, payload) {
+    if (!target || typeof target.postMessage !== 'function') return false;
+    try {
+      target.postMessage({
+        type: VN_PREVIEW_ASSET_MESSAGE_TYPE,
+        action: 'response',
+        ...payload,
+      }, '*');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function handlePreviewAssetMessage(event) {
+    const message = event?.data;
+    if (!message || message.type !== VN_PREVIEW_ASSET_MESSAGE_TYPE) return;
+    const sessionId = String(message.sessionId || '');
+    const session = previewAssetSessions.get(sessionId);
+    if (!session || event.source !== session.window) return;
+    if (message.action === 'release') {
+      releasePreviewAssetSession(sessionId);
+      return;
+    }
+    if (message.action !== 'request') return;
+    const requestId = String(message.requestId || '');
+    const assetId = String(message.assetId || '');
+    const asset = session.assets.get(assetId);
+    if (!requestId || !asset) {
+      postPreviewAssetResponse(event.source, {
+        sessionId,
+        requestId,
+        assetId,
+        blob: null,
+        error: 'asset is not available in this preview session',
+      });
+      return;
+    }
+    try {
+      if (!session.blobs.has(assetId)) {
+        session.blobs.set(assetId, (async () => {
+          const dataUrl = await resolveAssetDataUrl(asset);
+          if (!dataUrl) return null;
+          try {
+            return pcePreviewDataUrlToBlob(dataUrl);
+          } finally {
+            // Playback preview owns a Blob copy. Keeping every source Data URL
+            // would recreate the same large-string pressure in the editor.
+            assetDataUrlCache.delete(assetId);
+          }
+        })());
+      }
+      const blob = await session.blobs.get(assetId);
+      if (previewAssetSessions.get(sessionId) !== session) return;
+      const posted = postPreviewAssetResponse(event.source, {
+        sessionId,
+        requestId,
+        assetId,
+        blob,
+        error: blob ? '' : 'asset preview data is unavailable',
+      });
+      if (!posted && blob) {
+        postPreviewAssetResponse(event.source, {
+          sessionId,
+          requestId,
+          assetId,
+          blob: null,
+          error: 'asset preview Blobをウィンドウへ転送できませんでした',
+        });
+      }
+    } catch (cause) {
+      const error = String(cause?.message || cause || 'asset preview load failed');
+      logger?.warn?.(`VN preview asset load failed (${assetId}): ${error}`);
+      if (previewAssetSessions.get(sessionId) !== session) return;
+      postPreviewAssetResponse(event.source, {
+        sessionId,
+        requestId,
+        assetId,
+        blob: null,
+        error,
+      });
+    }
+  }
 
   function availablePluginToolbarActions() {
     const providers = typeof api.capabilities?.all === 'function'
@@ -5042,7 +5321,9 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
   }
 
   async function openScenePreview() {
+    let previewSessionId = '';
     try {
+      errorEl.textContent = '';
       if (editorMode === 'json' && !applyScriptJsonToDoc({ refreshText: true })) return;
       commitCurrentUiToDoc();
       const snapshot = normalizeDoc(doc, assets);
@@ -5054,17 +5335,11 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
         if (command.type === 'message' && command.voiceAssetId) referenced.add(command.voiceAssetId);
         if (command.type === 'cache' && command.action === 'load' && command.assetId) referenced.add(command.assetId);
       }));
-      const urls = {};
       const meta = {};
-      await Promise.all([...referenced].map(async (id) => {
+      referenced.forEach((id) => {
         const asset = assetById(id);
         if (!asset) return;
         const isPsg = asset.type === 'psg-song' || asset.type === 'psg-sfx';
-        if (!isPsg) {
-          const url = await resolveAssetDataUrl(asset);
-          if (!url) return;
-          urls[id] = url;
-        }
         const size = assetPixelSize(asset);
         meta[id] = {
           type: asset.type,
@@ -5088,11 +5363,11 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
           meta[id].psgOptions = asset.options || {};
           meta[id].psgPatternBytes = psgPatternPreviewBytes(asset);
         }
-      }));
+      });
       const payload = {
         doc: snapshot,
         startScene: selectedId,
-        urls,
+        urls: {},
         meta,
         runtimeCache: {
           visualPageBytes: VN_VISUAL_CACHE_PAGE_BYTES,
@@ -5112,12 +5387,17 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
         errorEl.textContent = 'プレビューウィンドウを開けませんでした（ポップアップ設定をご確認ください）';
         return;
       }
+      previewSessionId = createPreviewAssetSession(win, referenced);
+      payload.assetSessionId = previewSessionId;
       win.document.open();
       win.document.write(buildPreviewHtml(payload));
       win.document.close();
       win.focus();
     } catch (err) {
-      errorEl.textContent = `プレビュー失敗: ${err?.message || err}`;
+      if (previewSessionId) releasePreviewAssetSession(previewSessionId);
+      const message = `プレビュー失敗: ${err?.message || err}`;
+      errorEl.textContent = message;
+      logger?.error?.(message);
     }
   }
 
@@ -5540,6 +5820,7 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
 
   const handleWindowResize = () => fitStageNodes();
   window.addEventListener('resize', handleWindowResize);
+  window.addEventListener('message', handlePreviewAssetMessage);
 
   registerCapability('visual-novel-editor', { reload: load, save });
   const teardownAssetRefreshEvents = setupAssetRefreshEvents();
@@ -5558,6 +5839,8 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
       pluginToolbarEl?.removeEventListener('click', runPluginToolbarAction);
       pluginToolbarProviders.clear();
       window.removeEventListener('resize', handleWindowResize);
+      window.removeEventListener('message', handlePreviewAssetMessage);
+      [...previewAssetSessions.keys()].forEach(releasePreviewAssetSession);
       stopMessagePreview();
       commandPsgPreviewController.close();
     },

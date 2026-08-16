@@ -9,6 +9,7 @@ loadAppConfig(require('../app.config'));
   'app-diagnostics.test.js',
   'editor-control-service.test.js',
   'export-html.test.js',
+  'ishi-no-ura-review-skill.test.js',
   'main-window-state.test.js',
   'packaging-config.test.js',
   'plugin-manager.test.js',
