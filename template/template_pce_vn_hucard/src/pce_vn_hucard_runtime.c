@@ -228,8 +228,10 @@ static uint8_t choice_cursor_pattern_row __attribute__((section(".bss")));
 static uint16_t wait_frames_remaining;
 static uint8_t sync_input_mask;
 static uint16_t sync_input_target = PCE_VN_NO_COMMAND;
-static uint8_t async_input_mask;
-static uint16_t async_input_target = PCE_VN_NO_COMMAND;
+#define VN_ASYNC_INPUT_WATCHER_CAPACITY 7u
+static uint8_t async_input_watcher_count;
+static uint8_t async_input_masks[VN_ASYNC_INPUT_WATCHER_CAPACITY] __attribute__((section(".bss")));
+static uint16_t async_input_targets[VN_ASYNC_INPUT_WATCHER_CAPACITY] __attribute__((section(".bss")));
 static uint8_t spritetext_glyph_count;
 static uint8_t spritetext_blink_frames;
 static uint8_t spritetext_blink_timer;
@@ -2303,6 +2305,40 @@ static uint8_t VN_HUCARD_CODE_TEXT handle_choice_input(uint8_t pressed)
     return 0u;
 }
 
+static void VN_HUCARD_CODE_SCRIPT register_async_input_watcher(uint8_t mask, uint16_t target)
+{
+    uint8_t read_index;
+    uint8_t write_index = 0u;
+    if (!mask) return;
+
+    for (read_index = 0u; read_index < async_input_watcher_count; read_index++)
+    {
+        const uint8_t remaining_mask =
+            (uint8_t)(async_input_masks[read_index] & (uint8_t)~mask);
+        if (!remaining_mask) continue;
+        async_input_masks[write_index] = remaining_mask;
+        async_input_targets[write_index] = async_input_targets[read_index];
+        write_index++;
+    }
+    if (write_index < VN_ASYNC_INPUT_WATCHER_CAPACITY)
+    {
+        async_input_masks[write_index] = mask;
+        async_input_targets[write_index] = target;
+        write_index++;
+    }
+    async_input_watcher_count = write_index;
+}
+
+static uint8_t VN_HUCARD_CODE_SCRIPT find_async_input_watcher(uint8_t pressed)
+{
+    uint8_t index;
+    for (index = 0u; index < async_input_watcher_count; index++)
+    {
+        if (pressed & async_input_masks[index]) return index;
+    }
+    return 0xffu;
+}
+
 static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index)
 {
     cancel_all_sprite_moves();
@@ -2320,8 +2356,7 @@ static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index)
     wait_frames_remaining = 0u;
     sync_input_mask = 0u;
     sync_input_target = PCE_VN_NO_COMMAND;
-    async_input_mask = 0u;
-    async_input_target = PCE_VN_NO_COMMAND;
+    async_input_watcher_count = 0u;
 }
 
 static void VN_HUCARD_CODE_SCRIPT advance_story(void)
@@ -2412,13 +2447,11 @@ static void VN_HUCARD_CODE_SCRIPT advance_story(void)
         {
             if (command.flags == PCE_VN_INPUT_MODE_CANCEL)
             {
-                async_input_mask = 0u;
-                async_input_target = PCE_VN_NO_COMMAND;
+                async_input_watcher_count = 0u;
             }
             else if (command.flags == PCE_VN_INPUT_MODE_ASYNC)
             {
-                async_input_mask = command.arg0;
-                async_input_target = command.x;
+                register_async_input_watcher(command.arg0, command.x);
             }
             else
             {
@@ -2507,6 +2540,7 @@ int main(void)
     {
         uint8_t pad;
         uint8_t pressed;
+        uint8_t async_input_index;
         uint8_t message_ticked = 0u;
         wait_vblank();
         if (active_message_index >= 0)
@@ -2537,11 +2571,13 @@ int main(void)
                 refresh_message_wait_indicator();
             }
         }
-        if (async_input_mask && (pressed & async_input_mask))
+        async_input_index = find_async_input_watcher(pressed);
+        if (async_input_index < async_input_watcher_count)
         {
-            const uint16_t target = async_input_target;
-            async_input_mask = 0u;
-            async_input_target = PCE_VN_NO_COMMAND;
+            const uint16_t target = async_input_targets[async_input_index];
+            async_input_watcher_count = 0u;
+            sync_input_mask = 0u;
+            sync_input_target = PCE_VN_NO_COMMAND;
             if (target != PCE_VN_NO_COMMAND) current_command = target;
             reset_message_wait_indicator_state();
             active_message_index = -1;
@@ -2577,6 +2613,7 @@ int main(void)
                 const uint16_t target = sync_input_target;
                 sync_input_mask = 0u;
                 sync_input_target = PCE_VN_NO_COMMAND;
+                async_input_watcher_count = 0u;
                 if (target != PCE_VN_NO_COMMAND) current_command = target;
                 advance_story();
             }

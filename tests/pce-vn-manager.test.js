@@ -2497,7 +2497,8 @@ test('PCE VN manager encodes the input check command with button mask and modes'
       id: 'opening',
       commands: [
         { type: 'inputcheck', mode: 'sync', buttons: ['i', 'right'], targetLabel: 'go' },
-        { type: 'inputcheck', mode: 'async', buttons: ['ii'], targetLabel: 'go' },
+        { type: 'inputcheck', mode: 'async', buttons: ['run', 'i'], targetLabel: 'go' },
+        { type: 'inputcheck', mode: 'async', buttons: ['right'], targetLabel: 'go' },
         { type: 'inputcheck', mode: 'cancel' },
         { type: 'inputcheck', mode: 'sync', buttons: ['select'], targetLabel: 'go' },
         { type: 'label', name: 'go' },
@@ -2508,9 +2509,9 @@ test('PCE VN manager encodes the input check command with button mask and modes'
 
   const normalized = vnManager.readSceneDocument(projectDir);
   assert.deepEqual(normalized.scenes[0].commands[0].buttons, ['right', 'i']);
-  assert.equal(normalized.scenes[0].commands[2].mode, 'cancel');
-  assert.deepEqual(normalized.scenes[0].commands[2].buttons, []);
-  assert.deepEqual(normalized.scenes[0].commands[3].buttons, ['i']);
+  assert.equal(normalized.scenes[0].commands[3].mode, 'cancel');
+  assert.deepEqual(normalized.scenes[0].commands[3].buttons, []);
+  assert.deepEqual(normalized.scenes[0].commands[4].buttons, ['i']);
 
   const generated = vnManager.generateVnSources(projectDir);
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
@@ -2519,7 +2520,7 @@ test('PCE VN manager encodes the input check command with button mask and modes'
   assert.match(header, /PCE_VN_INPUT_MODE_SYNC 0u/);
   assert.match(header, /PCE_VN_INPUT_MODE_ASYNC 1u/);
   assert.match(header, /PCE_VN_INPUT_MODE_CANCEL 2u/);
-  const labelIndex = 4; // 'go' label follows the four Input commands
+  const labelIndex = 5; // 'go' label follows the five Input commands
   const sync = commandRecord(pack, 0);
   assert.equal(sync.type, vnManager.VN_COMMAND_INPUTCHECK);
   assert.equal(sync.flags, vnManager.VN_INPUT_MODE_SYNC);
@@ -2527,17 +2528,21 @@ test('PCE VN manager encodes the input check command with button mask and modes'
   assert.equal(sync.x, labelIndex);
   const asyncCmd = commandRecord(pack, 1);
   assert.equal(asyncCmd.flags, vnManager.VN_INPUT_MODE_ASYNC);
-  const cancel = commandRecord(pack, 2);
+  assert.equal(asyncCmd.arg0, vnManager.inputButtonsMask(['run', 'i']));
+  const secondAsyncCmd = commandRecord(pack, 2);
+  assert.equal(secondAsyncCmd.flags, vnManager.VN_INPUT_MODE_ASYNC);
+  assert.equal(secondAsyncCmd.arg0, vnManager.inputButtonsMask(['right']));
+  const cancel = commandRecord(pack, 3);
   assert.equal(cancel.flags, vnManager.VN_INPUT_MODE_CANCEL);
   assert.equal(cancel.x, 0xffff); // no target for cancel
-  const selectOnly = commandRecord(pack, 3);
+  const selectOnly = commandRecord(pack, 4);
   assert.equal(selectOnly.arg0, vnManager.inputButtonsMask(['i']));
   assert.equal(vnManager.inputButtonsMask(['select']), 0);
 
   const runtime = readRuntimeSource();
-  assert.match(runtime, /command->type == PCE_VN_COMMAND_INPUTCHECK/);
+  assert.match(runtime, /command_type == PCE_VN_COMMAND_INPUTCHECK/);
   assert.match(runtime, /sync_input_active = 1u;/);
-  assert.match(runtime, /async_input_active = 1u;/);
+  assert.match(runtime, /async_input_targets\[write_index\] = command->x;/);
 });
 
 test('PCE VN manager encodes spritetext overlays for on-demand BIOS glyphs', () => {
@@ -3726,10 +3731,10 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.notEqual(hucardMainStart, -1);
   const hucardAdvanceSource = runtime.slice(hucardAdvanceStart, hucardMainStart);
   const hucardMainSource = runtime.slice(hucardMainStart);
-  assert.match(hucardAdvanceSource, /command\.flags == PCE_VN_INPUT_MODE_ASYNC[\s\S]*async_input_mask = command\.arg0;[\s\S]*else[\s\S]*sync_input_mask = command\.arg0;/);
-  assert.match(hucardMainSource, /if \(sync_input_mask\)[\s\S]*const uint16_t target = sync_input_target;[\s\S]*if \(target != PCE_VN_NO_COMMAND\) current_command = target;[\s\S]*advance_story\(\);/);
-  assert.doesNotMatch(hucardMainSource, /current_command = async_input_target;/);
-  assert.equal((hucardMainSource.match(/if \(async_input_mask/g) || []).length, 1);
+  assert.match(hucardAdvanceSource, /command\.flags == PCE_VN_INPUT_MODE_ASYNC[\s\S]*register_async_input_watcher\(command\.arg0, command\.x\);[\s\S]*else[\s\S]*sync_input_mask = command\.arg0;/);
+  assert.match(hucardMainSource, /if \(sync_input_mask\)[\s\S]*const uint16_t target = sync_input_target;[\s\S]*async_input_watcher_count = 0u;[\s\S]*if \(target != PCE_VN_NO_COMMAND\) current_command = target;[\s\S]*advance_story\(\);/);
+  assert.match(hucardMainSource, /target = async_input_targets\[async_input_index\]/);
+  assert.equal((hucardMainSource.match(/find_async_input_watcher\(pressed\)/g) || []).length, 1);
   assert.match(runtime, /"csl\\n"[\s\S]*vn_hu_wait_vblank_start_outer[\s\S]*"csh\\n"/);
   assert.match(runtime, /copy_data_ref_to_vram_guarded/);
   assert.match(runtime, /service_psg_during_blocking_work/);

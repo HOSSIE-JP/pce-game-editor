@@ -7,6 +7,7 @@ import {
   PREVIEW_KEYBOARD_BUTTON_BY_CODE,
   pcePreviewButtonForKeyboardEvent,
   pcePreviewInputMatch,
+  pcePreviewRegisterAsyncInputWatcher,
 } from './preview-input.mjs';
 
 const SCENE_FILE = 'assets/pce-vn-scenes.json';
@@ -1484,7 +1485,7 @@ function previewRuntime() {
   let activeMessageAutoToggle = null;
   let choiceState = null;
   let syncInputWatcher = null;
-  let asyncInputWatcher = null;
+  let asyncInputWatchers = [];
   let runtimeGeneration = 0;
   let blockedAssetWait = null;
   const audio = { cdda: null, adpcm: null };
@@ -2337,16 +2338,16 @@ function previewRuntime() {
     hideMsg();
   }
   function handleInputButton(button) {
-    const match = pcePreviewInputMatch(syncInputWatcher, asyncInputWatcher, button);
+    const match = pcePreviewInputMatch(syncInputWatcher, asyncInputWatchers, button);
     if (!match) return false;
+    syncInputWatcher = null;
+    asyncInputWatchers = [];
     if (match.mode === 'async') {
-      asyncInputWatcher = null;
       interruptForAsyncInputJump();
       jumpLabel(match.targetLabel);
       run();
       return true;
     }
-    syncInputWatcher = null;
     jumpLabel(match.targetLabel);
     run();
     return true;
@@ -2359,7 +2360,7 @@ function previewRuntime() {
   function setScene(id) {
     cancelAllSpriteMoves();
     syncInputWatcher = null;
-    asyncInputWatcher = null;
+    asyncInputWatchers = [];
     scene = scenesById[id] || null;
     sceneId = id;
     pc = 0;
@@ -2829,12 +2830,12 @@ function previewRuntime() {
       if (t === 'label') { pc += 1; continue; }
       if (t === 'inputcheck') {
         if (c.mode === 'cancel') {
-          asyncInputWatcher = null;
+          asyncInputWatchers = [];
           pc += 1;
           continue;
         }
         if (c.mode === 'async') {
-          asyncInputWatcher = inputWatcher(c);
+          asyncInputWatchers = pcePreviewRegisterAsyncInputWatcher(asyncInputWatchers, inputWatcher(c));
           pc += 1;
           continue;
         }
@@ -2892,7 +2893,7 @@ function previewRuntime() {
     pending = null;
     choiceState = null;
     syncInputWatcher = null;
-    asyncInputWatcher = null;
+    asyncInputWatchers = [];
     renderStage();
     updateVarDebug();
     updateCacheDebug();
@@ -2975,7 +2976,8 @@ function buildPreviewHtml(payload) {
   return '<!doctype html><html lang="ja"><head><meta charset="utf-8" /><title>VN プレビュー</title></head><body>'
     + '<scr' + 'ipt>window.__PCE_VN_PREVIEW__=' + json + ';</scr' + 'ipt>'
     + '<scr' + 'ipt>const PREVIEW_KEYBOARD_BUTTON_BY_CODE=' + JSON.stringify(PREVIEW_KEYBOARD_BUTTON_BY_CODE) + ';'
-    + pcePreviewButtonForKeyboardEvent.toString() + '\n' + pcePreviewInputMatch.toString() + '\n'
+    + pcePreviewButtonForKeyboardEvent.toString() + '\n'
+    + pcePreviewRegisterAsyncInputWatcher.toString() + '\n' + pcePreviewInputMatch.toString() + '\n'
     + pcePreviewBgmConflict.toString() + '\n' + pcePreviewAssetIdForCommand.toString() + '</scr' + 'ipt>'
     + '<scr' + 'ipt>' + renderSpriteTextCells.toString() + '\n' + psgPreviewNoiseHz.toString() + '\n'
     + spriteFrameGeometry.toString() + '\n' + nextSpriteAnimationRowId.toString() + '\n' + applySpriteFrame.toString() + '</scr' + 'ipt>'

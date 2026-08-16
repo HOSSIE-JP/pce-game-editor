@@ -892,6 +892,13 @@ test('PCE visual novel editor exposes resizable panes, command palette, detail e
   assert.match(css, /\.pce-vn-command-dropzone\.is-drop-target/);
 });
 
+test('PCE visual novel JSON editor uses only the textarea scrollbar', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'style.css'), 'utf-8');
+
+  assert.match(css, /\.pce-vn-script-json\s*\{[\s\S]*?overflow:\s*hidden;[\s\S]*?\}/);
+  assert.match(css, /\.pce-vn-script-json textarea\s*\{[\s\S]*?height:\s*100%;[\s\S]*?min-height:\s*0;[\s\S]*?resize:\s*none;[\s\S]*?overflow:\s*auto;[\s\S]*?\}/);
+});
+
 test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   const manifest = readPluginManifest('novel-editor');
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'novel-editor', 'renderer.js'), 'utf-8');

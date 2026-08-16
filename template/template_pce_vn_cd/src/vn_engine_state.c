@@ -65,13 +65,15 @@ static pce_vn_message_t active_message_state __attribute__((section(".bss")));
 static signed int active_message_mouth_animation_index __attribute__((section(".bss")));
 static uint16_t ui_text_color;
 static uint8_t current_scene_full_screen_bg = 0;
-/* Input-check command state (single watcher). */
+/* Input-check command state. Async routes own disjoint subsets of the seven
+   supported buttons, so seven slots are sufficient without dynamic storage. */
+#define VN_ASYNC_INPUT_WATCHER_CAPACITY 7u
 static uint8_t sync_input_active = 0;
 static uint8_t sync_input_mask = 0;
 static uint16_t sync_input_target;
-static uint8_t async_input_active = 0;
-static uint8_t async_input_mask = 0;
-static uint16_t async_input_target;
+static uint8_t async_input_watcher_count = 0;
+static uint8_t async_input_masks[VN_ASYNC_INPUT_WATCHER_CAPACITY] __attribute__((section(".bss")));
+static uint16_t async_input_targets[VN_ASYNC_INPUT_WATCHER_CAPACITY] __attribute__((section(".bss")));
 /* System Card PSG package state. BGM and SFX have independent load keys and
    active flags; BIOS PSG_DRIVE owns sequencing and all PSG register writes. */
 static uint8_t psg_active = 0;

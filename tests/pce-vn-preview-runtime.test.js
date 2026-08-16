@@ -375,6 +375,7 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
     PREVIEW_KEYBOARD_BUTTON_BY_CODE,
     pcePreviewButtonForKeyboardEvent,
     pcePreviewInputMatch,
+    pcePreviewRegisterAsyncInputWatcher,
   } = await import(pathToFileURL(inputModulePath).href);
   const { pcePreviewBgmConflict } = await import(pathToFileURL(audioModulePath).href);
 
@@ -389,6 +390,7 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
     PREVIEW_KEYBOARD_BUTTON_BY_CODE,
     pcePreviewButtonForKeyboardEvent,
     pcePreviewInputMatch,
+    pcePreviewRegisterAsyncInputWatcher,
     pcePreviewBgmConflict,
     pcePreviewAssetIdForCommand,
     renderSpriteTextCells,
@@ -400,6 +402,7 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
   });
 
   const html = buildPreviewHtml({ doc: { scenes: [] }, urls: {}, meta: {} });
+  assert.match(html, /function pcePreviewRegisterAsyncInputWatcher/);
   assert.match(html, /function pcePreviewInputMatch/);
   assert.match(html, /function pcePreviewBgmConflict/);
   assert.match(html, /function pcePreviewAssetIdForCommand/);
@@ -418,6 +421,10 @@ test('PCE VN preview HTML injects every standalone runtime dependency', async ()
   vm.runInContext(helperScripts[1], popupContext);
   vm.runInContext(helperScripts[2], popupContext);
   assert.equal(vm.runInContext("pcePreviewButtonForKeyboardEvent({ code: 'KeyZ' })", popupContext), 'i');
+  assert.equal(
+    vm.runInContext("pcePreviewRegisterAsyncInputWatcher([], { buttons: ['run'], targetLabel: 'async-hit' })[0].targetLabel", popupContext),
+    'async-hit',
+  );
   assert.equal(vm.runInContext("pcePreviewInputMatch({ buttons: ['i'], targetLabel: 'hit' }, null, 'i').targetLabel", popupContext), 'hit');
   assert.equal(vm.runInContext("pcePreviewBgmConflict('psg', 'psg-song').kind", popupContext), 'cdda');
   assert.ok(vm.runInContext('psgPreviewNoiseHz(31)', popupContext) > vm.runInContext('psgPreviewNoiseHz(0)', popupContext));

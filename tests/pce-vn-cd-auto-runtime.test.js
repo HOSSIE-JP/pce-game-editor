@@ -187,7 +187,7 @@ test('CD VN runtime consumes SELECT before input watchers and applies dynamic AU
   const message = readRuntimeFile('vn_msg_core.c');
   const header = readRuntimeFile(path.join('generated', 'vn.h'));
   const selectOffset = main.indexOf('if (pressed & PAD_SEL)');
-  const asyncOffset = main.indexOf('if (async_input_active && (pressed & async_input_mask))');
+  const asyncOffset = main.indexOf('async_input_index = find_async_input_watcher(pressed);');
 
   assert.ok(selectOffset >= 0 && selectOffset < asyncOffset);
   assert.match(
@@ -231,6 +231,33 @@ test('CD VN runtime consumes SELECT before input watchers and applies dynamic AU
     /show_message_auto_indicator\(void\)[\s\S]*PCE_VN_MESSAGE_AUTO_GLYPH, VN_WAIT_CURSOR_COL, VN_WAIT_CURSOR_ROW/
   );
   assert.doesNotMatch(message, /active_message_state\.advance_mode != PCE_VN_ADVANCE_BUTTON/);
+});
+
+test('CD VN runtime keeps multiple async Input routes beside one sync wait', () => {
+  const state = readRuntimeFile('vn_engine_state.c');
+  const scene = readRuntimeFile('vn_port_scene.c');
+  const main = readRuntimeFile('vn_main.c');
+
+  assert.match(state, /#define VN_ASYNC_INPUT_WATCHER_CAPACITY 7u/);
+  assert.match(state, /async_input_masks\[VN_ASYNC_INPUT_WATCHER_CAPACITY\]/);
+  assert.match(state, /async_input_targets\[VN_ASYNC_INPUT_WATCHER_CAPACITY\]/);
+  assert.match(
+    scene,
+    /command_type == PCE_VN_COMMAND_INPUTCHECK[\s\S]*remaining_mask[\s\S]*async_input_masks\[write_index\] = mask;[\s\S]*async_input_targets\[write_index\] = command->x;/,
+  );
+  assert.match(
+    scene,
+    /mode == PCE_VN_INPUT_MODE_CANCEL[\s\S]*async_input_watcher_count = 0u;[\s\S]*mode == PCE_VN_INPUT_MODE_ASYNC[\s\S]*remaining_mask/,
+  );
+  assert.match(scene, /static uint8_t VN_BANKED_CODE find_async_input_watcher\(uint8_t pressed\)/);
+  assert.match(
+    main,
+    /async_input_index = find_async_input_watcher\(pressed\);[\s\S]*target = async_input_targets\[async_input_index\];[\s\S]*async_input_watcher_count = 0u;[\s\S]*sync_input_active = 0u;/,
+  );
+  assert.match(
+    main,
+    /else if \(sync_input_active\)[\s\S]*sync_input_target = PCE_VN_NO_COMMAND;[\s\S]*async_input_watcher_count = 0u;/,
+  );
 });
 
 test('CD VN one-shot natural completion remains free of BIOS status polling and reset', () => {

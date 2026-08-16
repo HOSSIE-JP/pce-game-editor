@@ -262,16 +262,32 @@ ChatGPT へ渡すときは、この文書の「制作ルール」と「スクリ
 ### inputcheck
 
 ```json
-{
-  "type": "inputcheck",
-  "buttons": ["run"],
-  "mode": "async",
-  "targetLabel": "skip_wait"
-}
+[
+  {
+    "type": "inputcheck",
+    "buttons": ["run", "i"],
+    "mode": "async",
+    "targetLabel": "label_1"
+  },
+  {
+    "type": "inputcheck",
+    "buttons": ["right"],
+    "mode": "async",
+    "targetLabel": "label_2"
+  },
+  {
+    "type": "inputcheck",
+    "buttons": ["left"],
+    "mode": "sync",
+    "targetLabel": "label_3"
+  }
+]
 ```
 
 - `mode`: `sync`, `async`, `cancel`。
-- `cancel` の場合、`buttons` は空配列、`targetLabel` は空文字でよい。
+- asyncは後続commandを止めず、最大7つのボタン経路を同時に保持できる。後のasyncとボタンが重なる場合、そのボタンだけ後の`targetLabel`を優先する。
+- asyncまたはsyncのいずれかが成立すると、同じ入力待ちグループのsync/async監視をすべて解除してから分岐する。同じボタンをasyncとsyncへ指定した場合はasyncを優先する。
+- `cancel` は保持中のasync経路をすべて解除する。`buttons` は空配列、`targetLabel` は空文字でよい。
 
 ### jump / wait
 

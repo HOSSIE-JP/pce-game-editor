@@ -13,6 +13,7 @@ test('PCE VN preview maps keyboard keys to controller buttons', async () => {
   const {
     pcePreviewButtonForKeyboardEvent,
     pcePreviewInputMatch,
+    pcePreviewRegisterAsyncInputWatcher,
   } = await import(pathToFileURL(modulePath).href);
   const cases = [
     ['ArrowUp', 'up'],
@@ -35,18 +36,48 @@ test('PCE VN preview maps keyboard keys to controller buttons', async () => {
   });
   assert.equal(pcePreviewButtonForKeyboardEvent({ code: 'KeyQ' }), '');
 
-  const sync = { buttons: ['i'], targetLabel: 'sync-hit' };
-  const asyncWatcher = { buttons: ['run'], targetLabel: 'async-hit' };
-  assert.deepEqual(pcePreviewInputMatch(sync, asyncWatcher, 'i'), {
+  const sync = { buttons: ['left'], targetLabel: 'sync-hit' };
+  let asyncWatchers = [];
+  asyncWatchers = pcePreviewRegisterAsyncInputWatcher(asyncWatchers, {
+    buttons: ['run', 'i'],
+    targetLabel: 'async-hit-1',
+  });
+  asyncWatchers = pcePreviewRegisterAsyncInputWatcher(asyncWatchers, {
+    buttons: ['right'],
+    targetLabel: 'async-hit-2',
+  });
+  assert.deepEqual(pcePreviewInputMatch(sync, asyncWatchers, 'left'), {
     mode: 'sync',
     targetLabel: 'sync-hit',
   });
-  assert.deepEqual(pcePreviewInputMatch(sync, asyncWatcher, 'run'), {
+  assert.deepEqual(pcePreviewInputMatch(sync, asyncWatchers, 'run'), {
     mode: 'async',
-    targetLabel: 'async-hit',
+    targetLabel: 'async-hit-1',
   });
-  assert.equal(pcePreviewInputMatch(sync, asyncWatcher, 'ii'), null);
+  assert.deepEqual(pcePreviewInputMatch(sync, asyncWatchers, 'i'), {
+    mode: 'async',
+    targetLabel: 'async-hit-1',
+  });
+  assert.deepEqual(pcePreviewInputMatch(sync, asyncWatchers, 'right'), {
+    mode: 'async',
+    targetLabel: 'async-hit-2',
+  });
+  assert.equal(pcePreviewInputMatch(sync, asyncWatchers, 'ii'), null);
   assert.equal(pcePreviewInputMatch(null, null, 'i'), null);
+
+  asyncWatchers = pcePreviewRegisterAsyncInputWatcher(asyncWatchers, {
+    buttons: ['i'],
+    targetLabel: 'async-i-override',
+  });
+  assert.deepEqual(asyncWatchers, [
+    { buttons: ['run'], targetLabel: 'async-hit-1' },
+    { buttons: ['right'], targetLabel: 'async-hit-2' },
+    { buttons: ['i'], targetLabel: 'async-i-override' },
+  ]);
+  assert.deepEqual(pcePreviewInputMatch(sync, asyncWatchers, 'i'), {
+    mode: 'async',
+    targetLabel: 'async-i-override',
+  });
 });
 
 test('PCE VN preview executes sync, async, and cancel Input commands', () => {
@@ -61,14 +92,15 @@ test('PCE VN preview executes sync, async, and cancel Input commands', () => {
   const preview = renderer.slice(previewStart, previewEnd);
 
   assert.match(preview, /let syncInputWatcher = null;/);
-  assert.match(preview, /let asyncInputWatcher = null;/);
+  assert.match(preview, /let asyncInputWatchers = \[\];/);
   assert.match(preview, /if \(t === 'inputcheck'\)/);
-  assert.match(preview, /c\.mode === 'cancel'[\s\S]*asyncInputWatcher = null;/);
-  assert.match(preview, /c\.mode === 'async'[\s\S]*asyncInputWatcher = inputWatcher\(c\);[\s\S]*pc \+= 1;/);
+  assert.match(preview, /c\.mode === 'cancel'[\s\S]*asyncInputWatchers = \[\];/);
+  assert.match(preview, /c\.mode === 'async'[\s\S]*pcePreviewRegisterAsyncInputWatcher\(asyncInputWatchers, inputWatcher\(c\)\)[\s\S]*pc \+= 1;/);
   assert.match(preview, /syncInputWatcher = inputWatcher\(c\);[\s\S]*return;/);
-  assert.match(preview, /pcePreviewInputMatch\(syncInputWatcher, asyncInputWatcher, button\)/);
-  assert.match(preview, /match\.mode === 'async'[\s\S]*syncInputWatcher = null;/);
+  assert.match(preview, /pcePreviewInputMatch\(syncInputWatcher, asyncInputWatchers, button\)/);
+  assert.match(preview, /if \(!match\) return false;[\s\S]*syncInputWatcher = null;[\s\S]*asyncInputWatchers = \[\];[\s\S]*match\.mode === 'async'/);
   assert.match(preview, /controllerButton && !e\.repeat && handleInputButton\(controllerButton\)/);
-  assert.match(preview, /function setScene\(id\)[\s\S]*syncInputWatcher = null;[\s\S]*asyncInputWatcher = null;/);
+  assert.match(preview, /function setScene\(id\)[\s\S]*syncInputWatcher = null;[\s\S]*asyncInputWatchers = \[\];/);
+  assert.match(renderer, /pcePreviewRegisterAsyncInputWatcher\.toString\(\)/);
   assert.match(renderer, /pcePreviewInputMatch\.toString\(\)/);
 });

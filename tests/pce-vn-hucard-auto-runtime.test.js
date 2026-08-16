@@ -60,7 +60,7 @@ test('HuCARD VN snapshots MSG_SPEED at message start and keeps zero as the compi
 test('HuCARD VN consumes SELECT for AUTO and preserves manual message advance', () => {
   const mainLoop = runtime.slice(runtime.indexOf('int main(void)'));
   const select = mainLoop.indexOf('if (pressed & PAD_SELECT)');
-  const asyncInput = mainLoop.indexOf('if (async_input_mask && (pressed & async_input_mask))');
+  const asyncInput = mainLoop.indexOf('async_input_index = find_async_input_watcher(pressed);');
   assert.ok(select >= 0 && select < asyncInput);
   assert.match(mainLoop, /last_pad = \(uint8_t\)~pce_joypad_read\(\);/);
   assert.match(mainLoop, /pad = \(uint8_t\)~pce_joypad_read\(\);/);
@@ -82,6 +82,30 @@ test('HuCARD VN consumes SELECT for AUTO and preserves manual message advance', 
   assert.ok(manualAdvance >= 0 && manualAdvance < autoAdvance);
   assert.doesNotMatch(activeMessage, /active_message_state\.advance_mode/);
   assert.doesNotMatch(activeMessage, /psg_song|psg_sfx|service_psg/);
+});
+
+test('HuCARD VN keeps multiple async Input routes beside one sync wait', () => {
+  assert.match(runtime, /#define VN_ASYNC_INPUT_WATCHER_CAPACITY 7u/);
+  assert.match(runtime, /async_input_masks\[VN_ASYNC_INPUT_WATCHER_CAPACITY\]/);
+  assert.match(runtime, /async_input_targets\[VN_ASYNC_INPUT_WATCHER_CAPACITY\]/);
+  assert.match(
+    runtime,
+    /register_async_input_watcher\(uint8_t mask, uint16_t target\)[\s\S]*remaining_mask[\s\S]*async_input_masks\[write_index\] = mask;[\s\S]*async_input_targets\[write_index\] = target;/,
+  );
+  assert.match(
+    runtime,
+    /command\.flags == PCE_VN_INPUT_MODE_CANCEL[\s\S]*async_input_watcher_count = 0u;[\s\S]*command\.flags == PCE_VN_INPUT_MODE_ASYNC[\s\S]*register_async_input_watcher\(command\.arg0, command\.x\);/,
+  );
+
+  const mainLoop = runtime.slice(runtime.indexOf('int main(void)'));
+  assert.match(
+    mainLoop,
+    /async_input_index = find_async_input_watcher\(pressed\);[\s\S]*target = async_input_targets\[async_input_index\];[\s\S]*async_input_watcher_count = 0u;[\s\S]*sync_input_mask = 0u;/,
+  );
+  assert.match(
+    mainLoop,
+    /if \(sync_input_mask\)[\s\S]*sync_input_target = PCE_VN_NO_COMMAND;[\s\S]*async_input_watcher_count = 0u;/,
+  );
 });
 
 test('HuCARD VN message indicator follows the live AUTO_ENABLE value', () => {
@@ -179,7 +203,7 @@ test('HuCARD VN restores the blank tile after Full BG before an Input-driven sce
   const mainLoop = runtime.slice(runtime.indexOf('int main(void)'));
   assert.match(
     mainLoop,
-    /if \(async_input_mask && \(pressed & async_input_mask\)\)[\s\S]*if \(!current_scene_full_screen_bg\) hide_message_window_map\(\);[\s\S]*advance_story\(\);/,
+    /if \(async_input_index < async_input_watcher_count\)[\s\S]*if \(!current_scene_full_screen_bg\) hide_message_window_map\(\);[\s\S]*advance_story\(\);/,
   );
   assert.match(
     mainLoop,

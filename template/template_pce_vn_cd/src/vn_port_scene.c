@@ -641,9 +641,7 @@ static void show_scene(uint8_t scene_index)
     sync_input_active = 0u;
     sync_input_mask = 0u;
     sync_input_target = PCE_VN_NO_COMMAND;
-    async_input_active = 0u;
-    async_input_mask = 0u;
-    async_input_target = PCE_VN_NO_COMMAND;
+    async_input_watcher_count = 0u;
 #if PCE_VN_HAS_FULL_SCREEN_BG
     if (current_scene_full_screen_bg)
     {
@@ -955,7 +953,56 @@ static uint8_t VN_LOGIC_OVERLAY_CODE execute_control_command_impl(const pce_vn_c
             vn_control_jump_target = target;
         }
     }
+    else if (command_type == PCE_VN_COMMAND_INPUTCHECK)
+    {
+        const uint8_t mode = (uint8_t)command->flags;
+        const uint8_t mask = command->arg0;
+        if (mode == PCE_VN_INPUT_MODE_CANCEL)
+        {
+            async_input_watcher_count = 0u;
+        }
+        else if (mode == PCE_VN_INPUT_MODE_ASYNC)
+        {
+            uint8_t read_index;
+            uint8_t write_index = 0u;
+            if (!mask) return VN_EXEC_CONTINUE;
+            /* A later registration wins only for overlapping buttons. */
+            for (read_index = 0u; read_index < async_input_watcher_count; read_index++)
+            {
+                const uint8_t remaining_mask =
+                    (uint8_t)(async_input_masks[read_index] & (uint8_t)~mask);
+                if (!remaining_mask) continue;
+                async_input_masks[write_index] = remaining_mask;
+                async_input_targets[write_index] = async_input_targets[read_index];
+                write_index++;
+            }
+            if (write_index < VN_ASYNC_INPUT_WATCHER_CAPACITY)
+            {
+                async_input_masks[write_index] = mask;
+                async_input_targets[write_index] = command->x;
+                write_index++;
+            }
+            async_input_watcher_count = write_index;
+        }
+        else
+        {
+            sync_input_active = 1u;
+            sync_input_mask = mask;
+            sync_input_target = command->x;
+            return VN_EXEC_WAIT;
+        }
+    }
     return VN_EXEC_CONTINUE;
+}
+
+static uint8_t VN_BANKED_CODE find_async_input_watcher(uint8_t pressed)
+{
+    uint8_t index;
+    for (index = 0u; index < async_input_watcher_count; index++)
+    {
+        if (pressed & async_input_masks[index]) return index;
+    }
+    return 0xffu;
 }
 
 static uint8_t VN_BANKED_CODE2 execute_control_command(const pce_vn_command_t *command)
@@ -979,31 +1026,6 @@ static uint8_t VN_BANKED_CODE2 execute_control_command(const pce_vn_command_t *c
     if (command->type == PCE_VN_COMMAND_GOTO)
     {
         (void)jump_to_command(command->x);
-        return VN_EXEC_CONTINUE;
-    }
-    if (command->type == PCE_VN_COMMAND_INPUTCHECK)
-    {
-        const uint8_t mode = (uint8_t)command->flags;
-        const uint8_t mask = command->arg0;
-        if (mode == PCE_VN_INPUT_MODE_CANCEL)
-        {
-            async_input_active = 0u;
-            async_input_mask = 0u;
-            async_input_target = PCE_VN_NO_COMMAND;
-        }
-        else if (mode == PCE_VN_INPUT_MODE_ASYNC)
-        {
-            async_input_active = 1u;
-            async_input_mask = mask;
-            async_input_target = command->x;
-        }
-        else
-        {
-            sync_input_active = 1u;
-            sync_input_mask = mask;
-            sync_input_target = command->x;
-            return VN_EXEC_WAIT;
-        }
         return VN_EXEC_CONTINUE;
     }
     vn_control_jump_target = PCE_VN_NO_COMMAND;

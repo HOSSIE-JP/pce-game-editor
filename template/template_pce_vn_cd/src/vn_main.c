@@ -66,9 +66,7 @@ static void init_runtime_state(void)
     sync_input_active = 0u;
     sync_input_mask = 0u;
     sync_input_target = PCE_VN_NO_COMMAND;
-    async_input_active = 0u;
-    async_input_mask = 0u;
-    async_input_target = PCE_VN_NO_COMMAND;
+    async_input_watcher_count = 0u;
     current_scene_full_screen_bg = 0u;
     sprite_satb_layout_valid = 0u;
     for (i = 0u; i < VN_SPRITE_SLOT_COUNT; i++)
@@ -278,6 +276,7 @@ int main(void)
     uint8_t pad;
     uint8_t last_pad;
     uint8_t pressed;
+    uint8_t async_input_index;
 #if defined(__PCE_CD__)
     pce_sector_t absolute_disc_base = {0};
 
@@ -328,13 +327,15 @@ int main(void)
             }
             refresh_message_wait_indicator();
         }
-        if (async_input_active && (pressed & async_input_mask))
+        async_input_index = find_async_input_watcher(pressed);
+        if (async_input_index < async_input_watcher_count)
         {
-            /* Background watcher matched: jump to its label and resume there. */
-            const uint16_t target = async_input_target;
-            async_input_active = 0u;
-            async_input_mask = 0u;
-            async_input_target = PCE_VN_NO_COMMAND;
+            /* One route resolves the whole pending input group. */
+            const uint16_t target = async_input_targets[async_input_index];
+            async_input_watcher_count = 0u;
+            sync_input_active = 0u;
+            sync_input_mask = 0u;
+            sync_input_target = PCE_VN_NO_COMMAND;
             VN_MAP_BANK130_FOR_CODE();
             cancel_all_sprite_moves();
             (void)jump_to_command(target);
@@ -361,6 +362,7 @@ int main(void)
                 sync_input_active = 0u;
                 sync_input_mask = 0u;
                 sync_input_target = PCE_VN_NO_COMMAND;
+                async_input_watcher_count = 0u;
                 VN_MAP_BANK130_FOR_CODE();
                 (void)jump_to_command(target);
                 advance_story();
