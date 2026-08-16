@@ -502,13 +502,13 @@ function messageDrawableLength(text = '') {
 }
 
 // pce-vn-manager.js の scene pack バイナリ仕様を反映した定数。CD scene pack v3は
-// bank123の8192-byte cache、HuCard scene pack v2は4096-byte cacheへ読み込む。
+// bank123の8192-byte cache、HuCard scene pack v2はbanked ROMから直接参照する。
 // project.jsonをloadしたあとvnScenePackLimit/vnScenePackUsesShiftJisを切り替える。
 // これを超えると
 // ビルドが失敗する（シーン分割が必要）。下の見積りはエディタ上の早期警告で、最終的な
 // 判定はビルド時の buildScenePack が行う。
 const VN_CD_SCENE_PACK_LIMIT = 8192;
-const VN_HUCARD_SCENE_PACK_LIMIT = 4096;
+const VN_HUCARD_SCENE_PACK_LIMIT = 8192;
 let vnScenePackLimit = VN_CD_SCENE_PACK_LIMIT;
 let vnScenePackUsesShiftJis = true;
 const VN_PACK_HEADER_SIZE = 20;
@@ -539,7 +539,7 @@ function estimateScenePackBytes(scene = {}) {
   commands.forEach((command) => {
     if (command?.type === 'message') {
       messageCount += 1;
-      // CD v2は各文字/改行/終端が16-bit、HuCard v1はglyph index stream。
+      // CD v3は各文字/改行/終端が16-bit、HuCard v2はglyph index stream。
       const glyphs = [...messageFullText(command)].filter((ch) => ch !== '\r').length;
       dataBytes += (glyphs + 1) * (vnScenePackUsesShiftJis ? 2 : 1);
     } else if (command?.type === 'choice') {

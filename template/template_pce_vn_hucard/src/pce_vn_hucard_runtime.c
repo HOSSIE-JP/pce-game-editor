@@ -116,7 +116,7 @@ typedef struct
 
 typedef struct
 {
-    uint8_t *data;
+    const pce_editor_data_ref_t *ref;
     uint16_t size;
     uint8_t scene_index;
     uint8_t valid;
@@ -172,7 +172,6 @@ typedef struct
     uint8_t active;
 } vn_sprite_move_t;
 
-static uint8_t scene_pack_storage[PCE_VN_SCENE_PACK_CACHE_BYTES] __attribute__((section(".bss")));
 static vn_scene_pack_cache_t active_scene_pack __attribute__((section(".bss")));
 static uint16_t variable_values[PCE_VN_VARIABLE_STORAGE_COUNT] __attribute__((section(".bss")));
 static vdc_sprite_t sprite_shadow[64] __attribute__((section(".bss")));
@@ -244,6 +243,7 @@ static vn_psg_voice_t psg_hardware_voices[6] __attribute__((section(".bss")));
 static void VN_HUCARD_CODE_PSG psg_advance(uint8_t frames);
 static void VN_HUCARD_CODE_SCRIPT advance_story(void);
 static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index);
+static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_u8(const vn_scene_pack_cache_t *cache, uint16_t offset);
 #if PCE_VN_HAS_FULL_SCREEN_BG
 static void VN_HUCARD_CODE_VIDEO restore_text_vram_after_full_screen_bg(void);
 #endif
@@ -678,21 +678,23 @@ static void VN_HUCARD_CODE_VIDEO restore_text_vram_after_full_screen_bg(void)
 }
 #endif
 
-static uint16_t VN_HUCARD_CODE_TEXT vn_glyph_decode(const uint8_t *glyphs, uint16_t pos)
+static uint16_t VN_HUCARD_CODE_TEXT vn_glyph_decode(uint16_t glyph_offset, uint16_t pos)
 {
-    const uint8_t b = glyphs[pos];
+    const uint8_t b = scene_pack_u8(&active_scene_pack, (uint16_t)(glyph_offset + pos));
     if (b == PCE_VN_GLYPH_ESCAPE)
     {
-        return (uint16_t)((uint16_t)glyphs[(uint16_t)(pos + 1u)] | ((uint16_t)glyphs[(uint16_t)(pos + 2u)] << 8));
+        return (uint16_t)(
+            (uint16_t)scene_pack_u8(&active_scene_pack, (uint16_t)(glyph_offset + pos + 1u))
+            | ((uint16_t)scene_pack_u8(&active_scene_pack, (uint16_t)(glyph_offset + pos + 2u)) << 8));
     }
     if (b == 0xfeu) return PCE_VN_GLYPH_NEWLINE;
     if (b == 0xffu) return PCE_VN_GLYPH_END;
     return b;
 }
 
-static uint16_t VN_HUCARD_CODE_TEXT vn_glyph_stride(const uint8_t *glyphs, uint16_t pos)
+static uint16_t VN_HUCARD_CODE_TEXT vn_glyph_stride(uint16_t glyph_offset, uint16_t pos)
 {
-    return glyphs[pos] == PCE_VN_GLYPH_ESCAPE ? 3u : 1u;
+    return scene_pack_u8(&active_scene_pack, (uint16_t)(glyph_offset + pos)) == PCE_VN_GLYPH_ESCAPE ? 3u : 1u;
 }
 
 static void VN_HUCARD_CODE_TEXT load_glyph_mask(uint16_t glyph, uint16_t *mask)
@@ -877,10 +879,10 @@ static void VN_HUCARD_CODE_TEXT clear_message_glyph_area(uint8_t col, uint8_t ro
 static uint8_t VN_HUCARD_CODE_TEXT draw_message_next_entry_impl(const pce_vn_message_t *message, uint8_t wait_for_vblank)
 {
     uint16_t glyph;
-    if (!message || !message->glyphs) return 1u;
+    if (!message || !message->glyph_count) return 1u;
     if (message_glyph_pos >= message->glyph_count) return 1u;
-    glyph = vn_glyph_decode(message->glyphs, message_glyph_byte);
-    message_glyph_byte = (uint16_t)(message_glyph_byte + vn_glyph_stride(message->glyphs, message_glyph_byte));
+    glyph = vn_glyph_decode(message->glyph_offset, message_glyph_byte);
+    message_glyph_byte = (uint16_t)(message_glyph_byte + vn_glyph_stride(message->glyph_offset, message_glyph_byte));
     message_glyph_pos++;
     if (glyph == PCE_VN_GLYPH_END) return 1u;
     if (glyph == PCE_VN_GLYPH_NEWLINE)
@@ -917,7 +919,7 @@ static uint8_t VN_HUCARD_CODE_TEXT draw_message_prefix_glyphs(const pce_vn_messa
 {
     uint8_t instant_glyph_count;
     uint8_t i;
-    if (!message || !message->glyphs) return 1u;
+    if (!message || !message->glyph_count) return 1u;
     instant_glyph_count = message->instant_glyph_count;
     for (i = 0u; i < instant_glyph_count; i++)
     {
@@ -1063,19 +1065,19 @@ static void VN_HUCARD_CODE_TEXT hide_message_window_map(void)
 
 static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_has_range(const vn_scene_pack_cache_t *cache, uint16_t offset, uint16_t length)
 {
-    return (uint8_t)(cache && cache->valid && offset <= cache->size && length <= (uint16_t)(cache->size - offset));
+    return (uint8_t)(cache && cache->ref && offset <= cache->size && length <= (uint16_t)(cache->size - offset));
 }
 
 static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_u8(const vn_scene_pack_cache_t *cache, uint16_t offset)
 {
     if (!scene_pack_has_range(cache, offset, 1u)) return 0u;
-    return cache->data[offset];
+    return data_ref_byte_at(cache->ref, offset);
 }
 
 static uint16_t VN_HUCARD_CODE_SCRIPT scene_pack_u16(const vn_scene_pack_cache_t *cache, uint16_t offset)
 {
     if (!scene_pack_has_range(cache, offset, 2u)) return 0u;
-    return (uint16_t)(cache->data[offset] | ((uint16_t)cache->data[(uint16_t)(offset + 1u)] << 8));
+    return data_ref_u16_at(cache->ref, offset);
 }
 
 static int16_t VN_HUCARD_CODE_SCRIPT scene_pack_s16(const vn_scene_pack_cache_t *cache, uint16_t offset)
@@ -1085,9 +1087,12 @@ static int16_t VN_HUCARD_CODE_SCRIPT scene_pack_s16(const vn_scene_pack_cache_t 
 
 static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_is_valid(const vn_scene_pack_cache_t *cache)
 {
-    if (!cache || !cache->data || cache->size < PCE_VN_SCENE_PACK_HEADER_SIZE) return 0u;
-    if (cache->data[0] != 'P' || cache->data[1] != 'V' || cache->data[2] != 'N' || cache->data[3] != 'S') return 0u;
-    return (uint8_t)(cache->data[VN_SCENE_PACK_OFFSET_VERSION] == PCE_VN_SCENE_PACK_VERSION);
+    if (!cache || !cache->ref || cache->size < PCE_VN_SCENE_PACK_HEADER_SIZE) return 0u;
+    if (scene_pack_u8(cache, 0u) != 'P'
+        || scene_pack_u8(cache, 1u) != 'V'
+        || scene_pack_u8(cache, 2u) != 'N'
+        || scene_pack_u8(cache, 3u) != 'S') return 0u;
+    return (uint8_t)(scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_VERSION) == PCE_VN_SCENE_PACK_VERSION);
 }
 
 static uint8_t VN_HUCARD_CODE_SCRIPT load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache)
@@ -1095,8 +1100,8 @@ static uint8_t VN_HUCARD_CODE_SCRIPT load_scene_pack_into_cache(uint8_t scene_in
     const pce_vn_scene_pack_t *pack;
     if (!cache || scene_index >= pce_vn_scene_count) return 0u;
     pack = &pce_vn_scene_packs[scene_index];
-    if (!pack->data || !pack->byte_size || pack->byte_size > PCE_VN_SCENE_PACK_CACHE_BYTES) return 0u;
-    data_ref_copy_to_ram(pack->data, 0u, cache->data, pack->byte_size);
+    if (!pack->data || !pack->byte_size || pack->byte_size > PCE_VN_SCENE_PACK_MAX_BYTES) return 0u;
+    cache->ref = pack->data;
     cache->size = pack->byte_size;
     cache->scene_index = scene_index;
     cache->valid = scene_pack_is_valid(cache);
@@ -1138,7 +1143,7 @@ static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_read_message(const vn_scene_pack
     if (!scene_pack_has_range(cache, offset, PCE_VN_SCENE_PACK_MESSAGE_SIZE)) return 0u;
     glyph_offset = scene_pack_u16(cache, offset);
     if (!scene_pack_has_range(cache, glyph_offset, 1u)) return 0u;
-    message->glyphs = &cache->data[glyph_offset];
+    message->glyph_offset = glyph_offset;
     message->glyph_count = scene_pack_u8(cache, (uint16_t)(offset + 2u));
     message->voice_index = scene_pack_s16(cache, (uint16_t)(offset + 3u));
     message->text_speed_frames = scene_pack_u8(cache, (uint16_t)(offset + 5u));
@@ -1172,7 +1177,7 @@ static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_read_choice_option(const vn_scen
     if (!scene_pack_has_range(cache, offset, PCE_VN_SCENE_PACK_OPTION_SIZE)) return 0u;
     glyph_offset = scene_pack_u16(cache, offset);
     if (!scene_pack_has_range(cache, glyph_offset, 1u)) return 0u;
-    option->glyphs = &cache->data[glyph_offset];
+    option->glyph_offset = glyph_offset;
     option->glyph_count = scene_pack_u8(cache, (uint16_t)(offset + 2u));
     option->value = scene_pack_s16(cache, (uint16_t)(offset + 3u));
     option->target_scene = scene_pack_s16(cache, (uint16_t)(offset + 5u));
@@ -2235,8 +2240,8 @@ static void VN_HUCARD_CODE_TEXT draw_choice_options(void)
         draw_message_glyph_at(row == choice_selected_index ? PCE_VN_CHOICE_CURSOR_GLYPH : 0u, VN_CHOICE_CURSOR_COL, row);
         for (col = 0u; col < option.glyph_count && (uint8_t)(col + VN_CHOICE_TEXT_COL) < VN_TEXT_COLS; col++)
         {
-            const uint16_t glyph = vn_glyph_decode(option.glyphs, pos);
-            pos = (uint16_t)(pos + vn_glyph_stride(option.glyphs, pos));
+            const uint16_t glyph = vn_glyph_decode(option.glyph_offset, pos);
+            pos = (uint16_t)(pos + vn_glyph_stride(option.glyph_offset, pos));
             if (glyph == PCE_VN_GLYPH_END) break;
             draw_message_glyph_at(glyph, (uint8_t)(col + VN_CHOICE_TEXT_COL), row);
         }
@@ -2487,7 +2492,7 @@ static void VN_HUCARD_CODE_SCRIPT init_variables(void)
 
 static void VN_HUCARD_CODE_SCRIPT init_scene_cache(void)
 {
-    active_scene_pack.data = scene_pack_storage;
+    active_scene_pack.ref = (const pce_editor_data_ref_t *)0;
     active_scene_pack.size = 0u;
     active_scene_pack.scene_index = 0xffu;
     active_scene_pack.valid = 0u;

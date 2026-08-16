@@ -584,7 +584,7 @@ test('PCE visual novel editor estimates the target-specific scene pack contract'
   const renderer = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'), 'utf-8');
 
   assert.match(renderer, /const VN_CD_SCENE_PACK_LIMIT = 8192;/);
-  assert.match(renderer, /const VN_HUCARD_SCENE_PACK_LIMIT = 4096;/);
+  assert.match(renderer, /const VN_HUCARD_SCENE_PACK_LIMIT = 8192;/);
   assert.match(renderer, /readCodeFile\(\{ path: 'project\.json' \}\)/);
   assert.match(renderer, /vnScenePackLimit = hucard \? VN_HUCARD_SCENE_PACK_LIMIT : VN_CD_SCENE_PACK_LIMIT/);
   assert.match(renderer, /\(glyphs \+ 1\) \* \(vnScenePackUsesShiftJis \? 2 : 1\)/);

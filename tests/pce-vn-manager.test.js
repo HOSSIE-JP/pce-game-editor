@@ -883,12 +883,15 @@ test('PCE VN manager escape-encodes glyph indices past 252', () => {
     path.join(__dirname, '..', 'template', 'template_pce_vn_hucard', 'src', 'pce_vn_hucard_runtime.c'),
     'utf-8',
   );
-  assert.match(hucardRuntime, /glyphs\[pos\] == PCE_VN_GLYPH_ESCAPE \? 3u : 1u/);
-  assert.match(hucardRuntime, /const uint8_t b = glyphs\[pos\];[\s\S]*if \(b == PCE_VN_GLYPH_ESCAPE\)[\s\S]*return \(uint16_t\)\(\(uint16_t\)glyphs\[\(uint16_t\)\(pos \+ 1u\)\]/);
+  assert.match(hucardRuntime, /vn_glyph_stride\(uint16_t glyph_offset, uint16_t pos\)[\s\S]*scene_pack_u8\(&active_scene_pack,[\s\S]*PCE_VN_GLYPH_ESCAPE \? 3u : 1u/);
+  assert.match(hucardRuntime, /vn_glyph_decode\(uint16_t glyph_offset, uint16_t pos\)[\s\S]*scene_pack_u8\(&active_scene_pack,[\s\S]*if \(b == PCE_VN_GLYPH_ESCAPE\)/);
   assert.match(hucardRuntime, /data_ref_u16_at\(&pce_vn_font_data_ref/);
   assert.match(hucardRuntime, /data_ref_byte_at\(ref, offset\) \| \(\(uint16_t\)data_ref_byte_at\(ref, \(uint16_t\)\(offset \+ 1u\)\) << 8\)/);
   assert.match(hucardRuntime, /if \(offset < \(uint16_t\)\(base \+ chunk->size\)\)[\s\S]*pce_editor_map_asset_bank\(chunk->bank\);/);
-  assert.match(hucardRuntime, /static uint8_t scene_pack_storage\[PCE_VN_SCENE_PACK_CACHE_BYTES\] __attribute__\(\(section\("\.bss"\)\)\);/);
+  assert.doesNotMatch(hucardRuntime, /scene_pack_storage|PCE_VN_SCENE_PACK_CACHE_BYTES/);
+  assert.match(hucardRuntime, /const pce_editor_data_ref_t \*ref;/);
+  assert.match(hucardRuntime, /return data_ref_byte_at\(cache->ref, offset\);/);
+  assert.match(hucardRuntime, /cache->ref = pack->data;/);
   assert.match(hucardRuntime, /static uint16_t variable_values\[PCE_VN_VARIABLE_STORAGE_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(hucardRuntime, /static vdc_sprite_t sprite_shadow\[64\] __attribute__\(\(section\("\.bss"\)\)\);/);
   assert.match(hucardRuntime, /static vn_sprite_slot_t sprite_slots\[VN_SPRITE_SLOT_COUNT\] __attribute__\(\(section\("\.bss"\)\)\);/);
@@ -907,7 +910,7 @@ test('PCE VN manager escape-encodes glyph indices past 252', () => {
   assert.match(hucardRuntime, /static void VN_HUCARD_CODE_VIDEO draw_sprite_slot\(uint8_t slot, uint8_t upload_patterns\)[\s\S]*vn_sprite_slot_t \*state;/);
   assert.match(hucardRuntime, /source_row = \(state->flags & PCE_VN_SPRITE_FLIP_Y\)/);
   assert.match(hucardRuntime, /source_cell >= total_cells/);
-  assert.match(hucardRuntime, /active_scene_pack\.data = scene_pack_storage;/);
+  assert.match(hucardRuntime, /active_scene_pack\.ref = \(const pce_editor_data_ref_t \*\)0;/);
 });
 
 test('PCE VN font budget keeps glyph masks in ROM and reserves only message tiles in VRAM', () => {
@@ -2459,6 +2462,10 @@ test('PCE HuCARD VN generation keeps scene-pack commands and strips CD audio out
   assert.equal(psgPattern[15], 45);
 
   assert.match(header, /#include "assets\.h"/);
+  assert.match(header, /#define PCE_VN_SCENE_PACK_MAX_BYTES 8192u/);
+  assert.doesNotMatch(header, /PCE_VN_SCENE_PACK_CACHE_BYTES/);
+  assert.match(header, /typedef struct \{\r?\n  unsigned int glyph_offset;[\s\S]*\} pce_vn_message_t;/);
+  assert.match(header, /typedef struct \{\r?\n  unsigned int glyph_offset;[\s\S]*\} pce_vn_choice_option_t;/);
   assert.match(header, /const pce_editor_data_ref_t \*data;/);
   assert.match(header, /typedef struct \{[\s\S]*const pce_editor_data_ref_t \*pattern;[\s\S]*\} pce_vn_psg_asset_t;/);
   assert.doesNotMatch(header, /pce_vn_cd_data_ref_t/);
@@ -2484,6 +2491,35 @@ test('PCE HuCARD VN generation keeps scene-pack commands and strips CD audio out
   assert.equal(commandRecord(pack, 7).type, vnManager.VN_COMMAND_CACHE);
   assert.equal(commandRecord(pack, 7).assetIndex, -1);
   assert.equal(commandRecord(pack, 9).type, vnManager.VN_COMMAND_CHOICE);
+});
+
+test('PCE HuCARD VN reads scene packs from banked ROM up to 8192 bytes', () => {
+  const projectDir = makeTempDir('pce-vn-hucard-large-pack-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+  const writeMessages = (count, text) => writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'opening',
+    scenes: [{
+      id: 'opening',
+      commands: Array.from({ length: count }, (_, index) => ({
+        type: 'message',
+        text: `${text} ${index}`,
+        textSpeedFrames: 0,
+      })),
+    }],
+  });
+
+  writeMessages(110, 'LARGE HUCARD SCENE');
+  const generated = vnManager.generateVnSources(projectDir, { targetMedia: 'hucard' });
+  assert.ok(generated.scenePackBytes[0] > 4096, `expected pack above the former RAM cache limit, got ${generated.scenePackBytes[0]}`);
+  assert.ok(generated.scenePackBytes[0] <= vnManager.VN_HUCARD_SCENE_PACK_MAX_BYTES);
+
+  writeMessages(180, 'THIS MESSAGE MAKES THE HUCARD SCENE PACK EXCEED ITS EIGHT KILOBYTE LIMIT');
+  assert.throws(
+    () => vnManager.generateVnSources(projectDir, { targetMedia: 'hucard' }),
+    /scene pack "opening" is \d+ bytes; split the scene to stay within 8192 bytes/,
+  );
 });
 
 test('PCE VN manager encodes the input check command with button mask and modes', () => {

@@ -52,7 +52,7 @@ HuCARD VN の `extraDataFiles` は、8KB 未満でも必ず banked `pce_editor_d
 - `assets/generated/vn/font_sprite.bin` spritetext font
 - `assets/generated/vn/psg/*.bin` PSG pattern
 
-これらは image/sprite payload と同じ ROM-bank allocator を共有し、banks 5..127 の空き領域へ連続して pack されます。palette のような小さい data ref だけで 8KB bank を1つ消費することはありません。実 payload が 123 banks の合計容量を超えた場合は、必要量と利用可能量を含む build error になります。
+これらは image/sprite payload と同じ ROM-bank allocator を共有し、banks 5..127 の空き領域へ連続して pack されます。palette のような小さい data ref だけで 8KB bank を1つ消費することはありません。HuCARD VN build は割り当て開始前に、シーンから参照される BG / Sprite と scene pack / font / PSG の全 payload を合計します。実 payload が 123 banks の合計容量を超える場合は、最初に溢れたassetだけでなく総必要量、必要bank数、種別ごとの内訳を含む build error になります。
 
 ## グリフと scene pack 制約
 
@@ -62,7 +62,7 @@ Message glyph mask はVRAMへ一括転送しません。runtimeは文字を合�
 
 Glyph stream は CD-ROM2 VN と同じ binary layout です。glyph index 0..252 は 1 byte、253 以上は `0xfd` + 16-bit little-endian で escape encode します。`0xfe` は newline、`0xff` は end marker です。
 
-Scene pack は現行 runtime cache の 4096 bytes 上限を維持します。glyph index 253 以上が多い scene は glyph stream が増えやすいため、4096 bytes を超えた場合は scene を分割してください。build は scene 名と byte size を含む error で停止します。
+HuCARD scene pack は4KB RAM cacheへコピーせず、`pce_editor_data_ref_t` を介してbanks 5..127のROMから直接読みます。message / choice のglyph streamもpointerではなくpack内offsetを保持し、別のfont・visual dataがslot6へmapされた後は次の読み出しでscene pack bankを再mapします。このため従来の4096 bytes制約と4KB BSS消費はなく、1 sceneの論理上限はCD-ROM2版と同じ8192 bytesです。8192 bytesを超えた場合だけ、buildはscene名とbyte sizeを含むerrorで停止してscene分割を促します。
 
 Spritetext font は message font と別枠です。最大 254 glyph、1 command 最大 32 glyph、sprite pattern VRAM の制約を維持し、message font と同じ bank0 常駐 data にはしません。
 

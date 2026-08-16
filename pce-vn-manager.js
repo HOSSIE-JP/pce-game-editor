@@ -282,7 +282,7 @@ const VN_FONT_VRAM_TILE_HARD_CEILING = 2032;
 const VN_FONT_VRAM_TILE_SOFT_CEILING = 1728;
 const VN_GLYPH_COUNT_SOFT_WARN = 900;
 const VN_SCENE_PACK_CACHE_BYTES = 8192;
-const VN_HUCARD_SCENE_PACK_CACHE_BYTES = 4096;
+const VN_HUCARD_SCENE_PACK_MAX_BYTES = 8192;
 const VN_SCENE_PACK_VERSION = 3;
 const VN_HUCARD_SCENE_PACK_VERSION = 2;
 const VN_SCENE_PACK_HEADER_SIZE = 20;
@@ -2848,13 +2848,13 @@ function scenePackRelativePath(scene = {}, index = 0) {
 
 const vnScenePackCodecInstances = new Map();
 function buildScenePack(sceneBuild, hucardMode = false) {
-  const key = hucardMode ? 'hucard-v1' : 'jp-v3-v2';
+  const key = hucardMode ? 'hucard-v2-rom' : 'jp-v3-v2';
   if (!vnScenePackCodecInstances.has(key)) {
     vnScenePackCodecInstances.set(key, createVnScenePackCodec({
       clampInt,
       clampSignedInt,
       constants: {
-        cacheBytes: hucardMode ? VN_HUCARD_SCENE_PACK_CACHE_BYTES : VN_SCENE_PACK_CACHE_BYTES,
+        cacheBytes: hucardMode ? VN_HUCARD_SCENE_PACK_MAX_BYTES : VN_SCENE_PACK_CACHE_BYTES,
         magic: VN_SCENE_PACK_MAGIC,
         version: hucardMode ? VN_HUCARD_SCENE_PACK_VERSION : VN_SCENE_PACK_VERSION,
         headerSize: VN_SCENE_PACK_HEADER_SIZE,
@@ -4148,7 +4148,9 @@ function generateVnSources(projectDir, options = {}) {
     '#define PCE_VN_MSG_SPEED_DEFAULT 0u',
     '#define PCE_VN_MSG_SPEED_MAX 6u',
     `#define PCE_VN_VARIABLE_STORAGE_COUNT ${Math.max(1, variables.initialValues.length)}u`,
-    `#define PCE_VN_SCENE_PACK_CACHE_BYTES ${hucardMode ? VN_HUCARD_SCENE_PACK_CACHE_BYTES : VN_SCENE_PACK_CACHE_BYTES}u`,
+    ...(hucardMode
+      ? [`#define PCE_VN_SCENE_PACK_MAX_BYTES ${VN_HUCARD_SCENE_PACK_MAX_BYTES}u`]
+      : [`#define PCE_VN_SCENE_PACK_CACHE_BYTES ${VN_SCENE_PACK_CACHE_BYTES}u`]),
     `#define PCE_VN_SCENE_PACK_VERSION ${hucardMode ? VN_HUCARD_SCENE_PACK_VERSION : VN_SCENE_PACK_VERSION}u`,
     `#define PCE_VN_SCENE_PACK_HEADER_SIZE ${VN_SCENE_PACK_HEADER_SIZE}u`,
     `#define PCE_VN_SCENE_PACK_COMMAND_SIZE ${VN_SCENE_PACK_COMMAND_SIZE}u`,
@@ -4171,7 +4173,9 @@ function generateVnSources(projectDir, options = {}) {
     '} pce_vn_sprite_anim_t;',
     '',
     'typedef struct {',
-    '  const unsigned char *glyphs;',
+    ...(hucardMode
+      ? ['  unsigned int glyph_offset;']
+      : ['  const unsigned char *glyphs;']),
     '  unsigned char glyph_count;',
     '  signed int voice_index;',
     '  unsigned char text_speed_frames;',
@@ -4183,7 +4187,9 @@ function generateVnSources(projectDir, options = {}) {
     '} pce_vn_message_t;',
     '',
     'typedef struct {',
-    '  const unsigned char *glyphs;',
+    ...(hucardMode
+      ? ['  unsigned int glyph_offset;']
+      : ['  const unsigned char *glyphs;']),
     '  unsigned char glyph_count;',
     '  signed int value;',
     '  signed int target_scene;',
@@ -5709,6 +5715,7 @@ module.exports = {
   VN_SCENE_FILE,
   VN_SCENE_PACK_DIR,
   VN_SCENE_PACK_CACHE_BYTES,
+  VN_HUCARD_SCENE_PACK_MAX_BYTES,
   VN_MAX_SPRITE_ANIMATION_COUNT,
   VN_FONT_FILE,
   VN_FONT_DIR,

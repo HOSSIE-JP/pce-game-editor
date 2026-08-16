@@ -2622,6 +2622,60 @@ function readGeneratedBuffer(projectDir, relativePath) {
   }
 }
 
+function estimateForcedBankedPayloadUsage(projectDir, sourceDoc = {}, extraDataFiles = []) {
+  const usage = {
+    backgroundBytes: 0,
+    spriteBytes: 0,
+    scenePackBytes: 0,
+    fontBytes: 0,
+    psgBytes: 0,
+    otherBytes: 0,
+    totalBytes: 0,
+    requiredBanks: 0,
+  };
+  const addBuffer = (field, buffer) => {
+    const byteSize = Buffer.isBuffer(buffer) ? buffer.length : 0;
+    if (!byteSize) return;
+    usage[field] += byteSize;
+    usage.totalBytes += byteSize;
+  };
+  const addFile = (field, relativePath) => {
+    addBuffer(field, readGeneratedBuffer(projectDir, relativePath));
+  };
+
+  (sourceDoc.assets || []).forEach((asset) => {
+    const generated = asset?.data?.generated;
+    if (!generated) return;
+    if (asset.type === 'image') {
+      addFile('backgroundBytes', generated.paletteFile);
+      addFile('backgroundBytes', generated.tilesFile);
+      // HuCARD reads the compact logical BAT map. map_vram.bin is the CD layout.
+      addFile('backgroundBytes', generated.mapFile);
+    } else if (asset.type === 'sprite') {
+      addFile('spriteBytes', generated.paletteFile);
+      addFile('spriteBytes', generated.tilesFile);
+      // Sprite cell maps remain small resident metadata and are not ROM data refs.
+    }
+  });
+
+  normalizeExtraDataFiles(extraDataFiles).forEach((entry) => {
+    const buffer = readGeneratedBuffer(projectDir, entry.relativePath);
+    if (!buffer.length || (!entry.forceBanked && buffer.length <= BANKED_DATA_THRESHOLD)) return;
+    const relativePath = normalizeRelativePath(entry.relativePath).toLowerCase();
+    if (relativePath.includes('/scenes/')) {
+      addBuffer('scenePackBytes', buffer);
+    } else if (relativePath.includes('/psg/')) {
+      addBuffer('psgBytes', buffer);
+    } else if (/(^|\/)font(?:_sprite)?\.bin$/.test(relativePath)) {
+      addBuffer('fontBytes', buffer);
+    } else {
+      addBuffer('otherBytes', buffer);
+    }
+  });
+  usage.requiredBanks = Math.ceil(usage.totalBytes / ROM_BANKED_CHUNK_SIZE);
+  return usage;
+}
+
 function generatedCdPayload(projectDir, generated = {}, slot = 'tiles') {
   const rawPath = slot === 'map' ? generated.mapVramFile : generated.tilesFile;
   const raw = readGeneratedBuffer(projectDir, rawPath);
@@ -4166,6 +4220,26 @@ function generateAssetSources(projectDir, options = {}) {
       reservedBanks: Array.from(reservedRomBanks),
       reservedLabel: options.romBankReservedLabel,
     });
+  const bankedPayloadUsage = !targetsCd && forceBankedAssets
+    ? estimateForcedBankedPayloadUsage(projectDir, sourceDoc, options.extraDataFiles)
+    : null;
+  const bankedPayloadCapacity = assetBankCapacity(bankAllocator);
+  if (bankedPayloadUsage && bankedPayloadCapacity && bankedPayloadUsage.totalBytes > bankedPayloadCapacity.byteSize) {
+    const breakdown = [
+      ['BG', bankedPayloadUsage.backgroundBytes],
+      ['Sprite', bankedPayloadUsage.spriteBytes],
+      ['scene packs', bankedPayloadUsage.scenePackBytes],
+      ['fonts', bankedPayloadUsage.fontBytes],
+      ['PSG', bankedPayloadUsage.psgBytes],
+      ['other', bankedPayloadUsage.otherBytes],
+    ].filter((entry) => entry[1] > 0).map((entry) => `${entry[0]} ${entry[1]}`).join(', ');
+    throw new Error(
+      `PCE HuCard VN banked data requires ${bankedPayloadUsage.totalBytes} bytes (${bankedPayloadUsage.requiredBanks} banks), but only ${bankedPayloadCapacity.byteSize} bytes (${bankedPayloadCapacity.bankCount} banks) are available`
+      + `${bankAllocator.reservedLabel ? ` (${bankAllocator.reservedLabel})` : ''}.`
+      + `${breakdown ? ` Breakdown: ${breakdown}.` : ''}`
+      + ' Use the CD-ROM2 VN builder or reduce scene-referenced visual/script/PSG data.'
+    );
+  }
   const requestedCdDataFiles = Array.isArray(options.cdDataFiles) ? options.cdDataFiles : null;
   const cdDataFiles = targetsCd
     ? normalizeCdDataFileList(projectDir, requestedCdDataFiles || collectCdDataFilesForDocument(projectDir, sourceDoc))
@@ -4570,6 +4644,7 @@ function generateAssetSources(projectDir, options = {}) {
     },
     slideshow,
     extraDataCount: extraGenerated.entries.length,
+    bankedPayloadUsage,
   };
 }
 
@@ -4614,6 +4689,7 @@ module.exports = {
   ensurePsgImportedAssets,
   ensureGeneratedAssetFiles,
   ensureAssetMetaReservation,
+  estimateForcedBankedPayloadUsage,
   normalizePsgOptions,
   normalizePsgPatternEntries,
   firstPsgPeriod,

@@ -1771,6 +1771,57 @@ test('PCE asset manager allocates extra data files through HuCARD ROM banks', ()
   );
 });
 
+test('PCE HuCARD VN preflights the complete referenced ROM payload with a category breakdown', () => {
+  const assetManager = loadAssetManager();
+  const projectDir = makeWorkspaceTempDir('pce-vn-hucard-capacity-preflight-');
+  writeFile(projectDir, 'project.json', JSON.stringify({
+    coreId: 'pc-engine',
+    platform: 'pce',
+    title: 'VN Capacity Preflight',
+    romName: 'vn_capacity_preflight',
+    toolchain: 'llvm-mos',
+    targetMedia: 'hucard',
+  }, null, 2));
+  const bg = makeGeneratedBgAsset(projectDir, 'opening_bg', 16, 16);
+  writeFile(projectDir, 'assets/generated/vn/scenes/000_opening.bin', Buffer.alloc(700000, 0x11));
+  writeFile(projectDir, 'assets/generated/vn/font.bin', Buffer.alloc(24000, 0x22));
+  writeFile(projectDir, 'assets/generated/vn/psg/theme.bin', Buffer.alloc(300000, 0x33));
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: [bg] });
+  const extraDataFiles = [
+    { symbol: 'scene_ref', relativePath: 'assets/generated/vn/scenes/000_opening.bin', forceBanked: true },
+    { symbol: 'font_ref', relativePath: 'assets/generated/vn/font.bin', forceBanked: true },
+    { symbol: 'psg_ref', relativePath: 'assets/generated/vn/psg/theme.bin', forceBanked: true },
+  ];
+  const sourceDoc = assetManager.readAssetDocument(projectDir);
+  const usage = assetManager.estimateForcedBankedPayloadUsage(projectDir, sourceDoc, extraDataFiles);
+
+  assert.equal(usage.backgroundBytes, 168);
+  assert.equal(usage.scenePackBytes, 700000);
+  assert.equal(usage.fontBytes, 24000);
+  assert.equal(usage.psgBytes, 300000);
+  assert.equal(usage.totalBytes, 1024168);
+  assert.equal(usage.requiredBanks, 126);
+
+  assert.throws(
+    () => assetManager.generateAssetSources(projectDir, {
+      assetIds: ['opening_bg'],
+      fixedRomBanks: [
+        { bank: 1, offset: 2 },
+        { bank: 2, offset: 3 },
+        { bank: 3, offset: 4 },
+        { bank: 4, offset: 5 },
+      ],
+      reservedRomBanks: [1, 2, 3, 4],
+      romBankStart: 5,
+      romBankDataOffset: 6,
+      romBankReservedLabel: 'HuCARD VN runtime code banks 1-4 reserve ROM banks 1-4; data banks use 5-127',
+      forceBankedAssets: true,
+      extraDataFiles,
+    }),
+    /PCE HuCard VN banked data requires 1024168 bytes \(126 banks\), but only 1007616 bytes \(123 banks\) are available.*Breakdown: BG 168, scene packs 700000, fonts 24000, PSG 300000.*CD-ROM2 VN builder/,
+  );
+});
+
 test('PCE asset manager packs many small HuCARD data refs into the same ROM bank', () => {
   const assetManager = loadAssetManager();
   const projectDir = makeWorkspaceTempDir('pce-extra-data-rom-pack-');
