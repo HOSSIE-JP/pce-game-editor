@@ -17,7 +17,11 @@ test('packaging declares main-process runtime dependencies', () => {
   const pkg = readPackageJson();
 
   assert.equal(pkg.dependencies?.['iconv-lite'], '0.6.3');
+  assert.equal(pkg.dependencies?.['@audio/encode-ogg'], '1.2.2');
   assert.equal(pkg.devDependencies?.['iconv-lite'], undefined);
+  const config = readPackageConfig();
+  assert.match(config, /!node_modules\/wasm-media-encoders\/\*\*/);
+  assert.match(config, /!node_modules\/@swc\/helpers\/\*\*/);
 });
 
 test('development start script forwards stop signals to Electron', () => {
@@ -69,6 +73,11 @@ test('packaging exposes third-party notices and exact license texts', () => {
     'licenses/safer-buffer-MIT.txt',
     'licenses/electron-builder-MIT.txt',
     'licenses/GPL-2.0-only.txt',
+    'licenses/audio-encode-ogg-MIT.txt',
+    'licenses/wasm-media-encoders-MIT.txt',
+    'licenses/swc-helpers-Apache-2.0.txt',
+    'licenses/libogg-1.3.4-BSD.txt',
+    'licenses/libvorbis-1.3.7-BSD.txt',
   ].forEach((file) => {
     assert.equal(fs.existsSync(path.join(root, file)), true, `missing ${file}`);
   });
@@ -81,6 +90,7 @@ test('packaging exposes third-party notices and exact license texts', () => {
   assert.match(appLicense, /MIT License[\s\S]*Copyright \(c\) 2026 HOSSIE/);
   assert.ok(notices.includes(`| Electron | ${pkg.devDependencies.electron} |`));
   assert.ok(notices.includes(`| iconv-lite | ${pkg.dependencies['iconv-lite']} |`));
+  assert.ok(notices.includes(`| @audio/encode-ogg | ${pkg.dependencies['@audio/encode-ogg']} |`));
 });
 
 test('packaging has no legacy MD emulator or md-api plugin', () => {

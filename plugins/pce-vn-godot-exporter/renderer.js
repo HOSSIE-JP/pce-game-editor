@@ -1,5 +1,12 @@
 const CAPABILITY_NAME = 'vn-godot-exporter';
 
+function formatBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${Math.round(bytes)} B`;
+}
+
 export function activatePlugin({ plugin, api, logger, registerCapability }) {
   const exportPackage = async ({ doc } = {}) => {
     const result = await api.plugins.invokeHook(plugin.id, 'exportVnGodotPackage', {
@@ -27,8 +34,12 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       } catch (error) {
         throw new Error(`Godot再生パッケージは出力しましたが、シーンを保存できませんでした: ${error?.message || error}`);
       }
+      const audioSummary = result.transcodedAudioAssetCount > 0
+        ? ` / WAV→Ogg ${result.transcodedAudioAssetCount}`
+          + ` (${formatBytes(result.audioSourceBytes)}→${formatBytes(result.audioPackageBytes)})`
+        : '';
       const message = `Godot再生パッケージを出力しました: ${result.path} `
-        + `(Scene ${result.sceneCount} / Command ${result.commandCount} / Asset ${result.assetCount})`;
+        + `(Scene ${result.sceneCount} / Command ${result.commandCount} / Asset ${result.assetCount}${audioSummary})`;
       logger?.info?.(message);
       return { ok: true, message };
     } catch (error) {
@@ -40,14 +51,14 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
   registerCapability(CAPABILITY_NAME, {
     pluginId: plugin.id,
     label: 'Godot出力',
-    title: 'Godotネイティブ再生用の正規化済みシーンと参照素材をZIPへ出力',
+    title: 'Godotネイティブ再生用packageへ出力（WAV音声はOgg Vorbis圧縮）',
     exportPackage,
   });
   registerCapability('novel-toolbar-action', {
     id: 'godot-export',
     pluginId: plugin.id,
     label: 'Godot出力',
-    title: 'Godotネイティブ再生用の正規化済みシーンと参照素材をZIPへ出力',
+    title: 'Godotネイティブ再生用packageへ出力（WAV音声はOgg Vorbis圧縮）',
     priority: 100,
     order: 20,
     placement: 'after-preview',

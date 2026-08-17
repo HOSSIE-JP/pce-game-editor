@@ -3,6 +3,9 @@ productName: PCEGameEditor
 copyright: "Copyright © 2026 HOSSIE"
 files:
   - "*.js"
+  - "!node_modules/wasm-media-encoders/**"
+  - "!node_modules/@swc/helpers/**"
+  - "!node_modules/tslib/**"
   - LICENSE
   - THIRD_PARTY_NOTICES.md
   - licenses/**

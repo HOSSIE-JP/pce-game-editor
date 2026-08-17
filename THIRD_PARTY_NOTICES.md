@@ -12,11 +12,21 @@ their respective components.
 | Electron | 41.3.0 | MIT | `licenses/Electron-MIT.txt` |
 | iconv-lite | 0.6.3 | MIT | `licenses/iconv-lite-MIT.txt` |
 | safer-buffer | 2.1.2 | MIT | `licenses/safer-buffer-MIT.txt` |
+| @audio/encode-ogg | 1.2.2 | MIT | `licenses/audio-encode-ogg-MIT.txt` |
+| wasm-media-encoders (bundled Ogg code) | 0.7.0 | MIT | `licenses/wasm-media-encoders-MIT.txt` |
+| @swc/helpers (bundled helpers) | 0.5.23 | Apache-2.0 | `licenses/swc-helpers-Apache-2.0.txt` |
+| libogg | 1.3.4 | BSD-style | `licenses/libogg-1.3.4-BSD.txt` |
+| libvorbis | 1.3.7 | BSD-style | `licenses/libvorbis-1.3.7-BSD.txt` |
 
 Electron distributions also include `LICENSE.electron.txt` and
 `LICENSES.chromium.html`. Those files contain the Electron notice and the
 notices for Chromium, Node.js, FFmpeg, and other projects incorporated into
 the Electron runtime. They must remain with the distributed application.
+
+`@audio/encode-ogg` contains the Ogg-only WebAssembly bridge used by the Godot
+package exporter. It incorporates the listed wasm-media-encoders and SWC helper
+code plus libogg/libvorbis. The transitive wasm-media-encoders npm package also
+ships an unused MP3 encoder, so that package is excluded from desktop builds.
 
 `electron-builder` 26.8.1 (MIT) is used only to create application packages.
 It is not an application runtime dependency. Its license is retained in

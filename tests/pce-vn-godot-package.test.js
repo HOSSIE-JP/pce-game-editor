@@ -20,6 +20,39 @@ const {
   sanitizeExportFileName,
 } = require('../plugins/pce-vn-godot-exporter');
 
+const { encodeWavToOggVorbis } = require('../pce-vn-godot-audio');
+
+function makeWavBuffer(sampleRate = 8000, channels = 1, durationSeconds = 1) {
+  const frameCount = Math.max(1, Math.round(sampleRate * durationSeconds));
+  const blockAlign = channels * 2;
+  const dataSize = frameCount * blockAlign;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0, 4, 'ascii');
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8, 4, 'ascii');
+  buffer.write('fmt ', 12, 4, 'ascii');
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(channels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * blockAlign, 28);
+  buffer.writeUInt16LE(blockAlign, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36, 4, 'ascii');
+  buffer.writeUInt32LE(dataSize, 40);
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    const sample = Math.round(Math.sin((frame / sampleRate) * Math.PI * 2 * 440) * 12000);
+    for (let channel = 0; channel < channels; channel += 1) {
+      buffer.writeInt16LE(sample, 44 + ((frame * channels + channel) * 2));
+    }
+  }
+  return buffer;
+}
+
+async function fakeTranscodeWavToOgg() {
+  return { output: Buffer.from('OggS-test-vorbis') };
+}
+
 function makeProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-vn-godot-'));
   fs.mkdirSync(path.join(dir, 'assets', 'images'), { recursive: true });
@@ -34,8 +67,10 @@ function makeProject() {
     targetMedia: 'cd',
   }));
   fs.writeFileSync(path.join(dir, 'assets', 'images', 'bg.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-  fs.writeFileSync(path.join(dir, 'assets', 'audio', 'voice.wav'), Buffer.from('RIFF-test'));
-  fs.writeFileSync(path.join(dir, 'assets', 'audio', 'unused.wav'), Buffer.from('RIFF-unused'));
+  fs.writeFileSync(path.join(dir, 'assets', 'audio', 'voice.wav'), makeWavBuffer(8000, 1, 1));
+  fs.writeFileSync(path.join(dir, 'assets', 'audio', 'unused.wav'), makeWavBuffer(8000, 1, 0.1));
+  fs.writeFileSync(path.join(dir, 'assets', 'audio', 'cdda-source.wav'), makeWavBuffer(22050, 1, 0.5));
+  fs.writeFileSync(path.join(dir, 'assets', 'audio', 'cdda.wav'), makeWavBuffer(44100, 2, 0.5));
   fs.writeFileSync(path.join(dir, 'assets', 'fonts', 'font.ttf'), Buffer.from('font'));
   fs.writeFileSync(path.join(dir, 'assets', 'pce-font.json'), JSON.stringify({
     version: 1,
@@ -51,6 +86,14 @@ function makeProject() {
         name: 'BG',
         source: 'assets/images/bg.png',
         options: { kind: 'background', width: 256, height: 224 },
+      },
+      {
+        id: 'cdda',
+        type: 'cdda-track',
+        name: 'CD audio',
+        source: 'assets/audio/cdda-source.wav',
+        options: { track: 3, loop: true },
+        data: { generated: { outputFile: 'assets/audio/cdda.wav', durationSeconds: 0.5 } },
       },
       {
         id: 'voice',
@@ -87,6 +130,7 @@ function scenes() {
       commands: [
         { type: 'background', assetId: 'bg', x: 0, y: 0 },
         { type: 'audio', kind: 'psg', action: 'play', assetId: 'song' },
+        { type: 'audio', kind: 'cdda', action: 'play', assetId: 'cdda' },
         { type: 'message', speaker: '', text: 'test', voiceAssetId: 'voice' },
         { type: 'audio', kind: 'adpcm', action: 'play', assetId: 'unused', skip: true },
       ],
@@ -95,9 +139,24 @@ function scenes() {
   };
 }
 
-test('Godot package contains normalized scenes and referenced playback assets only', () => {
+test('Ogg encoder handles PCE voice rates and CD-quality stereo WAV', async () => {
+  const cases = [4000, 4571, 5333, 6400, 8000, 10666, 16000, 32000]
+    .map((sampleRate) => [sampleRate, 1]);
+  cases.push([44100, 2]);
+  for (const [sampleRate, channels] of cases) {
+    const source = makeWavBuffer(sampleRate, channels, 1);
+    const encoded = await encodeWavToOggVorbis(source);
+    assert.equal(encoded.output.toString('ascii', 0, 4), 'OggS');
+    assert.notEqual(encoded.output.indexOf(Buffer.from('vorbis')), -1);
+    assert.equal(encoded.sampleRate, sampleRate);
+    assert.equal(encoded.channels, channels);
+    assert.ok(encoded.output.length < source.length);
+  }
+});
+
+test('Godot package contains normalized scenes and Ogg-compressed playback assets only', async () => {
   const dir = makeProject();
-  const bundle = buildGodotPackageBundle({
+  const bundle = await buildGodotPackageBundle({
     projectDir: dir,
     sceneDoc: scenes(),
     now: () => new Date('2026-07-26T00:00:00.000Z'),
@@ -112,22 +171,63 @@ test('Godot package contains normalized scenes and referenced playback assets on
     SCENES_FILE,
   ]);
   const assets = JSON.parse(bundle.entries.find((entry) => entry.name === ASSETS_FILE).data);
-  assert.deepEqual(assets.assets.map((asset) => asset.id), ['bg', 'song', 'voice']);
+  assert.deepEqual(assets.assets.map((asset) => asset.id), ['bg', 'cdda', 'song', 'voice']);
   assert.equal(assets.assets.find((asset) => asset.id === 'song').file, '');
-  assert.match(assets.assets.find((asset) => asset.id === 'voice').file, /^media\//);
+  assert.match(assets.assets.find((asset) => asset.id === 'voice').file, /^media\/.*\.ogg$/);
+  assert.match(assets.assets.find((asset) => asset.id === 'cdda').file, /^media\/.*\.ogg$/);
+  const audioEntries = bundle.entries.filter((entry) => /media\/.*\.ogg$/.test(entry.name));
+  assert.equal(audioEntries.length, 2);
+  assert.equal(audioEntries.every((entry) => entry.data.toString('ascii', 0, 4) === 'OggS'), true);
+  assert.equal(bundle.entries.some((entry) => /media\/.*\.wav$/i.test(entry.name)), false);
   assert.ok(bundle.entries.some((entry) => entry.name === 'font/font.ttf'));
   assert.equal(bundle.manifest.entrypoints.border, '');
+  assert.deepEqual(bundle.manifest.audio, {
+    wavTranscode: 'ogg-vorbis',
+    extension: '.ogg',
+    quality: 4,
+  });
   assert.equal(bundle.entries.some((entry) => entry.name === 'presentation/player-border.png'), false);
   assert.equal(bundle.manifest.files.some((entry) => entry.path === 'presentation/player-border.png'), false);
   assert.equal(bundle.manifest.stats.scenes, 1);
-  assert.equal(bundle.manifest.stats.commands, 3);
+  assert.equal(bundle.manifest.stats.commands, 4);
+  assert.equal(bundle.manifest.stats.assets, 4);
+  assert.equal(bundle.manifest.stats.audioAssets, 2);
+  assert.equal(bundle.manifest.stats.transcodedAudioAssets, 2);
+  assert.ok(bundle.manifest.stats.audioPackageBytes < bundle.manifest.stats.audioSourceBytes);
   assert.equal(bundle.manifest.files.every((file) => /^[0-9a-f]{64}$/.test(file.sha256)), true);
 });
 
-test('Godot package ignores the legacy project-local player border', () => {
+test('Godot package keeps already compressed OGG and MP3 without lossy transcoding', async () => {
+  const dir = makeProject();
+  const assetPath = path.join(dir, 'assets', 'pce-assets.json');
+  const assetDoc = JSON.parse(fs.readFileSync(assetPath));
+  const voice = assetDoc.assets.find((asset) => asset.id === 'voice');
+  const cdda = assetDoc.assets.find((asset) => asset.id === 'cdda');
+  voice.source = 'assets/audio/voice.ogg';
+  cdda.data.generated.outputFile = 'assets/audio/cdda.mp3';
+  fs.writeFileSync(path.join(dir, 'assets', 'audio', 'voice.ogg'), Buffer.from('OggS-existing-vorbis'));
+  fs.writeFileSync(path.join(dir, 'assets', 'audio', 'cdda.mp3'), Buffer.from('ID3-existing-mp3'));
+  fs.writeFileSync(assetPath, JSON.stringify(assetDoc));
+  let transcodeCalls = 0;
+  const bundle = await buildGodotPackageBundle({
+    projectDir: dir,
+    sceneDoc: scenes(),
+    transcodeWavToOgg: async () => {
+      transcodeCalls += 1;
+      return { output: Buffer.from('unexpected') };
+    },
+  });
+  assert.equal(transcodeCalls, 0);
+  assert.equal(bundle.entries.find((entry) => entry.name.endsWith('/voice.ogg')).data.toString(), 'OggS-existing-vorbis');
+  assert.equal(bundle.entries.find((entry) => entry.name.endsWith('/cdda.mp3')).data.toString(), 'ID3-existing-mp3');
+  assert.equal(bundle.manifest.stats.transcodedAudioAssets, 0);
+  assert.equal(bundle.manifest.stats.audioPackageBytes, bundle.manifest.stats.audioSourceBytes);
+});
+
+test('Godot package ignores the legacy project-local player border', async () => {
   const dir = makeProject();
   fs.writeFileSync(path.join(dir, 'assets', 'images', 'player-border.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x42]));
-  const bundle = buildGodotPackageBundle({ projectDir: dir, sceneDoc: scenes() });
+  const bundle = await buildGodotPackageBundle({ projectDir: dir, sceneDoc: scenes(), transcodeWavToOgg: fakeTranscodeWavToOgg });
   assert.equal(bundle.manifest.entrypoints.border, '');
   assert.equal(bundle.entries.some((entry) => entry.name === 'presentation/player-border.png'), false);
 });
@@ -139,26 +239,26 @@ test('same-title projects in different editor directories keep separate library 
   assert.notEqual(stableProjectId(project, first), stableProjectId(project, second));
 });
 
-test('Godot package uses the font selected in pce-font.json and not an arbitrary font file', () => {
+test('Godot package uses the font selected in pce-font.json and not an arbitrary font file', async () => {
   const dir = makeProject();
   fs.writeFileSync(path.join(dir, 'assets', 'fonts', 'aaa.ttf'), Buffer.from('wrong-font'));
-  const bundle = buildGodotPackageBundle({ projectDir: dir, sceneDoc: scenes() });
+  const bundle = await buildGodotPackageBundle({ projectDir: dir, sceneDoc: scenes(), transcodeWavToOgg: fakeTranscodeWavToOgg });
   assert.equal(bundle.manifest.entrypoints.font, 'font/font.ttf');
   assert.equal(bundle.entries.find((entry) => entry.name === 'font/font.ttf').data.toString(), 'font');
 
   fs.writeFileSync(path.join(dir, 'assets', 'pce-font.json'), JSON.stringify({ version: 1, fontPath: '', fonts: [] }));
-  const fallbackBundle = buildGodotPackageBundle({ projectDir: dir, sceneDoc: scenes() });
+  const fallbackBundle = await buildGodotPackageBundle({ projectDir: dir, sceneDoc: scenes(), transcodeWavToOgg: fakeTranscodeWavToOgg });
   assert.equal(fallbackBundle.manifest.entrypoints.font, '');
   assert.equal(fallbackBundle.entries.some((entry) => entry.name.startsWith('font/')), false);
 });
 
-test('Godot package rejects playback assets outside the project', () => {
+test('Godot package rejects playback assets outside the project', async () => {
   const dir = makeProject();
   const assetPath = path.join(dir, 'assets', 'pce-assets.json');
   const assets = JSON.parse(fs.readFileSync(assetPath));
   assets.assets[0].source = '../outside.png';
   fs.writeFileSync(assetPath, JSON.stringify(assets));
-  assert.throws(
+  await assert.rejects(
     () => buildGodotPackageBundle({ projectDir: dir, sceneDoc: scenes() }),
     /project relative asset path|再生用素材/,
   );
@@ -181,10 +281,15 @@ test('Godot package export writes one ZIP after save confirmation', async () => 
       return Buffer.from('zip');
     },
     writeFileSync: (filePath, data) => writes.push({ filePath, data: data.toString() }),
+    transcodeWavToOgg: fakeTranscodeWavToOgg,
   });
   assert.equal(result.ok, true);
   assert.equal(result.sceneCount, 1);
-  assert.equal(result.assetCount, 3);
+  assert.equal(result.commandCount, 4);
+  assert.equal(result.assetCount, 4);
+  assert.equal(result.audioAssetCount, 2);
+  assert.equal(result.transcodedAudioAssetCount, 2);
+  assert.ok(result.audioPackageBytes < result.audioSourceBytes);
   assert.equal(zippedEntries[0].name, MANIFEST_FILE);
   assert.deepEqual(writes, [{ filePath: 'C:/out/game.pcevn.zip', data: 'zip' }]);
 });
@@ -205,6 +310,7 @@ test('Godot exporter plugin hook owns the save dialog and delegates package crea
         },
       },
     },
+    transcodeWavToOgg: fakeTranscodeWavToOgg,
     showSaveDialog: async (_owner, options) => {
       dialogOptions = options;
       return { canceled: false, filePath: 'C:/out/godot-test.pcevn.zip' };

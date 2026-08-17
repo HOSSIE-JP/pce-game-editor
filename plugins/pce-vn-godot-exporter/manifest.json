@@ -1,8 +1,8 @@
 {
   "id": "pce-vn-godot-exporter",
   "name": "NVプロジェクトのGodotエクスポート",
-  "description": "Visual Novel sceneと参照素材をGodotネイティブプレイヤー向けpackageへ出力します。",
-  "version": "1.0.0",
+  "description": "Visual Novel sceneと参照素材をGodotネイティブプレイヤー向けpackageへ出力し、WAV音声をOgg Vorbisへ圧縮します。",
+  "version": "1.1.0",
   "icon": "download",
   "types": ["converter"],
   "supportedCores": ["pc-engine"],

@@ -114,10 +114,18 @@ GitHubでのソース公開、デスクトップアプリ配布、MIT Licenseの
 | Electron | 41.3.0 | desktop runtime | MIT。配布物の `LICENSE.electron.txt` と `LICENSES.chromium.html` を保持 |
 | iconv-lite | 0.6.3 | Shift-JIS encode | MIT。`licenses/iconv-lite-MIT.txt` を同梱 |
 | safer-buffer | 2.1.2 | iconv-lite の runtime dependency | MIT。`licenses/safer-buffer-MIT.txt` を同梱 |
+| @audio/encode-ogg | 1.2.2 | Godot package用Ogg Vorbis encode | MIT。`licenses/audio-encode-ogg-MIT.txt` を同梱 |
+| wasm-media-encoders | 0.7.0 | encode-oggへbundleされたWASM bridge | MIT。`licenses/wasm-media-encoders-MIT.txt` を同梱 |
+| @swc/helpers | 0.5.23 | encode-oggへbundleされたJS helper | Apache-2.0。`licenses/swc-helpers-Apache-2.0.txt` を同梱 |
+| libogg | 1.3.4 | Ogg container encode（WASMへ静的組込） | BSD-style。`licenses/libogg-1.3.4-BSD.txt` を同梱 |
+| libvorbis | 1.3.7 | Vorbis encode（WASMへ静的組込） | BSD-style。`licenses/libvorbis-1.3.7-BSD.txt` を同梱 |
 | electron-builder | 26.8.1 | package作成時だけ | MIT。runtimeには入らない。source/build配布向けにlicenseを保持 |
 
-独自実装の PNG/BMP/WebP 変換、WAV/ADPCM、MIDI/VGM parser、ZIP writer は
-外部 npm runtime library ではありません。Electron が内部に含む Chromium、
+独自実装の PNG/BMP/WebP 変換、PCM WAV/ADPCM、MIDI/VGM parser、ZIP writer は
+外部 npm runtime library ではありません。Godot出力のWAV→Ogg Vorbis変換だけは
+上表のWASM encoderを使います。`@audio/encode-ogg`はOgg専用の自己完結bundleで、
+下位npm packageに同梱された未使用MP3 encoderはdesktop packageから除外します。
+Electron が内部に含む Chromium、
 Node.js、FFmpeg 等の notices は electron-builder が配置する
 `LICENSES.chromium.html` に集約されています。
 
@@ -129,7 +137,8 @@ About から開けるようにします。`node_modules` 内に偶然 license �
 
 1. Windows/macOS package に `THIRD_PARTY_NOTICES.md`、`licenses/`、
    Electron の2つの license file があることを確認する。
-2. app archive 内の `iconv-lite` / `safer-buffer` の版と、この文書の版を
+2. app archive 内の `iconv-lite` / `safer-buffer` / `@audio/encode-ogg` の版と、
+   未使用の`wasm-media-encoders` packageが除外されていること、この文書の版を
    dependency 更新時に揃える。
 3. itch.io HTML5 ZIP を公開する場合は、生成された `SOURCE.md` が要求する
    exact source archive を同じ公開ページへ置く。

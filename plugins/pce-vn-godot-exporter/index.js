@@ -68,6 +68,7 @@ async function exportVnGodotPackage(payload = {}, context = {}) {
       || ((entries) => cdBundle.createStoredZipBuffer(entries)),
     writeFileSync: context.writeFileSync
       || ((filePath, data) => fs.writeFileSync(filePath, data)),
+    transcodeWavToOgg: context.transcodeWavToOgg,
   });
 }
 

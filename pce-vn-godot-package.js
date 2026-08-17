@@ -6,9 +6,10 @@ const path = require('node:path');
 const { normalizeAssetDocument } = require('./pce-asset-manager');
 const { isCommandSkipped, normalizeSceneDocument, readFontConfig } = require('./pce-vn-manager');
 const { isPathInside, normalizeRelativePath } = require('./pce-file-safety');
+const { GODOT_OGG_VORBIS_QUALITY, encodeWavToOggVorbis } = require('./pce-vn-godot-audio');
 
 const PACKAGE_FORMAT = 'pce-vn-godot-package';
-const PACKAGE_VERSION = 1;
+const PACKAGE_VERSION = 2;
 const MANIFEST_FILE = 'pcevn-package.json';
 const SCENES_FILE = 'data/scenes.json';
 const ASSETS_FILE = 'data/assets.json';
@@ -126,10 +127,16 @@ function minimalAsset(asset, packagePath = '') {
   return result;
 }
 
-function buildGodotPackageBundle({
+function audioPackageFileName(sourcePath, extension) {
+  const sourceName = path.basename(sourcePath);
+  return `${sourceName.slice(0, sourceName.length - path.extname(sourceName).length)}${extension}`;
+}
+
+async function buildGodotPackageBundle({
   projectDir,
   sceneDoc,
   now = () => new Date(),
+  transcodeWavToOgg = encodeWavToOggVorbis,
 } = {}) {
   const root = path.resolve(String(projectDir || ''));
   if (!root || !fs.existsSync(path.join(root, 'project.json'))) {
@@ -154,21 +161,57 @@ function buildGodotPackageBundle({
 
   const mediaEntries = [];
   const packagedAssets = [];
-  [...referenced].sort().forEach((id, index) => {
+  const audioStats = {
+    assets: 0,
+    transcoded: 0,
+    sourceBytes: 0,
+    packageBytes: 0,
+  };
+  const referencedIds = [...referenced].sort();
+  for (let index = 0; index < referencedIds.length; index += 1) {
+    const id = referencedIds[index];
     const asset = assetsById.get(id);
     const sourcePath = resolvePlaybackSource(root, asset);
     let packagePath = '';
     if (sourcePath) {
-      const fileName = packageSafeName(path.basename(sourcePath), `asset${path.extname(sourcePath)}`);
+      const sourceExtension = path.extname(sourcePath).toLowerCase();
+      const isAudio = asset.type === 'adpcm' || asset.type === 'cdda-track';
+      const sourceData = fs.readFileSync(sourcePath);
+      let packageData = sourceData;
+      let packageFileName = path.basename(sourcePath);
+      if (isAudio) {
+        audioStats.assets += 1;
+        audioStats.sourceBytes += sourceData.length;
+        if (sourceExtension === '.wav') {
+          let conversion;
+          try {
+            conversion = await transcodeWavToOgg(sourceData, {
+              quality: GODOT_OGG_VORBIS_QUALITY,
+              asset,
+              sourcePath,
+            });
+          } catch (error) {
+            throw new Error(`Ogg Vorbisへ変換できません: ${asset.id} (${error?.message || error})`);
+          }
+          packageData = conversion?.output;
+          if (!Buffer.isBuffer(packageData) || packageData.length === 0) {
+            throw new Error(`Ogg Vorbis変換結果が不正です: ${asset.id}`);
+          }
+          packageFileName = audioPackageFileName(sourcePath, '.ogg');
+          audioStats.transcoded += 1;
+        }
+        audioStats.packageBytes += packageData.length;
+      }
+      const fileName = packageSafeName(packageFileName, `asset${path.extname(packageFileName)}`);
       packagePath = `media/${String(index).padStart(4, '0')}_${packageSafeName(id)}/${fileName}`;
       mediaEntries.push({
         name: packagePath,
-        data: fs.readFileSync(sourcePath),
+        data: packageData,
         mtime: fs.statSync(sourcePath).mtime,
       });
     }
     packagedAssets.push(minimalAsset(asset, packagePath));
-  });
+  }
 
   const fontPath = resolveProjectFont(root);
   let packageFontPath = '';
@@ -211,10 +254,19 @@ function buildGodotPackageBundle({
       font: packageFontPath,
       border: '',
     },
+    audio: {
+      wavTranscode: 'ogg-vorbis',
+      extension: '.ogg',
+      quality: GODOT_OGG_VORBIS_QUALITY,
+    },
     stats: {
       scenes: scenes.scenes.length,
       commands: scenes.scenes.reduce((sum, scene) => sum + scene.commands.filter((command) => !isCommandSkipped(command) && command.type !== 'comment').length, 0),
       assets: packagedAssets.length,
+      audioAssets: audioStats.assets,
+      transcodedAudioAssets: audioStats.transcoded,
+      audioSourceBytes: audioStats.sourceBytes,
+      audioPackageBytes: audioStats.packageBytes,
       bytes: files.reduce((sum, file) => sum + file.bytes, 0),
     },
     files,
@@ -236,13 +288,8 @@ async function exportGodotPackageZip({
   showSaveDialog,
   createStoredZipBuffer,
   writeFileSync,
+  transcodeWavToOgg,
 } = {}) {
-  let bundle;
-  try {
-    bundle = buildGodotPackageBundle({ projectDir, sceneDoc });
-  } catch (error) {
-    return { ok: false, canceled: false, path: '', error: String(error?.message || error) };
-  }
   try {
     const result = await showSaveDialog(owner, {
       title: 'Godot再生パッケージをエクスポート',
@@ -255,6 +302,7 @@ async function exportGodotPackageZip({
     if (result?.canceled || !result?.filePath) {
       return { ok: false, canceled: true, path: '', error: '' };
     }
+    const bundle = await buildGodotPackageBundle({ projectDir, sceneDoc, transcodeWavToOgg });
     writeFileSync(result.filePath, createStoredZipBuffer(bundle.entries));
     return {
       ok: true,
@@ -265,6 +313,10 @@ async function exportGodotPackageZip({
       commandCount: bundle.manifest.stats.commands,
       assetCount: bundle.manifest.stats.assets,
       contentBytes: bundle.manifest.stats.bytes,
+      audioAssetCount: bundle.manifest.stats.audioAssets,
+      transcodedAudioAssetCount: bundle.manifest.stats.transcodedAudioAssets,
+      audioSourceBytes: bundle.manifest.stats.audioSourceBytes,
+      audioPackageBytes: bundle.manifest.stats.audioPackageBytes,
       error: '',
     };
   } catch (error) {

@@ -48,7 +48,7 @@ CD-ROM2出力は市販ソフトと同じ基本構造に固定しています。T
 
 `Export` は HuCard project 専用です。`.pce`、または itch.io の HTML5 upload 用 ZIP（ルートの `index.html`、HuCard ROM、EmulatorJS runtime/core、両コンポーネントのGPL本文）を出力できます。CD-ROM2 project は System Card / IPL を必要とする配布境界を避けるため Export の対象外です。ZIP を再配布する場合は、EmulatorJS/core の GPL 条件に従って、正確に対応する完全なソースとライセンス表示も提供してください。
 
-Novel画面の `Godot出力` は、組み込みプラグイン **NVプロジェクトのGodotエクスポート** が有効な場合だけ表示され、CD-ROM2 / HuCARD VNのどちらでも利用できます。現行Scene JSON、参照中の元画像・プレビュー可能音声・PSG metadata、任意のproject fontを、Godotネイティブプレイヤー用の `*.pcevn.zip` へまとめます。Godot Playerのワイド画面枠は、配布側の`package/library.json`にあるトップレベル`border`で指定します。シナリオZIPには枠画像を同梱しません。これはROM/CUE/ISOのExportとは独立しており、System Card、IPL、EmulatorJS、実機向け変換済みbinaryは含めません。
+Novel画面の `Godot出力` は、組み込みプラグイン **NVプロジェクトのGodotエクスポート** が有効な場合だけ表示され、CD-ROM2 / HuCARD VNのどちらでも利用できます。現行Scene JSON、参照中の元画像・プレビュー可能音声・PSG metadata、任意のproject fontを、Godotネイティブプレイヤー用の `*.pcevn.zip` へまとめます。参照中のCD-DA/ADPCM再生用WAVは出力時にOgg Vorbis（VBR quality 4）へ圧縮し、既存のOGG/MP3は再エンコードしません。出力ログにはWAV圧縮前後の合計サイズを表示します。Godot Playerのワイド画面枠は、配布側の`package/library.json`にあるトップレベル`border`で指定します。シナリオZIPには枠画像を同梱しません。これはROM/CUE/ISOのExportとは独立しており、System Card、IPL、EmulatorJS、実機向け変換済みbinaryは含めません。
 
 ## テスト
 
