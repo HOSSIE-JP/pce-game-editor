@@ -66,9 +66,13 @@ HuCARD scene pack は4KB RAM cacheへコピーせず、`pce_editor_data_ref_t` �
 
 Spritetext font は message font と別枠です。最大 254 glyph、1 command 最大 32 glyph、sprite pattern VRAM の制約を維持し、message font と同じ bank0 常駐 data にはしません。
 
+runtimeはSpriteText slot 0..3を独立保持し、各slotのglyph、座標、表示、色、blink timerを後続commandまで維持します。ただしHuCARD版は通常sprite slot 0..3へ各12 SATB entriesを予約するため、SpriteText全slotが共有できるのはSATB tailの16 entriesです。改行を除く同時表示glyphが16を超えた分は描画しません。未使用SATB entryのraw Yは0（表示上端より上）にし、画面下部のSpriteTextとscanlineが重なってtransparent spriteがVDCの16-sprites/line制限を消費する状態を禁止します。
+
 ## Build / Test Play
 
 HuCARD VN build は `.pce` と `.map` を出力します。build log には HuCARD VN bank usage として bank0 payload、runtime code banks、data banks の使用量を出します。`rom_bank0` は linker の `.early_start` / `.vector` 予約で map 上は末尾まで埋まりますが、確認対象は `.text/.rodata/.data/.zp.data` の payload と banks 1..4 / 5..127 の各 8KB 超過です。
+
+linkerが出力した`.pce`のbank数が2のべき乗でない場合、build後処理は次の2のべき乗byte数まで末尾を`0xFF`でpaddingします。たとえば使用bank 0..47 の384 KiB ROMは512 KiBになります。bank配置とpointer値は変更しません。非2のべき乗サイズをそのまま渡すと標準HuCARD mapperで高位MPR bankが誤ったROM位置を参照し、scene packのcommand count、BG palette/tile、SpriteText fontを誤読するためです。incremental build stamp versionはこの後処理を含み、旧stampからは1回再linkします。
 
 HuCARDのmessage fontとspritetext fontは使用glyphの和集合を1回のbatchで描画し、FFmpegは使用しません。WindowsではSystem.Drawing、その他の環境では利用可能なPython/Pillowを使い、どちらも利用できない場合だけ内蔵fallback bitmapを生成します。scene/assets/font/runtimeの署名と必要な生成物が一致する場合、通常BuildでもVN生成を省略します。`skipClean`付きTest Play buildでは、これに加えて最終ROMの入力署名が一致すればcompile/linkも省略します。
 

@@ -19,6 +19,42 @@ function loadBuildSystem() {
   return result;
 }
 
+test('HuCARD ROM normalization pads 48 banks to a mapper-safe 512 KiB image', () => {
+  const buildSystem = loadBuildSystem();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-hucard-rom-size-'));
+  const romPath = path.join(dir, '384k.pce');
+  const source = Buffer.alloc(48 * 8192, 0x5a);
+  source[0] = 0x11;
+  source[source.length - 1] = 0xa5;
+  fs.writeFileSync(romPath, source);
+
+  const result = buildSystem.normalizePceHuCardRomSize(romPath);
+  const normalized = fs.readFileSync(romPath);
+
+  assert.deepEqual(result, {
+    inputSize: 48 * 8192,
+    outputSize: 64 * 8192,
+    paddingBytes: 16 * 8192,
+    padded: true,
+  });
+  assert.equal(normalized.length, 512 * 1024);
+  assert.equal(normalized[0], 0x11);
+  assert.equal(normalized[source.length - 1], 0xa5);
+  assert.ok(normalized.subarray(source.length).every((value) => value === 0xff));
+});
+
+test('HuCARD ROM normalization leaves an existing power-of-two image unchanged', () => {
+  const buildSystem = loadBuildSystem();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-hucard-rom-size-'));
+  const romPath = path.join(dir, '512k.pce');
+  fs.writeFileSync(romPath, Buffer.alloc(512 * 1024, 0x3c));
+
+  const result = buildSystem.normalizePceHuCardRomSize(romPath);
+
+  assert.deepEqual(result, { inputSize: 512 * 1024, outputSize: 512 * 1024, paddingBytes: 0, padded: false });
+  assert.equal(fs.statSync(romPath).size, 512 * 1024);
+});
+
 function bankOrigin(bank, address) {
   return 0x01000000 + (bank * 0x10000) + address;
 }

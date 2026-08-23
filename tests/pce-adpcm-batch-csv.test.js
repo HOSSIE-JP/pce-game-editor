@@ -406,7 +406,7 @@ test('Irodori export to ADPCM CSV import and manifest assignment completes a CD 
   const bundle = buildIrodoriBatchBundle({ doc: sceneDoc, assetIds: [] });
   const packageDir = makeTempDir('pce-irodori-workflow-package-');
   bundle.entries.forEach((entry) => writeFile(packageDir, entry.name, entry.data));
-  writeFile(packageDir, 'output/Batch/voice_0001.wav', makeWavBuffer(8000, 8000));
+  writeFile(packageDir, 'output/voice/Batch/voice_0001.wav', makeWavBuffer(8000, 8000));
 
   const batch = await assetManager.importAdpcmBatch(projectDir, {
     csvPath: path.join(packageDir, 'output', 'adpcm-import.csv'),

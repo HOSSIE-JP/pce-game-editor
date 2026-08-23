@@ -1,11 +1,15 @@
 'use strict';
 
-const { buildIrodoriBatchBundle } = require('./pce-vn-irodori-batch');
+const {
+  buildIrodoriBatchBundle,
+  DEFAULT_VOICE_ID_PREFIX,
+} = require('./pce-vn-irodori-batch');
 
 async function exportIrodoriBatchZip({
   doc = {},
   assetIds = [],
   defaultPath = 'pce-vn_irodori_voice_batches.zip',
+  voiceIdPrefix = DEFAULT_VOICE_ID_PREFIX,
   owner,
   showSaveDialog,
   createStoredZipBuffer,
@@ -13,7 +17,7 @@ async function exportIrodoriBatchZip({
 } = {}) {
   let bundle;
   try {
-    bundle = buildIrodoriBatchBundle({ doc, assetIds });
+    bundle = buildIrodoriBatchBundle({ doc, assetIds, voiceIdPrefix });
   } catch (err) {
     return {
       ok: false,

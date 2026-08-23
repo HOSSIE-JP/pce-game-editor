@@ -103,6 +103,35 @@ test('PCE core manager exposes only PC Engine and creates PCE projects', async (
   assert.equal(path.extname(result.commandInfo.romPath), '.pce');
 });
 
+test('PCE project picker lists projects in nested directories', () => {
+  const userData = makeTempDir('pce-editor-nested-projects-');
+  const coreManager = loadCoreManager(userData);
+
+  const nested = coreManager.createProjectInParent(
+    path.join(coreManager.getProjectsRootDir(), 'collection', 'chapter-1'),
+    'nested_pce',
+    { coreId: 'pc-engine', title: 'Nested PCE' },
+    null,
+    { templateId: 'template_pce_sample' },
+  );
+  const shallow = coreManager.createProjectInParent(
+    '',
+    'shallow_pce',
+    { coreId: 'pc-engine', title: 'Shallow PCE' },
+    null,
+    { templateId: 'template_pce_sample' },
+  );
+
+  const listed = coreManager.listProjects();
+  const nestedProject = listed.projects.find((project) => project.projectDir === nested.projectDir);
+  const shallowProject = listed.projects.find((project) => project.projectDir === shallow.projectDir);
+
+  assert.equal(nestedProject?.projectName, 'nested_pce');
+  assert.equal(nestedProject?.title, 'Nested PCE');
+  assert.equal(shallowProject?.projectName, 'shallow_pce');
+  assert.equal(listed.projects.some((project) => project.projectDir === path.join(listed.projectsRootDir, 'collection')), false);
+});
+
 test('all current PCE templates support create, save, dry build, and Test Play handoff', async () => {
   const userData = makeTempDir('pce-editor-template-smoke-');
   const coreManager = loadCoreManager(userData);

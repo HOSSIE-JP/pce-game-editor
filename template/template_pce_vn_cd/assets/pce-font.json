@@ -1,10 +1,13 @@
 {
   "version": 1,
-  "fontPath": "",
-  "fontSize": 15,
-  "threshold": 32,
-  "xOffset": 0,
-  "yOffset": 0,
+  "fontPath": "assets/fonts/JF-Dot-ShinonomeMin12.ttf",
+  "fonts": [
+    { "file": "assets/fonts/JF-Dot-ShinonomeMin12.ttf", "label": "JF-Dot-ShinonomeMin12.ttf" }
+  ],
+  "fontSize": 12,
+  "threshold": 80,
+  "xOffset": 1,
+  "yOffset": 1,
   "tileBase": 540,
   "previewText": "320がめんです\n18もじx4ぎょう"
 }

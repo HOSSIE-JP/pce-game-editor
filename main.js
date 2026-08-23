@@ -1887,6 +1887,7 @@ async function handleExportVnIrodoriBatch(payload = {}) {
   return exportIrodoriBatchZip({
     doc: payload?.doc || {},
     assetIds: Array.isArray(payload?.assetIds) ? payload.assetIds : [],
+    voiceIdPrefix: payload?.voiceIdPrefix,
     defaultPath,
     owner,
     showSaveDialog: (dialogOwner, options) => dialog.showSaveDialog(dialogOwner, options),

@@ -2652,8 +2652,16 @@ test('PCE VN manager encodes spritetext overlays for on-demand BIOS glyphs', () 
     path.join(__dirname, '..', 'template', 'template_pce_vn_hucard', 'src', 'pce_vn_hucard_runtime.c'),
     'utf-8',
   );
+  assert.match(hucardRuntime, /#define VN_SPRITETEXT_SLOT_COUNT 4u/);
+  assert.match(hucardRuntime, /static vn_spritetext_slot_t spritetext_slots\[VN_SPRITETEXT_SLOT_COUNT\]/);
   assert.match(hucardRuntime, /#define VN_SPRITETEXT_PITCH_X VN_GLYPH_W/);
-  assert.match(hucardRuntime, /col \* VN_SPRITETEXT_PITCH_X/);
+  assert.match(hucardRuntime, /slot_index = command->slot < VN_SPRITETEXT_SLOT_COUNT \? command->slot : 0u/);
+  assert.match(hucardRuntime, /slot->glyphs\[i\] = scene_pack_u8/);
+  assert.match(hucardRuntime, /for \(slot_index = 0u; slot_index < VN_SPRITETEXT_SLOT_COUNT; slot_index\+\+\)[\s\S]*slot->blink_timer\+\+/);
+  assert.match(hucardRuntime, /clear_spritetext_slots\(\);\s+upload_sprite_table\(\);/);
+  assert.doesNotMatch(hucardRuntime, /clear_spritetext\(\)/);
+  assert.match(hucardRuntime, /#define VN_SPRITE_HIDDEN_Y 0u/);
+  assert.doesNotMatch(hucardRuntime, /#define VN_SPRITE_HIDDEN_Y 240u/);
 
   const editorRenderer = fs.readFileSync(
     path.join(__dirname, '..', 'plugins', 'pce-visual-novel-editor', 'renderer.js'),
@@ -3699,8 +3707,9 @@ test('PCE build system dry-runs HuCARD VN without CD compile or mkcd inputs', as
   assert.match(runtime, /static void VN_HUCARD_CODE_SPRITE_STATE tick_sprites\(void\)/);
   assert.match(runtime, /static uint8_t VN_HUCARD_CODE_SPRITE_STATE tick_spritetext\(void\)/);
   assert.match(runtime, /uint8_t dirty = tick_spritetext\(\);/);
-  assert.match(runtime, /spritetext_blink_frames = command->arg0;/);
-  assert.match(runtime, /VN_SPRITETEXT_HIDDEN_Y_DELTA/);
+  assert.match(runtime, /slot->blink_frames = command->arg0;/);
+  assert.match(runtime, /redraw_spritetext_slots\(\);/);
+  assert.doesNotMatch(runtime, /VN_SPRITETEXT_HIDDEN_Y_DELTA/);
   assert.match(runtime, /static void VN_HUCARD_CODE_VIDEO draw_sprite_slot\(uint8_t slot, uint8_t upload_patterns\)/);
   assert.match(runtime, /static void VN_HUCARD_CODE_VIDEO upload_sprite_table_now\(void\)/);
   assert.match(runtime, /pce_vn_hucard_map_runtime_banks\(\);/);

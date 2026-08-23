@@ -44,11 +44,13 @@
 #define VN_SPRITE_SLOT_COUNT 4u
 #define VN_SPRITE_SATB_PER_SLOT 12u
 #define VN_SPRITETEXT_SATB_BASE 48u
+#define VN_SPRITETEXT_SLOT_COUNT 4u
 #define VN_SPRITETEXT_MAX_GLYPHS 32u
-#define VN_SPRITETEXT_HIDDEN_Y_DELTA 256u
 #define VN_SPRITETEXT_PITCH_X VN_GLYPH_W
 #define VN_SPRITETEXT_PITCH_Y 16u
-#define VN_SPRITE_HIDDEN_Y 240u
+/* Raw SATB Y includes the hardware +64 bias. Zero keeps unused entries above
+   the visible scanlines so transparent sprites do not consume the line limit. */
+#define VN_SPRITE_HIDDEN_Y 0u
 #define VN_VRAM_SLICE_BYTES 512u
 #define VN_PSG_STEP_ACCUM_UNIT 3600u
 #define VN_PSG_PATTERN_ROW_BYTES 8u
@@ -106,6 +108,19 @@ typedef struct
     uint8_t default_index;
     int16_t variable_index;
 } vn_choice_ref_t;
+
+typedef struct
+{
+    uint8_t glyphs[VN_SPRITETEXT_MAX_GLYPHS];
+    uint8_t glyph_count;
+    uint16_t x;
+    uint16_t y;
+    uint16_t color;
+    uint8_t blink_frames;
+    uint8_t blink_timer;
+    uint8_t blink_on;
+    uint8_t visible;
+} vn_spritetext_slot_t;
 
 typedef struct
 {
@@ -231,10 +246,7 @@ static uint16_t sync_input_target = PCE_VN_NO_COMMAND;
 static uint8_t async_input_watcher_count;
 static uint8_t async_input_masks[VN_ASYNC_INPUT_WATCHER_CAPACITY] __attribute__((section(".bss")));
 static uint16_t async_input_targets[VN_ASYNC_INPUT_WATCHER_CAPACITY] __attribute__((section(".bss")));
-static uint8_t spritetext_glyph_count;
-static uint8_t spritetext_blink_frames;
-static uint8_t spritetext_blink_timer;
-static uint8_t spritetext_blink_on = 1u;
+static vn_spritetext_slot_t spritetext_slots[VN_SPRITETEXT_SLOT_COUNT] __attribute__((section(".bss")));
 static uint16_t vdc_control_shadow = VN_VDC_CONTROL_BASE;
 static vn_psg_player_t psg_song __attribute__((section(".bss")));
 static vn_psg_player_t psg_sfx __attribute__((section(".bss")));
@@ -244,6 +256,8 @@ static void VN_HUCARD_CODE_PSG psg_advance(uint8_t frames);
 static void VN_HUCARD_CODE_SCRIPT advance_story(void);
 static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index);
 static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_u8(const vn_scene_pack_cache_t *cache, uint16_t offset);
+static void VN_HUCARD_CODE_TEXT clear_spritetext_slots(void);
+static void VN_HUCARD_CODE_TEXT redraw_spritetext_slots(void);
 #if PCE_VN_HAS_FULL_SCREEN_BG
 static void VN_HUCARD_CODE_VIDEO restore_text_vram_after_full_screen_bg(void);
 #endif
@@ -1555,23 +1569,24 @@ static void VN_HUCARD_CODE_VIDEO upload_sprite_table(void)
     service_psg();
 }
 
-/* SpriteText uses the SATB tail. Move its live entries outside the visible
-   range for blink-off frames while retaining their exact layout in shadow. */
+/* SpriteText uses the SATB tail. Each slot owns an independent blink timer;
+   rebuild the tail when one or more slots toggle so static slots stay visible. */
 static uint8_t VN_HUCARD_CODE_SPRITE_STATE tick_spritetext(void)
 {
-    uint8_t i;
-    if (!spritetext_glyph_count || !spritetext_blink_frames) return 0u;
-    spritetext_blink_timer++;
-    if (spritetext_blink_timer < spritetext_blink_frames) return 0u;
-    spritetext_blink_timer = 0u;
-    spritetext_blink_on = (uint8_t)(spritetext_blink_on ? 0u : 1u);
-    for (i = 0u; i < spritetext_glyph_count; i++)
+    uint8_t slot_index;
+    uint8_t changed = 0u;
+    for (slot_index = 0u; slot_index < VN_SPRITETEXT_SLOT_COUNT; slot_index++)
     {
-        vdc_sprite_t *entry = &sprite_shadow[(uint8_t)(VN_SPRITETEXT_SATB_BASE + i)];
-        if (spritetext_blink_on) entry->y = (uint16_t)(entry->y - VN_SPRITETEXT_HIDDEN_Y_DELTA);
-        else entry->y = (uint16_t)(entry->y + VN_SPRITETEXT_HIDDEN_Y_DELTA);
+        vn_spritetext_slot_t *slot = &spritetext_slots[slot_index];
+        if (!slot->visible || !slot->glyph_count || !slot->blink_frames) continue;
+        slot->blink_timer++;
+        if (slot->blink_timer < slot->blink_frames) continue;
+        slot->blink_timer = 0u;
+        slot->blink_on = (uint8_t)(slot->blink_on ? 0u : 1u);
+        changed = 1u;
     }
-    return 1u;
+    if (changed) redraw_spritetext_slots();
+    return changed;
 }
 
 static void VN_HUCARD_CODE_SPRITE_STATE hide_sprite_slot(uint8_t slot)
@@ -1968,66 +1983,105 @@ static void VN_HUCARD_CODE_TEXT upload_font_sprite_patterns(void)
 #endif
 }
 
-static void VN_HUCARD_CODE_TEXT clear_spritetext(void)
-{
-    uint8_t i;
-    spritetext_glyph_count = 0u;
-    spritetext_blink_frames = 0u;
-    spritetext_blink_timer = 0u;
-    spritetext_blink_on = 1u;
-    for (i = VN_SPRITETEXT_SATB_BASE; i < 64u; i++)
-    {
-        sprite_shadow[i].y = VN_SPRITE_HIDDEN_Y;
-        sprite_shadow[i].attr = 0u;
-    }
-}
-
 static void VN_HUCARD_CODE_TEXT set_spritetext_color(uint16_t color)
 {
     pce_vce_set_color((uint16_t)(256u + (PCE_VN_FONT_SPRITE_PALETTE_BANK * 16u) + 15u), ui_text_color_word(color));
 }
 
+static void VN_HUCARD_CODE_TEXT clear_spritetext_slots(void)
+{
+    uint8_t slot_index;
+    uint8_t satb_index;
+    for (slot_index = 0u; slot_index < VN_SPRITETEXT_SLOT_COUNT; slot_index++)
+    {
+        spritetext_slots[slot_index].glyph_count = 0u;
+        spritetext_slots[slot_index].blink_frames = 0u;
+        spritetext_slots[slot_index].blink_timer = 0u;
+        spritetext_slots[slot_index].blink_on = 1u;
+        spritetext_slots[slot_index].visible = 0u;
+    }
+    for (satb_index = VN_SPRITETEXT_SATB_BASE; satb_index < 64u; satb_index++)
+    {
+        sprite_shadow[satb_index].y = VN_SPRITE_HIDDEN_Y;
+        sprite_shadow[satb_index].attr = 0u;
+    }
+}
+
+static void VN_HUCARD_CODE_TEXT redraw_spritetext_slots(void)
+{
+    uint8_t slot_index;
+    uint8_t written = 0u;
+    for (slot_index = VN_SPRITETEXT_SATB_BASE; slot_index < 64u; slot_index++)
+    {
+        sprite_shadow[slot_index].y = VN_SPRITE_HIDDEN_Y;
+        sprite_shadow[slot_index].attr = 0u;
+    }
+    for (slot_index = 0u; slot_index < VN_SPRITETEXT_SLOT_COUNT; slot_index++)
+    {
+        const vn_spritetext_slot_t *slot = &spritetext_slots[slot_index];
+        uint8_t col = 0u;
+        uint8_t row = 0u;
+        uint8_t glyph_index;
+        if (!slot->visible || !slot->glyph_count || (slot->blink_frames && !slot->blink_on)) continue;
+        set_spritetext_color(slot->color);
+        for (glyph_index = 0u; glyph_index < slot->glyph_count; glyph_index++)
+        {
+            const uint8_t glyph = slot->glyphs[glyph_index];
+            vdc_sprite_t *entry;
+            if (glyph == 0xfeu)
+            {
+                col = 0u;
+                row++;
+                continue;
+            }
+            if ((uint8_t)(VN_SPRITETEXT_SATB_BASE + written) >= 64u) return;
+            entry = &sprite_shadow[(uint8_t)(VN_SPRITETEXT_SATB_BASE + written)];
+            entry->y = (uint16_t)(slot->y + ((uint16_t)row * VN_SPRITETEXT_PITCH_Y) + 64u);
+            entry->x = (uint16_t)(slot->x + ((uint16_t)col * VN_SPRITETEXT_PITCH_X) + 32u);
+            entry->pattern = (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE + ((uint16_t)glyph * 2u));
+            entry->attr = (uint16_t)(VDC_SPRITE_FG | VDC_SPRITE_COLOR(PCE_VN_FONT_SPRITE_PALETTE_BANK));
+            col++;
+            written++;
+        }
+    }
+}
+
 static void VN_HUCARD_CODE_TEXT draw_spritetext(const pce_vn_command_t *command)
 {
 #if PCE_VN_HAS_SPRITETEXT
+    vn_spritetext_slot_t *slot;
+    uint8_t slot_index;
     uint8_t i;
-    uint8_t written = 0u;
-    uint8_t col = 0u;
-    uint8_t row = 0u;
-    uint16_t offset;
     if (!command) return;
-    clear_spritetext();
-    if (!(command->flags & PCE_VN_SPRITE_VISIBLE) || command->asset_index <= 0 || !command->arg1)
+    slot_index = command->slot < VN_SPRITETEXT_SLOT_COUNT ? command->slot : 0u;
+    slot = &spritetext_slots[slot_index];
+    if ((command->flags & PCE_VN_SPRITE_VISIBLE) && command->asset_index >= 0 && command->arg1)
     {
-        upload_sprite_table();
-        return;
-    }
-    set_spritetext_color((uint16_t)command->message_index);
-    offset = (uint16_t)command->asset_index;
-    for (i = 0u;
-         i < command->arg1
-            && written < VN_SPRITETEXT_MAX_GLYPHS
-            && (uint8_t)(VN_SPRITETEXT_SATB_BASE + written) < 64u;
-         i++)
-    {
-        const uint8_t glyph = scene_pack_u8(&active_scene_pack, (uint16_t)(offset + i));
-        vdc_sprite_t *entry;
-        if (glyph == 0xfeu)
+        uint8_t count = command->arg1;
+        const uint16_t offset = (uint16_t)command->asset_index;
+        if (count > VN_SPRITETEXT_MAX_GLYPHS) count = VN_SPRITETEXT_MAX_GLYPHS;
+        for (i = 0u; i < count; i++)
         {
-            col = 0u;
-            row++;
-            continue;
+            slot->glyphs[i] = scene_pack_u8(&active_scene_pack, (uint16_t)(offset + i));
         }
-        entry = &sprite_shadow[(uint8_t)(VN_SPRITETEXT_SATB_BASE + written)];
-        entry->y = (uint16_t)(command->y + ((uint16_t)row * VN_SPRITETEXT_PITCH_Y) + 64u);
-        entry->x = (uint16_t)(command->x + ((uint16_t)col * VN_SPRITETEXT_PITCH_X) + 32u);
-        entry->pattern = (uint16_t)(PCE_VN_FONT_SPRITE_PATTERN_BASE + ((uint16_t)glyph * 2u));
-        entry->attr = (uint16_t)(VDC_SPRITE_FG | VDC_SPRITE_COLOR(PCE_VN_FONT_SPRITE_PALETTE_BANK));
-        col++;
-        written++;
+        slot->glyph_count = count;
+        slot->x = command->x;
+        slot->y = command->y;
+        slot->color = (uint16_t)command->message_index;
+        slot->blink_frames = command->arg0;
+        slot->blink_timer = 0u;
+        slot->blink_on = 1u;
+        slot->visible = 1u;
     }
-    spritetext_glyph_count = written;
-    spritetext_blink_frames = command->arg0;
+    else
+    {
+        slot->glyph_count = 0u;
+        slot->blink_frames = 0u;
+        slot->blink_timer = 0u;
+        slot->blink_on = 1u;
+        slot->visible = 0u;
+    }
+    redraw_spritetext_slots();
     upload_sprite_table();
 #else
     (void)command;
@@ -2349,6 +2403,8 @@ static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index)
     cancel_all_sprite_moves();
     if (scene_index >= pce_vn_scene_count) scene_index = 0u;
     if (!load_scene_pack_into_cache(scene_index, &active_scene_pack)) return;
+    clear_spritetext_slots();
+    upload_sprite_table();
 #if PCE_VN_HAS_FULL_SCREEN_BG
     current_scene_full_screen_bg = (uint8_t)(
         scene_pack_u8(&active_scene_pack, VN_SCENE_PACK_OFFSET_FLAGS)

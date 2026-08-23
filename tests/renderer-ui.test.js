@@ -941,6 +941,9 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(vnRenderer, /data-action="export-irodori"/);
   assert.match(vnRenderer, /data-action="apply-irodori"/);
   assert.match(vnRenderer, /export function activatePlugin\(\{ root, api, logger, registerCapability \}\)/);
+  assert.match(vnRenderer, /function askIrodoriVoiceIdPrefix\(\)/);
+  assert.match(vnRenderer, /data-irodori-prefix/);
+  assert.match(vnRenderer, /DEFAULT_IRODORI_VOICE_ID_PREFIX = 'voice'/);
   assert.match(vnRenderer, /async function exportIrodoriBatch\(\)/);
   assert.match(vnRenderer, /data-role="plugin-actions-before-preview"/);
   assert.match(vnRenderer, /data-role="plugin-actions-after-preview"/);
@@ -957,6 +960,7 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.doesNotMatch(vnRenderer, /import-kitahe-pm|export-godot|kitahe-pm-script-converter|vn-godot-exporter/);
   assert.doesNotMatch(vnRenderer, /api\.electronAPI\.exportVnGodotPackage/);
   assert.match(vnRenderer, /normalizeDoc\(doc, assets\)/);
+  assert.match(vnRenderer, /voiceIdPrefix,/);
   assert.match(vnRenderer, /exportVnIrodoriBatch\(\{[\s\S]*doc: snapshot,[\s\S]*assetIds:/);
   assert.match(vnRenderer, /logger\?\.info\?\./);
   assert.match(vnRenderer, /logger\?\.error\?\./);
@@ -967,6 +971,7 @@ test('Novel plugin integrates VN and Font tools behind one tabbed page', () => {
   assert.match(vnRenderer, /currentInspection\.inspectionSignature !== inspection\.inspectionSignature/);
   assert.match(vnRenderer, /command\.voiceAssetId = assignment\.id/);
   assert.match(vnRenderer, /有効な \$\{Number\(summary\.assignableRows\) \|\| 0\} 行を反映/);
+  assert.match(main, /voiceIdPrefix: payload\?\.voiceIdPrefix/);
   assert.match(main, /ipcMain\.handle\('vn:exportIrodoriBatch'/);
   assert.doesNotMatch(main, /vn:exportGodotPackage/);
   assert.match(main, /ipcMain\.handle\('vn:inspectIrodoriVoiceAssignments'/);

@@ -23,7 +23,7 @@ Windows 標準の `tar.exe` は ZIP / 7z 展開に利用でき、Windows PowerSh
 
 ## 新規プロジェクト
 
-プロジェクト選択画面の `新規プロジェクト` では、作成場所、プロジェクトフォルダ名、ゲームタイプを指定します。PCE project は PC Engine 専用として扱うため、対象コアの選択は表示しません。
+起動時のプロジェクト選択画面では、最近開いたプロジェクトに加えて、既定の `projects` フォルダ直下とそのサブディレクトリにある `project.json` 付きプロジェクトを選択できます。プロジェクト選択画面の `新規プロジェクト` では、作成場所、プロジェクトフォルダ名、ゲームタイプを指定します。PCE project は PC Engine 専用として扱うため、対象コアの選択は表示しません。
 
 Mega Drive ROM ヘッダー向けだったタイトル、作者名、シリアルの入力は PCE 新規作成では使用しません。作成直後の内部表示名はプロジェクトフォルダ名から初期化されます。
 
@@ -101,26 +101,26 @@ PCE Game EditorのCD-ROM2 projectで **Assets > 北へ。PM素材** を押し、
 
 変換前の診断には元SCRの相対pathと行番号、未対応演出の省略・近似、scene予算が表示されます。warningは確認後に適用できます。jp-v3非対応文字は`□`へ置換するwarningとして続行しますが、壊れた分岐、未解決label、未設定asset mapping、asset型違い、不正なCP932 byte列、scene/command/変数/8192-byte pack上限の超過がある場合は適用されません。**置換** は現在のVN settingsを維持して取込entryを開始sceneにし、**追加** は既存開始sceneを既定で維持します。適用前のsceneは `assets/pce-vn-scenes.kitahe-backup.json`、再取込用設定と詳細reportは `assets/kitahe-pm-conversion*.json` へ保存されます。詳しい変換規則と制約は [pce-kitahe-pm-converter.md](pce-kitahe-pm-converter.md) を参照してください。
 
-スクリプト画面上部の **音声バッチ出力** は、全シーンの有効な `Message` を走査し、Irodori-TTS Batch Clientへ読み込める話者別CSVをZIPで保存します。GUI / JSONの未保存編集も出力へ含み、ZIP保存が成功すると、その出力に使った同じscene snapshotを `assets/pce-vn-scenes.json` へ自動保存します。この時点では新しく採番した `voiceAssetId` はMessageへ設定しません。スキップ指定または本文が空のMessageは除外し、話者が空のMessageは `narrator` バッチへ入ります。
+スクリプト画面上部の **音声バッチ出力** は、全シーンの有効な `Message` を走査し、Irodori-TTS Batch Clientへ読み込める話者別CSVをZIPで保存します。GUI / JSONの未保存編集も出力へ含み、ZIP保存が成功すると、その出力に使った同じscene snapshotを `assets/pce-vn-scenes.json` へ自動保存します。この時点では新しく採番した `voiceAssetId` はMessageへ設定しません。スキップ指定または本文が空のMessageは除外し、話者が空のMessageは `narrator` バッチへ入ります。出力前にVoice IDプレフィクスを入力でき、既定値は `voice` です。
 
-ZIPの `batches/speaker_001.csv`、`speaker_002.csv` などは話者ごとに分かれ、ナレーションは `batches/narrator.csv` です。各CSVはUTF-8 BOM付きの `id,text,output_dir` 形式で、`output_dir` は `/output/<話者名>`（ナレーションは `/output/narrator`）になります。`manifest.csv` には各Messageのscene ID、1始まりのcommand index、話者、本文、音声ID、出力WAVパスが記録されます。`output/adpcm-import.csv` は同じ音声IDを共有するMessageを1ジョブへまとめたADPCM一括取込リストで、8000Hz・loopなし・自動分割を既定にします。
+ZIPの `batches/speaker_001.csv`、`speaker_002.csv` などは話者ごとに分かれ、ナレーションは `batches/narrator.csv` です。各CSVはUTF-8 BOM付きの `id,text,output_dir` 形式で、`output_dir` は `/output/<プレフィクス>/<話者名>`（ナレーションは `/output/<プレフィクス>/narrator`）になります。`manifest.csv` には各Messageのscene ID、1始まりのcommand index、話者、本文、音声ID、出力WAVパスが記録されます。`output/adpcm-import.csv` は同じ音声IDを共有するMessageを1ジョブへまとめたADPCM一括取込リストで、`source` も `<プレフィクス>/<話者フォルダー>/<id>.wav` の相対パスになります。8000Hz・loopなし・自動分割を既定にします。
 
 出力の成功・エラーは画面のメッセージ欄に表示され、成功・キャンセル・エラーの全結果は Plugin Log / Build Log にも記録されます。キャンセルはエラー表示を残しません。エラー時はログに表示された scene ID や command index を確認して修正してください。
 
 推奨ワークフローは次のとおりです。
 
-1. Novel > スクリプトで **音声バッチ出力** を実行し、ZIPを展開します。
+1. Novel > スクリプトで **音声バッチ出力** を実行し、ダイアログでプレフィクス（既定 `voice`）を指定してZIPを展開します。
 2. Irodori-TTSで `batches/*.csv` を話者ごとに処理します。Irodori-TTSの `/output` は、展開した `output` folderへ割り当てると後工程がそのまま通ります。
 3. Sound > ADPCMの **CSV一括** で `output/adpcm-import.csv` を選びます。WAVを別folderへ生成した場合は、確認画面の **WAVルート（任意）** で実際の出力folderを選び直します。
 4. 取込完了後、Novel > スクリプトの **音声バッチ反映** で展開した `manifest.csv` を選びます。一覧を確認して有効行を反映すると、対応するMessageの `voiceAssetId` が設定され、scene fileも自動保存されます。
 
-既存の `voiceAssetId` があるMessageはそのIDをWAV名に使い、未指定なら既存asset IDと衝突しない `voice_0001` 形式のIDを割り当てます。同じID・同じ話者・同じ本文を複数Messageが参照する場合、TTS/ADPCM生成ジョブは1件ですが、manifestには各Messageが残るため全箇所へ同じADPCMを設定できます。話者または本文が異なる重複ID、`[A-Za-z0-9_-]{1,48}` に合わないIDは出力エラーになります。
+既存の `voiceAssetId` があるMessageはそのIDをWAV名に使い、未指定なら指定したプレフィクスに連番を付けた `<プレフィクス>_0001` 形式のIDを、既存asset IDと衝突しないように割り当てます。既存の `voiceAssetId` 自体はプレフィクス指定で変更されません。同じID・同じ話者・同じ本文を複数Messageが参照する場合、TTS/ADPCM生成ジョブは1件ですが、manifestには各Messageが残るため全箇所へ同じADPCMを設定できます。プレフィクスと音声IDは `[A-Za-z0-9_-]{1,48}` に一致する必要があります。
 
 **音声バッチ反映** はscene ID、command位置、話者、本文が出力時と一致し、同じIDの単一ADPCMが登録されている行だけを対象にします。既存の異なる `voiceAssetId` は確認一覧で置換として表示されます。WAVが上限を超えて `<id>_part01` などへ分割された場合、partは自動連結されないため元IDのMessage voiceには設定せずスキップします。欠落assetや出力後に編集・移動されたMessageも理由付きでスキップし、他の有効行は反映できます。
 
 Irodori-TTSは1回のバッチで参照話者が共通なので、キャラクターごとのCSVを個別に読み込み、対応するSpeaker EmbeddingまたはReference WAVを選んで生成してください。HuCARDプロジェクトでもリスト作成・ADPCM登録・Messageへの設定保存には利用できますが、設定したMessage voiceを実機再生できるのはCD-ROM2 VNだけです。
 
-Visual Novel CD テンプレートには、`BG` / `Sprite` / `Sprite Move` / `Message` / `Audio` / `Variable` / `Choice` / `IF` / `Switch` / `Label` / `GOTO` / `Input` / `Jump` / `Wait` / `Effect` / `SpriteText` を使うコマンド仕様サンプルシナリオが入っています。エディタではこれらに加えて `Cache` コマンドも追加できます。Akari / Mika の立ち絵は `default`（通常）/ `mouth`（口パク）/ `blink` の順でROWを持つスプライトシートになっており、`Message` の Mouth slotによる「現在ROW→次ROW」と自動復帰を確認できます。
+Visual Novel CD テンプレートには、`BG` / `Sprite` / `Sprite Move` / `Message` / `Audio` / `Variable` / `Choice` / `IF` / `Switch` / `Label` / `GOTO` / `Input` / `Jump` / `Wait` / `Effect` / `SpriteText` を使うコマンド仕様サンプルシナリオが入っています。エディタではこれらに加えて `Cache` コマンドも追加できます。Akari / Mika の立ち絵は `default`（通常）/ `mouth`（口パク）/ `blink` の順でROWを持つスプライトシートになっており、`Message` の Mouth slotによる「現在ROW→次ROW」と自動復帰を確認できます。テンプレートの `assets/pce-font.json` は既定でビットマップフォント `JF-Dot-ShinonomeMin12`（`assets/fonts/JF-Dot-ShinonomeMin12.ttf` 同梱、fontSize 12 / threshold 80 / xOffset・yOffset 各1 / tileBase 540）を選択済みです。`fontPath` を空のままにするとOS側の標準日本語フォント（Windowsではmeiryo.ttc等）へフォールバックしますが、アンチエイリアス前提の可変幅フォントを12x12へ強制的に閾値化するため文字が潰れやすく、特にHuCARD向けにはビットマップフォントの使用を推奨します。
 
 組み込みプラグイン **NVプロジェクトのGodotエクスポート** が有効な場合だけ、Novel画面上部に`Godot出力`を表示します。現在のGUI/JSON編集状態からGodotネイティブプレイヤーへ取り込む`*.pcevn.zip`を作成し、ZIP保存が成功した後、その出力に使った同じscene snapshotを`assets/pce-vn-scenes.json`へ保存します。CD-ROM2 / HuCARD VNの両方で利用でき、Sceneと参照中のアセットだけを収録します。画像はPNG/JPEG/WebP、CD-DA/ADPCMはWAV/OGG/MP3の再生可能source（CD-DAは生成WAVを優先）、PSGはpattern metadataを使います。WAVはZIP作成時にOgg Vorbis（VBR quality 4、元のsample rate/channel数を維持）へ変換し、package内の`asset.file`も`.ogg`を指します。既にOGG/MP3のsourceは音質劣化を避けるためbytesをそのまま収録します。manifestは`pce-vn-godot-package` version 2で、`audio.wavTranscode: "ogg-vorbis"`と圧縮前後の統計を持ちます。出力完了ログでもWAVの合計サイズ変化を確認できます。Novelの`フォント`タブで選択中のproject font（`assets/pce-font.json`の`fontPath`）がTTF/OTF/WOFF/WOFF2なら同梱し、Godot側の本文・SpriteText・選択肢・再生UIで優先します。未選択のfont libraryから別のfontを勝手に選ぶことはありません。System Card、IPL、ROM/CUE/ISO、PCE向けtiles/map/pattern/ADPCM binaryは含みません。同じeditor projectから再出力したpackageはGodot側で更新として扱われ、別projectはライブラリに併存します。プラグインをOFFにするとボタンも非表示になります。
 

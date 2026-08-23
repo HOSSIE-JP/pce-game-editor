@@ -28,8 +28,9 @@ const PCE_CD_DATA_BASE_SECTOR = 64;
 const PCE_CD_VN_BANK_HEADROOM_WARN_BYTES = 256;
 const PCE_CD_VN_RESIDENT_BANK_MIN_FREE_BYTES = 1024;
 const PCE_CD_VN_LOGIC_OVERLAY_MIN_FREE_BYTES = 1024;
-const PCE_INCREMENTAL_BUILD_STAMP_VERSION = 3;
+const PCE_INCREMENTAL_BUILD_STAMP_VERSION = 4;
 const PCE_INCREMENTAL_BUILD_STAMP_FILE = path.join('out', 'build-stamp.json');
+const PCE_HUCARD_ROM_MIN_BYTES = 8192;
 const PCE_SLIDESHOW_BUILDER_ID = 'pce-slideshow-builder';
 const PCE_VISUAL_NOVEL_BUILDER_ID = 'pce-visual-novel-builder';
 const PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID = 'pce-visual-novel-hucard-builder';
@@ -530,18 +531,42 @@ function listProjectTemplates() {
     });
 }
 
+function collectProjectDirectories(root) {
+  const projectDirs = [];
+  const pendingDirs = [root];
+
+  while (pendingDirs.length > 0) {
+    const currentDir = pendingDirs.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch (_) {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+      const projectDir = path.join(currentDir, entry.name);
+      if (hasProjectConfig(projectDir)) {
+        projectDirs.push(projectDir);
+        continue;
+      }
+      pendingDirs.push(projectDir);
+    }
+  }
+
+  return projectDirs.sort((left, right) => left.localeCompare(right));
+}
+
 function listProjects() {
   const root = ensureProjectsRootDir();
   const currentProjectDir = path.resolve(getProjectDir());
-  const projects = fs.readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .filter((entry) => hasProjectConfig(path.join(root, entry.name)))
-    .map((entry) => {
-      const projectDir = path.join(root, entry.name);
+  const projects = collectProjectDirectories(root)
+    .map((projectDir) => {
       const cfg = loadProjectConfigFromDir(projectDir);
       return {
         projectDir,
-        projectName: entry.name,
+        projectName: path.basename(projectDir),
         title: cfg.title,
         toolchain: cfg.toolchain,
         targetMedia: cfg.targetMedia,
@@ -596,6 +621,19 @@ function postprocessCc65PceRom(inputPath, outputPath) {
   const output = Buffer.concat([lastBank, rest]);
   fs.writeFileSync(outputPath, output);
   return { inputSize: data.length, outputSize: output.length, rearranged: true };
+}
+
+function normalizePceHuCardRomSize(romPath) {
+  const inputSize = fs.statSync(romPath).size;
+  if (inputSize <= 0) throw new Error(`HuCARD ROM is empty: ${romPath}`);
+  let outputSize = PCE_HUCARD_ROM_MIN_BYTES;
+  while (outputSize < inputSize) outputSize *= 2;
+  if (outputSize === inputSize) {
+    return { inputSize, outputSize, paddingBytes: 0, padded: false };
+  }
+  const paddingBytes = outputSize - inputSize;
+  fs.appendFileSync(romPath, Buffer.alloc(paddingBytes, 0xff));
+  return { inputSize, outputSize, paddingBytes, padded: true };
 }
 
 function resolveCc65Home(toolPath) {
@@ -1865,6 +1903,14 @@ function buildProject(onLog, options = {}) {
           });
           return;
         }
+        const hucardRomInfo = normalizePceHuCardRomSize(commandInfo.romPath);
+        if (hucardRomInfo.padded) {
+          log(`HuCARD ROM size normalized: ${hucardRomInfo.inputSize} -> ${hucardRomInfo.outputSize} bytes (${hucardRomInfo.paddingBytes} bytes padded with 0xFF)`);
+        }
+        romInfo = {
+          ...(romInfo || {}),
+          ...hucardRomInfo,
+        };
         const romSize = fs.existsSync(commandInfo.romPath) ? fs.statSync(commandInfo.romPath).size : 0;
         try {
           writeBuildOutputStamp(projectDir, config, commandInfo);
@@ -1947,6 +1993,7 @@ module.exports = {
   normalizeProjectName,
   normalizeTargetMedia,
   normalizeToolchain,
+  normalizePceHuCardRomSize,
   openProject,
   postprocessCc65PceRom,
   parseLinkMapOutputSections,

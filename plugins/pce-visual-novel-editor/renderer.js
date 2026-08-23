@@ -54,6 +54,8 @@ const DEFAULT_MESSAGE_SPEED_FRAMES = 10;
 const DEFAULT_MESSAGE_AUTO_WAIT_FRAMES = 60;
 const VN_SYSTEM_SETTINGS_EVENT = 'pce-vn-system-settings:changed';
 const VN_PREVIEW_ASSET_MESSAGE_TYPE = 'pce-vn-preview-asset-v1';
+const DEFAULT_IRODORI_VOICE_ID_PREFIX = 'voice';
+const IRODORI_VOICE_ID_PREFIX_RE = /^[A-Za-z0-9_-]{1,48}$/;
 
 // 入力チェックコマンドのボタン定義（runtime の PAD_* と同順・OR 条件用）。
 const INPUT_BUTTONS = [
@@ -5044,6 +5046,62 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
     }
   }
 
+  function askIrodoriVoiceIdPrefix() {
+    return new Promise((resolve) => {
+      const modal = api.createModal({
+        id: `pce-vn-irodori-prefix-${Date.now()}`,
+        panelClassName: 'app-panel app-panel-sm',
+        html: `
+          <div class="page-header modal-header">
+            <h2>音声バッチ出力</h2>
+            <button class="icon-btn" type="button" data-irodori-prefix-cancel>✕</button>
+          </div>
+          <form class="settings-form compact-form pce-vn-irodori-prefix-form" novalidate>
+            <label class="form-group">
+              <span class="form-label">Voice IDプレフィクス</span>
+              <input class="form-input" name="voiceIdPrefix" data-irodori-prefix
+                value="${esc(DEFAULT_IRODORI_VOICE_ID_PREFIX)}" maxlength="48"
+                pattern="[A-Za-z0-9_-]{1,48}" autocomplete="off" spellcheck="false" required />
+            </label>
+            <p class="form-hint">未指定MessageのIDは「プレフィクス_NNNN」で採番します。使用できる文字は英数字・_・-です。</p>
+            <div class="form-error" data-irodori-prefix-error></div>
+            <div class="form-actions-inline modal-actions-end">
+              <button class="btn-sm" type="button" data-irodori-prefix-cancel>キャンセル</button>
+              <button class="btn-primary" type="submit">出力先を決定</button>
+            </div>
+          </form>
+        `,
+      });
+      const form = modal.panel.querySelector('form');
+      const input = modal.panel.querySelector('[data-irodori-prefix]');
+      const error = modal.panel.querySelector('[data-irodori-prefix-error]');
+      let settled = false;
+      const close = (value) => {
+        if (settled) return;
+        settled = true;
+        modal.close();
+        modal.destroy?.();
+        resolve(value);
+      };
+      modal.panel.querySelectorAll('[data-irodori-prefix-cancel]').forEach((button) => {
+        button.addEventListener('click', () => close(null), { once: true });
+      });
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const prefix = String(input.value || '').trim();
+        if (!IRODORI_VOICE_ID_PREFIX_RE.test(prefix)) {
+          error.textContent = 'プレフィクスは英数字・_・-を1〜48文字で指定してください。';
+          input.focus();
+          return;
+        }
+        close(prefix);
+      });
+      modal.open();
+      input.focus();
+      input.select();
+    });
+  }
+
   async function exportIrodoriBatch() {
     const exportButton = root.querySelector('[data-action="export-irodori"]');
     try {
@@ -5058,9 +5116,15 @@ export function activatePlugin({ root, api, logger, registerCapability }) {
       }
       const snapshot = normalizeDoc(doc, assets);
       exportButton.disabled = true;
+      const voiceIdPrefix = await askIrodoriVoiceIdPrefix();
+      if (!voiceIdPrefix) {
+        logger?.info?.('音声バッチ出力をキャンセルしました。');
+        return;
+      }
       const result = await api.electronAPI.exportVnIrodoriBatch({
         doc: snapshot,
         assetIds: assets.map((asset) => asset?.id).filter(Boolean),
+        voiceIdPrefix,
       });
       if (result?.canceled) {
         logger?.info?.('音声バッチ出力をキャンセルしました。');

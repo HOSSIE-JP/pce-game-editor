@@ -1,6 +1,8 @@
 'use strict';
 
 const VOICE_ID_RE = /^[A-Za-z0-9_-]{1,48}$/;
+const DEFAULT_VOICE_ID_PREFIX = 'voice';
+const VOICE_ID_PREFIX_RE = VOICE_ID_RE;
 const MANIFEST_HEADER = [
   'id',
   'speaker_kind',
@@ -26,6 +28,16 @@ const ADPCM_IMPORT_HEADER = [
 
 function normalizeBatchText(value) {
   return String(value == null ? '' : value).replace(/\r\n?/g, '\n').trim();
+}
+
+function normalizeVoiceIdPrefix(value = DEFAULT_VOICE_ID_PREFIX) {
+  const prefix = String(value).trim();
+  if (!VOICE_ID_PREFIX_RE.test(prefix)) {
+    throw new Error(
+      `音声IDプレフィクス "${prefix}" は [A-Za-z0-9_-]{1,48} に一致しません。`,
+    );
+  }
+  return prefix;
 }
 
 function csvEscape(value) {
@@ -107,7 +119,12 @@ function collectMessages(doc = {}) {
   return messages;
 }
 
-function buildIrodoriBatchBundle({ doc = {}, assetIds = [] } = {}) {
+function buildIrodoriBatchBundle({
+  doc = {},
+  assetIds = [],
+  voiceIdPrefix = DEFAULT_VOICE_ID_PREFIX,
+} = {}) {
+  const normalizedVoiceIdPrefix = normalizeVoiceIdPrefix(voiceIdPrefix);
   const messages = collectMessages(doc);
   if (!messages.length) {
     throw new Error('音声バッチへ出力できる有効な Message がありません。');
@@ -130,7 +147,7 @@ function buildIrodoriBatchBundle({ doc = {}, assetIds = [] } = {}) {
 
   const groups = [];
   const groupByKey = new Map();
-  // Narration always owns /output/narrator, even when a character is literally named "narrator".
+  // Narration always owns /output/<prefix>/narrator, even when a character is literally named "narrator".
   const usedFolders = new Set(['narrator']);
   let characterNumber = 0;
   function groupFor(message) {
@@ -144,7 +161,7 @@ function buildIrodoriBatchBundle({ doc = {}, assetIds = [] } = {}) {
         speaker: '',
         outputFolder: 'narrator',
         batchCsv: 'batches/narrator.csv',
-        outputDir: '/output/narrator',
+        outputDir: `/output/${normalizedVoiceIdPrefix}/narrator`,
         jobs: [],
       };
     } else {
@@ -157,7 +174,7 @@ function buildIrodoriBatchBundle({ doc = {}, assetIds = [] } = {}) {
         speaker: message.speaker,
         outputFolder: folder,
         batchCsv: `batches/speaker_${String(characterNumber).padStart(3, '0')}.csv`,
-        outputDir: `/output/${folder}`,
+        outputDir: `/output/${normalizedVoiceIdPrefix}/${folder}`,
         jobs: [],
       };
     }
@@ -169,8 +186,13 @@ function buildIrodoriBatchBundle({ doc = {}, assetIds = [] } = {}) {
   let generatedNumber = 1;
   function nextGeneratedId() {
     while (true) {
-      const id = `voice_${String(generatedNumber).padStart(4, '0')}`;
+      const id = `${normalizedVoiceIdPrefix}_${String(generatedNumber).padStart(4, '0')}`;
       generatedNumber += 1;
+      if (!VOICE_ID_RE.test(id)) {
+        throw new Error(
+          `音声IDプレフィクス "${normalizedVoiceIdPrefix}" から生成したID "${id}" が48文字を超えます。`,
+        );
+      }
       if (reservedIds.has(id)) continue;
       reservedIds.add(id);
       return id;
@@ -230,9 +252,9 @@ function buildIrodoriBatchBundle({ doc = {}, assetIds = [] } = {}) {
   }));
   entries.push({ name: 'manifest.csv', data: encodeCsv(MANIFEST_HEADER, manifestRows) });
   const adpcmRows = Array.from(jobById.values()).map((job) => ({
-    source: `${job.outputFolder}/${job.id}.wav`,
+    source: `${normalizedVoiceIdPrefix}/${job.outputFolder}/${job.id}.wav`,
     id: job.id,
-    name: `voice/${job.outputFolder}/${job.id}`,
+    name: `${normalizedVoiceIdPrefix}/${job.outputFolder}/${job.id}`,
     sampleRate: 8000,
     loop: false,
     splitPolicy: 'auto',
@@ -256,12 +278,15 @@ function buildIrodoriBatchBundle({ doc = {}, assetIds = [] } = {}) {
 module.exports = {
   ADPCM_IMPORT_HEADER,
   MANIFEST_HEADER,
+  DEFAULT_VOICE_ID_PREFIX,
   VOICE_ID_RE,
   baseSpeakerFolder,
+  VOICE_ID_PREFIX_RE,
   buildIrodoriBatchBundle,
   collectMessages,
   csvEscape,
   encodeCsv,
   normalizeBatchText,
   uniqueSpeakerFolder,
+  normalizeVoiceIdPrefix,
 };

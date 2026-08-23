@@ -784,6 +784,7 @@ const preview = await window.electronAPI.readTempFileAsDataUrl(tempWavPath, { de
 ```js
 const result = await window.electronAPI.exportVnIrodoriBatch({
   doc: normalizedSceneDocument,
+  voiceIdPrefix: 'voice', // optional; defaults to 'voice'
   assetIds: assets.map((asset) => asset.id),
 });
 // {
@@ -797,7 +798,7 @@ const result = await window.electronAPI.exportVnIrodoriBatch({
 // }
 ```
 
-IPC channel は `vn:exportIrodoriBatch` です。`doc` からはスキップされていない本文ありの `message` だけを抽出します。既存 `voiceAssetId` は `[A-Za-z0-9_-]{1,48}` を要求し、未指定行には `assetIds` と衝突しない `voice_NNNN` を割り当てます。ZIP は `batches/*.csv`、`manifest.csv`、`output/adpcm-import.csv` を含みます。ADPCM CSV は一意なTTSジョブごとに `source,id,name,sampleRate,loop,splitPolicy` を持ち、相対 `source` は `<speaker-folder>/<id>.wav`、既定変換値は `8000,false,auto` です。低レベルexport API自体はscene documentやasset documentを書き換えませんが、Novel editorの「音声バッチ出力」はZIP保存成功後に、渡した同じscene snapshotを `assets/pce-vn-scenes.json` へ保存します。
+IPC channel は `vn:exportIrodoriBatch` です。`doc` からはスキップされていない本文ありの `message` だけを抽出します。`voiceIdPrefix` は省略可能で既定値は `voice`、`[A-Za-z0-9_-]{1,48}` に一致する必要があります。既存 `voiceAssetId` はそのまま使い、未指定行には `voiceIdPrefix_NNNN` を `assetIds` と衝突しないように割り当てます。`output_dir` は `/output/<voiceIdPrefix>/<speaker-folder>`（ナレーションも同じプレフィクス配下）です。ZIP は `batches/*.csv`、`manifest.csv`、`output/adpcm-import.csv` を含みます。ADPCM CSV は一意なTTSジョブごとに `source,id,name,sampleRate,loop,splitPolicy` を持ち、相対 `source` は `<voiceIdPrefix>/<speaker-folder>/<id>.wav`、既定変換値は `8000,false,auto` です。低レベルexport API自体はscene documentやasset documentを書き換えませんが、Novel editorの「音声バッチ出力」はZIP保存成功後に、渡した同じscene snapshotを `assets/pce-vn-scenes.json` へ保存します。
 
 生成済みADPCMをMessageへ戻す検査APIは次のとおりです。ファイル読込とCSV検査はmain processで行い、sceneの変更・保存はrendererが確認後に行います。
 
@@ -1040,6 +1041,10 @@ CD-ROM2 VN templateはbuilder roleに`pce-visual-novel-builder`を使い、`targ
 CD VNのPSG/font/IRQ契約は`docs/pce-vn-engine-redesign.md`を正とします。`PCE_CDB_USE_PSG_DRIVER(1)`、`PCE_CDB_USE_GRAPHICS_DRIVER(0)`で、generic VSync user vectorが各VBlankに`PSG_DRIVE/$E0E1`を1回呼びます。full graphics handler、HuC6280 TIMER、main-thread credit/catch-upは使用禁止です。`psg-song`はmain/BGM、`psg-sfx`はsub/SFXへコンパイルし、`(assetId, channel)`単位のpackageをbank134/135へdirect async loadします。fontは`EX_GETFNT/$E060`の12×12字形をmessage用maskまたは16×16 hardware sprite patternへon-demand変換し、許可範囲を日本版v3の非漢字領域+JIS第一水準に限定します。起動probe不一致時にfallbackを追加してはいけません。
 
 HuCARD VN template は builder role に `pce-visual-novel-hucard-builder` を使い、`template/template_pce_vn_hucard` から `.pce` だけを生成します。Novel editor の scene JSON と scene-pack command binary layout は CD-ROM2 VN と同じですが、runtime は `template/template_pce_vn_hucard/src/pce_vn_hucard_runtime.c` と `pce-vn-hucard-manager.js` の独立実装です。`pce-cd.h`、`pce-mkcd`、overlay extraction、`cd.dataFiles`、System Card BIOS 経路は使いません。HuCARD VN の generated `src/generated/vn.h` / `vn.c` は scene pack、font mask、spritetext font、PSG pattern を `pce_editor_data_ref_t` として参照し、`pce-asset-manager.generateAssetSources({ extraDataFiles })` の同じ ROM bank allocator に流します。このため HuCARD の 127 ROM bank を超える場合は build error になります。ADPCM / CD-DA audio command、`message.voiceAssetId`、ADPCM cache command は silent no-op で、HuCARD asset output には ADPCM / CD-DA metadata を出しません。PSG は HuCARD 専用の `pce_vn_psg_assets[]` と serialized pattern data を使い、song loop、SFX one-shot、base channel、ch4/ch5 noise、blocking visual/fade work 中の cooperative tick を runtime 側で処理します。HuCARDの12x12 message fontとspritetext fontは、使用glyphの和集合をWindows System.DrawingまたはPython/Pillowへ1回だけ渡してbatch生成し、FFmpegは使用しません。VN生成スタンプは通常Buildでも再利用し、scene/assets/font/runtime入力が同じ場合はfont・scene pack・PSG pattern・`vn.h` / `vn.c`の再生成を省略します。`skipClean` 付き buildでは、さらに`out/build-stamp.json`の最終出力スタンプが一致すれば`.pce`の再リンクも省略します。Test Play は HuCARD ROM (`.pce`) を標準/外部 emulator に渡します。CD-ROM2 VN runtime/template の挙動はこの builder では変更しません。
+
+HuCARD `.pce` はcompile/link後に8KB bank境界の使用量を保ったまま、次の2のべき乗byte数まで`0xFF`でpaddingします。たとえば48 banks（384 KiB）のlink出力は64 banks（512 KiB）になります。非2のべき乗サイズのままでは標準HuCARD mapperで高位bankが正しいROM位置を指さず、banked scene pack・背景・SpriteText fontを誤読するためです。
+
+HuCARD `SpriteText` はslot 0..3のglyph、座標、表示、`blinkFrames`を独立保持し、同じscene内の後続commandは指定slotだけを更新します。scene切替時は全slotを消去します。全slotはSATB tail 16 entriesを共有するため、同時に描画できる改行以外の合計は16 glyphまでです。未使用entryはraw Y=0へ置き、画面下部のSpriteTextと同じscanlineで透明spriteが16-sprites/line制限を消費しないようにします。
 
 HuCARD VN runtime は `SpriteText.blinkFrames` をVBlank単位で処理し、立ち絵のアニメーション／移動と同じSATB転送へ点滅状態をまとめます。`Input` のsync待機とasync監視は別状態で保持し、遷移先ラベルを指定しないsync Inputは入力後に次のcommandから続行します。async監視は後続commandを停止せず、CD-ROM2 / HuCARD / エディタpreviewのすべてで、対応ボタン数と同じ最大7経路を同時に保持できます。後から登録したasync Inputと既存経路のボタンが重なる場合は、そのボタンだけ後の経路を優先します。asyncまたはsyncのいずれかが成立すると、その入力待ちグループに残るsync/async監視をすべて解除してから分岐します。同じボタンをasyncとsyncの両方へ指定した場合はasyncを先に判定し、`cancel`は保持中のasync経路をすべて解除します。
 

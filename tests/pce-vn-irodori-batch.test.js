@@ -59,15 +59,15 @@ test('Irodori batch groups all active messages by speaker and keeps narration', 
   ]);
   assert.equal(
     entryText(bundle, 'batches/speaker_001.csv'),
-    '\ufeffid,text,output_dir\r\nakari_voice_001,"hello,\n""world""",/output/アカリ\r\n',
+    '\ufeffid,text,output_dir\r\nakari_voice_001,"hello,\n""world""",/output/voice/アカリ\r\n',
   );
   assert.equal(
     entryText(bundle, 'batches/narrator.csv'),
-    '\ufeffid,text,output_dir\r\nvoice_0001,ナレーションです。,/output/narrator\r\n',
+    '\ufeffid,text,output_dir\r\nvoice_0001,ナレーションです。,/output/voice/narrator\r\n',
   );
   assert.equal(
     entryText(bundle, 'batches/speaker_002.csv'),
-    '\ufeffid,text,output_dir\r\nvoice_0002,やあ。,/output/ミカ\r\n',
+    '\ufeffid,text,output_dir\r\nvoice_0002,やあ。,/output/voice/ミカ\r\n',
   );
   assert.equal(bundle.manifestRows.length, 4);
   assert.deepEqual(bundle.manifestRows[0], {
@@ -81,14 +81,14 @@ test('Irodori batch groups all active messages by speaker and keeps narration', 
     source_voice_asset_id: 'akari_voice_001',
     id_source: 'existing',
     batch_csv: 'batches/speaker_001.csv',
-    output_dir: '/output/アカリ',
-    output_wav: '/output/アカリ/akari_voice_001.wav',
+    output_dir: '/output/voice/アカリ',
+    output_wav: '/output/voice/アカリ/akari_voice_001.wav',
   });
   assert.equal(bundle.manifestRows[3].id, 'akari_voice_001');
   assert.match(entryText(bundle, 'manifest.csv'), /^\ufeffid,speaker_kind,speaker,scene_id,/);
   assert.deepEqual(bundle.adpcmRows, [
     {
-      source: 'アカリ/akari_voice_001.wav',
+      source: 'voice/アカリ/akari_voice_001.wav',
       id: 'akari_voice_001',
       name: 'voice/アカリ/akari_voice_001',
       sampleRate: 8000,
@@ -96,7 +96,7 @@ test('Irodori batch groups all active messages by speaker and keeps narration', 
       splitPolicy: 'auto',
     },
     {
-      source: 'narrator/voice_0001.wav',
+      source: 'voice/narrator/voice_0001.wav',
       id: 'voice_0001',
       name: 'voice/narrator/voice_0001',
       sampleRate: 8000,
@@ -104,7 +104,7 @@ test('Irodori batch groups all active messages by speaker and keeps narration', 
       splitPolicy: 'auto',
     },
     {
-      source: 'ミカ/voice_0002.wav',
+      source: 'voice/ミカ/voice_0002.wav',
       id: 'voice_0002',
       name: 'voice/ミカ/voice_0002',
       sampleRate: 8000,
@@ -115,9 +115,39 @@ test('Irodori batch groups all active messages by speaker and keeps narration', 
   assert.equal(
     entryText(bundle, 'output/adpcm-import.csv'),
     '\ufeffsource,id,name,sampleRate,loop,splitPolicy\r\n'
-      + 'アカリ/akari_voice_001.wav,akari_voice_001,voice/アカリ/akari_voice_001,8000,false,auto\r\n'
-      + 'narrator/voice_0001.wav,voice_0001,voice/narrator/voice_0001,8000,false,auto\r\n'
-      + 'ミカ/voice_0002.wav,voice_0002,voice/ミカ/voice_0002,8000,false,auto\r\n',
+      + 'voice/アカリ/akari_voice_001.wav,akari_voice_001,voice/アカリ/akari_voice_001,8000,false,auto\r\n'
+      + 'voice/narrator/voice_0001.wav,voice_0001,voice/narrator/voice_0001,8000,false,auto\r\n'
+      + 'voice/ミカ/voice_0002.wav,voice_0002,voice/ミカ/voice_0002,8000,false,auto\r\n',
+  );
+});
+
+test('Irodori batch uses a custom voice ID prefix for generated IDs and output paths', () => {
+  const bundle = buildIrodoriBatchBundle({
+    voiceIdPrefix: 'talk',
+    doc: {
+      scenes: [{
+        id: 's',
+        commands: [
+          { type: 'message', speaker: 'アカリ', text: '新規' },
+          { type: 'message', speaker: 'ミカ', text: '既存', voiceAssetId: 'existing_voice' },
+        ],
+      }],
+    },
+  });
+
+  assert.deepEqual(bundle.manifestRows.map((row) => row.id), ['talk_0001', 'existing_voice']);
+  assert.deepEqual(bundle.manifestRows.map((row) => row.output_dir), [
+    '/output/talk/アカリ',
+    '/output/talk/ミカ',
+  ]);
+  assert.deepEqual(bundle.adpcmRows.map((row) => ({ source: row.source, name: row.name })), [
+    { source: 'talk/アカリ/talk_0001.wav', name: 'talk/アカリ/talk_0001' },
+    { source: 'talk/ミカ/existing_voice.wav', name: 'talk/ミカ/existing_voice' },
+  ]);
+  assert.match(entryText(bundle, 'batches/speaker_001.csv'), /talk_0001,新規,\/output\/talk\/アカリ/);
+  assert.throws(
+    () => buildIrodoriBatchBundle({ voiceIdPrefix: 'bad/prefix', doc: minimalDoc() }),
+    /音声IDプレフィクス/,
   );
 });
 
@@ -143,12 +173,12 @@ test('Irodori batch allocates collision-free generated IDs and safe unique speak
     'voice_0003', 'voice_0004', 'voice_0005', 'voice_0006', 'voice_0007', 'voice_0008',
   ]);
   assert.deepEqual(bundle.manifestRows.map((row) => row.output_dir), [
-    '/output/A_B',
-    '/output/A_B_2',
-    '/output/speaker_CON',
-    '/output/speaker_004',
-    '/output/narrator_2',
-    '/output/narrator',
+    '/output/voice/A_B',
+    '/output/voice/A_B_2',
+    '/output/voice/speaker_CON',
+    '/output/voice/speaker_004',
+    '/output/voice/narrator_2',
+    '/output/voice/narrator',
   ]);
 });
 
@@ -207,6 +237,7 @@ test('Irodori ZIP exporter handles success, cancel, validation, and write failur
   let dialogOptions = null;
   let zippedEntries = null;
   const success = await exportIrodoriBatchZip({
+    voiceIdPrefix: 'batch',
     doc: minimalDoc(),
     defaultPath: 'game_irodori_voice_batches.zip',
     owner: { id: 'window' },
@@ -235,6 +266,7 @@ test('Irodori ZIP exporter handles success, cancel, validation, and write failur
     'manifest.csv',
     'output/adpcm-import.csv',
   ]);
+  assert.match(zippedEntries.find((entry) => entry.name === 'batches/speaker_001.csv').data.toString('utf-8'), /batch_0001,こんにちは,\/output\/batch\/アカリ/);
   assert.deepEqual(writes, [{ filePath: 'C:/out/game.zip', data: 'zip' }]);
 
   let canceledWrite = false;
