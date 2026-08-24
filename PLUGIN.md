@@ -1223,6 +1223,14 @@ window.electronAPI.onPluginLog((payload) => {
 | `pce-font-editor` | フォント | `editor`, `asset` | 内部 | `novel-editor` の Font タブ用モジュール |
 | `pce-kitahe-pm-converter` | 北へ。PhotoMemories 取込 | `converter` | 表示 | Novel toolbarからCD-ROM2 VN用SCR変換modalとmain hooksを提供。有効時だけ`北へ。PM取込`を表示 |
 | `pce-vn-godot-exporter` | NVプロジェクトのGodotエクスポート | `converter` | 表示 | Novel toolbarからGodot package出力とWAV→Ogg Vorbis圧縮を提供。有効時だけ`Godot出力`を表示 |
+| `pce-vn-gb-studio-exporter` | PCE VN GB Studio出力 | `converter` | 表示 | Novel toolbarからGB Studio 4.3.1/4.3.2 mixed-mode project、監査、任意の公式ROM/Web buildを生成。有効時だけ`GB Studio出力`を表示 |
+
+### PCE VN GB Studio exporter hooks
+
+`pce-vn-gb-studio-exporter`は`novel-toolbar-action` capabilityとmain hooks `inspectVnGbStudioExport` / `exportVnGbStudioProject` / `validateVnGbStudioProject`を公開します。rendererはfilesystemへ直接書かず、preflight snapshotと設定をmain hookへ渡します。core APIは`pce-vn-gb-studio-exporter.js`の`inspectGbStudioExport()` / `generateGbStudioProject()` / `validateGbStudioProject()`で、CLIも同じcoreを使用します。公開targetはGB Studio 4.3.1/4.3.2 / engine `4.3.0-e1`です。実行file pathは外側の引用符を除去してから`app.asar`を検査します。
+Electron main processでの検査は`@electron/asar`の抽出APIを使い、Windowsの入れ子entryをnative pathへ正規化します。通常の`fs`でarchive本体を開かないため、ASAR仮想filesystemによる`ENOENT, not found in ...app.asar`を発生させません。
+
+出力は任意projectへのmergeではなくmanifest管理のgenerator-owned projectです。`Color + Monochrome`設定、GBC/DMG二重scene graph、GBC 7 background palettes + UI reserved palette、DMG固定4色/192 tile gate、font page、MODと曲別audit、dialogue直前のproject-local engine pluginをまとめて生成します。生成pluginはGB Studioの公開`ui_load_tiles()`と`ui_set_start_tile(TEXT_BUFFER_START, 0)`を呼び、本文またはChoiceの前にframe tileを再ロードします。CD-DA mappingは`psg-song`または検証済み4ch ProTracker MOD、message voiceは話者別text toneです。sidecar、manifest、diagnostic code、将来Phaseの正本は[docs/pce-vn-gb-studio-exporter.md](docs/pce-vn-gb-studio-exporter.md)です。
 
 ### PCE アセット系
 

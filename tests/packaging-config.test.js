@@ -18,6 +18,7 @@ test('packaging declares main-process runtime dependencies', () => {
 
   assert.equal(pkg.dependencies?.['iconv-lite'], '0.6.3');
   assert.equal(pkg.dependencies?.['@audio/encode-ogg'], '1.2.2');
+  assert.equal(pkg.dependencies?.['@electron/asar'], '3.4.1');
   assert.equal(pkg.devDependencies?.['iconv-lite'], undefined);
   const config = readPackageConfig();
   assert.match(config, /!node_modules\/wasm-media-encoders\/\*\*/);
@@ -65,10 +66,12 @@ test('packaging exposes third-party notices and exact license texts', () => {
   assert.match(config, /from:\s*LICENSE/);
   assert.match(config, /THIRD_PARTY_NOTICES\.md/);
   assert.match(config, /from:\s*licenses/);
+  assert.match(config, /third_party\/\*\*/);
   [
     'LICENSE',
     'THIRD_PARTY_NOTICES.md',
     'licenses/Electron-MIT.txt',
+    'licenses/electron-asar-MIT.txt',
     'licenses/iconv-lite-MIT.txt',
     'licenses/safer-buffer-MIT.txt',
     'licenses/electron-builder-MIT.txt',
@@ -78,6 +81,7 @@ test('packaging exposes third-party notices and exact license texts', () => {
     'licenses/swc-helpers-Apache-2.0.txt',
     'licenses/libogg-1.3.4-BSD.txt',
     'licenses/libvorbis-1.3.7-BSD.txt',
+    'third_party/misaki-font/LICENSE.txt',
   ].forEach((file) => {
     assert.equal(fs.existsSync(path.join(root, file)), true, `missing ${file}`);
   });
@@ -89,8 +93,10 @@ test('packaging exposes third-party notices and exact license texts', () => {
   assert.equal(pkg.license, 'MIT');
   assert.match(appLicense, /MIT License[\s\S]*Copyright \(c\) 2026 HOSSIE/);
   assert.ok(notices.includes(`| Electron | ${pkg.devDependencies.electron} |`));
+  assert.ok(notices.includes(`| @electron/asar | ${pkg.dependencies['@electron/asar']} |`));
   assert.ok(notices.includes(`| iconv-lite | ${pkg.dependencies['iconv-lite']} |`));
   assert.ok(notices.includes(`| @audio/encode-ogg | ${pkg.dependencies['@audio/encode-ogg']} |`));
+  assert.match(notices, /\| Misaki Gothic \| 2021-05-05 \|/);
 });
 
 test('packaging has no legacy MD emulator or md-api plugin', () => {

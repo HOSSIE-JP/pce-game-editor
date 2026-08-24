@@ -50,6 +50,8 @@ CD-ROM2出力は市販ソフトと同じ基本構造に固定しています。T
 
 Novel画面の `Godot出力` は、組み込みプラグイン **NVプロジェクトのGodotエクスポート** が有効な場合だけ表示され、CD-ROM2 / HuCARD VNのどちらでも利用できます。現行Scene JSON、参照中の元画像・プレビュー可能音声・PSG metadata、任意のproject fontを、Godotネイティブプレイヤー用の `*.pcevn.zip` へまとめます。参照中のCD-DA/ADPCM再生用WAVは出力時にOgg Vorbis（VBR quality 4）へ圧縮し、既存のOGG/MP3は再エンコードしません。出力ログにはWAV圧縮前後の合計サイズを表示します。Godot Playerのワイド画面枠は、配布側の`package/library.json`にあるトップレベル`border`で指定します。シナリオZIPには枠画像を同梱しません。これはROM/CUE/ISOのExportとは独立しており、System Card、IPL、EmulatorJS、実機向け変換済みbinaryは含めません。
 
+Novel画面の `GB Studio出力` は、組み込みプラグイン **PCE VN GB Studio出力** が有効な場合だけ表示されます。PCE VN v2のBG、本文、2択、scene/label分岐、変数・IF/Switch/GOTO/Input、PSG BGMを、GB Studio 4.3.1/4.3.2・engine `4.3.0-e1`用のgenerator-owned projectへ変換します。出力は起動時にGBC/DMG用scene graphを選ぶ`Color + Monochrome`単一ROMです。GBC背景は最大7 palette・tileごと最大4色、DMG背景は固定4色・最大192 unique tileへ変換します。既定fontは組み込みMisaki Gothic 8x8で、BDF/TTF/OTF/TTCも選択できます。立ち絵など列挙された視覚装飾だけは確認後に省略できますが、本文・分岐・状態・BGMは未解決のまま生成しません。CD-DAは登録済みPSG曲または4ch ProTracker MODへの明示mappingが必要です。`生成＋公式build`ではGB Studio本体の通常Export経路でROMとWebを作り、warningとROMのmixed-mode headerも検査します。詳細と将来Phaseは[GB Studio exporter仕様](docs/pce-vn-gb-studio-exporter.md)を参照してください。
+
 ## テスト
 
 ```sh
@@ -68,6 +70,7 @@ PCE 関連の基本回帰テストは `tests/run-tests.js` から実行されま
 - [CD VN System Card BIOS Design](docs/pce-vn-engine-redesign.md): IRQ、PSG package、Shift-JIS scene/font契約。
 - [CD VN Memory Strategy](docs/pce-memory-bank-strategy.md): bank123/128-135とlink-map gate。
 - [CD-ROM2 VN Large Project Limits](docs/pce-vn-large-project-limits.md): 大規模catalogの正式上限、payload pack、個別制約。
+- [PCE VN GB Studio Exporter](docs/pce-vn-gb-studio-exporter.md): GB/GBC mixed ROM変換、制約、CLI、監査、将来Phase。
 - [Implementation Audit (2026-07-10)](docs/implementation-audit-2026-07-10.md): 実装と文書の照合結果、残存互換層、潜在課題、次の作業計画。
 
 `refactor-instructions*.md`、`docs/refactor-report.md`、`docs/tasks/`、`*-handoff.md`、`*-phase*.md` は、その時点の作業指示・調査結果・移行記録です。現行仕様の入口にはせず、記述が競合する場合は現行コード、上記の利用者/開発者向け文書、`AGENTS.md` の順に確認してください。

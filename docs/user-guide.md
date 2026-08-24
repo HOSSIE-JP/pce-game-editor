@@ -71,6 +71,15 @@ PC Engine の色は各チャンネル3bitの512色マスターパレットから
 
 `Novel` プラグインの `スクリプト` タブは VN シーンをコマンド単位で編集します。Scenes 一覧はドラッグ＆ドロップで順番を入れ替えられます。シーン名はヘッダの Name で編集でき、`chapter/opening` のように `/` で区切ると Scenes 一覧ではグループ見出しと leaf 名に分けて表示します。シーンの ID はヘッダの `ID` で変更できます。**開始シーン（runtime が最初に表示するシーン）は Scenes 一覧の各シーン右側にある ★ ボタンで選びます**。開始シーンの ★ は金色で点灯し、別シーンの ☆ をクリックするとそのシーンが開始シーンになり、以前の指定は自動で解除されます（開始シーンは常に 1 つ必要なため、点灯中の ★ をクリックして解除することはできません）。ID 変更時は `Jump` / `Choice` / `nextSceneId` / `startScene` の参照もエディタ側で更新します。グループ見出しはアコーディオンとして開閉でき、折りたたんだ階層のシーンは一覧から一時的に隠せます。Commands パネルも Commands ヘッダ行のクリックで折りたため、閉じると Scenes 一覧が縦に広がります。`Jump` などの参照は安定した scene `id` を使うため、名前を変えても遷移先は壊れません。中央のコマンド一覧では、各コマンド行の右側にアイコンボタンが並びます。
 
+### GB Studio出力
+
+組み込みプラグイン **PCE VN GB Studio出力** を有効にすると、Novel toolbarへ`GB Studio出力`が表示されます。CD-ROM2 / HuCARDのどちらもVN v2 `commands`を入力にできます。最初にGB Studio 4.3.1または4.3.2の実行file、空の出力folder、fontを選択し、`Preflight`を実行してください。engineは`4.3.0-e1`に固定され、違う版では停止します。fontの既定・推奨は組み込みMisaki Gothic 8x8です。BDF/TTF/OTF/TTCも選択でき、成功時にproject内へportable copyを保存します。
+Windowsでは展開folder直下の`gb-studio.exe`を指定します。検出器が同階層の`resources/app.asar`をElectron対応の方法で検査するため、`app.asar`自体を選ぶ必要はありません。
+
+CD-DAごとに登録済み`psg-song`またはGB Studio対応4ch ProTracker MODを指定します。独立したADPCM/PSG SFXはtone代替または明示省略を選びます。`message.voiceAssetId`は個別指定を要求せず、話者名から決定した安定frequencyのtext toneへ自動置換され、全件が`build/qa/conversion-audit.json`へ残ります。sprite/spritemoveと一部の視覚effectは列挙内容を確認した場合だけ省略できます。分岐・状態・本文・BGM、壊れた参照、未知commandは省略できません。targetなしasync Inputは、直後のWaitの早送り、または後続sync Inputの通常継続へ接続できる場合に変換され、どの入力経路でも同groupのcallbackを遷移前にすべて解除します。warningがある場合は曲別drop/transpose、低階調画像、視覚省略を確認してcheckboxをONにします。
+
+`生成＋静的検証`はgenerator-owned GB Studio projectだけを生成します。`生成＋公式build成果物必須`はさらに隔離profileの選択版で通常のROM/Web Exportを実行し、warning 0件、ROM CGB flag `0x80`、Web `index.html`を必須にします。出力先は空folderか同じsourceから作ったmanifest付きfolderだけを使えます。再生成時はowned fileだけをbackup・更新し、任意の既存GB Studio projectへmergeしません。設定はPCE projectの`assets/pce-vn-gb-studio-export.json`、所有権は出力rootの`pce-vn-gb-studio-export.manifest.json`、背景/BGM/変換監査は`build/qa/`へ保存されます。立ち絵、複数portrait、完全SFX、4.3系以外のGB Studio版、既存project merge、全分岐自動playthroughなどの次段階は[pce-vn-gb-studio-exporter.md](pce-vn-gb-studio-exporter.md)を参照してください。
+
 CD VN runtime は `nextSceneId` を入力待ちではなく自動遷移として扱います。コマンドを持たない中継シーンや `Jump` だけのシーンが連続していても、`Message` / `Choice` / `Wait` / 同期待機命令へ到達するまで同じ送り操作の中で継続するため、暗転用の中継シーンごとに追加のボタン入力は必要ありません。
 
 ヘッダの `GUI` / `JSON` 切り替えで、同じシーンデータをフォーム編集または JSON テキスト編集で扱えます。`JSON` モードでは `assets/pce-vn-scenes.json` と同じ `version` / `settings` / `startScene` / `scenes` 構造を直接編集します。保存、プレビュー、GUI へ戻る操作では JSON を読み込んで既存ルールで正規化するため、未登録 asset 参照、範囲外の数値、存在しない scene / label 参照は GUI と同じ扱いで補正されます。JSON として読めない場合は保存せず、エラー位置を表示します。

@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@audio/encode-ogg": "1.2.2",
+    "@electron/asar": "3.4.1",
     "iconv-lite": "0.6.3"
   }
 }

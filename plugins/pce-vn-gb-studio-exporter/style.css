@@ -1,0 +1,12 @@
+.pce-gb-export-panel { width: min(920px, 94vw); max-height: 90vh; overflow: auto; }
+.pce-gb-export-grid { display: grid; grid-template-columns: 170px 1fr auto; gap: 10px; align-items: center; }
+.pce-gb-export-grid input, .pce-gb-export-grid select { min-width: 0; width: 100%; }
+.pce-gb-export-checks { display: grid; gap: 8px; margin: 14px 0; }
+.pce-gb-export-mappings { display: grid; gap: 8px; margin: 12px 0; }
+.pce-gb-export-mapping { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr); gap: 8px; align-items: center; }
+.pce-gb-export-diagnostics { max-height: 220px; overflow: auto; padding: 8px; background: var(--surface-inset, rgba(0,0,0,.14)); border-radius: 4px; }
+.pce-gb-export-diagnostic { margin: 0 0 6px; }
+.pce-gb-export-diagnostic[data-severity="error"] { color: var(--danger, #ff8080); }
+.pce-gb-export-diagnostic[data-severity="warning"] { color: var(--warning, #ffd080); }
+.pce-gb-export-summary { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+.pce-gb-export-summary span { padding: 3px 7px; border-radius: 12px; background: var(--surface-inset, rgba(0,0,0,.14)); }

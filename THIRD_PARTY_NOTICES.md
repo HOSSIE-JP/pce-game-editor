@@ -10,6 +10,7 @@ their respective components.
 | Component | Version | License | Included notice |
 | --- | --- | --- | --- |
 | Electron | 41.3.0 | MIT | `licenses/Electron-MIT.txt` |
+| @electron/asar | 3.4.1 | MIT | `licenses/electron-asar-MIT.txt` |
 | iconv-lite | 0.6.3 | MIT | `licenses/iconv-lite-MIT.txt` |
 | safer-buffer | 2.1.2 | MIT | `licenses/safer-buffer-MIT.txt` |
 | @audio/encode-ogg | 1.2.2 | MIT | `licenses/audio-encode-ogg-MIT.txt` |
@@ -17,11 +18,19 @@ their respective components.
 | @swc/helpers (bundled helpers) | 0.5.23 | Apache-2.0 | `licenses/swc-helpers-Apache-2.0.txt` |
 | libogg | 1.3.4 | BSD-style | `licenses/libogg-1.3.4-BSD.txt` |
 | libvorbis | 1.3.7 | BSD-style | `licenses/libvorbis-1.3.7-BSD.txt` |
+| Misaki Gothic | 2021-05-05 | Misaki Font License | `third_party/misaki-font/LICENSE.txt` |
 
 Electron distributions also include `LICENSE.electron.txt` and
 `LICENSES.chromium.html`. Those files contain the Electron notice and the
 notices for Chromium, Node.js, FFmpeg, and other projects incorporated into
 the Electron runtime. They must remain with the distributed application.
+
+Misaki Gothic is embedded as the recommended 8x8 Japanese bitmap font for the
+PCE VN GB Studio exporter. Copyright (C) 2002-2021 Num Kadoma. The original
+license grants unlimited permission to use, copy, and distribute the fonts,
+with or without modification, commercially or noncommercially, without
+warranty. The unmodified license and version history are retained at the path
+shown above; generated GB Studio projects also receive a copy.
 
 `@audio/encode-ogg` contains the Ogg-only WebAssembly bridge used by the Godot
 package exporter. It incorporates the listed wasm-media-encoders and SWC helper

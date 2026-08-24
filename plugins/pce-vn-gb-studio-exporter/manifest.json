@@ -1,0 +1,20 @@
+{
+  "id": "pce-vn-gb-studio-exporter",
+  "name": "PCE VN GB Studio出力",
+  "description": "PCE Visual NovelをGB Studio 4.3.1/4.3.2のColor + Monochrome単一ROM projectへ変換します。",
+  "version": "1.1.1",
+  "icon": "download",
+  "types": ["converter"],
+  "supportedCores": ["pc-engine"],
+  "hooks": ["inspectVnGbStudioExport", "exportVnGbStudioProject", "validateVnGbStudioProject"],
+  "permissions": ["project.read", "project.write", "dialog.openFile", "main.invokeHook"],
+  "mainApi": {
+    "hooks": ["inspectVnGbStudioExport", "exportVnGbStudioProject", "validateVnGbStudioProject"],
+    "capabilities": ["vn-gb-studio-exporter", "novel-toolbar-action"]
+  },
+  "renderer": {
+    "entry": "renderer.js",
+    "styles": ["style.css"],
+    "capabilities": ["vn-gb-studio-exporter", "novel-toolbar-action"]
+  }
+}

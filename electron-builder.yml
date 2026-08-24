@@ -9,6 +9,7 @@ files:
   - LICENSE
   - THIRD_PARTY_NOTICES.md
   - licenses/**
+  - third_party/**
   - renderer/**
   - build/icon.png
   - build/icon.ico

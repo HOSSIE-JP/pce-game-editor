@@ -52,6 +52,7 @@ loadAppConfig(require('../app.config'));
   'pce-vn-irodori-assign.test.js',
   'pce-vn-irodori-batch.test.js',
   'pce-vn-godot-package.test.js',
+  'pce-vn-gb-studio-exporter.test.js',
   'pce-vn-cd-data-files.test.js',
   'pce-vn-cd-catalog.test.js',
   'pce-vn-scene-pack.test.js',

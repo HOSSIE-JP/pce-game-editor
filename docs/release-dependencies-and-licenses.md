@@ -17,6 +17,7 @@ PCE Game Editor が再配布する第三者コンポーネントを分離した�
 | CD-ROM2 Build | `llvm-mos-sdk`、ユーザー所有 IPL。Windows の `pce-mkcd.exe` は下記 MinGW DLL も必要 |
 | CD-ROM2 標準 Test Play | 上記 Build 要件、`EmulatorJS` / `mednafen_pce`、日本版 Super System Card 3.0 ROM |
 | CD-ROM2 外部 Test Play | 上記 Build 要件、日本版 Super System Card 3.0 ROM、任意の外部エミュレーター |
+| PCE VN GB Studio出力 | GB Studio 4.3.1 / engine `4.3.0-e1`。公式build modeでは指定した本体を隔離profileで起動 |
 
 System Card ROM は CD-ROM2 のビルド自体には使わず、Test Play 前の
 profile 検証とエミュレーター起動にだけ使います。IPL、System Card、
@@ -99,6 +100,23 @@ HuCard VN には Python 3 + Pillow を推奨します。CD VN の本文/SpriteTe
 は System Card `EX_GETFNT` を使い、この依存はありません。FFmpeg と
 Superfamiconv は使用しません。
 
+### GB Studio exporterとMisaki Gothic
+
+`pce-vn-gb-studio-exporter`はユーザーが指定したGB Studio 4.3.1の
+`app.asar` metadataとengine versionを読み、公式build modeだけ本体を隔離profileで
+起動します。GB Studio本体やengine sourceをPCE Game Editorへコピー・再配布しません。
+ユーザー指定の外部ProTracker MODとcustom fontも、変換成功後にPCE project内へ
+portable copyを保存しますが、その素材の権利とライセンスはユーザー側に残ります。
+
+既定fontのMisaki Gothic 8x8は2021-05-05版、Copyright (C) 2002-2021
+Num Kadomaです。組み込みBDF sourceのSHA-256は
+`28a8745552c844f7c73f11bdf4470225f5e08645a98c5404b2e25bb326a5cabd`、
+原文licenseのSHA-256は
+`82929cc3b34c79b6a67f21fe137c7bb165589c9e34ba1441611e493afd67dfca`です。
+原文は`third_party/misaki-font/LICENSE.txt`へ保持します。利用・複製・改変・商用を含む
+再配布が無制限に許可され、無保証です。desktop packageと生成GB Studio projectの双方へ
+licenseを同梱します。配布元として原文記載の`http://littlelimit.net/`を保持します。
+
 ## アプリに同梱する内部依存
 
 PCE Game Editor本体はCopyright (c) 2026 HOSSIEのMIT Licenseです。
@@ -112,6 +130,7 @@ GitHubでのソース公開、デスクトップアプリ配布、MIT Licenseの
 | Component | Version | 用途 | License / 対応 |
 | --- | --- | --- | --- |
 | Electron | 41.3.0 | desktop runtime | MIT。配布物の `LICENSE.electron.txt` と `LICENSES.chromium.html` を保持 |
+| @electron/asar | 3.4.1 | GB Studio本体のversion/engine metadata検査 | MIT。`licenses/electron-asar-MIT.txt`を同梱 |
 | iconv-lite | 0.6.3 | Shift-JIS encode | MIT。`licenses/iconv-lite-MIT.txt` を同梱 |
 | safer-buffer | 2.1.2 | iconv-lite の runtime dependency | MIT。`licenses/safer-buffer-MIT.txt` を同梱 |
 | @audio/encode-ogg | 1.2.2 | Godot package用Ogg Vorbis encode | MIT。`licenses/audio-encode-ogg-MIT.txt` を同梱 |
@@ -119,6 +138,7 @@ GitHubでのソース公開、デスクトップアプリ配布、MIT Licenseの
 | @swc/helpers | 0.5.23 | encode-oggへbundleされたJS helper | Apache-2.0。`licenses/swc-helpers-Apache-2.0.txt` を同梱 |
 | libogg | 1.3.4 | Ogg container encode（WASMへ静的組込） | BSD-style。`licenses/libogg-1.3.4-BSD.txt` を同梱 |
 | libvorbis | 1.3.7 | Vorbis encode（WASMへ静的組込） | BSD-style。`licenses/libvorbis-1.3.7-BSD.txt` を同梱 |
+| Misaki Gothic | 2021-05-05 | GB Studio exporter既定8x8日本語font | Misaki Font License。`third_party/misaki-font/LICENSE.txt`を同梱 |
 | electron-builder | 26.8.1 | package作成時だけ | MIT。runtimeには入らない。source/build配布向けにlicenseを保持 |
 
 独自実装の PNG/BMP/WebP 変換、PCM WAV/ADPCM、MIDI/VGM parser、ZIP writer は
