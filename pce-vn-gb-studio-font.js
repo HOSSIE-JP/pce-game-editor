@@ -10,18 +10,20 @@ const SAFE_CODES = Object.freeze(Array.from({ length: 224 }, (_, index) => index
 const DEFAULT_FONT = 'builtin:misaki-gothic-8x8';
 
 function parseBdf(text) {
-  const glyphs = new Map(); let current = null; let inBitmap = false;
+  const glyphs = new Map(); let current = null; let inBitmap = false; let fontAscent = 8;
   for (const rawLine of String(text || '').split(/\r?\n/)) {
     const line = rawLine.trim();
-    if (line.startsWith('STARTCHAR ')) { current = { encoding: -1, width: 8, height: 8, x: 0, y: 0, rows: [] }; inBitmap = false; }
+    if (!current && line.startsWith('FONTBOUNDINGBOX ')) { const values = line.slice(16).trim().split(/\s+/).map(Number); if (Number.isFinite(values[1]) && Number.isFinite(values[3])) fontAscent = values[1] + values[3]; }
+    else if (!current && line.startsWith('FONT_ASCENT ')) { const value = Number(line.slice(12).trim()); if (Number.isFinite(value)) fontAscent = value; }
+    else if (line.startsWith('STARTCHAR ')) { current = { encoding: -1, width: 8, height: 8, x: 0, y: 0, rows: [] }; inBitmap = false; }
     else if (!current) continue;
     else if (line.startsWith('ENCODING ')) current.encoding = Number(line.slice(9).trim());
     else if (line.startsWith('BBX ')) { const values = line.slice(4).trim().split(/\s+/).map(Number); [current.width, current.height, current.x, current.y] = values; }
     else if (line === 'BITMAP') inBitmap = true;
     else if (line === 'ENDCHAR') {
       if (current.encoding >= 0) {
-        const bitmap = new Array(64).fill(0); const rowOffset = Math.max(0, 8 - current.height - Math.max(-1, current.y));
-        current.rows.slice(0, current.height).forEach((hex, row) => { const bytes = Buffer.from(hex.length % 2 ? `0${hex}` : hex, 'hex'); for (let x = 0; x < Math.min(8, current.width); x += 1) { const bit = (bytes[Math.floor(x / 8)] || 0) & (0x80 >> (x % 8)); const dx = x + Math.max(0, current.x); const dy = row + rowOffset; if (bit && dx >= 0 && dx < 8 && dy >= 0 && dy < 8) bitmap[dy * 8 + dx] = 1; } });
+        const bitmap = new Array(64).fill(0); const rowOffset = fontAscent - current.y - current.height;
+        current.rows.slice(0, current.height).forEach((hex, row) => { const bytes = Buffer.from(hex.length % 2 ? `0${hex}` : hex, 'hex'); for (let x = 0; x < Math.min(8, current.width); x += 1) { const bit = (bytes[Math.floor(x / 8)] || 0) & (0x80 >> (x % 8)); const dx = x + current.x; const dy = row + rowOffset; if (bit && dx >= 0 && dx < 8 && dy >= 0 && dy < 8) bitmap[dy * 8 + dx] = 1; } });
         glyphs.set(String.fromCodePoint(current.encoding), bitmap);
       }
       current = null; inBitmap = false;

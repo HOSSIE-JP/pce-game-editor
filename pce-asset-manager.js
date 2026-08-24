@@ -1535,12 +1535,18 @@ function regenerateVisualGeneratedAsset(projectDir, asset) {
   });
 }
 
+function ensureVisualGeneratedAsset(projectDir, asset, options = {}) {
+  if (!asset || (asset.type !== 'image' && asset.type !== 'sprite')) return asset;
+  const needsRefresh = asset.type === 'image'
+    ? backgroundGeneratedAssetNeedsRefresh(projectDir, asset)
+    : spriteGeneratedAssetNeedsRefresh(projectDir, asset);
+  return options.force || needsRefresh ? regenerateVisualGeneratedAsset(projectDir, asset) : asset;
+}
+
 function ensureVisualGeneratedAssets(projectDir, doc, options = {}) {
   let changed = false;
   doc.assets = (doc.assets || []).map((asset) => {
-    if (asset.type !== 'image' && asset.type !== 'sprite') return asset;
-    if (!options.force && !backgroundGeneratedAssetNeedsRefresh(projectDir, asset) && !spriteGeneratedAssetNeedsRefresh(projectDir, asset)) return asset;
-    const regenerated = regenerateVisualGeneratedAsset(projectDir, asset);
+    const regenerated = ensureVisualGeneratedAsset(projectDir, asset, options);
     if (regenerated !== asset) changed = true;
     return regenerated;
   });
@@ -1566,6 +1572,7 @@ function importImage(projectDir, payload = {}, options = {}) {
   const id = importTarget.id;
   const kitahePm = importTarget.provenance;
   const sourceSubdir = kind === 'sprite' ? 'assets/sprites' : 'assets/images';
+  const highQualitySubdir = kind === 'sprite' ? 'assets/sprites-hd' : 'assets/images-hd';
   const storedExt = payload.convertedDataUrl ? '.png' : sourceExt;
   const sourceRel = normalizeRelativePath(path.join(sourceSubdir, `${id}${storedExt}`));
   const { absPath: destAbs } = resolveUnderRoot(projectDir, sourceRel, 'project');
@@ -1578,6 +1585,17 @@ function importImage(projectDir, payload = {}, options = {}) {
     fs.writeFileSync(destAbs, decoded.buffer);
   } else if (sourceAbs) {
     fs.copyFileSync(sourceAbs, destAbs);
+  }
+  let highQualitySourceRel = '';
+  if (payload.highQualityDataUrl) {
+    highQualitySourceRel = normalizeRelativePath(path.join(highQualitySubdir, `${id}.png`));
+    const { absPath: highQualityDestAbs } = resolveUnderRoot(projectDir, highQualitySourceRel, 'project');
+    const decoded = decodeDataUrl(payload.highQualityDataUrl);
+    if (decoded.mime && decoded.mime !== 'image/png') {
+      throw new Error('high quality image must be PNG');
+    }
+    ensureDirSync(path.dirname(highQualityDestAbs));
+    fs.writeFileSync(highQualityDestAbs, decoded.buffer);
   }
   const imageSize = readImageSize(destAbs);
   const baseAsset = normalizeAsset({
@@ -1612,6 +1630,7 @@ function importImage(projectDir, payload = {}, options = {}) {
         originalFileName: sourceName,
         importedAt: new Date().toISOString(),
         converter: PCE_INTERNAL_IMAGE_CONVERTER,
+        ...(highQualitySourceRel ? { highQualitySource: highQualitySourceRel } : {}),
         ...(kitahePm ? { kitahePm } : {}),
       },
     },
@@ -4702,6 +4721,8 @@ module.exports = {
   deleteAsset,
   decodePngImage,
   ensureAssetFile,
+  ensureVisualGeneratedAsset,
+  ensureVisualGeneratedAssets,
   generateAssetSources,
   getAssetFilePath,
   inspectAdpcmBatch,

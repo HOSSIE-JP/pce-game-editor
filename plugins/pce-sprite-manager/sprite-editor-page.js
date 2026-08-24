@@ -1122,6 +1122,7 @@ export async function activatePlugin({ plugin, root, api, logger, registerCapabi
         sourcePath: picked.sourcePath,
         sourceFileName: picked.fileName,
         convertedDataUrl: converted.convertedDataUrl || '',
+        highQualityDataUrl: converted.highQualityDataUrl || '',
         kind: 'sprite',
         id: details.id,
         name: details.name,

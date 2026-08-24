@@ -102,7 +102,7 @@ ASAR対応`fs`を迂回する抽出APIとWindows native entry pathを使い、ar
 
 | mode | 内容 |
 |---|---|
-| Project生成 | 4.3.1/4.3.2とengineを検証し、project、resource、独自plugin、監査fileを生成する。ROM buildは行わない |
+| Project生成 | 4.3.1/4.3.2とengineを検証し、project、resource、監査fileを生成する。ROM buildは行わない |
 | 生成＋検証 | Project生成に加え、隔離profileの選択版でROM/Webを公式出力して成果物を検査する |
 
 GB Studio本体、engine source、公式`ui.c`をPCE Game Editorへ同梱しません。
@@ -158,12 +158,13 @@ cancel、error、signature差分では、出力project、scene document、sideca
 再出力で上書きできるのは、出力rootのmanifestが次を満たす場合だけです。
 
 - formatとversionが対応している
-- source project identityが一致する
+- source project identityが一致する。ただしexporter 1.1.0/1.1.1だけは、source signatureが完全一致する場合に限り現行identityへ一度再結合できる
 - exporter IDが一致する
 - owned pathsが列挙されている
 - 解決後の各owned pathが選択された出力root内にある
 
-manifestのないdirectory、別sourceの出力、所有外fileとの衝突はerrorです。再帰削除の
+manifestのないdirectory、別sourceの出力、所有外fileとの衝突はerrorです。再生成で不要になった
+owned fileを削除した後は、generator-owned出力の空`plugins` directoryも除去します。再帰削除の
 対象を未解決path、環境変数、globから作りません。
 
 ## Preflight UI
@@ -264,7 +265,7 @@ DMG sceneからGBC sceneへのedgeはvalidation errorです。
 | PCE VN入力 | GB Studio 4.3.1/4.3.2出力 | 契約 |
 |---|---|---|
 | `background` | mode別backgroundを持つscene segment | background変更点でscene分割。通常/全面とfadeを反映 |
-| `message` | dialogue準備event、font選択、文字音、`EVENT_TEXT` | 本文と話者を欠落させない |
+| `message` | 標準`EVENT_SET_DIALOGUE_FRAME`、font選択、文字音、`EVENT_TEXT` | 本文と話者を欠落させない |
 | 2択`choice` | font選択、`EVENT_CHOICE`、値設定、mode内scene switch | 2 labelを同一font pageへ置く。値とtargetを保持 |
 | `jump` | mode内scene switch | target存在と到達性を検査 |
 | `nextSceneId` | segment末尾のmode内scene switch | 明示jump/choiceがあれば二重生成しない |
@@ -284,7 +285,8 @@ DMG sceneからGBC sceneへのedgeはvalidation errorです。
 `inputcheck`はtitleを含む全sceneで変換します。targetありasyncは指定labelへ、targetなしasyncは
 直後の`wait`を早送りする経路、または後続sync inputの通常継続へ接続します。たとえば
 targetなしA/RUN、targetあり右、sync左を並べた3経路では、A/RUNがsync直後の通常flow、右と左が
-各labelへ進みます。いずれかが成立した時点で同じ入力待ちgroupをすべて解除します。
+各labelへ進みます。このselector形式は3経路すべてをscene-local callbackへ変換し、末尾の
+`EVENT_IDLE`で非ブロッキング待機します。いずれかが成立した時点で同じ入力待ちgroupをすべて解除します。
 
 ## MVPでの省略とerror
 
@@ -344,6 +346,9 @@ exportごとにfont選択画面を表示します。
 - custom BDF
 - custom TTF/OTF
 
+組み込みMisakiは8×8のまま使用します。BDF glyphの配置は`FONT_ASCENT`と`BBX`の
+Y offsetからbaselineを算出し、7px高などのglyphを下端で切り落とさないようにします。
+
 custom fontは出力前に全文字を8×8でrasterizeし、native-size contact sheetを作ります。
 潰れ、欠け、空glyphを自動検出できない場合もvisual確認を要求します。外部fontの絶対pathは
 sidecarや出力manifestへ保存せず、出力へ含めるfont byteとlicenseのhashだけを記録します。
@@ -363,6 +368,12 @@ GB Studio 4.3.x用pageではbyte `32..255`に対応する224 physical slotsを�
 変えてはいけません。各message、choice labelの先頭へ`!F:<font-id>!`を付け、compilerのUnicode
 encodingとruntime page選択を一致させます。
 
+GB Studio 4.3.xのfont compilerは、resourceの`.png.gbsres`にある`mapping`ではなく、PNGと
+同じbasenameの`page_NN.json`を直接読みます。エクスポーターは各pageについてPNG、`.png.gbsres`、
+隣接`.json`を同じmappingから生成し、sidecar欠落・mapping不一致・Message/Choiceのinline font
+参照欠落をstatic validation errorにします。`.png.gbsres`だけを生成しても公式buildは成功し得ますが、
+日本語は正しい1-byte codeへ符号化されないため受入不可です。
+
 次はerrorです。
 
 - fontに存在しないvisible文字
@@ -372,24 +383,12 @@ encodingとruntime page選択を一致させます。
 
 不明文字を`□`へ自動置換しません。本文欠落禁止の契約を優先します。
 
-### 独自dialogue準備plugin
+### dialogue frameの再設定
 
-GB Studio 4.3.1/4.3.2の公式`ui.c`は複製・patchしません。公開される`ui_load_tiles()`と
-`ui_set_start_tile(TEXT_BUFFER_START, 0)`を呼ぶ独自のengine pluginとcustom eventを
-生成します。各framed Message/Choiceの直前で次の動作を行います。
-
-- UI frame tileを再ロード
-- text tileを`TEXT_BUFFER_START` bank 0へ戻す
-
-pluginのC実装、event compiler、manifestは独自に記述し、engine versionを
-`4.3.0-e1`へ固定します。両対応版で必要symbolが存在することをexport前に検証します。
-このeventが欠落したMessage/Choiceをstatic validatorでerrorにします。
-
-## 背景変換
-
-source masterと変換結果を別fileとして保持します。PCE向けgenerated tile/palette binaryを
-GBC sourceとして使わず、登録assetの元画像をproject root内から読みます。project外path、
-missing file、path traversalを拒否します。
+各framed Message/Choiceの直前でGB Studio 4.3.1/4.3.2標準の
+`EVENT_SET_DIALOGUE_FRAME`を発行し、空の`tilesetId`で既定frame tileを再転送します。
+project-local engine pluginやnative C helperは生成しません。標準eventが欠落した
+Message/Choiceをstatic validatorでerrorにします。
 
 ### 構図
 
@@ -557,8 +556,6 @@ mappingなしはerrorです。loop CD-DAやBGM指定のcueを`omit non-BGM`へ�
     backgrounds/pce-vn/dmg/*.png
     fonts/pce-vn/*.png
     music/pce-vn/*.mod
-  plugins/
-    pce-vn-dialogue-prepare/
   build/qa/
     background-audit.json
     music-audit.json
@@ -655,7 +652,8 @@ custom fontと外部MODがproject外にある場合は、生成成功後にhash�
 ```
 
 本文をmanifestへ重複保存しません。pathはoutput rootまたはPCE project rootからの相対pathに
-限定し、再出力時はexporter IDとsource project identityを一致させます。
+限定し、再出力時はexporter IDとsource project identityを一致させます。1.1.0/1.1.1の旧identityを
+移行する場合も、保存済みsource signatureと現在のpreflight signatureの完全一致を必須にします。
 
 ## 変換core API
 
@@ -704,7 +702,7 @@ CLIもpluginと同じcore、sidecar、path検査、manifestを使います。CLI
 - message/choice normalized text hashがsourceと一致
 - 全visible glyphが選択pageへ存在
 - safe code、physical font tile、inline tagが一致
-- 全framed Message/Choice直前にdialogue準備eventがある
+- 全framed Message/Choice直前に標準`EVENT_SET_DIALOGUE_FRAME`がある
 - GBC backgroundが160×144、各tile最大4色、背景palette最大7
 - DMG backgroundが許可4色だけ、最大192 unique tiles。低階調原画は確認必須warning
 - BGM play/stop/loop commandが全件生成される
@@ -763,13 +761,13 @@ static/official build成功をruntime成功や実機成功として扱いませ�
 - mixed-mode edge isolation tests
 - 2-choice text/value/target tests
 - Japanese atomic font packingとreserved code tests
-- dialogue準備event欠落検出test
+- 標準dialogue frame event欠落検出test
 - GBC 7-palette/4-colors-per-tile tests
 - DMG adaptive threshold/4 shades/192-tile tests
 - source master不変hash test
 - PSG 1/256/4096 steps、loop、channel conflict audit tests
 - CD-DA blocker/substitution tests
-- path traversal、ownership collision、signature change tests
+- path traversal、ownership collision、旧identity完全一致再結合、空plugin cleanup、signature change tests
 - 同一入力2回生成のbyte/hash一致golden test
 - GB Studio 4.3.1/4.3.2公式ROM/Web build fixture
 - `npm test`
@@ -826,6 +824,10 @@ static/official build成功をruntime成功や実機成功として扱いませ�
 - CD-DA→登録PSG曲または外部4ch MOD、voice→話者別text tone、SFX/独立ADPCMのtone/omit
 - static validationとGB Studio公式ROM/Web build。ROM CGB flag `0x80`を必須検査
 
+2026-08-24の実作品回帰では、Misaki BDFのbaseline/BBX配置、selectorのcallback＋
+`EVENT_IDLE`待機、Message/Choice前の標準`EVENT_SET_DIALOGUE_FRAME`へ修正しました。
+旧project-local dialogue native pluginは生成対象から削除しました。
+
 実装fixtureでは通常の本文/2択/BGM、外部MOD、Variable/IF/Switch/GOTO/Input/SpriteText/shakeを
 GB Studio 4.3.1の既存fixtureに加え、targetLabelなしasync→sync継続を含むfixtureを4.3.2でも
 公式ROM/Web Exportへ通し、warning 0件を確認しました。生成ROMはいずれも131072 bytes、CGB flagは
@@ -834,7 +836,7 @@ GB Studio 4.3.1の既存fixtureに加え、targetLabelなしasync→sync継続�
 実作品`ホラーストーリー/001_sakai_no_ma`もsource 16 scenes / 184 commandsから69 scenes、
 51 background resources、4 font pages、5 MOD tracksを生成し、4.3.2公式ROM/Web Exportをwarning 0件で
 通過しました。ROMは524288 bytes、CGB flag `0x80`、単体ROM/Web内ROM SHA-256は
-`2b3ffbaea3405b38bcb624f089abedf013be907101e90d1e02c5e330cc7dfc87`で一致しました。
+`362f1dfd4faa8f6d3a06e089dc2098b67b0b9972a03f7c384c497e8debfb25d6`で一致しました。
 内蔵emulator上の全入力playthrough、実機DMG/GBC、
 全分岐screen/audio比較は未実行の外部gateです。
 
@@ -847,7 +849,7 @@ GB Studio 4.3.1の既存fixtureに加え、targetLabelなしasync→sync継続�
 - GB Studio 4.3.1/4.3.2検出
 - mixed-mode graph
 - BG、Message、2択、Jump/next、Wait、単純Fade
-- Japanese font pages、Misaki組み込み、dialogue準備plugin
+- Japanese font pages、Misaki組み込み、標準dialogue frame event
 - GBC/DMG背景変換とcontact sheet
 - PSG BGM MOD変換とaudit
 - CD-DA mapping、voice/SFX substitution
@@ -978,7 +980,7 @@ scoreをPSG/MOD変換へ渡します。
 4. GBC/DMG background converterとQA report
 5. PSG→MOD、CD-DA mapping、audio audit
 6. GB Studio 4.3.1/4.3.2 resource/project generator
-7. 独自dialogue準備plugin
+7. 標準dialogue frame eventとselector input callback
 8. ownership、temp output、sidecar、manifest
 9. preflight UIとNovel toolbar capability
 10. official ROM/Web automation

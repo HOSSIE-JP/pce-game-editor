@@ -1405,6 +1405,7 @@ export function createImageAssetManagerPlugin(config = {}) {
           sourcePath: picked.sourcePath,
           sourceFileName: picked.fileName,
           convertedDataUrl: converted.convertedDataUrl || '',
+          highQualityDataUrl: converted.highQualityDataUrl || '',
           kind,
           id: details.id,
           name: details.name,

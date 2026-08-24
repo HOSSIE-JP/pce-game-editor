@@ -873,6 +873,7 @@ test('PCE image import generates BG and sprite assets with the internal converte
   const projectDir = makeTempDir('pce-assets-import-');
   const bg = assetManager.importImage(projectDir, {
     sourceFileName: 'title.png',
+    highQualityDataUrl: makePngDataUrl(32, 16),
     convertedDataUrl: makePngDataUrl(32, 16),
     kind: 'background',
     id: 'title',
@@ -918,6 +919,8 @@ test('PCE image import generates BG and sprite assets with the internal converte
   assert.equal(bg.commandInfo.mode, 'internal-pce');
   assert.equal(bg.commandInfo.command, 'Internal PCE image converter');
   assert.deepEqual(bg.commandInfo.args, []);
+  assert.equal(bg.asset.data.import.highQualitySource, 'assets/images-hd/title.png');
+  assert.equal(fs.existsSync(path.join(projectDir, bg.asset.data.import.highQualitySource)), true);
   assert.equal(fs.existsSync(path.join(projectDir, bg.asset.data.generated.paletteFile)), true);
   assert.equal(fs.existsSync(path.join(projectDir, bg.asset.data.generated.tilesFile)), true);
   assert.equal(fs.existsSync(path.join(projectDir, bg.asset.data.generated.mapFile)), true);

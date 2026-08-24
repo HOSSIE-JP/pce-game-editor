@@ -99,6 +99,9 @@ async function convertImageToIndexed16(api, options = {}) {
     notes.push('リサイズ/クリッピングを適用しました');
   }
 
+  const highQualityDataUrl = String(workingDataUrl).startsWith('data:image/png')
+    ? workingDataUrl
+    : await dataUrlToPng(workingDataUrl);
   const { image, imageData } = await imageDataFromDataUrl(workingDataUrl);
   const quantizeCapability = api.capabilities.get('image-quantize');
   const countColors = quantizeCapability?.countUniqueColors || countUniquePceColors;
@@ -126,6 +129,7 @@ async function convertImageToIndexed16(api, options = {}) {
   return {
     canceled: false,
     convertedDataUrl,
+    highQualityDataUrl,
     targetExtension: '.png',
     width: finalImage.naturalWidth || finalImage.width || image.naturalWidth || image.width || 0,
     height: finalImage.naturalHeight || finalImage.height || image.naturalHeight || image.height || 0,

@@ -1434,6 +1434,7 @@ export function activatePlugin({ plugin, root, api, logger, registerCapability }
             sourcePath,
             sourceFileName,
             convertedDataUrl: converted.convertedDataUrl || '',
+            highQualityDataUrl: converted.highQualityDataUrl || '',
             kind: form.elements.kind.value,
             id: form.elements.id.value,
             name: form.elements.name.value,

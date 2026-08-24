@@ -3,13 +3,15 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { normalizeAssetDocument } = require('./pce-asset-manager');
+const { ensureVisualGeneratedAsset, normalizeAssetDocument } = require('./pce-asset-manager');
 const { isCommandSkipped, normalizeSceneDocument, readFontConfig } = require('./pce-vn-manager');
 const { isPathInside, normalizeRelativePath } = require('./pce-file-safety');
 const { GODOT_OGG_VORBIS_QUALITY, encodeWavToOggVorbis } = require('./pce-vn-godot-audio');
+const { buildPceVisualPng } = require('./pce-vn-godot-image');
 
 const PACKAGE_FORMAT = 'pce-vn-godot-package';
-const PACKAGE_VERSION = 2;
+const PACKAGE_VERSION = 3;
+const ASSET_DOCUMENT_VERSION = 2;
 const MANIFEST_FILE = 'pcevn-package.json';
 const SCENES_FILE = 'data/scenes.json';
 const ASSETS_FILE = 'data/assets.json';
@@ -106,6 +108,21 @@ function resolvePlaybackSource(projectDir, asset = {}) {
   throw new Error(`再生用素材が見つかりません: ${asset.id} (${asset.type})`);
 }
 
+function resolveHighQualityVisualSource(projectDir, asset = {}) {
+  const configured = String(asset?.data?.import?.highQualitySource || '').trim();
+  if (!configured) {
+    return { path: resolvePlaybackSource(projectDir, asset), fallback: true };
+  }
+  const absolute = resolveProjectFile(projectDir, configured);
+  if (!absolute) {
+    throw new Error(`HD版画像が見つかりません: ${asset.id} (${configured})`);
+  }
+  if (!SUPPORTED_VISUAL_EXTENSIONS.has(path.extname(absolute).toLowerCase())) {
+    throw new Error(`HD版画像形式に対応していません: ${asset.id} (${path.extname(absolute)})`);
+  }
+  return { path: absolute, fallback: false };
+}
+
 function resolveProjectFont(projectDir) {
   const config = readFontConfig(projectDir);
   const selected = resolveProjectFile(projectDir, config.fontPath);
@@ -113,7 +130,7 @@ function resolveProjectFont(projectDir) {
   return ['.ttf', '.otf', '.woff', '.woff2'].includes(path.extname(selected).toLowerCase()) ? selected : '';
 }
 
-function minimalAsset(asset, packagePath = '') {
+function minimalAsset(asset, packagePath = '', visual = null) {
   const result = {
     id: asset.id,
     type: asset.type,
@@ -124,6 +141,7 @@ function minimalAsset(asset, packagePath = '') {
       generated: asset?.data?.generated || {},
     },
   };
+  if (visual) result.visual = visual;
   return result;
 }
 
@@ -167,13 +185,66 @@ async function buildGodotPackageBundle({
     sourceBytes: 0,
     packageBytes: 0,
   };
+  const visualStats = {
+    assets: 0,
+    highQualityBytes: 0,
+    pceBytes: 0,
+    highQualityFallbacks: 0,
+  };
   const referencedIds = [...referenced].sort();
   for (let index = 0; index < referencedIds.length; index += 1) {
     const id = referencedIds[index];
-    const asset = assetsById.get(id);
-    const sourcePath = resolvePlaybackSource(root, asset);
+    let asset = assetsById.get(id);
+    const isVisual = asset.type === 'image' || asset.type === 'sprite';
     let packagePath = '';
-    if (sourcePath) {
+    let visual = null;
+    if (isVisual) {
+      asset = ensureVisualGeneratedAsset(root, asset);
+      const highQuality = resolveHighQualityVisualSource(root, asset);
+      const highQualityExtension = path.extname(highQuality.path).toLowerCase();
+      const highQualityData = fs.readFileSync(highQuality.path);
+      const pceImage = buildPceVisualPng(root, asset);
+      const mediaRoot = `media/${String(index).padStart(4, '0')}_${packageSafeName(id)}`;
+      const highQualityPackagePath = `${mediaRoot}/hd${highQualityExtension}`;
+      const pcePackagePath = `${mediaRoot}/pce.png`;
+      mediaEntries.push(
+        {
+          name: highQualityPackagePath,
+          data: highQualityData,
+          mtime: fs.statSync(highQuality.path).mtime,
+        },
+        {
+          name: pcePackagePath,
+          data: pceImage.data,
+          mtime: fs.statSync(highQuality.path).mtime,
+        },
+      );
+      packagePath = highQualityPackagePath;
+      visual = {
+        defaultMode: 'hd',
+        hd: {
+          file: highQualityPackagePath,
+          width: pceImage.width,
+          height: pceImage.height,
+          source: highQuality.fallback ? 'asset-source-fallback' : 'pre-pce-quantize',
+        },
+        pce: {
+          file: pcePackagePath,
+          width: pceImage.width,
+          height: pceImage.height,
+          source: 'generated-pce-binary',
+        },
+      };
+      visualStats.assets += 1;
+      visualStats.highQualityBytes += highQualityData.length;
+      visualStats.pceBytes += pceImage.data.length;
+      if (highQuality.fallback) visualStats.highQualityFallbacks += 1;
+    } else {
+      const sourcePath = resolvePlaybackSource(root, asset);
+      if (!sourcePath) {
+        packagedAssets.push(minimalAsset(asset));
+        continue;
+      }
       const sourceExtension = path.extname(sourcePath).toLowerCase();
       const isAudio = asset.type === 'adpcm' || asset.type === 'cdda-track';
       const sourceData = fs.readFileSync(sourcePath);
@@ -210,7 +281,7 @@ async function buildGodotPackageBundle({
         mtime: fs.statSync(sourcePath).mtime,
       });
     }
-    packagedAssets.push(minimalAsset(asset, packagePath));
+    packagedAssets.push(minimalAsset(asset, packagePath, visual));
   }
 
   const fontPath = resolveProjectFont(root);
@@ -225,7 +296,7 @@ async function buildGodotPackageBundle({
   }
 
   const scenesBuffer = jsonBuffer(scenes);
-  const assetsBuffer = jsonBuffer({ version: 1, assets: packagedAssets });
+  const assetsBuffer = jsonBuffer({ version: ASSET_DOCUMENT_VERSION, assets: packagedAssets });
   const contentEntries = [
     { name: SCENES_FILE, data: scenesBuffer },
     { name: ASSETS_FILE, data: assetsBuffer },
@@ -254,6 +325,10 @@ async function buildGodotPackageBundle({
       font: packageFontPath,
       border: '',
     },
+    visual: {
+      defaultMode: 'hd',
+      modes: ['hd', 'pce'],
+    },
     audio: {
       wavTranscode: 'ogg-vorbis',
       extension: '.ogg',
@@ -263,6 +338,10 @@ async function buildGodotPackageBundle({
       scenes: scenes.scenes.length,
       commands: scenes.scenes.reduce((sum, scene) => sum + scene.commands.filter((command) => !isCommandSkipped(command) && command.type !== 'comment').length, 0),
       assets: packagedAssets.length,
+      visualAssets: visualStats.assets,
+      visualHighQualityBytes: visualStats.highQualityBytes,
+      visualPceBytes: visualStats.pceBytes,
+      visualHighQualityFallbackAssets: visualStats.highQualityFallbacks,
       audioAssets: audioStats.assets,
       transcodedAudioAssets: audioStats.transcoded,
       audioSourceBytes: audioStats.sourceBytes,
@@ -313,6 +392,10 @@ async function exportGodotPackageZip({
       commandCount: bundle.manifest.stats.commands,
       assetCount: bundle.manifest.stats.assets,
       contentBytes: bundle.manifest.stats.bytes,
+      visualAssetCount: bundle.manifest.stats.visualAssets,
+      visualHighQualityBytes: bundle.manifest.stats.visualHighQualityBytes,
+      visualPceBytes: bundle.manifest.stats.visualPceBytes,
+      visualHighQualityFallbackAssetCount: bundle.manifest.stats.visualHighQualityFallbackAssets,
       audioAssetCount: bundle.manifest.stats.audioAssets,
       transcodedAudioAssetCount: bundle.manifest.stats.transcodedAudioAssets,
       audioSourceBytes: bundle.manifest.stats.audioSourceBytes,
@@ -325,6 +408,7 @@ async function exportGodotPackageZip({
 }
 
 module.exports = {
+  ASSET_DOCUMENT_VERSION,
   ASSETS_FILE,
   MANIFEST_FILE,
   PACKAGE_FORMAT,

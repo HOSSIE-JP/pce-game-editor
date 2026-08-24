@@ -34,12 +34,19 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
       } catch (error) {
         throw new Error(`Godot再生パッケージは出力しましたが、シーンを保存できませんでした: ${error?.message || error}`);
       }
+      const visualSummary = result.visualAssetCount > 0
+        ? ` / 画像 HD+PCE ${result.visualAssetCount}`
+          + ` (${formatBytes(result.visualHighQualityBytes)}+${formatBytes(result.visualPceBytes)})`
+        : '';
+      const visualFallbackSummary = result.visualHighQualityFallbackAssetCount > 0
+        ? ` / HD元画像なし ${result.visualHighQualityFallbackAssetCount}`
+        : '';
       const audioSummary = result.transcodedAudioAssetCount > 0
         ? ` / WAV→Ogg ${result.transcodedAudioAssetCount}`
           + ` (${formatBytes(result.audioSourceBytes)}→${formatBytes(result.audioPackageBytes)})`
         : '';
       const message = `Godot再生パッケージを出力しました: ${result.path} `
-        + `(Scene ${result.sceneCount} / Command ${result.commandCount} / Asset ${result.assetCount}${audioSummary})`;
+        + `(Scene ${result.sceneCount} / Command ${result.commandCount} / Asset ${result.assetCount}${visualSummary}${visualFallbackSummary}${audioSummary})`;
       logger?.info?.(message);
       return { ok: true, message };
     } catch (error) {
@@ -51,14 +58,14 @@ export function activatePlugin({ plugin, api, logger, registerCapability }) {
   registerCapability(CAPABILITY_NAME, {
     pluginId: plugin.id,
     label: 'Godot出力',
-    title: 'Godotネイティブ再生用packageへ出力（WAV音声はOgg Vorbis圧縮）',
+    title: 'Godotネイティブ再生用packageへ出力（画像はHD/PCE二系統、WAV音声はOgg Vorbis圧縮）',
     exportPackage,
   });
   registerCapability('novel-toolbar-action', {
     id: 'godot-export',
     pluginId: plugin.id,
     label: 'Godot出力',
-    title: 'Godotネイティブ再生用packageへ出力（WAV音声はOgg Vorbis圧縮）',
+    title: 'Godotネイティブ再生用packageへ出力（画像はHD/PCE二系統、WAV音声はOgg Vorbis圧縮）',
     priority: 100,
     order: 20,
     placement: 'after-preview',

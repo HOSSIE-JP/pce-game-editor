@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const {
+  ASSET_DOCUMENT_VERSION,
   ASSETS_FILE,
   MANIFEST_FILE,
   PACKAGE_FORMAT,
@@ -21,6 +22,9 @@ const {
 } = require('../plugins/pce-vn-godot-exporter');
 
 const { encodeWavToOggVorbis } = require('../pce-vn-godot-audio');
+const { encodeIndexedPng } = require('../pce-vn-gb-studio-image');
+const { decodeSpriteIndices } = require('../pce-vn-godot-image');
+const { decodePngImage } = require('../pce-png-decoder');
 
 function makeWavBuffer(sampleRate = 8000, channels = 1, durationSeconds = 1) {
   const frameCount = Math.max(1, Math.round(sampleRate * durationSeconds));
@@ -53,11 +57,33 @@ async function fakeTranscodeWavToOgg() {
   return { output: Buffer.from('OggS-test-vorbis') };
 }
 
+function makeIndexedPng(width, height, colorIndex, palette) {
+  return encodeIndexedPng({
+    width,
+    height,
+    indices: new Uint8Array(width * height).fill(colorIndex),
+    palette,
+  });
+}
+
+function makeSolidPceBgTile(colorIndex) {
+  const tile = Buffer.alloc(32);
+  for (let y = 0; y < 8; y += 1) {
+    for (let plane = 0; plane < 4; plane += 1) {
+      const offset = plane < 2 ? (y * 2) + plane : 16 + (y * 2) + (plane - 2);
+      tile[offset] = colorIndex & (1 << plane) ? 0xff : 0;
+    }
+  }
+  return tile;
+}
+
 function makeProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-vn-godot-'));
   fs.mkdirSync(path.join(dir, 'assets', 'images'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'assets', 'images-hd'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'assets', 'audio'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'assets', 'fonts'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'assets', 'generated', 'bg'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify({
     coreId: 'pc-engine',
     title: 'Godot Test',
@@ -66,7 +92,18 @@ function makeProject() {
     platform: 'pce',
     targetMedia: 'cd',
   }));
-  fs.writeFileSync(path.join(dir, 'assets', 'images', 'bg.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  fs.writeFileSync(path.join(dir, 'assets', 'images', 'bg.png'), makeIndexedPng(8, 8, 1, [[0, 0, 0], [200, 0, 0]]));
+  fs.writeFileSync(path.join(dir, 'assets', 'images-hd', 'bg.png'), makeIndexedPng(8, 8, 1, [[0, 0, 0], [255, 120, 64]]));
+  const pcePalette = Buffer.alloc(32);
+  pcePalette.writeUInt16LE(7 << 3, 2);
+  fs.writeFileSync(path.join(dir, 'assets', 'generated', 'bg', 'palette.bin'), pcePalette);
+  fs.writeFileSync(path.join(dir, 'assets', 'generated', 'bg', 'tiles.bin'), makeSolidPceBgTile(1));
+  const compactMap = Buffer.alloc(2);
+  compactMap.writeUInt16LE(64, 0);
+  const vramMap = Buffer.alloc(64);
+  vramMap.writeUInt16LE(64, 0);
+  fs.writeFileSync(path.join(dir, 'assets', 'generated', 'bg', 'map.bin'), compactMap);
+  fs.writeFileSync(path.join(dir, 'assets', 'generated', 'bg', 'map_vram.bin'), vramMap);
   fs.writeFileSync(path.join(dir, 'assets', 'audio', 'voice.wav'), makeWavBuffer(8000, 1, 1));
   fs.writeFileSync(path.join(dir, 'assets', 'audio', 'unused.wav'), makeWavBuffer(8000, 1, 0.1));
   fs.writeFileSync(path.join(dir, 'assets', 'audio', 'cdda-source.wav'), makeWavBuffer(22050, 1, 0.5));
@@ -85,7 +122,20 @@ function makeProject() {
         type: 'image',
         name: 'BG',
         source: 'assets/images/bg.png',
-        options: { kind: 'background', width: 256, height: 224 },
+        options: { kind: 'background', width: 8, height: 8 },
+        data: {
+          import: { highQualitySource: 'assets/images-hd/bg.png' },
+          generated: {
+            paletteFile: 'assets/generated/bg/palette.bin',
+            tilesFile: 'assets/generated/bg/tiles.bin',
+            mapFile: 'assets/generated/bg/map.bin',
+            mapVramFile: 'assets/generated/bg/map_vram.bin',
+            previewFile: 'assets/generated/bg/preview.json',
+            tileCount: 1,
+            paletteCount: 1,
+            vramBytes: 96,
+          },
+        },
       },
       {
         id: 'cdda',
@@ -154,6 +204,17 @@ test('Ogg encoder handles PCE voice rates and CD-quality stereo WAV', async () =
   }
 });
 
+test('PCE sprite decoder expands deduplicated hardware pattern cells', () => {
+  const pattern = Buffer.alloc(128);
+  for (let y = 0; y < 16; y += 1) {
+    pattern[y * 2] = 0xff;
+    pattern[y * 2 + 1] = 0xff;
+  }
+  const indices = decodeSpriteIndices(pattern, Buffer.from([0, 0]), 32, 16, 16, 16);
+  assert.equal(indices.length, 32 * 16);
+  assert.equal(indices.every((value) => value === 1), true);
+});
+
 test('Godot package contains normalized scenes and Ogg-compressed playback assets only', async () => {
   const dir = makeProject();
   const bundle = await buildGodotPackageBundle({
@@ -171,10 +232,20 @@ test('Godot package contains normalized scenes and Ogg-compressed playback asset
     SCENES_FILE,
   ]);
   const assets = JSON.parse(bundle.entries.find((entry) => entry.name === ASSETS_FILE).data);
+  assert.equal(assets.version, ASSET_DOCUMENT_VERSION);
   assert.deepEqual(assets.assets.map((asset) => asset.id), ['bg', 'cdda', 'song', 'voice']);
   assert.equal(assets.assets.find((asset) => asset.id === 'song').file, '');
   assert.match(assets.assets.find((asset) => asset.id === 'voice').file, /^media\/.*\.ogg$/);
   assert.match(assets.assets.find((asset) => asset.id === 'cdda').file, /^media\/.*\.ogg$/);
+  const background = assets.assets.find((asset) => asset.id === 'bg');
+  assert.match(background.file, /^media\/.*\/hd\.png$/);
+  assert.equal(background.visual.defaultMode, 'hd');
+  assert.equal(background.visual.hd.source, 'pre-pce-quantize');
+  assert.match(background.visual.pce.file, /^media\/.*\/pce\.png$/);
+  const pceEntry = bundle.entries.find((entry) => entry.name === background.visual.pce.file);
+  const decodedPce = decodePngImage(pceEntry.data);
+  assert.equal(decodedPce.indices.every((value) => value === 1), true);
+  assert.deepEqual(decodedPce.palette[1], { r: 255, g: 0, b: 0 });
   const audioEntries = bundle.entries.filter((entry) => /media\/.*\.ogg$/.test(entry.name));
   assert.equal(audioEntries.length, 2);
   assert.equal(audioEntries.every((entry) => entry.data.toString('ascii', 0, 4) === 'OggS'), true);
@@ -186,6 +257,10 @@ test('Godot package contains normalized scenes and Ogg-compressed playback asset
     extension: '.ogg',
     quality: 4,
   });
+  assert.deepEqual(bundle.manifest.visual, { defaultMode: 'hd', modes: ['hd', 'pce'] });
+  assert.equal(bundle.manifest.stats.visualAssets, 1);
+  assert.equal(bundle.manifest.stats.visualHighQualityFallbackAssets, 0);
+  assert.ok(bundle.manifest.stats.visualHighQualityBytes > 0 && bundle.manifest.stats.visualPceBytes > 0);
   assert.equal(bundle.entries.some((entry) => entry.name === 'presentation/player-border.png'), false);
   assert.equal(bundle.manifest.files.some((entry) => entry.path === 'presentation/player-border.png'), false);
   assert.equal(bundle.manifest.stats.scenes, 1);
@@ -232,6 +307,18 @@ test('Godot package ignores the legacy project-local player border', async () =>
   assert.equal(bundle.entries.some((entry) => entry.name === 'presentation/player-border.png'), false);
 });
 
+test('Godot package marks legacy visual source fallback when no pre-quantize image is stored', async () => {
+  const dir = makeProject();
+  const assetPath = path.join(dir, 'assets', 'pce-assets.json');
+  const assetDoc = JSON.parse(fs.readFileSync(assetPath));
+  delete assetDoc.assets.find((asset) => asset.id === 'bg').data.import.highQualitySource;
+  fs.writeFileSync(assetPath, JSON.stringify(assetDoc));
+  const bundle = await buildGodotPackageBundle({ projectDir: dir, sceneDoc: scenes(), transcodeWavToOgg: fakeTranscodeWavToOgg });
+  const assets = JSON.parse(bundle.entries.find((entry) => entry.name === ASSETS_FILE).data);
+  assert.equal(assets.assets.find((asset) => asset.id === 'bg').visual.hd.source, 'asset-source-fallback');
+  assert.equal(bundle.manifest.stats.visualHighQualityFallbackAssets, 1);
+});
+
 test('same-title projects in different editor directories keep separate library ids', () => {
   const first = makeProject();
   const second = makeProject();
@@ -257,6 +344,7 @@ test('Godot package rejects playback assets outside the project', async () => {
   const assetPath = path.join(dir, 'assets', 'pce-assets.json');
   const assets = JSON.parse(fs.readFileSync(assetPath));
   assets.assets[0].source = '../outside.png';
+  assets.assets[0].data.import.highQualitySource = '../outside.png';
   fs.writeFileSync(assetPath, JSON.stringify(assets));
   await assert.rejects(
     () => buildGodotPackageBundle({ projectDir: dir, sceneDoc: scenes() }),
@@ -287,6 +375,10 @@ test('Godot package export writes one ZIP after save confirmation', async () => 
   assert.equal(result.sceneCount, 1);
   assert.equal(result.commandCount, 4);
   assert.equal(result.assetCount, 4);
+  assert.equal(result.visualAssetCount, 1);
+  assert.equal(result.visualHighQualityFallbackAssetCount, 0);
+  assert.ok(result.visualHighQualityBytes > 0);
+  assert.ok(result.visualPceBytes > 0);
   assert.equal(result.audioAssetCount, 2);
   assert.equal(result.transcodedAudioAssetCount, 2);
   assert.ok(result.audioPackageBytes < result.audioSourceBytes);
