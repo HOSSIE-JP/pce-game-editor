@@ -32,4 +32,20 @@ function validateVnGbStudioProject(payload = {}, context = {}) {
   catch (error) { return { ok: false, error: String(error?.message || error) }; }
 }
 
-module.exports = { exportVnGbStudioProject, inspectVnGbStudioExport, validateVnGbStudioProject };
+function previewPayload(payload, context) {
+  const projectDir = String(context.projectDir || '').trim(); if (!projectDir) throw new Error('projectDirが取得できません');
+  const assets = payload.assets && typeof payload.assets === 'object' ? payload.assets : { version: 2, assets: Array.isArray(context.assets) ? context.assets : [] };
+  return { ...payload, projectDir, assets };
+}
+
+function previewVnGbStudioMusic(payload = {}, context = {}) {
+  try { const exporter = appModule(context, 'pce-vn-gb-studio-exporter.js'); return { ok: true, result: exporter.previewVnGbStudioMusic(previewPayload(payload, context)) }; }
+  catch (error) { return { ok: false, error: String(error?.message || error), code: error.code || '' }; }
+}
+
+function previewVnGbStudioBackground(payload = {}, context = {}) {
+  try { const exporter = appModule(context, 'pce-vn-gb-studio-exporter.js'); return { ok: true, result: exporter.previewVnGbStudioBackground(previewPayload(payload, context)) }; }
+  catch (error) { return { ok: false, error: String(error?.message || error), code: error.code || '' }; }
+}
+
+module.exports = { exportVnGbStudioProject, inspectVnGbStudioExport, previewVnGbStudioBackground, previewVnGbStudioMusic, validateVnGbStudioProject };

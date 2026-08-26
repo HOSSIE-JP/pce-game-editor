@@ -10,3 +10,22 @@
 .pce-gb-export-diagnostic[data-severity="warning"] { color: var(--warning, #ffd080); }
 .pce-gb-export-summary { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
 .pce-gb-export-summary span { padding: 3px 7px; border-radius: 12px; background: var(--surface-inset, rgba(0,0,0,.14)); }
+.pce-gb-adjust-launch, .pce-gb-adjust-toolbar, .pce-gb-preview-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+.pce-gb-adjust-launch > span { opacity: .75; font-size: .9em; }
+.pce-gb-adjust-toolbar select { min-width: 220px; max-width: 420px; }
+.pce-gb-audit-badge { padding: 3px 8px; border-radius: 999px; background: var(--surface-inset, rgba(0,0,0,.2)); }
+.pce-gb-audit-badge[data-status="exact"] { color: #8ee69b; }
+.pce-gb-audit-badge[data-status="approximated"] { color: var(--warning, #ffd080); }
+.pce-gb-audit-badge[data-status="warning"] { color: var(--danger, #ff8080); }
+.pce-gb-slider-row { display: grid; grid-template-columns: 100px minmax(180px, 1fr) 90px auto; gap: 8px; align-items: center; margin: 10px 0; }
+.pce-gb-table-wrap { overflow: auto; max-height: 360px; }
+.pce-gb-channel-table { width: 100%; border-collapse: collapse; }
+.pce-gb-channel-table th, .pce-gb-channel-table td { padding: 6px; text-align: left; border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,.12)); }
+.pce-gb-channel-table td select, .pce-gb-channel-table td input { width: 100%; min-width: 74px; }
+.pce-gb-channel-table td small { display: block; opacity: .72; white-space: nowrap; }
+.pce-gb-image-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.pce-gb-image-compare figure { margin: 0; display: grid; gap: 6px; }
+.pce-gb-image-compare img, .pce-gb-preview-placeholder { width: 100%; min-height: 240px; max-height: 420px; object-fit: contain; image-rendering: pixelated; background: var(--surface-inset, rgba(0,0,0,.2)); border: 1px solid var(--border-subtle, rgba(255,255,255,.12)); }
+.pce-gb-preview-placeholder { display: grid; place-items: center; }
+.pce-gb-image-controls { display: grid; gap: 6px; margin-top: 12px; }
+@media (max-width: 720px) { .pce-gb-export-grid { grid-template-columns: 1fr; } .pce-gb-image-compare { grid-template-columns: 1fr; } .pce-gb-slider-row { grid-template-columns: 90px 1fr 80px; } }

@@ -2,9 +2,10 @@
 
 ## 文書の状態
 
-- 状態: **Phase 1実装済み・Phase 2主要command実装済み**
-- 対象日: 2026-08-24
+- 状態: **Phase 1・2実装済み、v1.3.0品質改善・公式build/runtime/audio再受入済み**
+- 対象日: 2026-08-26
 - plugin ID: `pce-vn-gb-studio-exporter`
+- exporter/plugin version: `1.3.0`（sidecar format versionは`1`を維持）
 - 出力: GB Studio 4.3.1/4.3.2 `Color + Monochrome` 単一ROM project
 
 この文書は、PCE Game EditorのVisual Novel projectをGame Boy / Game Boy Color
@@ -21,9 +22,10 @@ PCE VN v2の正規化済みscene documentと参照中assetから、次を決定�
 - Game BoyとGame Boy Colorで動く1本のROMを作るGB Studio project
 - GBC向けのscene別カラー背景
 - DMG向けの4階調背景
-- 日本語本文、話者名、2択分岐、scene遷移
+- 日本語本文、話者名、2～4択分岐、scene遷移
 - PCE PSG BGMを変換したhUGE/MOD音楽
 - 変換根拠、近似、欠落、色・tile・font・音楽の監査結果
+- 正規化前の全source commandの処理区分、到達性、GBC/DMG event IDを持つ制御flow監査
 - 再出力の所有権と入力identityを証明するmanifest
 
 最低限の成功条件は「画像やJSONを生成した」ことではありません。正規化した
@@ -63,7 +65,7 @@ GBC/DMG別scene graph、27組のGBC/DMG背景、ROM/Web公式build、両モー�
 1. `pce-vn-gb-studio-exporter` plugin
    - Novel toolbar action
    - preflight modal
-   - font、CD-DA、背景override、警告確認UI
+   - font、CD-DA、BGM個別調整、画像個別補正、警告確認UI
 2. 再利用可能な変換core
    - source inventoryと正規化
    - 中間表現、graph、asset変換、GB Studio resource生成
@@ -91,7 +93,9 @@ rendererは`novel-toolbar-action` capabilityを登録し、main側処理はplugi
 
 ### GB Studio
 
-GB Studio 4.3.1または4.3.2の実行file指定をproject生成時から必須とします。engine versionは
+GB Studio 4.3.1または4.3.2の実行file指定をproject生成時から必須とします。ダイアログで最後に選択した実行fileは、
+projectの`project.json`にある`pluginSettings.pce-vn-gb-studio-exporter.gbStudioExecutable`へ保存し、次回のダイアログで再利用します。
+環境変更などで保存済みpathが消えた場合は、ダイアログ起動時のpreflightが実行file欠落errorを表示し、再選択するまで生成を許可しません。engine versionは
 `4.3.0-e1`を期待し、実行file、app metadata、engine headerのversionが一致しない場合は
 開始しません。
 検出は選択した`gb-studio.exe`と同階層の`resources/app.asar`から
@@ -128,6 +132,7 @@ Misaki Gothic 8×8 BDF 2021-05-05版を、原著作者表示とライセンス�
 - diskから再読込した`assets/pce-assets.json`
 - 参照中assetのsource fileと現行generated metadata
 - `assets/pce-vn-gb-studio-export.json`の保存済み変換設定
+- `project.json`のGB Studio実行file設定
 - export UIで今回選択したfontとoverride
 
 sceneの正本はv2 `commands`です。旧scene fieldは現行
@@ -234,10 +239,17 @@ font:<font-hash>:<page>
 
 ### 背景単位の分割
 
-GB Studio sceneはbackground変更点でsegmentへ分割します。分岐先sceneにbackground commandが
-ない場合は、全incoming pathで同じbackground状態になることを証明して継承します。
-異なるbackgroundが同じsceneへ合流する場合は、entry state別segmentへ分けるかerrorにし、
-辞書順などで1つを選びません。
+GB Studio sceneはbackground変更点でsegmentへ分割します。先行Messageなどの実行command後に
+最初のbackgroundが現れた場合もそこで必ず分割し、後続backgroundを先行commandへ遡及させません。
+comment/cacheなどmetadata-only commandは独立blockにせず、後続labelまたは実行blockへ付属させます。
+到達不能warningは実行命令を含むblockだけへ出しますが、command単位の監査記録は残します。
+
+CFGは`block × inheritedBackground`の積状態として走査します。明示backgroundは状態を置換し、
+backgroundなしblockは遷移元の状態を継承します。異なるbackgroundが同じbackgroundなしblockへ
+合流する場合はentry backgroundをstable keyへ含め、GBC/DMG sceneを背景別に特殊化します。
+本当に到達不能な実行blockは同一source scene内の直前background、なければblankを監査用fallbackとして
+1回だけ生成します。監査には`originBlockKey`、`entryBackgroundKey`、`effectiveBackgroundKey`、
+`backgroundSource`、特殊化先GBC/DMG scene IDを保存します。
 
 各segmentはentry時に次を復元します。
 
@@ -260,23 +272,30 @@ device_dispatch
 以後のjump、choice、ending returnは必ず同じmode内へ閉じます。GBC sceneからDMG scene、
 DMG sceneからGBC sceneへのedgeはvalidation errorです。
 
-## MVP command mapping
+## Phase 2 command mapping
 
 | PCE VN入力 | GB Studio 4.3.1/4.3.2出力 | 契約 |
 |---|---|---|
 | `background` | mode別backgroundを持つscene segment | background変更点でscene分割。通常/全面とfadeを反映 |
 | `message` | 標準`EVENT_SET_DIALOGUE_FRAME`、font選択、文字音、`EVENT_TEXT` | 本文と話者を欠落させない |
-| 2択`choice` | font選択、`EVENT_CHOICE`、値設定、mode内scene switch | 2 labelを同一font pageへ置く。値とtargetを保持 |
+| 2～4択`choice` | `PCE_VN_EVENT_MENU`、値設定、mode内scene switch | 16セル単位で全labelを折り返す。`defaultIndex`、Bキャンセル無効、重複value、値とtargetの独立性を保持 |
 | `jump` | mode内scene switch | target存在と到達性を検査 |
 | `nextSceneId` | segment末尾のmode内scene switch | 明示jump/choiceがあれば二重生成しない |
 | `wait` | frame単位wait | 1未満、範囲外はsource位置付きerror |
 | `background` fade | scene transition/fade event | source frameを最も近い表現へ変換し差を記録 |
 | `effect: shake` | camera shake | frame数と強度を近似 |
-| `variable` / `if` / `switch` / `label` / `goto` | GB variable・条件分岐・mode内scene switch | label、case、fallback参照を検査 |
+| `variable define/set/add/sub` | signed 16-bit GB variable演算 | PCEの符号を保持し、0～255 clampや不要な絶対値化をしない |
+| `variable random` | `PCE_VN_EVENT_RANDOM` | signed 16-bitのinclusive min/max。逆順を正規化し、最大65535幅 |
+| `if` / `switch` / `label` / `goto` | 条件分岐・mode内scene switch | 比較6演算子、label、case、fallbackを検査。else/defaultなしはfallthrough |
 | sync/async/cancel `inputcheck` | await input・scene-local input callback・callback解除 | 成立時に同groupの全callbackを解除 |
 | PSG song play | hUGE music play | source順序とloop状態を保持 |
 | PSG song stop | music stop | source順序を保持 |
 | `comment` | runtime eventなし | `generated-metadata`として消費を記録 |
+
+`choice`または`random`を使うprojectだけへ、GB Studio公式のproject-local Script Event Plugin
+`plugins/pce-vn-control`を生成します。GB Studio 4.3.1/4.3.2のcompiler helperへ固定し、
+native Cやengine差し替えは行いません。未検証versionはpreflight errorです。
+
 
 `message.textColor`は本文そのものではなく視覚属性です。MVPで同色を表現できない場合は
 既定dialogue paletteへ近似し、source色と出力policyをwarningへ記録します。本文を省略しては
@@ -288,7 +307,7 @@ targetなしA/RUN、targetあり右、sync左を並べた3経路では、A/RUN�
 各labelへ進みます。このselector形式は3経路すべてをscene-local callbackへ変換し、末尾の
 `EVENT_IDLE`で非ブロッキング待機します。いずれかが成立した時点で同じ入力待ちgroupをすべて解除します。
 
-## MVPでの省略とerror
+## Phase 2での省略とerror
 
 「未対応」は一律のwarningではありません。
 
@@ -296,22 +315,25 @@ targetなしA/RUN、targetあり右、sync左を並べた3経路では、A/RUN�
 
 - `sprite`
 - `spritemove`
-- `shake`以外の純粋な画面effect（background transitionのfadeは別途変換）
+- `fade` / `flash` / `blank`などPhase 3の純粋な画面effect
 - 独立ADPCM再生
 - 変換不能な`psg-sfx`
 
 これらはpreflightで件数とsource位置を表示し、ユーザーが省略を確認した場合だけ
 `omitted-confirmed`にできます。既定で黙って省略しません。
 
-### MVPで必ずerrorにするもの
+### 必ずerrorにするもの
 
-- 3択以上、targetなし、重複値などMVP契約外のchoice
+- 1択または5択以上、targetなしなど契約外のchoice
 - 未解決label、case、fallbackを持つ`if` / `switch` / `goto`
 - 直後の`wait`にも後続sync inputの通常継続にも接続できないtargetなしasync `inputcheck`
 - 未知command
+- skip指定なしで正規化時に消えたcommand
 - 未解決scene、asset、font、music参照
 - mappingされていないCD-DA play
 - BGMとして分類されたaudioの省略
+
+- 制御flow監査の未分類、未確認省略、分岐・状態・本文・BGMのGBC/DMG event欠落
 
 制御flowや状態をwarningで落として「変換成功」にしません。
 
@@ -423,10 +445,12 @@ hardware上は合計8 paletteですが、「背景8 palette」として使い切
 5. tileを最小誤差のclusterへ割り当てる。
 6. assignmentとcluster medoid/representativeを収束まで反復する。
 7. 各tileを割当paletteの4色へ量子化する。
-8. 選択したGB Studio 4.3.1/4.3.2のauto palette結果と公式buildを確認する。
+8. GB Studio compilerと同じgreedy autoColor palette数を再計算し、7本を超えた場合はcluster上限を1本ずつ下げて再量子化する。
+9. 選択したGB Studio 4.3.1/4.3.2の公式buildを確認する。
 
 RGB成分の単純二乗距離だけを品質指標にしません。少なくとも知覚色差、tileごとの色数、
 palette使用数、unique 8×8 tiles、source hash、output hashを記録します。
+監査には最終autoColor palette数に加えて`quantizerPalettes`と`quantizerPaletteLimit`も残します。
 
 ditheringは既定OFFです。採用する場合は画像別overrideとし、unique tile、ROM bank、native-size
 表示を再検証します。
@@ -487,9 +511,17 @@ hUGE/MODの4 channelへ次の論理roleを割り当てます。
 - wave
 - noise
 
-自動mappingはsource channel、note、volume、wave、noise、同時発音を解析して決めます。
-初期候補はch0→pulse 1、ch1/ch2→pulse 2候補、ch3→wave、ch4/ch5→noise候補ですが、
-曲ごとの競合を監査し、sidecarのchannel overrideを優先します。
+音高はPCE `period`を第一情報とし、欠けている場合だけnote文字列を使います。`Bb/Eb/Ab`と
+`♭/♯`は正規化し、発音eventに有効なperiod/noteがない場合は位置付きerrorです。PCE periodから
+GB Studio 4.3.x公式MOD importerが受理する最近傍ProTracker periodへ量子化し、cent誤差と
+note/period不一致を監査します。
+
+自動mappingは6 source channelの活動量、volume、持続時間、wave/noise特性を解析し、priorityと
+決定論的tie-breakでpulse 1、pulse 2、wave、noiseへ割り当てます。wave instrumentは
+sine=15、saw=13、triangle=12、square/default=14、noiseは16～31へ対応付けます。収まらないchannel、
+手動target競合、event競合は黙って上書きせず全dropを監査します。sidecar overrideでは曲ごとの
+tempo 50～200%、各PCE channelのtarget、instrument、volume 0～200%、transpose -24～+24、
+priority 0～100を指定できます。
 
 次を黙って行いません。
 
@@ -505,6 +537,7 @@ loop pointがMOD pattern境界にない場合はpatternを分割して正確に�
 曲ごとのauditには次を残します。
 
 - source/output hash
+- 正規化event列hash、period/note正規化、cent誤差、音色代替
 - source BPM、steps、loop point
 - channel mappingとoverride
 - mapped、merged、dropped、transposed event件数
@@ -514,6 +547,9 @@ loop pointがMOD pattern境界にない場合はpatternを分割して正確に�
 - GB Studio resource IDとbuild warning
 
 BGMのplay、stop、loop位置はscript順で保持します。BGM eventの欠落はerrorです。
+`exact`は発音eventがなく制御だけを無損失変換できた場合などに限定し、音色置換・音高量子化は
+`approximated`、drop・channel/control conflictは`warning`です。export modalのSource/GB A/Bは
+同じ正規化設定・event列から作るWebAudio近似previewであり、hUGEの完全再現とは扱いません。
 
 ### CD-DA
 
@@ -546,6 +582,12 @@ mappingなしはerrorです。loop CD-DAやBGM指定のcueを`omit non-BGM`へ�
 ```text
 <output>/
   <project>.gbsproj
+  plugins/pce-vn-control/       # choice/randomを使う場合だけ生成
+    plugin.json
+    LICENSE
+    events/eventPceVnMenu.js
+    events/eventPceVnRandom.js
+
   project/
     settings.gbsres
     variables.gbsres
@@ -560,6 +602,7 @@ mappingなしはerrorです。loop CD-DAやBGM指定のcueを`omit non-BGM`へ�
     background-audit.json
     music-audit.json
     conversion-audit.json
+    control-flow-audit.json
     backgrounds-gbc.png
     backgrounds-dmg.png
     official-build-report.json  # verify mode
@@ -599,19 +642,36 @@ version 1の現行schema例:
   },
   "backgrounds": {
     "title": {
+      "brightness": 0,
+      "saturation": 100,
+      "gbcDither": false,
+      "dmgDither": false,
       "focusX": 0.5,
       "focusY": 0.5
+    }
+  },
+  "music": {
+    "title_theme": {
+      "tempoScale": 100,
+      "channels": {
+        "0": { "target": "auto", "instrument": "auto", "volumeScale": 100, "transpose": 0, "priority": 50 }
+      }
     }
   }
 }
 ```
+
+`backgrounds`のbrightness/saturationはartwork領域へRec.709彩度補正、sRGB加算式明るさ補正の
+順に適用し、その後GBC/DMG独立の4×4 ordered Bayer ditherを適用します。dialogue matteは補正・
+dither対象外です。previewと正式exportは同じ変換coreを使い、preview hashと最終PNG hashを比較できます。
+modalをcancelした場合は変更を保存せず、正式export成功時だけsidecarを更新します。
 
 sidecarへ次を保存しません。
 
 - external absolute path
 - scene本文またはchoice本文の複製
 - font binary
-- GB Studio executable path
+- GB Studio executable path（これはproject.jsonのproject settingへ保存）
 - output directoryの絶対path
 
 custom fontと外部MODがproject外にある場合は、生成成功後にhash名でproject内へcopyし、sidecarを
@@ -627,7 +687,7 @@ custom fontと外部MODがproject外にある場合は、生成成功後にhash�
   "version": 1,
   "exporter": {
     "id": "pce-vn-gb-studio-exporter",
-    "version": "1.0.0"
+    "version": "1.3.0"
   },
   "sourceProject": {
     "identity": "<project path hash>",
@@ -643,6 +703,12 @@ custom fontと外部MODがproject外にある場合は、生成成功後にhash�
     "font": {},
     "cddaMappings": {},
     "audioSubstitutions": {},
+    "backgrounds": {},
+    "music": {},
+    "backgroundOutputs": [],
+    "musicOutputs": [],
+    "backgroundAuditHash": "...",
+    "musicAuditHash": "...",
     "automaticVoiceSubstitutions": [],
     "visualOmissions": []
   },
@@ -663,7 +729,12 @@ custom fontと外部MODがproject外にある場合は、生成成功後にhash�
 inspectGbStudioExport({ projectDir, doc, assets, settings, gbStudio })
 generateGbStudioProject({ inspection, outputDir, mode })
 validateGbStudioProject({ outputDir, inspection, requireBuild })
+previewVnGbStudioMusic({ projectDir, assets, assetId, settings, generation })
+previewVnGbStudioBackground({ projectDir, assets, assetId, fullScreen, settings, generation })
 ```
+
+preview hookはproject-relative assetだけを受理し、asset ID、PNG signature、source byte、展開寸法、
+data URL上限を検査します。rendererは200ms debounceし、返却generationが最新要求と違う応答を破棄します。
 
 `inspection`はserialize可能なdataだけを持ち、rendererへ大きな画像/audio byteを返しません。
 thumbnailはproject限定のpreview URLまたは小さいdata URLにし、生成用source binaryはmain側で
@@ -692,21 +763,23 @@ CLIもpluginと同じcore、sidecar、path検査、manifestを使います。CLI
 
 ### Static gate
 
-- source command type別件数と分類件数が一致
-- 実行commandがちょうど1回消費される
+- 正規化前source commandが`sceneId + commandIndex`で一意に棚卸しされ、type別件数と分類件数が一致
+- 全commandが`generated`、`generated-metadata`、`omitted-confirmed`、`skipped-source`、または位置付きerrorのちょうど1つになる
 - scene、event、resource、variable IDが一意
 - GBC/DMG両graphの全jump/choice targetが存在
-- startから必須segmentが到達可能
+- segmentのfallthrough/terminal、join、loop、到達不能が記録される
 - modeを跨ぐedgeがない
-- 2択のvalue、label、targetがsourceと一致
+- 2～4択のvalue、label、target、`defaultIndex`がsourceと一致し、labelの16セル折返しで文字欠落がない
 - message/choice normalized text hashがsourceと一致
 - 全visible glyphが選択pageへ存在
 - safe code、physical font tile、inline tagが一致
-- 全framed Message/Choice直前に標準`EVENT_SET_DIALOGUE_FRAME`がある
+- 全framed Message直前に標準`EVENT_SET_DIALOGUE_FRAME`がある
 - GBC backgroundが160×144、各tile最大4色、背景palette最大7
 - DMG backgroundが許可4色だけ、最大192 unique tiles。低階調原画は確認必須warning
 - BGM play/stop/loop commandが全件生成される
 - CD-DAにmappingがある
+- generated pluginのmanifest/versionと`PCE_VN_EVENT_MENU` / `PCE_VN_EVENT_RANDOM`参照が一致
+- `build/qa/control-flow-audit.json`に未分類、未確認省略、branch/state/text/BGM欠落がない
 - output pathとowned pathがroot内
 - manifest hashが実fileと一致
 
@@ -737,8 +810,10 @@ CLIもpluginと同じcore、sidecar、path検査、manifestを使います。CLI
 
 ### Runtime smoke
 
-次はPhase 6で実装する外部gateです。現行版は自動実行せず、生成結果へ
-`GBVN_RUNTIME_NOT_RUN`を残します。
+graphから入力列を自動生成する全分岐playthroughはPhase 6です。Phase 2では
+`tools/dev/pce-vn-gb-studio-bgb-smoke.js`でBGB 1.6.4用の決定論的demo入力を生成し、
+GBC/DMG mode、終了screenshot、state、ROM/demo hashをruntime reportへ保存できます。
+このCLIは生成時に自動実行しないため、生成結果には`GBVN_RUNTIME_NOT_RUN`を残します。
 
 - 同じROMをGBC modeでboot
 - 同じROMをDMG modeでboot
@@ -748,7 +823,8 @@ CLIもpluginと同じcore、sidecar、path検査、manifestを使います。CLI
 - BGM開始、停止、loop継続をsampleする
 - native 160×144 screenshotを保存する
 
-static/official build成功をruntime成功や実機成功として扱いません。
+static/official build成功をruntime成功や実機成功として扱いません。BGB smoke成功も実機成功とは
+扱わず、実機DMG/GBCとflash cartridgeは別gateです。
 
 ### 必須test
 
@@ -782,8 +858,8 @@ static/official build成功をruntime成功や実機成功として扱いませ�
   "severity": "error",
   "sourceSceneId": "branch",
   "sourceCommandIndex": 12,
-  "message": "Only two-option choices are supported",
-  "resolution": "Split the source choice into two-option branches or implement multi-option choice support"
+  "message": "Choice requires 2 to 4 options",
+  "resolution": "Use 2 to 4 options; 1 or 5+ options are rejected"
 }
 ```
 
@@ -794,7 +870,10 @@ static/official build成功をruntime成功や実機成功として扱いませ�
 - `GBVN_VISUAL_OMISSION_REQUIRES_CONFIRMATION`
 - `GBVN_UNRESOLVED_SCENE`
 - `GBVN_UNRESOLVED_ASSET`
+- `GBVN_CHOICE_MENU_OVERFLOW`
 - `GBVN_CHOICE_OPTION_COUNT`
+- `GBVN_UNCONSUMED_COMMAND`
+- `GBVN_UNREACHABLE_BLOCK`
 - `GBVN_FONT_GLYPH_MISSING`
 - `GBVN_FONT_ATOMIC_UNIT_OVERFLOW`
 - `GBVN_GBC_PALETTE_OVERFLOW`
@@ -810,35 +889,76 @@ static/official build成功をruntime成功や実機成功として扱いませ�
 
 ## 実装状況と段階
 
-2026-08-24時点の実装は次です。
+2026-08-26時点の実装は次です。
 
-- `pce-vn-gb-studio-exporter` plugin、再利用core、CLI、sidecar、ownership manifest
+- `pce-vn-gb-studio-exporter` v1.3.0、再利用core、CLI、sidecar v1、ownership manifest
 - GB Studio 4.3.1/4.3.2 / engine `4.3.0-e1`の実file検査と引用符付きpath正規化
 - GBC/DMG二重graphをboot dispatcherで選ぶmixed-mode project
-- BG、Message、2択、Jump/next、Wait/Fade、BGM play/stop
-- Variable set/add/sub/random、IF、Switch、Label/GOTO、sync/async/cancel Input
-- SpriteTextの背景文字近似とshake。sprite/spritemove・その他visual effectは確認後省略
+- BG、Message、2～4択、Jump/next、Wait、BGM play/stop
+- signed Variable define/set/add/sub/random、比較6演算子、IF、Switch、Label/GOTO、sync/async/cancel Input
+- 明示fallthrough/terminalを持つbasic block graph、join/loop/到達不能解析
+- 必要時だけ生成する`pce-vn-control` Script Event Plugin
+- 全raw source commandを一意に追跡する`control-flow-audit.json`
+- SpriteTextの背景文字近似とshake。sprite/spritemove/fade/flash/blankはPhase 3の確認後省略
 - Misaki Gothic組み込み、custom BDF/TTF/OTF/TTC、atomic font page
 - GBC 7 palette×4 colors/tile、DMG固定4色×192 unique tile、contact sheet
 - PSG→4ch MOD、非0 loop point、drop/transpose/control-conflict曲別audit
 - CD-DA→登録PSG曲または外部4ch MOD、voice→話者別text tone、SFX/独立ADPCMのtone/omit
 - static validationとGB Studio公式ROM/Web build。ROM CGB flag `0x80`を必須検査
+- metadata-only block統合、持続背景CFG伝播、背景状態別scene特殊化、背景state監査
+- period優先PSG変換、6ch自動割当、wave/noise instrument、曲別調整とWebAudio A/B近似preview
+- asset別brightness/saturation、GBC/DMG独立dither、原画/変換後preview、preview/export hash照合
 
-2026-08-24の実作品回帰では、Misaki BDFのbaseline/BBX配置、selectorのcallback＋
+v1.3.0のfocused回帰では36件を実行し、`000_百物語`の旧`01_hyakumonogatari::1` / `::3`
+到達不能warningが消えること、`scene_tale_isamu_a/b`が`still_tale_kouichi_01_candlelit_circle`、
+`scene_search_a/b`が`still_vanish_02_group_waits`を継承すること、flat note 11件をperiod由来で
+保持することを確認しました。同じv1.3.0 fixtureをGB Studio 4.3.1/4.3.2の公式ROM/Web Exportへ通し、
+双方warning 0件、CGB flag `0x80`、ROM/Web内ROM hash一致を確認しました。ROM SHA-256は4.3.1が
+`d61ab354e963ad2fda60e2e5c81cde1fb62f8153e80e9bbcce8e5546957458c0`、4.3.2が
+`bc6e6273a9213a49081b20746710b0aa3909806b1a07ae562b8bc1212e766fe1`です。
+
+v1.3.0の`000_百物語`はsource 16 scenesから背景状態を反映した71 scenes、21 background variants、
+5 font pages、5 MOD tracksを生成し、4.3.2公式ROM/Web buildをwarning 0件で通過しました。ROM SHA-256は
+`95bda5cf6fd0adac3f45a6f718df16654183e68f002aa083d6422c41c033ad8a`で、Web内ROMと一致します。
+control-flow auditは到達不能block 0件で、上記4分岐sceneのGBC/DMG双方に期待する継承背景と個別scene IDを
+記録しています。BGBではfixtureの4択全armとDMG loop、`000_百物語`のA系/B系をGBC/DMG双方で
+6300 frames連続進行し、全reportがfailure 0、背景表示、本文、長文選択、BGM遷移、クラッシュ不在でした。
+
+PSGは`natsu_no_hibi`の正式監査で50 note-on、drop 0を確認しました。4.3.2公式ROMをBGBからmixと
+4 hardware channel別WAVへ46.96秒録音し、割当済みpulse 1 / pulse 2 / waveの3 channelがすべて非無音、
+mixは平均`-26.4 dB`、peak `-13.1 dB`でした。3 channelの音高・音量feature列は20.00秒周期で相関
+`0.931`となり、2周目のloopを確認しました。mix WAVのSHA-256は
+`0a49fbb03808c5dff57d65c3afad105b4f031d17acd9eeeb58348bd16f4f1521`です。正式exportで更新対象となる
+sidecarを除く入力744 filesの集約SHA-256は原本/受入copyとも
+`0a3acce25ecf453f26da1fd53446472feac625abc79a0c7df6508779540c5c7f`で不変でした。最終回帰はfocused
+36/36、`npm test` 516 pass / 0 fail / 1 skipです。下記v1.2.0記録は履歴として維持します。
+
+2026-08-24のPhase 1実作品回帰では、Misaki BDFのbaseline/BBX配置、selectorのcallback＋
 `EVENT_IDLE`待機、Message/Choice前の標準`EVENT_SET_DIALOGUE_FRAME`へ修正しました。
 旧project-local dialogue native pluginは生成対象から削除しました。
 
-実装fixtureでは通常の本文/2択/BGM、外部MOD、Variable/IF/Switch/GOTO/Input/SpriteText/shakeを
-GB Studio 4.3.1の既存fixtureに加え、targetLabelなしasync→sync継続を含むfixtureを4.3.2でも
-公式ROM/Web Exportへ通し、warning 0件を確認しました。生成ROMはいずれも131072 bytes、CGB flagは
-`0x80`で、4.3.2 fixtureの単体ROM/Web内ROM SHA-256は
-`53b4daccf7c75405037bed140dc38d36a9b06f628bb40747d641c93823006610`で一致しました。
-実作品`ホラーストーリー/001_sakai_no_ma`もsource 16 scenes / 184 commandsから69 scenes、
-51 background resources、4 font pages、5 MOD tracksを生成し、4.3.2公式ROM/Web Exportをwarning 0件で
-通過しました。ROMは524288 bytes、CGB flag `0x80`、単体ROM/Web内ROM SHA-256は
-`362f1dfd4faa8f6d3a06e089dc2098b67b0b9972a03f7c384c497e8debfb25d6`で一致しました。
-内蔵emulator上の全入力playthrough、実機DMG/GBC、
-全分岐screen/audio比較は未実行の外部gateです。
+Phase 2 v1.2.0の最終受入では、2/3/4択、全`defaultIndex`、長文、重複value、signed演算、random、
+fallthrough/join/loop/unreachableを含む専用fixtureをGB Studio 4.3.1/4.3.2の公式ROM/Web Exportへ通し、
+双方warning 0件、CGB flag `0x80`、ROM/Web内ROM hash一致を確認しました。ROM SHA-256は4.3.1が
+`195697e013570be167ef632c4f172d2f804435c5f2bbcaad70d76f7d5d338c66`、4.3.2が
+`eb8f9e16efd1e5f8a4b5abccee1df66ed2377e66edc10ef4b39502477d1071da`です。
+
+実作品`000_hyakumonogatari`はsource 16 scenes / 194 commands、2択2件、3択1件を一意に消費し、
+4.3.2公式buildをwarning 0件で通過しました。ROM SHA-256は
+`6948411fbc5de984de3e1e55a7179c8965c363beb3fdff5972134f268fdca301`です。BGBでGBC/DMG双方を
+6300 frames連続進行し、3つのchoice画面、全arm用入力経路、長文、先頭への1周復帰、クラッシュ不在を確認しました。
+GBC/DMG録音は105.56秒/105.554秒、平均音量-31.2 dB/-30.8 dBで非無音でした。
+
+実作品`001_境の間`はsource 16 scenes / 184 commandsから69 scenes、51 background resources、4 font pages、
+5 MOD tracksを生成し、4.3.2公式buildをwarning 0件で通過しました。ROM SHA-256は
+`ac4af88fea2a94c7fd9c49ff775864189bd21e19cffd9931d983b48cc99883ec`です。BGBのGBC/DMG双方で
+selector、本文、7000 frames連続進行、message frame、font、クラッシュ不在を確認し、録音も117.28秒/117.274秒、
+平均音量-33.0 dB/-32.9 dBで非無音でした。000/001のsource signatureは受入前後でそれぞれ
+`2efcee21d5485084115e70954a03892c66d62ed6b3b8e438545e49f4e411ced6`、
+`bb6c9e80ad29a44ba55d8ebf8ab37c76a60285e2b524396b5a4b7f3111a47305`のままです。
+
+GB Studio内蔵emulatorによる全入力playthrough、実機DMG/GBC、全分岐の自動screen/audio比較はPhase 6または
+外部gateです。今回のBGB受入はその代わりにfixture全armと実作品の代表経路を明示入力で検査したものです。
 
 ### Phase 1: MVP
 
@@ -859,7 +979,7 @@ GB Studio 4.3.1の既存fixtureに加え、targetLabelなしasync→sync継続�
 
 ### Phase 2: 制御flow
 
-**主要command実装済み、3択以上と網羅runtime QAは未実装**です。
+**実装済み・公式build/runtime受入済みです。**
 
 対象:
 
@@ -869,28 +989,33 @@ GB Studio 4.3.1の既存fixtureに加え、targetLabelなしasync→sync継続�
 - [x] `label`
 - [x] `goto`
 - [x] sync/async/cancel `inputcheck`
-- [ ] 3択以上のchoice
+- [x] 2～4択、全`defaultIndex`、長文、重複value
+- [x] 明示fallthrough/terminal、join、loop、到達不能解析
+- [x] 全raw source commandの一意な消費監査
 
-想定方針:
+実装方針:
 
 - PCE variable名からstable GB Studio variable IDを生成
 - scene内label graphをbasic blockへ正規化
 - branchごとに新しいevent IDを生成
-- 3択以上はcustom menuまたは2段階menuへ無通知変形せず、UI仕様を別途承認
+- 2～4択は公式project-local Script Event Pluginで縦型表示
+- signed 16-bitとinclusive random rangeをPCE runtime semanticsへ合わせる
 - async inputはscene-local callbackのinstall/removeを明示
 
-必要test:
+回帰test:
 
-- 全operatorとrandom bounds
-- nested if/switch
-- loop、join、unreachable block
-- sync/async inputの競合と解除
-- 3択以上のcursor/input/runtime capture
-- branchごとのfont pageとBGM state継承
+- [x] 全operatorとrandom bounds
+- [x] nested if/switch
+- [x] loop、join、unreachable block
+- [x] sync/async inputの競合と解除
+- [x] 2/3/4択、全`defaultIndex`、長文折返し、重複value
+- [x] unknown/normalized-away commandの位置付きerror
+- [x] 同一入力からのstable ID/hash
+- [x] GBC/DMG runtimeでの選択arm、初期cursor、font/BGM継承（全自動graph探索はPhase 6）
 
 ### Phase 3: Visual表現
 
-**SpriteTextとshakeだけ実装済み**です。立ち絵系は引き続き明示省略対象です。
+**凍結中です。SpriteTextとshakeだけ既存実装を維持し、立ち絵系は引き続き明示省略対象です。**
 
 対象:
 
@@ -921,13 +1046,11 @@ GB Studio 4.3.1の既存fixtureに加え、targetLabelなしasync→sync継続�
 
 ### Phase 4: Audio拡張
 
-**外部4ch MOD mappingまで実装済み**です。以下は次段階です。
+**BGMのinstrument/channel調整とWebAudio A/B近似previewまで実装済み**です。以下は次段階です。
 
 対象:
 
 - PSG SFXの完全な4ch変換
-- 曲ごとのinstrument editor
-- channel arbitration preview
 - BGM録音比較
 - CD-DAからの半自動採譜支援
 
@@ -972,20 +1095,21 @@ scoreをPSG/MOD変換へ渡します。
 できないeventは外部gateとして残し、debuggerで直接endingへ飛んだ結果を通常playthroughと
 扱いません。
 
-## 初回実装順序と残件
+## 実装順序と残件
 
-1. source inventory、IR、diagnostic、full-consumption validator
-2. stable ID、mixed graph、MVP command generator
-3. Misaki packaging、font page、compiled byte validator
-4. GBC/DMG background converterとQA report
-5. PSG→MOD、CD-DA mapping、audio audit
-6. GB Studio 4.3.1/4.3.2 resource/project generator
-7. 標準dialogue frame eventとselector input callback
-8. ownership、temp output、sidecar、manifest
-9. preflight UIとNovel toolbar capability
-10. official ROM/Web automation
-11. runtime smoke（未実行。Phase 6へ継続）
-12. `PLUGIN.md`、`docs/user-guide.md`、`README.md`、license文書の実装同期
+1. [x] raw source inventory、IR、diagnostic、full-consumption validator
+2. [x] stable ID、mixed graph、Phase 2 command generator
+3. [x] Misaki packaging、font page、compiled byte validator
+4. [x] GBC/DMG background converterとQA report
+5. [x] PSG→MOD、CD-DA mapping、audio audit
+6. [x] GB Studio 4.3.1/4.3.2 resource/project generator
+7. [x] 標準dialogue frame event、selector input callback、2～4択custom event
+8. [x] ownership、temp output、sidecar、manifest、control-flow audit
+9. [x] preflight UIとNovel toolbar capability
+10. [x] Phase 2版の公式ROM/Web buildとruntime受入記録
+11. [x] v1.3.0のGB Studio 4.3.1/4.3.2公式build、BGB GBC/DMG、公式ROM WAV再受入記録
+12. [ ] Phase 3 Visual、Phase 4 Audio拡張、Phase 5統合、Phase 6全自動playthrough
+13. [x] `PLUGIN.md`、`docs/user-guide.md`、`README.md`、本書の実装同期
 
 各段階でgenerator-owned resourceだけを更新し、derived `.gbsres`だけを直接patchしません。
 

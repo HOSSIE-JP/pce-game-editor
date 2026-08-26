@@ -57,6 +57,7 @@ function loadMainWithLifecycleHooks(userData) {
 function loadMainWithBuildSystem(userData) {
   delete require.cache[require.resolve('../core-manager')];
   delete require.cache[require.resolve('../plugin-manager')];
+  delete require.cache[require.resolve('../pce-build-system')];
   const main = loadWithMockedElectron(path.join(__dirname, '..', 'main.js'), {
     userData,
     app: {

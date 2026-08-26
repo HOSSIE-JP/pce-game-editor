@@ -68,6 +68,43 @@ function prepareBackground(image, options = {}) {
 
 function luminance(r, g, b) { return Math.max(0, Math.min(255, Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b))); }
 
+const BAYER_4X4 = Object.freeze([
+  Object.freeze([0, 8, 2, 10]),
+  Object.freeze([12, 4, 14, 6]),
+  Object.freeze([3, 11, 1, 9]),
+  Object.freeze([15, 7, 13, 5]),
+]);
+
+function clampNumber(value, min, max, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function adjustBackgroundImage(image, options = {}) {
+  const brightness = clampNumber(options.brightness, -100, 100, 0);
+  const saturation = clampNumber(options.saturation, 0, 200, 100);
+  const artworkHeight = Math.max(0, Math.min(image.height, Math.trunc(Number(options.artworkHeight ?? image.height))));
+  const rgba = new Uint8Array(image.rgba);
+  const brightnessOffset = brightness * 2.55;
+  for (let y = 0; y < artworkHeight; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      const at = (y * image.width + x) * 4;
+      const r = rgba[at]; const g = rgba[at + 1]; const b = rgba[at + 2];
+      const lum = (2126 * r + 7152 * g + 722 * b + 5000) / 10000;
+      rgba[at] = Math.max(0, Math.min(255, Math.round(lum + (r - lum) * saturation / 100 + brightnessOffset)));
+      rgba[at + 1] = Math.max(0, Math.min(255, Math.round(lum + (g - lum) * saturation / 100 + brightnessOffset)));
+      rgba[at + 2] = Math.max(0, Math.min(255, Math.round(lum + (b - lum) * saturation / 100 + brightnessOffset)));
+    }
+  }
+  return { width: image.width, height: image.height, rgba };
+}
+
+function orderedDitherOffset(x, y, strength = 16) {
+  const amount = clampNumber(strength, 0, 64, 16);
+  return ((BAYER_4X4[y & 3][x & 3] - 7.5) / 7.5) * amount;
+}
+
 function multiOtsuThresholds(histogram, classCount = 4) {
   const count = new Float64Array(257); const sum = new Float64Array(257);
   for (let i = 0; i < 256; i += 1) { count[i + 1] = count[i] + histogram[i]; sum[i + 1] = sum[i] + histogram[i] * i; }
@@ -101,11 +138,11 @@ function quantizeDmg(image, options = {}) {
   const maskHeight = Math.max(1, Math.min(image.height, options.analysisHeight || (options.fullScreen ? image.height : 96))); const histogram = new Uint32Array(256);
   for (let y = 0; y < maskHeight; y += 1) for (let x = 0; x < image.width; x += 1) { const at = (y * image.width + x) * 4; histogram[luminance(image.rgba[at], image.rgba[at + 1], image.rgba[at + 2])] += 1; }
   const thresholds = multiOtsuThresholds(histogram, 4); const rgba = new Uint8Array(image.width * image.height * 4); const indices = new Uint8Array(image.width * image.height); const shadeCounts = [0, 0, 0, 0];
-  for (let i = 0; i < indices.length; i += 1) { const at = i * 4; const lum = luminance(image.rgba[at], image.rgba[at + 1], image.rgba[at + 2]); let ascending = 0; while (ascending < thresholds.length && lum > thresholds[ascending]) ascending += 1; const shade = 3 - ascending; indices[i] = shade; shadeCounts[shade] += 1; rgba.set([...DMG_COLORS[shade], 255], at); }
+  for (let i = 0; i < indices.length; i += 1) { const at = i * 4; const x = i % image.width; const y = Math.floor(i / image.width); const baseLum = luminance(image.rgba[at], image.rgba[at + 1], image.rgba[at + 2]); const lum = options.dither && y < maskHeight ? Math.max(0, Math.min(255, baseLum + orderedDitherOffset(x, y, options.ditherStrength))) : baseLum; let ascending = 0; while (ascending < thresholds.length && lum > thresholds[ascending]) ascending += 1; const shade = 3 - ascending; indices[i] = shade; shadeCounts[shade] += 1; rgba.set([...DMG_COLORS[shade], 255], at); }
   const consolidated = consolidateDmgTiles(indices, image.width, image.height, Number(options.tileLimit) || 192); const finalIndices = consolidated.indices;
   if (consolidated.replacedTiles) for (let i = 0; i < finalIndices.length; i += 1) rgba.set([...DMG_COLORS[finalIndices[i]], 255], i * 4);
   const finalShadeCounts = [0, 0, 0, 0]; finalIndices.forEach((shade) => { finalShadeCounts[shade] += 1; });
-  const floor = Math.max(16, Math.floor(image.width * maskHeight * 0.001)); return { image: { width: image.width, height: image.height, rgba }, indices: finalIndices, audit: { thresholds, shadeCounts: finalShadeCounts, meaningfulShadeFloor: floor, meaningfulShades: finalShadeCounts.filter((n) => n >= floor).length, uniqueTiles: consolidated.after, tileLimit: Number(options.tileLimit) || 192, tileConsolidation: { before: consolidated.before, replacedTiles: consolidated.replacedTiles, changedPixels: consolidated.changedPixels } } };
+  const floor = Math.max(16, Math.floor(image.width * maskHeight * 0.001)); return { image: { width: image.width, height: image.height, rgba }, indices: finalIndices, audit: { thresholds, shadeCounts: finalShadeCounts, meaningfulShadeFloor: floor, meaningfulShades: finalShadeCounts.filter((n) => n >= floor).length, uniqueTiles: consolidated.after, tileLimit: Number(options.tileLimit) || 192, dither: Boolean(options.dither), ditherStrength: options.dither ? clampNumber(options.ditherStrength, 0, 64, 16) : 0, artworkHeight: maskHeight, tileConsolidation: { before: consolidated.before, replacedTiles: consolidated.replacedTiles, changedPixels: consolidated.changedPixels } } };
 }
 
 function snap5(value) { return Math.round(Math.round(value * 31 / 255) * 255 / 31); }
@@ -122,17 +159,76 @@ function medianCut(entries, limit = 4) {
 
 function paletteError(colors, palette) { return colors.reduce((sum, color) => sum + Math.min(...palette.map((candidate) => distance(color, candidate))), 0); }
 
-function quantizeGbc(image, options = {}) {
-  const maxPalettes = Math.max(1, Math.min(7, Number(options.maxPalettes) || 7)); const tileRows = Math.ceil(image.height / 8); const tileColumns = Math.ceil(image.width / 8); const tiles = [];
+function quantizeGbcWithPaletteLimit(image, requestedMaxPalettes, options = {}) {
+  const maxPalettes = Math.max(1, Math.min(7, Number(requestedMaxPalettes) || 7)); const tileRows = Math.ceil(image.height / 8); const tileColumns = Math.ceil(image.width / 8); const tiles = [];
   for (let ty = 0; ty < tileRows; ty += 1) for (let tx = 0; tx < tileColumns; tx += 1) { const colors = []; for (let y = 0; y < 8; y += 1) for (let x = 0; x < 8; x += 1) { const px = Math.min(image.width - 1, tx * 8 + x); const py = Math.min(image.height - 1, ty * 8 + y); const at = (py * image.width + px) * 4; colors.push([snap5(image.rgba[at]), snap5(image.rgba[at + 1]), snap5(image.rgba[at + 2])]); } tiles.push({ tx, ty, colors, local: medianCut(histogramEntries(colors), 4), paletteIndex: 0 }); }
   const palettes = [tiles[0]?.local || [[0, 0, 0]]];
   while (palettes.length < maxPalettes) { let best = null; tiles.forEach((tile) => { const error = Math.min(...palettes.map((palette) => paletteError(tile.colors, palette))); if (!best || error > best.error) best = { tile, error }; }); if (!best || best.error <= 0) break; const key = JSON.stringify(best.tile.local); if (palettes.some((palette) => JSON.stringify(palette) === key)) break; palettes.push(best.tile.local); }
   for (let iteration = 0; iteration < 6; iteration += 1) { tiles.forEach((tile) => { let bestIndex = 0; let bestError = Infinity; palettes.forEach((palette, index) => { const error = paletteError(tile.colors, palette); if (error < bestError) { bestError = error; bestIndex = index; } }); tile.paletteIndex = bestIndex; }); palettes.forEach((palette, index) => { const colors = tiles.filter((tile) => tile.paletteIndex === index).flatMap((tile) => tile.colors); if (colors.length) palettes[index] = medianCut(histogramEntries(colors), 4); }); }
   const rgba = new Uint8Array(image.width * image.height * 4); const indices = new Uint8Array(image.width * image.height); let squaredError = 0;
-  tiles.forEach((tile) => { const palette = palettes[tile.paletteIndex]; for (let y = 0; y < 8; y += 1) for (let x = 0; x < 8; x += 1) { const px = tile.tx * 8 + x; const py = tile.ty * 8 + y; if (px >= image.width || py >= image.height) continue; const at = (py * image.width + px) * 4; const source = [image.rgba[at], image.rgba[at + 1], image.rgba[at + 2]]; let best = 0; let bestDistance = Infinity; palette.forEach((color, index) => { const error = distance(source, color); if (error < bestDistance) { bestDistance = error; best = index; } }); const dest = py * image.width + px; indices[dest] = tile.paletteIndex * 4 + best; rgba.set([...palette[best], 255], dest * 4); squaredError += bestDistance; } });
-  return { image: { width: image.width, height: image.height, rgba }, indices, palettes, tilePaletteIndices: tiles.map((tile) => tile.paletteIndex), audit: { palettes: palettes.length, paletteLimit: 7, maxColorsPerTile: Math.max(...palettes.map((palette) => palette.length)), rmse: Math.sqrt(squaredError / Math.max(1, image.width * image.height * 7)), uniqueTiles: uniqueTileCount(indices, image.width, image.height) } };
+  const ditherHeight = Math.max(0, Math.min(image.height, Math.trunc(Number(options.ditherHeight ?? image.height))));
+  tiles.forEach((tile) => { const palette = palettes[tile.paletteIndex]; for (let y = 0; y < 8; y += 1) for (let x = 0; x < 8; x += 1) { const px = tile.tx * 8 + x; const py = tile.ty * 8 + y; if (px >= image.width || py >= image.height) continue; const at = (py * image.width + px) * 4; const offset = options.dither && py < ditherHeight ? orderedDitherOffset(px, py, options.ditherStrength) : 0; const source = [Math.max(0, Math.min(255, image.rgba[at] + offset)), Math.max(0, Math.min(255, image.rgba[at + 1] + offset)), Math.max(0, Math.min(255, image.rgba[at + 2] + offset))]; let best = 0; let bestDistance = Infinity; palette.forEach((color, index) => { const error = distance(source, color); if (error < bestDistance) { bestDistance = error; best = index; } }); const dest = py * image.width + px; indices[dest] = tile.paletteIndex * 4 + best; rgba.set([...palette[best], 255], dest * 4); squaredError += bestDistance; } });
+  return { image: { width: image.width, height: image.height, rgba }, indices, palettes, tilePaletteIndices: tiles.map((tile) => tile.paletteIndex), audit: { palettes: palettes.length, paletteLimit: 7, maxColorsPerTile: Math.max(...palettes.map((palette) => palette.length)), rmse: Math.sqrt(squaredError / Math.max(1, image.width * image.height * 7)), uniqueTiles: uniqueTileCount(indices, image.width, image.height), dither: Boolean(options.dither), ditherStrength: options.dither ? clampNumber(options.ditherStrength, 0, 64, 16) : 0, artworkHeight: ditherHeight } };
+}
+
+function analyzeGbStudioAutoPalettes(image) {
+  const tileRows = Math.ceil(image.height / 8);
+  const tileColumns = Math.ceil(image.width / 8);
+  const palettes = [];
+  const seen = new Set();
+  let maxColorsPerTile = 0;
+  for (let ty = 0; ty < tileRows; ty += 1) {
+    for (let tx = 0; tx < tileColumns; tx += 1) {
+      const colors = [];
+      const tileSeen = new Set();
+      for (let y = 0; y < 8; y += 1) {
+        for (let x = 0; x < 8; x += 1) {
+          const px = Math.min(image.width - 1, tx * 8 + x);
+          const py = Math.min(image.height - 1, ty * 8 + y);
+          const at = (py * image.width + px) * 4;
+          const key = `${image.rgba[at]},${image.rgba[at + 1]},${image.rgba[at + 2]}`;
+          if (!tileSeen.has(key)) { tileSeen.add(key); colors.push(key); }
+        }
+      }
+      maxColorsPerTile = Math.max(maxColorsPerTile, colors.length);
+      const identity = [...colors].sort().join('|');
+      if (!seen.has(identity)) { seen.add(identity); palettes.push(colors); }
+    }
+  }
+  const compressed = palettes.map((palette) => [...palette]);
+  let merged = true;
+  while (merged) {
+    merged = false;
+    for (let left = 0; left < compressed.length && !merged; left += 1) {
+      for (let right = left + 1; right < compressed.length; right += 1) {
+        const union = [...new Set([...compressed[left], ...compressed[right]])];
+        if (union.length <= 4) { compressed[left] = union; compressed.splice(right, 1); merged = true; break; }
+      }
+    }
+  }
+  return { palettes: compressed.length, maxColorsPerTile };
+}
+
+function quantizeGbc(image, options = {}) {
+  const requestedMaxPalettes = Math.max(1, Math.min(7, Number(options.maxPalettes) || 7));
+  const compilerPaletteLimit = Math.max(1, Math.min(7, Number(options.compilerPaletteLimit) || 7));
+  let result;
+  for (let quantizerPaletteLimit = requestedMaxPalettes; quantizerPaletteLimit >= 1; quantizerPaletteLimit -= 1) {
+    result = quantizeGbcWithPaletteLimit(image, quantizerPaletteLimit, options);
+    const compilerAudit = analyzeGbStudioAutoPalettes(result.image);
+    result.audit = {
+      ...result.audit,
+      palettes: compilerAudit.palettes,
+      paletteLimit: compilerPaletteLimit,
+      maxColorsPerTile: compilerAudit.maxColorsPerTile,
+      quantizerPalettes: result.palettes.length,
+      quantizerPaletteLimit
+    };
+    if (compilerAudit.palettes <= compilerPaletteLimit && compilerAudit.maxColorsPerTile <= 4) return result;
+  }
+  return result;
 }
 
 function makeContactSheet(entries, options = {}) { const columns = Math.max(1, Number(options.columns) || 4); const cellWidth = Math.max(160, ...entries.map((entry) => entry.image.width)); const cellHeight = Math.max(144, ...entries.map((entry) => entry.image.height)); const rows = Math.max(1, Math.ceil(entries.length / columns)); const width = cellWidth * columns; const height = cellHeight * rows; const rgba = new Uint8Array(width * height * 4); rgba.fill(255); entries.forEach((entry, index) => { const ox = (index % columns) * cellWidth; const oy = Math.floor(index / columns) * cellHeight; for (let y = 0; y < entry.image.height; y += 1) rgba.set(entry.image.rgba.subarray(y * entry.image.width * 4, (y + 1) * entry.image.width * 4), ((oy + y) * width + ox) * 4); }); return { width, height, rgba }; }
 
-module.exports = { DMG_COLORS, consolidateDmgTiles, encodeIndexedPng, encodeRgbaPng, makeContactSheet, multiOtsuThresholds, prepareBackground, quantizeDmg, quantizeGbc, readRgbaPng, resizeCrop, uniqueTileCount };
+module.exports = { BAYER_4X4, DMG_COLORS, adjustBackgroundImage, analyzeGbStudioAutoPalettes, consolidateDmgTiles, encodeIndexedPng, encodeRgbaPng, makeContactSheet, multiOtsuThresholds, orderedDitherOffset, prepareBackground, quantizeDmg, quantizeGbc, readRgbaPng, resizeCrop, uniqueTileCount };
