@@ -71,6 +71,8 @@ PC Engine の色は各チャンネル3bitの512色マスターパレットから
 
 `Novel` プラグインの `スクリプト` タブは VN シーンをコマンド単位で編集します。Scenes 一覧はドラッグ＆ドロップで順番を入れ替えられます。シーン名はヘッダの Name で編集でき、`chapter/opening` のように `/` で区切ると Scenes 一覧ではグループ見出しと leaf 名に分けて表示します。シーンの ID はヘッダの `ID` で変更できます。**開始シーン（runtime が最初に表示するシーン）は Scenes 一覧の各シーン右側にある ★ ボタンで選びます**。開始シーンの ★ は金色で点灯し、別シーンの ☆ をクリックするとそのシーンが開始シーンになり、以前の指定は自動で解除されます（開始シーンは常に 1 つ必要なため、点灯中の ★ をクリックして解除することはできません）。ID 変更時は `Jump` / `Choice` / `nextSceneId` / `startScene` の参照もエディタ側で更新します。グループ見出しはアコーディオンとして開閉でき、折りたたんだ階層のシーンは一覧から一時的に隠せます。Commands パネルも Commands ヘッダ行のクリックで折りたため、閉じると Scenes 一覧が縦に広がります。`Jump` などの参照は安定した scene `id` を使うため、名前を変えても遷移先は壊れません。中央のコマンド一覧では、各コマンド行の右側にアイコンボタンが並びます。
 
+組み込みプラグイン **PCE VN プロジェクト結合** を有効にすると、CD-ROM2 projectのNovel toolbarへ`プロジェクト結合`が表示されます。現在のprojectを第1入力に固定し、追加したprojectを入力順に並べ、出力親folder、出力名、タイトル、所有出力の置換を指定します。検査前に現在のVN編集内容を保存し、検査後に設定を変えた場合は再検査が必要です。各開始sceneの`NEXT_SCR` / `PREV_SCR`は入力順の輪へ接続され、生成後もactive projectは切り替わりません。CLIは`npm run merge:vn -- --output <出力先> [--title <タイトル>] [--dry-run] [--replace] <project1> <project2> ...`です。既存出力の置換は`.pce-vn-merge.json`を持つtool所有出力だけに制限されます。詳細は [PCE VN 複数プロジェクト結合](pce-vn-project-merger.md) を参照してください。
+
 ### GB Studio出力
 
 組み込みプラグイン **PCE VN GB Studio出力 v1.3.0** を有効にすると、Novel toolbarへ`GB Studio出力`が表示されます。CD-ROM2 / HuCARDのどちらもVN v2 `commands`を入力にできます。最初にGB Studio 4.3.1または4.3.2の実行file、空の出力folder、fontを選択し、`Preflight`を実行してください。engineは`4.3.0-e1`に固定され、違う版では停止します。fontの既定・推奨は組み込みMisaki Gothic 8x8です。BDF/TTF/OTF/TTCも選択でき、成功時にproject内へportable copyを保存します。
@@ -89,7 +91,7 @@ ChatGPT などでシナリオ、スクリプト JSON、画像・音声アセッ�
 
 北へ。PM取込の主人公名は「ハドソン」が既定です。同じSCR集合・entryの再取込では保存名を復元します。`【主人公】` / `主人公`などは元SCRの`NAME`で「こあら」「真人」などへ再定義されていても指定した主人公名を優先し、本文とMENU選択肢の両方へ反映します。空欄を明示した場合だけ元SCRの`NAME`定義を使います。
 
-SCR選択では、resource rootを指定した直後にSCRIPT配下で検出した全ファイルがチェックONになります。個別のチェックを変更してもSCR一覧のスクロール位置は維持されます。チェックONのSCRはentryからGOTOで接続されていなくても各ファイルの先頭から変換対象になり、entry SCRは取込entry sceneを決めるために使われます。同じSCR内の細かな分岐blockは、1 sceneあたりbuild時command見積り220件／pack見積り7000 bytesを目安にまとめます。同一scene内のGOTOとChoice分岐はlocal labelへ変換されるため、元SCRの分岐を保ったままscene数を抑えます。初回検査は独立SCR rootだけで明らかに255 sceneを超える場合を検出し、Mapping後のpreviewでpacking済みscene数と実8192-byte packを確定します。上限を超える場合も一部だけを黙って取り込みません。
+SCR選択では、resource rootを指定した直後にSCRIPT配下で検出した全ファイルがチェックONになります。個別のチェックを変更してもSCR一覧のスクロール位置は維持されます。チェックONのSCRはentryからGOTOで接続されていなくても各ファイルの先頭から変換対象になり、entry SCRは取込entry sceneを決めるために使われます。同じSCR内の細かな分岐blockは、1 sceneあたりbuild時command見積り220件／pack見積り7000 bytesを目安にまとめます。同一scene内のGOTOとChoice分岐はlocal labelへ変換されるため、元SCRの分岐を保ったままscene数を抑えます。初回検査は独立SCR rootだけで明らかに32767 sceneを超える場合を検出し、Mapping後のpreviewでpacking済みscene数と実8192-byte packを確定します。上限を超える場合も一部だけを黙って取り込みません。
 
 CD-ROM2 projectでは、組み込みプラグイン **北へ。PhotoMemories 取込** が有効な場合だけスクリプト画面上部に **北へ。PM取込** が表示され、解析済みSCRをsceneへ変換できます。resource rootを選び、変換対象のSCR、entry、主人公名、到達可能な画像・音声参照の対応先を順に指定します。話者の対応設定はなく、取り込むMessageはすべてナレーションになります。`COLOR WIN_MSG, GCOLOR`などの16-bit ARGB4444値はRGBを本文色へ変換し、PCE表示色へ丸めて反映します。解決できないCOLOR値はwarningを表示して既定の白を使います。sourceの拡張子を除いたpathと登録済みPCE asset名が一致する参照は自動選択され、複数画像は `_A` / `_B` など一致しない末尾を除いた共通名で事前結合assetへ照合されます。カード右上のチェックをOFFにするとカードの色が変わり、その参照を明示的に省略します。Mapping設定を変えてもスクロール位置は維持されます。過去の手動asset対応が残っている場合は **アセット対応をリセットして自動照合** を押すと、最新の登録済みassetから全画像・音声対応を作り直し、一致しない参照を省略へ戻せます。sidecarは変換適用に成功した時だけ更新され、保存済みmappingは同じ選択SCR集合とentryにだけ復元され、別の取込へ流用されません。画像の結合・crop・減色、P04/MIDI/GD-DA自体の変換は行いません。取込本文・選択肢にSystem Card jp-v3非対応文字がある場合は、Unicode code pointごとに`□`へ置換し、元SCR行と文字位置をwarningへ表示します。HuCARD projectではプラグインが有効でもボタンを表示しません。
 

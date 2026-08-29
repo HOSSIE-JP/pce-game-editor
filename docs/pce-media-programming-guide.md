@@ -719,7 +719,7 @@ classDiagram
 | `pce_vn_scene_packs[]` / `_count` | scene pack の CD sector、sector count、byte size、next scene |
 | `pce_vn_variable_initial_values[]` / `_count` | runtime 変数の初期値 |
 
-`voice_index`、`asset_index`、`message_index`、`animation_index`、`scene_index`、`choice_index`、`target_scene`、`variable_index`、`next_scene` は `-1` sentinel を持つため `signed int` として生成します。scene 数、variable 数、sprite animation 数は `unsigned char` で公開するため build 時に 255 件を上限として検証します。CD-ROM2 VN の command/message/choice/switch は scene pack 内の local index になり、上限は scene ごとに 255 件です。CD scene pack v3は8192 bytes以下、HuCard scene pack v2は4096 bytes以下です。
+`voice_index`、`asset_index`、`message_index`、`animation_index`、`scene_index`、`choice_index`、`target_scene`、`variable_index`、`next_scene` は `-1` sentinel を持つため `signed int` として生成します。scene count、start scene、runtimeのcurrent/preloaded/cache scene indexは`unsigned int`の16-bitで、scene上限は32767、無効scene sentinelは`0xffff`です。variable数は`unsigned char`のまま255件、sprite animation数は`unsigned int`で1024件です。CD-ROM2 VN の command/message/choice/switch は scene pack 内の local index になり、上限は scene ごとに 255 件です。CD scene pack v3とHuCard scene pack v2はいずれも8192 bytes以下です。
 
 PCE-CD / Super CD-ROM2 buildではbank123をscene pack、bank128/129/130をresident code、bank132をgenerated data/scratch/変換済みglyph cache、bank133をcode overlay、bank134をSystem Card BGM、bank135をSystem Card SFXに使います。bank131はSystem Cardのため使用禁止です。message/spritetext glyphは`EX_GETFNT`からon-demand取得し、`font.bin`/`font_sprite.bin`を生成しません。CD textはlength付き16-bit Shift-JISで、ASCIIは全角化し、非漢字領域+JIS第一水準以外をbuild errorにします。詳細とlink-map gateは`docs/pce-memory-bank-strategy.md`を参照してください。
 

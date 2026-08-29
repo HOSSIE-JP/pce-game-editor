@@ -2,8 +2,8 @@
    sprite/PSG/ADPCM/CD-DA/cache variables), shared typedefs, scratch storage and
    the shared forward-declaration blocks. Moved verbatim from pce_vn_runtime.c
    (Phase A module split). PHASE_A_SPLIT:END */
-static uint8_t current_scene = 0;
-static uint8_t runtime_start_scene = 0;
+static unsigned int current_scene = PCE_VN_INVALID_SCENE;
+static unsigned int runtime_start_scene = 0;
 static uint8_t current_command = 0;
 static uint8_t pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
 static uint8_t pending_display_enable = 0;
@@ -27,7 +27,7 @@ static uint16_t preloaded_bg_index = 0;
 static uint8_t preloaded_bg_x = 0;
 static uint8_t preloaded_bg_y = 0;
 static uint8_t preloaded_scene_visual_valid = 0;
-static uint8_t preloaded_scene_index = 0;
+static unsigned int preloaded_scene_index = PCE_VN_INVALID_SCENE;
 static uint8_t loaded_sprite_pattern_valid[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint16_t loaded_sprite_pattern_index[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
 static uint16_t loaded_sprite_pattern_base[VN_SPRITE_SLOT_COUNT] __attribute__((section(".bss")));
@@ -273,7 +273,7 @@ typedef struct
 {
     uint16_t base;
     uint16_t size;
-    uint8_t scene_index;
+    unsigned int scene_index;
     uint8_t valid;
 } vn_scene_pack_cache_t;
 typedef struct
@@ -311,7 +311,7 @@ static void VN_BANKED_CODE initialize_sprite_move_state(void);
 static void VN_BANKED_CODE cancel_sprite_move(uint8_t slot);
 static void VN_BANKED_CODE cancel_all_sprite_moves(void);
 static uint8_t VN_BANKED_CODE2 start_sprite_move(const pce_vn_command_t *command);
-static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache);
+static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(unsigned int scene_index, vn_scene_pack_cache_t *cache);
 static uint8_t scene_pack_command_count(const vn_scene_pack_cache_t *cache);
 #if defined(__PCE_CD__)
 static void VN_OVERLAY_CODE cdda_command_impl(signed int asset_index);

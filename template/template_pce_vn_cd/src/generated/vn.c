@@ -41,5 +41,5 @@ const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs[] = {
 
 const pce_editor_meta_region_t PCE_VN_DATA_SECTION pce_vn_system_psg_meta = { { 125u, 0u, 0u }, 3u };
 const unsigned int PCE_VN_DATA_SECTION pce_vn_system_psg_package_count = 3u;
-const unsigned char PCE_VN_DATA_SECTION pce_vn_scene_count = 4;
-const unsigned char PCE_VN_DATA_SECTION pce_vn_start_scene = 0u;
+const unsigned int PCE_VN_DATA_SECTION pce_vn_scene_count = 4u;
+const unsigned int PCE_VN_DATA_SECTION pce_vn_start_scene = 0u;

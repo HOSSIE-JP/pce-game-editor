@@ -1,0 +1,106 @@
+.pce-vn-merge-panel {
+  width: min(960px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+}
+
+.pce-vn-merge-layout {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.pce-vn-merge-layout header h2,
+.pce-vn-merge-layout header p {
+  margin: 0 0 6px;
+}
+
+.pce-vn-merge-heading,
+.pce-vn-merge-layout footer,
+.pce-vn-merge-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pce-vn-merge-heading {
+  justify-content: space-between;
+}
+
+.pce-vn-merge-layout footer {
+  justify-content: flex-end;
+}
+
+.pce-vn-merge-projects,
+.pce-vn-merge-diagnostics {
+  display: grid;
+  gap: 6px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.pce-vn-merge-project-row {
+  display: grid;
+  grid-template-columns: 32px minmax(220px, 1fr) auto auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.pce-vn-merge-order {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.pce-vn-merge-project-row input,
+.pce-vn-merge-form input[type="text"],
+.pce-vn-merge-form input:not([type]) {
+  min-width: 0;
+  width: 100%;
+}
+
+.pce-vn-merge-form {
+  display: grid;
+  gap: 8px;
+}
+
+.pce-vn-merge-form > label:not(.pce-vn-merge-check) {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.pce-vn-merge-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.pce-vn-merge-summary {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+}
+
+.pce-vn-merge-diagnostic,
+.pce-vn-merge-status,
+.pce-vn-merge-empty,
+.pce-vn-merge-ok {
+  margin: 0;
+}
+
+.pce-vn-merge-diagnostic[data-severity="error"],
+.pce-vn-merge-status[data-level="error"] {
+  color: var(--danger-color, #ff7676);
+}
+
+.pce-vn-merge-diagnostic[data-severity="warning"],
+.pce-vn-merge-status[data-level="warning"] {
+  color: var(--warning-color, #ffd166);
+}
+
+.pce-vn-merge-status[data-level="success"],
+.pce-vn-merge-ok {
+  color: var(--success-color, #73d89a);
+}

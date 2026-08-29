@@ -2883,13 +2883,13 @@ test('Kitahe PM keeps source instruction volume outside the per-script expansion
 
   assert.equal(analysis.reachability.nodes.size, sourceLines.length);
   assert.ok(!analysis.diagnostics.some((entry) => entry.code === 'expanded-state-limit'));
-  assert.ok(analysis.basicBlockCount > converter.MAX_SCENES);
+  assert.ok(analysis.basicBlockCount > 255);
   assert.equal(analysis.minimumSceneCount, 1);
   assert.ok(!analysis.diagnostics.some((entry) => entry.code === 'scene-count-limit'));
 
   const converted = converter.convertScripts(analysis, { mapping: {}, assetCatalog: [] });
   assert.equal(converted.ok, true);
-  assert.ok(converted.totals.basicBlocks > converter.MAX_SCENES);
+  assert.ok(converted.totals.basicBlocks > 255);
   assert.ok(converted.scenes.length > 1);
   assert.ok(converted.scenes.length < converter.MAX_SCENES);
   const sceneIds = new Set(converted.scenes.map((scene) => scene.id));

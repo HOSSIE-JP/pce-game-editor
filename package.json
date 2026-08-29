@@ -9,6 +9,7 @@
   "scripts": {
     "inject-build-meta": "node scripts/inject-build-meta.js",
     "mcp": "node scripts/pce-game-editor-mcp.js",
+    "merge:vn": "node scripts/pce-vn-project-merge.js",
     "prepare:dist": "node scripts/prepare-dist.js",
     "prepare:wincache": "node scripts/prepare-wincodesign-cache.js",
     "test": "node tests/run-tests.js",

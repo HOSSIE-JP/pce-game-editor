@@ -6,6 +6,7 @@
 
 | 種別 | 同一ビルドの参照上限 | 数え方 |
 |---|---:|---|
+| Scene | 32767 | `pce-vn-scenes.json`のscene数。indexは16-bit、`0xffff`は無効値として予約 |
 | ADPCM | 2048 | sceneから参照されるasset/partごとに1件 |
 | BG | 1024 | 参照される`image` assetごとに1件 |
 | Sprite | 1024 | 参照される`sprite` assetごとに1件 |
@@ -22,7 +23,7 @@ CD-DA以外の未参照assetはcatalog件数に含めません。ゲーム用CD-
 - **個別画像**: BGのBAT/VRAM、Sprite pattern/palette/SATBなど、既存の画像寸法・VRAM layout検査を通る必要があります。
 - **同時表示**: Sprite catalogが1024件あっても、VN runtimeが同時に表示・保持する立ち絵は4 slotです。
 - **同時再生**: ADPCMは1つのbuffered playback、PSGはBGM/SFX bus、CD-DAは物理trackというruntime上の制約があります。catalog件数は同時再生数を増やしません。
-- **scene**: 1 scene packは最大8192 bytesで、scene数・command数など既存のscript上限も別に適用されます。
+- **scene**: 1 scene packは最大8192 bytesです。scene数は32767までですが、command/message/choice/switchとvariableの既存8-bit上限は維持されます。
 - **PSG package**: System Card BGM packageは8156 bytes、SFX packageは8192 bytes以下である必要があります。
 
 ## 大量payloadを扱える理由
@@ -70,6 +71,7 @@ catalog総件数分をRAMへ読み込むことはありません。BG 8件、Spr
 - Sprite Animation 1025件目: 使わないROWを削るか、SpriteごとのAnimation定義を整理します。
 - PSG package variant 513件目: 同じassetの不要なchannel違いを整理する、効果音を共用する、またはADPCM化を検討します。
 - CD-DA 99本目: CD-DAは増やせないため、ADPCMまたはPSGへ移します。
+- Scene 32768件目: projectを複数buildへ分けます。`0xffff`はruntimeの無効scene sentinelなのでscene indexには使えません。
 
 ## 回帰確認
 
@@ -78,4 +80,5 @@ catalog総件数分をRAMへ読み込むことはありません。BG 8件、Spr
 - index 0、中間、末尾（ADPCM 2047、BG/Sprite 1023、Animation 1023）をruntimeで参照。
 - payload packの2048-byte alignment、logical sector alias、決定的順序、hash整合。
 - CD VNの実CUE buildとGeargrafx確認。
+- 254 / 255 / 256 / 300 sceneの生成と、255を超えるsceneへのruntime遷移。
 - HuCard buildと`npm test`の回帰確認。

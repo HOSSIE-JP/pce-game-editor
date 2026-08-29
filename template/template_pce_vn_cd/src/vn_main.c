@@ -5,7 +5,7 @@
 static void init_runtime_state(void)
 {
     uint16_t i;
-    current_scene = 0u;
+    current_scene = PCE_VN_INVALID_SCENE;
     current_command = 0u;
     pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;
     pending_display_enable = 0u;
@@ -22,7 +22,7 @@ static void init_runtime_state(void)
     preloaded_bg_x = 0u;
     preloaded_bg_y = 0u;
     preloaded_scene_visual_valid = 0u;
-    preloaded_scene_index = 0u;
+    preloaded_scene_index = PCE_VN_INVALID_SCENE;
     full_screen_bg_text_vram_dirty = 0u;
     loaded_adpcm_valid = 0u;
     loaded_adpcm_index = 0u;
@@ -39,12 +39,12 @@ static void init_runtime_state(void)
     pad_edge_reset_pending = 0u;
     active_scene_pack.base = (uint16_t)(uintptr_t)VN_ACTIVE_SCENE_PACK_DATA;
     active_scene_pack.size = 0u;
-    active_scene_pack.scene_index = 0xffu;
+    active_scene_pack.scene_index = PCE_VN_INVALID_SCENE;
     active_scene_pack.valid = 0u;
 #else
     active_scene_pack.base = 0u;
     active_scene_pack.size = 0u;
-    active_scene_pack.scene_index = 0xffu;
+    active_scene_pack.scene_index = PCE_VN_INVALID_SCENE;
     active_scene_pack.valid = 0u;
 #endif
     screen_shake_x = 0;

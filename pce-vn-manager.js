@@ -150,6 +150,7 @@ const VN_COMPARE_GTE = 5;
 const VN_NO_COMMAND = 0xffff;
 const VN_SPRITE_FRAME_DELAY_MAX = 0xffff;
 const VN_MAX_U8_COUNT = 255;
+const VN_MAX_SCENE_COUNT = 0x7fff;
 const VN_MAX_SPRITE_ANIMATION_COUNT = 1024;
 const VN_SCENE_FLAG_FULL_SCREEN_BG = 1;
 const VN_SCENE_PACK_DIR = path.join('assets', 'generated', 'vn', 'scenes');
@@ -3174,8 +3175,8 @@ function generateVnSources(projectDir, options = {}) {
       : ensureSystemCardPsgMetaReservation(projectDir, systemPsgVariants.length));
   const systemPsgVariantIndex = new Map(systemPsgVariants.map((variant, index) => [variant.key, index]));
   const systemSettings = normalizeVnSystemSettings(doc.settings);
-  if ((doc.scenes || []).length > VN_MAX_U8_COUNT) {
-    throw new Error(`PCE VN supports up to ${VN_MAX_U8_COUNT} scenes`);
+  if ((doc.scenes || []).length > VN_MAX_SCENE_COUNT) {
+    throw new Error(`PCE VN supports up to ${VN_MAX_SCENE_COUNT} scenes`);
   }
   const rawGlyphs = collectGlyphsRaw(doc);
   const glyphs = rawGlyphs.slice(0, VN_MAX_GLYPH_COUNT);
@@ -4340,8 +4341,9 @@ function generateVnSources(projectDir, options = {}) {
         'extern const unsigned int pce_vn_psg_asset_count;',
       ]
       : []),
-    'extern const unsigned char pce_vn_scene_count;',
-    'extern const unsigned char pce_vn_start_scene;',
+    '#define PCE_VN_INVALID_SCENE 0xffffu',
+    'extern const unsigned int pce_vn_scene_count;',
+    'extern const unsigned int pce_vn_start_scene;',
     '',
     '#endif',
     '',
@@ -4380,8 +4382,8 @@ function generateVnSources(projectDir, options = {}) {
     '};',
     `const unsigned int pce_vn_psg_asset_count = ${hucardPsgEntries.length}u;`,
     '',
-    `const unsigned char pce_vn_scene_count = ${doc.scenes.length};`,
-    `const unsigned char pce_vn_start_scene = ${startScene}u;`,
+    `const unsigned int pce_vn_scene_count = ${doc.scenes.length}u;`,
+    `const unsigned int pce_vn_start_scene = ${startScene}u;`,
     '',
   ] : [
     '#if defined(__PCE_CD__)',
@@ -4424,8 +4426,8 @@ function generateVnSources(projectDir, options = {}) {
     '',
     `const pce_editor_meta_region_t PCE_VN_DATA_SECTION pce_vn_system_psg_meta = ${systemPsgMetaInitializer};`,
     `const unsigned int PCE_VN_DATA_SECTION pce_vn_system_psg_package_count = ${systemPsgVariants.length}u;`,
-    `const unsigned char PCE_VN_DATA_SECTION pce_vn_scene_count = ${doc.scenes.length};`,
-    `const unsigned char PCE_VN_DATA_SECTION pce_vn_start_scene = ${startScene}u;`,
+    `const unsigned int PCE_VN_DATA_SECTION pce_vn_scene_count = ${doc.scenes.length}u;`,
+    `const unsigned int PCE_VN_DATA_SECTION pce_vn_start_scene = ${startScene}u;`,
     '',
   ];
   if (!inspectionOnly) {
@@ -4536,12 +4538,12 @@ function validateVnSceneDocumentInput(rawDoc = {}, assetDoc = { assets: [] }) {
     assetById.set(assetId, asset);
   });
 
-  if (scenes.length > VN_MAX_U8_COUNT) {
+  if (scenes.length > VN_MAX_SCENE_COUNT) {
     diagnostics.push(inspectionDiagnostic(
       'error',
       'scene_limit',
-      `PCE VN supports up to ${VN_MAX_U8_COUNT} scenes; got ${scenes.length}`,
-      { actual: scenes.length, limit: VN_MAX_U8_COUNT },
+      `PCE VN supports up to ${VN_MAX_SCENE_COUNT} scenes; got ${scenes.length}`,
+      { actual: scenes.length, limit: VN_MAX_SCENE_COUNT },
     ));
   }
 
@@ -4899,7 +4901,7 @@ function inspectionBuildErrorCode(error) {
   const message = String(error?.message || error || '');
   if (/scene pack .*8192 bytes|cache size/i.test(message)) return 'scene_pack_limit';
   if (/up to 255 commands/i.test(message)) return 'command_limit';
-  if (/up to 255 scenes/i.test(message)) return 'scene_limit';
+  if (/supports up to \d+ scenes/i.test(message)) return 'scene_limit';
   if (/up to 255 variables/i.test(message)) return 'variable_limit';
   if (/encode|glyph|character|Shift|system card/i.test(message)) return 'text_encoding';
   if (/asset|background|sprite|ADPCM|PSG|CD-DA/i.test(message)) return 'asset_build_validation';
@@ -4997,7 +4999,7 @@ function inspectVnSceneDocumentBuild(projectDirOrOptions = '', maybeOptions = {}
     errors: diagnostics.filter((diagnostic) => diagnostic.severity === 'error'),
     warnings: diagnostics.filter((diagnostic) => diagnostic.severity === 'warning'),
     limits: {
-      scenes: VN_MAX_U8_COUNT,
+      scenes: VN_MAX_SCENE_COUNT,
       commandsPerScene: VN_MAX_U8_COUNT,
       userVariables: VN_MAX_U8_COUNT - 2,
       variables: VN_MAX_U8_COUNT,
@@ -5712,6 +5714,7 @@ function prepareVisualNovelBuild(projectDir, config = {}, clangPath = null, logg
 }
 
 module.exports = {
+  VN_MAX_SCENE_COUNT,
   VN_SCENE_FILE,
   VN_SCENE_PACK_DIR,
   VN_SCENE_PACK_CACHE_BYTES,

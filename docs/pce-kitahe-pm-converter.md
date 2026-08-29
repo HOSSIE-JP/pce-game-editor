@@ -288,11 +288,12 @@ Choiceは選択値を従来どおり一時variableへ保存し、直接scene遷�
 このためChoiceの分岐先だけを理由にsceneを細分化しません。
 
 初回検査の`summary.basicBlockCount`は解析上のblock数、`summary.minimumSceneCount`は
-独立して保持すべき選択SCR root数です。raw basic block数が255を超えても初回検査を
-止めず、minimumが255を超える場合だけ`scene-count-limit` errorにします。mapping後の
+独立して保持すべき選択SCR root数です。raw basic block数が32767を超えても初回検査を
+止めず、minimumが32767を超える場合だけ`scene-count-limit` errorにします。mapping後の
 previewではpacking済みscene数を検査し、さらにPCE VN managerの非書込みbuild検査で
 document全体のscene ID、command数、変数数、実scene pack byte数を確定します。
-PCE VN runtimeのscene indexは8-bitなので、1 documentのscene上限は255です。
+PCE VN runtimeのscene count、start、current/preloaded/cache indexは16-bitで、
+`0xffff`を無効scene sentinelにします。1 documentのscene上限は32767です。
 CD-ROM2 buildで音声付きmessageの前に自動挿入されるADPCM preloadは、元のSCR
 command indexではなく、生成後の実command列へ反映されます。そのため、IF / SWITCH /
 GOTO / WAITBTN のlabel分岐先はpreload挿入後も同じlabel commandを指します。

@@ -133,7 +133,7 @@ typedef struct
 {
     const pce_editor_data_ref_t *ref;
     uint16_t size;
-    uint8_t scene_index;
+    unsigned int scene_index;
     uint8_t valid;
 } vn_scene_pack_cache_t;
 
@@ -212,7 +212,7 @@ static uint8_t msg_tile_batch_count;
 static uint8_t composer_prev_col;
 static uint8_t composer_prev_valid;
 static uint8_t composer_row;
-static uint8_t current_scene;
+static unsigned int current_scene;
 static uint16_t current_command;
 #if PCE_VN_HAS_FULL_SCREEN_BG
 static uint8_t current_scene_full_screen_bg __attribute__((section(".bss")));
@@ -254,7 +254,7 @@ static vn_psg_voice_t psg_hardware_voices[6] __attribute__((section(".bss")));
 
 static void VN_HUCARD_CODE_PSG psg_advance(uint8_t frames);
 static void VN_HUCARD_CODE_SCRIPT advance_story(void);
-static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index);
+static void VN_HUCARD_CODE_SCRIPT show_scene(unsigned int scene_index);
 static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_u8(const vn_scene_pack_cache_t *cache, uint16_t offset);
 static void VN_HUCARD_CODE_TEXT clear_spritetext_slots(void);
 static void VN_HUCARD_CODE_TEXT redraw_spritetext_slots(void);
@@ -1109,7 +1109,7 @@ static uint8_t VN_HUCARD_CODE_SCRIPT scene_pack_is_valid(const vn_scene_pack_cac
     return (uint8_t)(scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_VERSION) == PCE_VN_SCENE_PACK_VERSION);
 }
 
-static uint8_t VN_HUCARD_CODE_SCRIPT load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache)
+static uint8_t VN_HUCARD_CODE_SCRIPT load_scene_pack_into_cache(unsigned int scene_index, vn_scene_pack_cache_t *cache)
 {
     const pce_vn_scene_pack_t *pack;
     if (!cache || scene_index >= pce_vn_scene_count) return 0u;
@@ -2357,7 +2357,7 @@ static uint8_t VN_HUCARD_CODE_TEXT handle_choice_input(uint8_t pressed)
         active_choice_index = -1;
         hide_message_window_map();
         if (choice.variable_index >= 0) set_variable_value(choice.variable_index, option.value);
-        if (option.target_scene >= 0) show_scene((uint8_t)option.target_scene);
+        if (option.target_scene >= 0) show_scene((unsigned int)option.target_scene);
         advance_story();
         return 1u;
     }
@@ -2398,7 +2398,7 @@ static uint8_t VN_HUCARD_CODE_SCRIPT find_async_input_watcher(uint8_t pressed)
     return 0xffu;
 }
 
-static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index)
+static void VN_HUCARD_CODE_SCRIPT show_scene(unsigned int scene_index)
 {
     cancel_all_sprite_moves();
     if (scene_index >= pce_vn_scene_count) scene_index = 0u;
@@ -2456,7 +2456,7 @@ static void VN_HUCARD_CODE_SCRIPT advance_story(void)
         }
         else if (command.type == PCE_VN_COMMAND_JUMP)
         {
-            if (command.scene_index >= 0) show_scene((uint8_t)command.scene_index);
+            if (command.scene_index >= 0) show_scene((unsigned int)command.scene_index);
             return;
         }
         else if (command.type == PCE_VN_COMMAND_WAIT)
@@ -2533,7 +2533,7 @@ static void VN_HUCARD_CODE_SCRIPT advance_story(void)
     if (current_scene < pce_vn_scene_count)
     {
         const pce_vn_scene_pack_t *pack = &pce_vn_scene_packs[current_scene];
-        if (pack->next_scene >= 0) show_scene((uint8_t)pack->next_scene);
+        if (pack->next_scene >= 0) show_scene((unsigned int)pack->next_scene);
     }
 }
 
@@ -2550,7 +2550,8 @@ static void VN_HUCARD_CODE_SCRIPT init_scene_cache(void)
 {
     active_scene_pack.ref = (const pce_editor_data_ref_t *)0;
     active_scene_pack.size = 0u;
-    active_scene_pack.scene_index = 0xffu;
+    current_scene = PCE_VN_INVALID_SCENE;
+    active_scene_pack.scene_index = PCE_VN_INVALID_SCENE;
     active_scene_pack.valid = 0u;
 }
 

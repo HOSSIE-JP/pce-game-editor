@@ -208,7 +208,7 @@ static uint8_t scene_pack_is_valid(const vn_scene_pack_cache_t *cache)
     return (uint8_t)(scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_VERSION) == PCE_VN_SCENE_PACK_VERSION);
 }
 
-static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(uint8_t scene_index, vn_scene_pack_cache_t *cache)
+static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(unsigned int scene_index, vn_scene_pack_cache_t *cache)
 {
 #if defined(__PCE_CD__)
     {
@@ -578,7 +578,7 @@ static void VN_BANKED_CODE2 handle_audio_command(uint8_t flags, signed int asset
 #endif
 }
 
-static void show_scene(uint8_t scene_index)
+static void show_scene(unsigned int scene_index)
 {
 #if PCE_VN_HAS_FULL_SCREEN_BG
     uint8_t i;
@@ -742,7 +742,7 @@ static uint8_t handle_choice_input(uint8_t pressed)
         {
             set_variable_value(choice->variable_index, option->value);
         }
-        if (option->target_scene >= 0) show_scene((uint8_t)option->target_scene);
+        if (option->target_scene >= 0) show_scene((unsigned int)option->target_scene);
         advance_story();
         return 1u;
     }
@@ -1139,7 +1139,7 @@ static uint8_t VN_BANKED_CODE execute_command(const pce_vn_command_t *command)
     {
         if (command->scene_index >= 0)
         {
-            show_scene((uint8_t)command->scene_index);
+            show_scene((unsigned int)command->scene_index);
             return VN_EXEC_RESTART;
         }
     }
@@ -1310,7 +1310,7 @@ static void advance_story(void)
     for (;;)
     {
         signed int next_scene;
-        uint8_t target_scene;
+        unsigned int target_scene;
         if (run_commands_until_wait()) break;
         next_scene = current_scene_next_scene();
         if (next_scene < 0)
@@ -1328,7 +1328,7 @@ static void advance_story(void)
             break;
         }
         remaining_scene_transitions--;
-        target_scene = (uint8_t)next_scene;
+        target_scene = (unsigned int)next_scene;
         show_scene(target_scene);
         if (current_scene != target_scene)
         {

@@ -5,7 +5,7 @@ const { encodeSystemCardText } = require('../../pce-system-card-font');
 
 const MAX_CALL_STACK = 16;
 const MAX_EXPANDED_STATES = 4096;
-const MAX_SCENES = 255;
+const MAX_SCENES = require('../../pce-vn-manager').VN_MAX_SCENE_COUNT;
 const MAX_COMMANDS_PER_SCENE = 255;
 const MAX_VARIABLES = 253;
 const MAX_BLOCK_SOURCE_INSTRUCTIONS = 120;

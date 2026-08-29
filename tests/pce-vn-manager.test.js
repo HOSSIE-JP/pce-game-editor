@@ -560,7 +560,7 @@ test('PCE VN manager normalizes startScene with scene IDs and emits that runtime
 
   const generated = vnManager.generateVnSources(projectDir);
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
-  assert.match(source, /const unsigned char PCE_VN_DATA_SECTION pce_vn_start_scene = 1u;/);
+  assert.match(source, /const unsigned int PCE_VN_DATA_SECTION pce_vn_start_scene = 1u;/);
 });
 
 test('PCE VN manager bakes ADPCM message duration into text speed', () => {
@@ -1324,7 +1324,7 @@ test('PCE VN manager encodes full-screen BG scene mode, allows hardware sprites 
   assert.equal(commandRecord(pack, 0).x, 0);
   assert.equal(commandRecord(pack, 0).y, 0);
   const cdSceneRuntime = fs.readFileSync(path.join(TEMPLATE_VN_SRC_DIR, 'vn_port_scene.c'), 'utf-8');
-  const showSceneStart = cdSceneRuntime.indexOf('static void show_scene(uint8_t scene_index)');
+  const showSceneStart = cdSceneRuntime.indexOf('static void show_scene(unsigned int scene_index)');
   const setBackgroundStart = cdSceneRuntime.indexOf('static void set_background(', showSceneStart);
   const executeControlStart = cdSceneRuntime.indexOf('static uint8_t VN_BANKED_CODE2 execute_control_command', setBackgroundStart);
   assert.notEqual(showSceneStart, -1);
@@ -2928,13 +2928,58 @@ test('PCE VN manager allows script totals past 255 when each scene pack fits', (
   assert.equal(generated.scenePackPaths.length, 3);
   assert.ok(generated.scenePackBytes.every((size) => size <= vnManager.VN_SCENE_PACK_CACHE_BYTES));
   assert.match(header, /signed int message_index;/);
-  assert.match(source, /const unsigned char PCE_VN_DATA_SECTION pce_vn_scene_count = 3;/);
+  assert.match(source, /const unsigned int PCE_VN_DATA_SECTION pce_vn_scene_count = 3u;/);
   assert.doesNotMatch(source, /pce_vn_message_count|pce_vn_command_count/);
   generated.scenePackPaths.forEach((packPath) => {
     const pack = readPack(projectDir, packPath);
     assert.equal(pack[5], 100);
     assert.equal(pack[6], 100);
   });
+});
+
+test('PCE VN manager emits 16-bit scene state for 300 scenes on CD and HuCARD', () => {
+  const projectDir = makeTempDir('pce-vn-scene-u16-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'scene_299',
+    scenes: Array.from({ length: 300 }, (_, index) => ({
+      id: `scene_${index}`,
+      nextSceneId: index < 299 ? `scene_${index + 1}` : '',
+      commands: [],
+    })),
+  });
+
+  const cdGenerated = vnManager.generateVnSources(projectDir, { targetMedia: 'cd' });
+  const cdHeader = fs.readFileSync(cdGenerated.headerPath, 'utf8');
+  const cdSource = fs.readFileSync(cdGenerated.sourcePath, 'utf8');
+  assert.equal(vnManager.VN_MAX_SCENE_COUNT, 0x7fff);
+  assert.equal(cdGenerated.sceneCount, 300);
+  assert.match(cdHeader, /#define PCE_VN_INVALID_SCENE 0xffffu/);
+  assert.match(cdHeader, /extern const unsigned int pce_vn_scene_count;/);
+  assert.match(cdHeader, /extern const unsigned int pce_vn_start_scene;/);
+  assert.match(cdSource, /const unsigned int PCE_VN_DATA_SECTION pce_vn_scene_count = 300u;/);
+  assert.match(cdSource, /const unsigned int PCE_VN_DATA_SECTION pce_vn_start_scene = 299u;/);
+
+  const huCardGenerated = vnManager.generateVnSources(projectDir, { targetMedia: 'hucard' });
+  const huCardSource = fs.readFileSync(huCardGenerated.sourcePath, 'utf8');
+  assert.equal(huCardGenerated.sceneCount, 300);
+  assert.match(huCardSource, /const unsigned int pce_vn_scene_count = 300u;/);
+  assert.match(huCardSource, /const unsigned int pce_vn_start_scene = 299u;/);
+
+  const cdState = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'vn_engine_state.c'), 'utf8');
+  const cdScene = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'vn_port_scene.c'), 'utf8');
+  const cdMain = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_cd', 'src', 'vn_main.c'), 'utf8');
+  const huCardRuntime = fs.readFileSync(path.join(__dirname, '..', 'template', 'template_pce_vn_hucard', 'src', 'pce_vn_hucard_runtime.c'), 'utf8');
+  assert.match(cdState, /static unsigned int current_scene = PCE_VN_INVALID_SCENE;/);
+  assert.match(cdState, /unsigned int scene_index;/);
+  assert.match(cdScene, /show_scene\(unsigned int scene_index\)/);
+  assert.match(cdScene, /show_scene\(\(unsigned int\)command->scene_index\)/);
+  assert.match(cdMain, /active_scene_pack\.scene_index = PCE_VN_INVALID_SCENE;/);
+  assert.match(huCardRuntime, /static unsigned int current_scene;/);
+  assert.match(huCardRuntime, /load_scene_pack_into_cache\(unsigned int scene_index/);
+  assert.match(huCardRuntime, /active_scene_pack\.scene_index = PCE_VN_INVALID_SCENE;/);
 });
 
 test('PCE VN manager rejects one scene pack over the runtime cache size', () => {
@@ -4460,28 +4505,31 @@ test('PCE VN build inspection reports jp-v3 encoding and exact runtime limits', 
   assert.ok(tooManyVariables.errors.some((entry) => entry.code === 'variable_limit'));
   assert.equal(tooManyVariables.limits.userVariables, 253);
 
-  const exactSceneAndCommandLimits = vnManager.inspectVnSceneDocumentBuild(projectDir, {
-    doc: {
-      version: 2,
-      startScene: 'scene_0',
-      scenes: Array.from({ length: 255 }, (_, sceneIndex) => ({
-        id: `scene_${sceneIndex}`,
-        commands: sceneIndex === 0
-          ? Array.from({ length: 255 }, () => ({ type: 'wait', frames: 1 }))
-          : [],
-      })),
-    },
-    assets: [],
-    targetMedia: 'cd',
-  });
-  assert.equal(exactSceneAndCommandLimits.ok, true);
-  assert.equal(exactSceneAndCommandLimits.totals.scenes, 255);
+  for (const sceneCount of [254, 255, 256, 300]) {
+    const boundaryInspection = vnManager.inspectVnSceneDocumentBuild(projectDir, {
+      doc: {
+        version: 2,
+        startScene: 'scene_0',
+        scenes: Array.from({ length: sceneCount }, (_, sceneIndex) => ({
+          id: `scene_${sceneIndex}`,
+          commands: sceneIndex === 0
+            ? Array.from({ length: 255 }, () => ({ type: 'wait', frames: 1 }))
+            : [],
+        })),
+      },
+      assets: [],
+      targetMedia: 'cd',
+    });
+    assert.equal(boundaryInspection.ok, true, `scene count ${sceneCount}`);
+    assert.equal(boundaryInspection.totals.scenes, sceneCount);
+    assert.equal(boundaryInspection.limits.scenes, vnManager.VN_MAX_SCENE_COUNT);
+  }
 
   const tooManyScenes = vnManager.inspectVnSceneDocumentBuild(projectDir, {
     doc: {
       version: 2,
       startScene: 'scene_0',
-      scenes: Array.from({ length: 256 }, (_, sceneIndex) => ({
+      scenes: Array.from({ length: vnManager.VN_MAX_SCENE_COUNT + 1 }, (_, sceneIndex) => ({
         id: `scene_${sceneIndex}`,
         commands: [],
       })),
@@ -4491,8 +4539,8 @@ test('PCE VN build inspection reports jp-v3 encoding and exact runtime limits', 
   });
   assert.equal(tooManyScenes.ok, false);
   assert.ok(tooManyScenes.errors.some((entry) => entry.code === 'scene_limit'
-    && entry.actual === 256
-    && entry.limit === 255));
+    && entry.actual === vnManager.VN_MAX_SCENE_COUNT + 1
+    && entry.limit === vnManager.VN_MAX_SCENE_COUNT));
 
   const tooManyCommands = vnManager.inspectVnSceneDocumentBuild(projectDir, {
     doc: {

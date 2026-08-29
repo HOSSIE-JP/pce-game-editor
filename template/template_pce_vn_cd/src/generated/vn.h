@@ -215,7 +215,8 @@ extern const unsigned char pce_vn_variable_count;
 extern const pce_vn_scene_pack_t pce_vn_scene_packs[];
 extern const pce_editor_meta_region_t pce_vn_system_psg_meta;
 extern const unsigned int pce_vn_system_psg_package_count;
-extern const unsigned char pce_vn_scene_count;
-extern const unsigned char pce_vn_start_scene;
+#define PCE_VN_INVALID_SCENE 0xffffu
+extern const unsigned int pce_vn_scene_count;
+extern const unsigned int pce_vn_start_scene;
 
 #endif

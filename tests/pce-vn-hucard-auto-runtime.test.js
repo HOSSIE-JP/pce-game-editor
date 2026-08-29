@@ -174,7 +174,7 @@ test('HuCARD VN restores the blank tile after Full BG before an Input-driven sce
   );
 
   const showScene = sliceBetween(
-    'static void VN_HUCARD_CODE_SCRIPT show_scene(uint8_t scene_index)\n{',
+    'static void VN_HUCARD_CODE_SCRIPT show_scene(unsigned int scene_index)\n{',
     'static void VN_HUCARD_CODE_SCRIPT advance_story(void)\n{',
   );
   assert.match(
