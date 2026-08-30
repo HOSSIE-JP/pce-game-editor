@@ -336,6 +336,53 @@ test('PCE VN playback preview skips display-equivalent BG and Sprite commands', 
   );
 });
 
+test('PCE VN preview clears SpriteText on every scene transition', () => {
+  const previewRuntimeSource = sourceBetween(
+    'function previewRuntime()',
+    'function buildPreviewHtml(payload)',
+  );
+  const setSceneStart = previewRuntimeSource.indexOf('function setScene(id)');
+  const setSceneEnd = previewRuntimeSource.indexOf('function applyVar(c)', setSceneStart);
+  assert.notEqual(setSceneStart, -1);
+  assert.notEqual(setSceneEnd, -1);
+  const setSceneSource = previewRuntimeSource.slice(setSceneStart, setSceneEnd).trim();
+
+  let renderCalls = 0;
+  const context = {
+    cancelAllSpriteMoves() {},
+    hideMsg() {},
+    hideChoice() {},
+    renderStage() { renderCalls += 1; },
+    updateCacheDebug() {},
+    scenesById: { next: { id: 'next', fullScreenBg: false } },
+  };
+  vm.runInNewContext(`
+    let syncInputWatcher = { stale: true };
+    let asyncInputWatchers = ['stale'];
+    let scene = { id: 'old' };
+    let sceneId = 'old';
+    let pc = 9;
+    let state = {
+      background: null,
+      sprites: { 1: { slot: 1, assetId: 'actor' } },
+      spriteTexts: { 0: { slot: 0, text: 'OLD SCENE' } },
+    };
+    ${setSceneSource}
+    globalThis.invokeSetScene = setScene;
+    globalThis.readSetSceneState = () => ({ scene, sceneId, pc, state, syncInputWatcher, asyncInputWatchers });
+  `, context);
+
+  context.invokeSetScene('next');
+  const after = context.readSetSceneState();
+  assert.equal(after.sceneId, 'next');
+  assert.equal(after.pc, 0);
+  assert.deepEqual(Object.keys(after.state.spriteTexts), []);
+  assert.equal(JSON.stringify(after.state.sprites), JSON.stringify({ 1: { slot: 1, assetId: 'actor' } }));
+  assert.deepEqual(after.syncInputWatcher, null);
+  assert.deepEqual(Array.from(after.asyncInputWatchers), []);
+  assert.equal(renderCalls, 1);
+});
+
 test('PCE VN preview HTML injects every standalone runtime dependency', async () => {
   const renderSpriteTextSource = sourceBetween(
     'function renderSpriteTextCells(node, text)',

@@ -2366,12 +2366,15 @@ function previewRuntime() {
     scene = scenesById[id] || null;
     sceneId = id;
     pc = 0;
+    // PCE runtime clears every SpriteText slot whenever show_scene() runs,
+    // including transitions between ordinary scenes.
+    state.spriteTexts = {};
     if (scene?.fullScreenBg) {
       state.sprites = {};
-      state.spriteTexts = {};
       hideMsg();
       hideChoice();
     }
+    renderStage();
     updateCacheDebug();
   }
 
