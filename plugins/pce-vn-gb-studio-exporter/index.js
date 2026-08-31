@@ -48,4 +48,9 @@ function previewVnGbStudioBackground(payload = {}, context = {}) {
   catch (error) { return { ok: false, error: String(error?.message || error), code: error.code || '' }; }
 }
 
-module.exports = { exportVnGbStudioProject, inspectVnGbStudioExport, previewVnGbStudioBackground, previewVnGbStudioMusic, validateVnGbStudioProject };
+function previewVnGbStudioSprite(payload = {}, context = {}) {
+  try { const exporter = appModule(context, 'pce-vn-gb-studio-exporter.js'); return { ok: true, result: exporter.previewVnGbStudioSprite(previewPayload(payload, context)) }; }
+  catch (error) { return { ok: false, error: String(error?.message || error), code: error.code || '' }; }
+}
+
+module.exports = { exportVnGbStudioProject, inspectVnGbStudioExport, previewVnGbStudioBackground, previewVnGbStudioMusic, previewVnGbStudioSprite, validateVnGbStudioProject };

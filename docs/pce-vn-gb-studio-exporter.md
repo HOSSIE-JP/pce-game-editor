@@ -2,10 +2,10 @@
 
 ## 文書の状態
 
-- 状態: **Phase 1・2実装済み、v1.3.0品質改善・公式build/runtime/audio再受入済み**
-- 対象日: 2026-08-26
+- 状態: **Phase 1～3実装済み、v1.4.0 Visual両mode・公式build/runtime受入済み**
+- 対象日: 2026-08-30
 - plugin ID: `pce-vn-gb-studio-exporter`
-- exporter/plugin version: `1.3.0`（sidecar format versionは`1`を維持）
+- exporter/plugin version: `1.4.0`（sidecar format versionは`1`を維持）
 - 出力: GB Studio 4.3.1/4.3.2 `Color + Monochrome` 単一ROM project
 
 この文書は、PCE Game EditorのVisual Novel projectをGame Boy / Game Boy Color
@@ -24,6 +24,7 @@ PCE VN v2の正規化済みscene documentと参照中assetから、次を決定�
 - DMG向けの4階調背景
 - 日本語本文、話者名、2～4択分岐、scene遷移
 - PCE PSG BGMを変換したhUGE/MOD音楽
+- 立ち絵、移動、SpriteText、fade/flash/blank/shakeを再現するvisual resourceとevent
 - 変換根拠、近似、欠落、色・tile・font・音楽の監査結果
 - 正規化前の全source commandの処理区分、到達性、GBC/DMG event IDを持つ制御flow監査
 - 再出力の所有権と入力identityを証明するmanifest
@@ -108,6 +109,10 @@ ASAR対応`fs`を迂回する抽出APIとWindows native entry pathを使い、ar
 |---|---|
 | Project生成 | 4.3.1/4.3.2とengineを検証し、project、resource、監査fileを生成する。ROM buildは行わない |
 | 生成＋検証 | Project生成に加え、隔離profileの選択版でROM/Webを公式出力して成果物を検査する |
+
+公式build helperも起動前に指定された`gb-studio.exe`の`app.asar`から実versionとengine versionを
+再検出し、期待versionとの不一致を`GBVN_GB_STUDIO_VERSION_MISMATCH`で停止します。CLI引数だけを
+reportのversionへ転記しないため、同じ実行fileを4.3.1/4.3.2として二重計上できません。
 
 GB Studio本体、engine source、公式`ui.c`をPCE Game Editorへ同梱しません。
 
@@ -307,24 +312,26 @@ targetなしA/RUN、targetあり右、sync左を並べた3経路では、A/RUN�
 各labelへ進みます。このselector形式は3経路すべてをscene-local callbackへ変換し、末尾の
 `EVENT_IDLE`で非ブロッキング待機します。いずれかが成立した時点で同じ入力待ちgroupをすべて解除します。
 
-## Phase 2での省略とerror
+## 省略とerror
 
 「未対応」は一律のwarningではありません。
 
 ### 明示確認後に省略できるもの
 
-- `sprite`
-- `spritemove`
-- `fade` / `flash` / `blank`などPhase 3の純粋な画面effect
+- tile/controller予算内へ収めるためのloop animation frame/state削減
+- tile/並行処理予算を超えるSpriteText blinkの常時表示化
 - 独立ADPCM再生
 - 変換不能な`psg-sfx`
 
-これらはpreflightで件数とsource位置を表示し、ユーザーが省略を確認した場合だけ
-`omitted-confirmed`にできます。既定で黙って省略しません。
+visualはcommand全体ではなく属性単位で記録し、preflightで件数、source位置、source値、生成値、
+理由を表示します。`visualOmissionsConfirmed`が同じinspection/visual audit hashへ明示された場合だけ
+生成できます。本文、分岐、状態、BGM、SpriteText内容、立ち絵の最終状態は省略できません。
+時間、色、移動速度、非原子的tile更新など内容を失わない近似はwarningへ分類し、
+`warningsAcknowledged`を要求します。
 
 ### 必ずerrorにするもの
 
-- 1択または5択以上、targetなしなど契約外のchoice
+- 1択または5択以上、不正なlabel/valueを持つchoice
 - 未解決label、case、fallbackを持つ`if` / `switch` / `goto`
 - 直後の`wait`にも後続sync inputの通常継続にも接続できないtargetなしasync `inputcheck`
 - 未知command
@@ -628,8 +635,11 @@ version 1の現行schema例:
   "format": "pce-vn-gb-studio-export",
   "version": 1,
   "font": "builtin:misaki-gothic-8x8",
+  "portraitRenderMode": "baked",
   "visualOmissionsConfirmed": false,
+  "visualOmissionsConfirmationHash": "",
   "warningsAcknowledged": false,
+  "warningsAcknowledgementHash": "",
   "cddaMappings": {
     "cdda_title": "title_theme",
     "cdda_other": {
@@ -650,6 +660,19 @@ version 1の現行schema例:
       "focusY": 0.5
     }
   },
+  "sprites": {
+    "portrait_akari": {
+      "crop": null,
+      "scale": 100,
+      "offsetX": 0,
+      "offsetY": 0,
+      "brightness": 0,
+      "saturation": 100,
+      "gbcDither": false,
+      "dmgDither": false,
+      "sourceHash": "<source png sha256>"
+    }
+  },
   "music": {
     "title_theme": {
       "tempoScale": 100,
@@ -665,6 +688,11 @@ version 1の現行schema例:
 順に適用し、その後GBC/DMG独立の4×4 ordered Bayer ditherを適用します。dialogue matteは補正・
 dither対象外です。previewと正式exportは同じ変換coreを使い、preview hashと最終PNG hashを比較できます。
 modalをcancelした場合は変更を保存せず、正式export成功時だけsidecarを更新します。
+`portraitRenderMode`はproject全体で`baked`または`actor`のどちらか1つです。`sprite[assetId]`はassetごとの
+共通crop、scale、offset、色補正、GBC/DMG別dither、設定時source hashを持ちます。source hashが
+変わっても設定を破棄せずstale warningを出し、ユーザーが再previewできます。
+2つの確認hashはscene・asset・設定・GB Studio版と該当監査内容へ結び付けられます。入力が変わった場合、
+保存済みbooleanだけでは承認を再利用せず、preflightで再確認を要求します。
 
 sidecarへ次を保存しません。
 
@@ -687,7 +715,7 @@ custom fontと外部MODがproject外にある場合は、生成成功後にhash�
   "version": 1,
   "exporter": {
     "id": "pce-vn-gb-studio-exporter",
-    "version": "1.3.0"
+    "version": "1.4.0"
   },
   "sourceProject": {
     "identity": "<project path hash>",
@@ -701,13 +729,22 @@ custom fontと外部MODがproject外にある場合は、生成成功後にhash�
   },
   "conversion": {
     "font": {},
+    "portraitRenderMode": "baked",
+    "confirmations": {
+      "inputHash": "...",
+      "visualOmissionsHash": "...",
+      "warningsAcknowledgementHash": "..."
+    },
     "cddaMappings": {},
     "audioSubstitutions": {},
     "backgrounds": {},
+    "sprites": {},
     "music": {},
     "backgroundOutputs": [],
+    "spriteOutputs": [],
     "musicOutputs": [],
     "backgroundAuditHash": "...",
+    "visualAuditHash": "...",
     "musicAuditHash": "...",
     "automaticVoiceSubstitutions": [],
     "visualOmissions": []
@@ -731,6 +768,7 @@ generateGbStudioProject({ inspection, outputDir, mode })
 validateGbStudioProject({ outputDir, inspection, requireBuild })
 previewVnGbStudioMusic({ projectDir, assets, assetId, settings, generation })
 previewVnGbStudioBackground({ projectDir, assets, assetId, fullScreen, settings, generation })
+previewVnGbStudioSprite({ projectDir, assets, assetId, settings, renderMode, mode, usageSceneId, animationId, generation })
 ```
 
 preview hookはproject-relative assetだけを受理し、asset ID、PNG signature、source byte、展開寸法、
@@ -748,6 +786,7 @@ node tools/dev/pce-vn-gb-studio-export.js \
   --out <generated-project-dir> \
   --gb-studio <gb-studio-4.3.1-or-4.3.2-executable> \
   --font builtin:misaki-gothic-8x8 \
+  --portrait-mode baked|actor \
   --cdda-map cdda_id=psg_song_id \
   --cdda-mod another_cdda=replacement.mod \
   --audio-sub sfx_id=tone:440:0.08 \
@@ -758,6 +797,15 @@ node tools/dev/pce-vn-gb-studio-export.js \
 
 CLIもpluginと同じcore、sidecar、path検査、manifestを使います。CLIだけが未対応commandを
 無視するoptionを持ってはいけません。
+
+実作品の決定性回帰は次を使います。既定では`000_百物語`、`001_境の間`、`北へ。PM`をinspectionし、
+同じmodelからA/B生成、静的validate、resource/control-flow/visual audit hash一致、sidecarを除く参照入力
+hash不変を検査します。独立ADPCM/PSG SFXは明示`omit`へ自動設定しますが、BGMを省略する設定は作りません。
+
+```text
+node --max-old-space-size=8192 tools/dev/pce-vn-gb-studio-real-regression.js \
+  --gb-studio <gb-studio-4.3.2-executable>
+```
 
 ## Validation
 
@@ -780,6 +828,10 @@ CLIもpluginと同じcore、sidecar、path検査、manifestを使います。CLI
 - CD-DAにmappingがある
 - generated pluginのmanifest/versionと`PCE_VN_EVENT_MENU` / `PCE_VN_EVENT_RANDOM`参照が一致
 - `build/qa/control-flow-audit.json`に未分類、未確認省略、branch/state/text/BGM欠落がない
+- `build/qa/visual-audit.json`に全visual command、render mode、state ID、actor/tileset/script/event参照、OBJ/tile/keyframe/timing/fidelityがある
+- actor modeの到達可能な2人組が合計40 OBJ・1走査線10 OBJ以内
+- baked modeのtilesetが256 tile、1 GB frameのtile更新が32件以内に分割される
+- SpriteText内容・座標・色と立ち絵最終stateがGBC/DMG双方で生成される
 - output pathとowned pathがroot内
 - manifest hashが実fileと一致
 
@@ -845,6 +897,11 @@ static/official build成功をruntime成功や実機成功として扱いませ�
 - CD-DA blocker/substitution tests
 - path traversal、ownership collision、旧identity完全一致再結合、空plugin cleanup、signature change tests
 - 同一入力2回生成のbyte/hash一致golden test
+- 3/4slot、A/B循環、hide/re-entry、flip、全animation、64 frame量子化、非loop最終frame保持
+- actor pairの40 OBJ/scanline 10 OBJ超過とbaked timelineの16→8→4→2→1 keyframe削減
+- sync/async move、連続async＋sync、途中遷移、32 tile分割、最終座標
+- SpriteText折返し/色/blink/下端error、fade/flash/blank/shake境界と監査分類
+- sprite preview/export hash、sidecar stale/copy/reset/cancel、generation競合、preview path/data URL制限
 - GB Studio 4.3.1/4.3.2公式ROM/Web build fixture
 - `npm test`
 
@@ -868,6 +925,18 @@ static/official build成功をruntime成功や実機成功として扱いませ�
 - `GBVN_UNKNOWN_COMMAND`
 - `GBVN_UNSUPPORTED_CONTROL_COMMAND`
 - `GBVN_VISUAL_OMISSION_REQUIRES_CONFIRMATION`
+- `GBVN_VISUAL_APPROXIMATION_REQUIRES_ACKNOWLEDGEMENT`
+- `GBVN_UNSUPPORTED_VISUAL_COMMAND`
+- `GBVN_SPRITE_SLOT_UNDEFINED`
+- `GBVN_SPRITE_ANIMATION_ASSET_MISMATCH`
+- `GBVN_SPRITE_ANIMATION_MISSING`
+- `GBVN_SPRITE_ANIMATION_FRAME_LIMIT`
+- `GBVN_SPRITE_OAM_OVERFLOW`
+- `GBVN_SPRITE_SETTING_STALE`
+- `GBVN_SPRITETEXT_BOTTOM_OVERFLOW`
+- `GBVN_VISUAL_TIMELINE_TILE_BUDGET`
+- `GBVN_VISUAL_LOOP_TILE_BUDGET`
+- `GBVN_VISUAL_RESOURCE_COLLISION`
 - `GBVN_UNRESOLVED_SCENE`
 - `GBVN_UNRESOLVED_ASSET`
 - `GBVN_CHOICE_MENU_OVERFLOW`
@@ -889,9 +958,9 @@ static/official build成功をruntime成功や実機成功として扱いませ�
 
 ## 実装状況と段階
 
-2026-08-26時点の実装は次です。
+2026-08-30時点の実装は次です。
 
-- `pce-vn-gb-studio-exporter` v1.3.0、再利用core、CLI、sidecar v1、ownership manifest
+- `pce-vn-gb-studio-exporter` v1.4.0、再利用core、CLI、sidecar v1、ownership manifest
 - GB Studio 4.3.1/4.3.2 / engine `4.3.0-e1`の実file検査と引用符付きpath正規化
 - GBC/DMG二重graphをboot dispatcherで選ぶmixed-mode project
 - BG、Message、2～4択、Jump/next、Wait、BGM play/stop
@@ -899,7 +968,8 @@ static/official build成功をruntime成功や実機成功として扱いませ�
 - 明示fallthrough/terminalを持つbasic block graph、join/loop/到達不能解析
 - 必要時だけ生成する`pce-vn-control` Script Event Plugin
 - 全raw source commandを一意に追跡する`control-flow-audit.json`
-- SpriteTextの背景文字近似とshake。sprite/spritemove/fade/flash/blankはPhase 3の確認後省略
+- baked/actor両立ち絵mode、4論理slot/A-B actor mapping、全animation/flip/show/hide、sync/async move
+- 8×8 SpriteText、blink、fadeIn/out、flash、blank、shakeとvisual state特殊化
 - Misaki Gothic組み込み、custom BDF/TTF/OTF/TTC、atomic font page
 - GBC 7 palette×4 colors/tile、DMG固定4色×192 unique tile、contact sheet
 - PSG→4ch MOD、非0 loop point、drop/transpose/control-conflict曲別audit
@@ -908,6 +978,41 @@ static/official build成功をruntime成功や実機成功として扱いませ�
 - metadata-only block統合、持続背景CFG伝播、背景状態別scene特殊化、背景state監査
 - period優先PSG変換、6ch自動割当、wave/noise instrument、曲別調整とWebAudio A/B近似preview
 - asset別brightness/saturation、GBC/DMG独立dither、原画/変換後preview、preview/export hash照合
+- asset別立ち絵crop/scale/offset/色補正、animation preview、OBJ/scanline/tile予算、stale source hash
+- command単位とasset/timeline/tile bank単位を相互参照する`visual-audit.json`
+
+2026-08-30のPhase 3 v1.4.0最終受入では、focused回帰52/52、`npm test`は
+534 pass / 0 fail / 1 skipでした。`いしのうらにいる！？/01_部室の白い箱`はsource 18 scenes /
+511 commandsからactor/bakedとも97 scenesを生成し、全511 commandsを一意に消費、未確認省略0件、
+static validation成功を確認しました。actorは18 sprite assets、250 visual timelinesを生成し、visual audit
+SHA-256は`ddd6142b6045621962b377d43f701c8c0b5b142c08749385f766a82dfbe97c54`です。
+
+actor出力はGB Studio 4.3.1/4.3.2、baked出力は4.3.2の公式ROM/Web Exportをwarning 0件で通過し、
+全てCGB flag `0x80`かつROM/Web内ROM hash一致でした。actor ROM SHA-256は4.3.1が
+`c18b26a84fa014747aa4c9852203193d133f0726cf8843a67784a6decef9c5b1`、4.3.2が
+`b32eee3d8837113d0f65453e2c329147bc5e801b7fd2b4544c776aa6328bbb03`、baked 4.3.2は
+`08f216199bcbf73204469248522a1fa63b0b79bafdfe335c2a7d38b1235f4170`です。BGBでは4.3.2 ROMを
+actor/baked × GBC/DMGの4通りで各6200 frames、246回の明示A入力により連続進行し、failure 0、
+日本語本文、カラー/4階調、3人画面、クラッシュ不在を終了screenshotとstateへ保存しました。
+
+Phase 3専用fixtureは3 scenes / 27 commandsで、4 logical sprite slots、30/45/60/90 frameの
+sync/async移動、連続async＋sync、SpriteText blink、fadeIn/out、flash、shake、blank、全画面event still、
+PSG、choiceを一つの入力へ収録しています。全27 commandsを一意に消費し、未確認省略0件、static validation
+成功を確認しました。GB Studio 4.3.1/4.3.2の実行fileをそれぞれ検出して公式ROM/Web Exportをwarning 0件で
+通過し、CGB flag `0x80`、ROM/Web内ROM hash一致を確認しました。ROM SHA-256は4.3.1が
+`e8c48930753b50e9a36efa1b19c78be3bd7f9e8415a33e132e78355725e40c2d`、4.3.2が
+`149641382f6303ef65826c8b844bc087fe2607a34802140a9dab6852fb358653`です。4.3.2 ROMはBGBの
+GBC/DMG双方で各7200 frames、116回の明示A入力によりfailure 0で連続進行し、終了screenshotとstateを
+保存しました。このfixtureはsource上限4 slotを同時に検査するためbaked modeを使い、actor modeのA/B循環、
+OBJ/scanline gate、全animation再構成、移動状態継承は上記実作品とfocused回帰で検査しています。
+
+`000_百物語`、`001_境の間`、`北へ。PM`は同一入力からA/B二重生成し、全てsource不変・resource/audit
+hash一致でした。000は194 commands→73 scenes・344 files、001は244 commands→93 scenes・423 files、
+北へ。PMは13,324 commands→25,371 scenes・91,117 filesです。北へ。PMの332件の
+`omitted-confirmed`は既存のADPCM effect/voice代替だけで、BGM省略0件、Phase 3 visual省略0件を監査しました。
+北へ。PMは1出力約920 MB、inspectionからA/B生成・検証まで約50分を要したため、巨大入力の
+visual-state特殊化共有とresource deduplicationはPhase 5の性能残件です。正しさの受入と、生成規模の
+実用性評価を混同しません。
 
 v1.3.0のfocused回帰では36件を実行し、`000_百物語`の旧`01_hyakumonogatari::1` / `::3`
 到達不能warningが消えること、`scene_tale_isamu_a/b`が`still_tale_kouichi_01_candlelit_circle`、
@@ -1015,34 +1120,40 @@ GB Studio内蔵emulatorによる全入力playthrough、実機DMG/GBC、全分岐
 
 ### Phase 3: Visual表現
 
-**凍結中です。SpriteTextとshakeだけ既存実装を維持し、立ち絵系は引き続き明示省略対象です。**
+**v1.4.0で実装済み・公式build/runtime受入済みです。** 対象は`sprite`、`spritemove`、`spritetext`、fadeIn/out、
+flash、blank、shakeです。GB Studio 4.3.1/4.3.2の公式eventだけを使い、native Cとengine overrideは
+追加しません。
 
-対象:
+CFGの特殊化stateは`block × background × SpriteText slot × logical sprite slot × physical mapping ×
+blank/active timeline`です。通常背景は立ち絵を継承し、全面event stillは表示stateを消去します。
+blankは進行中moveをcancelしてblank背景へ移り、論理slotは保持します。特殊化scene IDにはvisual-state
+hashを含めます。
 
-- `spritetext`
-- 立ち絵、表情、表示/非表示
-- 左右配置、flip
-- `spritemove`
-- 複数portraitとevent still
-- shake/flash/blank等のeffect
+`actor` modeは全frame共通cropから40×48 canvas（38×46内側＋透明gutter）のbustを生成し、
+A/B 2枠をA→B→Aで循環します。現在枠はその場で更新し、非表示・退避slotの論理stateも保持します。
+GBCはasset全animation共通3不透明色＋透明、DMGは独立3階調です。flipX/flipY、全animation、
+show/hideを保持し、非loop animationは1回再生後の最終frame用stateへ移ります。`frameDelays`は
+最大64 generated frameへ決定論的に量子化します。到達可能な2人組の全animation/frame組合せを検査し、
+合計40 OBJまたは1走査線10 OBJ超過をerrorにします。
 
-想定方針:
+`baked` modeはsource上限4slotを画面比率とslot重なり順で背景へ合成し、移動とanimationを最大16、
+必要なら8/4/2/1 keyframeへ削減します。始点・終点は必ず保持します。連続async moveと直後のsync moveは
+1本のtimelineにし、隠しcontroller actorと公式`EVENT_REPLACE_TILE_XY`で1 frame最大32 tileずつ更新します。
+宣言時間に収まらない分だけ待機を延長し、追加frameと非原子的更新を監査します。async途中の遷移は最後に
+完全描画されたkeyframeを継承します。loop animationは予算内で状態を削減し、最終的に先頭frame固定へ
+縮退した属性を監査します。非loop animationはsource delay列を1回再生し、最終frameを継承します。
 
-- full-body自動縮小ではなくface/bust cropを既定
-- 8×16 tileとMetasprite Canvasを正規resourceとして生成
-- source座標、editor座標、compiler-relative座標を別々に検証
-- 40px portraitなら同一scanline最大2枚を既定
-- event still中はportraitを全非表示
-- `spritetext`は本文と同じ「text欠落禁止」に分類
+SpriteTextは選択済み8×8 font glyphを背景へ合成し、座標・色・表示/消去・内容を必達とします。
+右端では文字欠落なく折り返し、下端超過は位置付きerrorです。blinkは同じcontrollerで再現し、予算超過時
+だけ常時表示へ属性縮退します。shakeは公式camera shake、fadeは5/10/20/40/80/160/320 frameの最近値、
+flashは最近overlay色＋正確なwait、blankはblank背景＋actor非表示へ写像します。
 
-必要test:
-
-- metasprite Canvasのpixel完全再構成
-- 10 sprites/scanline gate
-- expression/side/visibility inheritance
-- still enter/leaveのportrait復元
-- move timingと最終座標
-- editor表示とruntime表示の双方
+export modalの`立ち絵調整`はasset/使用scene catalog、source/GBC/DMG、animation再生、crop、scale、
+offset、brightness、saturation、GBC/DMG別dither、OBJ/scanline/tile指標、copy/paste/resetを提供します。
+actor previewは正式sprite sheet、baked previewは選択した使用sceneの背景・座標・flipを使った160×144の
+formal timeline合成を表示し、`fullFrameHashes`で正式生成frameと照合できます。previewとexportは同じcoreと
+source hashを使います。`control-flow-audit.json`へcommand単位のvisual処理、
+`visual-audit.json`へasset/pair/timeline/tile bank単位の詳細とhashを保存します。
 
 ### Phase 4: Audio拡張
 
@@ -1073,6 +1184,8 @@ scoreをPSG/MOD変換へ渡します。
 - exporter-owned resourceとuser-owned resourceの共存
 - GB Studio複数version
 - generated projectからの設定再import
+- 巨大入力で等価なvisual-state特殊化scene/timeline/resourceを共有し、observable stateとstable IDを
+  変えずに生成時間・file数・容量を抑える
 
 必要test:
 
@@ -1081,6 +1194,7 @@ scoreをPSG/MOD変換へ渡します。
 - editor normalization差分
 - version別schema fixture
 - versionを跨ぐupgrade/downgrade拒否
+- `北へ。PM`相当の1万command超入力に対するscene/resource上限、dedup前後のaudit同値性、生成時間回帰
 
 ### Phase 6: 全自動playthrough
 
@@ -1108,8 +1222,9 @@ scoreをPSG/MOD変換へ渡します。
 9. [x] preflight UIとNovel toolbar capability
 10. [x] Phase 2版の公式ROM/Web buildとruntime受入記録
 11. [x] v1.3.0のGB Studio 4.3.1/4.3.2公式build、BGB GBC/DMG、公式ROM WAV再受入記録
-12. [ ] Phase 3 Visual、Phase 4 Audio拡張、Phase 5統合、Phase 6全自動playthrough
-13. [x] `PLUGIN.md`、`docs/user-guide.md`、`README.md`、本書の実装同期
+12. [x] Phase 3 Visual（baked/actor、SpriteText、move、animation、fade/flash/blank/shake）と4.3.1/4.3.2公式build、BGB GBC/DMG受入
+13. [ ] Phase 4 Audio拡張、Phase 5統合、Phase 6全自動playthrough
+14. [x] `PLUGIN.md`、`docs/user-guide.md`、`README.md`、本書の実装同期
 
 各段階でgenerator-owned resourceだけを更新し、derived `.gbsres`だけを直接patchしません。
 

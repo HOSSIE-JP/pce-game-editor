@@ -98,8 +98,8 @@ function createFontPages(units, options = {}) {
   const glyphs = uniqueVisibleGlyphs(normalizedUnits); const rendered = loadGlyphBitmaps(glyphs, options.font || DEFAULT_FONT, options.projectDir || '');
   const missing = glyphs.filter((glyph) => !rendered.bitmaps.get(glyph));
   if (missing.length) { const error = new Error(`フォントに字形がありません: ${missing.slice(0, 24).join(' ')}${missing.length > 24 ? ` ほか${missing.length - 24}字` : ''}`); error.code = 'GBVN_FONT_GLYPH_MISSING'; error.glyphs = missing; throw error; }
-  const packed = packAtomicUnits(normalizedUnits);
-  const pages = packed.pages.map((page, index) => { const pageGlyphs = glyphs.filter((glyph) => page.glyphSet.has(glyph)); const atlas = buildAtlas(pageGlyphs, rendered.bitmaps); return { index, id: `font-page-${String(index + 1).padStart(2, '0')}`, glyphs: pageGlyphs, units: page.units, mapping: atlas.mapping, png: atlas.png }; });
+  const packed = packAtomicUnits(normalizedUnits); const packedPages = packed.pages.length ? packed.pages : [{ glyphSet: new Set(), units: [] }];
+  const pages = packedPages.map((page, index) => { const pageGlyphs = glyphs.filter((glyph) => page.glyphSet.has(glyph)); const atlas = buildAtlas(pageGlyphs, rendered.bitmaps); return { index, id: `font-page-${String(index + 1).padStart(2, '0')}`, glyphs: pageGlyphs, units: page.units, mapping: atlas.mapping, png: atlas.png }; });
   return { font: options.font || DEFAULT_FONT, renderer: rendered.renderer, fontPath: rendered.fontPath, glyphCount: glyphs.length, pages, assignments: Object.fromEntries(packed.assignments) };
 }
 
