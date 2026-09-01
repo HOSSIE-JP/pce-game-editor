@@ -12,6 +12,11 @@ const CD_BUILDER_ID = 'pce-visual-novel-builder';
 const ASSET_ID_LIMIT = 48;
 const SCENE_ID_LIMIT = 48;
 const VARIABLE_NAME_LIMIT = 32;
+const SELECTOR_COUNTER_SLOT = 2;
+const SELECTOR_COUNTER_Y = 194;
+const SELECTOR_COUNTER_HEIGHT = 16;
+const SELECTOR_COUNTER_PITCH_X = 12;
+const SELECTOR_COUNTER_SCREEN_WIDTH = 256;
 const RESERVED_VARIABLES = new Set(['AUTO_ENABLE', 'MSG_SPEED']);
 const FILE_BACKED_ASSET_TYPES = new Set(['image', 'sprite', 'adpcm', 'cdda-track', 'cdda-warning']);
 const SCENE_REFERENCE_KEYS = new Set(['sceneId', 'targetSceneId', 'nextSceneId']);
@@ -23,6 +28,14 @@ const GENERATED_FILE_KEYS = new Set([
   'paletteFile', 'tilesFile', 'cellMapFile', 'mapFile',
   'mapVramFile', 'outputFile', 'previewFile',
 ]);
+const SELECTOR_COUNTER_BOUNDARY_TYPES = new Set([
+  'inputcheck', 'jump', 'goto', 'choice', 'if', 'switch', 'label', 'wait', 'message',
+]);
+
+const projectPathCollator = new Intl.Collator('ja', {
+  numeric: true,
+  sensitivity: 'base',
+});
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -46,6 +59,12 @@ function diagnostic(severity, code, message, details = {}) {
   return { severity, code, message, ...details };
 }
 
+function codedError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
 function asProjectList(options = {}) {
   const value = options.projects ?? options.inputProjects ?? options.inputs;
   return Array.isArray(value) ? value.map((entry) => String(entry || '').trim()).filter(Boolean) : [];
@@ -67,6 +86,10 @@ function canonicalDirectory(value, label, cwd) {
   const resolved = fs.realpathSync(requested);
   if (!fs.statSync(resolved).isDirectory()) throw new Error(`${label} is not a directory: ${resolved}`);
   return resolved;
+}
+
+function naturalProjectPathCompare(left, right) {
+  return projectPathCollator.compare(String(left || '').replace(/\\/g, '/'), String(right || '').replace(/\\/g, '/'));
 }
 
 function outputDirectory(options, cwd) {
@@ -168,6 +191,9 @@ function collectFontPathEntries(project, fontDocument) {
 
 function collectInputProject(projectPath, namespace, cwd) {
   const canonicalPath = canonicalDirectory(projectPath, 'input project', cwd);
+  if (fs.existsSync(path.join(canonicalPath, MERGE_MARKER_FILE))) {
+    throw codedError('merged_input_project', `owned merge output cannot be used as an input project: ${canonicalPath}`);
+  }
   const projectFile = requireProjectFile(canonicalPath, 'project.json', 'project config');
   const sceneFile = requireProjectFile(canonicalPath, path.join('assets', 'pce-vn-scenes.json'), 'VN scene document');
   const assetFile = requireProjectFile(canonicalPath, path.join('assets', 'pce-assets.json'), 'asset document');
@@ -189,6 +215,8 @@ function collectInputProject(projectPath, namespace, cwd) {
   });
   const startScene = String(sceneDocument.startScene || '').trim();
   if (!startScene || !sceneIds.has(startScene)) throw new Error(`startScene is unresolved: ${canonicalPath}: ${startScene || '(empty)'}`);
+  const selectorScene = scenes.find((scene) => String(scene?.id || '') === startScene);
+  validateSelectorSceneForCounter(selectorScene, canonicalPath);
 
   const assetIds = new Set();
   assets.forEach((asset, index) => {
@@ -277,6 +305,78 @@ function selectorJump(scene, labelName, projectLabel) {
   return jump;
 }
 
+function selectorCounterInsertionIndex(scene) {
+  const commands = Array.isArray(scene?.commands) ? scene.commands : [];
+  const boundary = commands.findIndex((command) => (
+    SELECTOR_COUNTER_BOUNDARY_TYPES.has(String(command?.type || '').toLowerCase())
+  ));
+  return boundary < 0 ? commands.length : boundary;
+}
+
+function spriteTextOverlapsCounterRow(command) {
+  if (String(command?.type || '').toLowerCase() !== 'spritetext' || command.visible === false) return false;
+  const text = String(command.text || '').replace(/\r/g, '');
+  const baseY = Number(command.y) || 0;
+  return text.split('\n').some((line, lineIndex) => {
+    if (!line.length) return false;
+    const top = baseY + (lineIndex * SELECTOR_COUNTER_HEIGHT);
+    const bottom = top + SELECTOR_COUNTER_HEIGHT;
+    return top < SELECTOR_COUNTER_Y + SELECTOR_COUNTER_HEIGHT && bottom > SELECTOR_COUNTER_Y;
+  });
+}
+
+function validateSelectorSceneForCounter(scene, projectLabel = 'input project') {
+  selectorJump(scene, 'NEXT_SCR', projectLabel);
+  selectorJump(scene, 'PREV_SCR', projectLabel);
+  const commands = Array.isArray(scene?.commands) ? scene.commands : [];
+  if (commands.some((command) => (
+    String(command?.type || '').toLowerCase() === 'spritetext'
+      && Number(command.slot) === SELECTOR_COUNTER_SLOT
+  ))) {
+    throw codedError(
+      'selector_counter_slot_conflict',
+      `${projectLabel} start scene already uses SpriteText slot ${SELECTOR_COUNTER_SLOT}`,
+    );
+  }
+  const insertionIndex = selectorCounterInsertionIndex(scene);
+  const prefix = commands.slice(0, insertionIndex);
+  if (prefix.some((command) => spriteTextOverlapsCounterRow(command))) {
+    throw codedError(
+      'selector_counter_row_conflict',
+      `${projectLabel} start scene has visible SpriteText overlapping y=${SELECTOR_COUNTER_Y}`,
+    );
+  }
+  let color = '#ffffff';
+  prefix.forEach((command) => {
+    if (String(command?.type || '').toLowerCase() !== 'spritetext' || command.visible === false) return;
+    if (!String(command.text || '').length) return;
+    color = String(command.color || '').trim() || '#ffffff';
+  });
+  return { insertionIndex, color };
+}
+
+function scenarioCounterText(index, total) {
+  return `(${index + 1}/${total})`;
+}
+
+function injectScenarioCounter(scene, index, total, projectLabel = 'input project') {
+  const placement = validateSelectorSceneForCounter(scene, projectLabel);
+  const text = scenarioCounterText(index, total);
+  const glyphCount = Array.from(text).length;
+  const command = {
+    type: 'spritetext',
+    slot: SELECTOR_COUNTER_SLOT,
+    text,
+    x: Math.floor((SELECTOR_COUNTER_SCREEN_WIDTH - (glyphCount * SELECTOR_COUNTER_PITCH_X)) / 2),
+    y: SELECTOR_COUNTER_Y,
+    color: placement.color,
+    blinkFrames: 0,
+    visible: true,
+  };
+  scene.commands.splice(placement.insertionIndex, 0, command);
+  return command;
+}
+
 function sanitizedConfigForComparison(config) {
   const value = clone(config || {});
   delete value.title;
@@ -359,7 +459,7 @@ function transformScene(scene, maps, projectLabel) {
   return transformed;
 }
 
-function createMergedPlan(projects, outputDir, title, replace) {
+function createMergedPlan(projects, outputDir, title, replace, sourceRoot = '') {
   const copyFiles = new Map();
   const maps = [];
   const sceneOccupied = new Map();
@@ -399,6 +499,7 @@ function createMergedPlan(projects, outputDir, title, replace) {
     const previousStart = maps[previousIndex].scene.get(String(projects[previousIndex].sceneDocument.startScene));
     selectorJump(startScene, 'NEXT_SCR', project.canonicalPath).sceneId = nextStart;
     selectorJump(startScene, 'PREV_SCR', project.canonicalPath).sceneId = previousStart;
+    injectScenarioCounter(startScene, index, projects.length, project.canonicalPath);
     mergedScenes.push(...transformed);
   });
 
@@ -488,6 +589,7 @@ function createMergedPlan(projects, outputDir, title, replace) {
   const signature = sha256(stableJson({
     inputSignature, outputDir: pathKey(outputDir), title,
     replace: Boolean(replace), markerVersion: MERGE_MARKER_VERSION,
+    sourceRoot: sourceRoot ? pathKey(sourceRoot) : '',
   }));
   const marker = {
     version: MERGE_MARKER_VERSION,
@@ -495,6 +597,7 @@ function createMergedPlan(projects, outputDir, title, replace) {
     createdAt: new Date().toISOString(),
     title,
     outputDir,
+    sourceRoot: sourceRoot || undefined,
     signature,
     inputSignature,
     inputs: projects.map((project, index) => ({
@@ -519,7 +622,7 @@ function createMergedPlan(projects, outputDir, title, replace) {
     },
   };
   return {
-    outputDir, title, replace: Boolean(replace), projects, maps,
+    outputDir, title, replace: Boolean(replace), sourceRoot, projects, maps,
     sceneDocument: mergedSceneDocument,
     assetDocument: mergedAssetDocument,
     fontDocument: clone(projects[0].fontDocument),
@@ -542,6 +645,140 @@ function readMergeMarker(outputDir) {
   }
 }
 
+function candidateReason(code, message) {
+  return { code, message };
+}
+
+function probeProjectMergeCandidate(projectDir, rootDir) {
+  const relativePath = path.relative(rootDir, projectDir).replace(/\\/g, '/') || '.';
+  const candidate = {
+    path: projectDir,
+    relativePath,
+    title: path.basename(projectDir),
+    eligible: false,
+    reasons: [],
+  };
+  if (fs.existsSync(path.join(projectDir, MERGE_MARKER_FILE))) {
+    candidate.reasons.push(candidateReason('merged_output', '以前生成した結合済みprojectは再入力できません。'));
+    return candidate;
+  }
+  let config;
+  try {
+    const configPath = requireProjectFile(projectDir, 'project.json', 'project config');
+    config = readJson(configPath, 'project config');
+    candidate.title = String(config.title || config.romName || '').trim() || candidate.title;
+  } catch (error) {
+    candidate.reasons.push(candidateReason('project_config', String(error.message || error)));
+    return candidate;
+  }
+  if (String(config.coreId || 'pc-engine') !== 'pc-engine') {
+    candidate.reasons.push(candidateReason('unsupported_core', 'PC Engine projectではありません。'));
+  }
+  if (String(config.targetMedia || '').toLowerCase() !== 'cd') {
+    candidate.reasons.push(candidateReason('unsupported_media', 'CD-ROM2 VN projectではありません。'));
+  }
+  let sceneDocument;
+  try {
+    const scenePath = requireProjectFile(projectDir, path.join('assets', 'pce-vn-scenes.json'), 'VN scene document');
+    sceneDocument = readJson(scenePath, 'VN scene document');
+  } catch (error) {
+    candidate.reasons.push(candidateReason('scene_document', String(error.message || error)));
+  }
+  try {
+    const assetPath = requireProjectFile(projectDir, path.join('assets', 'pce-assets.json'), 'asset document');
+    const assetDocument = readJson(assetPath, 'asset document');
+    if (!Array.isArray(assetDocument.assets)) throw new Error('asset document assets must be an array');
+  } catch (error) {
+    candidate.reasons.push(candidateReason('asset_document', String(error.message || error)));
+  }
+  if (sceneDocument) {
+    try {
+      const scenes = Array.isArray(sceneDocument.scenes) ? sceneDocument.scenes : [];
+      if (!scenes.length) throw new Error('VN scene document is empty');
+      const startSceneId = String(sceneDocument.startScene || '').trim();
+      const startScene = scenes.find((scene) => String(scene?.id || '') === startSceneId);
+      if (!startScene) throw new Error(`startScene is unresolved: ${startSceneId || '(empty)'}`);
+      validateSelectorSceneForCounter(startScene, projectDir);
+    } catch (error) {
+      candidate.reasons.push(candidateReason(error.code || 'selector_contract', String(error.message || error)));
+    }
+  }
+  candidate.eligible = candidate.reasons.length === 0;
+  return candidate;
+}
+
+async function discoverProjectMergeCandidates(options = {}) {
+  const cwd = path.resolve(options.cwd || process.cwd());
+  try {
+    const rootDir = canonicalDirectory(options.root, 'project root', cwd);
+    const rootKey = pathKey(rootDir);
+    const queue = [rootDir];
+    const visited = new Set();
+    const candidates = [];
+    const diagnostics = [];
+    while (queue.length) {
+      const requested = queue.shift();
+      let current;
+      try {
+        // Keep the same Windows path form as canonicalDirectory(); mixing the
+        // promise and sync realpath variants can produce C:\\... vs \\\\?\\C:\\....
+        current = fs.realpathSync(requested);
+        if (!isPathWithin(rootDir, current)) continue;
+        const key = pathKey(current);
+        if (visited.has(key)) continue;
+        visited.add(key);
+        const stat = await fs.promises.lstat(current);
+        if (!stat.isDirectory()) continue;
+      } catch (error) {
+        diagnostics.push(diagnostic('warning', 'directory_unreadable', String(error.message || error), { path: requested }));
+        continue;
+      }
+      let entries;
+      try {
+        entries = await fs.promises.readdir(current, { withFileTypes: true });
+      } catch (error) {
+        if (pathKey(current) === rootKey) throw error;
+        diagnostics.push(diagnostic('warning', 'directory_unreadable', String(error.message || error), { path: current }));
+        continue;
+      }
+      if (entries.some((entry) => entry.isFile() && entry.name === 'project.json')) {
+        candidates.push(probeProjectMergeCandidate(current, rootDir));
+        continue;
+      }
+      entries
+        .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+        .sort((left, right) => naturalProjectPathCompare(left.name, right.name))
+        .forEach((entry) => queue.push(path.join(current, entry.name)));
+    }
+    candidates.sort((left, right) => naturalProjectPathCompare(left.relativePath, right.relativePath));
+    return { ok: true, root: rootDir, candidates, diagnostics };
+  } catch (error) {
+    return {
+      ok: false,
+      error: String(error.message || error),
+      candidates: [],
+      diagnostics: [diagnostic('error', error.code || 'project_discovery', String(error.message || error))],
+    };
+  }
+}
+
+function collectMergeProjects(options, cwd) {
+  const root = String(options.root || '').trim()
+    ? canonicalDirectory(options.root, 'project root', cwd)
+    : '';
+  const projects = asProjectList(options).map((projectPath, index) => collectInputProject(
+    projectPath, `m${String(index + 1).padStart(3, '0')}_`, cwd,
+  ));
+  if (root) {
+    projects.forEach((project) => {
+      if (!isPathWithin(root, project.canonicalPath)) {
+        throw codedError('input_outside_root', `input project is outside the selected root: ${project.canonicalPath}`);
+      }
+    });
+  }
+  return { root, projects };
+}
+
 function inspectProjectMerge(options = {}) {
   const diagnostics = [];
   try {
@@ -550,9 +787,7 @@ function inspectProjectMerge(options = {}) {
     if (projectPaths.length < 2) throw new Error('at least two input projects are required');
     const outputDir = outputDirectory(options, cwd);
     const replace = options.replace === true;
-    const projects = projectPaths.map((projectPath, index) => collectInputProject(
-      projectPath, `m${String(index + 1).padStart(3, '0')}_`, cwd,
-    ));
+    const { root, projects } = collectMergeProjects(options, cwd);
     const seen = new Set();
     projects.forEach((project) => {
       const key = pathKey(project.canonicalPath);
@@ -578,7 +813,7 @@ function inspectProjectMerge(options = {}) {
     }
     const title = String(options.title || '').trim() || path.basename(outputDir);
     if (!title) throw new Error('title is empty');
-    const plan = createMergedPlan(projects, outputDir, title, replace);
+    const plan = createMergedPlan(projects, outputDir, title, replace, root);
 
     const baselineConfig = sanitizedConfigForComparison(projects[0].config);
     projects.slice(1).forEach((project, index) => {
@@ -609,7 +844,7 @@ function inspectProjectMerge(options = {}) {
     const warnings = diagnostics.filter((entry) => entry.severity === 'warning');
     return {
       ok: errors.length === 0,
-      outputDir, title, replace,
+      outputDir, title, replace, root: root || undefined,
       signature: plan.signature,
       inputSignature: plan.inputSignature,
       inputs: plan.marker.inputs,
@@ -625,7 +860,7 @@ function inspectProjectMerge(options = {}) {
       marker: plan.marker,
     };
   } catch (error) {
-    diagnostics.push(diagnostic('error', 'merge_inspection', String(error.message || error)));
+    diagnostics.push(diagnostic('error', error.code || 'merge_inspection', String(error.message || error)));
     return {
       ok: false,
       error: String(error.message || error),
@@ -702,10 +937,8 @@ function applyProjectMerge(options = {}) {
   }
 
   const cwd = path.resolve(options.cwd || process.cwd());
-  const projects = asProjectList(options).map((projectPath, index) => collectInputProject(
-    projectPath, `m${String(index + 1).padStart(3, '0')}_`, cwd,
-  ));
-  const plan = createMergedPlan(projects, initial.outputDir, initial.title, initial.replace);
+  const { root, projects } = collectMergeProjects(options, cwd);
+  const plan = createMergedPlan(projects, initial.outputDir, initial.title, initial.replace, root);
   const parent = path.dirname(plan.outputDir);
   const tempDir = fs.mkdtempSync(path.join(parent, `.${path.basename(plan.outputDir)}.merge-`));
   let backupDir = '';
@@ -771,6 +1004,12 @@ module.exports = {
   ASSET_ID_LIMIT,
   SCENE_ID_LIMIT,
   VARIABLE_NAME_LIMIT,
+  SELECTOR_COUNTER_SLOT,
+  SELECTOR_COUNTER_Y,
+  naturalProjectPathCompare,
+  validateSelectorSceneForCounter,
+  injectScenarioCounter,
+  discoverProjectMergeCandidates,
   inspectProjectMerge,
   applyProjectMerge,
   readMergeMarker,

@@ -67,3 +67,5 @@ scene位置、Sprite slot、animation ROW/frame、移動、fade、message/audio�
 WAVはOgg Vorbis VBR quality 4へ変換し、既存OGG/MP3は再encodeしません。
 選択中project fontだけを `font/` に同梱します。System Card、IPL、ROM/CUE/ISO、
 PCE runtime向けraw binaryはpackageへ含めません（PCE版PNGの生成入力としてだけ使います）。
+
+`entrypoints.font`は、Novelの`フォント`タブで選択したproject fontをPCEモードのゲーム本文へ渡すための既存entrypointです。v3 packageが`visual.modes`で`hd` / `pce`を宣言する場合、Godot PlayerはHDモードのMessage、Choice、SpriteText、待機／自動送りカーソルに配布側`package/library.json`の`font`を使い、PCEモードではこのpackage内pixel fontへ戻します。`library.json.font`が未指定または読み込めない場合は、Player UIとHD本文の両方が同梱Noto Sans JPへfallbackします。17文字×4行、12×16px、256×224論理ステージと本文の進行状態はfont切替で変更しません。`visual`を持たないversion 1／2 packageは従来どおり`entrypoints.font`を本文全体で使います。

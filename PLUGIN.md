@@ -1222,15 +1222,15 @@ window.electronAPI.onPluginLog((payload) => {
 | `pce-visual-novel-editor` | ビジュアルノベル | `editor`, `asset` | 内部 | `novel-editor` の VN タブ用モジュール |
 | `pce-font-editor` | フォント | `editor`, `asset` | 内部 | `novel-editor` の Font タブ用モジュール |
 | `pce-kitahe-pm-converter` | 北へ。PhotoMemories 取込 | `converter` | 表示 | Novel toolbarからCD-ROM2 VN用SCR変換modalとmain hooksを提供。有効時だけ`北へ。PM取込`を表示 |
-| `pce-vn-project-merger` | PCE VN プロジェクト結合 | `converter` | 表示 | Novel toolbarとCLIから複数CD-ROM2 VN projectを名前空間付きで結合し、NEXT/PREVを輪状接続 |
+| `pce-vn-project-merger` | PCE VN プロジェクト結合 | `converter` | 表示 | root配下のCD-ROM2 VN projectを選択・順序指定して結合し、NEXT/PREVとシナリオ番号を生成 |
 | `pce-vn-godot-exporter` | NVプロジェクトのGodotエクスポート | `converter` | 表示 | Novel toolbarからHD/PCE二系統画像を持つGodot package出力とWAV→Ogg Vorbis圧縮を提供。有効時だけ`Godot出力`を表示 |
 | `pce-vn-gb-studio-exporter` | PCE VN GB Studio出力 | `converter` | 表示 | v1.4.0。GB Studio 4.3.1/4.3.2 mixed-mode project、Phase 2制御flow、背景/actor両立ち絵mode、SpriteText・画面effect、BGM/画像/立ち絵調整、制御/visual監査、任意の公式ROM/Web buildを提供。有効時だけ`GB Studio出力`を表示 |
 
 ### PCE VN project merger hooks
 
-`pce-vn-project-merger`は`novel-toolbar-action` capabilityとmain hooks `inspectVnProjectMerge` / `applyVnProjectMerge`を公開します。rendererは現在のprojectを第1入力に固定し、検査前に`getSnapshot()` / `saveSnapshot()`で未保存のVN編集内容を確定します。入力順、出力親folder、出力名、title、replaceのいずれかを変更するとinspectionを破棄し、再検査するまでapplyできません。apply hookはinspection signatureを必須とし、入力を再hashして一致した場合だけ一時directoryで生成・`inspectVnSceneDocumentBuild()`検査後に出力を確定します。rendererは生成後もactive projectを変更しません。
+`pce-vn-project-merger`は`novel-toolbar-action` capabilityとmain hooks `discoverVnProjectMergeCandidates` / `inspectVnProjectMerge` / `applyVnProjectMerge`を公開します。rendererは現在projectの親folderを初期rootとして候補を再帰探索し、checkboxで選択した明示projectだけを入力にします。現在projectは初期選択されますが固定ではありません。候補探索とinspect/applyはcanonical root containment、結合済み入力、selector規約、番号用SpriteText slot/行衝突をmain側で再検証します。現在projectが選択に含まれる場合だけ`getSnapshot()` / `saveSnapshot()`で未保存のVN編集内容を確定します。root、選択順、出力親folder、出力名、title、replaceのいずれかを変更するとinspectionを破棄し、再検査するまでapplyできません。apply hookはinspection signatureを必須とし、入力を再hashして一致した場合だけ一時directoryで生成・`inspectVnSceneDocumentBuild()`検査後に出力を確定します。rendererは生成後もactive projectを変更しません。
 
-共通coreはrootの`pce-vn-project-merger.js`で、`inspectProjectMerge(options)`と`applyProjectMerge(options)`を公開します。CLI `npm run merge:vn -- --output <出力先> [--title <タイトル>] [--dry-run] [--replace] <project1> <project2> ...`も同じcoreを使います。scene/asset/variableは入力順の`m001_` namespaceへ変換し、登録source/generated/high-quality sourceを`assets/merged/<namespace>/`へcopyします。各開始sceneの`NEXT_SCR` / `PREV_SCR`直後のJumpは入力順の輪へ接続します。`cdda-warning`は最初の有効な1件だけ、ゲーム用CD-DAは入力順・元track順にTrack 3から再採番します。出力marker`.pce-vn-merge.json`はcanonical入力path、signature、namespace、変換表、件数を持ち、`--replace`は有効markerを持つtool所有出力だけに許可します。詳細は[docs/pce-vn-project-merger.md](docs/pce-vn-project-merger.md)です。
+共通coreはrootの`pce-vn-project-merger.js`で、`discoverProjectMergeCandidates(options)`、`inspectProjectMerge(options)`、`applyProjectMerge(options)`を公開します。CLI `npm run merge:vn -- --output <出力先> [--title <タイトル>] [--dry-run] [--replace] <project1> <project2> ...`も同じcoreを使います。scene/asset/variableは入力順の`m001_` namespaceへ変換し、登録source/generated/high-quality sourceを`assets/merged/<namespace>/`へcopyします。各開始sceneの`NEXT_SCR` / `PREV_SCR`直後のJumpは入力順の輪へ接続し、最初の入力/control-flow commandより前へslot 2・y=194のSpriteText `(n/N)`を追加します。番号は12px pitchで256px画面中央に置き、直前の有効SpriteText色を継承します。slot 2使用済みまたは同じ16px行との衝突はerrorで、既存表示を自動変更しません。`cdda-warning`は最初の有効な1件だけ、ゲーム用CD-DAは入力順・元track順にTrack 3から再採番します。出力marker`.pce-vn-merge.json`はcanonical入力path、source root、signature、namespace、変換表、件数を持ち、`--replace`は有効markerを持つtool所有出力だけに許可します。詳細は[docs/pce-vn-project-merger.md](docs/pce-vn-project-merger.md)です。
 
 ### PCE VN GB Studio exporter hooks
 

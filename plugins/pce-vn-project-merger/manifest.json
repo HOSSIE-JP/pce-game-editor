@@ -1,15 +1,15 @@
 {
   "id": "pce-vn-project-merger",
   "name": "PCE VN プロジェクト結合",
-  "description": "複数のCD-ROM2 VN projectを名前空間付きで結合し、シナリオ選択画面を輪状接続します。",
-  "version": "1.0.0",
+  "description": "root配下から選択したCD-ROM2 VN projectを名前空間付きで結合し、シナリオ選択画面と通し番号を生成します。",
+  "version": "1.1.0",
   "icon": "book",
   "types": ["converter"],
   "supportedCores": ["pc-engine"],
-  "hooks": ["inspectVnProjectMerge", "applyVnProjectMerge"],
+  "hooks": ["discoverVnProjectMergeCandidates", "inspectVnProjectMerge", "applyVnProjectMerge"],
   "permissions": ["project.read", "project.write", "dialog.openFile", "main.invokeHook"],
   "mainApi": {
-    "hooks": ["inspectVnProjectMerge", "applyVnProjectMerge"],
+    "hooks": ["discoverVnProjectMergeCandidates", "inspectVnProjectMerge", "applyVnProjectMerge"],
     "capabilities": ["vn-project-merger", "novel-toolbar-action"]
   },
   "renderer": {

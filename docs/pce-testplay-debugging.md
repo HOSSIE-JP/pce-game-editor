@@ -35,6 +35,12 @@ C:\homebrew\emulator\Geargrafx\Geargrafx.exe --headless --mcp-stdio
 node tools/dev/geargrafx-system-card-smoke.js --cue template/template_pce_vn_cd/out/MY_NEW_GAME.cue --inspect-sprite-move
 ```
 
+統合projectのシナリオ番号表示は、先頭から右2回・左2回を実時間で操作し、先頭・中間・末尾・戻り先のPNGとSpriteText slot状態を保存して確認できます。`--screenshot-dir`を省略するとCUEと同じfolderの`geargrafx-selector-counter-screens`へ保存します。
+
+```powershell
+node tools/dev/geargrafx-system-card-smoke.js --cue path/to/merged-game.cue --inspect-selector-counters --screenshot-dir path/to/screenshots
+```
+
 CD-DA開始時の描画安定性とbounded loopは、CD-DA playを先頭sceneで実行するCUEに対して次で確認します。`--inspect-cdda-start`はmetadata read後のgeneric syncを読み飛ばし、CD-DAがactiveになった実play後のsyncを捕捉します。その位置からVDC R10 write breakpointを有効にして1frame進め、可視期間にVCE/R9〜R14を再設定していないこと、全VDC register・VCE control・3連続screenshot hashが開始前と一致することを確認します。`--inspect-cdda`は指定frame相当を実時間で走らせるため、`--frames`には対象trackの1周より長い値を渡します。
 
 ```powershell

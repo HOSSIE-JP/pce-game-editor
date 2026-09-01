@@ -17,30 +17,40 @@ function appModule(context = {}) {
   return require(path.join(appPath, 'pce-vn-project-merger.js'));
 }
 
-function mergeOptions(payload = {}, context = {}) {
-  const currentProject = requireCurrentProject(context);
-  const requested = Array.isArray(payload.projects) ? payload.projects : [];
-  const additional = requested
+function mergeOptions(payload = {}) {
+  const projects = (Array.isArray(payload.projects) ? payload.projects : [])
     .map((entry) => String(entry || '').trim())
-    .filter(Boolean)
-    .filter((entry) => {
-      try {
-        return fs.realpathSync(entry) !== currentProject;
-      } catch (_error) {
-        return true;
-      }
-    });
+    .filter(Boolean);
   return {
     ...payload,
-    projects: [currentProject, ...additional],
+    root: String(payload.root || '').trim(),
+    projects,
   };
+}
+
+async function discoverVnProjectMergeCandidates(payload = {}, context = {}) {
+  try {
+    const result = await appModule(context).discoverProjectMergeCandidates({
+      root: String(payload.root || '').trim(),
+    });
+    const level = result.ok ? 'info' : 'error';
+    context.logger?.[level]?.(
+      result.ok
+        ? `VN project候補探索: ${result.candidates?.length || 0} projects`
+        : `VN project候補探索失敗: ${result.error || 'unknown error'}`,
+    );
+    return result;
+  } catch (error) {
+    context.logger?.error?.(`VN project候補探索失敗: ${error.message || error}`);
+    return { ok: false, error: String(error.message || error), candidates: [] };
+  }
 }
 
 function inspectVnProjectMerge(payload = {}, context = {}) {
   try {
     const currentProject = requireCurrentProject(context);
     if (payload.contextOnly === true) return { ok: true, currentProject };
-    const result = appModule(context).inspectProjectMerge(mergeOptions(payload, context));
+    const result = appModule(context).inspectProjectMerge(mergeOptions(payload));
     const level = result.ok ? 'info' : 'error';
     context.logger?.[level]?.(
       result.ok
@@ -56,7 +66,7 @@ function inspectVnProjectMerge(payload = {}, context = {}) {
 
 function applyVnProjectMerge(payload = {}, context = {}) {
   try {
-    const result = appModule(context).applyProjectMerge(mergeOptions(payload, context));
+    const result = appModule(context).applyProjectMerge(mergeOptions(payload));
     const level = result.ok ? 'info' : 'error';
     context.logger?.[level]?.(
       result.ok
@@ -71,6 +81,7 @@ function applyVnProjectMerge(payload = {}, context = {}) {
 }
 
 module.exports = {
+  discoverVnProjectMergeCandidates,
   inspectVnProjectMerge,
   applyVnProjectMerge,
 };

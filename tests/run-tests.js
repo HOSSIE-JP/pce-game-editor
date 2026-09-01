@@ -56,4 +56,5 @@ loadAppConfig(require('../app.config'));
   'pce-vn-cd-data-files.test.js',
   'pce-vn-cd-catalog.test.js',
   'pce-vn-scene-pack.test.js',
+  'pce-vn-project-merger.test.js',
 ].forEach((file) => require(path.join(__dirname, file)));

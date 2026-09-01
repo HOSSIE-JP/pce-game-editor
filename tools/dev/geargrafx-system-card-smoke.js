@@ -9,7 +9,7 @@ const readline = require('node:readline');
 const DEFAULT_EXE = 'C:\\homebrew\\emulator\\Geargrafx\\Geargrafx.exe';
 
 function parseArgs(argv) {
-  const result = { exe: DEFAULT_EXE, cue: '', frames: 6000, exercise: false, inspectCommand: false, inspectCount: false, inspectSpriteMove: false, inspectCdda: false, inspectCddaStart: false, cddaCommandHit: 1, presses: 180, settle: 0, skipPsgCheck: false, skipForbiddenCheck: false, list: false, search: '', info: '' };
+  const result = { exe: DEFAULT_EXE, cue: '', frames: 6000, exercise: false, inspectCommand: false, inspectCount: false, inspectSpriteMove: false, inspectCdda: false, inspectCddaStart: false, inspectSelectorCounters: false, screenshotDir: '', cddaCommandHit: 1, presses: 180, settle: 0, skipPsgCheck: false, skipForbiddenCheck: false, list: false, search: '', info: '' };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--list') result.list = true;
@@ -22,6 +22,8 @@ function parseArgs(argv) {
     else if (arg === '--inspect-command') { result.exercise = true; result.inspectCommand = true; }
     else if (arg === '--inspect-count') { result.exercise = true; result.inspectCount = true; }
     else if (arg === '--inspect-sprite-move') result.inspectSpriteMove = true;
+    else if (arg === '--inspect-selector-counters') result.inspectSelectorCounters = true;
+    else if (arg === '--screenshot-dir') result.screenshotDir = String(argv[++i] || '');
     else if (arg === '--inspect-cdda') result.inspectCdda = true;
     else if (arg === '--inspect-cdda-start') result.inspectCddaStart = true;
     else if (arg === '--cdda-command-hit') result.cddaCommandHit = Math.max(1, Number(argv[++i]) || 1);
@@ -133,6 +135,14 @@ function screenshotDigest(result) {
   return digestBytes(Buffer.from(block.data, 'base64'));
 }
 
+function screenshotBuffer(result) {
+  const block = Array.isArray(result?.content)
+    ? result.content.find((item) => item?.type === 'image' && typeof item.data === 'string')
+    : null;
+  if (!block) throw new Error(`Geargrafx screenshot returned no image: ${JSON.stringify(result)}`);
+  return Buffer.from(block.data, 'base64');
+}
+
 class McpClient {
   constructor(exe) {
     this.process = spawn(exe, ['--headless', '--mcp-stdio'], {
@@ -208,6 +218,7 @@ async function main() {
     }
     if (!options.cue) throw new Error('--cue is required unless --list is used');
     const cuePath = path.resolve(options.cue);
+    const initialStatus = contentPayload(await client.routed('debug_get_status'));
     const mapPath = cuePath.replace(/\.cue$/i, '.map');
     const epochAddress = symbolCpuAddress(mapPath, 'vn_frame_epoch');
     const currentSceneAddress = optionalSymbolCpuAddress(mapPath, 'current_scene');
@@ -226,6 +237,7 @@ async function main() {
     const spriteSatbStartsAddress = optionalSymbolCpuAddress(mapPath, 'sprite_satb_slot_start');
     const spriteSatbCountsAddress = optionalSymbolCpuAddress(mapPath, 'sprite_satb_slot_count');
     const spritetextSlotsAddress = optionalSymbolCpuAddress(mapPath, 'spritetext_slots');
+    const spritetextGlyphCacheCountAddress = optionalSymbolCpuAddress(mapPath, 'spritetext_glyph_cache_count');
     const syncSpriteMoveAddress = optionalSymbolCpuAddress(mapPath, 'sync_sprite_move_slot');
     const cddaStateAddress = optionalSymbolCpuAddress(mapPath, 'cdda_state');
     const cddaCommandImplAddress = optionalSymbolCpuAddress(mapPath, 'cdda_command_impl');
@@ -282,6 +294,76 @@ async function main() {
 
     const media = contentPayload(await client.tool('get_media_info'));
     const bootCpu = contentPayload(await client.tool('get_huc6280_status'));
+    if (options.inspectSelectorCounters) {
+      await client.tool('debug_continue');
+      await sleep(7000);
+      await client.tool('debug_pause');
+      const screenshotDir = path.resolve(options.screenshotDir
+        || path.join(path.dirname(cuePath), 'geargrafx-selector-counter-screens'));
+      fs.mkdirSync(screenshotDir, { recursive: true });
+      const selectorAreasPayload = contentPayload(await client.routed('list_memory_areas'));
+      const selectorAreas = Array.isArray(selectorAreasPayload)
+        ? selectorAreasPayload : (selectorAreasPayload?.areas || selectorAreasPayload?.memory_areas || []);
+      const selectorWram = selectorAreas.find((area) => /wram|work ram/i.test(String(area?.name || area?.title || area?.label || '')));
+      if (!selectorWram) throw new Error(`Geargrafx WRAM area not found: ${JSON.stringify(selectorAreasPayload)}`);
+      const selectorWramArea = Number(selectorWram.id ?? selectorWram.area ?? selectorWram.index);
+      const selectorReadWram = async (cpuAddress, size) => bytesFromPayload(contentPayload(await client.tool('read_memory', {
+        area: selectorWramArea,
+        offset: (cpuAddress & 0x1fff).toString(16),
+        size,
+      })));
+      const captures = [];
+      const capture = async (name) => {
+        const screen = screenshotBuffer(await client.tool('get_screenshot'));
+        const filePath = path.join(screenshotDir, `${name}.png`);
+        fs.writeFileSync(filePath, screen);
+        const slots = await selectorReadWram(spritetextSlotsAddress, 300);
+        const glyphCacheCount = (await selectorReadWram(spritetextGlyphCacheCountAddress, 1))[0];
+        captures.push({
+          name,
+          path: filePath,
+          sha256: digestBytes(screen),
+          glyphCacheCount,
+          spriteTextSlots: Array.from({ length: 4 }, (_, slot) => ({
+            slot,
+            glyphCount: slots[(slot * 75) + 64],
+            x: slots[(slot * 75) + 65] | (slots[(slot * 75) + 66] << 8),
+            y: slots[(slot * 75) + 67] | (slots[(slot * 75) + 68] << 8),
+            blinkOn: slots[(slot * 75) + 73],
+            visible: slots[(slot * 75) + 74],
+          })),
+        });
+      };
+      const navigate = async (button) => {
+        await client.tool('debug_continue');
+        await sleep(100);
+        await client.tool('controller_button', { player: 1, button, action: 'press_and_release' });
+        await sleep(5000);
+        const status = contentPayload(await client.routed('debug_get_status'));
+        if (!status?.paused) await client.tool('debug_pause');
+        return contentPayload(await client.routed('debug_get_status'));
+      };
+      await capture('01-first');
+      const secondStatus = await navigate('right');
+      await capture('02-middle');
+      const thirdStatus = await navigate('right');
+      await capture('03-last');
+      const backStatus = await navigate('left');
+      await capture('04-middle-after-left');
+      const firstAgainStatus = await navigate('left');
+      await capture('05-first-after-left');
+      process.stdout.write(`${JSON.stringify({
+        ok: true,
+        mode: 'inspect-selector-counters',
+        cue: cuePath,
+        initialStatus,
+        media,
+        bootPc: bootCpu?.pc ?? bootCpu?.PC,
+        transitions: { secondStatus, thirdStatus, backStatus, firstAgainStatus },
+        captures,
+      }, null, 2)}\n`);
+      return;
+    }
     const areas = contentPayload(await client.routed('list_memory_areas'));
     const areaList = Array.isArray(areas) ? areas : (areas?.areas || areas?.memory_areas || []);
     const wram = areaList.find((area) => /wram|work ram/i.test(String(area?.name || area?.title || area?.label || '')));
