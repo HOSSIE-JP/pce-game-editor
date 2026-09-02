@@ -1126,6 +1126,8 @@ flash、blank、shakeです。GB Studio 4.3.1/4.3.2の公式eventだけを使い
 
 CFGの特殊化stateは`block × background × SpriteText slot × logical sprite slot × physical mapping ×
 blank/active timeline`です。通常背景は立ち絵を継承し、全面event stillは表示stateを消去します。
+SpriteTextは同一PCE元scene内の内部segment間だけ継承し、元scene IDが変わる入口と`jump` / `choice`による
+同scene再入場では、全面event stillかどうかにかかわらず全4slotを消去します。
 blankは進行中moveをcancelしてblank背景へ移り、論理slotは保持します。特殊化scene IDにはvisual-state
 hashを含めます。
 
@@ -1144,7 +1146,10 @@ show/hideを保持し、非loop animationは1回再生後の最終frame用state�
 縮退した属性を監査します。非loop animationはsource delay列を1回再生し、最終frameを継承します。
 
 SpriteTextは選択済み8×8 font glyphを背景へ合成し、座標・色・表示/消去・内容を必達とします。
-右端では文字欠落なく折り返し、下端超過は位置付きerrorです。blinkは同じcontrollerで再現し、予算超過時
+タイトル／シナリオ選択sceneは全SpriteTextを黒へ正規化し、「← シナリオ選択 →」だけPCE座標の比率変換後に
+Yを8px加算して、96px artwork下端との間へ1tileの余白を設けます。source色・生成色・余白policyはcommand
+監査へ残します。タイトル冒頭でblocking commandより前に並ぶ連続SpriteTextは完成状態を背景へ事前焼き込みし、
+初期表示でGB Studioの共有blank tile patternを動的置換しません。右端では文字欠落なく折り返し、下端超過は位置付きerrorです。blinkは同じcontrollerで再現し、予算超過時
 だけ常時表示へ属性縮退します。shakeは公式camera shake、fadeは5/10/20/40/80/160/320 frameの最近値、
 flashは最近overlay色＋正確なwait、blankはblank背景＋actor非表示へ写像します。
 

@@ -219,11 +219,25 @@ function makeTextUnits(graph) {
   return units;
 }
 
+function titleSpriteTextPrebake(segment) {
+  const sourceKeys = []; let finalState = null;
+  const allowedPrefix = new Set(['background', 'audio', 'comment', 'cache', 'label']);
+  for (const [commandIndex, command] of (segment.commands || []).entries()) {
+    if (allowedPrefix.has(command?.type)) continue;
+    const plan = segment.visualPlans?.[commandIndex];
+    if (command?.type !== 'spritetext' || command.visible === false || !plan?.spriteText?.policy?.titleSceneBlack) break;
+    sourceKeys.push(plan.sourceKey); finalState = plan.afterState;
+  }
+  if (!sourceKeys.length || !finalState) return null;
+  const visualState = { ...segment.entryVisualState, spriteTexts: finalState.spriteTexts };
+  return { sourceKeys, visualState };
+}
+
 function buildConversionModel({ projectDir, project, rawDoc, sceneDoc, assetDoc, settings, gbStudio, sourceInventory }) {
   const assetsById = new Map((assetDoc.assets || []).map((asset) => [asset.id, asset])); const backgroundGraph = splitScenes(sceneDoc); const graph = specializeVisualStates(backgroundGraph, sceneDoc, { renderMode: settings.portraitRenderMode, assetsById }); const variables = collectVariables(sceneDoc, settings); const textUnits = makeTextUnits(graph); const font = createFontPages(textUnits, { projectDir, font: settings.font });
   for (const segment of graph.segments) for (const command of segment.commands) if (command?._gbvnSource) { const entry = sourceInventory?.byKey?.get(command._gbvnSource.key); if (entry) { entry.reachable = Boolean(entry.reachable || segment.reachable); entry.segmentKeys = entry.segmentKeys || []; if (!entry.segmentKeys.includes(segment.key)) entry.segmentKeys.push(segment.key); entry.segmentKey = entry.segmentKeys[0]; if (['background', 'label', 'comment', 'cache'].includes(command.type)) entry.disposition = 'generated-metadata'; } }
   const backgroundVariants = []; const seenBackgrounds = new Set();
-  graph.segments.forEach((segment) => { const assetId = segment.effectiveBackgroundKey === 'blank' ? '' : segment.effectiveBackgroundKey; const visualForBackground = settings.portraitRenderMode === 'baked' ? segment.entryVisualState : { blank: segment.entryVisualState?.blank, spriteTexts: segment.entryVisualState?.spriteTexts }; const visualHash = visualStateHash(visualForBackground || {}); const key = `${assetId || 'blank'}:${segment.fullScreen ? 'fullscreen' : 'dialogue'}:vs_${visualHash}`; segment.backgroundVariantKey = key; if (!seenBackgrounds.has(key)) { seenBackgrounds.add(key); backgroundVariants.push({ key, assetId, fullScreen: segment.fullScreen, visualState: segment.entryVisualState, visualStateId: segment.visualStateId }); } });
+  graph.segments.forEach((segment) => { const assetId = segment.effectiveBackgroundKey === 'blank' ? '' : segment.effectiveBackgroundKey; const prebaked = titleSpriteTextPrebake(segment); segment.prebakedSpriteTextSourceKeys = prebaked?.sourceKeys || []; const backgroundVisualState = prebaked?.visualState || segment.entryVisualState; const visualForBackground = settings.portraitRenderMode === 'baked' ? backgroundVisualState : { blank: backgroundVisualState?.blank, spriteTexts: backgroundVisualState?.spriteTexts }; const visualHash = visualStateHash(visualForBackground || {}); const key = `${assetId || 'blank'}:${segment.fullScreen ? 'fullscreen' : 'dialogue'}:vs_${visualHash}`; segment.backgroundVariantKey = key; if (!seenBackgrounds.has(key)) { seenBackgrounds.add(key); backgroundVariants.push({ key, assetId, fullScreen: segment.fullScreen, visualState: backgroundVisualState, visualStateId: visualStateHash(backgroundVisualState || {}) }); } });
   const musicAssetIds = new Set(); const externalMusicById = new Map();
   for (const segment of graph.segments) for (const command of segment.commands) if (command.type === 'audio' && command.action === 'play') {
     if (command.kind === 'psg' && assetsById.get(command.assetId)?.type === 'psg-song') musicAssetIds.add(command.assetId);
