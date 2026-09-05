@@ -2,7 +2,8 @@
 .codex-artifacts/
 .codex-tmp/
 .codex-tmp-read/
-.codex/
+.codex/*
+!.codex/config.toml
 .mcp.json
 
 # Local scratch and generated build data

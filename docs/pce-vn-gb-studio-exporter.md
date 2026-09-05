@@ -1,15 +1,17 @@
 # PCE VN → GB Studio exporter 仕様・実装記録
 
+> **移管記録:** 現行の実装、利用手順、Portable運用、Phase 4～6 roadmapは`C:\homebrew\projects\pce-2-gb-novelgame-converter`の文書を正とします。この文書と旧plugin/core/CLI/testは、standaloneのparity、公式build/runtime、Portable write監査が完了するまで比較用に保持します。受入完了前に旧実装を撤去してはいけません。
+
 ## 文書の状態
 
-- 状態: **Phase 1～3実装済み、v1.4.0 Visual両mode・公式build/runtime受入済み**
-- 対象日: 2026-08-30
+- 状態: **スタンドアロン移管済み。旧v1.5.0仕様・受入記録として一時保持**
+- 対象日: 2026-09-03
 - plugin ID: `pce-vn-gb-studio-exporter`
-- exporter/plugin version: `1.4.0`（sidecar format versionは`1`を維持）
-- 出力: GB Studio 4.3.1/4.3.2 `Color + Monochrome` 単一ROM project
+- exporter/plugin version: `1.5.0`（sidecar format versionは`1`を維持）
+- 出力: GB Studio 4.3.1/4.3.2のGB専用、GBC専用、または`Color + Monochrome`両対応の単一ROM project
 
 この文書は、PCE Game EditorのVisual Novel projectをGame Boy / Game Boy Color
-両対応のGB Studio projectへ変換する実装仕様、検証記録、将来Phaseの引継ぎ正本です。
+向けGB Studio projectへ変換する実装仕様、検証記録、将来Phaseの引継ぎ正本です。
 公開APIとUI手順は`PLUGIN.md`と`docs/user-guide.md`、実装は
 `pce-vn-gb-studio-exporter.js`および`pce-vn-gb-studio-*.js`を正とします。
 GB Studio 4.3.1/4.3.2のschemaとevent compilerは選択した同版本体、生成物は公式build結果をauthorityとし、
@@ -19,7 +21,7 @@ GB Studio 4.3.1/4.3.2のschemaとevent compilerは選択した同版本体、生
 
 PCE VN v2の正規化済みscene documentと参照中assetから、次を決定的に生成します。
 
-- Game BoyとGame Boy Colorで動く1本のROMを作るGB Studio project
+- Game Boy専用、Game Boy Color専用、または両機種で動く1本のROMを作るGB Studio project
 - GBC向けのscene別カラー背景
 - DMG向けの4階調背景
 - 日本語本文、話者名、2～4択分岐、scene遷移
@@ -66,7 +68,7 @@ GBC/DMG別scene graph、27組のGBC/DMG背景、ROM/Web公式build、両モー�
 1. `pce-vn-gb-studio-exporter` plugin
    - Novel toolbar action
    - preflight modal
-   - font、CD-DA、BGM個別調整、画像個別補正、警告確認UI
+   - 出力target、font、CD-DA、BGM個別調整、画像個別補正、警告確認UI
 2. 再利用可能な変換core
    - source inventoryと正規化
    - 中間表現、graph、asset変換、GB Studio resource生成
@@ -263,10 +265,17 @@ backgroundなしblockは遷移元の状態を継承します。異なるbackgrou
 - dialogue runtime設定
 - source上必要なその他MVP状態
 
-### GB/GBC分岐
+### GB/GBC出力target
 
-生成projectのcolor modeは`mixed`です。boot sceneに
-`EVENT_IF_COLOR_SUPPORTED`相当を置き、次へ一度だけ振り分けます。
+`targetMode`は`dual`、`gbc`、`gb`の3値です。GB Studioのcolor mode、生成graph、ROM headerは次の対応です。
+
+| `targetMode` | GB Studio `colorMode` | 生成graph | CGB flag |
+|---|---|---|---|
+| `dual` | `mixed` | GBC + DMG | `0x80` |
+| `gbc` | `color` | GBCのみ | `0xC0` |
+| `gb` | `mono` | DMGのみ | `0x00` |
+
+`dual`だけがboot sceneの`EVENT_IF_COLOR_SUPPORTED`で次へ一度振り分けます。専用targetのboot sceneは対応graphへ直接遷移し、反対機種のscene、背景、sprite、visual timeline resourceを生成しません。
 
 ```text
 device_dispatch
@@ -274,8 +283,8 @@ device_dispatch
   └─ DMG graph: <scene-key>:dmg
 ```
 
-以後のjump、choice、ending returnは必ず同じmode内へ閉じます。GBC sceneからDMG scene、
-DMG sceneからGBC sceneへのedgeはvalidation errorです。
+以後のjump、choice、ending returnは必ず同じmode内へ閉じます。`dual`でGBC sceneからDMG scene、
+DMG sceneからGBC sceneへのedgeはvalidation errorです。専用targetで非対象modeのresourceが残る場合もvalidation errorです。
 
 ## Phase 2 command mapping
 
@@ -452,12 +461,14 @@ hardware上は合計8 paletteですが、「背景8 palette」として使い切
 5. tileを最小誤差のclusterへ割り当てる。
 6. assignmentとcluster medoid/representativeを収束まで反復する。
 7. 各tileを割当paletteの4色へ量子化する。
-8. GB Studio compilerと同じgreedy autoColor palette数を再計算し、7本を超えた場合はcluster上限を1本ずつ下げて再量子化する。
-9. 選択したGB Studio 4.3.1/4.3.2の公式buildを確認する。
+8. GB Studio compiler相当のgreedy palette数も監査し、7本を超える入力はcluster上限を1本ずつ下げて再量子化する。
+9. quantized pixel indexを4階調carrier PNGへ格納し、tileごとのpalette indexを`tileColors`、実色をsceneのpalette 0..6へ明示出力する。GB Studio側の`autoColor`は無効にする。
+10. system UI/SpriteTextがあるtileだけpalette 7へ割り当て、`default-ui`の4色へ再量子化する。
+11. 選択したGB Studio 4.3.1/4.3.2の公式buildを確認する。
 
 RGB成分の単純二乗距離だけを品質指標にしません。少なくとも知覚色差、tileごとの色数、
 palette使用数、unique 8×8 tiles、source hash、output hashを記録します。
-監査には最終autoColor palette数に加えて`quantizerPalettes`と`quantizerPaletteLimit`も残します。
+監査にはquantizer palette数・上限、manual tile palette、palette 7へ予約したtile index、carrier/export hashも残します。
 
 ditheringは既定OFFです。採用する場合は画像別overrideとし、unique tile、ROM bank、native-size
 表示を再検証します。
@@ -634,6 +645,7 @@ version 1の現行schema例:
 {
   "format": "pce-vn-gb-studio-export",
   "version": 1,
+  "targetMode": "dual",
   "font": "builtin:misaki-gothic-8x8",
   "portraitRenderMode": "baked",
   "visualOmissionsConfirmed": false,
@@ -715,7 +727,7 @@ custom fontと外部MODがproject外にある場合は、生成成功後にhash�
   "version": 1,
   "exporter": {
     "id": "pce-vn-gb-studio-exporter",
-    "version": "1.4.0"
+    "version": "1.5.0"
   },
   "sourceProject": {
     "identity": "<project path hash>",
@@ -728,6 +740,9 @@ custom fontと外部MODがproject外にある場合は、生成成功後にhash�
     "engineVersion": "4.3.0-e1"
   },
   "conversion": {
+    "targetMode": "dual",
+    "outputModes": ["gbc", "dmg"],
+    "expectedCgbFlag": "0x80",
     "font": {},
     "portraitRenderMode": "baked",
     "confirmations": {
@@ -785,6 +800,7 @@ node tools/dev/pce-vn-gb-studio-export.js \
   --project <pce-project-dir> \
   --out <generated-project-dir> \
   --gb-studio <gb-studio-4.3.1-or-4.3.2-executable> \
+  --target dual|gbc|gb \
   --font builtin:misaki-gothic-8x8 \
   --portrait-mode baked|actor \
   --cdda-map cdda_id=psg_song_id \
@@ -804,7 +820,8 @@ hash不変を検査します。独立ADPCM/PSG SFXは明示`omit`へ自動設定
 
 ```text
 node --max-old-space-size=8192 tools/dev/pce-vn-gb-studio-real-regression.js \
-  --gb-studio <gb-studio-4.3.2-executable>
+  --gb-studio <gb-studio-4.3.2-executable> \
+  --target dual|gbc|gb
 ```
 
 ## Validation
@@ -958,28 +975,42 @@ static/official build成功をruntime成功や実機成功として扱いませ�
 
 ## 実装状況と段階
 
-2026-08-30時点の実装は次です。
+2026-09-03時点の実装は次です。
 
-- `pce-vn-gb-studio-exporter` v1.4.0、再利用core、CLI、sidecar v1、ownership manifest
+- `pce-vn-gb-studio-exporter` v1.5.0、再利用core、CLI、sidecar v1、ownership manifest
 - GB Studio 4.3.1/4.3.2 / engine `4.3.0-e1`の実file検査と引用符付きpath正規化
-- GBC/DMG二重graphをboot dispatcherで選ぶmixed-mode project
+- GB専用、GBC専用、GBC/DMG二重graphをboot dispatcherで選ぶmixed-mode project
 - BG、Message、2～4択、Jump/next、Wait、BGM play/stop
 - signed Variable define/set/add/sub/random、比較6演算子、IF、Switch、Label/GOTO、sync/async/cancel Input
 - 明示fallthrough/terminalを持つbasic block graph、join/loop/到達不能解析
 - 必要時だけ生成する`pce-vn-control` Script Event Plugin
 - 全raw source commandを一意に追跡する`control-flow-audit.json`
 - baked/actor両立ち絵mode、4論理slot/A-B actor mapping、全animation/flip/show/hide、sync/async move
-- 8×8 SpriteText、blink、fadeIn/out、flash、blank、shakeとvisual state特殊化
+- 8×8 SpriteText、blink、fadeIn/out、flash、blank、shakeとvisual state特殊化。selector 3行をY=104/120/136へ整列
 - Misaki Gothic組み込み、custom BDF/TTF/OTF/TTC、atomic font page
-- GBC 7 palette×4 colors/tile、DMG固定4色×192 unique tile、contact sheet
+- GBC画像用7 palette×4 colors/tile＋system UI用palette 7のmanual tile割当、DMG固定4色×192 unique tile、contact sheet
 - PSG→4ch MOD、非0 loop point、drop/transpose/control-conflict曲別audit
 - CD-DA→登録PSG曲または外部4ch MOD、voice→話者別text tone、SFX/独立ADPCMのtone/omit
-- static validationとGB Studio公式ROM/Web build。ROM CGB flag `0x80`を必須検査
+- static validationとGB Studio公式ROM/Web build。target別ROM CGB flag `0x80` / `0xC0` / `0x00`を必須検査
 - metadata-only block統合、持続背景CFG伝播、背景状態別scene特殊化、背景state監査
 - period優先PSG変換、6ch自動割当、wave/noise instrument、曲別調整とWebAudio A/B近似preview
 - asset別brightness/saturation、GBC/DMG独立dither、原画/変換後preview、preview/export hash照合
 - asset別立ち絵crop/scale/offset/色補正、animation preview、OBJ/scanline/tile予算、stale source hash
 - command単位とasset/timeline/tile bank単位を相互参照する`visual-audit.json`
+
+2026-09-03のv1.5.0受入では、実作品`015_還らずの汐`（source 26 scenes / 429 commands）を
+`dual`、`gbc`、`gb`の3 targetへ生成し、順に129 / 65 / 65 scenesとなることを確認しました。
+GB Studio 4.3.2の公式ROM/Web Exportは全targetでwarning 0件、ROM/Web内ROM hash一致でした。
+dualは1,048,576 bytes・CGB flag `0x80`・SHA-256
+`74d78c06c648f3f8dd5bc8a3d90a66918441beac1bb133bcedb64c305a28066e`、GBC専用は524,288 bytes・
+`0xC0`・`07c24566dd20d682245cbd0ae3eb7c4d3433f791aedb3554b84a7dc99e17d4a9`、GB専用は
+524,288 bytes・`0x00`・`d17ddcd628b2f2070b77234b3959f9080f1e9a1be10040b9f9bfa434964d7b0e`です。
+この作品では専用targetが反対機種のresource graphを除外することで、両対応ROMの半分の容量になりました。
+
+BGB 1.6.4ではdualをGBC/DMG、各専用ROMを対応機種modeで起動し、540 frames時点のselector画面を保存しました。
+GBC専用とdual/GBC、GB専用とdual/DMGのscreen SHA-256はそれぞれ完全一致し、黒いsystem UI文字、
+prompt Y=104、scenario title Y=120による8px行間marginを確認しました。focused回帰は54/54、`npm test`も
+exit 0です。元projectを変更しない受入copyから生成し、原本にはsidecarを保存していません。
 
 2026-08-30のPhase 3 v1.4.0最終受入では、focused回帰52/52、`npm test`は
 534 pass / 0 fail / 1 skipでした。`いしのうらにいる！？/01_部室の白い箱`はsource 18 scenes /
@@ -1146,8 +1177,9 @@ show/hideを保持し、非loop animationは1回再生後の最終frame用state�
 縮退した属性を監査します。非loop animationはsource delay列を1回再生し、最終frameを継承します。
 
 SpriteTextは選択済み8×8 font glyphを背景へ合成し、座標・色・表示/消去・内容を必達とします。
-タイトル／シナリオ選択sceneは全SpriteTextを黒へ正規化し、「← シナリオ選択 →」だけPCE座標の比率変換後に
-Yを8px加算して、96px artwork下端との間へ1tileの余白を設けます。source色・生成色・余白policyはcommand
+タイトル／シナリオ選択sceneは全SpriteTextを黒へ正規化し、slot 0のprompt、slot 1のscenario title、slot 2のcounterを
+Y=104/120/136へ配置します。各8px glyph行の間に8pxのmarginを確保し、96px artwork下端とpromptの間にも8pxを確保します。
+GBCでは文字を含むtileのpalette属性をsystem予約slot 7へ固定し、背景ごとの画像paletteとは共有しません。source色・生成色・配置・palette policyはcommand
 監査へ残します。タイトル冒頭でblocking commandより前に並ぶ連続SpriteTextは完成状態を背景へ事前焼き込みし、
 初期表示でGB Studioの共有blank tile patternを動的置換しません。右端では文字欠落なく折り返し、下端超過は位置付きerrorです。blinkは同じcontrollerで再現し、予算超過時
 だけ常時表示へ属性縮退します。shakeは公式camera shake、fadeは5/10/20/40/80/160/320 frameの最近値、
@@ -1217,7 +1249,7 @@ scoreをPSG/MOD変換へ渡します。
 ## 実装順序と残件
 
 1. [x] raw source inventory、IR、diagnostic、full-consumption validator
-2. [x] stable ID、mixed graph、Phase 2 command generator
+2. [x] stable ID、GB/GBC専用・mixed graph、Phase 2 command generator
 3. [x] Misaki packaging、font page、compiled byte validator
 4. [x] GBC/DMG background converterとQA report
 5. [x] PSG→MOD、CD-DA mapping、audio audit
@@ -1228,8 +1260,9 @@ scoreをPSG/MOD変換へ渡します。
 10. [x] Phase 2版の公式ROM/Web buildとruntime受入記録
 11. [x] v1.3.0のGB Studio 4.3.1/4.3.2公式build、BGB GBC/DMG、公式ROM WAV再受入記録
 12. [x] Phase 3 Visual（baked/actor、SpriteText、move、animation、fade/flash/blank/shake）と4.3.1/4.3.2公式build、BGB GBC/DMG受入
-13. [ ] Phase 4 Audio拡張、Phase 5統合、Phase 6全自動playthrough
-14. [x] `PLUGIN.md`、`docs/user-guide.md`、`README.md`、本書の実装同期
+13. [x] v1.5.0出力target選択、専用resource graph、selector margin、system UI palette分離
+14. [ ] Phase 4 Audio拡張、Phase 5統合、Phase 6全自動playthrough
+15. [x] `PLUGIN.md`、`docs/user-guide.md`、`README.md`、本書の実装同期
 
 各段階でgenerator-owned resourceだけを更新し、derived `.gbsres`だけを直接patchしません。
 

@@ -50,11 +50,13 @@ CD-ROM2出力は市販ソフトと同じ基本構造に固定しています。T
 
 Novel画面の `Godot出力` は、組み込みプラグイン **NVプロジェクトのGodotエクスポート** が有効な場合だけ表示され、CD-ROM2 / HuCARD VNのどちらでも利用できます。現行Scene JSON、参照中の画像・プレビュー可能音声・PSG metadata、任意のproject fontを、Godotネイティブプレイヤー用の `*.pcevn.zip` へまとめます。BG/Spriteは、import時に保持したPCE減色前の高画質PNGと、最終`palette.bin` / tile / pattern / cell mapから再構成したPCE相当PNGを同じasset IDの`hd` / `pce`として二系統収録します。旧assetで減色前PNGがない場合は現行sourceをHD側へ使い、件数をmanifestと出力ログへ残します。参照中のCD-DA/ADPCM再生用WAVは出力時にOgg Vorbis（VBR quality 4）へ圧縮し、既存のOGG/MP3は再エンコードしません。Godot Playerのワイド画面枠は配布側の`package/library.json`にあるトップレベル`border`で指定し、シナリオZIPには同梱しません。package v3の詳細とGodot runtimeのワンボタン切替契約は [Godot VN package exporter](docs/pce-vn-godot-exporter.md) を参照してください。これはROM/CUE/ISOのExportとは独立しており、System Card、IPL、EmulatorJS、実機向けraw binaryは含めません。v3の`hd` / `pce`両対応packageでは、HD本文は配布側`package/library.json`の`font`、PCE本文は`entrypoints.font`の選択project fontを使います。`library.json.font`が未指定または読込不能なら同梱Noto Sans JPへfallbackし、旧version 1／2 packageは従来どおりproject fontを本文全体で使います。
 
-Novel画面の `GB Studio出力` は、組み込みプラグイン **PCE VN GB Studio出力** が有効な場合だけ表示されます。v1.4.0はPCE VN v2のBG、本文、2～4択、scene/label分岐、signed変数・IF/Switch/GOTO/Input/random、PSG BGMに加え、`sprite` / `spritemove` / `spritetext` / fade / flash / blank / shakeを、GB Studio 4.3.1/4.3.2・engine `4.3.0-e1`用のgenerator-owned projectへ変換します。出力は起動時にGBC/DMG用scene graphを選ぶ`Color + Monochrome`単一ROMです。
+PCE VNからGB Studioへの変換機能は、Windows x64向けスタンドアロン **PCE2GB Novel Game Converter**（`C:\homebrew\projects\pce-2-gb-novelgame-converter`）へ移管しました。以後の実装・利用手順・Phase 4～6の正本はスタンドアロン側です。このリポジトリの組み込み **PCE VN GB Studio出力 v1.5.0** は移管parity、公式build/runtime、Portable write監査が完了するまでの比較用として一時保持しており、受入完了後に専用core、CLI、test、依存とともに撤去します。新規作業の実装元にはしません。
 
-立ち絵はproject全体で、既定の「背景焼き込み」または最大2人の「sprite actor」を選びます。背景modeは論理4slot、重なり、sync/async移動、animation、SpriteTextをvisual timelineへ合成し、actor modeは40×48 bust、A/B枠循環、flip、animation、公式actor移動eventを使います。SpriteTextはGB Studio内部のscene分割では維持しますが、別のPCE元sceneへの遷移と同じ元sceneへの明示jump/choice再入場では全slotを消去します。タイトル／シナリオ選択sceneでは文字色を黒へ正規化し、「← シナリオ選択 →」へ変換後8pxの上余白を加えます。SpriteText内容・座標・色と立ち絵の最終状態は省略不可です。OBJ/走査線/tile、keyframe削減、非原子的tile更新、時間・色近似、属性省略は`build/qa/visual-audit.json`へ記録し、errorまたは明示確認gateにします。native Cやengine overrideは生成しません。
+旧組み込みプラグインはPCE VN v2のBG、本文、2～4択、scene/label分岐、signed変数・IF/Switch/GOTO/Input/random、PSG BGMに加え、`sprite` / `spritemove` / `spritetext` / fade / flash / blank / shakeを、GB Studio 4.3.1/4.3.2・engine `4.3.0-e1`用のgenerator-owned projectへ変換します。出力targetは`GB/GBC両対応`、`GBC専用`、`GB専用`から選択でき、専用targetでは不要な反対機種のscene・背景・visual resource graphを生成しません。
 
-export modalではMisaki Gothic 8x8を既定fontとし、`BGM調整`、`画像調整`、`立ち絵調整`からA/B preview、crop、scale、offset、色補正、GBC/DMG別ditherを編集できます。previewと正式exportは同じ変換coreを使い、sidecar format v1へ成功時だけ保存します。全source commandの処理区分とGBC/DMG event IDは`control-flow-audit.json`、visualのasset/timeline/hashは`visual-audit.json`へ保存します。`生成＋公式build`ではGB Studio本体の通常Export経路でROM/Webを作り、warning 0、ROM/Web hash一致、CGB flag `0x80`を検査します。詳細とPhase 4～6は[GB Studio exporter仕様](docs/pce-vn-gb-studio-exporter.md)を参照してください。
+立ち絵はproject全体で、既定の「背景焼き込み」または最大2人の「sprite actor」を選びます。背景modeは論理4slot、重なり、sync/async移動、animation、SpriteTextをvisual timelineへ合成し、actor modeは40×48 bust、A/B枠循環、flip、animation、公式actor移動eventを使います。SpriteTextはGB Studio内部のscene分割では維持しますが、別のPCE元sceneへの遷移と同じ元sceneへの明示jump/choice再入場では全slotを消去します。タイトル／シナリオ選択sceneでは文字色を黒へ正規化し、prompt・scenario title・counterをY=104/120/136の16px間隔へ配置します。GBCでは背景palette 0～6を画像用、palette 7をsystem UI/SpriteText用に固定し、画像量子化による文字色の変動を防ぎます。SpriteText内容・座標・色と立ち絵の最終状態は省略不可です。OBJ/走査線/tile、keyframe削減、非原子的tile更新、時間・色近似、属性省略は`build/qa/visual-audit.json`へ記録し、errorまたは明示確認gateにします。native Cやengine overrideは生成しません。
+
+export modalでは出力targetとMisaki Gothic 8x8既定fontを選び、`BGM調整`、`画像調整`、`立ち絵調整`からA/B preview、crop、scale、offset、色補正、GBC/DMG別ditherを編集できます。previewと正式exportは同じ変換coreを使い、sidecar format v1へ成功時だけ保存します。全source commandの処理区分と有効targetのevent IDは`control-flow-audit.json`、visualのasset/timeline/hashは`visual-audit.json`へ保存します。`生成＋公式build`ではGB Studio本体の通常Export経路でROM/Webを作り、warning 0、ROM/Web hash一致とtarget別CGB flag（両対応`0x80`、GBC専用`0xC0`、GB専用`0x00`）を検査します。詳細とPhase 4～6は[GB Studio exporter仕様](docs/pce-vn-gb-studio-exporter.md)を参照してください。
 2～4択の折返し後label合計が画面上限16行を超える場合は、欠落や画面外表示にせずpreflight errorで停止します。
 
 ## テスト
@@ -75,7 +77,7 @@ PCE 関連の基本回帰テストは `tests/run-tests.js` から実行されま
 - [CD VN System Card BIOS Design](docs/pce-vn-engine-redesign.md): IRQ、PSG package、Shift-JIS scene/font契約。
 - [CD VN Memory Strategy](docs/pce-memory-bank-strategy.md): bank123/128-135とlink-map gate。
 - [CD-ROM2 VN Large Project Limits](docs/pce-vn-large-project-limits.md): 大規模catalogの正式上限、payload pack、個別制約。
-- [PCE VN GB Studio Exporter](docs/pce-vn-gb-studio-exporter.md): GB/GBC mixed ROM変換、制約、CLI、監査、将来Phase。
+- [PCE VN GB Studio Exporter（移管記録）](docs/pce-vn-gb-studio-exporter.md): スタンドアロン移管前の仕様・受入記録。現行仕様はスタンドアロン側文書を参照。
 - [Implementation Audit (2026-07-10)](docs/implementation-audit-2026-07-10.md): 実装と文書の照合結果、残存互換層、潜在課題、次の作業計画。
 
 `refactor-instructions*.md`、`docs/refactor-report.md`、`docs/tasks/`、`*-handoff.md`、`*-phase*.md` は、その時点の作業指示・調査結果・移行記録です。現行仕様の入口にはせず、記述が競合する場合は現行コード、上記の利用者/開発者向け文書、`AGENTS.md` の順に確認してください。

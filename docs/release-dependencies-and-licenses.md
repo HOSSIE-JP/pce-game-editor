@@ -102,6 +102,12 @@ Superfamiconv は使用しません。
 
 ### GB Studio exporterとMisaki Gothic
 
+現行のGB Studio変換と配布ライセンス管理は、スタンドアロン
+`C:\homebrew\projects\pce-2-gb-novelgame-converter`へ移管しました。以下は移管受入の
+parity・公式build/runtime・Portable write監査が完了するまでPCE Game Editorに一時保持する
+旧`pce-vn-gb-studio-exporter`の依存記録です。旧pluginを撤去するまでは`@electron/asar`、
+Misaki Gothicと各noticeをPCE Game Editor配布物から先に削除してはいけません。
+
 `pce-vn-gb-studio-exporter`はユーザーが指定したGB Studio 4.3.1の
 `app.asar` metadataとengine versionを読み、公式build modeだけ本体を隔離profileで
 起動します。GB Studio本体やengine sourceをPCE Game Editorへコピー・再配布しません。

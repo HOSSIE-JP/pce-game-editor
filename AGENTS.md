@@ -2,11 +2,21 @@
 
 このリポジトリは PC Engine / Super CD-ROM2 専用の `pce-game-editor` です。
 
+## 作業の進め方
+
+- 最初に `git status --short` と対象ファイルの差分を確認し、ユーザーの未コミット変更を保持してください。ゲーム制作では実在するプロジェクトパスと対象メディアを確認し、別作品やテンプレートを誤って上書きしないでください。
+- 依頼は実行要求として扱い、通常の可逆な編集・調査・検証は自律的に完了してください。対象の取り違えや破壊的操作など、結果が大きく変わる不明点だけ確認してください。
+- 重要な判断の前に目的・前提・影響範囲を見直し、完了前には反例・失敗条件・検証漏れを確認してください。無関係な整理や互換層を追加しないでください。
+- 現行実装・テンプレート・実測を正とし、過去の記憶や古いビルド成功を現在の証拠にしないでください。資料とコードが食い違う場合は原因を調べ、同じ変更内で関連資料を更新してください。
+- ゲーム制作とエンジン改善の手順は `docs/ai-development-workflow.md` を参照してください。作業に関係する資料だけを読み、毎回すべての資料や全エミュレーター検査を実行する必要はありません。
+- 報告は日本語で簡潔に、変更内容・検証結果・未確認事項を示してください。ビルド、エミュレーター起動、画面、入力、音声、実機は別々の確認結果です。
+
 ## 最初に読むもの
 
 - PCE プラグイン、アセット、ビルド、Test Play を変更する前に `PLUGIN.md` を読んでください。
 - Test Play や実機/エミュレーター表示崩れを調査する前に `docs/pce-testplay-debugging.md` を読んでください。
 - CD-ROM2 / VN runtime のメモリバンク配置を変更する前に `docs/pce-memory-bank-strategy.md` を読んでください。
+- HuCARD VN のバンク配置・描画タイミングを変更する前に `docs/pce-vn-hucard-bank-layout.md` を読んでください。CD版の配置・音源処理をそのまま移植しないでください。
 - VN runtime のコードが 3 常駐バンク(128/129/130)に収まらず溢れてビルド失敗したとき、退避候補の選定・測定・op-dispatch 退避・ハマりどころは `docs/pce-vn-code-bank-optimization.md`（最適化プレイブック）を読んでください。
 - bank133 コードオーバーレイ(Path B)の link/抽出/dispatch 機構を追加・拡張するときは `docs/pce-vn-overlay-pathb.md` を読んでください。
 - 公開 API、プラグイン manifest、IPC、ビルド仕様を変更する場合は、同じ作業内で `PLUGIN.md` または `docs/` 配下の関連ファイルを更新してください。
@@ -21,8 +31,10 @@
 - PCE 固有のプロジェクト移行処理は `pce-project-migration.js` に置き、共通ライブラリへ戻さないでください。
 - 画像アセットは内蔵 PCE 変換を使い、Superfamiconv には依存しません。
 - CD-ROM2 は `targetMedia: "cd"` と `toolchain: "llvm-mos"` を前提に扱います。IPL / System Card はユーザー所有ファイルとして扱い、リポジトリへ同梱しません。
-- CD-ROM2 の大きい画像/sprite/ADPCM payload は `cd.dataFiles` に置き、RAM bank には詰め込まないでください。VN runtime のバンク割り当ては bank128/129/130 を常駐コード（slot2/3/4 に co-resident、`VN_BANKED_CODE`/`VN_BANKED_CODE2`）、bank132 を VN generated data、bank133 を CD ロードのコードオーバーレイ（slot4 を bank130 と時分割、`VN_OVERLAY_CODE`）として扱います。bank131 は System Card が slot5 で使うためコードに使えません。詳細は `docs/pce-memory-bank-strategy.md` と `docs/pce-vn-overlay-pathb.md`。
-- VN runtime へ新しい helper を足すとき、無属性の関数は bank128 に入りやすく、数百 byte でも `ld.lld: section '.rodata'/.data/.zp.data will not fit in region 'ram_bank128'` を起こします。bank128 は起動・薄い常駐 dispatch・小さい resident metadata 用に残し、CD/ADPCM/CD-DA/VDC 復元のような runtime helper はまず `VN_BANKED_CODE` / `VN_BANKED_CODE2` へ置けないか確認してください。特に `VN_OVERLAY_CODE` から呼ぶ可能性がある helper は、overlay 実行中に bank130 が見えないため `VN_BANKED_CODE`（bank129）か本当に必要な最小限の bank128 に置き、bank130 へ置かないでください。
+- CD-ROM2 の大きい画像/sprite/ADPCM payload と件数比例するmetadataはCD側へ置き、常駐RAMへ詰め込まないでください。現行配置は bank104–119 がvisual cache、bank123がscene pack、bank128/129/130が常駐コード、bank132がdirectory/scratch/cacheです。MPR4はbank130とbank121 visual・122 runtime support・124 logic・133 render overlayで時分割します。bank131はSystem Card、bank134/135はSystem Card PSG専用です。詳細とCD物理ファイル構成は `docs/pce-memory-bank-strategy.md` と `docs/pce-vn-overlay-pathb.md` を正としてください。
+- bank128/129/130とbank124は各1024 bytes以上の空きを維持し、console RAM/ZP/NOLOAD/overlay relocationのbuild gateを緩めて通さないでください。空きは現在のELF/mapで測定し、未使用に見えるbankやcache領域を推測で転用しないでください。
+- CD VNのPSGはSystem Card driverが所有し、VSync IRQの `PSG_DRIVE` は1回です。BGMはbank134、SFXはbank135へ別々にloadし、同じbusの再生中packageを上書きしないでください。古いdirect-MMIO PSGやcatch-up処理をCD版へ戻さないでください。
+- VN runtimeへhelperを足す前に配置属性と呼出時のMPRを決めてください。bank128は起動・薄いdispatch・最小metadataに残します。処理本体は役割に合う既存overlayを検討し、別のslot4 bankへ直接call/relocationを作らずresident dispatcher経由でMPRを保存・復元してください。overlayから直接呼ぶresident helperはbank129または最小限のbank128へ置き、実行中に見えないbank130へ置かないでください。
 - ADPCM の `divider` は音量ではなく ADPCM 再生 rate code です。`sampleRate` から `32000 / (16 - code)` に最も近い `0..15` の code を補完し、代表値は 32000Hz -> 15、16000Hz -> 14、8000Hz -> 12、4000Hz -> 8 です。旧実装で保存された `round(32000 / sampleRate - 1)` や `round(16000 / sampleRate - 1)` の値は読み込み時と runtime で補正します。
 - ADPCM generated metadata の `codec`、`nibbleOrder`、`encoderVersion` が現行値と違う場合は source WAV から再生成してください。同じ `oki-msm5205/msn-first` 表記でも、古い `encoderVersion` のバイナリは先頭ノイズが出る可能性があります。
 - ADPCM preload は ADPCM RAM への先読みだけです。`loaded_adpcm_valid` が立っていても、実際の再生時には必ず `pce_cdb_adpcm_play()` を呼んでください。
@@ -44,6 +56,7 @@
 
 - コードを変更した後は、編集範囲に対応する最小限のテストを実行してください。
 - PCE 全体の基本確認は `npm test` です。
+- 文書・Codex設定だけの変更ではリンク・構文・差分を検証します。コード変更は対象テストから始め、共通処理やビルド仕様の変更では `npm test` と影響する実プロジェクトのビルドまで進めてください。検証済みの範囲を理由なく繰り返さないでください。
 - テストを実行できない場合は、その理由と残るリスクを最終回答に書いてください。
 
 ## コミットメッセージ

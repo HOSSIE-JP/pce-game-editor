@@ -25,24 +25,26 @@ function sha256(data) { return crypto.createHash('sha256').update(data).digest('
 function stableValue(value) { if (Array.isArray(value)) return value.map(stableValue); if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableValue(value[key])])); return value; }
 function stableJson(value) { return JSON.stringify(stableValue(value)); }
 function usage() {
-  return `PCE VN -> GB Studio Phase 3 real-project regression\n\nUsage:\n  node tools/dev/pce-vn-gb-studio-real-regression.js --gb-studio <exe> [options]\n\nOptions:\n  --project <dir>          target project; repeatable (defaults to 000/001/北へ。PM)\n  --out-root <dir>         A/B output root (default: build/gb-studio-phase3/real-regression-v1.4.0)\n  --report <file>          JSON report path (default: <out-root>/report.json)\n  --portrait-mode <mode>   baked or actor (default: baked)\n  --json                   print the completed report\n`;
+  return `PCE VN -> GB Studio real-project regression\n\nUsage:\n  node tools/dev/pce-vn-gb-studio-real-regression.js --gb-studio <exe> [options]\n\nOptions:\n  --project <dir>          target project; repeatable (defaults to 000/001/北へ。PM)\n  --out-root <dir>         A/B output root (default: build/gb-studio-v1.5.0/real-regression)\n  --report <file>          JSON report path (default: <out-root>/report.json)\n  --target <mode>          dual, gbc, or gb (default: dual)\n  --portrait-mode <mode>   baked or actor (default: baked)\n  --json                   print the completed report\n`;
 }
 
 function parseArgs(argv, cwd = process.cwd()) {
-  const options = { projects: [], portraitRenderMode: 'baked', json: false };
+  const options = { projects: [], targetMode: 'dual', portraitRenderMode: 'baked', json: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]; const next = () => { if (index + 1 >= argv.length) throw new Error(`${arg}に値が必要です`); return argv[++index]; };
     if (arg === '--gb-studio') options.gbStudio = path.resolve(next());
     else if (arg === '--project') options.projects.push(path.resolve(next()));
     else if (arg === '--out-root') options.outRoot = path.resolve(next());
     else if (arg === '--report') options.report = path.resolve(next());
+    else if (arg === '--target') options.targetMode = next();
     else if (arg === '--portrait-mode') options.portraitRenderMode = next();
     else if (arg === '--json') options.json = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else throw new Error(`不明なoptionです: ${arg}`);
   }
+  if (!['dual', 'gbc', 'gb'].includes(options.targetMode)) throw new Error('--targetはdual/gbc/gbです');
   if (!['baked', 'actor'].includes(options.portraitRenderMode)) throw new Error('--portrait-modeはbaked/actorです');
-  options.outRoot ||= path.resolve(cwd, 'build', 'gb-studio-phase3', 'real-regression-v1.4.0');
+  options.outRoot ||= path.resolve(cwd, 'build', 'gb-studio-v1.5.0', 'real-regression');
   options.report ||= path.join(options.outRoot, 'report.json');
   if (!options.projects.length) options.projects = DEFAULT_PROJECTS.map((entry) => path.resolve(cwd, entry.relative));
   return options;
@@ -81,7 +83,7 @@ function projectId(projectDir, index) { const known = DEFAULT_PROJECTS.find((ent
 
 function runProject(projectDir, index, options) {
   const started = Date.now(); const id = projectId(projectDir, index); const outputA = path.join(options.outRoot, `${id}-a`); const outputB = path.join(options.outRoot, `${id}-b`);
-  const settings = { portraitRenderMode: options.portraitRenderMode, warningsAcknowledged: true, visualOmissionsConfirmed: true, audioSubstitutions: automaticAudioSubstitutions(projectDir) };
+  const settings = { targetMode: options.targetMode, portraitRenderMode: options.portraitRenderMode, warningsAcknowledged: true, visualOmissionsConfirmed: true, audioSubstitutions: automaticAudioSubstitutions(projectDir) };
   const inspectionStarted = Date.now(); const inspection = inspectGbStudioExport({ projectDir, settings, gbStudio: options.gbStudio }); const inspectionMs = Date.now() - inspectionStarted;
   const base = { id, projectDir, outputA, outputB, status: inspection.ok ? 'inspected' : 'inspection-failed', timings: { inspectionMs }, inspection: { ok: inspection.ok, sourceSignature: inspection.sourceSignature, summary: inspection.summary, errors: inspection.errors, warningCounts: Object.fromEntries([...new Set((inspection.warnings || []).map((entry) => entry.code))].sort().map((code) => [code, inspection.warnings.filter((entry) => entry.code === code).length])), omissions: inspection.omissions?.length || 0, visualAuditHash: inspection.audits?.visual?.auditHash || '' } };
   if (!inspection.ok) return { ...base, elapsedMs: Date.now() - started };
@@ -96,7 +98,7 @@ function runProject(projectDir, index, options) {
 function main() {
   let options; try { options = parseArgs(process.argv.slice(2)); } catch (error) { process.stderr.write(`${error.message}\n\n${usage()}`); process.exitCode = 2; return; }
   if (options.help) { process.stdout.write(usage()); return; } if (!options.gbStudio) { process.stderr.write(usage()); process.exitCode = 2; return; }
-  const report = { format: 'pce-vn-gb-studio-real-regression', version: 1, exporterVersion: '1.4.0', startedAt: new Date().toISOString(), gbStudio: options.gbStudio, portraitRenderMode: options.portraitRenderMode, projects: [] }; writeReport(options.report, report);
+  const report = { format: 'pce-vn-gb-studio-real-regression', version: 1, exporterVersion: '1.5.0', startedAt: new Date().toISOString(), gbStudio: options.gbStudio, targetMode: options.targetMode, portraitRenderMode: options.portraitRenderMode, projects: [] }; writeReport(options.report, report);
   for (const [index, projectDir] of options.projects.entries()) {
     process.stderr.write(`[${index + 1}/${options.projects.length}] ${projectDir}\n`);
     try { report.projects.push(runProject(projectDir, index, options)); } catch (error) { report.projects.push({ id: projectId(projectDir, index), projectDir, status: 'error', error: { code: String(error.code || ''), message: String(error.message || error), stack: String(error.stack || '') } }); }
