@@ -3,9 +3,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const converter = require('./converter');
-const assetManager = require('../../pce-asset-manager');
-const audioConverter = require('../../pce-audio-converter');
-const adpcmCsv = require('../../pce-adpcm-batch-csv');
+const appRoot = require('electron').app?.getAppPath?.() || path.resolve(__dirname, '../..');
+const assetManager = require(path.join(appRoot, 'pce-asset-manager'));
+const audioConverter = require(path.join(appRoot, 'pce-audio-converter'));
+const adpcmCsv = require(path.join(appRoot, 'pce-adpcm-batch-csv'));
 
 const MANIFEST_FILE_NAME = 'kitahe-pm-assets.csv';
 const MANIFEST_VERSION = '1';

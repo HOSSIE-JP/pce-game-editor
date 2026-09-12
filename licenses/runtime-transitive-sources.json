@@ -1,0 +1,102 @@
+{
+  "auditDate": "2026-09-12",
+  "description": "Exact unmodified license copies for @electron/asar runtime dependencies. Duplicate balanced-match, brace-expansion, and minimatch copies under node_modules/glob have the same versions and license texts.",
+  "components": [
+    {
+      "name": "balanced-match",
+      "version": "1.0.2",
+      "license": "MIT",
+      "sourcePath": "node_modules/@electron/asar/node_modules/balanced-match/LICENSE.md",
+      "noticePath": "licenses/balanced-match-MIT.txt",
+      "sha256": "a1bd5deadb6a06dd74efa852c1b8b23f63b67f2214fbe9c8bd591da51da69268"
+    },
+    {
+      "name": "brace-expansion",
+      "version": "1.1.14",
+      "license": "MIT",
+      "sourcePath": "node_modules/@electron/asar/node_modules/brace-expansion/LICENSE",
+      "noticePath": "licenses/brace-expansion-MIT.txt",
+      "sha256": "68f12f6e2c33688699249c01d8f9623c534da20aa71989c57b061b7bc1676d14"
+    },
+    {
+      "name": "minimatch",
+      "version": "3.1.5",
+      "license": "ISC",
+      "sourcePath": "node_modules/@electron/asar/node_modules/minimatch/LICENSE",
+      "noticePath": "licenses/minimatch-ISC.txt",
+      "sha256": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b"
+    },
+    {
+      "name": "commander",
+      "version": "5.1.0",
+      "license": "MIT",
+      "sourcePath": "node_modules/commander/LICENSE",
+      "noticePath": "licenses/commander-MIT.txt",
+      "sha256": "04512a63dce4d2d506ad612dc0bd7681ccf6e3655f7b6eaef7dfac8323d1ec0b"
+    },
+    {
+      "name": "concat-map",
+      "version": "0.0.1",
+      "license": "MIT",
+      "sourcePath": "node_modules/concat-map/LICENSE",
+      "noticePath": "licenses/concat-map-MIT.txt",
+      "sha256": "435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b"
+    },
+    {
+      "name": "fs.realpath",
+      "version": "1.0.0",
+      "license": "ISC",
+      "sourcePath": "node_modules/fs.realpath/LICENSE",
+      "noticePath": "licenses/fs.realpath-ISC.txt",
+      "sha256": "8465b04b67f473341171b5c9c8b2c741a4a395b3f6ed58339b3a4f4db3db7472"
+    },
+    {
+      "name": "glob",
+      "version": "7.2.3",
+      "license": "ISC",
+      "sourcePath": "node_modules/glob/LICENSE",
+      "noticePath": "licenses/glob-ISC.txt",
+      "sha256": "6236fa0b88a4a0cce3dda0367979491b2052b3c8d6b1c10b3668de083e86a7f0"
+    },
+    {
+      "name": "inflight",
+      "version": "1.0.6",
+      "license": "ISC",
+      "sourcePath": "node_modules/inflight/LICENSE",
+      "noticePath": "licenses/inflight-ISC.txt",
+      "sha256": "05dc4d785ac3a488676d3ed10e901b75ad89dafcc63f8e66610fd4a39cc5c7e8"
+    },
+    {
+      "name": "inherits",
+      "version": "2.0.4",
+      "license": "ISC",
+      "sourcePath": "node_modules/inherits/LICENSE",
+      "noticePath": "licenses/inherits-ISC.txt",
+      "sha256": "5ffe28e7ade7d8f10d85d5337a73fd793dac5c462fb9a28fbf8c5046c7fbca3b"
+    },
+    {
+      "name": "once",
+      "version": "1.4.0",
+      "license": "ISC",
+      "sourcePath": "node_modules/once/LICENSE",
+      "noticePath": "licenses/once-ISC.txt",
+      "sha256": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b"
+    },
+    {
+      "name": "path-is-absolute",
+      "version": "1.0.1",
+      "license": "MIT",
+      "sourcePath": "node_modules/path-is-absolute/license",
+      "noticePath": "licenses/path-is-absolute-MIT.txt",
+      "sha256": "6fb9754611c20f6649f68805e8c990e83261f29316e29de9e6cedae607b8634c"
+    },
+    {
+      "name": "wrappy",
+      "version": "1.0.2",
+      "license": "ISC",
+      "sourcePath": "node_modules/wrappy/LICENSE",
+      "noticePath": "licenses/wrappy-ISC.txt",
+      "sha256": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b"
+    }
+  ]
+}

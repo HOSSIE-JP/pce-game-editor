@@ -1,0 +1,3 @@
+# Preserve upstream license bytes (including original whitespace) for hash audits.
+licenses/*.txt -text whitespace=-trailing-space,cr-at-eol
+template/template_pce_vn_cd/assets/fonts/LICENSE-JF-Dot-ShinonomeMin12.txt -text

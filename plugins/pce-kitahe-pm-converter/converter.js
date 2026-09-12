@@ -1,11 +1,13 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { encodeSystemCardText } = require('../../pce-system-card-font');
+const path = require('node:path');
+const appRoot = require('electron').app?.getAppPath?.() || path.resolve(__dirname, '../..');
+const { encodeSystemCardText } = require(path.join(appRoot, 'pce-system-card-font'));
 
 const MAX_CALL_STACK = 16;
 const MAX_EXPANDED_STATES = 4096;
-const MAX_SCENES = require('../../pce-vn-manager').VN_MAX_SCENE_COUNT;
+const MAX_SCENES = require(path.join(appRoot, 'pce-vn-manager')).VN_MAX_SCENE_COUNT;
 const MAX_COMMANDS_PER_SCENE = 255;
 const MAX_VARIABLES = 253;
 const MAX_BLOCK_SOURCE_INSTRUCTIONS = 120;

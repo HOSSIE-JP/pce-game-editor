@@ -1,4 +1,4 @@
-# Windows 版のビルド (exe / zip / installer)
+# Windows 版のビルド (自己展開exe / zip)
 
 PC Engine Game Editor の Windows 配布物をビルドする手順と、Windows 固有のハマりどころ
 (winCodeSign の symbolic link 権限問題) をまとめる。
@@ -7,13 +7,39 @@ PC Engine Game Editor の Windows 配布物をビルドする手順と、Windows
 
 | コマンド | 生成物 | 説明 |
 | --- | --- | --- |
-| `npm run build:win` | `dist/PCEGameEditor-<version>-<arch>.zip` | exe をビルドして zip 化 |
-| `npm run build:win:installer` | `dist/PCEGameEditor Setup <version>.exe` (NSIS) | インストーラ exe |
+| `npm run build:win` | `dist/PCEGameEditor-<version>-Portable-x64.exe` と `dist/PCEGameEditor-<version>-win-x64.zip` | Windows x64の自己展開exeとZIPを同時生成 |
+| `npm run build:win:exe` | `dist/PCEGameEditor-<version>-Portable-x64.exe` | 自己展開exeのみ |
+| `npm run verify:dist` | 監査結果を標準出力へ表示 | `dist/win-unpacked` の同梱内容を検査 |
 
 VSCode からは Tasks (`Ctrl+Shift+P` → "Tasks: Run Task") の
 「**Windows EXE をビルドして zip 作成**」でも同じ `build:win` を実行できる。
-`electron-builder.yml` の `win.target` が `zip` なので、exe ビルドから zip 作成までが
-1 コマンドで完結する。
+`electron-builder.yml` の `win.target` でportableとZIPを指定しているため、
+自己展開exeと展開用ZIPを1コマンドで作成する。
+portableは通常ユーザー権限で動き、`useZip: true`によりNSIS内蔵の展開方式を使う。
+標準インストーラーのWinShell部品は再配布許諾の詳細を確認できなかったため使用しない。
+
+配布物には`portable`マーカーを入れない。自己展開exe版・ZIP版とも既定ではElectronの
+ユーザーデータフォルダーを使い、インストール先に設定やツールを書き込まない。
+ZIP利用者が手動で`portable`マーカーを置く従来機能は残る。
+利用者向け手順は [Windows版の導入](windows-installation.md) を参照。
+
+## 配布前の検証とGitHub Release
+
+1. 未コミット変更を確認し、今回配布する変更だけを確定する。本体version、package-lockのversion、Release tagを揃える。
+2. `npm ci`でロックされた依存を用意し、`npm test`を実行する。既に同じlockで準備済みなら再インストールは不要。
+3. `npm run build:win`を実行する。`afterPack`の `scripts/verify-distribution.js` がアプリ内の許可範囲、個人data／SDK／BIOS／ゲーム媒体の混入、テンプレート、build metadata、ライセンス原文の完全一致を検査する。
+4. 最終exeとZIPについて、Electronの`LICENSE.electron.txt`、`LICENSES.chromium.html`が残っていること、初回起動、テンプレート作成、SetUpの導線を確認する。テスト通過、実行確認、実ゲームのビルド、音声・実機確認を区別して記録する。
+5. [外部依存・素材の監査](release-dependencies-and-licenses.md)を確認し、Releaseに添付するファイルのSHA-256を`SHA256SUMS.txt`へ記録する。配布元commit、version、各assetのサイズ／SHA-256も`release-manifest.json`へ残す。
+6. **招待済み利用者向け配布では、アップロード前にGitHub APIで対象リポジトリの`private: true`を確認する。** `package.json`の`private: true`はGitHubの公開範囲を設定しない。publicの場合はReleaseの公開を止める。
+7. 対象commitから`v<version>`のtagを作り、GitHub Releaseへ自己展開exe、ZIP、ハッシュ、manifest、導入ガイド、第三者noticeを添付する。`dist`全体や`data`、開発用ログ、SDKキャッシュは添付しない。
+8. Releaseのtag／commit、asset名／サイズ／digestとローカル成果物のSHA-256を照合してから完了とする。
+
+コード署名証明書を設定していない場合は未署名版として案内する。ライセンス文書やSHA-256は
+署名の代わりではなく、Windowsの発行元表示を認証済みに変更するものでもない。
+
+GitHub CLIの認証は`gh auth status`で確認する。トークンをコード、Release本文、ログに書かない。
+privateリポジトリのReleaseは閲覧権限がある利用者だけが取得できるが、同じ利用者にはソースと
+GitHubが自動提供するSource code archiveも見える。MITの再配布許可も引き続き適用される。
 
 ## winCodeSign の symbolic link 問題 (Windows 固有)
 
@@ -42,7 +68,7 @@ VSCode からは Tasks (`Ctrl+Shift+P` → "Tasks: Run Task") の
   (`toolsets.winCodeSign: "1.1.0"` を試しても旧 7z を取りに行く)。
 
 ### 対処 (自動)
-`scripts/prepare-wincodesign-cache.js` が `build:win` / `build:win:installer` の前段
+`scripts/prepare-wincodesign-cache.js` が `build:win` / `build:win:exe` の前段
 (`npm run prepare:wincache`) で自動実行される。挙動は次のとおり。
 
 1. Windows 以外では何もしない (mac/Linux ビルドに影響なし)。

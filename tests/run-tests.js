@@ -12,6 +12,7 @@ loadAppConfig(require('../app.config'));
   'ishi-no-ura-review-skill.test.js',
   'main-window-state.test.js',
   'packaging-config.test.js',
+  'packaged-runtime-paths.test.js',
   'plugin-manager.test.js',
   'plugin-ipc.test.js',
   'plugin-diagnostics.test.js',

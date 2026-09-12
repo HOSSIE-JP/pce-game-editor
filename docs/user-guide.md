@@ -4,6 +4,9 @@
 
 ## セットアップ
 
+Windowsの配布版は、[Windows版の導入ガイド](windows-installation.md)の手順でGitHub Releasesから
+自己展開exeを取得して起動します。アプリ起動のためのNode.js、npm、Git導入は不要です。
+
 `SetUp` 画面で、使用する機能に応じて次の外部ファイルを設定します。
 
 - `llvm-mos-sdk`: HuCard / CD-ROM2 のビルドに使います。
@@ -11,7 +14,7 @@
 - System Card: Super CD-ROM2 の Test Play に使います。CD VNは日本版Super System Card 3.0 profile `jp-v3`専用で、Test Play前にROM内容を検証します。ビルド自体には使いません。
 - EmulatorJS runtime: 標準エミュレーターで Test Play する場合に使います。
 
-IPL / System Cardはユーザー所有ファイルとして扱い、リポジトリやゲーム生成物には同梱しません。外部エミュレーターをTest Play roleに選ぶ場合、その実行ファイルもユーザーが指定します。機能別の正確な組み合わせは[公開時の外部依存・ライセンス監査](release-dependencies-and-licenses.md)を参照してください。
+IPL / System Cardはユーザー所有ファイルとして扱い、リポジトリやエディター配布物には同梱しません。CD-ROM2ビルドでは指定IPLの先頭2048 bytesがISOへ書き込まれるため、生成CDを第三者へ配布する場合はそのIPLの再配布権利も確認してください。System Card ROM本体はゲーム生成物にコピーしません。外部エミュレーターをTest Play roleに選ぶ場合、その実行ファイルもユーザーが指定します。機能別の正確な組み合わせは[公開時の外部依存・ライセンス監査](release-dependencies-and-licenses.md)を参照してください。
 
 標準Test Playでは、EmulatorJSのbrowser loopとcore内VSyncが二重に待たないよう、内側VSyncを無効にしてPC Engine本来のframe rateを維持します。負荷が少し増えただけで約30fpsへ段落ちし、PSGを含む音声も遅くなる現象を防ぐための既定設定です。外部エミュレーターのVSync設定には影響しません。
 

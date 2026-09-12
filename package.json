@@ -1,6 +1,6 @@
 {
   "name": "pce-game-editor",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "Electron shell for PC Engine game development",
   "author": "HOSSIE",
@@ -11,13 +11,14 @@
     "mcp": "node scripts/pce-game-editor-mcp.js",
     "merge:vn": "node scripts/pce-vn-project-merge.js",
     "prepare:dist": "node scripts/prepare-dist.js",
+    "verify:dist": "node scripts/verify-distribution.js",
     "prepare:wincache": "node scripts/prepare-wincodesign-cache.js",
     "test": "node tests/run-tests.js",
     "start": "node scripts/start-electron.js",
     "dev": "npm run start",
     "build:mac": "npm run prepare:dist && electron-builder --mac",
-    "build:win": "npm run prepare:wincache && npm run prepare:dist && electron-builder --win zip",
-    "build:win:installer": "npm run prepare:wincache && npm run prepare:dist && electron-builder --win nsis"
+    "build:win": "npm run prepare:wincache && npm run prepare:dist && electron-builder --win --x64",
+    "build:win:exe": "npm run prepare:wincache && npm run prepare:dist && electron-builder --win portable --x64"
   },
   "devDependencies": {
     "electron": "41.3.0",

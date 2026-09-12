@@ -1,8 +1,10 @@
 appId: jp.co.geroneko.pce.editor.desktop
 productName: PCEGameEditor
 copyright: "Copyright © 2026 HOSSIE"
+publish: null
 files:
   - "*.js"
+  - build-meta.json
   - "!node_modules/wasm-media-encoders/**"
   - "!node_modules/@swc/helpers/**"
   - "!node_modules/tslib/**"
@@ -10,6 +12,8 @@ files:
   - THIRD_PARTY_NOTICES.md
   - licenses/**
   - third_party/**
+  - "!**/.git/**"
+  - "!**/.DS_Store"
   - renderer/**
   - build/icon.png
   - build/icon.ico
@@ -18,10 +22,16 @@ extraResources:
     to: plugins
     filter:
       - "**/*"
+      - "!**/.git/**"
+      - "!**/node_modules/**"
+      - "!**/__pycache__/**"
   - from: template
     to: template
     filter:
       - "**/*"
+      - "!**/.git/**"
+      - "!**/node_modules/**"
+      - "!**/__pycache__/**"
       - "!**/out/**"
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
@@ -31,9 +41,9 @@ extraResources:
     to: licenses
     filter:
       - "**/*"
-extraFiles:
-  - from: build/portable
-    to: portable
+      - "!**/.git/**"
+      - "!**/node_modules/**"
+      - "!**/__pycache__/**"
 extraMetadata:
   main: main.js
 mac:
@@ -43,13 +53,16 @@ mac:
 win:
   icon: build/icon.ico
   target:
-    - zip
-  artifactName: "${productName}-${version}-${arch}.${ext}"
+    - target: portable
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  artifactName: "${productName}-${version}-win-${arch}.${ext}"
 directories:
   output: dist
 
-nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
-  # installerのアイコンも指定したい場合
-  installerIcon: ./build/icon.ico
+portable:
+  artifactName: "PCEGameEditor-${version}-Portable-${arch}.exe"
+  useZip: true
+  requestExecutionLevel: user
+afterPack: scripts/verify-distribution.js

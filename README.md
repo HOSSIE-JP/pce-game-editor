@@ -18,7 +18,18 @@ pce-game-editor/
 └── tests/
 ```
 
-## セットアップ
+## Windows版をダウンロードして使う
+
+[GitHub Releases](https://github.com/HOSSIE-JP/pce-game-editor/releases) の Assets から
+`PCEGameEditor-<version>-Portable-x64.exe` をダウンロードし、ダブルクリックで起動します。
+アプリの起動に Node.js、npm、Git の導入やソースの取得は不要です。
+privateリポジトリで配布する場合は、招待を受諾したGitHubアカウントでログインしてください。
+
+初回起動後は `SetUp` で `llvm-mos-sdk` を選んで `DL`、標準Test Playを使う場合は
+EmulatorJSも同様に取得します。CD-ROM2用のIPL／System Cardは各自の所有ファイルを指定します。
+詳しい導入、ZIP版、保存先、更新方法は [Windows版の導入ガイド](docs/windows-installation.md) を参照してください。
+
+## ソースから開発する場合のセットアップ
 
 ```sh
 npm install

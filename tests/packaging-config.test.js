@@ -107,3 +107,77 @@ test('packaging has no legacy MD emulator or md-api plugin', () => {
   assert.equal(fs.existsSync(path.join(__dirname, '..', 'plugins', 'standard-emulator')), false);
   assert.equal(fs.existsSync(path.join(__dirname, '..', 'plugins', 'standard-api-emulator')), false);
 });
+
+test('Windows self-extracting exe and zip use x64 targets without enabling portable storage', () => {
+  const config = readPackageConfig();
+  const pkg = readPackageJson();
+  assert.match(config, /target: portable\s+arch: \[x64\]/);
+  assert.match(config, /target: zip\s+arch: \[x64\]/);
+  assert.match(config, /artifactName: "\$\{productName\}-\$\{version\}-win-\$\{arch\}\.\$\{ext\}"/);
+  assert.match(config, /portable:\s+artifactName: "PCEGameEditor-\$\{version\}-Portable-\$\{arch\}\.exe"\s+useZip: true\s+requestExecutionLevel: user/);
+  assert.doesNotMatch(config, /(?:target: nsis|^nsis:)/m);
+  assert.doesNotMatch(config, /from:\s*build\/portable/);
+  assert.match(config, /afterPack: scripts\/verify-distribution\.js/);
+  assert.match(config, /- build-meta\.json/);
+  assert.match(pkg.scripts['build:win'], /electron-builder --win --x64$/);
+  assert.match(pkg.scripts['build:win:exe'], /electron-builder --win portable --x64$/);
+  assert.equal(pkg.scripts['build:win:installer'], undefined);
+  const lock = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package-lock.json'), 'utf8'));
+  assert.equal(pkg.version, lock.version);
+  assert.equal(pkg.version, lock.packages[''].version);
+});
+
+test('distribution audit rejects personal data, toolchains, BIOS and prebuilt game media', () => {
+  const { validateEntry } = require('../scripts/verify-distribution');
+  for (const entry of ['data/settings.json', '.git/config', 'tools/dev/task.js', 'scripts/helper.js', 'build/portable']) {
+    assert.throws(() => validateEntry(entry, 'app'), /distribution|build asset/);
+  }
+  for (const entry of ['template/sample/out/game.pce', 'template/sample/syscard3.pce', 'plugins/sdk/tool.exe', 'plugins/game.iso', 'plugins/.env', 'plugins/example/.env.local']) {
+    assert.throws(() => validateEntry(entry, 'resources'), /distribution/);
+  }
+  // Runtime source, converted template assets, notices and dependency internals are required.
+  for (const entry of ['template/template_pce_vn_cd/src/vn_system_card.c', 'template/sample/assets/generated/palette.bin', 'licenses/Electron-MIT.txt']) {
+    assert.doesNotThrow(() => validateEntry(entry, 'resources'));
+  }
+  assert.doesNotThrow(() => validateEntry('node_modules/@electron/asar/lib/disk.js', 'app'));
+});
+
+test('distribution audit reads real ASAR paths and detects altered license copies', async (t) => {
+  const os = require('node:os');
+  const asar = require('@electron/asar');
+  const { verifyDistribution } = require('../scripts/verify-distribution');
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'pce-distribution-test-'));
+  t.after(() => {
+    assert.equal(path.dirname(path.resolve(fixture)), path.resolve(os.tmpdir()));
+    assert.ok(path.basename(fixture).startsWith('pce-distribution-test-'));
+    fs.rmSync(fixture, { recursive: true, force: true });
+  });
+  const source = path.join(fixture, 'source');
+  const appOut = path.join(fixture, 'win-unpacked');
+  const resources = path.join(appOut, 'resources');
+  const write = (base, file, text) => {
+    fs.mkdirSync(path.dirname(path.join(base, file)), { recursive: true });
+    fs.writeFileSync(path.join(base, file), text);
+  };
+  write(source, 'package.json', JSON.stringify({ version: '0.4.1' }));
+  write(source, 'build-meta.json', JSON.stringify({ buildNumber: '20260912.120000', buildAt: '2026-09-12T12:00:00Z' }));
+  for (const entry of ['main.js', 'renderer/index.html', 'renderer/log-viewer.html', 'renderer/setup.html', 'renderer/testplay-settings.html', 'third_party/misaki-font/LICENSE.txt']) {
+    write(source, entry, 'fixture');
+  }
+  for (const entry of ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'licenses/example.txt']) {
+    write(source, entry, 'exact license text');
+    write(resources, entry, 'exact license text');
+  }
+  for (const entry of ['plugins/pc-engine-core/manifest.json', 'template/template_pce_vn_cd/project.json', 'template/template_pce_vn_hucard/project.json']) {
+    write(resources, entry, '{}');
+  }
+  const archiveSource = path.join(fixture, 'archive-source');
+  fs.cpSync(source, archiveSource, { recursive: true });
+  // electron-builder copies root notices as extraResources rather than ASAR entries.
+  fs.unlinkSync(path.join(archiveSource, 'LICENSE'));
+  fs.unlinkSync(path.join(archiveSource, 'THIRD_PARTY_NOTICES.md'));
+  await asar.createPackage(archiveSource, path.join(resources, 'app.asar'));
+  assert.equal(verifyDistribution(appOut, resources, source).version, '0.4.1');
+  write(resources, 'licenses/example.txt', 'altered license text');
+  assert.throws(() => verifyDistribution(appOut, resources, source), /Missing or altered external license/);
+});

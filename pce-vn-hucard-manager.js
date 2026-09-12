@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { app } = require('electron');
 const vnManager = require('./pce-vn-manager');
 
 const PCE_VISUAL_NOVEL_HUCARD_BUILDER_ID = 'pce-visual-novel-hucard-builder';
@@ -20,7 +21,8 @@ function ensureDirSync(dirPath) {
 }
 
 function templateRuntimeDir() {
-  return path.join(__dirname, 'template', 'template_pce_vn_hucard', 'src');
+  const root = app?.isPackaged ? process.resourcesPath : __dirname;
+  return path.join(root, 'template', 'template_pce_vn_hucard', 'src');
 }
 
 function copyIfChanged(sourcePath, targetPath) {

@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { app } = require('electron');
 const crypto = require('node:crypto');
 const vnManager = require('./pce-vn-manager');
 
@@ -891,7 +892,8 @@ function writeJson(filePath, value) {
 }
 
 function materializePlan(plan, targetDir) {
-  const templateDir = path.join(__dirname, 'template', CD_TEMPLATE_ID);
+  const root = app?.isPackaged ? process.resourcesPath : __dirname;
+  const templateDir = path.join(root, 'template', CD_TEMPLATE_ID);
   if (!fs.existsSync(templateDir)) throw new Error(`CD VN template is missing: ${templateDir}`);
   copyTemplateTree(templateDir, targetDir);
   writeJson(path.join(targetDir, 'project.json'), plan.outputConfig);

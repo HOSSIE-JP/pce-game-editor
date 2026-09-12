@@ -1,6 +1,8 @@
 'use strict';
 
-const vnManager = require('../../pce-vn-manager');
+const path = require('node:path');
+const appRoot = require('electron').app?.getAppPath?.() || path.resolve(__dirname, '../..');
+const vnManager = require(path.join(appRoot, 'pce-vn-manager'));
 
 function requireProjectDir(context = {}) {
   const projectDir = String(context.projectDir || '').trim();

@@ -3,7 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const vnManager = require('../../pce-vn-manager');
+const appRoot = require('electron').app?.getAppPath?.() || path.resolve(__dirname, '../..');
+const vnManager = require(path.join(appRoot, 'pce-vn-manager'));
 const converter = require('./converter');
 const assetPackage = require('./asset-package');
 

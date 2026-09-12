@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { app } = require('electron');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const assetManager = require('./pce-asset-manager');
@@ -451,7 +452,7 @@ function updateVisualNovelBuildStamp(projectDir, config = {}, generated = {}, me
 function vnRuntimeSignature(config = {}) {
   const targetMedia = String(config?.targetMedia || '').trim().toLowerCase() === 'hucard' ? 'hucard' : 'cd';
   if (targetMedia === 'hucard') {
-    const templateDir = path.join(__dirname, 'template', 'template_pce_vn_hucard', 'src');
+    const templateDir = templateRuntimeDir('template_pce_vn_hucard');
     return {
       targetMedia,
       manager: readTextHash(__filename),
@@ -524,8 +525,9 @@ function vnGeneratedOutputsReady(projectDir, generated = {}) {
   return required.every((relativePath) => fs.existsSync(path.join(projectDir, relativePath)));
 }
 
-function templateRuntimeDir() {
-  return path.join(__dirname, 'template', 'template_pce_vn_cd', 'src');
+function templateRuntimeDir(templateId = 'template_pce_vn_cd') {
+  const root = app?.isPackaged ? process.resourcesPath : __dirname;
+  return path.join(root, 'template', templateId, 'src');
 }
 
 // Runtime source file names synced from the template into <project>/src and
