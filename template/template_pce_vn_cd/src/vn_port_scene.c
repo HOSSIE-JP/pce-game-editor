@@ -108,7 +108,7 @@ static uint8_t VN_RESIDENT_CODE compare_values(signed int left, uint8_t operator
     return (uint8_t)(left == right);
 }
 
-static uint8_t VN_BANKED_CODE2 jump_to_command(uint16_t command_offset)
+static uint8_t VN_RESIDENT_CODE jump_to_command(uint16_t command_offset)
 {
     if (command_offset == PCE_VN_NO_COMMAND) return 0u;
     if (!load_scene_pack_into_cache(current_scene, &active_scene_pack)) return 0u;
@@ -208,6 +208,25 @@ static uint8_t scene_pack_is_valid(const vn_scene_pack_cache_t *cache)
     return (uint8_t)(scene_pack_u8(cache, VN_SCENE_PACK_OFFSET_VERSION) == PCE_VN_SCENE_PACK_VERSION);
 }
 
+#if defined(__PCE_CD__)
+#define VN_SCENE_DIRECTORY_SLOT_BYTES 16u
+#define VN_SCENE_DIRECTORY_PER_SECTOR 128u
+static uint8_t VN_RESIDENT_CODE load_scene_directory_entry(uint16_t scene_index, pce_vn_scene_pack_t *pack)
+{
+    typedef char vn_scene_directory_record_layout[(sizeof(pce_vn_scene_pack_t) == 9u) ? 1 : -1];
+    const uint8_t *entry;
+    uint16_t offset;
+    (void)sizeof(vn_scene_directory_record_layout);
+    if (scene_index >= pce_vn_scene_count) return 0u;
+    vn_read_meta_sector(&pce_vn_scene_directory_meta.sector,
+        (uint16_t)(scene_index / VN_SCENE_DIRECTORY_PER_SECTOR));
+    offset = (uint16_t)((scene_index % VN_SCENE_DIRECTORY_PER_SECTOR) * VN_SCENE_DIRECTORY_SLOT_BYTES);
+    entry = &cd_transfer_scratch[offset];
+    __builtin_memcpy(pack, entry, 9u);
+    return 1u;
+}
+#endif
+
 static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(unsigned int scene_index, vn_scene_pack_cache_t *cache)
 {
 #if defined(__PCE_CD__)
@@ -217,9 +236,9 @@ static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(unsigned int scene_ind
         (void)cache;
         if (active_scene_pack.valid && active_scene_pack.scene_index == scene_index) return 1u;
         active_scene_pack.valid = 0u;
+        active_scene_next_scene = -1;
         map_vn_data();
-        if (scene_index >= pce_vn_scene_count) return 0u;
-        pack = pce_vn_scene_packs[scene_index];
+        if (!load_scene_directory_entry((uint16_t)scene_index, &pack)) return 0u;
         if (!pack.byte_size || pack.byte_size > PCE_VN_SCENE_PACK_CACHE_BYTES || !pack.sector_count) return 0u;
         sector.lo = pack.sector.lo;
         sector.md = pack.sector.md;
@@ -244,6 +263,7 @@ static uint8_t VN_BANKED_CODE2 load_scene_pack_into_cache(unsigned int scene_ind
         {
             active_scene_pack.valid = 0u;
         }
+        if (active_scene_pack.valid) active_scene_next_scene = pack.next_scene;
         VN_MAP_BANK130_FOR_CODE();
         return active_scene_pack.valid;
     }
@@ -1293,11 +1313,16 @@ static uint8_t VN_BANKED_CODE run_commands_until_wait(void)
 
 static signed int current_scene_next_scene(void)
 {
+#if defined(__PCE_CD__)
+    if (!active_scene_pack.valid || active_scene_pack.scene_index != current_scene) return -1;
+    return active_scene_next_scene;
+#else
     pce_vn_scene_pack_t pack;
     map_vn_data();
     if (current_scene >= pce_vn_scene_count) return -1;
     pack = pce_vn_scene_packs[current_scene];
     return pack.next_scene;
+#endif
 }
 
 static void advance_story(void)
@@ -1341,4 +1366,3 @@ static void advance_story(void)
     if (pending_sprite_refresh) refresh_scene_sprites();
     enable_display_if_pending();
 }
-

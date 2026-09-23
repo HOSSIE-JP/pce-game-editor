@@ -11,11 +11,11 @@ CD-ROM2 VN buildは、件数に比例するruntime metadataをresident bank128/1
 | 種別 | 同一ビルドの参照上限 | 備考 |
 |---|---:|---|
 | ADPCM | 2048 | 自動分割されたpartも各1件 |
-| BG | 1024 | raw tiles/map CD ref |
+| BG | 8192 | raw tiles/map CD ref |
 | Sprite | 1024 | raw pattern CD ref、cell map |
 | Sprite Animation | 1024 | 参照Spriteから生成されるruntime Animation recordの合計。静止defaultはrecordを作らない |
-| System Card PSG package variant | 512 | `assetId`と再生channelの組ごとに1件。参照PSG source asset自体も512件まで |
-| CD-DA | 98 | 物理track 2..99 |
+| System Card PSG package variant | 1024 | `assetId`と再生channelの組ごとに1件。参照PSG source asset自体も1024件まで |
+| CD-DA | 97 | ゲーム用の物理track 3..99 |
 
 この表は、同一CUE/ISOのsceneから参照できるcatalog件数の正式保証です。CD容量、1 assetのbyte/VRAM制約、同時描画・再生数ではありません。詳細は[pce-vn-large-project-limits.md](pce-vn-large-project-limits.md)を参照してください。
 
@@ -54,6 +54,7 @@ CD layoutは`vn_payload.bin`の絶対先頭sectorへ`sectorOffset`を加え、�
 | CD-DA | 32B | track、loop、start sector、排他的end sector、end time、duration用play_frames |
 | Sprite Animation | 256B | Sprite index、frame geometry、loop、16-bit per-frame delay |
 | System Card PSG | 16B | package CD sector/count/size、BGM/SFX bus、channel |
+| Scene directory | 16B | scene pack CD sector/count/size、次scene。128件/sector |
 
 record Nは`region.sector + N / (2048 / slot)`、sector内offsetは`(N % (2048 / slot)) * slot`です。generated header offsetとruntime `_Static_assert`を同時に更新し、layout driftをbuild errorにします。System Card PSG metadataも必要なrecordだけをCDからdecodeし、件数比例tableをresidentへ置きません。
 
@@ -67,7 +68,7 @@ ADPCMのmulti-byte fieldを構造体連続copyへ戻さず、offsetからscalar 
 
 ## Hard error
 
-- ADPCM参照数が2048件、BG/Sprite参照数が各1024件、Sprite Animation合計が1024件、PSG source assetまたはcompiled `(assetId, channel)` package variantが512件を超える。
+- ADPCM参照数が2048件、BG参照数が8192件、Sprite参照数が1024件、Sprite Animation合計が1024件、PSG source assetまたはcompiled `(assetId, channel)` package variantが1024件を超える。
 - 必須の`cdda-warning`がない/重複する、ゲーム用CD-DAが97本を超える、trackが3..99外、trackが重複する、またはtrack 3からの連番に欠番がある。
 - Sprite cell mapが256 cellを超える。
 - ADPCM 1 asset/partがbuffered安全上限を超える。

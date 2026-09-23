@@ -9,7 +9,7 @@ const readline = require('node:readline');
 const DEFAULT_EXE = 'C:\\homebrew\\emulator\\Geargrafx\\Geargrafx.exe';
 
 function parseArgs(argv) {
-  const result = { exe: DEFAULT_EXE, cue: '', frames: 6000, exercise: false, inspectCommand: false, inspectCount: false, inspectSpriteMove: false, inspectCdda: false, inspectCddaStart: false, inspectSelectorCounters: false, screenshotDir: '', cddaCommandHit: 1, presses: 180, settle: 0, skipPsgCheck: false, skipForbiddenCheck: false, list: false, search: '', info: '' };
+  const result = { exe: DEFAULT_EXE, cue: '', frames: 6000, exercise: false, inspectCommand: false, inspectCount: false, inspectSpriteMove: false, inspectCdda: false, inspectCddaStart: false, inspectSelectorCounters: false, inspectSelectorDecades: false, projectDir: '', screenshotDir: '', cddaCommandHit: 1, presses: 180, settle: 0, skipPsgCheck: false, skipForbiddenCheck: false, list: false, search: '', info: '' };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--list') result.list = true;
@@ -23,6 +23,8 @@ function parseArgs(argv) {
     else if (arg === '--inspect-count') { result.exercise = true; result.inspectCount = true; }
     else if (arg === '--inspect-sprite-move') result.inspectSpriteMove = true;
     else if (arg === '--inspect-selector-counters') result.inspectSelectorCounters = true;
+    else if (arg === '--inspect-selector-decades') result.inspectSelectorDecades = true;
+    else if (arg === '--project-dir') result.projectDir = String(argv[++i] || '');
     else if (arg === '--screenshot-dir') result.screenshotDir = String(argv[++i] || '');
     else if (arg === '--inspect-cdda') result.inspectCdda = true;
     else if (arg === '--inspect-cdda-start') result.inspectCddaStart = true;
@@ -294,12 +296,13 @@ async function main() {
 
     const media = contentPayload(await client.tool('get_media_info'));
     const bootCpu = contentPayload(await client.tool('get_huc6280_status'));
-    if (options.inspectSelectorCounters) {
+    if (options.inspectSelectorCounters || options.inspectSelectorDecades) {
       await client.tool('debug_continue');
       await sleep(7000);
       await client.tool('debug_pause');
       const screenshotDir = path.resolve(options.screenshotDir
-        || path.join(path.dirname(cuePath), 'geargrafx-selector-counter-screens'));
+        || path.join(path.dirname(cuePath), options.inspectSelectorDecades
+          ? 'geargrafx-selector-decade-screens' : 'geargrafx-selector-counter-screens'));
       fs.mkdirSync(screenshotDir, { recursive: true });
       const selectorAreasPayload = contentPayload(await client.routed('list_memory_areas'));
       const selectorAreas = Array.isArray(selectorAreasPayload)
@@ -319,7 +322,10 @@ async function main() {
         fs.writeFileSync(filePath, screen);
         const slots = await selectorReadWram(spritetextSlotsAddress, 300);
         const glyphCacheCount = (await selectorReadWram(spritetextGlyphCacheCountAddress, 1))[0];
+        const sceneBytes = await selectorReadWram(currentSceneAddress, 2);
+        const sceneIndex = sceneBytes[0] | (sceneBytes[1] << 8);
         captures.push({
+          sceneIndex,
           name,
           path: filePath,
           sha256: digestBytes(screen),
@@ -338,11 +344,48 @@ async function main() {
         await client.tool('debug_continue');
         await sleep(100);
         await client.tool('controller_button', { player: 1, button, action: 'press_and_release' });
-        await sleep(5000);
+        await sleep(options.inspectSelectorDecades ? 12000 : 5000);
         const status = contentPayload(await client.routed('debug_get_status'));
         if (!status?.paused) await client.tool('debug_pause');
         return contentPayload(await client.routed('debug_get_status'));
       };
+      if (options.inspectSelectorDecades) {
+        const projectDir = options.projectDir ? path.resolve(options.projectDir) : path.dirname(path.dirname(cuePath));
+        const marker = JSON.parse(fs.readFileSync(path.join(projectDir, '.pce-vn-merge.json'), 'utf8'));
+        const doc = JSON.parse(fs.readFileSync(path.join(projectDir, 'assets', 'pce-vn-scenes.json'), 'utf8'));
+        if (marker.inputs.length !== 100) throw new Error(`Expected 100 merged stories; got ${marker.inputs.length}`);
+        const indices = marker.inputs.map((entry) => {
+          const original = JSON.parse(fs.readFileSync(path.join(entry.canonicalPath, 'assets', 'pce-vn-scenes.json'), 'utf8'));
+          const mergedId = entry.sceneMap[original.startScene];
+          return doc.scenes.findIndex((scene) => scene.id === mergedId);
+        });
+        if (indices.some((index) => index < 0)) throw new Error('Merged selector scene is missing');
+        const route = [
+          { name: '01-first', story: 1 },
+          { name: '02-down-to-11', button: 'down', story: 11 },
+          { name: '03-up-to-1', button: 'up', story: 1 },
+          { name: '04-up-to-91', button: 'up', story: 91 },
+          { name: '05-down-to-1', button: 'down', story: 1 },
+          { name: '06-right-to-2', button: 'right', story: 2 },
+          { name: '07-left-to-1', button: 'left', story: 1 },
+          { name: '08-left-to-100', button: 'left', story: 100 },
+          { name: '09-down-to-10', button: 'down', story: 10 },
+        ];
+        for (const step of route) {
+          if (step.button) await navigate(step.button);
+          await capture(step.name);
+          const actual = captures[captures.length - 1].sceneIndex;
+          const expected = indices[step.story - 1];
+          if (actual !== expected) throw new Error(`${step.name}: scene ${actual}, expected ${expected}`);
+        }
+        await navigate('run');
+        await capture('10-start-story-10');
+        if (captures[captures.length - 1].sceneIndex === indices[9]) {
+          throw new Error('RUN did not leave the story 10 selector');
+        }
+        process.stdout.write(`${JSON.stringify({ ok: true, mode: 'inspect-selector-decades', cue: cuePath, media, captures }, null, 2)}\n`);
+        return;
+      }
       await capture('01-first');
       const secondStatus = await navigate('right');
       await capture('02-middle');

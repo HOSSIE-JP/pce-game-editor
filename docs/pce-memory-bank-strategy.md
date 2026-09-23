@@ -27,6 +27,7 @@ bank131はSystem Cardがslot5で実行するため使用禁止です。bank134/1
 ## scene pack
 
 - CD scene pack v3は最大8192 bytesです。
+- scene directoryはscene_directory.binへ16-byte record（128件/sector）で格納し、必要なscene entryだけCDから読んでbank132の2KB scratchへ展開します。全scene分の索引をbank132へ常駐させません。
 - bank123全体を`.ram_bank123 (NOLOAD)`として予約します。IPL/main ELFのload imageへ含めません。
 - readerは生pointerを返さず、`offset/count`でrange checkします。
 - accessごとにMPR6を保存し、bank123をmapし、copy/decode後に必ず元のMPR6へ戻します。

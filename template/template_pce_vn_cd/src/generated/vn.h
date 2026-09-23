@@ -212,7 +212,7 @@ extern const pce_editor_meta_region_t pce_vn_sprite_animation_meta;
 extern const unsigned int pce_vn_sprite_animation_count;
 extern const signed int pce_vn_variable_initial_values[];
 extern const unsigned char pce_vn_variable_count;
-extern const pce_vn_scene_pack_t pce_vn_scene_packs[];
+extern const pce_editor_meta_region_t pce_vn_scene_directory_meta;
 extern const pce_editor_meta_region_t pce_vn_system_psg_meta;
 extern const unsigned int pce_vn_system_psg_package_count;
 #define PCE_VN_INVALID_SCENE 0xffffu

@@ -3,6 +3,7 @@
    the shared forward-declaration blocks. Moved verbatim from pce_vn_runtime.c
    (Phase A module split). PHASE_A_SPLIT:END */
 static unsigned int current_scene = PCE_VN_INVALID_SCENE;
+static signed int active_scene_next_scene = -1;
 static unsigned int runtime_start_scene = 0;
 static uint8_t current_command = 0;
 static uint8_t pending_sprite_refresh = VN_SPRITE_REFRESH_NONE;

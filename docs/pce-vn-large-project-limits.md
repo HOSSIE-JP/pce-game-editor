@@ -8,10 +8,10 @@
 |---|---:|---|
 | Scene | 32767 | `pce-vn-scenes.json`のscene数。indexは16-bit、`0xffff`は無効値として予約 |
 | ADPCM | 2048 | sceneから参照されるasset/partごとに1件 |
-| BG | 1024 | 参照される`image` assetごとに1件 |
+| BG | 8192 | 参照される`image` assetごとに1件 |
 | Sprite | 1024 | 参照される`sprite` assetごとに1件 |
 | Sprite Animation | 1024 | 参照Spriteから生成されるruntime Animation recordの合計。静止defaultはrecordを作らない |
-| System Card PSG package variant | 512 | `assetId`と再生channelの組ごとに1件。参照PSG source asset自体も512件まで |
+| System Card PSG package variant | 1024 | `assetId`と再生channelの組ごとに1件。参照PSG source asset自体も1024件まで |
 | ゲーム用CD-DA | 97 | 物理Track 3..99。Track 1警告音声とTrack 2 dataは別枠 |
 
 CD-DA以外の未参照assetはcatalog件数に含めません。ゲーム用CD-DAはCUEの物理track配置を維持するため、未参照でも登録済みの全`cdda-track` assetを97本上限・Track 3始まりの連番検査とディスク出力の対象にします。必須の`cdda-warning`はruntime catalog件数に含めません。これらは最大値と上限+1の生成テスト、および16-bit runtime indexを前提にした正式保証ラインです。理論上のCD容量限界やindex表現の最大値そのものではありません。
@@ -35,6 +35,7 @@ CD管理下の次の論理ファイルは`assets/generated/vn/vn_payload.bin`へ
 - Sprite Animation metadata
 - System Card PSG metadataとpackage
 - scene pack
+- scene_directory.bin（16-byte recordを128件/sectorで格納し、scene indexからCD上のpack sector・サイズ・次sceneを取得）
 
 各論理ファイルは2048-byte境界から始まり、`vn_payload-index.json`が`logicalPath`、`sectorOffset`、`sectorCount`、`byteSize`、hashを保持します。build時は`vn_payload.bin`先頭sectorへ相対offsetを加えたlogical sector aliasを作るため、runtimeは論理ファイル単位のCD refを維持できます。物理ファイル数がasset件数に比例しないため、Windowsのコマンドライン長や`pce-mkcd`引数数も抑えられます。
 
@@ -67,10 +68,10 @@ catalog総件数分をRAMへ読み込むことはありません。BG 8件、Spr
 上限を超えたassetは、登録そのものではなくCD VN buildの参照件数検査で拒否されます。使っていない素材をprojectへ保管することはできます。
 
 - ADPCM 2049件目: sceneを分割しても同一buildで参照される限り超過です。CD-DA化、素材統合、不要参照の削除を検討します。
-- BG/Sprite 1025件目: 未参照素材を外すか、別project/buildへ分けます。
+- BG 8193件目、Sprite 1025件目: 未参照素材を外すか、別project/buildへ分けます。
 - Sprite Animation 1025件目: 使わないROWを削るか、SpriteごとのAnimation定義を整理します。
-- PSG package variant 513件目: 同じassetの不要なchannel違いを整理する、効果音を共用する、またはADPCM化を検討します。
-- CD-DA 99本目: CD-DAは増やせないため、ADPCMまたはPSGへ移します。
+- PSG package variant 1025件目: 同じassetの不要なchannel違いを整理する、効果音を共用する、またはADPCM化を検討します。
+- ゲーム用CD-DA 98本目: CD-DAは増やせないため、ADPCMまたはPSGへ移します。
 - Scene 32768件目: projectを複数buildへ分けます。`0xffff`はruntimeの無効scene sentinelなのでscene indexには使えません。
 
 ## 回帰確認

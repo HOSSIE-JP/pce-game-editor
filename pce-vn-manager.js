@@ -155,6 +155,9 @@ const VN_MAX_SCENE_COUNT = 0x7fff;
 const VN_MAX_SPRITE_ANIMATION_COUNT = 1024;
 const VN_SCENE_FLAG_FULL_SCREEN_BG = 1;
 const VN_SCENE_PACK_DIR = path.join('assets', 'generated', 'vn', 'scenes');
+const VN_SCENE_DIRECTORY_FILE = path.join('assets', 'generated', 'vn', 'scene_directory.bin');
+const VN_SCENE_DIRECTORY_SLOT_BYTES = 16;
+const VN_SCENE_DIRECTORY_PER_SECTOR = 128;
 // HuCard-only message font payload. CD builds obtain glyphs from EX_GETFNT and
 // keep this path solely in managed-output cleanup so stale files are removed.
 const VN_FONT_DATA_FILE = path.join('assets', 'generated', 'vn', 'font.bin');
@@ -240,7 +243,7 @@ const VN_SYSTEM_CARD_PSG_DIR = path.join('assets', 'generated', 'vn', 'system-ca
 const VN_SYSTEM_CARD_PSG_META_FILE = path.join('assets', 'generated', 'vn', 'system_psg_meta.bin');
 const VN_SYSTEM_CARD_PSG_META_SLOT_BYTES = 16;
 const VN_SYSTEM_CARD_PSG_META_PER_SECTOR = 128;
-const VN_MAX_SYSTEM_PSG_PACKAGE_COUNT = 512;
+const VN_MAX_SYSTEM_PSG_PACKAGE_COUNT = 1024;
 const VN_CD_PAYLOAD_PACK_FILE = path.join('assets', 'generated', 'vn', 'vn_payload.bin');
 const VN_CD_PAYLOAD_INDEX_FILE = path.join('assets', 'generated', 'vn', 'vn_payload-index.json');
 const VN_SPRITE_ANIMATION_META_FILE = path.join('assets', 'generated', 'vn', 'sprite_animation_meta.bin');
@@ -512,7 +515,7 @@ function vnGeneratedOutputsReady(projectDir, generated = {}) {
     path.join('src', 'generated', 'vn.h'),
     path.join('src', 'generated', 'vn.c'),
     ...(generated.targetMedia === 'hucard' ? [VN_FONT_DATA_FILE] : []),
-    ...(generated.targetMedia === 'cd' ? [VN_CD_PAYLOAD_PACK_FILE, VN_CD_PAYLOAD_INDEX_FILE] : []),
+    ...(generated.targetMedia === 'cd' ? [VN_CD_PAYLOAD_PACK_FILE, VN_CD_PAYLOAD_INDEX_FILE, VN_SCENE_DIRECTORY_FILE] : []),
     ...(generated.targetMedia === 'cd' && generated.systemPsgMetaPath
       ? [generatedDataFilePath(generated.systemPsgMetaPath)]
       : []),
@@ -3016,6 +3019,50 @@ function validateSystemCardPsgVariantCount(variants = []) {
   return variants;
 }
 
+function sceneDirectoryInfo(sceneCount) {
+  const count = Math.max(0, Math.trunc(Number(sceneCount) || 0));
+  return {
+    relativePath: normalizeRelativePath(VN_SCENE_DIRECTORY_FILE),
+    byteSize: Math.ceil(count / VN_SCENE_DIRECTORY_PER_SECTOR) * VN_CD_SECTOR_BYTES,
+    count,
+  };
+}
+
+function ensureSceneDirectoryReservation(projectDir, sceneCount) {
+  const info = sceneDirectoryInfo(sceneCount);
+  const absPath = path.join(projectDir, info.relativePath);
+  ensureDirSync(path.dirname(absPath));
+  if (!fs.existsSync(absPath) || fs.statSync(absPath).size !== info.byteSize) {
+    fs.writeFileSync(absPath, Buffer.alloc(info.byteSize));
+  }
+  return info;
+}
+
+function writeSceneDirectoryFile(projectDir, sceneBuilds, cdLayout) {
+  const info = sceneDirectoryInfo(sceneBuilds.length);
+  const bytes = Buffer.alloc(info.byteSize);
+  sceneBuilds.forEach((scene, index) => {
+    const layout = cdLayout.get(scene.packPath);
+    if (!layout || !Number.isInteger(layout.sector) || layout.sector < 0 || layout.sector > 0xffffff) {
+      throw new Error(`scene directory has no CD sector for ${scene.packPath}`);
+    }
+    const sectorCount = layout.sectorCount || Math.ceil(scene.packBuffer.length / VN_CD_SECTOR_BYTES);
+    if (sectorCount < 1 || sectorCount > 0xffff || scene.packBuffer.length > 0xffff) {
+      throw new Error(`scene directory has invalid size for ${scene.packPath}`);
+    }
+    const offset = Math.floor(index / VN_SCENE_DIRECTORY_PER_SECTOR) * VN_CD_SECTOR_BYTES
+      + (index % VN_SCENE_DIRECTORY_PER_SECTOR) * VN_SCENE_DIRECTORY_SLOT_BYTES;
+    bytes[offset] = layout.sector & 0xff;
+    bytes[offset + 1] = (layout.sector >> 8) & 0xff;
+    bytes[offset + 2] = (layout.sector >> 16) & 0xff;
+    bytes.writeUInt16LE(sectorCount, offset + 3);
+    bytes.writeUInt16LE(scene.packBuffer.length, offset + 5);
+    bytes.writeInt16LE(scene.nextScene, offset + 7);
+  });
+  fs.writeFileSync(path.join(projectDir, info.relativePath), bytes);
+  return info;
+}
+
 function ensureSystemCardPsgMetaReservation(projectDir, variantCount) {
   const count = Math.max(0, Math.trunc(Number(variantCount) || 0));
   validateSystemCardPsgVariantCount({ length: count });
@@ -3976,6 +4023,9 @@ function generateVnSources(projectDir, options = {}) {
     ? (runtimeAssetDoc.assets || []).filter((asset) => asset.type === 'psg-song' || asset.type === 'psg-sfx')
     : [];
   const hucardPsgEntries = hucardMode && !inspectionOnly ? writeHuCardPsgPatternFiles(projectDir, hucardPsgAssets) : [];
+  const sceneDirectory = hucardMode ? null : (inspectionOnly
+    ? sceneDirectoryInfo(sceneBuilds.length)
+    : ensureSceneDirectoryReservation(projectDir, sceneBuilds.length));
   const cdDataFiles = inspectionOnly
     ? []
     : (Array.isArray(options.cdDataFiles)
@@ -3983,6 +4033,7 @@ function generateVnSources(projectDir, options = {}) {
       : (hucardMode ? [] : collectCdDataFiles(projectDir)));
   const cdLayout = hucardMode ? new Map() : cdLayoutForFiles(projectDir, cdDataFiles);
   if (!hucardMode && !inspectionOnly) {
+    writeSceneDirectoryFile(projectDir, sceneBuilds, cdLayout);
     systemPsgMetaFile = writeSystemCardPsgMetaFile(projectDir, systemPsgVariants, cdLayout);
   }
   const fontLayout = cdLayout.get(fontDataPath) || {};
@@ -4046,14 +4097,11 @@ function generateVnSources(projectDir, options = {}) {
     ? (cdLayout.get(systemPsgMetaFile.relativePath) || {})
     : {};
   const systemPsgMetaInitializer = `{ ${cdSectorInitializer(systemPsgMetaLayout)}, ${systemPsgVariants.length}u }`;
-  const scenePackMeta = sceneBuilds.map((sceneBuild, index) => {
-    if (hucardMode) {
-      return `  { &${hucardScenePackRefSymbol(index)}, ${sceneBuild.packBuffer.length}u, ${sceneBuild.nextScene} }${index + 1 < sceneBuilds.length ? ',' : ''}`;
-    }
-    const layout = cdLayout.get(sceneBuild.packPath) || {};
-    const sectorCount = layout.sectorCount || Math.max(1, Math.ceil(sceneBuild.packBuffer.length / VN_CD_SECTOR_BYTES));
-    return `  { ${cdSectorInitializer(layout)}, ${sectorCount}u, ${sceneBuild.packBuffer.length}u, ${sceneBuild.nextScene} }${index + 1 < sceneBuilds.length ? ',' : ''}`;
-  });
+  const sceneDirectoryLayout = sceneDirectory ? (cdLayout.get(sceneDirectory.relativePath) || {}) : {};
+  const sceneDirectoryInitializer = `{ ${cdSectorInitializer(sceneDirectoryLayout)}, ${sceneBuilds.length}u }`;
+  const scenePackMeta = hucardMode ? sceneBuilds.map((sceneBuild, index) => (
+    `  { &${hucardScenePackRefSymbol(index)}, ${sceneBuild.packBuffer.length}u, ${sceneBuild.nextScene} }${index + 1 < sceneBuilds.length ? ',' : ''}`
+  )) : [];
   const hucardPsgMeta = hucardPsgEntries.map((entry, index) => (
     `  { ${entry.asset.type === 'psg-song' ? '1u' : '0u'}, ${assetManager.firstPsgPeriod ? assetManager.firstPsgPeriod(entry.asset) : '512'}u, ${entry.options.bpm}u, ${entry.options.steps}u, &${entry.symbol}, ${entry.pattern.length}u }${index + 1 < hucardPsgEntries.length ? ',' : ''}`
   ));
@@ -4330,7 +4378,9 @@ function generateVnSources(projectDir, options = {}) {
       ]),
     'extern const signed int pce_vn_variable_initial_values[];',
     'extern const unsigned char pce_vn_variable_count;',
-    'extern const pce_vn_scene_pack_t pce_vn_scene_packs[];',
+    ...(hucardMode
+      ? ['extern const pce_vn_scene_pack_t pce_vn_scene_packs[];']
+      : ['extern const pce_editor_meta_region_t pce_vn_scene_directory_meta;']),
     ...(!hucardMode
       ? [
         'extern const pce_editor_meta_region_t pce_vn_system_psg_meta;',
@@ -4422,9 +4472,7 @@ function generateVnSources(projectDir, options = {}) {
     '};',
     `const unsigned char PCE_VN_DATA_SECTION pce_vn_variable_count = ${variables.initialValues.length};`,
     '',
-    'const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs[] = {',
-    ...(scenePackMeta.length ? scenePackMeta : ['  { { 0u, 0u, 0u }, 0u, 0u, -1 }']),
-    '};',
+    `const pce_editor_meta_region_t PCE_VN_DATA_SECTION pce_vn_scene_directory_meta = ${sceneDirectoryInitializer};`,
     '',
     `const pce_editor_meta_region_t PCE_VN_DATA_SECTION pce_vn_system_psg_meta = ${systemPsgMetaInitializer};`,
     `const unsigned int PCE_VN_DATA_SECTION pce_vn_system_psg_package_count = ${systemPsgVariants.length}u;`,
@@ -4452,6 +4500,8 @@ function generateVnSources(projectDir, options = {}) {
     systemPsgPackageCount: systemPsgVariants.length,
     systemPsgMetaPath: systemPsgMetaFile.relativePath,
     systemPsgMetaBytes: systemPsgMetaFile.byteSize,
+    sceneDirectoryPath: sceneDirectory?.relativePath || '',
+    sceneDirectoryBytes: sceneDirectory?.byteSize || 0,
     sceneCount: doc.scenes.length,
     scenePackPaths: sceneBuilds.map((sceneBuild) => sceneBuild.packPath),
     scenePackBytes: sceneBuilds.map((sceneBuild) => sceneBuild.packBuffer.length),
@@ -5080,6 +5130,9 @@ function collectCdPayloadFiles(projectDir) {
   if (fs.existsSync(path.join(projectDir, VN_SYSTEM_CARD_PSG_META_FILE))) {
     files.push(normalizeRelativePath(VN_SYSTEM_CARD_PSG_META_FILE));
   }
+  if (fs.existsSync(path.join(projectDir, VN_SCENE_DIRECTORY_FILE))) {
+    files.push(normalizeRelativePath(VN_SCENE_DIRECTORY_FILE));
+  }
   const psgDir = path.join(projectDir, VN_SYSTEM_CARD_PSG_DIR);
   if (fs.existsSync(psgDir)) {
     for (const entry of fs.readdirSync(psgDir, { withFileTypes: true })
@@ -5532,6 +5585,7 @@ function collectManagedGeneratedCdDataFiles(projectDir) {
   addManagedGeneratedPath(managed, VN_CD_PAYLOAD_INDEX_FILE);
   addManagedGeneratedPath(managed, VN_SPRITE_ANIMATION_META_FILE);
   addManagedGeneratedPath(managed, VN_SYSTEM_CARD_PSG_META_FILE);
+  addManagedGeneratedPath(managed, VN_SCENE_DIRECTORY_FILE);
   addManagedGeneratedPath(managed, VN_FONT_SPRITE_DATA_FILE);
   addManagedGeneratedPath(managed, VN_SYSTEM_CARD_PSG_DIR);
   const scenePackDir = normalizeRelativePath(VN_SCENE_PACK_DIR);
@@ -5719,6 +5773,7 @@ module.exports = {
   VN_MAX_SCENE_COUNT,
   VN_SCENE_FILE,
   VN_SCENE_PACK_DIR,
+  VN_SCENE_DIRECTORY_FILE,
   VN_SCENE_PACK_CACHE_BYTES,
   VN_HUCARD_SCENE_PACK_MAX_BYTES,
   VN_MAX_SPRITE_ANIMATION_COUNT,

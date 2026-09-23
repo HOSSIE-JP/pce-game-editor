@@ -403,6 +403,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
     'assets/generated/vn/scenes/000_opening.bin',
     'assets/generated/voice/adpcm.bin',
     'assets/generated/vn/sprite_animation_meta.bin',
+    'assets/generated/vn/scene_directory.bin',
   ]);
   assert.deepEqual(prepared.configPatch.cd.cddaTracks, ['assets/generated/track/cdda.wav']);
   assert.equal(prepared.generated.sceneCount, 1);
@@ -503,7 +504,7 @@ test('PCE VN manager normalizes scene references and emits CD build patch', () =
   assert.match(header, /extern const pce_editor_meta_region_t pce_vn_sprite_animation_meta;/);
   assert.doesNotMatch(source, /pce_vn_sprite_animations\[\]|pce_vn_sprite_anim_delays_/);
   assert.match(source, /const unsigned int PCE_VN_DATA_SECTION pce_vn_sprite_animation_count = 2;/);
-  assert.match(source, /const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs\[\]/);
+  assert.match(source, /const pce_editor_meta_region_t PCE_VN_DATA_SECTION pce_vn_scene_directory_meta/);
   assert.doesNotMatch(source, /pce_vn_commands\[\]|pce_vn_messages\[\]|pce_vn_scenes\[\]/);
   assert.equal(pack.subarray(0, 4).toString('ascii'), 'PVNS');
   assert.equal(pack[4], 3);
@@ -1594,7 +1595,10 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
     path.join(projectDir, vnManager.VN_CD_PAYLOAD_INDEX_FILE),
     'utf-8',
   ));
-  assert.deepEqual(payloadIndex.entries.map((entry) => entry.logicalPath), expectedCdDataFiles);
+  assert.deepEqual(payloadIndex.entries.map((entry) => entry.logicalPath), [
+    ...expectedCdDataFiles,
+    'assets/generated/vn/scene_directory.bin',
+  ]);
 
   const generated = vnManager.generateVnSources(projectDir);
   const header = fs.readFileSync(generated.headerPath, 'utf-8');
@@ -1610,8 +1614,10 @@ test('PCE VN manager normalizes future scene VM commands and keeps scene pack CD
   assert.match(header, /PCE_VN_EFFECT_FLASH 4u/);
   // No resident font payload: overlay starts at sector 64, followed by visual,
   // async, and logic helper banks. opening@80; bg_a raw assets push next@93.
-  assert.match(source, /\{ \{ 80u, 0u, 0u \}, 1u, \d+u, -1 \}/);
-  assert.match(source, /\{ \{ 93u, 0u, 0u \}, 1u, \d+u, -1 \}/);
+  assert.match(source, /pce_vn_scene_directory_meta = \{ \{ \d+u, \d+u, 0u \}, 2u \}/);
+  const sceneDirectory = fs.readFileSync(path.join(projectDir, vnManager.VN_SCENE_DIRECTORY_FILE));
+  assert.equal(sceneDirectory.readUIntLE(0, 3), 80);
+  assert.equal(sceneDirectory.readUIntLE(16, 3), 93);
   assert.equal(openingPack[5], 3);
   assert.equal(openingPack[7], 1);
   assert.deepEqual(commandRecord(openingPack, 0), {
@@ -2352,16 +2358,16 @@ test('PCE VN manager compiles PSG audio to System Card main/sub packages', () =>
   assert.equal(vnManager.vnGeneratedOutputsReady(projectDir, generated), false);
 });
 
-test('PCE VN manager accepts 512 compiled System Card PSG variants and rejects 513', () => {
+test('PCE VN manager accepts 1024 compiled System Card PSG variants and rejects 1025', () => {
   const projectDir = makeTempDir('pce-vn-psg-limit-');
   const vnManager = loadVnManager();
-  const assets = Array.from({ length: 86 }, (_, index) => ({
+  const assets = Array.from({ length: 171 }, (_, index) => ({
     id: `psg_${String(index).padStart(3, '0')}`,
     name: `PSG ${index}`,
     type: index % 2 ? 'psg-sfx' : 'psg-song',
     options: {},
   }));
-  const commands = Array.from({ length: 513 }, (_, index) => ({
+  const commands = Array.from({ length: 1025 }, (_, index) => ({
     type: 'audio',
     kind: 'psg',
     action: 'play',
@@ -2377,24 +2383,24 @@ test('PCE VN manager accepts 512 compiled System Card PSG variants and rejects 5
     })),
   });
   writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets });
-  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), sceneDocument(512));
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), sceneDocument(1024));
 
   const generated = vnManager.generateVnSources(projectDir);
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
-  assert.equal(vnManager.VN_MAX_SYSTEM_PSG_PACKAGE_COUNT, 512);
+  assert.equal(vnManager.VN_MAX_SYSTEM_PSG_PACKAGE_COUNT, 1024);
   assert.equal(vnManager.VN_SYSTEM_CARD_PSG_META_SLOT_BYTES, 16);
   assert.equal(vnManager.VN_SYSTEM_CARD_PSG_META_PER_SECTOR, 128);
-  assert.equal(generated.systemPsgPackageCount, 512);
-  assert.equal(generated.systemPsgMetaBytes, 8192);
-  assert.equal(fs.statSync(path.join(projectDir, generated.systemPsgMetaPath)).size, 8192);
-  assert.match(source, /pce_vn_system_psg_meta = \{ \{ \d+u, \d+u, \d+u \}, 512u \};/);
-  assert.match(source, /pce_vn_system_psg_package_count = 512u;/);
+  assert.equal(generated.systemPsgPackageCount, 1024);
+  assert.equal(generated.systemPsgMetaBytes, 16384);
+  assert.equal(fs.statSync(path.join(projectDir, generated.systemPsgMetaPath)).size, 16384);
+  assert.match(source, /pce_vn_system_psg_meta = \{ \{ \d+u, \d+u, \d+u \}, 1024u \};/);
+  assert.match(source, /pce_vn_system_psg_package_count = 1024u;/);
   assert.doesNotMatch(source, /pce_vn_system_psg_packages\[\]/);
 
-  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), sceneDocument(513));
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), sceneDocument(1025));
   assert.throws(
     () => vnManager.generateVnSources(projectDir),
-    /supports up to 512 compiled System Card PSG package variants \(assetId, channel\); got 513/,
+    /supports up to 1024 compiled System Card PSG package variants \(assetId, channel\); got 1025/,
   );
 });
 
@@ -2794,7 +2800,7 @@ test('PCE VN choice cursor movement remaps only BAT cells on CD and HuCARD', () 
   assert.match(cdMapCursor, /write_map_words\([\s\S]*msg_bat_row, 2u\);/);
   const cdUpdateCursor = sliceFunction(
     cdRuntime,
-    'static void VN_RESIDENT_CODE update_choice_cursor',
+    'static void VN_BANKED_CODE update_choice_cursor',
     'static void start_choice',
   );
   assert.match(cdUpdateCursor, /vn_wait_next_vblank\(\);/);
@@ -3596,7 +3602,7 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.equal(result.generated.visualNovel.messageCount, 1);
   assert.deepEqual(result.generated.visualNovel.scenePackPaths, ['assets/generated/vn/scenes/000_opening.bin']);
   const source = fs.readFileSync(path.join(projectDir, 'src', 'generated', 'vn.c'), 'utf-8');
-  assert.match(source, /const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs\[\]/);
+  assert.match(source, /const pce_editor_meta_region_t PCE_VN_DATA_SECTION pce_vn_scene_directory_meta/);
   // One warning sector + the 225-sector Track 2 pregap moves the data track to
   // LBA 226. BIOS fonts have no CD payload; the old 64/68/72/76/80 refs shift
   // to 290/294/298/302/306.
@@ -3604,7 +3610,9 @@ test('PCE build system regenerates visual novel sources from saved scenes', asyn
   assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_visual_code_data = \{ \{ 38u, 1u, 0u \}, 4u, 8192u \};/);
   assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_cd_async_code_data = \{ \{ 42u, 1u, 0u \}, 4u, 8192u \};/);
   assert.match(source, /const pce_vn_cd_data_ref_t PCE_VN_DATA_SECTION pce_vn_logic_overlay_data = \{ \{ 46u, 1u, 0u \}, 4u, 8192u \};/);
-  assert.match(source, /\{ \{ 50u, 1u, 0u \}, 1u, \d+u, -1 \}/);
+  assert.match(source, /pce_vn_scene_directory_meta = \{ \{ 51u, 1u, 0u \}, 1u \}/);
+  const sceneDirectory = fs.readFileSync(path.join(projectDir, 'assets/generated/vn/scene_directory.bin'));
+  assert.equal(sceneDirectory.readUIntLE(0, 3), 306);
   assert.equal(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'font.bin')), false);
   assert.equal(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'font_sprite.bin')), false);
   assert.ok(fs.existsSync(path.join(projectDir, 'assets', 'generated', 'vn', 'visual_code.bin')));
@@ -4594,4 +4602,31 @@ test('PCE VN build inspection reports jp-v3 encoding and exact runtime limits', 
     && entry.actual > vnManager.VN_SCENE_PACK_CACHE_BYTES
     && entry.limit === vnManager.VN_SCENE_PACK_CACHE_BYTES));
   assert.equal(fs.readdirSync(projectDir).length, 0);
+});
+
+test('PCE CD scene directory pages past 128 scenes without a resident scene array', () => {
+  const projectDir = makeTempDir('pce-vn-scene-directory-');
+  const vnManager = loadVnManager();
+  writeJson(path.join(projectDir, 'assets', 'pce-assets.json'), { version: 2, assets: [] });
+  const scenes = Array.from({ length: 129 }, (_unused, index) => ({
+    id: 'scene_' + index,
+    commands: [],
+    nextSceneId: index < 128 ? 'scene_' + (index + 1) : '',
+  }));
+  writeJson(path.join(projectDir, vnManager.VN_SCENE_FILE), {
+    version: 2,
+    startScene: 'scene_0',
+    scenes,
+  });
+  const generated = vnManager.generateVnSources(projectDir);
+  const directory = fs.readFileSync(path.join(projectDir, generated.sceneDirectoryPath));
+  const source = fs.readFileSync(generated.sourcePath, 'utf8');
+  assert.equal(generated.sceneDirectoryBytes, 4096);
+  assert.equal(directory.length, 4096);
+  assert.equal(directory.readInt16LE(7), 1);
+  assert.equal(directory.readInt16LE(2048 + 7), -1);
+  assert.ok(directory.readUInt16LE(2048 + 5) > 0);
+  assert.match(source, /pce_vn_scene_directory_meta = \{ \{ \d+u, \d+u, \d+u \}, 129u \};/);
+  assert.doesNotMatch(source, /pce_vn_scene_packs\[\]/);
+  assert.ok(vnManager.collectCdDataFiles(projectDir).includes(generated.sceneDirectoryPath));
 });

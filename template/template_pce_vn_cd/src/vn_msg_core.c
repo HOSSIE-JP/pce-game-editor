@@ -735,7 +735,7 @@ static void VN_BANKED_CODE2 draw_choice_options(void)
     }
 }
 
-static void VN_RESIDENT_CODE update_choice_cursor(uint8_t old_index, uint8_t new_index)
+static void VN_BANKED_CODE update_choice_cursor(uint8_t old_index, uint8_t new_index)
 {
     if (old_index == new_index) return;
     /* Land both BAT deltas in one VBlank without hiding or rebuilding the

@@ -32,12 +32,8 @@ const signed int PCE_VN_DATA_SECTION pce_vn_variable_initial_values[] = {
 };
 const unsigned char PCE_VN_DATA_SECTION pce_vn_variable_count = 5;
 
-const pce_vn_scene_pack_t PCE_VN_DATA_SECTION pce_vn_scene_packs[] = {
-  { { 80u, 0u, 0u }, 1u, 910u, 1 },
-  { { 95u, 0u, 0u }, 1u, 1278u, 2 },
-  { { 113u, 0u, 0u }, 1u, 995u, 3 },
-  { { 123u, 0u, 0u }, 1u, 452u, -1 }
-};
+/* Project builds replace this placeholder with the packed CD scene directory. */
+const pce_editor_meta_region_t PCE_VN_DATA_SECTION pce_vn_scene_directory_meta = { { 0u, 0u, 0u }, 4u };
 
 const pce_editor_meta_region_t PCE_VN_DATA_SECTION pce_vn_system_psg_meta = { { 125u, 0u, 0u }, 3u };
 const unsigned int PCE_VN_DATA_SECTION pce_vn_system_psg_package_count = 3u;

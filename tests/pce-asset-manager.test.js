@@ -2687,30 +2687,30 @@ test('PCE CD VN asset catalog enforces per-type large-project limits', () => {
     type: 'psg-sfx',
     options: { pattern: [] },
   });
-  assert.equal(assetManager.PCE_CATALOG_MAX_BG_ASSETS, 1024);
+  assert.equal(assetManager.PCE_CATALOG_MAX_BG_ASSETS, 8192);
   assert.equal(assetManager.PCE_CATALOG_MAX_SPRITE_ASSETS, 1024);
   assert.equal(assetManager.PCE_CATALOG_MAX_ADPCM_ASSETS, 2048);
-  assert.equal(assetManager.PCE_CATALOG_MAX_PSG_ASSETS, 512);
+  assert.equal(assetManager.PCE_CATALOG_MAX_PSG_ASSETS, 1024);
 
   const assetsAtLimits = [
-    ...Array.from({ length: 1024 }, (_unused, index) => makeBgAsset(index)),
+    ...Array.from({ length: 8192 }, (_unused, index) => makeBgAsset(index)),
     ...Array.from({ length: 1024 }, (_unused, index) => makeSpriteAsset(index)),
     ...Array.from({ length: 2048 }, (_unused, index) => makeAdpcmAsset(index)),
-    ...Array.from({ length: 512 }, (_unused, index) => makePsgAsset(index)),
+    ...Array.from({ length: 1024 }, (_unused, index) => makePsgAsset(index)),
   ];
   assetManager.writeAssetDocument(projectDir, { version: 2, assets: assetsAtLimits });
   const generated = assetManager.generateAssetSources(projectDir);
   const source = fs.readFileSync(generated.sourcePath, 'utf-8');
   const meta = fs.readFileSync(path.join(projectDir, 'assets/generated/meta/asset_meta.bin'));
-  assert.equal(generated.bgCount, 1024);
+  assert.equal(generated.bgCount, 8192);
   assert.equal(generated.spriteCount, 1024);
   assert.equal(generated.adpcmCount, 2048);
   assert.equal(generated.psgCount, 0);
   assert.equal(generated.assetCatalogMode, 'cd');
   // Validation still counts source PSG assets, but CD asset metadata emits none;
   // pce-vn-manager compiles only referenced variants into System Card packages.
-  assert.deepEqual(generated.assetCatalogCounts, { bg: 1024, sprite: 1024, adpcm: 2048, psg: 512, cdda: 0 });
-  assert.equal(meta.length, (64 + 256 + 32) * 2048);
+  assert.deepEqual(generated.assetCatalogCounts, { bg: 8192, sprite: 1024, adpcm: 2048, psg: 1024, cdda: 0 });
+  assert.equal(meta.length, (512 + 256 + 32) * 2048);
   assert.deepEqual(assetManager.collectCdDataFiles(projectDir), [
     'assets/generated/bg/tiles.bin',
     'assets/generated/bg/map_vram.bin',
@@ -2718,19 +2718,19 @@ test('PCE CD VN asset catalog enforces per-type large-project limits', () => {
     'assets/generated/voice/adpcm.bin',
     'assets/generated/meta/asset_meta.bin',
   ]);
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 68u, 0u, 0u \}, 1024u \};/);
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 132u, 0u, 0u \}, 1024u \};/);
-  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 132u, 1u, 0u \}, 2048u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_bg_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 68u, 0u, 0u \}, 8192u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_sprite_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 68u, 2u, 0u \}, 1024u \};/);
+  assert.match(source, /const pce_editor_meta_region_t pce_editor_adpcm_meta PCE_EDITOR_RODATA_SECTION = \{ \{ 68u, 3u, 0u \}, 2048u \};/);
   assert.doesNotMatch(source, /pce_editor_psg_meta|pce_editor_psg_asset_count/);
   assert.doesNotMatch(source, /const pce_editor_bg_asset_t pce_editor_bg_assets\[\]/);
   assert.doesNotMatch(source, /const pce_editor_sprite_asset_t pce_editor_sprite_assets\[\]/);
   assert.doesNotMatch(source, /const pce_editor_adpcm_asset_t pce_editor_adpcm_assets\[\]/);
   assert.doesNotMatch(source, /const pce_editor_psg_asset_t pce_editor_psg_assets\[\]/);
 
-  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 1025 }, (_unused, index) => makeBgAsset(index)) });
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 8193 }, (_unused, index) => makeBgAsset(index)) });
   assert.throws(
     () => assetManager.generateAssetSources(projectDir),
-    /supports up to 1024 referenced BG assets/,
+    /supports up to 8192 referenced BG assets/,
   );
   assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 1025 }, (_unused, index) => makeSpriteAsset(index)) });
   assert.throws(
@@ -2742,10 +2742,10 @@ test('PCE CD VN asset catalog enforces per-type large-project limits', () => {
     () => assetManager.generateAssetSources(projectDir),
     /supports up to 2048 referenced ADPCM assets/,
   );
-  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 513 }, (_unused, index) => makePsgAsset(index)) });
+  assetManager.writeAssetDocument(projectDir, { version: 2, assets: Array.from({ length: 1025 }, (_unused, index) => makePsgAsset(index)) });
   assert.throws(
     () => assetManager.generateAssetSources(projectDir),
-    /supports up to 512 referenced PSG assets/,
+    /supports up to 1024 referenced PSG assets/,
   );
 });
 
